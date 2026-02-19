@@ -86,7 +86,9 @@ namespace BindingsGeneration
 
         public static bool IsFrozenStructProjectedAsClass(TypeRecord typeRecord)
         {
-            return (typeRecord.Flags & TypeRecordFlags.Frozen) != 0 && (typeRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0;
+            return typeRecord.Kind == TypeRecordKind.Struct &&
+                   (typeRecord.Flags & TypeRecordFlags.Frozen) != 0 &&
+                   (typeRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0;
         }
 
         /// <summary>

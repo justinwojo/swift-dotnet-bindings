@@ -362,6 +362,10 @@ namespace BindingsGeneration
             }
             else if (_env.TypeConversionHandler.IsSwiftArray(returnArg.SwiftTypeSpec))
             {
+                if (returnArg.SwiftTypeSpec is NamedTypeSpec arrSpec &&
+                    TryEmitArrayOfProtocolReturn(csWriter, arrSpec, "new IntPtr(&result)"))
+                    return;
+
                 var swiftType = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg, _genericContext);
                 var returnConversion = _env.TypeConversionHandler.GetReturnConversion("swiftResult", returnArg.SwiftTypeSpec);
 
@@ -497,6 +501,10 @@ namespace BindingsGeneration
             }
             else if (_env.TypeConversionHandler.IsSwiftArray(returnArg.SwiftTypeSpec))
             {
+                if (returnArg.SwiftTypeSpec is NamedTypeSpec arrSpec &&
+                    TryEmitArrayOfProtocolReturn(csWriter, arrSpec, "new IntPtr(swiftIndirectResult.Value)"))
+                    return;
+
                 var swiftType = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg, _genericContext);
                 var returnConversion = _env.TypeConversionHandler.GetReturnConversion("swiftResult", returnArg.SwiftTypeSpec);
 
@@ -567,6 +575,38 @@ namespace BindingsGeneration
                         """);
                 }
             }
+        }
+
+        /// <summary>
+        /// Tries to emit array-of-protocol return marshalling.
+        /// Returns true if the array element is an existential and was handled; false to fall through.
+        /// </summary>
+        private bool TryEmitArrayOfProtocolReturn(CSharpWriter csWriter, NamedTypeSpec arrayTypeSpec, string ptrExpr)
+        {
+            var elementTypeSpec = arrayTypeSpec.GenericParameters.FirstOrDefault();
+            if (elementTypeSpec == null || !_env.ExistentialHandler.IsExistential(elementTypeSpec))
+                return false;
+
+            var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(elementTypeSpec);
+            if (protocolList == null || !_env.ExistentialHandler.IsSupportedExistential(protocolList))
+                return false;
+
+            var containerType = _env.ExistentialHandler.GetCSharpExistentialType(protocolList);
+            var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList);
+            if (publicType == "object")
+                return false;
+
+            string elementProjection;
+            if (_env.ExistentialHandler.TryGetWellKnownProtocolType(protocolList, out var wellKnownType))
+                elementProjection = $"new {wellKnownType}(c)";
+            else
+                elementProjection = $"new {_env.ExistentialHandler.GetProxyClassName(protocolList)}(c)";
+
+            csWriter.WriteLines($$"""
+                var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftArray<{{containerType}}>>({{ptrExpr}});
+                return swiftResult.AsProjected<{{publicType}}>(c => {{elementProjection}});
+                """);
+            return true;
         }
 
         /// <summary>

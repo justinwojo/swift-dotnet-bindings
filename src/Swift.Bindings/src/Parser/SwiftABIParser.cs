@@ -76,25 +76,11 @@ namespace BindingsGeneration
         const string kTuple = "Tuple";
         const string kGenericTypeParam = "GenericTypeParam";
 
-        /// <summary>
-        /// The set of operators.
-        /// </summary>
-        private static readonly HashSet<string> _operators = new()
+        // Swift operator characters per Swift Language Reference §Lexical Structure.
+        // Operators are built from: / = - + ! * % < > & | ^ ~ ? .
+        private static readonly HashSet<char> _operatorChars = new()
         {
-            // Arithmetic
-            "+", "-", "*", "/", "%",
-            // Relational
-            "<", ">", "<=", ">=", "==", "!=",
-            // Logical
-            "&&", "||", "!",
-            // Bitwise
-            "&", "|", "^", "~", "<<", ">>",
-            // Overflow (Swift-specific wrapping operators)
-            "&+", "&-", "&*", "&<<", "&>>", "&<<=", "&>>=",
-            // Assignment
-            "=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>=",
-            // Other
-            "??", "?.", "=>"
+            '/', '=', '-', '+', '!', '*', '%', '<', '>', '&', '|', '^', '~', '?', '.'
         };
 
         /// <summary>
@@ -1510,7 +1496,9 @@ namespace BindingsGeneration
         /// <returns>True if the name is an operator, false otherwise.</returns>
         private static bool IsOperator(string name)
         {
-            return _operators.Contains(name);
+            if (string.IsNullOrEmpty(name))
+                return false;
+            return name.All(c => _operatorChars.Contains(c));
         }
 
         /// <summary>
