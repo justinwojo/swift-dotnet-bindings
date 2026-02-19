@@ -49,7 +49,13 @@ public partial class ProtocolProxyEmitter
                     return wellKnownType;
 
                 if (existentialHandler.IsSupportedExistential(protocolList))
-                    return existentialHandler.GetCSharpExistentialType(protocolList);
+                {
+                    // ABI marshalling needs the raw container type (ExistentialContainer0) for MarshalFromSwift.
+                    // Public signatures must use the public type (object, IProtocol) to match the interface.
+                    return forAbiMarshalling
+                        ? existentialHandler.GetCSharpExistentialType(protocolList)
+                        : existentialHandler.GetPublicExistentialType(protocolList);
+                }
             }
             // Keep fallback behavior consistent with ProtocolHandler interface emission.
             // Unsupported existentials flow through to type database fallback (typically Swift.AnyType).

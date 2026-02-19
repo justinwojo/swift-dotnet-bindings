@@ -15,7 +15,7 @@ External review: `/Users/wojo/Dev/swift-dotnet-packages/binding-analysis-v2.md` 
 |--------|-------|
 | Unit tests | 3,419 passing |
 | Integration tests | 700 passing (11 skipped, pre-existing) |
-| Runtime library tests | 181 passing |
+| Runtime library tests | 207 passing |
 | Runtime tests | 188 passing at Tier 2 (28 pre-existing failures, allowlist-based crash tolerance) |
 | TestFramework must-pass | 94/94 passing, 0 degraded |
 | Libraries validated | 25 clean (0 generator errors) + 5 environmental-only |
@@ -41,12 +41,12 @@ Hard, measurable gates per priority tier. Grep/compile checks, not subjective sc
 |-----|---------|----------|----------|
 | `ExistentialContainer` in public signatures | 0 (was ~60+) | 0 | 0 |
 | Stripe 11-module cross-compile (non-AnyType members) | 100% (3-module validated, SDK integration complete) | 95%+ | 98%+ |
-| `SwiftDictionary` in public signatures | 144 | 144 | 0 |
+| `SwiftDictionary` in public signatures | 0 (was 144) | 0 | 0 |
 | `SwiftOptional<` in public signatures | ~20 | ~20 | 0 |
 | Empty protocol interfaces (0 members) | 11 | <5 | 0 |
 | Enums emitted as native C# `enum` | ~15% (was ~5%; string-raw-value enums now qualify) | ~15% | ~40% |
 | Sync throw messages with actual error text | 0% | 0% | 100% |
-| Runtime type leakage (SwiftArray/SwiftOptional/ExistentialContainer in public API) | ~170 (was ~230; EC eliminated) | ~170 | <10 |
+| Runtime type leakage (SwiftArray/SwiftOptional/ExistentialContainer in public API) | ~26 (was ~170; dictionary eliminated) | ~26 | <10 |
 
 ---
 
@@ -146,20 +146,32 @@ The generator already emits native `enum` for frozen, non-generic enums with int
 
 ---
 
-### 5. SwiftDictionary Projection
+### 5. SwiftDictionary Projection — COMPLETE
 
-**Priority**: P1 | **Effort**: Medium (2 sessions) | **Risk**: Low
+**Priority**: P1 | **Effort**: Medium (2 sessions) | **Risk**: Low | **Status**: Complete
 
-144 occurrences of `SwiftDictionary<SwiftString, SwiftString>` across 5 libraries. Arrays are properly projected (`IReadOnlyList<T>`) but dictionaries are not.
+`SwiftDictionary<TKey, TValue>` now implements `IReadOnlyDictionary<TKey, TValue>` and the generator projects all dictionary types to idiomatic .NET interfaces. 144 occurrences of `SwiftDictionary` in public signatures across 5 libraries reduced to 0.
 
-| Step | Description | Effort | Files |
-|------|-------------|--------|-------|
-| **5a. Runtime: Add IReadOnlyDictionary interface** | `SwiftDictionary<TKey, TValue>` implements `IReadOnlyDictionary<TKey, TValue>`. Add `Keys`, `Values`, `ContainsKey`, `TryGetValue`, `GetEnumerator`. Add `AsProjected()` and `FromDictionary()`. | Medium | `SwiftDictionary.cs` |
-| **5b. Generator: Add dictionary type conversion** | Add `IsSwiftDictionary()` check to `TypeConversionHandler`. Returns use `IReadOnlyDictionary<K,V>`, parameters use `IDictionary<K,V>`. Element types converted independently (SwiftString→string). | Medium | `TypeConversionHandler.cs` |
+| Step | Description | Status |
+|------|-------------|--------|
+| **5a. Runtime: IReadOnlyDictionary interface** | `SwiftDictionary<TKey, TValue>` implements `IReadOnlyDictionary<TKey, TValue>`. Added `TryGetValue`, `ContainsKey`, indexer with `KeyNotFoundException`, `Keys`, `Values`, `GetEnumerator` (Swift stdlib iterator P/Invokes: `makeIterator` + `Iterator.next()`), `FromDictionary()` static factory, `RemoveValue()`, `RemoveAll()`. `AsProjected()` lazy projection (value-only and key+value variants). `SwiftDictionaryProjection` types with proper reverse-key disposal. | **COMPLETE** |
+| **5b. Generator: Dictionary type conversion** | `TypeConversionHandler`: `IsSwiftDictionary()`, `GetRawDictionary{Key,Value}Type()`, `IsDictionary{Key,Value}TypeConverted()`. Returns use `IReadOnlyDictionary<K,V>`, parameters use `IDictionary<K,V>`. Key/value types converted independently (SwiftString→string, SwiftArray→IReadOnlyList). `WrapperEmitter.Return.cs`: dictionary return emission. `WrapperEmitter.Marshalling.cs`: dictionary parameter emission with `ToList()` + `try/finally` disposal for converted elements, `Optional<Dictionary>` with intermediate dictionary and optional wrapper disposal. | **COMPLETE** |
 
-**Pattern to follow**: Mirrors `SwiftArray` → `IReadOnlyList<T>`. `AsProjected(keySelector, valueSelector)` for lazy element-type conversion.
+**Runtime correctness details**:
+- **Arc.Retain for iterator lifetime**: `Arc.Retain` before `makeIterator()` P/Invoke balances the iterator's VWT Destroy, preventing over-release of dictionary storage when the iterator is cleaned up.
+- **Exception-safe iteration**: `resultConsumed` boolean flag tracks whether each `Iterator.next()` result has been moved via `MarshalFromSwift`. VWT Destroy called for unconsumed results (`.none` at loop end, or `.some` on exception) in `finally` block.
+- **NativeMemory leak fixes**: Getter and `RemoveValue` result buffers wrapped in `try/finally { NativeMemory.Free(...) }`.
+- **Optional detection**: Uses `VWT.GetEnumTag` (not byte-zero inspection) to correctly handle zero-valued entries.
 
-**Acceptance gate**: `grep -c 'SwiftDictionary' Swift.*.cs` on public signatures returns 0. `GetPropertyNamesToFormFieldNamesMapping()` returns `IReadOnlyDictionary<string, string>`.
+**Generator disposal correctness**:
+- Converted `Optional<Dictionary>` branch uses inner variable pattern (`{csName}SwiftInner`) for conditional assignment, then `using var {csName}Swift = {csName}SwiftInner` for scope-based disposal of the optional wrapper.
+- Intermediate `FromDictionary()` result disposed via `try/finally` after `NewSome()` copies payload.
+- Non-converted `Optional<Dictionary>` branch uses `using var` inside `if` block for intermediate dictionary disposal.
+- Converted element temporaries (SwiftString keys/values) materialized via `ToList()` and disposed in `finally` block.
+
+**Key files**: `SwiftDictionary.cs`, `SwiftDictionaryProjection.cs`, `TypeConversionHandler.cs`, `WrapperEmitter.Return.cs`, `WrapperEmitter.Marshalling.cs`, `SwiftDictionaryTests.cs` (26 tests).
+
+**Acceptance gate**: Passed. All 25 libraries compile with 0 errors. 3,419 unit tests + 700 integration tests + 207 runtime library tests passing. `SwiftDictionary` no longer appears in any public method/property signatures across all validated libraries.
 
 ---
 

@@ -284,6 +284,19 @@ public partial class ProtocolProxyEmitter
             var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, forAbiMarshalling: true);
             var rawArgName = $"rawParam{argIndex}";
             var argName = $"param{argIndex}";
+
+            // Dictionaries need special handling in receiver context: the interface declares
+            // IDictionary<K,V> (parameter form), but GetReturnConversion produces .AsProjected()
+            // which returns IReadOnlyDictionary<K,V> (return form). IReadOnlyDictionary doesn't
+            // implement IDictionary, so we must use .ToDictionary() for eager materialization.
+            var receiverDictConversion = GetReceiverDictionaryConversion(rawArgName, param.SwiftTypeSpec, typeConversionHandler);
+            if (receiverDictConversion != null)
+            {
+                writer.WriteLine($"var {rawArgName} = MarshalFromSwift<{paramTypeName}>(rawArg{argIndex});");
+                writer.WriteLine($"var {argName} = {receiverDictConversion};");
+            }
+            else
+            {
             var returnConversion = typeConversionHandler.GetReturnConversion(rawArgName, param.SwiftTypeSpec);
             if (returnConversion != null)
             {
@@ -293,6 +306,7 @@ public partial class ProtocolProxyEmitter
             else
             {
                 writer.WriteLine($"var {argName} = MarshalFromSwift<{paramTypeName}>(rawArg{argIndex});");
+            }
             }
             argNames.Add(argName);
             argIndex++;
@@ -315,6 +329,67 @@ public partial class ProtocolProxyEmitter
         writer.Indent--;
         writer.WriteLine("}");
         writer.WriteLine();
+    }
+
+    /// <summary>
+    /// Gets a dictionary conversion expression for receiver parameters.
+    /// Receivers pass unmarshalled ABI types to the C# interface implementation, which expects
+    /// IDictionary&lt;K,V&gt; (parameter form). GetReturnConversion uses .AsProjected() → IReadOnlyDictionary,
+    /// which doesn't implement IDictionary. This method uses .ToDictionary() for eager materialization
+    /// to produce a Dictionary&lt;K,V&gt; that satisfies the IDictionary contract.
+    /// Returns null if the type is not a dictionary or doesn't need conversion.
+    /// </summary>
+    private string? GetReceiverDictionaryConversion(string rawArgName, TypeSpec? typeSpec, TypeConversionHandler typeConversionHandler)
+    {
+        if (typeSpec is not NamedTypeSpec namedType || !typeConversionHandler.IsSwiftDictionary(namedType))
+            return null;
+
+        if (namedType.GenericParameters.Count < 2)
+            return null;
+
+        var keySpec = namedType.GenericParameters[0];
+        var valueSpec = namedType.GenericParameters[1];
+        bool keyConverted = typeConversionHandler.IsDictionaryKeyTypeConverted(namedType);
+        bool valueConverted = typeConversionHandler.IsDictionaryValueTypeConverted(namedType);
+
+        // If no conversion needed for either key or value, check if value types differ
+        // between ABI and public interface (e.g., AnyType → object for existentials)
+        var publicValueType = GetCSharpTypeName(valueSpec, forAbiMarshalling: false);
+        var abiValueType = GetCSharpTypeName(valueSpec, forAbiMarshalling: true);
+        var publicKeyType = GetCSharpTypeName(keySpec, forAbiMarshalling: false);
+        var abiKeyType = GetCSharpTypeName(keySpec, forAbiMarshalling: true);
+
+        bool needsConversion = keyConverted || valueConverted || publicValueType != abiValueType || publicKeyType != abiKeyType;
+        if (!needsConversion)
+            return null;
+
+        // Build key/value selector expressions for .ToDictionary()
+        string keyExpr;
+        if (typeConversionHandler.IsSwiftString(keySpec))
+            keyExpr = "kvp.Key.ToString()";
+        else if (publicKeyType != abiKeyType)
+            keyExpr = $"({publicKeyType})kvp.Key";
+        else
+            keyExpr = "kvp.Key";
+
+        string valueExpr;
+        if (typeConversionHandler.IsSwiftString(valueSpec))
+            valueExpr = "kvp.Value.ToString()";
+        else if (valueSpec is NamedTypeSpec valArraySpec && typeConversionHandler.IsSwiftArray(valArraySpec))
+        {
+            // Nested array: project each value
+            var innerElemSpec = valArraySpec.GenericParameters.FirstOrDefault();
+            if (innerElemSpec != null && typeConversionHandler.IsSwiftString(innerElemSpec))
+                valueExpr = "(IReadOnlyList<string>)kvp.Value.AsProjected(e => e.ToString())";
+            else
+                valueExpr = $"(IReadOnlyList<{GetCSharpTypeName(innerElemSpec)}>)kvp.Value";
+        }
+        else if (publicValueType != abiValueType)
+            valueExpr = $"({publicValueType})kvp.Value";
+        else
+            valueExpr = "kvp.Value";
+
+        return $"{rawArgName}.ToDictionary(kvp => {keyExpr}, kvp => {valueExpr})";
     }
 
     private void EmitConstructors(CSharpWriter writer, ProtocolDecl protocolDecl, string interfaceName)

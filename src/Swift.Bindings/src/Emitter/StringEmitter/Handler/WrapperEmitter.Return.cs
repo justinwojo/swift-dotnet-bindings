@@ -379,6 +379,25 @@ namespace BindingsGeneration
                     csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{swiftType}>(new IntPtr(&result));");
                 }
             }
+            else if (_env.TypeConversionHandler.IsSwiftDictionary(returnArg.SwiftTypeSpec))
+            {
+                var swiftType = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg, _genericContext);
+                var returnConversion = _env.TypeConversionHandler.GetReturnConversion("swiftResult", returnArg.SwiftTypeSpec);
+
+                if (returnConversion != null && returnConversion != "swiftResult")
+                {
+                    // Key/value type requires conversion (e.g., SwiftDictionary<SwiftString, SwiftString> → IReadOnlyDictionary<string, string>)
+                    csWriter.WriteLines($$"""
+                        var swiftResult = SwiftMarshal.MarshalFromSwift<{{swiftType}}>(new IntPtr(&result));
+                        return {{returnConversion}};
+                        """);
+                }
+                else
+                {
+                    // No conversion — SwiftDictionary<K,V> implements IReadOnlyDictionary<K,V>
+                    csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{swiftType}>(new IntPtr(&result));");
+                }
+            }
             else if (_env.TypeConversionHandler.IsSwiftOptional(returnArg.SwiftTypeSpec))
             {
                 var swiftType = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg, _genericContext);
@@ -477,6 +496,23 @@ namespace BindingsGeneration
                     """);
             }
             else if (_env.TypeConversionHandler.IsSwiftArray(returnArg.SwiftTypeSpec))
+            {
+                var swiftType = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg, _genericContext);
+                var returnConversion = _env.TypeConversionHandler.GetReturnConversion("swiftResult", returnArg.SwiftTypeSpec);
+
+                if (returnConversion != null && returnConversion != "swiftResult")
+                {
+                    csWriter.WriteLines($$"""
+                        var swiftResult = SwiftMarshal.MarshalFromSwift<{{swiftType}}>(new IntPtr(swiftIndirectResult.Value));
+                        return {{returnConversion}};
+                        """);
+                }
+                else
+                {
+                    csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{swiftType}>(new IntPtr(swiftIndirectResult.Value));");
+                }
+            }
+            else if (_env.TypeConversionHandler.IsSwiftDictionary(returnArg.SwiftTypeSpec))
             {
                 var swiftType = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg, _genericContext);
                 var returnConversion = _env.TypeConversionHandler.GetReturnConversion("swiftResult", returnArg.SwiftTypeSpec);

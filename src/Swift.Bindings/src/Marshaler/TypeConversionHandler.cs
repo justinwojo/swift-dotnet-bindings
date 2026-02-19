@@ -15,6 +15,7 @@ public class TypeConversionHandler
 
     private static readonly SwiftTypeName SwiftStringTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String");
     private static readonly SwiftTypeName SwiftArrayTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Array");
+    private static readonly SwiftTypeName SwiftDictionaryTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Dictionary");
     private static readonly SwiftTypeName SwiftOptionalTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional");
     private static readonly SwiftTypeName FoundationURLTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.URL");
     private static readonly SwiftTypeName FoundationDataTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.Data");
@@ -37,6 +38,7 @@ public class TypeConversionHandler
 
         return IsSwiftString(namedTypeSpec) ||
                IsSwiftArray(namedTypeSpec) ||
+               IsSwiftDictionary(namedTypeSpec) ||
                IsSwiftOptional(namedTypeSpec);
     }
 
@@ -70,6 +72,21 @@ public class TypeConversionHandler
 
         var typeName = SwiftTypeName.FromTypeSpec(namedTypeSpec);
         return typeName.Equals(SwiftArrayTypeName);
+    }
+
+    /// <summary>
+    /// Determines whether the specified type spec represents Swift.Dictionary.
+    /// </summary>
+    public bool IsSwiftDictionary(TypeSpec? typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec namedTypeSpec)
+            return false;
+
+        if (!namedTypeSpec.HasModule())
+            return false;
+
+        var typeName = SwiftTypeName.FromTypeSpec(namedTypeSpec);
+        return typeName.Equals(SwiftDictionaryTypeName);
     }
 
     /// <summary>
@@ -117,6 +134,20 @@ public class TypeConversionHandler
             return isParameter
                 ? $"IEnumerable<{elementType}>"
                 : $"IReadOnlyList<{elementType}>";
+        }
+
+        if (IsSwiftDictionary(namedTypeSpec))
+        {
+            var keyType = GetDictionaryKeyType(namedTypeSpec, typeTranslator);
+            var valueType = GetDictionaryValueType(namedTypeSpec, typeTranslator);
+            if (keyType == null || valueType == null)
+                return null;
+
+            // Parameters use IDictionary<K,V> for flexibility
+            // Returns use IReadOnlyDictionary<K,V> for keyed access
+            return isParameter
+                ? $"IDictionary<{keyType}, {valueType}>"
+                : $"IReadOnlyDictionary<{keyType}, {valueType}>";
         }
 
         if (IsSwiftOptional(namedTypeSpec))
@@ -210,6 +241,145 @@ public class TypeConversionHandler
     }
 
     /// <summary>
+    /// Gets the idiomatic (converted) key type from a SwiftDictionary type spec.
+    /// Applies conversion (e.g., SwiftString → string).
+    /// </summary>
+    public string? GetDictionaryKeyType(NamedTypeSpec dictType, Func<TypeSpec, string>? typeTranslator = null)
+    {
+        if (dictType.GenericParameters.Count < 2)
+            return null;
+        return GetConvertedGenericParam(dictType.GenericParameters[0], typeTranslator);
+    }
+
+    /// <summary>
+    /// Gets the idiomatic (converted) value type from a SwiftDictionary type spec.
+    /// Applies conversion (e.g., SwiftString → string).
+    /// </summary>
+    public string? GetDictionaryValueType(NamedTypeSpec dictType, Func<TypeSpec, string>? typeTranslator = null)
+    {
+        if (dictType.GenericParameters.Count < 2)
+            return null;
+        return GetConvertedGenericParam(dictType.GenericParameters[1], typeTranslator);
+    }
+
+    /// <summary>
+    /// Gets the raw (unconverted) key type from a SwiftDictionary type spec.
+    /// </summary>
+    public string? GetRawDictionaryKeyType(NamedTypeSpec dictType, Func<TypeSpec, string>? typeTranslator = null)
+    {
+        if (dictType.GenericParameters.Count < 2)
+            return null;
+        return GetRawGenericParam(dictType.GenericParameters[0], typeTranslator);
+    }
+
+    /// <summary>
+    /// Gets the raw (unconverted) value type from a SwiftDictionary type spec.
+    /// </summary>
+    public string? GetRawDictionaryValueType(NamedTypeSpec dictType, Func<TypeSpec, string>? typeTranslator = null)
+    {
+        if (dictType.GenericParameters.Count < 2)
+            return null;
+        return GetRawGenericParam(dictType.GenericParameters[1], typeTranslator);
+    }
+
+    /// <summary>
+    /// Checks whether the key type of a dictionary was converted to an idiomatic type.
+    /// </summary>
+    public bool IsDictionaryKeyTypeConverted(NamedTypeSpec dictType, Func<TypeSpec, string>? typeTranslator = null)
+    {
+        if (dictType.GenericParameters.Count < 2)
+            return false;
+        return GetIdiomaticCSharpType(dictType.GenericParameters[0], isParameter: false, typeTranslator) != null;
+    }
+
+    /// <summary>
+    /// Checks whether the value type of a dictionary was converted to an idiomatic type.
+    /// </summary>
+    public bool IsDictionaryValueTypeConverted(NamedTypeSpec dictType, Func<TypeSpec, string>? typeTranslator = null)
+    {
+        if (dictType.GenericParameters.Count < 2)
+            return false;
+        return GetIdiomaticCSharpType(dictType.GenericParameters[1], isParameter: false, typeTranslator) != null;
+    }
+
+    /// <summary>
+    /// Gets a converted (idiomatic) type for a generic parameter, falling through to raw lookup.
+    /// </summary>
+    private string? GetConvertedGenericParam(TypeSpec typeSpec, Func<TypeSpec, string>? typeTranslator)
+    {
+        var idiomatic = GetIdiomaticCSharpType(typeSpec, isParameter: false, typeTranslator);
+        if (idiomatic != null)
+            return idiomatic;
+        if (typeTranslator != null)
+            return typeTranslator(typeSpec);
+        if (typeSpec is NamedTypeSpec named)
+            return _typeDatabase.GetTypeRecordOrAnyType(named).CSharpTypeName.FullyQualifiedName;
+        return null;
+    }
+
+    /// <summary>
+    /// Gets a raw (unconverted) type for a generic parameter.
+    /// </summary>
+    private string? GetRawGenericParam(TypeSpec typeSpec, Func<TypeSpec, string>? typeTranslator)
+    {
+        if (typeTranslator != null)
+            return typeTranslator(typeSpec);
+        if (typeSpec is NamedTypeSpec named)
+            return _typeDatabase.GetTypeRecordOrAnyType(named).CSharpTypeName.FullyQualifiedName;
+        return null;
+    }
+
+    /// <summary>
+    /// Builds the value expression for a dictionary parameter conversion's .Select() lambda.
+    /// Handles nested containers: SwiftString (new SwiftString), SwiftArray (FromEnumerable),
+    /// and SwiftDictionary (FromDictionary) value types.
+    /// </summary>
+    private string GetDictValueParamExpr(NamedTypeSpec dictSpec, bool valueConverted, Func<TypeSpec, string>? typeTranslator)
+    {
+        var valueSpec = dictSpec.GenericParameters[1];
+        if (valueConverted && IsSwiftString(valueSpec))
+            return "new SwiftString(kvp.Value)";
+
+        if (valueConverted && valueSpec is NamedTypeSpec valArraySpec && IsSwiftArray(valArraySpec))
+        {
+            var innerRawElem = GetRawElementType(valArraySpec, typeTranslator);
+            if (innerRawElem != null)
+            {
+                if (IsElementTypeConverted(valArraySpec, typeTranslator) && IsSwiftString(valArraySpec.GenericParameters.FirstOrDefault()))
+                    return $"SwiftArray<{innerRawElem}>.FromEnumerable(kvp.Value.Select(e => new SwiftString(e)))";
+                return $"SwiftArray<{innerRawElem}>.FromEnumerable(kvp.Value)";
+            }
+        }
+
+        return "kvp.Value";
+    }
+
+    /// <summary>
+    /// Builds the value projection lambda for a dictionary return conversion's .AsProjected() call.
+    /// Returns the lambda string (e.g., "v => v.ToString()", "v => v.AsProjected(e => e.ToString())"),
+    /// or null if no value conversion is needed.
+    /// </summary>
+    private string? GetDictValueReturnProjection(NamedTypeSpec dictSpec, bool valueConverted, Func<TypeSpec, string>? typeTranslator)
+    {
+        if (!valueConverted)
+            return null;
+
+        var valueSpec = dictSpec.GenericParameters[1];
+        if (IsSwiftString(valueSpec))
+            return "v => v.ToString()";
+
+        if (valueSpec is NamedTypeSpec valArraySpec && IsSwiftArray(valArraySpec))
+        {
+            if (IsElementTypeConverted(valArraySpec, typeTranslator) && IsSwiftString(valArraySpec.GenericParameters.FirstOrDefault()))
+                return "v => v.AsProjected(e => e.ToString())";
+            // Array with non-converted elements: SwiftArray implements IReadOnlyList, cast is implicit
+            return "v => (IReadOnlyList<" + GetElementType(valArraySpec, typeTranslator) + ">)v";
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Gets the raw (unconverted) element type name from a generic Swift type.
     /// Unlike GetElementType(), this does NOT apply idiomatic conversion to the element.
     /// Used when constructing SwiftArray&lt;SwiftString&gt; in parameter conversion.
@@ -283,6 +453,29 @@ public class TypeConversionHandler
             return $"SwiftArray<{rawElementType}>.FromEnumerable({paramName})";
         }
 
+        if (IsSwiftDictionary(namedTypeSpec))
+        {
+            var rawKeyType = GetRawDictionaryKeyType(namedTypeSpec, typeTranslator);
+            var rawValueType = GetRawDictionaryValueType(namedTypeSpec, typeTranslator);
+            if (rawKeyType == null || rawValueType == null)
+                return null;
+
+            bool keyConverted = IsDictionaryKeyTypeConverted(namedTypeSpec, typeTranslator);
+            bool valueConverted = IsDictionaryValueTypeConverted(namedTypeSpec, typeTranslator);
+
+            if (keyConverted || valueConverted)
+            {
+                // Build .Select() to convert keys and/or values
+                var keyExpr = keyConverted && IsSwiftString(namedTypeSpec.GenericParameters[0])
+                    ? $"new SwiftString(kvp.Key)" : "kvp.Key";
+                var valueExpr = GetDictValueParamExpr(namedTypeSpec, valueConverted, typeTranslator);
+                return $"SwiftDictionary<{rawKeyType}, {rawValueType}>.FromDictionary({paramName}.Select(kvp => new KeyValuePair<{rawKeyType}, {rawValueType}>({keyExpr}, {valueExpr})))";
+            }
+
+            // IDictionary<K,V> -> SwiftDictionary<K,V>
+            return $"SwiftDictionary<{rawKeyType}, {rawValueType}>.FromDictionary({paramName})";
+        }
+
         if (IsSwiftOptional(namedTypeSpec))
         {
             // Don't handle Optional<Closure> here - let ClosureHandler deal with it
@@ -325,6 +518,32 @@ public class TypeConversionHandler
                         arrayConversion = $"SwiftArray<{rawArrayElementType}>.FromEnumerable({patternVar})";
                     }
                     return $"({paramName} is {{}} {patternVar} ? SwiftOptional<{fullArrayType}>.NewSome({arrayConversion}) : SwiftOptional<{fullArrayType}>.NewNone())";
+                }
+            }
+
+            // If the inner type is a SwiftDictionary, convert using FromDictionary()
+            if (innerSpec is NamedTypeSpec innerDictNamed && IsSwiftDictionary(innerDictNamed))
+            {
+                var rawDictKeyType = GetRawDictionaryKeyType(innerDictNamed, typeTranslator);
+                var rawDictValueType = GetRawDictionaryValueType(innerDictNamed, typeTranslator);
+                if (rawDictKeyType != null && rawDictValueType != null)
+                {
+                    var fullDictType = $"SwiftDictionary<{rawDictKeyType}, {rawDictValueType}>";
+                    bool dictKeyConverted = IsDictionaryKeyTypeConverted(innerDictNamed, typeTranslator);
+                    bool dictValueConverted = IsDictionaryValueTypeConverted(innerDictNamed, typeTranslator);
+                    string dictConversion;
+                    if (dictKeyConverted || dictValueConverted)
+                    {
+                        var kExpr = dictKeyConverted && IsSwiftString(innerDictNamed.GenericParameters[0])
+                            ? $"new SwiftString(kvp.Key)" : "kvp.Key";
+                        var vExpr = GetDictValueParamExpr(innerDictNamed, dictValueConverted, typeTranslator);
+                        dictConversion = $"{fullDictType}.FromDictionary({patternVar}.Select(kvp => new KeyValuePair<{rawDictKeyType}, {rawDictValueType}>({kExpr}, {vExpr})))";
+                    }
+                    else
+                    {
+                        dictConversion = $"{fullDictType}.FromDictionary({patternVar})";
+                    }
+                    return $"({paramName} is {{}} {patternVar} ? SwiftOptional<{fullDictType}>.NewSome({dictConversion}) : SwiftOptional<{fullDictType}>.NewNone())";
                 }
             }
 
@@ -373,6 +592,33 @@ public class TypeConversionHandler
             return resultVar;
         }
 
+        if (IsSwiftDictionary(namedTypeSpec))
+        {
+            bool keyConverted = IsDictionaryKeyTypeConverted(namedTypeSpec, typeTranslator);
+            bool valueConverted = IsDictionaryValueTypeConverted(namedTypeSpec, typeTranslator);
+
+            if (keyConverted || valueConverted)
+            {
+                bool keyIsString = keyConverted && IsSwiftString(namedTypeSpec.GenericParameters[0]);
+                var valueProjection = GetDictValueReturnProjection(namedTypeSpec, valueConverted, typeTranslator);
+
+                if (keyIsString && valueProjection != null)
+                {
+                    return $"{resultVar}.AsProjected(k => k.ToString(), k => new SwiftString(k), {valueProjection})";
+                }
+                else if (keyIsString)
+                {
+                    return $"{resultVar}.AsProjected(k => k.ToString(), k => new SwiftString(k), v => v)";
+                }
+                else if (valueProjection != null)
+                {
+                    return $"{resultVar}.AsProjected({valueProjection})";
+                }
+            }
+            // SwiftDictionary<K,V> implements IReadOnlyDictionary<K,V>, so direct return is safe
+            return resultVar;
+        }
+
         if (IsSwiftOptional(namedTypeSpec))
         {
             // SwiftOptional<T> -> T? (via implicit operator)
@@ -396,6 +642,13 @@ public class TypeConversionHandler
             {
                 var arrayReturnConversion = GetReturnConversion($"{resultVar}.Some", elementTypeSpec, typeTranslator);
                 return $"({resultVar}.Case == Swift.SwiftOptionalCases.None ? ({idiomaticType})null : {arrayReturnConversion})";
+            }
+
+            // Handle Optional<Dictionary<K,V>> — unwrap and apply inner dict conversion
+            if (elementTypeSpec is NamedTypeSpec elementDictNamed && IsSwiftDictionary(elementDictNamed))
+            {
+                var dictReturnConversion = GetReturnConversion($"{resultVar}.Some", elementTypeSpec, typeTranslator);
+                return $"({resultVar}.Case == Swift.SwiftOptionalCases.None ? ({idiomaticType})null : {dictReturnConversion})";
             }
 
             return $"(({idiomaticType}){resultVar})";
@@ -429,6 +682,17 @@ public class TypeConversionHandler
                 return null;
 
             return $"SwiftArray<{elementType}>";
+        }
+
+        if (IsSwiftDictionary(namedTypeSpec))
+        {
+            // Use raw (unconverted) types — SwiftDictionary<SwiftString, SwiftString>
+            var rawKeyType = GetRawDictionaryKeyType(namedTypeSpec, typeTranslator);
+            var rawValueType = GetRawDictionaryValueType(namedTypeSpec, typeTranslator);
+            if (rawKeyType == null || rawValueType == null)
+                return null;
+
+            return $"SwiftDictionary<{rawKeyType}, {rawValueType}>";
         }
 
         if (IsSwiftOptional(namedTypeSpec))
@@ -471,6 +735,7 @@ public class TypeConversionHandler
             return true;
 
         // SwiftArray: returned IReadOnlyList IS the array — do NOT dispose
+        // SwiftDictionary: returned IReadOnlyDictionary IS the dict — do NOT dispose
         // Data: struct, not IDisposable
         return false;
     }
@@ -491,6 +756,10 @@ public class TypeConversionHandler
 
         // SwiftArray: FromEnumerable() creates disposable
         if (IsSwiftArray(namedTypeSpec))
+            return true;
+
+        // SwiftDictionary: FromDictionary() creates disposable
+        if (IsSwiftDictionary(namedTypeSpec))
             return true;
 
         // SwiftOptional: NewSome()/NewNone() creates disposable

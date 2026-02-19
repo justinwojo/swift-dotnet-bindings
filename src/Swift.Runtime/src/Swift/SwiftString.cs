@@ -52,7 +52,10 @@ public class SwiftString : ISwiftObject, IDisposable
 
     static SwiftString()
     {
-        _protocolConformanceSymbols = new Dictionary<Type, string> { };
+        _protocolConformanceSymbols = new Dictionary<Type, string>
+        {
+            { typeof(ISwiftHashable), "$sSSSHsMc" }, // Swift.String : Swift.Hashable
+        };
     }
 
     public unsafe PayloadBuffer<SwiftString.Buffer> PayloadBuffer => new PayloadBuffer<SwiftString.Buffer>(_payload);

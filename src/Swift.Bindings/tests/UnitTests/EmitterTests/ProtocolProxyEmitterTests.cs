@@ -1710,10 +1710,10 @@ public class ProtocolProxyEmitterTests
 
         var output = EmitProxyClass(protocolDecl);
 
-        // The Dictionary in the closure param must have generic type arguments
-        Assert.Contains("SwiftDictionary<", output);
-        // Must NOT emit bare SwiftDictionary without generic args
-        Assert.DoesNotContain("SwiftDictionary?", output.Replace("SwiftDictionary<", ""));
+        // The Dictionary in the closure param must have generic type arguments (projected to IReadOnlyDictionary)
+        Assert.Contains("IReadOnlyDictionary<", output);
+        // Must NOT emit bare type without generic args
+        Assert.DoesNotContain("IReadOnlyDictionary?", output.Replace("IReadOnlyDictionary<", ""));
     }
 
     private void RegisterSwiftOptional()

@@ -196,11 +196,11 @@ public class ProtocolSignatureHelperTests
 
         var key = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, typeDatabase);
 
-        // Key must contain SwiftDictionary with generic args
-        Assert.Contains("SwiftDictionary<", key);
-        // Must NOT have bare SwiftDictionary without generic args
-        Assert.DoesNotContain("SwiftDictionary,", key);
-        Assert.DoesNotContain("SwiftDictionary>", key);
+        // Key must contain projected dictionary type with generic args
+        Assert.Contains("IReadOnlyDictionary<", key);
+        // Must NOT have bare type without generic args
+        Assert.DoesNotContain("IReadOnlyDictionary,", key);
+        Assert.DoesNotContain("IReadOnlyDictionary>", key);
     }
 
     private static TypeDatabase CreateTypeDatabaseWithDictionary()

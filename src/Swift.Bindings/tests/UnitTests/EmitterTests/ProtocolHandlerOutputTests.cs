@@ -1782,10 +1782,10 @@ public class ProtocolHandlerOutputTests
 
         var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
 
-        // Interface must emit SwiftDictionary with generic args, not bare SwiftDictionary
-        Assert.Contains("SwiftDictionary<", csOutput);
-        // Must NOT have bare SwiftDictionary? without generic args
-        Assert.DoesNotContain("SwiftDictionary?", csOutput.Replace("SwiftDictionary<", ""));
+        // Interface must emit projected dictionary type with generic args
+        Assert.Contains("IReadOnlyDictionary<", csOutput);
+        // Must NOT have bare type without generic args
+        Assert.DoesNotContain("IReadOnlyDictionary?", csOutput.Replace("IReadOnlyDictionary<", ""));
     }
 
     private static TypeDatabase CreateTypeDatabaseWithDictionary()

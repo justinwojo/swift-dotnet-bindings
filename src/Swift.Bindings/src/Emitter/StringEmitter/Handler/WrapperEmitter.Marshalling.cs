@@ -330,6 +330,59 @@ namespace BindingsGeneration
                     var bufferName = NameProvider.GetBoundGenericBufferName(csName);
                     csWriter.WriteLine($"IntPtr {bufferName} = {csName}Disposable.Buffer;");
                 }
+                else if (_env.TypeConversionHandler.IsSwiftDictionary(argumentDecl.SwiftTypeSpec))
+                {
+                    // IDictionary<K,V> -> SwiftDictionary<K,V>
+                    var swiftType = _env.TypeConversionHandler.GetSwiftWrapperType(
+                        argumentDecl.SwiftTypeSpec,
+                        typeSpec => TranslateTypeSpecForConversion(typeSpec));
+                    var dictTypeSpec = argumentDecl.SwiftTypeSpec as NamedTypeSpec;
+                    var keyTypeSpec = dictTypeSpec?.GenericParameters.FirstOrDefault();
+                    var valueTypeSpec = dictTypeSpec?.GenericParameters.Count > 1 ? dictTypeSpec.GenericParameters[1] : null;
+                    bool keyIsString = keyTypeSpec != null && _env.TypeConversionHandler.IsSwiftString(keyTypeSpec);
+                    bool valueIsString = valueTypeSpec != null && _env.TypeConversionHandler.IsSwiftString(valueTypeSpec);
+                    bool valueIsArray = valueTypeSpec is NamedTypeSpec valArraySpec2 && _env.TypeConversionHandler.IsSwiftArray(valArraySpec2);
+                    bool keyConverted = keyTypeSpec != null && _env.TypeConversionHandler.IsDictionaryKeyTypeConverted(dictTypeSpec!,
+                        typeSpec => TranslateTypeSpecForConversion(typeSpec));
+                    bool valueConverted = valueTypeSpec != null && _env.TypeConversionHandler.IsDictionaryValueTypeConverted(dictTypeSpec!,
+                        typeSpec => TranslateTypeSpecForConversion(typeSpec));
+
+                    if (keyConverted || valueConverted)
+                    {
+                        // Key/value types converted: public API uses idiomatic types, but SwiftDictionary needs raw types
+                        // Convert via .Select() with try/finally for disposal of temporary disposable items
+                        var keyExpr = keyIsString ? $"new SwiftString(kvp.Key)" : "kvp.Key";
+                        string valueExpr;
+                        if (valueIsString)
+                            valueExpr = "new SwiftString(kvp.Value)";
+                        else if (valueIsArray)
+                            valueExpr = GetDictValueArrayConversion("kvp.Value", (NamedTypeSpec)valueTypeSpec!);
+                        else
+                            valueExpr = "kvp.Value";
+                        var rawKeyType = _env.TypeConversionHandler.GetRawDictionaryKeyType(dictTypeSpec!,
+                            typeSpec => TranslateTypeSpecForConversion(typeSpec));
+                        var rawValueType = _env.TypeConversionHandler.GetRawDictionaryValueType(dictTypeSpec!,
+                            typeSpec => TranslateTypeSpecForConversion(typeSpec));
+                        csWriter.WriteLine($"var {csName}Converted = {csName}.Select(kvp => new KeyValuePair<{rawKeyType}, {rawValueType}>({keyExpr}, {valueExpr})).ToList();");
+                        csWriter.WriteLine($"{swiftType} {csName}SwiftInner;");
+                        // Build disposal: dispose both keys and values that are IDisposable
+                        var disposeStatements = new List<string>();
+                        if (keyIsString) disposeStatements.Add($"_item.Key.Dispose()");
+                        if (valueIsString || valueIsArray) disposeStatements.Add($"_item.Value.Dispose()");
+                        var disposeExpr = string.Join("; ", disposeStatements);
+                        csWriter.WriteLine($"try {{ {csName}SwiftInner = {swiftType}.FromDictionary({csName}Converted); }}");
+                        csWriter.WriteLine($"finally {{ foreach (var _item in {csName}Converted) {{ {disposeExpr}; }} }}");
+                        csWriter.WriteLine($"using var {csName}Swift = {csName}SwiftInner;");
+                    }
+                    else
+                    {
+                        csWriter.WriteLine($"using var {csName}Swift = {swiftType}.FromDictionary({csName});");
+                    }
+                    // Create payload buffer for P/Invoke (same as bound generic handling)
+                    csWriter.WriteLine($"using PayloadBuffer<IntPtr> {csName}Disposable = {csName}Swift.PayloadBuffer;");
+                    var dictBufName = NameProvider.GetBoundGenericBufferName(csName);
+                    csWriter.WriteLine($"IntPtr {dictBufName} = {csName}Disposable.Buffer;");
+                }
                 else if (_env.ExistentialHandler.IsOptionalExistential(argumentDecl.SwiftTypeSpec) &&
                          !_env.ClosureHandler.IsOptionalClosure(argumentDecl.SwiftTypeSpec))
                 {
@@ -402,6 +455,74 @@ namespace BindingsGeneration
                         }
                         csWriter.WriteLine($"using var {csName}Swift = {csName} is {{}} {csName}Value ? {swiftType}.NewSome({arrayConversion}) : {swiftType}.NewNone();");
                     }
+                    else if (innerElementSpec is NamedTypeSpec innerDictNamed && _env.TypeConversionHandler.IsSwiftDictionary(innerDictNamed))
+                    {
+                        // Public API is IReadOnlyDictionary<K,V>?, but SwiftOptional<SwiftDictionary<K,V>>.NewSome needs SwiftDictionary<K,V>
+                        // Convert using FromDictionary before wrapping in Optional
+                        var rawDictKey = _env.TypeConversionHandler.GetRawDictionaryKeyType(innerDictNamed,
+                            typeSpec => TranslateTypeSpecForConversion(typeSpec));
+                        var rawDictValue = _env.TypeConversionHandler.GetRawDictionaryValueType(innerDictNamed,
+                            typeSpec => TranslateTypeSpecForConversion(typeSpec));
+                        if (rawDictKey != null && rawDictValue != null)
+                        {
+                            var innerDictKeySpec = innerDictNamed.GenericParameters.FirstOrDefault();
+                            var innerDictValueSpec = innerDictNamed.GenericParameters.Count > 1 ? innerDictNamed.GenericParameters[1] : null;
+                            bool dictKeyIsString = innerDictKeySpec != null && _env.TypeConversionHandler.IsSwiftString(innerDictKeySpec);
+                            bool dictValueIsString = innerDictValueSpec != null && _env.TypeConversionHandler.IsSwiftString(innerDictValueSpec);
+                            bool dictValueIsArray = innerDictValueSpec is NamedTypeSpec dictValArraySpec && _env.TypeConversionHandler.IsSwiftArray(dictValArraySpec);
+                            bool dictKeyConverted = innerDictKeySpec != null && _env.TypeConversionHandler.IsDictionaryKeyTypeConverted(innerDictNamed,
+                                typeSpec => TranslateTypeSpecForConversion(typeSpec));
+                            bool dictValueConverted = innerDictValueSpec != null && _env.TypeConversionHandler.IsDictionaryValueTypeConverted(innerDictNamed,
+                                typeSpec => TranslateTypeSpecForConversion(typeSpec));
+                            if (dictKeyConverted || dictValueConverted)
+                            {
+                                // Materialize converted pairs into a list so temporaries can be disposed.
+                                // Mirrors the non-optional dictionary branch's ToList() + try/finally pattern.
+                                var kExpr = dictKeyIsString ? $"new SwiftString(kvp.Key)" : "kvp.Key";
+                                string vExpr;
+                                if (dictValueIsString) vExpr = "new SwiftString(kvp.Value)";
+                                else if (dictValueIsArray) vExpr = GetDictValueArrayConversion("kvp.Value", (NamedTypeSpec)innerDictValueSpec!);
+                                else vExpr = "kvp.Value";
+                                var swiftDictType = $"SwiftDictionary<{rawDictKey}, {rawDictValue}>";
+                                // Build disposal: dispose keys and values that are IDisposable
+                                var disposeStatements = new List<string>();
+                                if (dictKeyIsString) disposeStatements.Add($"_item.Key.Dispose()");
+                                if (dictValueIsString || dictValueIsArray) disposeStatements.Add($"_item.Value.Dispose()");
+                                var disposeExpr = string.Join("; ", disposeStatements);
+
+                                // Use inner variable for conditional assignment, then 'using var' for disposal
+                                csWriter.WriteLine($"{swiftType} {csName}SwiftInner;");
+                                csWriter.WriteLine($"if ({csName} is {{}} {csName}Value)");
+                                csWriter.WriteLine($"{{");
+                                csWriter.WriteLine($"    var {csName}Converted = {csName}Value.Select(kvp => new KeyValuePair<{rawDictKey}, {rawDictValue}>({kExpr}, {vExpr})).ToList();");
+                                csWriter.WriteLine($"    {swiftDictType} {csName}DictInner;");
+                                csWriter.WriteLine($"    try {{ {csName}DictInner = {swiftDictType}.FromDictionary({csName}Converted); }}");
+                                csWriter.WriteLine($"    finally {{ foreach (var _item in {csName}Converted) {{ {disposeExpr}; }} }}");
+                                csWriter.WriteLine($"    try {{ {csName}SwiftInner = {swiftType}.NewSome({csName}DictInner); }}");
+                                csWriter.WriteLine($"    finally {{ {csName}DictInner.Dispose(); }}");
+                                csWriter.WriteLine($"}}");
+                                csWriter.WriteLine($"else {{ {csName}SwiftInner = {swiftType}.NewNone(); }}");
+                                csWriter.WriteLine($"using var {csName}Swift = {csName}SwiftInner;");
+                            }
+                            else
+                            {
+                                // Non-converted keys/values: still need to dispose intermediate FromDictionary result
+                                var swiftDictType = $"SwiftDictionary<{rawDictKey}, {rawDictValue}>";
+                                csWriter.WriteLine($"{swiftType} {csName}SwiftInner;");
+                                csWriter.WriteLine($"if ({csName} is {{}} {csName}Value)");
+                                csWriter.WriteLine($"{{");
+                                csWriter.WriteLine($"    using var {csName}Dict = {swiftDictType}.FromDictionary({csName}Value);");
+                                csWriter.WriteLine($"    {csName}SwiftInner = {swiftType}.NewSome({csName}Dict);");
+                                csWriter.WriteLine($"}}");
+                                csWriter.WriteLine($"else {{ {csName}SwiftInner = {swiftType}.NewNone(); }}");
+                                csWriter.WriteLine($"using var {csName}Swift = {csName}SwiftInner;");
+                            }
+                        }
+                        else
+                        {
+                            csWriter.WriteLine($"using var {csName}Swift = {csName} is {{}} {csName}Value ? {swiftType}.NewSome({csName}Value) : {swiftType}.NewNone();");
+                        }
+                    }
                     else
                     {
                         csWriter.WriteLine($"using var {csName}Swift = {csName} is {{}} {csName}Value ? {swiftType}.NewSome({csName}Value) : {swiftType}.NewNone();");
@@ -445,6 +566,23 @@ namespace BindingsGeneration
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// Builds a conversion expression for a dictionary value that is a SwiftArray.
+        /// Converts from IReadOnlyList/IEnumerable to SwiftArray, including element conversion.
+        /// </summary>
+        private string GetDictValueArrayConversion(string expr, NamedTypeSpec arraySpec)
+        {
+            var rawElem = _env.TypeConversionHandler.GetRawArrayElementType(arraySpec,
+                typeSpec => TranslateTypeSpecForConversion(typeSpec));
+            if (rawElem == null)
+                return expr;
+
+            var innerElemSpec = arraySpec.GenericParameters.FirstOrDefault();
+            if (innerElemSpec != null && _env.TypeConversionHandler.IsSwiftString(innerElemSpec))
+                return $"SwiftArray<{rawElem}>.FromEnumerable({expr}.Select(e => new SwiftString(e)))";
+            return $"SwiftArray<{rawElem}>.FromEnumerable({expr})";
         }
 
         /// <summary>
