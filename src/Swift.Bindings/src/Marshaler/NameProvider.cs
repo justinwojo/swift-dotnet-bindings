@@ -232,6 +232,12 @@ public static class NameProvider
             (string.IsNullOrEmpty(moduleName) || moduleName == "Swift"))
             return $"ISwift{protocolName}";
 
+        // Avoid collision with well-known System namespace interfaces (e.g., System.IDisposable).
+        // Unlike _runtimeProtocols these are generator-emitted, not runtime-defined,
+        // so no module gate — the collision applies regardless of source module.
+        if (_systemCollisionNames.Contains(protocolName))
+            return $"ISwift{protocolName}";
+
         return $"I{protocolName}";
     }
 
@@ -503,6 +509,28 @@ public static class NameProvider
         "ContiguousBytes", // ISwiftContiguousBytes (Data.cs)
         "Encoder",        // ISwiftEncoder (ISwiftEncoder.cs)
         "Decoder",        // ISwiftDecoder (ISwiftEncoder.cs)
+    };
+
+    /// <summary>
+    /// Protocol names that collide with well-known System namespace interfaces
+    /// when the standard I{Name} prefix is applied. For example, a Swift protocol
+    /// named "Disposable" would produce "IDisposable", colliding with System.IDisposable.
+    /// These get the ISwift{Name} prefix instead (same as runtime protocols, but
+    /// applied regardless of source module since the collision is with the System namespace).
+    /// </summary>
+    private static readonly HashSet<string> _systemCollisionNames = new()
+    {
+        "Disposable",     // IDisposable → ISwiftDisposable (RxSwift)
+    };
+
+    /// <summary>
+    /// Method names that collide with well-known .NET base class methods inherited by
+    /// generated C# classes (e.g., IDisposable.Dispose() from SafeHandle). Swift methods
+    /// with these PascalCase names get a "Swift" suffix to avoid CS0111.
+    /// </summary>
+    private static readonly HashSet<string> _inheritedMethodCollisions = new()
+    {
+        "Dispose",        // IDisposable.Dispose() from SafeHandle (RxSwift dispose())
     };
 
     public static string GetMetadataName(string typeName) => $"{typeName}Metadata";
@@ -869,7 +897,9 @@ public static class NameProvider
     public static string GetPublicMethodName(string methodName, bool isAsync, bool hasReturnValue = false, IReadOnlySet<string>? propertyNames = null)
     {
         // 1. Strip leading async/Async prefix (Swift convention → .NET suffix convention)
-        var strippedName = StripAsyncPrefix(methodName);
+        //    Only strip for actual async methods — a sync property named "asyncInstance"
+        //    should keep its prefix to avoid getter name collisions (e.g., Instance_Get).
+        var strippedName = isAsync ? StripAsyncPrefix(methodName) : methodName;
 
         // 2. PascalCase
         var name = ToPascalCase(strippedName);
@@ -882,6 +912,12 @@ public static class NameProvider
         // 4. Property collision resolution (only if still colliding after verb prefix)
         if (propertyNames != null && propertyNames.Contains(name))
             name = $"{name}Method";
+
+        // 4b. Inherited method collision: generated C# classes inherit Dispose() from
+        // IDisposable/SafeHandle. A Swift method named "dispose" PascalCase's to "Dispose",
+        // colliding with the inherited method (CS0111). Suffix with "Swift" to disambiguate.
+        if (_inheritedMethodCollisions.Contains(name))
+            name = $"{name}Swift";
 
         // 5. Append "Async" suffix for async methods (per .NET convention)
         if (isAsync && !name.EndsWith("Async"))

@@ -457,6 +457,8 @@ namespace BindingsGeneration.Tests
         {
             using var fixture = CreateObjCDepFixture("ObjCDep", hasBothSlices: true);
             var primaryResolution = CreateMinimalResolution("Primary");
+            var runner = new MockCommandRunner();
+            runner.SetResponse("file", 0, "dynamically linked shared library");
 
             var result = BindingsGenerator.ResolveFrameworkDependencies(
                 new[] { fixture.RootPath },
@@ -464,7 +466,8 @@ namespace BindingsGeneration.Tests
                 "/path/to/Primary.xcframework",
                 "simulator",
                 XCFrameworkPlatformTarget.Simulator,
-                NullLogger.Instance);
+                NullLogger.Instance,
+                commandRunner: runner);
 
             Assert.NotNull(result);
             Assert.Single(result);
@@ -478,6 +481,8 @@ namespace BindingsGeneration.Tests
         {
             using var fixture = CreateObjCDepFixture("BrokenDep", hasBothSlices: false, addModulemap: false);
             var primaryResolution = CreateMinimalResolution("Primary");
+            var runner = new MockCommandRunner();
+            runner.SetResponse("file", 0, "dynamically linked shared library");
 
             var result = BindingsGenerator.ResolveFrameworkDependencies(
                 new[] { fixture.RootPath },
@@ -485,7 +490,8 @@ namespace BindingsGeneration.Tests
                 "/path/to/Primary.xcframework",
                 "simulator",
                 XCFrameworkPlatformTarget.Simulator,
-                NullLogger.Instance);
+                NullLogger.Instance,
+                commandRunner: runner);
 
             Assert.Null(result);
         }
@@ -496,6 +502,8 @@ namespace BindingsGeneration.Tests
             using var fixture1 = CreateObjCDepFixture("DupMod", hasBothSlices: true);
             using var fixture2 = CreateObjCDepFixture("DupMod", hasBothSlices: true);
             var primaryResolution = CreateMinimalResolution("Primary");
+            var runner = new MockCommandRunner();
+            runner.SetResponse("file", 0, "dynamically linked shared library");
 
             var result = BindingsGenerator.ResolveFrameworkDependencies(
                 new[] { fixture1.RootPath, fixture2.RootPath },
@@ -503,7 +511,8 @@ namespace BindingsGeneration.Tests
                 "/path/to/Primary.xcframework",
                 "simulator",
                 XCFrameworkPlatformTarget.Simulator,
-                NullLogger.Instance);
+                NullLogger.Instance,
+                commandRunner: runner);
 
             Assert.Null(result);
         }
@@ -553,6 +562,8 @@ namespace BindingsGeneration.Tests
             // ObjC dep has only simulator slice, primaryPlatformTarget=Simulator, wrapperArchitectures="all"
             using var fixture = CreateObjCDepFixture("SimOnly", hasBothSlices: false);
             var primaryResolution = CreateMinimalResolution("Primary");
+            var runner = new MockCommandRunner();
+            runner.SetResponse("file", 0, "dynamically linked shared library");
 
             var result = BindingsGenerator.ResolveFrameworkDependencies(
                 new[] { fixture.RootPath },
@@ -560,7 +571,8 @@ namespace BindingsGeneration.Tests
                 "/path/to/Primary.xcframework",
                 "all",
                 XCFrameworkPlatformTarget.Simulator,
-                NullLogger.Instance);
+                NullLogger.Instance,
+                commandRunner: runner);
 
             Assert.Null(result);
         }
@@ -574,6 +586,8 @@ namespace BindingsGeneration.Tests
             // returning success with simPath=null — violating the "all" contract.
             using var fixture = CreateObjCDeviceOnlyFixture("DevOnlyAll");
             var primaryResolution = CreateMinimalResolution("Primary");
+            var runner = new MockCommandRunner();
+            runner.SetResponse("file", 0, "dynamically linked shared library");
 
             var result = BindingsGenerator.ResolveFrameworkDependencies(
                 new[] { fixture.RootPath },
@@ -581,7 +595,8 @@ namespace BindingsGeneration.Tests
                 "/path/to/Primary.xcframework",
                 "all",
                 XCFrameworkPlatformTarget.Simulator,
-                NullLogger.Instance);
+                NullLogger.Instance,
+                commandRunner: runner);
 
             Assert.Null(result);
         }
@@ -592,6 +607,8 @@ namespace BindingsGeneration.Tests
             // ObjC dep has only simulator slice, wrapperArchitectures="device"
             using var fixture = CreateObjCDepFixture("SimOnlyDev", hasBothSlices: false);
             var primaryResolution = CreateMinimalResolution("Primary");
+            var runner = new MockCommandRunner();
+            runner.SetResponse("file", 0, "dynamically linked shared library");
 
             var result = BindingsGenerator.ResolveFrameworkDependencies(
                 new[] { fixture.RootPath },
@@ -599,7 +616,8 @@ namespace BindingsGeneration.Tests
                 "/path/to/Primary.xcframework",
                 "device",
                 XCFrameworkPlatformTarget.Simulator,
-                NullLogger.Instance);
+                NullLogger.Instance,
+                commandRunner: runner);
 
             Assert.Null(result);
         }
@@ -610,6 +628,8 @@ namespace BindingsGeneration.Tests
             // ObjC dep has only device slice, wrapperArchitectures="simulator"
             using var fixture = CreateObjCDeviceOnlyFixture("DevOnlySim");
             var primaryResolution = CreateMinimalResolution("Primary");
+            var runner = new MockCommandRunner();
+            runner.SetResponse("file", 0, "dynamically linked shared library");
 
             var result = BindingsGenerator.ResolveFrameworkDependencies(
                 new[] { fixture.RootPath },
@@ -617,7 +637,8 @@ namespace BindingsGeneration.Tests
                 "/path/to/Primary.xcframework",
                 "simulator",
                 XCFrameworkPlatformTarget.Device,
-                NullLogger.Instance);
+                NullLogger.Instance,
+                commandRunner: runner);
 
             Assert.Null(result);
         }

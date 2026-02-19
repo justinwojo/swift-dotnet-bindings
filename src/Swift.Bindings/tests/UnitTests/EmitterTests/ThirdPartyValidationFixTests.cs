@@ -905,6 +905,66 @@ public class ThirdPartyValidationFixTests
         };
     }
 
+    #endregion
+
+    #region Fix 7 — RxSwift: Protocol name collision with System.IDisposable
+
+    [Fact]
+    public void GetInterfaceName_Disposable_ReturnsISwiftDisposable()
+    {
+        // "Disposable" collides with System.IDisposable — must use ISwift prefix
+        var result = NameProvider.GetInterfaceName("Disposable", moduleName: "RxSwift");
+        Assert.Equal("ISwiftDisposable", result);
+    }
+
+    [Fact]
+    public void GetInterfaceName_Disposable_NoModule_ReturnsISwiftDisposable()
+    {
+        // Collision applies regardless of source module
+        var result = NameProvider.GetInterfaceName("Disposable", moduleName: "");
+        Assert.Equal("ISwiftDisposable", result);
+    }
+
+    [Fact]
+    public void GetInterfaceName_NonColliding_ReturnsStandardPrefix()
+    {
+        // Non-colliding protocols should still use the standard I prefix
+        var result = NameProvider.GetInterfaceName("SomethingElse", moduleName: "RxSwift");
+        Assert.Equal("ISomethingElse", result);
+    }
+
+    [Fact]
+    public void GetPublicMethodName_Dispose_RenamedToAvoidIDisposableCollision()
+    {
+        // Swift dispose() → Dispose() collides with IDisposable.Dispose() on generated classes
+        var result = NameProvider.GetPublicMethodName("dispose", isAsync: false);
+        Assert.Equal("DisposeSwift", result);
+    }
+
+    [Fact]
+    public void GetPublicMethodName_NonColliding_NotRenamed()
+    {
+        var result = NameProvider.GetPublicMethodName("release", isAsync: false);
+        Assert.Equal("Release", result);
+    }
+
+    [Theory]
+    [InlineData("Foundation.Operation.QueuePriority")]
+    public void GetTypeRecordOrAnyType_FoundationOperationQueuePriority_ReturnsRemappedType(string swiftType)
+    {
+        var typeDatabase = new TypeDatabase();
+        var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec(swiftType));
+
+        Assert.NotEqual(TypeDatabaseExtensions.AnyType, record);
+        Assert.Equal("Foundation.NSOperationQueuePriority", record.CSharpTypeName.FullyQualifiedName);
+        Assert.Equal(TypeRecordFlags.Frozen, record.Flags);
+        Assert.Equal(TypeRecordKind.Struct, record.Kind);
+    }
+
+    #endregion
+
+    #region Helper Methods
+
     private static StructDecl CreateGenericStructDecl(string name, string typeParamName)
     {
         return new StructDecl

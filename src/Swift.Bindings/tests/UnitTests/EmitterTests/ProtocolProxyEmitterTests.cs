@@ -444,13 +444,48 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
-    public void EmitProxyClass_SkipsProtocolsWithNoImplementableMembers()
+    public void EmitProxyClass_EmptyProtocol_GeneratesProxyClass()
     {
+        // Fix 8 (SnapKit): Protocols with no implementable instance members still need
+        // proxy classes — return types like ILayoutConstraintItem require a proxy constructor.
+        // The emission code gracefully handles zero members (loops iterate zero times).
         var protocolDecl = CreateSimpleProtocol("EmptyProtocol");
 
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.DoesNotContain("public unsafe class EmptyProtocolProxy", output);
+        Assert.Contains("public unsafe partial class EmptyProtocolProxy", output);
+        Assert.Contains(": IEmptyProtocol, ISwiftObject, IDisposable", output);
+        // Constructor and ISwiftObject implementation still emitted
+        Assert.Contains("public EmptyProtocolProxy(IEmptyProtocol implementation)", output);
+        Assert.Contains("internal EmptyProtocolProxy(ExistentialContainer1 container)", output);
+        Assert.Contains("public static TypeMetadata GetTypeMetadata()", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_EmptyProtocol_WithInheritedRequirements_SkipsProxy()
+    {
+        // A protocol with no own members but inheriting from a protocol with requirements
+        // would produce a proxy class missing inherited interface members (CS0535).
+        // The guard skips proxy generation for this case.
+        var protocolDecl = CreateSimpleProtocol("DerivedProtocol");
+        protocolDecl.InheritedProtocols.Add(new NamedTypeSpec("TestModule.BaseProtocol"));
+
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.DoesNotContain("DerivedProtocolProxy", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_EmptyProtocol_InheritingOnlyAnyObject_GeneratesProxy()
+    {
+        // AnyObject is filtered out of inherited interface lists, so a protocol
+        // inheriting only AnyObject is effectively empty — safe to generate proxy.
+        var protocolDecl = CreateSimpleProtocol("MarkerProtocol");
+        protocolDecl.InheritedProtocols.Add(new NamedTypeSpec("Swift.AnyObject"));
+
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("public unsafe partial class MarkerProtocolProxy", output);
     }
 
     [Fact]

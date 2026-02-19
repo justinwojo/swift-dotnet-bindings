@@ -66,6 +66,23 @@ public class NameProviderMethodNamingTests
         Assert.Equal("GetDataAsync", result);
     }
 
+    [Fact]
+    public void AsyncPrefix_NotStripped_WhenNotAsync()
+    {
+        // A sync property/method named "asyncInstance" should keep the prefix.
+        // Without this gate, property getter naming breaks: asyncInstance_Get → Instance_Get (collision).
+        var result = NameProvider.GetPublicMethodName("asyncInstance", isAsync: false, hasReturnValue: true);
+        Assert.Equal("GetAsyncInstance", result);
+    }
+
+    [Fact]
+    public void AsyncPrefix_StillStripped_WhenAsync()
+    {
+        // Async methods should still have the prefix stripped per .NET convention.
+        var result = NameProvider.GetPublicMethodName("asyncInstance", isAsync: true, hasReturnValue: true);
+        Assert.Equal("GetInstanceAsync", result);
+    }
+
     #endregion
 
     #region Verb already present (no change)

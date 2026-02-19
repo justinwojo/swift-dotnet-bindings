@@ -59,15 +59,27 @@ public partial class ProtocolProxyEmitter
             return;
         }
 
-        // Skip protocols with no implementable instance members
-        // Static members are not part of the witness table, so we only count non-static members
-        var hasImplementableMembers = protocolDecl.Properties.Any(p => !p.IsStatic) ||
-                                      protocolDecl.Methods.Any(m => !m.IsConstructor && m.MethodType != MethodType.Static) ||
-                                      protocolDecl.Subscripts.Any(s => !s.IsStatic);
-        if (!hasImplementableMembers)
+        // Check for inherited protocols that have requirements the proxy can't implement.
+        // The proxy only iterates protocolDecl's own Properties/Methods/Subscripts, not inherited ones.
+        // If this protocol has no own instance members but inherits from a protocol that does,
+        // the proxy would be missing inherited interface members (CS0535).
+        var hasOwnInstanceMembers = protocolDecl.Properties.Any(p => !p.IsStatic) ||
+                                     protocolDecl.Methods.Any(m => !m.IsConstructor && m.MethodType != MethodType.Static) ||
+                                     protocolDecl.Subscripts.Any(s => !s.IsStatic);
+        if (!hasOwnInstanceMembers)
         {
-            _logger.LogDebug($"Skipping proxy class for {protocolDecl.Name}: no implementable instance members (may have only static requirements)");
-            return;
+            // Check inherited protocols for required members that the proxy can't satisfy
+            var hasInheritedRequirements = protocolDecl.InheritedProtocols.Any(inherited =>
+            {
+                var name = inherited.NameWithoutModule;
+                // AnyObject is filtered out by GetInheritedInterfaceList and doesn't produce interface requirements
+                return name != "AnyObject";
+            });
+            if (hasInheritedRequirements)
+            {
+                _logger.LogDebug($"Skipping proxy class for {protocolDecl.Name}: no own instance members but inherits from protocols with potential requirements");
+                return;
+            }
         }
 
         var interfaceName = NameProvider.GetInterfaceName(protocolDecl.Name, moduleName: protocolDecl.ModuleDecl?.Name ?? "");

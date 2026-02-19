@@ -577,6 +577,8 @@ public static class TypeDatabaseExtensions
         "Foundation.JSONSerialization.WritingOptions",
         // Foundation stream types (ObjC NSStream / NSStreamEvent bridged to Swift)
         "Foundation.Stream.Event",
+        // Foundation nested ObjC enum: Operation.QueuePriority → NSOperationQueuePriority
+        "Foundation.Operation.QueuePriority",
     };
 
     /// <summary>
@@ -598,6 +600,8 @@ public static class TypeDatabaseExtensions
         ["Foundation.URLSessionWebSocketTask.CloseCode"] = ("Foundation", "NSUrlSessionWebSocketCloseCode"),
         // Foundation stream event: Swift nested form → .NET flattened NS-prefix form
         ["Foundation.Stream.Event"] = ("Foundation", "NSStreamEvent"),
+        // Foundation nested ObjC enum: Swift nested form → .NET NS-prefix form
+        ["Foundation.Operation.QueuePriority"] = ("Foundation", "NSOperationQueuePriority"),
     };
 
     /// <summary>
