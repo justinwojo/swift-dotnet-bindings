@@ -539,10 +539,11 @@ namespace BindingsGeneration
                     "Ensure Xcode command-line tools are installed: xcode-select --install");
             }
 
-            if (stdout.Contains("current ar archive") || stdout.Contains("object file"))
+            if (!stdout.Contains("dynamically linked shared library", StringComparison.OrdinalIgnoreCase))
             {
                 throw new InvalidOperationException(
-                    $"Binary at '{binaryPath}' is a static library, not a dynamic library. Provide a dynamic xcframework.");
+                    $"Binary at '{binaryPath}' is a static library or object file, not a dynamic library. " +
+                    "Only dynamic xcframeworks are supported. Provide a dynamic xcframework (.framework bundle with dylib).");
             }
         }
 

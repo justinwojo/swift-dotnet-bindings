@@ -537,6 +537,7 @@ public static class TypeDatabaseExtensions
         "UIKit.NSTextAlignment",
         "UIKit.NSWritingDirection",
         "UIKit.UIKeyboardType",
+        "UIKit.UIUserInterfaceLayoutDirection",
         // AVFoundation structs
         "AVFoundation.AVAudioFramePosition", "AVFoundation.AVAudioFrameCount",
         "AVFoundation.AVAudioPacketCount", "AVFoundation.AVAudioChannelCount",
@@ -574,6 +575,8 @@ public static class TypeDatabaseExtensions
         // Foundation nested ObjC enums (NS_OPTIONS) — value types, not NSObject subclasses
         "Foundation.JSONSerialization.ReadingOptions",
         "Foundation.JSONSerialization.WritingOptions",
+        // Foundation stream types (ObjC NSStream / NSStreamEvent bridged to Swift)
+        "Foundation.Stream.Event",
     };
 
     /// <summary>
@@ -593,6 +596,8 @@ public static class TypeDatabaseExtensions
         ["Foundation.JSONSerialization.WritingOptions"] = ("Foundation", "NSJsonWritingOptions"),
         // Foundation nested enum: Swift nested form → .NET flattened NS-prefix form
         ["Foundation.URLSessionWebSocketTask.CloseCode"] = ("Foundation", "NSUrlSessionWebSocketCloseCode"),
+        // Foundation stream event: Swift nested form → .NET flattened NS-prefix form
+        ["Foundation.Stream.Event"] = ("Foundation", "NSStreamEvent"),
     };
 
     /// <summary>
@@ -620,6 +625,8 @@ public static class TypeDatabaseExtensions
         ["Foundation.InputStream"] = ("Foundation", "NSInputStream"),
         ["Foundation.Progress"] = ("Foundation", "NSProgress"),
         ["Foundation.URLSessionWebSocketTask.Message"] = ("Foundation", "NSUrlSessionWebSocketMessage"),
+        // Foundation stream class: Swift name → .NET ObjC name
+        ["Foundation.Stream"] = ("Foundation", "NSStream"),
     };
 
     /// <summary>

@@ -742,8 +742,11 @@ namespace BindingsGeneration.Tests
             Assert.Contains("Static xcframeworks", ex.Message);
         }
 
-        [Fact]
-        public void Resolve_FrameworkBundleButStaticBinary_DetectsStatic()
+        [Theory]
+        [InlineData("current ar archive random library")]                                                               // .a archive
+        [InlineData("Mach-O 64-bit object arm64")]                                                                      // Static .framework (SwiftProtobuf pattern)
+        [InlineData("Mach-O universal binary with 2 architectures: [x86_64:Mach-O 64-bit object x86_64] [arm64]")]      // Universal static
+        public void Resolve_StaticBinary_DetectsStatic(string fileOutput)
         {
             using var fixture = new XCFrameworkFixture();
             fixture.WriteInfoPlist(XCFrameworkModuleDiscoveryTests.MakeSimplePlist("StaticLib"));
@@ -753,7 +756,7 @@ namespace BindingsGeneration.Tests
             fixture.CreateAbiJson(moduleDir, "arm64-apple-ios-simulator");
 
             var runner = new MockCommandRunner();
-            runner.SetResponse("file", 0, "current ar archive random library");
+            runner.SetResponse("file", 0, fileOutput);
 
             var ex = Assert.Throws<InvalidOperationException>(() =>
                 XCFrameworkResolver.Resolve(

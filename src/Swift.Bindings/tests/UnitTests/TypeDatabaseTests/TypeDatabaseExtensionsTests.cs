@@ -367,6 +367,7 @@ public class TypeDatabaseExtensionsTests
     [InlineData("Foundation.Progress", "Foundation", "NSProgress")]
     [InlineData("Foundation.URLSessionWebSocketTask", "Foundation", "NSUrlSessionWebSocketTask")]
     [InlineData("Foundation.URLSessionWebSocketTask.Message", "Foundation", "NSUrlSessionWebSocketMessage")]
+    [InlineData("Foundation.Stream", "Foundation", "NSStream")]
     public void GetTypeRecordOrAnyType_FoundationClass_ReturnsObjCBridgedRecord(string swiftType, string expectedNamespace, string expectedName)
     {
         var typeDatabase = new TypeDatabase();
@@ -515,6 +516,7 @@ public class TypeDatabaseExtensionsTests
     [InlineData("UIKit.UIBlurEffect.Style")]
     [InlineData("UIKit.UILayoutPriority")]
     [InlineData("UIKit.NSTextAlignment")]
+    [InlineData("UIKit.UIUserInterfaceLayoutDirection")]
     public void GetTypeRecordOrAnyType_ObjCEnumType_ReturnsAnyType(string swiftType)
     {
         var typeDatabase = new TypeDatabase();
@@ -693,6 +695,7 @@ public class TypeDatabaseExtensionsTests
     [InlineData("Foundation._NSRange", "Foundation", "NSRange")]
     [InlineData("Foundation.JSONSerialization.ReadingOptions", "Foundation", "NSJsonReadingOptions")]
     [InlineData("Foundation.JSONSerialization.WritingOptions", "Foundation", "NSJsonWritingOptions")]
+    [InlineData("Foundation.Stream.Event", "Foundation", "NSStreamEvent")]
     public void GetTypeRecordOrAnyType_RemappedValueType_ReturnsCorrectDotNetType(string swiftType, string expectedNamespace, string expectedName)
     {
         var typeDatabase = new TypeDatabase();

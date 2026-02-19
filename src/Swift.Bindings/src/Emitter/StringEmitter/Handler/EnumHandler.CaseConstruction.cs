@@ -200,6 +200,10 @@ namespace BindingsGeneration
                     ParentDecl = null,
                     ModuleDecl = null
                 };
+                // Not all generic types are bound generics (e.g., UnsafePointer<T>, optional closures).
+                // Fall back to standard lookup for types the BoundGenericsHandler can't translate.
+                if (!boundGenericsHandler.IsBoundGeneric(tempProperty))
+                    return typeDatabase.GetTypeRecordOrAnyType(typeSpec).CSharpTypeName.FullyQualifiedName;
                 return boundGenericsHandler.TranslateBoundGenericTypeToCSharp(tempProperty);
             }
 

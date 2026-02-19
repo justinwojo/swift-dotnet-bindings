@@ -29,6 +29,7 @@ namespace BindingsGeneration
         private readonly Dictionary<NamedTypeSpec, TypeDecl> _typeDecls;
         private readonly NamespacePatternResolver _namespacePatternResolver;
         private readonly ILogger _logger;
+        private readonly HashSet<string> _processingInProgress = new(StringComparer.Ordinal);
 
         /// <summary>
         /// Initializes a new instance of the <see cref="ModuleProcessor"/> class.
@@ -103,30 +104,41 @@ namespace BindingsGeneration
         /// <param name="typeDecl">The associated type declaration.</param>
         private void ProcessTypeRecursively(NamedTypeSpec namedTypeSpec, TypeDecl typeDecl)
         {
-            if (_moduleDatabase.IsTypeProcessed(SwiftTypeName.FromTypeSpec(namedTypeSpec)))
+            var swiftTypeName = SwiftTypeName.FromTypeSpec(namedTypeSpec);
+            if (_moduleDatabase.IsTypeProcessed(swiftTypeName))
                 return;
 
-            switch (typeDecl)
+            if (!_processingInProgress.Add(swiftTypeName.ModuleQualifiedName))
+                return; // Cycle detected — already processing this type
+
+            try
             {
-                case StructDecl structDecl:
-                    ProcessStruct(namedTypeSpec, structDecl);
-                    break;
+                switch (typeDecl)
+                {
+                    case StructDecl structDecl:
+                        ProcessStruct(namedTypeSpec, structDecl);
+                        break;
 
-                case EnumDecl enumDecl:
-                    ProcessEnum(namedTypeSpec, enumDecl);
-                    break;
+                    case EnumDecl enumDecl:
+                        ProcessEnum(namedTypeSpec, enumDecl);
+                        break;
 
-                case ClassDecl classDecl:
-                    ProcessClass(namedTypeSpec, classDecl);
-                    break;
+                    case ClassDecl classDecl:
+                        ProcessClass(namedTypeSpec, classDecl);
+                        break;
 
-                case ProtocolDecl protocolDecl:
-                    ProcessProtocol(namedTypeSpec, protocolDecl);
-                    break;
+                    case ProtocolDecl protocolDecl:
+                        ProcessProtocol(namedTypeSpec, protocolDecl);
+                        break;
 
-                default:
-                    _logger.LogWarning($"Skipping unknown type declaration '{typeDecl.GetType().Name}'.");
-                    break;
+                    default:
+                        _logger.LogWarning($"Skipping unknown type declaration '{typeDecl.GetType().Name}'.");
+                        break;
+                }
+            }
+            finally
+            {
+                _processingInProgress.Remove(swiftTypeName.ModuleQualifiedName);
             }
         }
 
