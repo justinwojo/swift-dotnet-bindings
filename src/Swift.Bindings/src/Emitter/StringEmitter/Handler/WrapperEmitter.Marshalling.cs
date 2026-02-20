@@ -140,6 +140,10 @@ namespace BindingsGeneration
                 if (!_env.MethodDecl.IsAccessor && _env.TypeConversionHandler.IsConvertibleType(argumentDecl.SwiftTypeSpec))
                     continue;
 
+                // Skip Optional<existential> — handled by dedicated existential marshalling path
+                if (_env.ExistentialHandler.IsOptionalExistential(argumentDecl.SwiftTypeSpec))
+                    continue;
+
                 if (_env.BoundGenericsHandler.RequiresBoundGenericMarshalling(argumentDecl))
                 {
                     var csName = NameProvider.GetCSharpParameterName(argumentDecl);
@@ -274,8 +278,19 @@ namespace BindingsGeneration
         private void EmitTypeConversions(CSharpWriter csWriter)
         {
             // Skip type conversions for property accessors — property wrapper handles conversion
+            // EXCEPT Optional-existential parameters which need container extraction here
             if (_env.MethodDecl.IsAccessor)
+            {
+                foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1))
+                {
+                    if (_env.ExistentialHandler.IsOptionalExistential(argumentDecl.SwiftTypeSpec) &&
+                        !_env.ClosureHandler.IsOptionalClosure(argumentDecl.SwiftTypeSpec))
+                    {
+                        EmitOptionalExistentialParamConversion(csWriter, argumentDecl);
+                    }
+                }
                 return;
+            }
 
             foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1))
             {
@@ -386,22 +401,7 @@ namespace BindingsGeneration
                 else if (_env.ExistentialHandler.IsOptionalExistential(argumentDecl.SwiftTypeSpec) &&
                          !_env.ClosureHandler.IsOptionalClosure(argumentDecl.SwiftTypeSpec))
                 {
-                    // (any Protocol)? -> SwiftOptional<ExistentialContainer> with container extraction
-                    // Must extract container from interface before NewSome() since SwiftOptional expects the container type
-                    var innerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(argumentDecl.SwiftTypeSpec);
-                    if (innerProtocolList != null && _env.ExistentialHandler.IsSupportedExistential(innerProtocolList))
-                    {
-                        var containerType = _env.ExistentialHandler.GetCSharpExistentialType(innerProtocolList);
-                        var swiftType = _env.TypeConversionHandler.GetSwiftWrapperType(
-                            argumentDecl.SwiftTypeSpec,
-                            typeSpec => TranslateTypeSpecForConversion(typeSpec));
-                        csWriter.WriteLine($"using var {csName}Swift = {csName} is {{}} {csName}Value");
-                        csWriter.WriteLine($"    ? {swiftType}.NewSome(((Swift.Runtime.ISwiftExistentialConvertible<{containerType}>){csName}Value).GetExistentialContainer())");
-                        csWriter.WriteLine($"    : {swiftType}.NewNone();");
-                        csWriter.WriteLine($"using PayloadBuffer<IntPtr> {csName}Disposable = {csName}Swift.PayloadBuffer;");
-                        var bufferName = NameProvider.GetBoundGenericBufferName(csName);
-                        csWriter.WriteLine($"IntPtr {bufferName} = {csName}Disposable.Buffer;");
-                    }
+                    EmitOptionalExistentialParamConversion(csWriter, argumentDecl);
                 }
                 else if (_env.TypeConversionHandler.IsSwiftOptional(argumentDecl.SwiftTypeSpec) &&
                          !_env.ClosureHandler.IsOptionalClosure(argumentDecl.SwiftTypeSpec))
@@ -565,6 +565,31 @@ namespace BindingsGeneration
                         }
                     }
                 }
+            }
+        }
+
+        /// <summary>
+        /// Emits Optional-existential parameter conversion.
+        /// Extracts the existential container from the interface type and wraps in SwiftOptional.
+        /// Used by both non-accessor methods and accessor setters.
+        /// </summary>
+        private void EmitOptionalExistentialParamConversion(CSharpWriter csWriter, ArgumentDecl argumentDecl)
+        {
+            var csName = NameProvider.GetCSharpParameterName(argumentDecl);
+            var innerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(argumentDecl.SwiftTypeSpec);
+            if (innerProtocolList != null && _env.ExistentialHandler.IsSupportedExistential(innerProtocolList) &&
+                _env.ExistentialHandler.GetPublicExistentialType(innerProtocolList) != "object")
+            {
+                var containerType = _env.ExistentialHandler.GetCSharpExistentialType(innerProtocolList);
+                var swiftType = _env.TypeConversionHandler.GetSwiftWrapperType(
+                    argumentDecl.SwiftTypeSpec,
+                    typeSpec => TranslateTypeSpecForConversion(typeSpec));
+                csWriter.WriteLine($"using var {csName}Swift = {csName} is {{}} {csName}Value");
+                csWriter.WriteLine($"    ? {swiftType}.NewSome(((Swift.Runtime.ISwiftExistentialConvertible<{containerType}>){csName}Value).GetExistentialContainer())");
+                csWriter.WriteLine($"    : {swiftType}.NewNone();");
+                csWriter.WriteLine($"using PayloadBuffer<IntPtr> {csName}Disposable = {csName}Swift.PayloadBuffer;");
+                var bufferName = NameProvider.GetBoundGenericBufferName(csName);
+                csWriter.WriteLine($"IntPtr {bufferName} = {csName}Disposable.Buffer;");
             }
         }
 

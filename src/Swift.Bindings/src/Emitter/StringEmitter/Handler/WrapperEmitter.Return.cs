@@ -102,6 +102,40 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Accessor-only: Optional-existential returns are intercepted by BoundGenerics below
+            // because IsConvertibleType is gated on !IsAccessor above. Handle them explicitly here.
+            // P/Invoke returns IntPtr for Optional<existential> — marshal to SwiftOptional<Container> first.
+            if (_env.MethodDecl.IsAccessor && _env.ExistentialHandler.IsOptionalExistential(returnArg.SwiftTypeSpec))
+            {
+                var innerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(returnArg.SwiftTypeSpec)!;
+                var publicType = _env.ExistentialHandler.GetPublicExistentialType(innerProtocolList);
+                // Unresolved protocol (publicType == "object") → no proxy class exists, fall through
+                // to bound-generic handler which will emit SwiftMarshal.MarshalFromSwift<SwiftOptional<AnyType>>
+                if (publicType != "object")
+                {
+                    var containerType = _env.ExistentialHandler.GetCSharpExistentialType(innerProtocolList);
+                    var marshalType = $"Swift.SwiftOptional<{containerType}>";
+                    if (_env.ExistentialHandler.TryGetWellKnownProtocolType(innerProtocolList, out var wkType))
+                    {
+                        csWriter.WriteLines($$"""
+                            var swiftResult = SwiftMarshal.MarshalFromSwift<{{marshalType}}>(new IntPtr(&result));
+                            if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
+                            return new {{wkType}}(swiftResult.Some);
+                            """);
+                    }
+                    else
+                    {
+                        var proxyName = _env.ExistentialHandler.GetProxyClassName(innerProtocolList);
+                        csWriter.WriteLines($$"""
+                            var swiftResult = SwiftMarshal.MarshalFromSwift<{{marshalType}}>(new IntPtr(&result));
+                            if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
+                            return new {{proxyName}}(swiftResult.Some);
+                            """);
+                    }
+                    return;
+                }
+            }
+
             // Bound generics that return IntPtr directly (not via indirect result)
             if (_env.BoundGenericsHandler.RequiresBoundGenericMarshalling(returnArg))
             {
@@ -178,20 +212,25 @@ namespace BindingsGeneration
             if (_env.ExistentialHandler.IsOptionalExistential(returnArg.SwiftTypeSpec))
             {
                 var innerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(returnArg.SwiftTypeSpec)!;
-                var containerType = _env.ExistentialHandler.GetCSharpExistentialType(innerProtocolList);
-                // Optional existential: check for default (zero) container
-                csWriter.WriteLine($"if (result.Equals(default({containerType}))) return null;");
-                // Well-known protocol types (Swift.Error → AnyError) use direct runtime type
-                if (_env.ExistentialHandler.TryGetWellKnownProtocolType(innerProtocolList, out var wellKnownOptType))
+                var publicOptType = _env.ExistentialHandler.GetPublicExistentialType(innerProtocolList);
+                // Unresolved protocol (publicType == "object") → no proxy class exists, fall through
+                if (publicOptType != "object")
                 {
-                    csWriter.WriteLine($"return new {wellKnownOptType}(result);");
+                    var containerType = _env.ExistentialHandler.GetCSharpExistentialType(innerProtocolList);
+                    // Optional existential: check for default (zero) container
+                    csWriter.WriteLine($"if (result.Equals(default({containerType}))) return null;");
+                    // Well-known protocol types (Swift.Error → AnyError) use direct runtime type
+                    if (_env.ExistentialHandler.TryGetWellKnownProtocolType(innerProtocolList, out var wellKnownOptType))
+                    {
+                        csWriter.WriteLine($"return new {wellKnownOptType}(result);");
+                    }
+                    else
+                    {
+                        var optProxyClassName = _env.ExistentialHandler.GetProxyClassName(innerProtocolList);
+                        csWriter.WriteLine($"return new {optProxyClassName}(result);");
+                    }
+                    return;
                 }
-                else
-                {
-                    var optProxyClassName = _env.ExistentialHandler.GetProxyClassName(innerProtocolList);
-                    csWriter.WriteLine($"return new {optProxyClassName}(result);");
-                }
-                return;
             }
 
             // Handle tuple return types - marshal each element individually
@@ -410,28 +449,34 @@ namespace BindingsGeneration
                 if (_env.ExistentialHandler.IsOptionalExistential(returnArg.SwiftTypeSpec))
                 {
                     var innerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(returnArg.SwiftTypeSpec)!;
-                    var containerType = _env.ExistentialHandler.GetCSharpExistentialType(innerProtocolList);
-                    var marshalType = $"Swift.SwiftOptional<{containerType}>";
-                    // Well-known protocol types (Swift.Error → AnyError) use direct runtime type
-                    if (_env.ExistentialHandler.TryGetWellKnownProtocolType(innerProtocolList, out var wellKnownConvType))
+                    var convPublicType = _env.ExistentialHandler.GetPublicExistentialType(innerProtocolList);
+                    // Only wrap in proxy if protocol is resolved (not "object")
+                    if (convPublicType != "object")
                     {
-                        csWriter.WriteLines($$"""
-                            var swiftResult = SwiftMarshal.MarshalFromSwift<{{marshalType}}>(new IntPtr(&result));
-                            if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
-                            return new {{wellKnownConvType}}(swiftResult.Some);
-                            """);
-                    }
-                    else
-                    {
-                        var convProxyClassName = _env.ExistentialHandler.GetProxyClassName(innerProtocolList);
-                        csWriter.WriteLines($$"""
-                            var swiftResult = SwiftMarshal.MarshalFromSwift<{{marshalType}}>(new IntPtr(&result));
-                            if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
-                            return new {{convProxyClassName}}(swiftResult.Some);
-                            """);
+                        var containerType = _env.ExistentialHandler.GetCSharpExistentialType(innerProtocolList);
+                        var marshalType = $"Swift.SwiftOptional<{containerType}>";
+                        // Well-known protocol types (Swift.Error → AnyError) use direct runtime type
+                        if (_env.ExistentialHandler.TryGetWellKnownProtocolType(innerProtocolList, out var wellKnownConvType))
+                        {
+                            csWriter.WriteLines($$"""
+                                var swiftResult = SwiftMarshal.MarshalFromSwift<{{marshalType}}>(new IntPtr(&result));
+                                if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
+                                return new {{wellKnownConvType}}(swiftResult.Some);
+                                """);
+                        }
+                        else
+                        {
+                            var convProxyClassName = _env.ExistentialHandler.GetProxyClassName(innerProtocolList);
+                            csWriter.WriteLines($$"""
+                                var swiftResult = SwiftMarshal.MarshalFromSwift<{{marshalType}}>(new IntPtr(&result));
+                                if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
+                                return new {{convProxyClassName}}(swiftResult.Some);
+                                """);
+                        }
+                        return; // Handled — don't fall through to generic Optional path
                     }
                 }
-                else
+                // Fall through: either not Optional-existential, or unresolved protocol
                 {
                     // SwiftOptional<T> -> T?
                     // Marshal to SwiftOptional, then convert to nullable
@@ -455,27 +500,33 @@ namespace BindingsGeneration
             if (_env.ExistentialHandler.IsOptionalExistential(returnArg.SwiftTypeSpec))
             {
                 var innerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(returnArg.SwiftTypeSpec)!;
-                var containerType = _env.ExistentialHandler.GetCSharpExistentialType(innerProtocolList);
-                var marshalType = $"Swift.SwiftOptional<{containerType}>";
-                if (_env.ExistentialHandler.TryGetWellKnownProtocolType(innerProtocolList, out var wellKnownType))
+                var bufPublicType = _env.ExistentialHandler.GetPublicExistentialType(innerProtocolList);
+                // Only wrap in proxy if protocol is resolved (not "object")
+                if (bufPublicType != "object")
                 {
-                    csWriter.WriteLines($$"""
-                        var swiftResult = SwiftMarshal.MarshalFromSwift<{{marshalType}}>(_optRetPtr);
-                        if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
-                        return new {{wellKnownType}}(swiftResult.Some);
-                        """);
-                }
-                else
-                {
-                    var proxyName = _env.ExistentialHandler.GetProxyClassName(innerProtocolList);
-                    csWriter.WriteLines($$"""
-                        var swiftResult = SwiftMarshal.MarshalFromSwift<{{marshalType}}>(_optRetPtr);
-                        if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
-                        return new {{proxyName}}(swiftResult.Some);
-                        """);
+                    var containerType = _env.ExistentialHandler.GetCSharpExistentialType(innerProtocolList);
+                    var marshalType = $"Swift.SwiftOptional<{containerType}>";
+                    if (_env.ExistentialHandler.TryGetWellKnownProtocolType(innerProtocolList, out var wellKnownType))
+                    {
+                        csWriter.WriteLines($$"""
+                            var swiftResult = SwiftMarshal.MarshalFromSwift<{{marshalType}}>(_optRetPtr);
+                            if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
+                            return new {{wellKnownType}}(swiftResult.Some);
+                            """);
+                    }
+                    else
+                    {
+                        var proxyName = _env.ExistentialHandler.GetProxyClassName(innerProtocolList);
+                        csWriter.WriteLines($$"""
+                            var swiftResult = SwiftMarshal.MarshalFromSwift<{{marshalType}}>(_optRetPtr);
+                            if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
+                            return new {{proxyName}}(swiftResult.Some);
+                            """);
+                    }
+                    return;
                 }
             }
-            else
+            // Fall through: not Optional-existential, or unresolved protocol
             {
                 // Standard optional from buffer
                 csWriter.WriteLines($$"""
@@ -545,28 +596,35 @@ namespace BindingsGeneration
                 if (_env.ExistentialHandler.IsOptionalExistential(returnArg.SwiftTypeSpec))
                 {
                     var innerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(returnArg.SwiftTypeSpec)!;
-                    var containerType = _env.ExistentialHandler.GetCSharpExistentialType(innerProtocolList);
-                    var marshalType = $"Swift.SwiftOptional<{containerType}>";
-                    // Well-known protocol types (Swift.Error → AnyError) use direct runtime type
-                    if (_env.ExistentialHandler.TryGetWellKnownProtocolType(innerProtocolList, out var wellKnownIndirectType))
+                    var indirectPublicType = _env.ExistentialHandler.GetPublicExistentialType(innerProtocolList);
+                    // Only wrap in proxy if protocol is resolved (not "object")
+                    if (indirectPublicType != "object")
                     {
-                        csWriter.WriteLines($"""
-                            var swiftResult = SwiftMarshal.MarshalFromSwift<{marshalType}>(new IntPtr(swiftIndirectResult.Value));
-                            if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
-                            return new {wellKnownIndirectType}(swiftResult.Some);
-                            """);
-                    }
-                    else
-                    {
-                        var indirectProxyClassName = _env.ExistentialHandler.GetProxyClassName(innerProtocolList);
-                        csWriter.WriteLines($"""
-                            var swiftResult = SwiftMarshal.MarshalFromSwift<{marshalType}>(new IntPtr(swiftIndirectResult.Value));
-                            if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
-                            return new {indirectProxyClassName}(swiftResult.Some);
-                            """);
+                        var containerType = _env.ExistentialHandler.GetCSharpExistentialType(innerProtocolList);
+                        var marshalType = $"Swift.SwiftOptional<{containerType}>";
+                        // Well-known protocol types (Swift.Error → AnyError) use direct runtime type
+                        if (_env.ExistentialHandler.TryGetWellKnownProtocolType(innerProtocolList, out var wellKnownIndirectType))
+                        {
+                            csWriter.WriteLines($"""
+                                var swiftResult = SwiftMarshal.MarshalFromSwift<{marshalType}>(new IntPtr(swiftIndirectResult.Value));
+                                if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
+                                return new {wellKnownIndirectType}(swiftResult.Some);
+                                """);
+                        }
+                        else
+                        {
+                            var indirectProxyClassName = _env.ExistentialHandler.GetProxyClassName(innerProtocolList);
+                            csWriter.WriteLines($"""
+                                var swiftResult = SwiftMarshal.MarshalFromSwift<{marshalType}>(new IntPtr(swiftIndirectResult.Value));
+                                if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
+                                return new {indirectProxyClassName}(swiftResult.Some);
+                                """);
+                        }
+                        return; // Handled — don't fall through to generic Optional path
                     }
                 }
-                else
+                // Fall through: not Optional-existential, or unresolved protocol
+                // (replaces prior else block — same code path)
                 {
                     // SwiftOptional<T> -> T? via indirect result
                     csWriter.WriteLines($$"""

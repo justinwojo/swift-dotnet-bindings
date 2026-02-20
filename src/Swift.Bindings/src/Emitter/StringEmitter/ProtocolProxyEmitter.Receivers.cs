@@ -105,7 +105,16 @@ public partial class ProtocolProxyEmitter
                 }
                 else
                 {
-                    writer.WriteLine("return MarshalToSwiftBuffer(result);");
+                    var existentialGetterConv = GetReceiverExistentialGetterConversion("result", property.SwiftTypeSpec);
+                    if (existentialGetterConv != null)
+                    {
+                        writer.WriteLine($"var swiftResult = {existentialGetterConv};");
+                        writer.WriteLine("return MarshalToSwiftBuffer(swiftResult);");
+                    }
+                    else
+                    {
+                        writer.WriteLine("return MarshalToSwiftBuffer(result);");
+                    }
                 }
                 writer.Indent--;
                 writer.WriteLine("}");
@@ -122,7 +131,10 @@ public partial class ProtocolProxyEmitter
                 // The receiver marshals the Swift ABI type, but the interface uses the idiomatic C# type
                 var typeConversionHandler = new TypeConversionHandler(_typeDatabase);
                 var returnConversion = typeConversionHandler.GetReturnConversion("value", property.SwiftTypeSpec);
-                var assignmentExpr = returnConversion ?? "value";
+                var existentialSetterConv = returnConversion == null
+                    ? GetReceiverExistentialSetterConversion("value", property.SwiftTypeSpec)
+                    : null;
+                var assignmentExpr = returnConversion ?? existentialSetterConv ?? "value";
 
                 writer.WriteLines($$"""
                     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
@@ -173,7 +185,16 @@ public partial class ProtocolProxyEmitter
 
                 var indexArgs = string.Join(", ", Enumerable.Range(0, paramCount).Select(i => $"index{i}"));
                 writer.WriteLine($"var result = proxy._csharpImpl![{indexArgs}];");
-                writer.WriteLine("return MarshalToSwiftBuffer(result);");
+                var subscriptGetterConv = GetReceiverExistentialGetterConversion("result", subscript.ReturnTypeSpec);
+                if (subscriptGetterConv != null)
+                {
+                    writer.WriteLine($"var swiftResult = {subscriptGetterConv};");
+                    writer.WriteLine("return MarshalToSwiftBuffer(swiftResult);");
+                }
+                else
+                {
+                    writer.WriteLine("return MarshalToSwiftBuffer(result);");
+                }
 
                 writer.Indent--;
                 writer.WriteLine("}");
@@ -197,7 +218,16 @@ public partial class ProtocolProxyEmitter
 
                 writer.WriteLine("var container = *(ExistentialContainer1*)selfContainer;");
                 writer.WriteLine($"var proxy = SwiftObjectRegistry.GetProxyFromContainer<{proxyClassName}>(container);");
-                writer.WriteLine($"var value = MarshalFromSwift<{returnTypeName}>(valuePtr);");
+                var subscriptSetterConv = GetReceiverExistentialSetterConversion("rawValue", subscript.ReturnTypeSpec);
+                if (subscriptSetterConv != null)
+                {
+                    writer.WriteLine($"var rawValue = MarshalFromSwift<{returnTypeName}>(valuePtr);");
+                    writer.WriteLine($"var value = {subscriptSetterConv};");
+                }
+                else
+                {
+                    writer.WriteLine($"var value = MarshalFromSwift<{returnTypeName}>(valuePtr);");
+                }
 
                 // Unmarshal index parameters — P0: use ABI types for MarshalFromSwift
                 for (int i = 0; i < subscript.IndexParameters.Count; i++)
@@ -305,7 +335,16 @@ public partial class ProtocolProxyEmitter
             }
             else
             {
+                var existentialParamConv = GetReceiverExistentialSetterConversion(rawArgName, param.SwiftTypeSpec);
+                if (existentialParamConv != null)
+                {
+                    writer.WriteLine($"var {rawArgName} = MarshalFromSwift<{paramTypeName}>(rawArg{argIndex});");
+                    writer.WriteLine($"var {argName} = {existentialParamConv};");
+                }
+                else
+                {
                 writer.WriteLine($"var {argName} = MarshalFromSwift<{paramTypeName}>(rawArg{argIndex});");
+                }
             }
             }
             argNames.Add(argName);
@@ -318,8 +357,17 @@ public partial class ProtocolProxyEmitter
 
         if (hasReturn)
         {
+            var existentialReturnConv = GetReceiverExistentialGetterConversion("result", returnType!);
             writer.WriteLine($"var result = proxy._csharpImpl!.{pascalMethodName}({argsString});");
-            writer.WriteLine("return MarshalToSwiftBuffer(result);");
+            if (existentialReturnConv != null)
+            {
+                writer.WriteLine($"var swiftResult = {existentialReturnConv};");
+                writer.WriteLine("return MarshalToSwiftBuffer(swiftResult);");
+            }
+            else
+            {
+                writer.WriteLine("return MarshalToSwiftBuffer(result);");
+            }
         }
         else
         {
@@ -385,11 +433,185 @@ public partial class ProtocolProxyEmitter
                 valueExpr = $"(IReadOnlyList<{GetCSharpTypeName(innerElemSpec)}>)kvp.Value";
         }
         else if (publicValueType != abiValueType)
-            valueExpr = $"({publicValueType})kvp.Value";
+        {
+            // Check if value is an existential that needs proxy wrapping instead of a plain cast.
+            // Skip if publicValueType is "object" — means unresolved protocol, no proxy class exists.
+            var existentialHandler = new ExistentialHandler(_typeDatabase);
+            if (publicValueType != "object" && existentialHandler.IsExistential(valueSpec))
+            {
+                var valProtocolList = existentialHandler.ToProtocolListTypeSpec(valueSpec);
+                if (valProtocolList != null && existentialHandler.IsSupportedExistential(valProtocolList) &&
+                    existentialHandler.GetPublicExistentialType(valProtocolList) != "object")
+                {
+                    if (existentialHandler.TryGetWellKnownProtocolType(valProtocolList, out var wkValType))
+                        valueExpr = $"({publicValueType})new {wkValType}(kvp.Value)";
+                    else
+                    {
+                        var valProxyName = existentialHandler.GetProxyClassName(valProtocolList);
+                        valueExpr = $"({publicValueType})new {valProxyName}(kvp.Value)";
+                    }
+                }
+                else
+                    valueExpr = $"({publicValueType})kvp.Value";
+            }
+            else
+                valueExpr = $"({publicValueType})kvp.Value";
+        }
         else
             valueExpr = "kvp.Value";
 
         return $"{rawArgName}.ToDictionary(kvp => {keyExpr}, kvp => {valueExpr})";
+    }
+
+    /// <summary>
+    /// Gets a conversion expression for existential types in getter returns (C# idiomatic → Swift ABI).
+    /// Converts interface types (IProtocol, IReadOnlyList&lt;IProtocol&gt;) back to existential containers
+    /// that MarshalToSwiftBuffer expects.
+    /// Returns null if the type is not an existential or doesn't need conversion.
+    /// </summary>
+    private string? GetReceiverExistentialGetterConversion(string varName, TypeSpec? typeSpec)
+    {
+        if (typeSpec == null)
+            return null;
+
+        var existentialHandler = new ExistentialHandler(_typeDatabase);
+
+        // Standalone existential: cast to ISwiftExistentialConvertible and extract container
+        if (existentialHandler.IsExistential(typeSpec))
+        {
+            var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
+            if (protocolList == null || !existentialHandler.IsSupportedExistential(protocolList))
+                return null;
+            var publicType = existentialHandler.GetPublicExistentialType(protocolList);
+            if (publicType == "object")
+                return null;
+            var containerType = existentialHandler.GetCSharpExistentialType(protocolList);
+            return $"((Swift.Runtime.ISwiftExistentialConvertible<{containerType}>){varName}).GetExistentialContainer()";
+        }
+
+        // Array<existential>: project each element via GetExistentialContainer
+        var typeConversionHandler = new TypeConversionHandler(_typeDatabase);
+        if (typeSpec is NamedTypeSpec namedType && typeConversionHandler.IsSwiftArray(namedType))
+        {
+            var elementSpec = namedType.GenericParameters.FirstOrDefault();
+            if (elementSpec != null && existentialHandler.IsExistential(elementSpec))
+            {
+                var protocolList = existentialHandler.ToProtocolListTypeSpec(elementSpec);
+                if (protocolList != null && existentialHandler.IsSupportedExistential(protocolList))
+                {
+                    var publicType = existentialHandler.GetPublicExistentialType(protocolList);
+                    if (publicType == "object")
+                        return null;
+                    var containerType = existentialHandler.GetCSharpExistentialType(protocolList);
+                    return $"SwiftArray<{containerType}>.FromEnumerable({varName}.Select(i => ((Swift.Runtime.ISwiftExistentialConvertible<{containerType}>)i).GetExistentialContainer()))";
+                }
+            }
+        }
+
+        // Dictionary<K, existential>: project values via GetExistentialContainer
+        if (typeSpec is NamedTypeSpec dictType && typeConversionHandler.IsSwiftDictionary(dictType) && dictType.GenericParameters.Count >= 2)
+        {
+            var valueSpec = dictType.GenericParameters[1];
+            if (existentialHandler.IsExistential(valueSpec))
+            {
+                var protocolList = existentialHandler.ToProtocolListTypeSpec(valueSpec);
+                if (protocolList != null && existentialHandler.IsSupportedExistential(protocolList))
+                {
+                    var publicType = existentialHandler.GetPublicExistentialType(protocolList);
+                    if (publicType == "object")
+                        return null;
+                    var containerType = existentialHandler.GetCSharpExistentialType(protocolList);
+                    var keySpec = dictType.GenericParameters[0];
+                    var keyExpr = typeConversionHandler.IsSwiftString(keySpec) ? "new SwiftString(kvp.Key)" : "kvp.Key";
+                    return $"SwiftDictionary<{GetCSharpTypeName(keySpec, forAbiMarshalling: true)}, {containerType}>.FromDictionary({varName}.ToDictionary(kvp => {keyExpr}, kvp => ((Swift.Runtime.ISwiftExistentialConvertible<{containerType}>)kvp.Value).GetExistentialContainer()))";
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Gets a conversion expression for existential types in setter params (Swift ABI → C# idiomatic).
+    /// Converts existential containers to proxy/interface types that the C# implementation expects.
+    /// Returns null if the type is not an existential or doesn't need conversion.
+    /// </summary>
+    private string? GetReceiverExistentialSetterConversion(string varName, TypeSpec? typeSpec)
+    {
+        if (typeSpec == null)
+            return null;
+
+        var existentialHandler = new ExistentialHandler(_typeDatabase);
+
+        // Standalone existential: wrap container in proxy
+        if (existentialHandler.IsExistential(typeSpec))
+        {
+            var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
+            if (protocolList == null || !existentialHandler.IsSupportedExistential(protocolList))
+                return null;
+            var publicType = existentialHandler.GetPublicExistentialType(protocolList);
+            if (publicType == "object")
+                return null;
+
+            if (existentialHandler.TryGetWellKnownProtocolType(protocolList, out var wkType))
+                return $"new {wkType}({varName})";
+            var proxyName = existentialHandler.GetProxyClassName(protocolList);
+            return $"new {proxyName}({varName})";
+        }
+
+        // Array<existential>: project each element via proxy constructor
+        var typeConversionHandler = new TypeConversionHandler(_typeDatabase);
+        if (typeSpec is NamedTypeSpec namedType && typeConversionHandler.IsSwiftArray(namedType))
+        {
+            var elementSpec = namedType.GenericParameters.FirstOrDefault();
+            if (elementSpec != null && existentialHandler.IsExistential(elementSpec))
+            {
+                var protocolList = existentialHandler.ToProtocolListTypeSpec(elementSpec);
+                if (protocolList != null && existentialHandler.IsSupportedExistential(protocolList))
+                {
+                    var publicType = existentialHandler.GetPublicExistentialType(protocolList);
+                    if (publicType == "object")
+                        return null;
+
+                    string elementProjection;
+                    if (existentialHandler.TryGetWellKnownProtocolType(protocolList, out var wkType))
+                        elementProjection = $"new {wkType}(c)";
+                    else
+                        elementProjection = $"new {existentialHandler.GetProxyClassName(protocolList)}(c)";
+                    return $"{varName}.AsProjected<{publicType}>(c => {elementProjection})";
+                }
+            }
+        }
+
+        // Dictionary<K, existential>: project values via proxy constructor
+        if (typeSpec is NamedTypeSpec dictType && typeConversionHandler.IsSwiftDictionary(dictType) && dictType.GenericParameters.Count >= 2)
+        {
+            var valueSpec = dictType.GenericParameters[1];
+            if (existentialHandler.IsExistential(valueSpec))
+            {
+                var protocolList = existentialHandler.ToProtocolListTypeSpec(valueSpec);
+                if (protocolList != null && existentialHandler.IsSupportedExistential(protocolList))
+                {
+                    var publicType = existentialHandler.GetPublicExistentialType(protocolList);
+                    if (publicType == "object")
+                        return null;
+
+                    string valueProjection;
+                    if (existentialHandler.TryGetWellKnownProtocolType(protocolList, out var wkType))
+                        valueProjection = $"({publicType})new {wkType}(kvp.Value)";
+                    else
+                        valueProjection = $"({publicType})new {existentialHandler.GetProxyClassName(protocolList)}(kvp.Value)";
+
+                    var keySpec = dictType.GenericParameters[0];
+                    var publicKeyType = GetCSharpTypeName(keySpec, forAbiMarshalling: false);
+                    var abiKeyType = GetCSharpTypeName(keySpec, forAbiMarshalling: true);
+                    string keyExpr = typeConversionHandler.IsSwiftString(keySpec) ? "kvp.Key.ToString()" : (publicKeyType != abiKeyType ? $"({publicKeyType})kvp.Key" : "kvp.Key");
+                    return $"{varName}.ToDictionary(kvp => {keyExpr}, kvp => {valueProjection})";
+                }
+            }
+        }
+
+        return null;
     }
 
     private void EmitConstructors(CSharpWriter writer, ProtocolDecl protocolDecl, string interfaceName)
