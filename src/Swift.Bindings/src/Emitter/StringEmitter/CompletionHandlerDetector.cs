@@ -177,10 +177,15 @@ public static class CompletionHandlerDetector
     /// </summary>
     private static string? ResolveTypeName(TypeSpec typeSpec, ITypeDatabase typeDatabase, TypeConversionHandler typeConversionHandler)
     {
-        // Try idiomatic conversion first (SwiftString → string, etc.)
-        var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(typeSpec, isParameter: true);
-        if (idiomaticType != null)
-            return idiomaticType;
+        // Try factory-based projection (handles String→string, Array→IReadOnlyList, closures, etc.)
+        var factory = new TypeProjectionFactory();
+        var projection = factory.Project(typeSpec, new ProjectionContext
+        {
+            TypeDatabase = typeDatabase,
+            IsParameter = true
+        });
+        if (projection != null)
+            return projection.PublicType;
 
         // Fall back to type database lookup
         if (typeDatabase.TryGetTypeRecord(typeSpec, out var record))

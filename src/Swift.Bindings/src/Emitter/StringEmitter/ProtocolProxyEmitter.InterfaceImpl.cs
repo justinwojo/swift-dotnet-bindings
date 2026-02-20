@@ -260,52 +260,14 @@ public partial class ProtocolProxyEmitter
 
     private void EmitSubscriptImplementation(CSharpWriter writer, SubscriptDecl subscript, ProtocolDecl protocolDecl, int index)
     {
-        var existentialHandler = new ExistentialHandler(_typeDatabase);
-        var typeConversionHandler = new TypeConversionHandler(_typeDatabase);
+        var returnTypeName = GetCSharpTypeName(subscript.ReturnTypeSpec, isParameter: false);
 
-        // Apply idiomatic type conversion first (SwiftOptional → T?, SwiftString → string)
-        string returnTypeName;
-        var idiomaticReturnType = typeConversionHandler.GetIdiomaticCSharpType(subscript.ReturnTypeSpec, isParameter: false);
-        if (idiomaticReturnType != null)
-        {
-            returnTypeName = idiomaticReturnType;
-        }
-        else if (existentialHandler.IsExistential(subscript.ReturnTypeSpec))
-        {
-            var protocolList = existentialHandler.ToProtocolListTypeSpec(subscript.ReturnTypeSpec);
-            if (protocolList != null && existentialHandler.IsSupportedExistential(protocolList))
-                returnTypeName = existentialHandler.GetPublicExistentialType(protocolList);
-            else
-                returnTypeName = GetCSharpTypeName(subscript.ReturnTypeSpec);
-        }
-        else
-        {
-            returnTypeName = GetCSharpTypeName(subscript.ReturnTypeSpec);
-        }
-
-        // Build parameter list — apply idiomatic type conversion
+        // Build parameter list
         var parameters = new List<string>();
         for (int i = 0; i < subscript.IndexParameters.Count; i++)
         {
             var param = subscript.IndexParameters[i];
-            string paramTypeName;
-            var idiomaticParamType = typeConversionHandler.GetIdiomaticCSharpType(param.SwiftTypeSpec, isParameter: true);
-            if (idiomaticParamType != null)
-            {
-                paramTypeName = idiomaticParamType;
-            }
-            else if (existentialHandler.IsExistential(param.SwiftTypeSpec))
-            {
-                var protocolList = existentialHandler.ToProtocolListTypeSpec(param.SwiftTypeSpec);
-                if (protocolList != null && existentialHandler.IsSupportedExistential(protocolList))
-                    paramTypeName = existentialHandler.GetPublicExistentialType(protocolList);
-                else
-                    paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec);
-            }
-            else
-            {
-                paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec);
-            }
+            var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, isParameter: true);
             var paramName = NameProvider.GetCSharpParameterName(param);
             parameters.Add($"{paramTypeName} {paramName}");
         }
@@ -357,58 +319,10 @@ public partial class ProtocolProxyEmitter
 
     private void EmitMethodImplementation(CSharpWriter writer, MethodDecl method, ProtocolDecl protocolDecl, WitnessDispatchEmitter dispatchEmitter, int methodIndex)
     {
-        var typeConversionHandler = new TypeConversionHandler(_typeDatabase);
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
         var isStringReturn = hasReturn && WitnessDispatchEmitter.IsStringDispatchType(returnType!);
-        string returnTypeName;
-        if (hasReturn)
-        {
-            var idiomaticReturn = typeConversionHandler.GetIdiomaticCSharpType(returnType!, isParameter: false);
-            if (idiomaticReturn != null)
-            {
-                returnTypeName = idiomaticReturn;
-            }
-            else if (typeConversionHandler.HasNativeTypeRemapping(returnType!))
-            {
-                // Apply native type remapping (Foundation.URL -> NSUrl, Foundation.Data -> NSData)
-                returnTypeName = typeConversionHandler.GetNativeTypeName(returnType!) ?? GetCSharpTypeName(returnType!);
-            }
-            else
-            {
-                var existentialHandler = new ExistentialHandler(_typeDatabase);
-                if (existentialHandler.IsExistential(returnType!))
-                {
-                    var protocolList = existentialHandler.ToProtocolListTypeSpec(returnType!);
-                    if (protocolList != null && existentialHandler.IsSupportedExistential(protocolList))
-                        returnTypeName = existentialHandler.GetPublicExistentialType(protocolList);
-                    else
-                        returnTypeName = GetCSharpTypeName(returnType!);
-                }
-                else if (existentialHandler.IsOptionalExistential(returnType!))
-                {
-                    var innerProtocolList = existentialHandler.UnwrapOptionalExistential(returnType!);
-                    if (innerProtocolList != null && existentialHandler.IsSupportedExistential(innerProtocolList))
-                    {
-                        var publicInnerType = existentialHandler.GetPublicExistentialType(innerProtocolList);
-                        if (publicInnerType != "object")
-                            returnTypeName = existentialHandler.GetPublicOptionalExistentialType(innerProtocolList);
-                        else
-                            returnTypeName = GetCSharpTypeName(returnType!);
-                    }
-                    else
-                        returnTypeName = GetCSharpTypeName(returnType!);
-                }
-                else
-                {
-                    returnTypeName = GetCSharpTypeName(returnType!);
-                }
-            }
-        }
-        else
-        {
-            returnTypeName = "void";
-        }
+        var returnTypeName = hasReturn ? GetCSharpTypeName(returnType!, isParameter: false) : "void";
 
         // Wrap return type for async methods to match interface declaration
         if (method.IsAsync)
@@ -419,7 +333,7 @@ public partial class ProtocolProxyEmitter
                 returnTypeName = $"Task<{returnTypeName}>";
         }
 
-        // Build parameter list - apply idiomatic type conversions and native type remapping to match interface
+        // Build parameter list
         var parameters = new List<string>();
         var argNames = new List<string>();
         var projectedParamTypes = new List<string>();
@@ -427,47 +341,7 @@ public partial class ProtocolProxyEmitter
         int argIndex = 0;
         foreach (var param in method.CSSignature.Skip(1))
         {
-            var idiomaticParamType = typeConversionHandler.GetIdiomaticCSharpType(param.SwiftTypeSpec, isParameter: true);
-            string paramTypeName;
-            if (idiomaticParamType != null)
-            {
-                paramTypeName = idiomaticParamType;
-            }
-            else if (typeConversionHandler.HasNativeTypeRemapping(param.SwiftTypeSpec))
-            {
-                // Apply native type remapping (Foundation.URL -> NSUrl, Foundation.Data -> NSData)
-                paramTypeName = typeConversionHandler.GetNativeTypeName(param.SwiftTypeSpec) ?? GetCSharpTypeName(param.SwiftTypeSpec);
-            }
-            else
-            {
-                var existentialHandler = new ExistentialHandler(_typeDatabase);
-                if (existentialHandler.IsExistential(param.SwiftTypeSpec))
-                {
-                    var protocolList = existentialHandler.ToProtocolListTypeSpec(param.SwiftTypeSpec);
-                    if (protocolList != null && existentialHandler.IsSupportedExistential(protocolList))
-                        paramTypeName = existentialHandler.GetPublicExistentialType(protocolList);
-                    else
-                        paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec);
-                }
-                else if (existentialHandler.IsOptionalExistential(param.SwiftTypeSpec))
-                {
-                    var innerProtocolList = existentialHandler.UnwrapOptionalExistential(param.SwiftTypeSpec);
-                    if (innerProtocolList != null && existentialHandler.IsSupportedExistential(innerProtocolList))
-                    {
-                        var publicInnerType = existentialHandler.GetPublicExistentialType(innerProtocolList);
-                        if (publicInnerType != "object")
-                            paramTypeName = existentialHandler.GetPublicOptionalExistentialType(innerProtocolList);
-                        else
-                            paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec);
-                    }
-                    else
-                        paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec);
-                }
-                else
-                {
-                    paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec);
-                }
-            }
+            var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, isParameter: true);
             var paramName = NameProvider.GetCSharpParameterName(param);
             parameters.Add($"{paramTypeName} {paramName}");
             argNames.Add(paramName);

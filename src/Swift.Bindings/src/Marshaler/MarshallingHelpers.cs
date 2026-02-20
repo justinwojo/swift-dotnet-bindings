@@ -112,5 +112,11 @@ namespace BindingsGeneration
         {
             return methodDecl.Name.EndsWith("_Set");
         }
+
+        /// <summary>
+        /// Checks if a P/Invoke return type string represents bool, which requires
+        /// [return: MarshalAs(UnmanagedType.U1)] for LibraryImport compatibility.
+        /// </summary>
+        public static bool IsBoolReturnType(string returnType) => returnType == "bool";
     }
 }

@@ -325,9 +325,13 @@ namespace BindingsGeneration
 
     /// <summary>
     /// Builds the wrapper method signature (C# public API).
+    /// Uses TypeProjectionFactory for type projection, with legacy fallbacks
+    /// for generic type parameters, bound generics, and protocol-kind types.
     /// </summary>
     public class WrapperSignatureBuilder : SignatureBuilderBase
     {
+        private readonly TypeProjectionFactory _factory = new();
+
         /// <summary>
         /// Initializes a new instance of the <see cref="WrapperSignatureBuilder"/> class.
         /// </summary>
@@ -343,20 +347,27 @@ namespace BindingsGeneration
         {
             var argument = _env.MethodDecl.CSSignature.First();
 
-            // Check for automatic .NET type conversion (SwiftString -> string, SwiftArray -> IReadOnlyList, etc.)
-            if (!_env.MethodDecl.IsAccessor)
+            // Try factory-based projection for non-tuple types.
+            // Tuples use legacy handling to preserve element labels and match marshalling
+            // (factory TupleProjection does deep conversion; marshalling hasn't been updated yet).
+            // Property accessors skip the result for convertible/native-remapped types
+            // (String→string, Array→IReadOnlyList, etc.) to maintain raw-type consistency.
+            if (argument.SwiftTypeSpec is not TupleTypeSpec)
             {
-                var idiomaticType = _env.TypeConversionHandler.GetIdiomaticCSharpType(
-                    argument.SwiftTypeSpec,
-                    isParameter: false,
-                    typeSpec => TranslateTypeSpecForConversion(typeSpec));
-                if (idiomaticType != null)
+                var projection = _factory.Project(argument.SwiftTypeSpec, new ProjectionContext
                 {
-                    SetReturnType(idiomaticType);
+                    TypeDatabase = _env.TypeDatabase,
+                    IsParameter = false
+                });
+                if (projection != null && !ShouldSkipProjectionForAccessor(argument.SwiftTypeSpec))
+                {
+                    SetReturnType(projection.PublicType);
                     return;
                 }
             }
 
+            // Fallback: bound generics (user-defined generic types like Result<T, E>
+            // that the factory returns null for because it can't translate generic args)
             if (_env.BoundGenericsHandler.IsBoundGeneric(argument))
             {
                 var csTypeParam = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(argument, _genericContext);
@@ -364,37 +375,15 @@ namespace BindingsGeneration
                 return;
             }
 
-            // Handle closure return types (including optional closures)
-            if (_env.ClosureHandler.IsClosure(argument))
-            {
-                var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argument)!;
-                if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
-                {
-                    bool isOptional = _env.ClosureHandler.IsOptionalClosure(argument.SwiftTypeSpec);
-                    var delegateType = isOptional
-                        ? _env.ClosureHandler.GetCSharpOptionalDelegateType(argument.SwiftTypeSpec)
-                        : _env.ClosureHandler.GetCSharpDelegateType(closureTypeSpec);
-                    SetReturnType(delegateType);
-                }
-                else
-                {
-                    SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
-                }
-                return;
-            }
-
-            // Handle tuple return types
+            // Fallback: tuple return types (preserves element labels and shallow conversion)
             if (_env.TupleHandler.IsTuple(argument.SwiftTypeSpec))
             {
                 var tupleTypeSpec = (TupleTypeSpec)argument.SwiftTypeSpec;
                 bool hasGenericElements = _env.TupleHandler.HasGenericTypeParameterElements(tupleTypeSpec);
-                // Generic-element tuples (e.g., (T, U)) are accepted when a generic context can resolve them
-                // and the method is not async (async methods skip indirect result, which generic tuples need).
                 if (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec) ||
                     (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec, _genericContext) && !(hasGenericElements && _env.MethodDecl.IsAsync)))
                     SetReturnType(_env.TupleHandler.GetCSharpTupleType(tupleTypeSpec, typeSpec =>
                     {
-                        // Convert bare Swift.String → string (not inside generics — only top-level elements)
                         if (_env.TypeConversionHandler.IsSwiftString(typeSpec))
                             return "string";
                         return TranslateTypeSpecForConversion(typeSpec);
@@ -404,6 +393,7 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Fallback: generic type parameters (T, U)
             if (argument.IsGeneric)
             {
                 var csTypeParamName = _env.GenericTypeMapping[argument.SwiftTypeSpec.ToString()].TypeParameter;
@@ -411,51 +401,8 @@ namespace BindingsGeneration
                 return;
             }
 
-            // Handle existential return types (any Protocol)
-            if (_env.ExistentialHandler.IsExistential(argument.SwiftTypeSpec))
-            {
-                var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(argument.SwiftTypeSpec)!;
-                if (_env.ExistentialHandler.IsSupportedExistential(protocolList))
-                {
-                    var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList);
-                    SetReturnType(publicType);
-                }
-                else
-                {
-                    SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
-                }
-                return;
-            }
-
-            // Handle Optional-wrapped existential return types like (any DataCaching)?
-            if (_env.ExistentialHandler.IsOptionalExistential(argument.SwiftTypeSpec))
-            {
-                var innerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(argument.SwiftTypeSpec)!;
-                if (_env.ExistentialHandler.IsSupportedExistential(innerProtocolList))
-                {
-                    var publicOptionalType = _env.ExistentialHandler.GetPublicOptionalExistentialType(innerProtocolList);
-                    SetReturnType(publicOptionalType);
-                }
-                else
-                {
-                    SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
-                }
-                return;
-            }
-
-            // Check for native type remapping (URL → NSUrl, Data → NSData)
-            if (!_env.MethodDecl.IsAccessor && _env.TypeConversionHandler.HasNativeTypeRemapping(argument.SwiftTypeSpec))
-            {
-                var nativeType = _env.TypeConversionHandler.GetNativeTypeName(argument.SwiftTypeSpec);
-                if (nativeType != null)
-                {
-                    SetReturnType(nativeType);
-                    return;
-                }
-            }
-
+            // Fallback: type record (Protocol kind → AnyType, frozen-with-memory-management, etc.)
             var typeRecord = _env.TypeDatabase.GetTypeRecordOrAnyType(argument.SwiftTypeSpec);
-            // Protocol types (interfaces) are not supported as return types because they don't have Payload property
             if (typeRecord.Kind == TypeRecordKind.Protocol)
             {
                 SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
@@ -477,20 +424,22 @@ namespace BindingsGeneration
             {
                 var csParamName = NameProvider.GetCSharpParameterName(argument);
 
-                // Check for automatic .NET type conversion (SwiftString -> string, SwiftArray -> IEnumerable, etc.)
-                if (!_env.MethodDecl.IsAccessor)
+                // Try factory-based projection for non-tuple types (same guards as HandleReturnType)
+                if (argument.SwiftTypeSpec is not TupleTypeSpec)
                 {
-                    var idiomaticType = _env.TypeConversionHandler.GetIdiomaticCSharpType(
-                        argument.SwiftTypeSpec,
-                        isParameter: true,
-                        typeSpec => TranslateTypeSpecForConversion(typeSpec));
-                    if (idiomaticType != null)
+                    var projection = _factory.Project(argument.SwiftTypeSpec, new ProjectionContext
                     {
-                        AddParameter(idiomaticType, csParamName);
+                        TypeDatabase = _env.TypeDatabase,
+                        IsParameter = true
+                    });
+                    if (projection != null && !ShouldSkipProjectionForAccessor(argument.SwiftTypeSpec))
+                    {
+                        AddParameter(projection.PublicType, csParamName);
                         continue;
                     }
                 }
 
+                // Fallback: bound generics (user-defined generic types)
                 if (_env.BoundGenericsHandler.IsBoundGeneric(argument))
                 {
                     var csTypeParam = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(argument, _genericContext);
@@ -498,27 +447,7 @@ namespace BindingsGeneration
                     continue;
                 }
 
-                // Handle closure arguments (including optional closures)
-                if (_env.ClosureHandler.IsClosure(argument))
-                {
-                    var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argument)!;
-                    if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
-                    {
-                        bool isOptional = _env.ClosureHandler.IsOptionalClosure(argument.SwiftTypeSpec);
-                        var delegateType = isOptional
-                            ? _env.ClosureHandler.GetCSharpOptionalDelegateType(argument.SwiftTypeSpec)
-                            : _env.ClosureHandler.GetCSharpDelegateType(closureTypeSpec);
-                        AddParameter(delegateType, csParamName);
-                    }
-                    else
-                    {
-                        // Unsupported closure - use placeholder that will cause method to be skipped
-                        AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, csParamName);
-                    }
-                    continue;
-                }
-
-                // Handle tuple arguments
+                // Fallback: tuple arguments (preserves element labels and shallow conversion)
                 if (_env.TupleHandler.IsTuple(argument))
                 {
                     var tupleTypeSpec = _env.TupleHandler.GetTupleTypeSpec(argument)!;
@@ -530,92 +459,72 @@ namespace BindingsGeneration
                     continue;
                 }
 
-                // Handle existential arguments (any Protocol)
-                if (_env.ExistentialHandler.IsExistential(argument.SwiftTypeSpec))
-                {
-                    var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(argument.SwiftTypeSpec)!;
-                    if (_env.ExistentialHandler.IsSupportedExistential(protocolList))
-                    {
-                        var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList);
-                        var containerType = _env.ExistentialHandler.GetCSharpExistentialType(protocolList);
-                        // Use Existential type so P/Invoke call extracts container from interface
-                        AddParameter(new MarshalledType.Existential(containerType, publicType), csParamName);
-                    }
-                    else
-                    {
-                        AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, csParamName);
-                    }
-                    continue;
-                }
-
-                // Handle Optional-wrapped existential arguments like (any DataCaching)?
-                if (_env.ExistentialHandler.IsOptionalExistential(argument.SwiftTypeSpec))
-                {
-                    var innerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(argument.SwiftTypeSpec)!;
-                    if (_env.ExistentialHandler.IsSupportedExistential(innerProtocolList))
-                    {
-                        var publicOptionalType = _env.ExistentialHandler.GetPublicOptionalExistentialType(innerProtocolList);
-                        AddParameter(publicOptionalType, csParamName);
-                    }
-                    else
-                    {
-                        AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, csParamName);
-                    }
-                    continue;
-                }
-
                 // Determine ref modifier for inout parameters
                 var inoutModifier = argument.IsInOut ? "ref" : "";
 
+                // Fallback: generic type parameters (T, U)
                 if (argument.IsGeneric)
                 {
                     var csTypeParamName = _env.GenericTypeMapping[argument.SwiftTypeSpec.ToString()].TypeParameter;
                     AddParameter(csTypeParamName, csParamName, inoutModifier);
+                    continue;
                 }
-                else
-                {
-                    // Check for native type remapping (URL → NSUrl, Data → NSData)
-                    // Skip for property accessors to maintain property/accessor type consistency
-                    if (!_env.MethodDecl.IsAccessor && _env.TypeConversionHandler.HasNativeTypeRemapping(argument.SwiftTypeSpec))
-                    {
-                        var nativeType = _env.TypeConversionHandler.GetNativeTypeName(argument.SwiftTypeSpec);
-                        if (nativeType != null)
-                        {
-                            AddParameter(nativeType, csParamName, inoutModifier);
-                            continue;
-                        }
-                    }
 
-                    var typeRecord = _env.TypeDatabase.GetTypeRecordOrAnyType(argument.SwiftTypeSpec);
-                    // Protocol types (interfaces) are not supported as parameters because they don't have Payload property
-                    if (typeRecord.Kind == TypeRecordKind.Protocol)
-                    {
-                        AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, csParamName);
-                        continue;
-                    }
-                    AddParameter(typeRecord.CSharpTypeName.FullyQualifiedName, csParamName, inoutModifier);
+                // Fallback: type record (Protocol kind → AnyType, frozen-with-memory-management, etc.)
+                var typeRecord = _env.TypeDatabase.GetTypeRecordOrAnyType(argument.SwiftTypeSpec);
+                if (typeRecord.Kind == TypeRecordKind.Protocol)
+                {
+                    AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, csParamName);
+                    continue;
                 }
+                AddParameter(typeRecord.CSharpTypeName.FullyQualifiedName, csParamName, inoutModifier);
             }
         }
 
         /// <summary>
-        /// Translates a TypeSpec to C# type name for use in type conversion handlers.
-        /// Handles generic types by translating their type parameters.
+        /// Returns true when this is a property accessor and the type is one that would
+        /// receive an idiomatic conversion (String→string, Array→IReadOnlyList, etc.).
+        /// Accessor methods must use raw types for these to maintain consistency with
+        /// property declarations where PropertyHandler does the conversion.
+        ///
+        /// Closures and existentials are excluded — they use the projected delegate/interface
+        /// type in both accessor and non-accessor contexts (no raw/idiomatic distinction).
+        /// </summary>
+        private bool ShouldSkipProjectionForAccessor(TypeSpec typeSpec)
+        {
+            if (!_env.MethodDecl.IsAccessor)
+                return false;
+
+            // Closures (including Optional<Closure>) always use projected delegate types
+            if (typeSpec is ClosureTypeSpec)
+                return false;
+            if (_env.ClosureHandler.IsOptionalClosure(typeSpec))
+                return false;
+
+            // Existentials (including Optional<any Protocol>) always use projected types
+            if (_env.ExistentialHandler.IsExistential(typeSpec))
+                return false;
+            if (_env.ExistentialHandler.IsOptionalExistential(typeSpec))
+                return false;
+
+            return _env.TypeConversionHandler.IsConvertibleType(typeSpec) ||
+                   _env.TypeConversionHandler.HasNativeTypeRemapping(typeSpec);
+        }
+
+        /// <summary>
+        /// Translates a TypeSpec to C# type name for use in tuple element translation.
+        /// Handles existentials, generic type parameters, and type record lookup.
+        /// Kept for tuple handling until marshalling is updated in step 3c.
         /// </summary>
         private string TranslateTypeSpecForConversion(TypeSpec typeSpec)
         {
             // Handle existential types (ProtocolListTypeSpec and NamedTypeSpec with IsAny)
-            // Use public interface type for wrapper signatures (e.g., ISwiftDescribable instead of ExistentialContainer1)
             if (_env.ExistentialHandler.IsExistential(typeSpec))
             {
                 var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(typeSpec);
                 if (protocolList != null && _env.ExistentialHandler.IsSupportedExistential(protocolList))
                 {
                     var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList);
-                    // "object" fallback means the protocol has no C# interface (Any, unknown protocols).
-                    // In bound generic contexts (e.g., Dictionary<K, Any>), "object" can't be used because
-                    // there's no ISwiftExistentialConvertible to extract the ExistentialContainer.
-                    // Use AnyType placeholder so ContainsPlaceholder skips the method.
                     if (publicType == "object")
                         return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
                     return publicType;
@@ -625,7 +534,6 @@ namespace BindingsGeneration
 
             if (typeSpec is NamedTypeSpec namedTypeSpec)
             {
-                // Check if this is a generic type parameter that can be resolved
                 if (TypeSpecHelpers.IsGenericTypeParameter(namedTypeSpec.Name) &&
                     _genericContext.TryResolve(namedTypeSpec.Name, out var csName))
                 {
@@ -633,16 +541,12 @@ namespace BindingsGeneration
                 }
 
                 var typeRecord = _env.TypeDatabase.GetTypeRecordOrAnyType(namedTypeSpec);
-
-                // If the type falls back to AnyType or is IntPtr (pointer types), don't append generic parameters
-                // Pointer types like UnsafeMutablePointer<T> resolve to IntPtr which doesn't support generics
                 if (typeRecord == TypeDatabaseExtensions.AnyType ||
                     typeRecord == TypeDatabaseExtensions.IntPtrType)
                 {
                     return typeRecord.CSharpTypeName.FullyQualifiedName;
                 }
 
-                // Handle generic parameters
                 if (namedTypeSpec.GenericParameters.Count > 0)
                 {
                     var translatedParams = namedTypeSpec.GenericParameters

@@ -83,6 +83,11 @@ public class TypeProjectionFactory
     {
         var name = namedType.Name;
 
+        // Generic type parameters (τ_0_0, T, U, etc.) cannot be projected — they're
+        // resolved by the caller via GenericTypeMapping.
+        if (TypeSpecHelpers.IsGenericTypeParameter(name))
+            return null;
+
         // Route NamedTypeSpec.IsAny to existential
         if (namedType.IsAny)
         {
@@ -129,6 +134,16 @@ public class TypeProjectionFactory
 
         if (name == "Swift.String")
             return new StringProjection();
+
+        // Pointer types are always mapped to System.IntPtr
+        if (IsPointerType(name))
+            return new BlittableProjection("System.IntPtr");
+
+        // User-defined types with generic parameters require bound-generic translation
+        // (e.g., Result<String, Error> → Result<string, AnyError>) that the factory
+        // doesn't handle yet. Return null to let callers use the legacy path.
+        if (namedType.GenericParameters.Count > 0)
+            return null;
 
         // Try to resolve from the type database
         if (!context.TypeDatabase.TryGetTypeRecord(
@@ -235,4 +250,12 @@ public class TypeProjectionFactory
 
         return new ExistentialProjection(containerType, publicType, proxyClassName);
     }
+
+    /// <summary>
+    /// Determines whether a Swift type name represents a pointer type that should be mapped to System.IntPtr.
+    /// </summary>
+    private static bool IsPointerType(string name) =>
+        name is "Swift.OpaquePointer" or "Swift.UnsafePointer"
+            or "Swift.UnsafeMutablePointer" or "Swift.UnsafeRawPointer"
+            or "Swift.UnsafeMutableRawPointer" or "Builtin.RawPointer";
 }

@@ -459,7 +459,7 @@ namespace BindingsGeneration
                 // Emit directly for non-generic types
                 csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
                 csWriter.WriteLine($"[LibraryImport(\"{libPath}\", EntryPoint = \"{methodDecl.MangledName}\")]");
-                if (pInvokeSignature.ReturnType == "bool")
+                if (MarshallingHelpers.IsBoolReturnType(pInvokeSignature.ReturnType))
                     csWriter.WriteLine("[return: MarshalAs(UnmanagedType.U1)]");
                 csWriter.WriteLine($"private static partial {pInvokeSignature.ReturnType} {pinvokeName}({pInvokeSignature.PInvokeParametersString()});");
             }

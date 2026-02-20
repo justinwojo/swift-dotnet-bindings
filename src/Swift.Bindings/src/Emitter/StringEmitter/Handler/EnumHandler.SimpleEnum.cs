@@ -330,7 +330,7 @@ namespace BindingsGeneration
 
             var pinvokeReturnType = returnsVoid ? "void" : (returnsEnum ? csUnderlyingType : csReturnType);
             csWriter.WriteLine($"[LibraryImport(\"SwiftBindings\", EntryPoint = \"{wrapperSymbol}\")]");
-            if (pinvokeReturnType == "bool")
+            if (MarshallingHelpers.IsBoolReturnType(pinvokeReturnType))
                 csWriter.WriteLine("[return: MarshalAs(UnmanagedType.U1)]");
             csWriter.WriteLine($"private static partial {pinvokeReturnType} PInvoke_{methodPascalName}({string.Join(", ", pinvokeParams)});");
             csWriter.WriteLine();

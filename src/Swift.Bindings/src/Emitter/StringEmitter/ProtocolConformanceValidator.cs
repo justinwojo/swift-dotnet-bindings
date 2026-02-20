@@ -210,34 +210,25 @@ public class ProtocolConformanceValidator
     private string GetInterfacePropertyType(PropertyDecl protoProperty, ProtocolDecl protocolContext)
     {
         var boundGenericsHandler = new BoundGenericsHandler(_typeDatabase);
-        var typeConversionHandler = new TypeConversionHandler(_typeDatabase);
 
-        string rawType;
         if (protoProperty.SwiftTypeSpec is AssociatedTypeReferenceSpec)
             return "?";  // PAT - should have been filtered earlier
-        else if (boundGenericsHandler.IsBoundGeneric(protoProperty))
-            rawType = boundGenericsHandler.TranslateBoundGenericTypeToCSharp(protoProperty);
-        else
-            rawType = _typeDatabase.GetTypeRecordOrAnyType(protoProperty.SwiftTypeSpec).CSharpTypeName.FullyQualifiedName;
 
-        // Apply idiomatic type conversion to match PropertyHandler behavior
-        var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(
-            protoProperty.SwiftTypeSpec,
-            isParameter: false,
-            typeSpec =>
-            {
-                var rec = _typeDatabase.GetTypeRecordOrAnyType(typeSpec);
-                return rec.CSharpTypeName.FullyQualifiedName;
-            });
-        if (idiomaticType != null)
-            return idiomaticType;
-        if (typeConversionHandler.HasNativeTypeRemapping(protoProperty.SwiftTypeSpec))
+        // Try factory-based projection (handles String→string, Array→IReadOnlyList, native remapping, etc.)
+        var factory = new TypeProjectionFactory();
+        var projection = factory.Project(protoProperty.SwiftTypeSpec, new ProjectionContext
         {
-            var nativeType = typeConversionHandler.GetNativeTypeName(protoProperty.SwiftTypeSpec);
-            if (nativeType != null)
-                return nativeType;
-        }
-        return rawType;
+            TypeDatabase = _typeDatabase,
+            IsParameter = false
+        });
+        if (projection != null)
+            return projection.PublicType;
+
+        // Fallback: bound generics, then raw TypeRecord
+        if (boundGenericsHandler.IsBoundGeneric(protoProperty))
+            return boundGenericsHandler.TranslateBoundGenericTypeToCSharp(protoProperty);
+
+        return _typeDatabase.GetTypeRecordOrAnyType(protoProperty.SwiftTypeSpec).CSharpTypeName.FullyQualifiedName;
     }
 
     /// <summary>
@@ -245,7 +236,6 @@ public class ProtocolConformanceValidator
     /// </summary>
     private string GetInterfaceMethodReturnType(MethodDecl protoMethod, ProtocolDecl protocolContext)
     {
-        var typeConversionHandler = new TypeConversionHandler(_typeDatabase);
         var boundGenericsHandler = new BoundGenericsHandler(_typeDatabase);
         var returnType = "void";
 
@@ -254,16 +244,16 @@ public class ProtocolConformanceValidator
             var returnArg = protoMethod.CSSignature[0];
             if (returnArg.SwiftTypeSpec is not TupleTypeSpec tuple || !tuple.IsEmptyTuple)
             {
-                var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(returnArg.SwiftTypeSpec, isParameter: false);
-                if (idiomaticType != null)
+                // Try factory-based projection (handles idiomatic conversion + native remapping)
+                var factory = new TypeProjectionFactory();
+                var projection = factory.Project(returnArg.SwiftTypeSpec, new ProjectionContext
                 {
-                    returnType = idiomaticType;
-                }
-                else if (typeConversionHandler.HasNativeTypeRemapping(returnArg.SwiftTypeSpec))
+                    TypeDatabase = _typeDatabase,
+                    IsParameter = false
+                });
+                if (projection != null)
                 {
-                    // Apply native type remapping (Foundation.URL -> NSUrl, Foundation.Data -> NSData)
-                    returnType = typeConversionHandler.GetNativeTypeName(returnArg.SwiftTypeSpec)
-                        ?? _typeDatabase.GetTypeRecordOrAnyType(returnArg.SwiftTypeSpec).CSharpTypeName.FullyQualifiedName;
+                    returnType = projection.PublicType;
                 }
                 else if (returnArg.SwiftTypeSpec is AssociatedTypeReferenceSpec assocRef)
                 {

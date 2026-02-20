@@ -269,27 +269,21 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             ? GenericContext.FromType(parentType)
             : null;
 
-        // Apply idiomatic type conversion (SwiftString -> string, SwiftArray -> IReadOnlyList, etc.)
+        // Apply idiomatic type projection (SwiftString -> string, SwiftArray -> IReadOnlyList, etc.)
         // This unifies property types with method return types.
         // Skip for existential/optional-existential properties — their types are already
         // determined by ExistentialHandler and shouldn't be overridden by generic Optional handling.
         if (!isExistential && !isOptionalExistential)
         {
-            var idiomaticType = propertyEnv.TypeConversionHandler.GetIdiomaticCSharpType(
-                propertyDecl.SwiftTypeSpec,
-                isParameter: false,
-                typeSpec => TranslateTypeSpecWithGenerics(typeSpec, propertyEnv.TypeDatabase, propertyGenericContext));
-            if (idiomaticType != null)
+            var factory = new TypeProjectionFactory();
+            var projection = factory.Project(propertyDecl.SwiftTypeSpec, new ProjectionContext
             {
-                csTypeName = idiomaticType;
-            }
-            // Apply native type remapping (URL → NSUrl, Data → NSData)
-            // Only when idiomatic conversion doesn't apply (URL/Data are not existentials)
-            else if (propertyEnv.TypeConversionHandler.HasNativeTypeRemapping(propertyDecl.SwiftTypeSpec))
+                TypeDatabase = propertyEnv.TypeDatabase,
+                IsParameter = false
+            });
+            if (projection != null)
             {
-                var nativeType = propertyEnv.TypeConversionHandler.GetNativeTypeName(propertyDecl.SwiftTypeSpec);
-                if (nativeType != null)
-                    csTypeName = nativeType;
+                csTypeName = projection.PublicType;
             }
         }
 

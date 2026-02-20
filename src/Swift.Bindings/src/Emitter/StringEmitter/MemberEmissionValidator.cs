@@ -530,57 +530,26 @@ public static class MemberEmissionValidator
         }
 
         // Get projected return type - must mirror MethodSignature.HandleReturnType exactly
-        var typeConversionHandler = new TypeConversionHandler(typeDatabase);
-        var existentialHandler = new ExistentialHandler(typeDatabase);
-
         if (method.CSSignature.Count > 0)
         {
             var returnArg = method.CSSignature[0];
             if (returnArg.SwiftTypeSpec is not TupleTypeSpec tuple || !tuple.IsEmptyTuple)
             {
-                // Check idiomatic type conversions first (SwiftString -> string, etc.)
-                var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(returnArg.SwiftTypeSpec, isParameter: false);
-                if (idiomaticType != null)
+                // Try factory-based projection (mirrors WrapperSignatureBuilder.HandleReturnType)
+                var factory = new TypeProjectionFactory();
+                var projection = factory.Project(returnArg.SwiftTypeSpec, new ProjectionContext
                 {
-                    projectedReturnTypeName = idiomaticType;
-                }
-                // Handle existential return types (any Protocol) - mirrors MethodSignature:238-252
-                else if (existentialHandler.IsExistential(returnArg.SwiftTypeSpec))
+                    TypeDatabase = typeDatabase,
+                    IsParameter = false
+                });
+                if (projection != null)
                 {
-                    var protocolList = existentialHandler.ToProtocolListTypeSpec(returnArg.SwiftTypeSpec);
-                    if (protocolList != null && existentialHandler.IsSupportedExistential(protocolList))
-                    {
-                        projectedReturnTypeName = existentialHandler.GetPublicExistentialType(protocolList);
-                    }
-                    else
-                    {
-                        projectedReturnTypeName = TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
-                    }
-                }
-                // Handle Optional-wrapped existential return types - mirrors MethodSignature:254-268
-                else if (existentialHandler.IsOptionalExistential(returnArg.SwiftTypeSpec))
-                {
-                    var innerProtocolList = existentialHandler.UnwrapOptionalExistential(returnArg.SwiftTypeSpec);
-                    if (innerProtocolList != null && existentialHandler.IsSupportedExistential(innerProtocolList))
-                    {
-                        projectedReturnTypeName = existentialHandler.GetPublicOptionalExistentialType(innerProtocolList);
-                    }
-                    else
-                    {
-                        projectedReturnTypeName = TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
-                    }
-                }
-                // Apply native type remapping (Foundation.URL -> NSUrl, Foundation.Data -> NSData)
-                // This mirrors MethodSignature.HandleReturnType lines 270-280
-                else if (typeConversionHandler.HasNativeTypeRemapping(returnArg.SwiftTypeSpec))
-                {
-                    projectedReturnTypeName = typeConversionHandler.GetNativeTypeName(returnArg.SwiftTypeSpec)
-                        ?? typeDatabase.GetTypeRecordOrAnyType(returnArg.SwiftTypeSpec).CSharpTypeName.FullyQualifiedName;
+                    projectedReturnTypeName = projection.PublicType;
                 }
                 else
                 {
+                    // Fallback: TypeRecord lookup (protocol → AnyType, others → CSharpTypeName)
                     var typeRecord = typeDatabase.GetTypeRecordOrAnyType(returnArg.SwiftTypeSpec);
-                    // Protocol types (interfaces) project to AnyType - mirrors MethodSignature:283-288
                     if (typeRecord.Kind == TypeRecordKind.Protocol)
                     {
                         projectedReturnTypeName = TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;

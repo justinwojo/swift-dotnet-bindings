@@ -6,30 +6,26 @@ namespace BindingsGeneration;
 public partial class ProtocolProxyEmitter
 {
     /// <summary>
-    /// Resolves a Swift type to its C# name. When <paramref name="forAbiMarshalling"/> is true,
-    /// returns the Swift ABI wrapper type (e.g., SwiftString, SwiftOptional&lt;Boolean&gt;) suitable
-    /// for MarshalFromSwift&lt;T&gt;. When false (default), returns the idiomatic C# type (e.g., string, bool?)
+    /// Resolves a Swift type to its C# name. Uses factory-based projection for NamedTypeSpec
+    /// with fallbacks for closures, existentials, tuples, and idiomatic conversion.
+    /// When <paramref name="forAbiMarshalling"/> is true, returns the P/Invoke type
+    /// (e.g., Swift.SwiftString, ExistentialContainer0) suitable for MarshalFromSwift&lt;T&gt;.
+    /// When false (default), returns the idiomatic C# type (e.g., string, bool?)
     /// used in interface/implementation signatures.
     /// </summary>
-    private string GetCSharpTypeName(TypeSpec? typeSpec, bool forAbiMarshalling = false)
+    private string GetCSharpTypeName(TypeSpec? typeSpec, bool forAbiMarshalling = false, bool isParameter = true)
     {
         if (typeSpec == null) return "object";
 
         // Handle associated type references (e.g., Self.Element -> TElement)
         if (typeSpec is AssociatedTypeReferenceSpec associatedTypeRef)
-        {
-            // Map associated type references to the generic type parameter
-            // Self.Element -> TElement, τ_0_0.Key -> TKey
             return $"T{associatedTypeRef.AssociatedTypeName}";
-        }
 
-        // Handle closure types - translate to Action/Func delegates
+        // Closures: always use GetClosureCSharpType (factory can fail if inner types unknown)
         if (typeSpec is ClosureTypeSpec closureTypeSpec)
-        {
             return GetClosureCSharpType(closureTypeSpec);
-        }
 
-        // Handle tuple types - translate to ValueTuple
+        // Tuples: use GetTupleCSharpType (preserves element labels)
         if (typeSpec is TupleTypeSpec tupleTypeSpec)
         {
             if (tupleTypeSpec.IsEmptyTuple)
@@ -37,51 +33,39 @@ public partial class ProtocolProxyEmitter
             return GetTupleCSharpType(tupleTypeSpec);
         }
 
-        // Handle existential/protocol types using ExistentialHandler
+        // Existentials: keep explicit handling (must match ProtocolHandler interface emission until 3d)
         var existentialHandler = new ExistentialHandler(_typeDatabase);
         if (existentialHandler.IsExistential(typeSpec))
         {
             var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
             if (protocolList != null)
             {
-                // Well-known protocol types (Swift.Error → AnyError) use direct runtime type
                 if (existentialHandler.TryGetWellKnownProtocolType(protocolList, out var wellKnownType))
                     return wellKnownType;
 
                 if (existentialHandler.IsSupportedExistential(protocolList))
                 {
-                    // ABI marshalling needs the raw container type (ExistentialContainer0) for MarshalFromSwift.
-                    // Public signatures must use the public type (object, IProtocol) to match the interface.
                     return forAbiMarshalling
                         ? existentialHandler.GetCSharpExistentialType(protocolList)
                         : existentialHandler.GetPublicExistentialType(protocolList);
                 }
             }
-            // Keep fallback behavior consistent with ProtocolHandler interface emission.
-            // Unsupported existentials flow through to type database fallback (typically Swift.AnyType).
+            // Unsupported existentials fall through to type database fallback
         }
 
-        // C9: Check for idiomatic type conversions (e.g., Optional<Bool> → bool?, Array<String> → IReadOnlyList<string>)
-        // This ensures proxy method signatures match the protocol interface declarations, which use the same
-        // idiomatic check in ProtocolHandler.GetCSharpTypeName(). Without this, the interface declares
-        // Action<bool?> but the proxy implements Action<SwiftOptional<Boolean>>, causing CS0535.
-        // P0 fix: Skip for ABI marshalling — MarshalFromSwift<T> needs the Swift wrapper type (SwiftString,
-        // SwiftOptional<Boolean>), not the idiomatic C# type (string, bool?). Reading Swift ABI memory
-        // as an idiomatic type (e.g., Unsafe.Read<string>) causes runtime corruption.
-        if (!forAbiMarshalling && typeSpec is NamedTypeSpec namedTypeForIdiom)
+        // Idiomatic type conversion (String → string, Array → IReadOnlyList, Dict → IReadOnlyDictionary,
+        // Optional → T?, etc.). Must match what ProtocolHandler.cs emits for interface signatures.
+        // P0 fix: skip for ABI marshalling — MarshalFromSwift<T> needs Swift wrapper types.
+        if (!forAbiMarshalling && typeSpec is NamedTypeSpec)
         {
             var typeConversionHandler = new TypeConversionHandler(_typeDatabase);
-            // Pass typeTranslator so GetElementType can recursively resolve generic type args
-            // (e.g., Optional<Dictionary<K,V>> → SwiftDictionary<K_resolved, V_resolved>?)
-            var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(typeSpec, isParameter: true,
+            var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(typeSpec, isParameter: isParameter,
                 ts => GetCSharpTypeName(ts));
             if (idiomaticType != null)
                 return idiomaticType;
         }
 
-        // Handle Optional<existential> for well-known protocol types (e.g., Optional<any Error> → AnyError?)
-        // This ensures proxy closure signatures (Action<AnyError?>) match interface signatures.
-        // Non-well-known optional existentials still fall through to BoundGenericsHandler.
+        // Optional<existential> for well-known protocols (e.g., Optional<any Error> → AnyError?)
         if (!forAbiMarshalling && typeSpec is NamedTypeSpec optionalExistentialType &&
             optionalExistentialType.Name == "Swift.Optional" && optionalExistentialType.GenericParameters.Count == 1)
         {
@@ -94,14 +78,11 @@ public partial class ProtocolProxyEmitter
             }
         }
 
+        // Bound generics and type record fallback
         try
         {
-            // Handle generic types by getting base type and building generic arguments
             if (typeSpec is NamedTypeSpec namedType && namedType.GenericParameters.Count > 0)
             {
-                // Keep proxy signatures aligned with protocol interface signatures for bound generics.
-                // This is especially important for existential generic arguments (Task 7),
-                // where BoundGenericsHandler intentionally falls back to AnyType.
                 var boundGenericsHandler = new BoundGenericsHandler(_typeDatabase);
                 var tempProperty = new PropertyDecl
                 {
@@ -121,19 +102,17 @@ public partial class ProtocolProxyEmitter
         }
         catch
         {
-            // Unrecognized bound generic (e.g., SwiftDictionary<K,V>) — return AnyType
-            // to avoid bare type name without generic args (CS0305)
             if (typeSpec is NamedTypeSpec { ContainsGenericParameters: true })
                 return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
-            if (typeSpec is NamedTypeSpec namedType)
-                return namedType.NameWithoutModule;
+            if (typeSpec is NamedTypeSpec namedType2)
+                return namedType2.NameWithoutModule;
             return "object";
         }
     }
 
     /// <summary>
-    /// Resolves property types using the same rules as ProtocolHandler.EmitInterfaceProperty
-    /// so proxy signatures always match the emitted interface signatures.
+    /// Resolves property types to match the emitted interface signatures from ProtocolHandler.
+    /// Uses the same resolution rules so proxy signatures always match interface declarations.
     /// </summary>
     private string GetInterfaceCompatiblePropertyTypeName(PropertyDecl property)
     {
