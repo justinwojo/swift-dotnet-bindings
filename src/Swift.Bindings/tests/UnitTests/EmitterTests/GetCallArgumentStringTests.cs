@@ -13,7 +13,7 @@ public class GetCallArgumentStringTests
     [Fact]
     public void GetCallArgumentString_SafeHandle_ReturnsPayload()
     {
-        var param = new Parameter("SafeHandle", "loader");
+        var param = new Parameter(MarshalledType.NonFrozenSafeHandle, "loader");
         var result = Signature.GetCallArgumentString(param);
         Assert.Equal("loader.Payload", result);
     }
@@ -21,7 +21,7 @@ public class GetCallArgumentStringTests
     [Fact]
     public void GetCallArgumentString_EnumSafeHandle_ReturnsDangerousGetHandle()
     {
-        var param = new Parameter("EnumSafeHandle", "status");
+        var param = new Parameter(MarshalledType.EnumSafeHandle, "status");
         var result = Signature.GetCallArgumentString(param);
         Assert.Equal("status.Payload.DangerousGetHandle()", result);
     }
@@ -29,7 +29,7 @@ public class GetCallArgumentStringTests
     [Fact]
     public void GetCallArgumentString_SimpleEnumInt64_ReturnsCast()
     {
-        var param = new Parameter("SimpleEnum:Int64:Direction", "direction");
+        var param = new Parameter(new MarshalledType.SimpleEnum("Int64", "Direction"), "direction");
         var result = Signature.GetCallArgumentString(param);
         Assert.Equal("(Int64)direction", result);
     }
@@ -37,7 +37,7 @@ public class GetCallArgumentStringTests
     [Fact]
     public void GetCallArgumentString_ExistentialContainer_ReturnsConversion()
     {
-        var param = new Parameter("Existential:ExistentialContainer1:IMyProtocol", "handler");
+        var param = new Parameter(new MarshalledType.Existential("ExistentialContainer1", "IMyProtocol"), "handler");
         var result = Signature.GetCallArgumentString(param);
         Assert.Contains("ISwiftExistentialConvertible<ExistentialContainer1>", result);
         Assert.Contains("GetExistentialContainer()", result);
@@ -46,7 +46,7 @@ public class GetCallArgumentStringTests
     [Fact]
     public void GetCallArgumentString_IntPtrFromNonFrozen_ReturnsHandle()
     {
-        var param = new Parameter("IntPtrFromNonFrozen", "response");
+        var param = new Parameter(MarshalledType.NonFrozenIntPtr, "response");
         var result = Signature.GetCallArgumentString(param);
         Assert.Equal("responseHandle", result);
     }
@@ -54,7 +54,7 @@ public class GetCallArgumentStringTests
     [Fact]
     public void GetCallArgumentString_BufferRef_ReturnsBufferRefDisposable()
     {
-        var param = new Parameter("Point.Buffer", "point", "ref");
+        var param = new Parameter(new MarshalledType.FrozenBuffer("Point"), "point", "ref");
         var result = Signature.GetCallArgumentString(param);
         Assert.Equal("ref pointDisposable.BufferRef", result);
     }
@@ -62,7 +62,7 @@ public class GetCallArgumentStringTests
     [Fact]
     public void GetCallArgumentString_BufferNonRef_ReturnsBuffer()
     {
-        var param = new Parameter("Point.Buffer", "point");
+        var param = new Parameter(new MarshalledType.FrozenBuffer("Point"), "point");
         var result = Signature.GetCallArgumentString(param);
         Assert.Equal("pointDisposable.Buffer", result);
     }
@@ -70,7 +70,7 @@ public class GetCallArgumentStringTests
     [Fact]
     public void GetCallArgumentString_OutModifier_ReturnsOutVar()
     {
-        var param = new Parameter("Int64", "result", "out");
+        var param = new Parameter(new MarshalledType.Simple("Int64"), "result", "out");
         var result = Signature.GetCallArgumentString(param);
         Assert.Equal("out var result", result);
     }
@@ -78,7 +78,7 @@ public class GetCallArgumentStringTests
     [Fact]
     public void GetCallArgumentString_RefModifier_ReturnsRef()
     {
-        var param = new Parameter("Int64", "value", "ref");
+        var param = new Parameter(new MarshalledType.Simple("Int64"), "value", "ref");
         var result = Signature.GetCallArgumentString(param);
         Assert.Equal("ref value", result);
     }
@@ -86,7 +86,7 @@ public class GetCallArgumentStringTests
     [Fact]
     public void GetCallArgumentString_SwiftClosureData_ReturnsClosure()
     {
-        var param = new Parameter("SwiftClosureData", "callback");
+        var param = new Parameter(MarshalledType.SwiftClosureLegacy, "callback");
         var result = Signature.GetCallArgumentString(param);
         Assert.Equal("callbackClosure", result);
     }
@@ -94,7 +94,7 @@ public class GetCallArgumentStringTests
     [Fact]
     public void GetCallArgumentString_DelegateUnmanaged_ReturnsFuncPtr()
     {
-        var param = new Parameter("delegate* unmanaged[Cdecl]<long, void>", "callback");
+        var param = new Parameter(new MarshalledType.ConventionCFuncPtr("delegate* unmanaged[Cdecl]<long, void>"), "callback");
         var result = Signature.GetCallArgumentString(param);
         Assert.Equal("callbackFuncPtr", result);
     }
@@ -102,7 +102,7 @@ public class GetCallArgumentStringTests
     [Fact]
     public void GetCallArgumentString_SelfClass_ReturnsPayloadDeref()
     {
-        var param = new Parameter("IntPtr", "_selfClass");
+        var param = new Parameter(new MarshalledType.Simple("IntPtr"), "_selfClass");
         var result = Signature.GetCallArgumentString(param);
         Assert.Equal("*(IntPtr*)_payload.DangerousGetHandle()", result);
     }
@@ -110,7 +110,7 @@ public class GetCallArgumentStringTests
     [Fact]
     public void GetCallArgumentString_SelfFixed_ReturnsCastSelf()
     {
-        var param = new Parameter("IntPtr", "_selfFixed");
+        var param = new Parameter(new MarshalledType.Simple("IntPtr"), "_selfFixed");
         var result = Signature.GetCallArgumentString(param);
         Assert.Equal("(IntPtr)__self", result);
     }
@@ -118,7 +118,7 @@ public class GetCallArgumentStringTests
     [Fact]
     public void GetCallArgumentString_SelfIntPtr_ReturnsPayloadHandle()
     {
-        var param = new Parameter("IntPtr", "_self");
+        var param = new Parameter(new MarshalledType.Simple("IntPtr"), "_self");
         var result = Signature.GetCallArgumentString(param);
         Assert.Equal("_payload.DangerousGetHandle()", result);
     }
@@ -126,7 +126,7 @@ public class GetCallArgumentStringTests
     [Fact]
     public void GetCallArgumentString_PlainType_ReturnsName()
     {
-        var param = new Parameter("Int64", "count");
+        var param = new Parameter(new MarshalledType.Simple("Int64"), "count");
         var result = Signature.GetCallArgumentString(param);
         Assert.Equal("count", result);
     }
@@ -134,7 +134,7 @@ public class GetCallArgumentStringTests
     [Fact]
     public void GetCallArgumentString_AsyncCallback_ReturnsName()
     {
-        var param = new Parameter("AsyncCallback", "onComplete");
+        var param = new Parameter(MarshalledType.AsyncCallback, "onComplete");
         var result = Signature.GetCallArgumentString(param);
         Assert.Equal("onComplete", result);
     }
@@ -142,7 +142,7 @@ public class GetCallArgumentStringTests
     [Fact]
     public void GetCallArgumentString_AsyncErrorCallback_ReturnsName()
     {
-        var param = new Parameter("AsyncErrorCallback", "onError");
+        var param = new Parameter(MarshalledType.AsyncErrorCallback, "onError");
         var result = Signature.GetCallArgumentString(param);
         Assert.Equal("onError", result);
     }
@@ -150,7 +150,7 @@ public class GetCallArgumentStringTests
     [Fact]
     public void GetCallArgumentString_AsyncContext_ReturnsNull()
     {
-        var param = new Parameter("AsyncContext", "context");
+        var param = new Parameter(MarshalledType.AsyncContext, "context");
         var result = Signature.GetCallArgumentString(param);
         Assert.Equal("null", result);
     }
@@ -158,7 +158,7 @@ public class GetCallArgumentStringTests
     [Fact]
     public void GetCallArgumentString_AsyncTask_ReturnsGCHandleConversion()
     {
-        var param = new Parameter("AsyncTask", "task");
+        var param = new Parameter(MarshalledType.AsyncTask, "task");
         var result = Signature.GetCallArgumentString(param);
         Assert.Equal("GCHandle.ToIntPtr(task)", result);
     }
@@ -166,7 +166,7 @@ public class GetCallArgumentStringTests
     [Fact]
     public void GetCallArgumentString_CdeclClosureFuncPtr_ReturnsHandleGuard()
     {
-        var param = new Parameter("CdeclClosureFuncPtr:onComplete:handler", "funcPtr");
+        var param = new Parameter(new MarshalledType.CdeclClosureFuncPtr("onComplete", "handler"), "funcPtr");
         var result = Signature.GetCallArgumentString(param);
         Assert.Contains("handlerHandle.IsAllocated", result);
         Assert.Contains("s_onComplete", result);
@@ -176,7 +176,7 @@ public class GetCallArgumentStringTests
     [Fact]
     public void GetCallArgumentString_CdeclClosureContext_ReturnsHandleGuard()
     {
-        var param = new Parameter("CdeclClosureContext:handler", "context");
+        var param = new Parameter(new MarshalledType.CdeclClosureContext("handler"), "context");
         var result = Signature.GetCallArgumentString(param);
         Assert.Contains("handlerHandle.IsAllocated", result);
         Assert.Contains("GCHandle.ToIntPtr(handlerHandle)", result);
@@ -186,7 +186,7 @@ public class GetCallArgumentStringTests
     [Fact]
     public void GetCallArgumentString_AsyncThrowingContext_ReturnsContextPtr()
     {
-        var param = new Parameter("AsyncThrowingContext:callback", "ctx");
+        var param = new Parameter(new MarshalledType.AsyncThrowingContext("callback"), "ctx");
         var result = Signature.GetCallArgumentString(param);
         Assert.Equal("callbackContextPtr", result);
     }
@@ -194,7 +194,7 @@ public class GetCallArgumentStringTests
     [Fact]
     public void GetCallArgumentString_AsyncThrowingStartFunc_ReturnsStartFunc()
     {
-        var param = new Parameter("AsyncThrowingStartFunc:onStart", "startFunc");
+        var param = new Parameter(new MarshalledType.AsyncThrowingStartFunc("onStart"), "startFunc");
         var result = Signature.GetCallArgumentString(param);
         Assert.Equal("s_onStart_Start", result);
     }
@@ -202,7 +202,7 @@ public class GetCallArgumentStringTests
     [Fact]
     public void GetCallArgumentString_ObjCBridged_ReturnsHandle()
     {
-        var param = new Parameter("ObjCBridged:UIImage", "image");
+        var param = new Parameter(new MarshalledType.ObjCBridged("UIImage"), "image");
         var result = Signature.GetCallArgumentString(param);
         Assert.Equal("imageHandle", result);
     }
@@ -210,7 +210,7 @@ public class GetCallArgumentStringTests
     [Fact]
     public void GetCallArgumentString_NativeRemappedSafeHandle_ReturnsSwiftPayload()
     {
-        var param = new Parameter("NativeRemappedSafeHandle", "url");
+        var param = new Parameter(MarshalledType.NativeRemappedNonFrozen, "url");
         var result = Signature.GetCallArgumentString(param);
         Assert.Equal("urlSwift.Payload", result);
     }
@@ -218,7 +218,7 @@ public class GetCallArgumentStringTests
     [Fact]
     public void GetCallArgumentString_NativeRemapped_ReturnsSwiftSuffix()
     {
-        var param = new Parameter("NativeRemapped:URL", "url");
+        var param = new Parameter(new MarshalledType.NativeRemappedFrozen("URL"), "url");
         var result = Signature.GetCallArgumentString(param);
         Assert.Equal("urlSwift", result);
     }

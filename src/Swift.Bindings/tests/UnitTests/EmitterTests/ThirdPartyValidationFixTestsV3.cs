@@ -21,8 +21,8 @@ public class ThirdPartyValidationFixTestsV3
         // Two parameters named "result" should be deduplicated
         var parameters = new List<Parameter>
         {
-            new("IntPtr", "result"),
-            new("nint", "result")
+            new(new MarshalledType.Simple("IntPtr"), "result"),
+            new(new MarshalledType.Simple("nint"), "result")
         };
 
         SignatureBuilderBase.DeduplicateParameterNames(parameters);
@@ -38,9 +38,9 @@ public class ThirdPartyValidationFixTestsV3
         // The dedup should skip _1 (already taken) and use _2 instead
         var parameters = new List<Parameter>
         {
-            new("IntPtr", "value"),
-            new("nint", "value_1"),
-            new("nint", "value")
+            new(new MarshalledType.Simple("IntPtr"), "value"),
+            new(new MarshalledType.Simple("nint"), "value_1"),
+            new(new MarshalledType.Simple("nint"), "value")
         };
 
         SignatureBuilderBase.DeduplicateParameterNames(parameters);
@@ -55,9 +55,9 @@ public class ThirdPartyValidationFixTestsV3
     {
         var parameters = new List<Parameter>
         {
-            new("IntPtr", "result"),
-            new("nint", "value"),
-            new("nint", "count")
+            new(new MarshalledType.Simple("IntPtr"), "result"),
+            new(new MarshalledType.Simple("nint"), "value"),
+            new(new MarshalledType.Simple("nint"), "count")
         };
 
         SignatureBuilderBase.DeduplicateParameterNames(parameters);

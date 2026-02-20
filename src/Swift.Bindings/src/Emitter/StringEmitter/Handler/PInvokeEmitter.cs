@@ -185,9 +185,9 @@ namespace BindingsGeneration
             {
                 // Our Swift wrapper expects: callback, errorCallback, task (handle), then method arguments
                 // No context parameter needed - we handle the callback in Swift
-                AddParameter("AsyncCallback", NameProvider.GetAsyncCallbackFieldName(_env.MethodDecl));
-                AddParameter("AsyncErrorCallback", NameProvider.GetAsyncErrorCallbackFieldName(_env.MethodDecl));
-                AddParameter("AsyncTask", "handle");
+                AddParameter(MarshalledType.AsyncCallback, NameProvider.GetAsyncCallbackFieldName(_env.MethodDecl));
+                AddParameter(MarshalledType.AsyncErrorCallback, NameProvider.GetAsyncErrorCallbackFieldName(_env.MethodDecl));
+                AddParameter(MarshalledType.AsyncTask, "handle");
             }
         }
 
@@ -225,11 +225,10 @@ namespace BindingsGeneration
                         {
                             // Pass context pointer and start function pointer as separate parameters
                             // The Swift wrapper will use these to create the async closure
-                            // Use special type markers that include the parameter name for variable mapping
                             var callbackName = ClosureHandler.GetCallbackFunctionName(
                                 _env.MethodDecl.Name, argument.Name, _env.MethodDecl.MangledName);
-                            AddParameter($"AsyncThrowingContext:{csName}", csName + "Context");
-                            AddParameter($"AsyncThrowingStartFunc:{callbackName}", csName + "StartFunc");
+                            AddParameter(new MarshalledType.AsyncThrowingContext(csName), csName + "Context");
+                            AddParameter(new MarshalledType.AsyncThrowingStartFunc(callbackName), csName + "StartFunc");
                         }
                         else if (_env.ClosureHandler.RequiresThunk(closureTypeSpec))
                         {
@@ -238,20 +237,20 @@ namespace BindingsGeneration
                                 // Cdecl closure wrapper: pass func ptr + context as separate IntPtr params
                                 var callbackName = ClosureHandler.GetCallbackFunctionName(
                                     _env.MethodDecl.Name, argument.Name, _env.MethodDecl.MangledName);
-                                AddParameter($"CdeclClosureFuncPtr:{callbackName}:{csName}", csName + "FuncPtr");
-                                AddParameter($"CdeclClosureContext:{csName}", csName + "Context");
+                                AddParameter(new MarshalledType.CdeclClosureFuncPtr(callbackName, csName), csName + "FuncPtr");
+                                AddParameter(new MarshalledType.CdeclClosureContext(csName), csName + "Context");
                             }
                             else
                             {
                                 // Legacy path: pass as SwiftClosureData (for async methods with non-async closures)
-                                AddParameter("SwiftClosureData", csName);
+                                AddParameter(MarshalledType.SwiftClosureLegacy, csName);
                             }
                         }
                         else
                         {
                             // @convention(c) closures just need the function pointer
                             var funcPtrType = _env.ClosureHandler.GetPInvokeFunctionPointerType(closureTypeSpec);
-                            AddParameter(funcPtrType, csName);
+                            AddParameter(new MarshalledType.ConventionCFuncPtr(funcPtrType), csName);
                         }
                     }
                     else
@@ -285,7 +284,7 @@ namespace BindingsGeneration
                     {
                         var containerType = _env.ExistentialHandler.GetPInvokeExistentialType(protocolList);
                         var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList);
-                        AddParameter($"Existential:{containerType}:{publicType}", csName);
+                        AddParameter(new MarshalledType.Existential(containerType, publicType), csName);
                     }
                     else
                     {
@@ -318,13 +317,13 @@ namespace BindingsGeneration
                     var swiftWrapperType = _env.TypeConversionHandler.GetSwiftWrapperTypeForNative(argument.SwiftTypeSpec);
                     if (!MarshallingHelpers.IsTypeFrozen(nativeRemapTypeRecord))
                     {
-                        // Non-frozen (URL): use NativeRemappedSafeHandle marker
-                        AddParameter("NativeRemappedSafeHandle", csName);
+                        // Non-frozen (URL): use NativeRemappedNonFrozen marker
+                        AddParameter(MarshalledType.NativeRemappedNonFrozen, csName);
                     }
                     else
                     {
-                        // Frozen (Data): use NativeRemapped:{type} marker
-                        AddParameter($"NativeRemapped:{swiftWrapperType}", csName);
+                        // Frozen (Data): use NativeRemappedFrozen type
+                        AddParameter(new MarshalledType.NativeRemappedFrozen(swiftWrapperType!), csName);
                     }
                     continue;
                 }
@@ -345,7 +344,7 @@ namespace BindingsGeneration
                 if (MarshallingHelpers.IsObjCBridged(argumentTypeRecord))
                 {
                     // Store the original C# type name for use in wrapper generation
-                    AddParameter($"ObjCBridged:{argumentTypeRecord.CSharpTypeName.FullyQualifiedName}", csName);
+                    AddParameter(new MarshalledType.ObjCBridged(argumentTypeRecord.CSharpTypeName.FullyQualifiedName), csName);
                     continue;
                 }
 
@@ -357,12 +356,12 @@ namespace BindingsGeneration
                     {
                         // Simple enums are C# enum value types — pass as underlying int
                         var underlyingType = EnumHandler.GetCSharpEnumUnderlyingType(argumentTypeRecord.RawValueTypeName);
-                        AddParameter($"SimpleEnum:{underlyingType}:{argumentTypeRecord.CSharpTypeName.FullyQualifiedName}", csName);
+                        AddParameter(new MarshalledType.SimpleEnum(underlyingType, argumentTypeRecord.CSharpTypeName.FullyQualifiedName), csName);
                     }
                     else if (_env.MethodDecl.IsAsync)
-                        AddParameter("IntPtrFromNonFrozen", csName);
+                        AddParameter(MarshalledType.NonFrozenIntPtr, csName);
                     else
-                        AddParameter("EnumSafeHandle", csName);
+                        AddParameter(MarshalledType.EnumSafeHandle, csName);
                     continue;
                 }
 
@@ -371,14 +370,14 @@ namespace BindingsGeneration
                     // For async methods, SafeHandle cannot be used with Swift calling convention.
                     // Use IntPtr and manage lifetime manually via DangerousAddRef/DangerousRelease.
                     if (_env.MethodDecl.IsAsync)
-                        AddParameter("IntPtrFromNonFrozen", csName);
+                        AddParameter(MarshalledType.NonFrozenIntPtr, csName);
                     else
-                        AddParameter("SafeHandle", csName);
+                        AddParameter(MarshalledType.NonFrozenSafeHandle, csName);
                     continue;
                 }
 
                 if (MarshallingHelpers.RequiresMemoryManagement(argumentTypeRecord))
-                    AddParameter(argumentTypeRecord.CSharpTypeName.FullyQualifiedName + ".Buffer", csName, inoutModifier);
+                    AddParameter(new MarshalledType.FrozenBuffer(argumentTypeRecord.CSharpTypeName.FullyQualifiedName), csName, inoutModifier);
                 else
                     AddParameter(argumentTypeRecord.CSharpTypeName.FullyQualifiedName, csName, inoutModifier);
             }
@@ -503,7 +502,7 @@ namespace BindingsGeneration
                     // because they modify the struct in-place
                     if (MarshallingHelpers.MethodIsSetter(_env.MethodDecl))
                     {
-                        AddParameter("SwiftSelf", "self");
+                        AddParameter(MarshalledType.SwiftSelfUntyped, "self");
                     }
                     else
                     {
@@ -512,14 +511,14 @@ namespace BindingsGeneration
                         var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(structDecl.SwiftTypeName);
                         var resolvedName = GetResolvedParentTypeName();
                         if (MarshallingHelpers.RequiresMemoryManagement(typeRecord))
-                            AddParameter($"SwiftSelf<{resolvedName}.Buffer>", "self");
+                            AddParameter(new MarshalledType.SwiftSelfTyped($"{resolvedName}.Buffer"), "self");
                         else
-                            AddParameter($"SwiftSelf<{resolvedName}>", "self");
+                            AddParameter(new MarshalledType.SwiftSelfTyped(resolvedName), "self");
                     }
                 }
                 else
                 {
-                    AddParameter("SwiftSelf", "self");
+                    AddParameter(MarshalledType.SwiftSelfUntyped, "self");
                 }
             }
         }

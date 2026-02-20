@@ -19,55 +19,59 @@ Three phases:
 
 ## Phase 1: Build the New Architecture
 
-### Session 1: MarshalledType + TypeProjectionFactory Core
+### Session 1: MarshalledType + TypeProjectionFactory Core — COMPLETE (Feb 19, 2026)
 
 **Goal**: Build both foundation layers in one session — the type-safe parameter encoding and the projection infrastructure.
 
-#### 1a. MarshalledType Discriminated Union
+#### 1a. MarshalledType Discriminated Union — COMPLETE
 
-Replace the 25 string-encoded type markers in `Parameter.Type` with a proper C# discriminated union. All 25 variants are cataloged in the [supplement](Future/architecture-retrospective-supplement.md), Section 1:
+Replaced the 25 string-encoded type markers in `Parameter.Type` with a sealed abstract record hierarchy (`MarshalledType`). All 25 variants implemented as nested record types with full C# pattern matching and deconstruction support:
 
 ```
-Existential(ContainerType, PublicType)
-SimpleEnum(UnderlyingType, EnumTypeName)
-ObjCBridged(CSharpTypeName)
-CdeclClosureFuncPtr(CallbackName, SourceCsName)
-CdeclClosureContext(SourceCsName)
-AsyncThrowingContext(ParamName)
-AsyncThrowingStartFunc(CallbackName)
-NativeRemappedFrozen(SwiftWrapperType)
-AsyncCallback, AsyncErrorCallback, AsyncContext, AsyncTask
-NonFrozenIntPtr, EnumSafeHandle, NativeRemappedNonFrozen, NonFrozenSafeHandle
-SwiftClosureLegacy, Bool
-FrozenBuffer(TypeName), ConventionCFuncPtr(FuncPtrType)
-SwiftSelfTyped(InnerType), SwiftSelfUntyped
+// Prefixed variants (11)
+Existential(ContainerType, PublicType), SimpleEnum(UnderlyingType, EnumTypeName),
+ObjCBridged(CSharpTypeName), CdeclClosureFuncPtr(CallbackName, SourceCsName),
+CdeclClosureContext(SourceCsName), AsyncThrowingContext(ParamName),
+AsyncThrowingStartFunc(CallbackName), NativeRemappedFrozen(SwiftWrapperType),
+FrozenBuffer(TypeName), ConventionCFuncPtr(FuncPtrType), SwiftSelfTyped(InnerType)
+
+// Singleton variants (11)
+AsyncCallback, AsyncErrorCallback, AsyncContext, AsyncTask,
+NonFrozenIntPtr, EnumSafeHandle, NativeRemappedNonFrozen, NonFrozenSafeHandle,
+SwiftClosureLegacy, Bool, SwiftSelfUntyped
+
+// Catch-all
 Simple(CSharpType)
 ```
 
-Change `Parameter.Type` from `string` to `MarshalledType`. Update `SignatureString()`, `PInvokeSignatureString()`, and `GetCallArgumentString()` to pattern-match on variants. Centralize bool `[MarshalAs(UnmanagedType.U1)]` into `MarshalledType.Bool` — delete all 7 ad-hoc `== "bool"` checks.
+Changed `Parameter.Type` from `string` to `MarshalledType`. Updated `SignatureString()`, `PInvokeSignatureString()`, and `GetCallArgumentString()` to pattern-match on variants. Converted all 59 `AddParameter()` call sites across PInvokeEmitter.cs and MethodSignature.cs. Added `PublicTypeName` property for cases needing a string representation. Bool `[MarshalAs(UnmanagedType.U1)]` centralized for parameters; 6 return-type bool checks deferred to Session 3 (they check `Signature.ReturnType` which remains a string).
 
-#### 1b. TypeProjectionFactory + Core Interfaces
+**Key detail**: The string `AddParameter` convenience overload intercepts `"bool"` → `MarshalledType.Bool` to handle cases where the type database resolves `Swift.Bool` to `"bool"` as a string.
 
-Implement the revised interfaces from the [supplement](Future/architecture-retrospective-supplement.md), Section 3.1:
+#### 1b. TypeProjectionFactory + Core Interfaces — COMPLETE
+
+Implemented the revised interfaces:
 
 - `ITypeProjection` — PublicType, PInvokeType, PInvokeAttribute, GetParameterPlan, GetReturnPlan, RequiresSwiftWrapper, GetSwiftWrapperCode
-- `MarshalPlan` — SetupStatements, PInvokeExpression, CleanupStatements, UsingDeclarations, RequiresUnsafe, RequiresFixed
+- `MarshalPlan` — SetupStatements, PInvokeExpression, CleanupStatements, UsingDeclarations, RequiresUnsafe, RequiresFixed, with `PassThrough()` factory
 - `MarshalStatement` hierarchy — Line, Block (if/else, try/finally), Using
 - `ReturnStrategy` enum — Direct, IndirectResult, OutBuffer, AsyncCallback
-- `TypeProjectionFactory` — single entry point: `Project(TypeSpec, ProjectionContext) → ITypeProjection`
+- `TypeProjectionFactory` — single entry point: `Project(TypeSpec, ProjectionContext) → ITypeProjection?` (nullable in Session 1; will tighten to non-null in Session 3)
 
-#### 1c. Simple Projections
+#### 1c. Simple Projections — COMPLETE
 
-Implement projections where the marshalling is a single expression:
-- `BlittableProjection` (int, nint, double, float, IntPtr)
+Implemented 7 projections in `src/Swift.Bindings/src/Marshaler/Projection/`:
+- `BlittableProjection` (int, nint, double, float, IntPtr) — PassThrough plans
 - `BoolProjection` (with intrinsic `[MarshalAs(UnmanagedType.U1)]`)
-- `StringProjection` (SwiftString ↔ string, with disposal)
-- `SimpleEnumProjection` (underlying type cast)
-- `ObjCBridgedProjection` (IntPtr + .Handle extraction)
-- `NativeRemappedProjection` (URL/Data ↔ NSUrl/NSData)
-- `NonFrozenStructProjection` (SafeHandle/IntPtr extraction)
+- `StringProjection` (SwiftString ↔ string, with Using disposal, Direct/IndirectResult strategies)
+- `SimpleEnumProjection` (cast to/from underlying type)
+- `ObjCBridgedProjection` (IntPtr + .Handle extraction / GetNSObject wrapping)
+- `NativeRemappedProjection` (frozen value vs non-frozen SafeHandle variants)
+- `NonFrozenStructProjection` (Payload.DangerousGetHandle / construct from IntPtr)
 
-**Key references**: Supplement Section 1 (string markers), Section 3.1 (interface design)
+All 7 projections are reachable from `TypeProjectionFactory` — including `NativeRemappedProjection` which routes via `TypeRecord.NativeTypeName != null` (no `TypeConversionHandler` dependency needed).
+
+**Validation**: 3573 unit tests (134 new), 700 integration tests, 207 runtime tests — all passing. 31/31 libraries compile at 0 errors, 0 regressions. **Key references**: Supplement Section 1 (string markers), Section 3.1 (interface design)
 
 ---
 
@@ -242,7 +246,7 @@ With per-parameter marshalling handled by `MarshalPlan` and method-level concern
 
 | Session | Phase | What | Scope |
 |---------|-------|------|-------|
-| **1** | Build | MarshalledType DU + TypeProjectionFactory core + simple projections | New code, no existing code changed |
+| **1** | Build | MarshalledType DU + TypeProjectionFactory core + simple projections | **COMPLETE** — new infra + Parameter.Type refactor |
 | **2** | Build | Complex projections (collections, optional, existential, closure, tuple, async) | New code, no existing code changed |
 | **3** | Migrate | Rip out 4 old paths, wire factory everywhere, Conductor cleanup, delete dead code | Massive change across ~40+ files |
 | **4** | Lock Down | Consistency tests, MarshalPlan tests, golden files, full library validation | Tests + validation only |

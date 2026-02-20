@@ -131,7 +131,7 @@ public class PInvokeEmitterTests
         var sig = GetPInvokeSignature(method, typeDb);
 
         Assert.Equal("void", sig.ReturnType);
-        Assert.Contains(sig.Parameters, p => p.Type == "SwiftIndirectResult");
+        Assert.Contains(sig.Parameters, p => p.Type is MarshalledType.Simple("SwiftIndirectResult"));
     }
 
     [Fact]
@@ -217,7 +217,7 @@ public class PInvokeEmitterTests
         var sig = GetPInvokeSignature(method, typeDb);
 
         Assert.Equal("void", sig.ReturnType);
-        Assert.Contains(sig.Parameters, p => p.Type == "SwiftIndirectResult");
+        Assert.Contains(sig.Parameters, p => p.Type is MarshalledType.Simple("SwiftIndirectResult"));
     }
 
     #endregion
@@ -238,7 +238,7 @@ public class PInvokeEmitterTests
         var sig = GetPInvokeSignature(method, typeDb);
 
         var itemsParam = sig.Parameters.First(p => p.Name == "itemsBuffer");
-        Assert.Equal("IntPtr", itemsParam.Type);
+        Assert.True(itemsParam.Type is MarshalledType.Simple("IntPtr"));
     }
 
     [Fact]
@@ -257,7 +257,7 @@ public class PInvokeEmitterTests
         var sig = GetPInvokeSignature(method, typeDb);
 
         var callbackParam = sig.Parameters.First(p => p.Name == "callback");
-        Assert.Equal("SwiftClosureData", callbackParam.Type);
+        Assert.True(callbackParam.Type is MarshalledType.SwiftClosureLegacyType);
     }
 
     [Fact]
@@ -276,8 +276,8 @@ public class PInvokeEmitterTests
         var typeDb = CreateBasicTypeDatabase("Loader");
         var sig = GetPInvokeSignature(method, typeDb);
 
-        Assert.Contains(sig.Parameters, p => p.Name == "callbackFuncPtr" && p.Type.StartsWith("CdeclClosureFuncPtr:"));
-        Assert.Contains(sig.Parameters, p => p.Name == "callbackContext" && p.Type.StartsWith("CdeclClosureContext:"));
+        Assert.Contains(sig.Parameters, p => p.Name == "callbackFuncPtr" && p.Type is MarshalledType.CdeclClosureFuncPtr);
+        Assert.Contains(sig.Parameters, p => p.Name == "callbackContext" && p.Type is MarshalledType.CdeclClosureContext);
     }
 
     [Fact]
@@ -296,7 +296,7 @@ public class PInvokeEmitterTests
         var sig = GetPInvokeSignature(method, typeDb);
 
         var dataParam = sig.Parameters.First(p => p.Name == "data");
-        Assert.Equal("SafeHandle", dataParam.Type);
+        Assert.True(dataParam.Type is MarshalledType.NonFrozenSafeHandleType);
     }
 
     [Fact]
@@ -317,7 +317,7 @@ public class PInvokeEmitterTests
         var sig = GetPInvokeSignature(method, typeDb);
 
         var dataParam = sig.Parameters.First(p => p.Name == "data");
-        Assert.Equal("IntPtrFromNonFrozen", dataParam.Type);
+        Assert.True(dataParam.Type is MarshalledType.NonFrozenIntPtrType);
     }
 
     [Fact]
@@ -336,7 +336,7 @@ public class PInvokeEmitterTests
         var sig = GetPInvokeSignature(method, typeDb);
 
         var propsParam = sig.Parameters.First(p => p.Name == "props");
-        Assert.Equal("Swift.TestModule.Props.Buffer", propsParam.Type);
+        Assert.Equal(new MarshalledType.FrozenBuffer("Swift.TestModule.Props"), propsParam.Type);
     }
 
     [Fact]
@@ -355,7 +355,7 @@ public class PInvokeEmitterTests
         var sig = GetPInvokeSignature(method, typeDb);
 
         var pointParam = sig.Parameters.First(p => p.Name == "point");
-        Assert.Equal("Swift.TestModule.Point", pointParam.Type);
+        Assert.Equal(new MarshalledType.Simple("Swift.TestModule.Point"), pointParam.Type);
     }
 
     [Fact]
@@ -391,7 +391,7 @@ public class PInvokeEmitterTests
         var sig = GetPInvokeSignature(method, typeDb);
 
         var objParam = sig.Parameters.First(p => p.Name == "obj");
-        Assert.StartsWith("ObjCBridged:", objParam.Type);
+        Assert.True(objParam.Type is MarshalledType.ObjCBridged);
         Assert.Contains("IntPtr", objParam.SignatureString());
     }
 
@@ -407,7 +407,7 @@ public class PInvokeEmitterTests
         var sig = GetPInvokeSignature(method, typeDb);
 
         var variantParam = sig.Parameters.First(p => p.Name == "variant");
-        Assert.Equal("EnumSafeHandle", variantParam.Type);
+        Assert.True(variantParam.Type is MarshalledType.EnumSafeHandleType);
         Assert.Contains("IntPtr", variantParam.SignatureString());
     }
 
@@ -426,7 +426,7 @@ public class PInvokeEmitterTests
         var sig = GetPInvokeSignature(method, typeDb);
 
         var statusParam = sig.Parameters.First(p => p.Name == "status");
-        Assert.StartsWith("SimpleEnum:", statusParam.Type);
+        Assert.True(statusParam.Type is MarshalledType.SimpleEnum);
         Assert.Contains("int", statusParam.PInvokeSignatureString());
     }
 
@@ -447,7 +447,7 @@ public class PInvokeEmitterTests
         var sig = GetPInvokeSignature(method, typeDb);
 
         var pairParam = sig.Parameters.First(p => p.Name == "pair");
-        Assert.Contains("ValueTuple", pairParam.Type);
+        Assert.True(pairParam.Type is MarshalledType.Simple(var tupleTypeName) && tupleTypeName.Contains("ValueTuple"));
     }
 
     #endregion
@@ -475,7 +475,7 @@ public class PInvokeEmitterTests
 
         var selfParam = sig.Parameters.FirstOrDefault(p => p.Name == "self");
         Assert.NotNull(selfParam);
-        Assert.Equal("SwiftSelf", selfParam.Type);
+        Assert.True(selfParam.Type is MarshalledType.SwiftSelfUntypedType);
     }
 
     [Fact]
@@ -494,7 +494,7 @@ public class PInvokeEmitterTests
 
         var selfParam = sig.Parameters.FirstOrDefault(p => p.Name == "self");
         Assert.NotNull(selfParam);
-        Assert.Contains("SwiftSelf<Point>", selfParam.Type);
+        Assert.True(selfParam.Type is MarshalledType.SwiftSelfTyped("Point"));
     }
 
     [Fact]
@@ -513,7 +513,7 @@ public class PInvokeEmitterTests
 
         var selfParam = sig.Parameters.FirstOrDefault(p => p.Name == "self");
         Assert.NotNull(selfParam);
-        Assert.Contains("SwiftSelf<Props.Buffer>", selfParam.Type);
+        Assert.True(selfParam.Type is MarshalledType.SwiftSelfTyped("Props.Buffer"));
     }
 
     [Fact]
@@ -533,7 +533,7 @@ public class PInvokeEmitterTests
 
         var selfParam = sig.Parameters.FirstOrDefault(p => p.Name == "self");
         Assert.NotNull(selfParam);
-        Assert.Equal("SwiftSelf", selfParam.Type);
+        Assert.True(selfParam.Type is MarshalledType.SwiftSelfUntypedType);
     }
 
     [Fact]
@@ -549,7 +549,7 @@ public class PInvokeEmitterTests
 
         var selfParam = sig.Parameters.FirstOrDefault(p => p.Name == "_selfClass");
         Assert.NotNull(selfParam);
-        Assert.Equal("IntPtr", selfParam.Type);
+        Assert.Equal(new MarshalledType.Simple("IntPtr"), selfParam.Type);
     }
 
     #endregion
@@ -662,9 +662,9 @@ public class PInvokeEmitterTests
         typeDb.AsyncLibraryName = "SwiftBindings";
         var sig = GetPInvokeSignature(method, typeDb);
 
-        Assert.Contains(sig.Parameters, p => p.Type == "AsyncCallback");
-        Assert.Contains(sig.Parameters, p => p.Type == "AsyncErrorCallback");
-        Assert.Contains(sig.Parameters, p => p.Type == "AsyncTask");
+        Assert.Contains(sig.Parameters, p => p.Type is MarshalledType.AsyncCallbackType);
+        Assert.Contains(sig.Parameters, p => p.Type is MarshalledType.AsyncErrorCallbackType);
+        Assert.Contains(sig.Parameters, p => p.Type is MarshalledType.AsyncTaskType);
     }
 
     [Fact]
@@ -680,7 +680,7 @@ public class PInvokeEmitterTests
 
         var errorParam = sig.Parameters.FirstOrDefault(p => p.Name == "error");
         Assert.NotNull(errorParam);
-        Assert.Equal("SwiftError", errorParam.Type);
+        Assert.Equal(new MarshalledType.Simple("SwiftError"), errorParam.Type);
         Assert.Equal("out", errorParam.modifier);
     }
 
@@ -698,7 +698,7 @@ public class PInvokeEmitterTests
         var sig = GetPInvokeSignature(method, typeDb);
 
         Assert.DoesNotContain(sig.Parameters, p => p.Name == "error");
-        Assert.Contains(sig.Parameters, p => p.Type == "AsyncCallback");
+        Assert.Contains(sig.Parameters, p => p.Type is MarshalledType.AsyncCallbackType);
     }
 
     [Fact]
@@ -707,10 +707,10 @@ public class PInvokeEmitterTests
         var (method, typeDb) = SetupClassMethod("doWork", "Swift.Void");
         var sig = GetPInvokeSignature(method, typeDb);
 
-        Assert.DoesNotContain(sig.Parameters, p => p.Type == "AsyncCallback");
-        Assert.DoesNotContain(sig.Parameters, p => p.Type == "AsyncErrorCallback");
-        Assert.DoesNotContain(sig.Parameters, p => p.Type == "AsyncTask");
-        Assert.DoesNotContain(sig.Parameters, p => p.Type == "SwiftError");
+        Assert.DoesNotContain(sig.Parameters, p => p.Type is MarshalledType.AsyncCallbackType);
+        Assert.DoesNotContain(sig.Parameters, p => p.Type is MarshalledType.AsyncErrorCallbackType);
+        Assert.DoesNotContain(sig.Parameters, p => p.Type is MarshalledType.AsyncTaskType);
+        Assert.DoesNotContain(sig.Parameters, p => p.Type is MarshalledType.Simple("SwiftError"));
     }
 
     #endregion
@@ -740,7 +740,7 @@ public class PInvokeEmitterTests
         var typeDb = CreateBasicTypeDatabase("Loader");
         var sig = GetPInvokeSignature(method, typeDb);
 
-        Assert.DoesNotContain(sig.Parameters, p => p.Type == "AsyncCallback");
+        Assert.DoesNotContain(sig.Parameters, p => p.Type is MarshalledType.AsyncCallbackType);
         Assert.DoesNotContain(sig.Parameters, p => p.Name == "self");
     }
 

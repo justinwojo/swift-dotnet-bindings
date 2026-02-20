@@ -1,0 +1,315 @@
+// Copyright (c) 2026 Justin Wojciechowski.
+// Licensed under the MIT License.
+
+#nullable enable
+
+using System.Diagnostics.CodeAnalysis;
+using Xunit;
+
+namespace BindingsGeneration.Tests;
+
+/// <summary>
+/// Tests for TypeProjectionFactory — verifies correct routing of TypeSpec
+/// to the appropriate ITypeProjection, and null for unsupported types.
+/// </summary>
+public class TypeProjectionFactoryTests
+{
+    private readonly TypeProjectionFactory _factory = new();
+
+    #region Well-Known Simple Types
+
+    [Fact]
+    public void Project_SwiftBool_ReturnsBoolProjection()
+    {
+        var typeSpec = new NamedTypeSpec("Swift.Bool");
+        var ctx = CreateContext();
+
+        var projection = _factory.Project(typeSpec, ctx);
+
+        Assert.NotNull(projection);
+        Assert.IsType<BoolProjection>(projection);
+        Assert.Equal("bool", projection.PublicType);
+        Assert.Equal("[MarshalAs(UnmanagedType.U1)]", projection.PInvokeAttribute);
+    }
+
+    [Fact]
+    public void Project_SwiftString_ReturnsStringProjection()
+    {
+        var typeSpec = new NamedTypeSpec("Swift.String");
+        var ctx = CreateContext();
+
+        var projection = _factory.Project(typeSpec, ctx);
+
+        Assert.NotNull(projection);
+        Assert.IsType<StringProjection>(projection);
+        Assert.Equal("string", projection.PublicType);
+        Assert.Equal("SwiftString", projection.PInvokeType);
+    }
+
+    #endregion
+
+    #region TypeDatabase-Resolved Types
+
+    [Fact]
+    public void Project_ObjCBridgedType_ReturnsObjCBridgedProjection()
+    {
+        var db = new MockTypeDatabase();
+        db.AddType("TestModule.BridgedType", new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "BridgedType"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.BridgedType"),
+            MetadataAccessor = "",
+            Flags = TypeRecordFlags.ObjCBridged,
+            Kind = TypeRecordKind.Class
+        });
+        var ctx = CreateContext(db);
+        var typeSpec = new NamedTypeSpec("TestModule.BridgedType");
+
+        var projection = _factory.Project(typeSpec, ctx);
+
+        Assert.NotNull(projection);
+        Assert.IsType<ObjCBridgedProjection>(projection);
+        Assert.Equal("Swift.TestModule.BridgedType", projection.PublicType);
+    }
+
+    [Fact]
+    public void Project_SimpleEnum_ReturnsSimpleEnumProjection()
+    {
+        var db = new MockTypeDatabase();
+        db.AddType("TestModule.Direction", new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Direction"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Direction"),
+            MetadataAccessor = "",
+            Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
+            Kind = TypeRecordKind.Enum,
+            RawValueTypeName = "Int32"
+        });
+        var ctx = CreateContext(db);
+        var typeSpec = new NamedTypeSpec("TestModule.Direction");
+
+        var projection = _factory.Project(typeSpec, ctx);
+
+        Assert.NotNull(projection);
+        Assert.IsType<SimpleEnumProjection>(projection);
+        Assert.Equal("Swift.TestModule.Direction", projection.PublicType);
+        Assert.Equal("int", projection.PInvokeType);
+    }
+
+    [Fact]
+    public void Project_NativeRemappedFrozen_ReturnsNativeRemappedProjection()
+    {
+        // Foundation.Data → frozen, NativeTypeName = NSData, CSharpTypeName = SwiftData
+        var db = new MockTypeDatabase();
+        db.AddType("Foundation.Data", new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftData"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.Data"),
+            MetadataAccessor = "",
+            Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Struct,
+            NativeTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSData")
+        });
+        var ctx = CreateContext(db);
+        var typeSpec = new NamedTypeSpec("Foundation.Data");
+
+        var projection = _factory.Project(typeSpec, ctx);
+
+        Assert.NotNull(projection);
+        Assert.IsType<NativeRemappedProjection>(projection);
+        Assert.Equal("Foundation.NSData", projection.PublicType);
+        Assert.Equal("Swift.SwiftData", projection.PInvokeType);
+    }
+
+    [Fact]
+    public void Project_NativeRemappedNonFrozen_ReturnsNativeRemappedProjection()
+    {
+        // Foundation.URL → non-frozen, NativeTypeName = NSUrl, CSharpTypeName = SwiftURL
+        var db = new MockTypeDatabase();
+        db.AddType("Foundation.URL", new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftURL"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.URL"),
+            MetadataAccessor = "",
+            Flags = TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Struct,
+            NativeTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSUrl")
+        });
+        var ctx = CreateContext(db);
+        var typeSpec = new NamedTypeSpec("Foundation.URL");
+
+        var projection = _factory.Project(typeSpec, ctx);
+
+        Assert.NotNull(projection);
+        Assert.IsType<NativeRemappedProjection>(projection);
+        Assert.Equal("Foundation.NSUrl", projection.PublicType);
+        Assert.Equal("SafeHandle", projection.PInvokeType);
+    }
+
+    [Fact]
+    public void Project_NonFrozenStruct_ReturnsNonFrozenStructProjection()
+    {
+        var db = new MockTypeDatabase();
+        db.AddType("TestModule.NonFrozen", new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "NonFrozen"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.NonFrozen"),
+            MetadataAccessor = "",
+            Flags = TypeRecordFlags.None,
+            Kind = TypeRecordKind.Struct
+        });
+        var ctx = CreateContext(db);
+        var typeSpec = new NamedTypeSpec("TestModule.NonFrozen");
+
+        var projection = _factory.Project(typeSpec, ctx);
+
+        Assert.NotNull(projection);
+        Assert.IsType<NonFrozenStructProjection>(projection);
+        Assert.Equal("Swift.TestModule.NonFrozen", projection.PublicType);
+        Assert.Equal("IntPtr", projection.PInvokeType);
+    }
+
+    [Fact]
+    public void Project_FrozenBlittableStruct_ReturnsBlittableProjection()
+    {
+        var db = new MockTypeDatabase();
+        db.AddType("TestModule.Point", new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Point"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
+            MetadataAccessor = "",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+        var ctx = CreateContext(db);
+        var typeSpec = new NamedTypeSpec("TestModule.Point");
+
+        var projection = _factory.Project(typeSpec, ctx);
+
+        Assert.NotNull(projection);
+        Assert.IsType<BlittableProjection>(projection);
+        Assert.Equal("Swift.TestModule.Point", projection.PublicType);
+        Assert.Equal("Swift.TestModule.Point", projection.PInvokeType);
+    }
+
+    [Fact]
+    public void Project_NonFrozenClass_ReturnsNonFrozenStructProjection()
+    {
+        var db = new MockTypeDatabase();
+        db.AddType("TestModule.MyClass", new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "MyClass"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyClass"),
+            MetadataAccessor = "",
+            Flags = TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class
+        });
+        var ctx = CreateContext(db);
+        var typeSpec = new NamedTypeSpec("TestModule.MyClass");
+
+        var projection = _factory.Project(typeSpec, ctx);
+
+        Assert.NotNull(projection);
+        Assert.IsType<NonFrozenStructProjection>(projection);
+        Assert.Equal("Swift.TestModule.MyClass", projection.PublicType);
+    }
+
+    #endregion
+
+    #region Unsupported Types Return Null
+
+    [Fact]
+    public void Project_TupleType_ReturnsNull()
+    {
+        var typeSpec = new TupleTypeSpec();
+        var ctx = CreateContext();
+
+        var projection = _factory.Project(typeSpec, ctx);
+
+        Assert.Null(projection);
+    }
+
+    [Fact]
+    public void Project_ClosureType_ReturnsNull()
+    {
+        var typeSpec = new ClosureTypeSpec();
+        var ctx = CreateContext();
+
+        var projection = _factory.Project(typeSpec, ctx);
+
+        Assert.Null(projection);
+    }
+
+    [Fact]
+    public void Project_UnknownNamedType_ReturnsNull()
+    {
+        var typeSpec = new NamedTypeSpec("Unknown.Type");
+        var ctx = CreateContext();
+
+        var projection = _factory.Project(typeSpec, ctx);
+
+        Assert.Null(projection);
+    }
+
+    [Fact]
+    public void Project_FrozenWithMemoryManagement_ReturnsNull()
+    {
+        // Frozen + RequiresMemoryManagement (like Swift.String in the DB) — not a simple blittable
+        var db = new MockTypeDatabase();
+        db.AddType("TestModule.ManagedFrozen", new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "ManagedFrozen"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ManagedFrozen"),
+            MetadataAccessor = "",
+            Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Struct
+        });
+        var ctx = CreateContext(db);
+        var typeSpec = new NamedTypeSpec("TestModule.ManagedFrozen");
+
+        var projection = _factory.Project(typeSpec, ctx);
+
+        Assert.Null(projection);
+    }
+
+    #endregion
+
+    #region Helpers
+
+    private static ProjectionContext CreateContext(ITypeDatabase? db = null)
+    {
+        return new ProjectionContext
+        {
+            TypeDatabase = db ?? new MockTypeDatabase()
+        };
+    }
+
+    /// <summary>
+    /// Minimal ITypeDatabase for factory tests.
+    /// </summary>
+    private class MockTypeDatabase : ITypeDatabase
+    {
+        private readonly Dictionary<string, TypeRecord> _types = new();
+
+        public void AddType(string moduleQualifiedName, TypeRecord record)
+        {
+            _types[moduleQualifiedName] = record;
+        }
+
+        public bool IsTypeProcessed(SwiftTypeName swiftTypeName) =>
+            _types.ContainsKey(swiftTypeName.ModuleQualifiedName);
+
+        public bool TryGetTypeRecord(SwiftTypeName swiftTypeName, [NotNullWhen(returnValue: true)] out TypeRecord? record)
+        {
+            return _types.TryGetValue(swiftTypeName.ModuleQualifiedName, out record);
+        }
+
+        public string GetLibraryPath(string moduleName) => "";
+
+        public string? AsyncLibraryName => null;
+
+        public void UpdateTypeRecord(SwiftTypeName name, TypeRecord record) { }
+    }
+
+    #endregion
+}

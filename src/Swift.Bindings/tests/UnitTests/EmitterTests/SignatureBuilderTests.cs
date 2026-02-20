@@ -657,9 +657,9 @@ public class SignatureBuilderTests
     #region PInvoke Enum Parameter Tests
 
     [Theory]
-    [InlineData(TypeRecordFlags.Frozen, "EnumSafeHandle")]
-    [InlineData(TypeRecordFlags.None, "EnumSafeHandle")]
-    public void PInvokeSignature_EnumParameter_UsesEnumSafeHandle(TypeRecordFlags enumFlags, string expectedType)
+    [InlineData(TypeRecordFlags.Frozen)]
+    [InlineData(TypeRecordFlags.None)]
+    public void PInvokeSignature_EnumParameter_UsesEnumSafeHandle(TypeRecordFlags enumFlags)
     {
         var typeDatabase = CreateTypeDatabaseWithEnum(enumFlags);
         var moduleDecl = CreateModuleDeclFull();
@@ -674,7 +674,7 @@ public class SignatureBuilderTests
         var signature = builder.Build();
 
         var variantParam = signature.Parameters.First(p => p.Name == "variant");
-        Assert.Equal(expectedType, variantParam.Type);
+        Assert.True(variantParam.Type is MarshalledType.EnumSafeHandleType);
         // EnumSafeHandle maps to IntPtr in the actual P/Invoke signature
         Assert.Contains("IntPtr", variantParam.SignatureString());
     }
@@ -735,7 +735,7 @@ public class SignatureBuilderTests
 
         var variantParam = signature.Parameters.First(p => p.Name == "variant");
         // Async enum params use IntPtrFromNonFrozen for copy-buffer lifetime management
-        Assert.Equal("IntPtrFromNonFrozen", variantParam.Type);
+        Assert.True(variantParam.Type is MarshalledType.NonFrozenIntPtrType);
         Assert.Contains("IntPtr", variantParam.SignatureString());
     }
 

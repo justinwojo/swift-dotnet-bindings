@@ -337,7 +337,7 @@ public class ConsumerSafetyAttributeTests
     [Fact]
     public void ParametersString_NullAttributes_ReturnsDefault()
     {
-        var sig = new Signature("void", new[] { new Parameter("int", "x") });
+        var sig = new Signature("void", new[] { new Parameter(new MarshalledType.Simple("int"), "x") });
 
         var result = sig.ParametersString((IReadOnlyDictionary<string, string>?)null);
 
@@ -381,7 +381,7 @@ public class ConsumerSafetyAttributeTests
     [Fact]
     public void ParametersString_EmptyAttributes_ReturnsDefault()
     {
-        var sig = new Signature("void", new[] { new Parameter("int", "x") });
+        var sig = new Signature("void", new[] { new Parameter(new MarshalledType.Simple("int"), "x") });
 
         var result = sig.ParametersString(new Dictionary<string, string>());
 
