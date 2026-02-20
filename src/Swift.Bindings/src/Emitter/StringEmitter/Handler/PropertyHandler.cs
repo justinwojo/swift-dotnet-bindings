@@ -285,6 +285,20 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             {
                 csTypeName = projection.PublicType;
             }
+            else
+            {
+                // Fallback: when factory can't project (e.g., Optional<Array<UserType<T>>>
+                // where UserType has generic parameters), use GetIdiomaticCSharpType with
+                // typeTranslator to match the getter/setter body conversion.
+                Func<TypeSpec, string> typeTranslator = ts =>
+                    TranslateTypeSpecWithGenerics(ts, propertyEnv.TypeDatabase, propertyGenericContext);
+                var idiomaticType = propertyEnv.TypeConversionHandler.GetIdiomaticCSharpType(
+                    propertyDecl.SwiftTypeSpec, isParameter: false, typeTranslator);
+                if (idiomaticType != null)
+                {
+                    csTypeName = idiomaticType;
+                }
+            }
         }
 
         // Detect and skip async properties (properties with async getters/setters are not yet supported)
@@ -614,7 +628,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
     /// This matches the logic in WrapperSignatureBuilder.TranslateTypeSpecForConversion
     /// to ensure generic types like SwiftArray&lt;T&gt; are fully qualified.
     /// </summary>
-    private static string TranslateTypeSpecWithGenerics(TypeSpec typeSpec, ITypeDatabase typeDatabase, GenericContext? genericContext = null)
+    internal static string TranslateTypeSpecWithGenerics(TypeSpec typeSpec, ITypeDatabase typeDatabase, GenericContext? genericContext = null)
     {
         // Resolve generic type parameters (τ_0_0 → T0) using GenericContext
         if (genericContext != null && typeSpec is NamedTypeSpec genSpec &&

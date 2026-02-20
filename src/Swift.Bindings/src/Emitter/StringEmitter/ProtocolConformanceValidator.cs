@@ -226,7 +226,16 @@ public class ProtocolConformanceValidator
 
         // Fallback: bound generics, then raw TypeRecord
         if (boundGenericsHandler.IsBoundGeneric(protoProperty))
-            return boundGenericsHandler.TranslateBoundGenericTypeToCSharp(protoProperty);
+        {
+            var rawType = boundGenericsHandler.TranslateBoundGenericTypeToCSharp(protoProperty);
+            // Apply idiomatic override for container types, using same translator as PropertyHandler
+            var typeConversionHandler = new TypeConversionHandler(_typeDatabase);
+            Func<TypeSpec, string> translator = ts =>
+                PropertyHandler.TranslateTypeSpecWithGenerics(ts, _typeDatabase, null);
+            var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(
+                protoProperty.SwiftTypeSpec, isParameter: false, translator);
+            return idiomaticType ?? rawType;
+        }
 
         return _typeDatabase.GetTypeRecordOrAnyType(protoProperty.SwiftTypeSpec).CSharpTypeName.FullyQualifiedName;
     }

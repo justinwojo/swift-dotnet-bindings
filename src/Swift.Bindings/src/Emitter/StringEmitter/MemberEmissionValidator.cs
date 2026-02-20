@@ -209,6 +209,16 @@ public static class MemberEmissionValidator
                     ? GenericContext.FromType(boundParentType)
                     : GenericContext.Empty;
                 projectedTypeName = boundGenericsHandler.TranslateBoundGenericTypeToCSharp(property, boundGenericContext);
+
+                // Apply idiomatic type override for container types (Optional<Array>, Optional<Dictionary>)
+                // to match PropertyHandler emission which does the same fallback.
+                var typeConversionHandler = new TypeConversionHandler(typeDatabase);
+                Func<TypeSpec, string> idiomaticTranslator = ts =>
+                    PropertyHandler.TranslateTypeSpecWithGenerics(ts, typeDatabase, boundGenericContext);
+                var idiomaticOverride = typeConversionHandler.GetIdiomaticCSharpType(
+                    property.SwiftTypeSpec, isParameter: false, idiomaticTranslator);
+                if (idiomaticOverride != null)
+                    projectedTypeName = idiomaticOverride;
             }
             else if (isGenericTypeParam && property.ParentDecl is TypeDecl genericParentType && genericParentType.IsGeneric)
             {
@@ -447,6 +457,22 @@ public static class MemberEmissionValidator
                 {
                     skipDetails = $"Bound generic contains existential type argument '{existentialType}'.";
                     return SkipReason.UnsupportedExistential;
+                }
+            }
+        }
+
+        // B20: Check for unsupported closures in method parameters.
+        // Mirrors property closure check in CanEmitProperty (lines 121-150).
+        var closureHandler = new ClosureHandler(typeDatabase);
+        foreach (var argument in method.CSSignature.Skip(1))
+        {
+            if (closureHandler.IsClosure(argument))
+            {
+                var closureTypeSpec = closureHandler.GetClosureTypeSpec(argument);
+                if (closureTypeSpec == null || !closureHandler.IsSupportedClosure(closureTypeSpec))
+                {
+                    skipDetails = $"Parameter '{argument.Name}' has unsupported closure type.";
+                    return SkipReason.UnsupportedClosure;
                 }
             }
         }
@@ -742,7 +768,25 @@ public static class MemberEmissionValidator
             return SkipReason.SynthesizedCodable;
         }
 
-        // Skip constructors (always allowed through)
+        // B20: Skip methods/constructors with unsupported closure parameters.
+        // P/Invoke emits AnyType for unsupported closures, but TypeProjectionFactory
+        // projects them to Action<>/Func<> — wrapper body gets CS1503 type mismatch.
+        // Must run BEFORE the constructor early-return so constructors are also covered.
+        var closureHandler = new ClosureHandler(typeDatabase);
+        foreach (var arg in method.CSSignature.Skip(1)) // Skip return type (element 0)
+        {
+            if (closureHandler.IsClosure(arg))
+            {
+                var closureTypeSpec = closureHandler.GetClosureTypeSpec(arg);
+                if (closureTypeSpec != null && !closureHandler.IsSupportedClosure(closureTypeSpec))
+                {
+                    skipDetails = $"Parameter '{arg.Name}' has unsupported closure type that cannot be marshalled.";
+                    return SkipReason.UnsupportedClosure;
+                }
+            }
+        }
+
+        // Skip constructors (always allowed through for remaining checks)
         if (method.IsConstructor)
             return null;
 
