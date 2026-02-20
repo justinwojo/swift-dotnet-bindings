@@ -126,6 +126,46 @@ internal static class ProtocolSignatureHelper
         if (projection != null)
             return projection.PublicType;
 
+        // Closure fallback when factory can't fully resolve (e.g., inner types not in TypeDatabase)
+        if (typeSpec is ClosureTypeSpec closureType)
+        {
+            var args = closureType.EachArgument()
+                .Select(a => ProjectTypeToCSharp(a, typeDatabase, protocolContext, isParameter: true))
+                .ToList();
+            bool hasReturn = !closureType.ReturnType.IsEmptyTuple;
+
+            if (!hasReturn)
+            {
+                return args.Count == 0 ? "Action" : $"Action<{string.Join(", ", args)}>";
+            }
+            else
+            {
+                var retName = ProjectTypeToCSharp(closureType.ReturnType, typeDatabase, protocolContext, isParameter: false);
+                return args.Count == 0 ? $"Func<{retName}>" : $"Func<{string.Join(", ", args)}, {retName}>";
+            }
+        }
+
+        // Tuple fallback
+        if (typeSpec is TupleTypeSpec tupleType)
+        {
+            if (tupleType.IsEmptyTuple) return "void";
+            var elements = tupleType.Elements
+                .Select(e => ProjectTypeToCSharp(e, typeDatabase, protocolContext, isParameter))
+                .ToList();
+            return $"({string.Join(", ", elements)})";
+        }
+
+        // Idiomatic conversion fallback — handles types the factory couldn't fully resolve
+        // (e.g., Optional<Dictionary<AnyHashable, Int>> where inner types aren't in TypeDatabase)
+        if (typeSpec is NamedTypeSpec)
+        {
+            var typeConversionHandler = new TypeConversionHandler(typeDatabase);
+            var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(typeSpec, isParameter: isParameter,
+                ts => ProjectTypeToCSharp(ts, typeDatabase, protocolContext, isParameter));
+            if (idiomaticType != null)
+                return idiomaticType;
+        }
+
         // Fallback for types the factory can't handle (user-defined bound generics, protocol-kind, etc.)
         if (typeSpec is NamedTypeSpec namedTypeSpec && namedTypeSpec.ContainsGenericParameters)
         {

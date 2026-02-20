@@ -650,7 +650,7 @@ namespace BindingsGeneration
             {
                 var typeConversionHandler = new TypeConversionHandler(typeDatabase);
                 var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(typeSpec, isParameter: isParameter,
-                    ts => GetCSharpTypeName(ts, typeDatabase, boundGenericsHandler, protocolContext));
+                    ts => GetCSharpTypeName(ts, typeDatabase, boundGenericsHandler, protocolContext, isParameter));
                 if (idiomaticType != null)
                     return idiomaticType;
             }

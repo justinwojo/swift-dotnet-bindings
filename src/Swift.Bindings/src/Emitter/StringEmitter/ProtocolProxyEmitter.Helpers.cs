@@ -71,7 +71,7 @@ public partial class ProtocolProxyEmitter
         {
             var typeConversionHandler = new TypeConversionHandler(_typeDatabase);
             var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(typeSpec, isParameter: isParameter,
-                ts => GetCSharpTypeName(ts));
+                ts => GetCSharpTypeName(ts, isParameter: isParameter));
             if (idiomaticType != null)
                 return idiomaticType;
         }
