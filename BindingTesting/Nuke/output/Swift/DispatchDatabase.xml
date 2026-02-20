@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<swifttypedatabase version="1.0" moduleName="Dispatch" modulePath="/usr/lib/swift/libswiftDispatch.dylib">
-    <entities>
-        <entity managedNameSpace="Swift" managedTypeName="DispatchQueue">
-            <typedeclaration kind="class" name="DispatchQueue" module="Dispatch" mangledName="$sSo17OS_dispatch_queueC" frozen="false" requiresMemoryManagement="true" />
-        </entity>
-    </entities>
-</swifttypedatabase>

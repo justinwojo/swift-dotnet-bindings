@@ -187,7 +187,7 @@ When the Mono JIT `CallConvSwift` bug is fixed in dotnet/runtime, these workarou
 7. Remove flag-setting code from `MethodHandler.cs` (both constructor and method paths)
 8. Remove `WrapperEmitter.Marshalling.cs` Cdecl-gated marshalling branch — revert to unconditional `SwiftClosureData` path
 9. Delete `ClosureCdeclEmitterTests.cs`
-10. Verify: `./run-tests.sh`, `cd TestFramework && ./build-and-test.sh` (94/94), `cd BindingTesting/Nuke && ./build-all.sh` (0 errors)
+10. Verify: `./run-tests.sh`, `cd TestFramework && ./build-and-test.sh` (94/94), `./validate-libraries.sh --filter Nuke`
 
 #### Phase 3: Remove Existential Metadata Wrapper (Workaround C)
 

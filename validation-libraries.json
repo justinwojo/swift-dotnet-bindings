@@ -1,0 +1,219 @@
+{
+  "libraries": [
+    {
+      "name": "Alamofire",
+      "repository": "https://github.com/Alamofire/Alamofire.git",
+      "version": "5.10.2",
+      "revision": "513364f870f6bfc468f9d2ff0a95caccc10044c5",
+      "mode": "source",
+      "minIOS": "15.0",
+      "products": [
+        { "scheme": "Alamofire", "framework": "Alamofire" }
+      ]
+    },
+    {
+      "name": "BlinkID",
+      "repository": "https://github.com/BlinkID/blinkid-swift-package.git",
+      "version": "v7.6.2",
+      "revision": "64908e64a4bbcba3b7323bdb2ed160534fc4d4d6",
+      "mode": "binary",
+      "minIOS": "15.0",
+      "products": [
+        { "framework": "BlinkID" }
+      ]
+    },
+    {
+      "name": "BRLMPrinterKit",
+      "mode": "manual",
+      "products": [
+        { "framework": "BRLMPrinterKit" }
+      ],
+      "note": "Brother Print SDK — place xcframework in .libraries/BRLMPrinterKit/"
+    },
+    {
+      "name": "CryptoSwift",
+      "repository": "https://github.com/krzyzanowskim/CryptoSwift.git",
+      "version": "1.8.4",
+      "revision": "729e01bc9b9dab466ac85f21fb9ee2bc1c61b258",
+      "mode": "source",
+      "minIOS": "15.0",
+      "products": [
+        { "scheme": "CryptoSwift", "framework": "CryptoSwift" }
+      ]
+    },
+    {
+      "name": "GRDB",
+      "repository": "https://github.com/groue/GRDB.swift.git",
+      "version": "v7.10.0",
+      "revision": "36e30a6f1ef10e4194f6af0cff90888526f0c115",
+      "mode": "source",
+      "minIOS": "15.0",
+      "buildSettings": {
+        "GCC_TREAT_WARNINGS_AS_ERRORS": "NO",
+        "SWIFT_TREAT_WARNINGS_AS_ERRORS": "NO"
+      },
+      "products": [
+        { "scheme": "GRDB", "framework": "GRDB" }
+      ]
+    },
+    {
+      "name": "KeychainAccess",
+      "repository": "https://github.com/kishikawakatsumi/KeychainAccess.git",
+      "version": "v4.2.2",
+      "revision": "84e546727d66f1adc5439debad16270d0fdd04e7",
+      "mode": "source",
+      "minIOS": "15.0",
+      "products": [
+        { "scheme": "KeychainAccess", "framework": "KeychainAccess" }
+      ]
+    },
+    {
+      "name": "Kingfisher",
+      "repository": "https://github.com/onevcat/Kingfisher.git",
+      "version": "8.7.0",
+      "revision": "e227df15448d2ad1a5d4e4c49722a71c68f9058a",
+      "mode": "source",
+      "minIOS": "15.0",
+      "buildSettings": {
+        "GCC_TREAT_WARNINGS_AS_ERRORS": "NO",
+        "SWIFT_TREAT_WARNINGS_AS_ERRORS": "NO"
+      },
+      "products": [
+        { "scheme": "Kingfisher", "framework": "Kingfisher" }
+      ]
+    },
+    {
+      "name": "Lottie",
+      "repository": "https://github.com/airbnb/lottie-ios.git",
+      "version": "4.6.0",
+      "revision": "0cb03fd7564d27345bcd96144b811e56212949c6",
+      "mode": "source",
+      "minIOS": "15.0",
+      "products": [
+        { "scheme": "Lottie (iOS)", "framework": "Lottie" }
+      ]
+    },
+    {
+      "name": "Mappedin",
+      "mode": "manual",
+      "products": [
+        { "framework": "Mappedin" }
+      ],
+      "note": "Proprietary SDK — place xcframework in .libraries/Mappedin/"
+    },
+    {
+      "name": "MicroblinkPlatform",
+      "mode": "manual",
+      "products": [
+        { "framework": "MicroblinkPlatform" }
+      ],
+      "note": "Proprietary SDK — place xcframework in .libraries/MicroblinkPlatform/"
+    },
+    {
+      "name": "Mixpanel",
+      "repository": "https://github.com/mixpanel/mixpanel-swift.git",
+      "version": "v5.1.5",
+      "revision": "f6a84e62dedd692563ff12ac359d6c0b0f417dc2",
+      "mode": "source",
+      "minIOS": "15.0",
+      "products": [
+        { "scheme": "Mixpanel", "framework": "Mixpanel" }
+      ]
+    },
+    {
+      "name": "Nuke",
+      "repository": "https://github.com/kean/Nuke.git",
+      "version": "12.8.0",
+      "revision": "0ead44350d2737db384908569c012fe67c421e4d",
+      "mode": "source",
+      "minIOS": "15.0",
+      "products": [
+        { "scheme": "Nuke", "framework": "Nuke" }
+      ]
+    },
+    {
+      "name": "RxSwift",
+      "repository": "https://github.com/ReactiveX/RxSwift.git",
+      "version": "6.10.1",
+      "revision": "5734ad2b6d7d4c0656df3d09ca4ce54fa3c09913",
+      "mode": "source",
+      "minIOS": "15.0",
+      "buildSettings": {
+        "GCC_TREAT_WARNINGS_AS_ERRORS": "NO",
+        "SWIFT_TREAT_WARNINGS_AS_ERRORS": "NO"
+      },
+      "products": [
+        { "scheme": "RxSwift", "framework": "RxSwift" }
+      ]
+    },
+    {
+      "name": "SkeletonView",
+      "repository": "https://github.com/Juanpe/SkeletonView.git",
+      "version": "1.31.0",
+      "revision": "2f5274827d310e32c09325dd3e0007120940988e",
+      "mode": "source",
+      "minIOS": "15.0",
+      "products": [
+        { "scheme": "SkeletonView", "framework": "SkeletonView" }
+      ]
+    },
+    {
+      "name": "SmartCardIO",
+      "mode": "manual",
+      "products": [
+        { "framework": "SmartCardIO" }
+      ],
+      "note": "Proprietary SDK — place xcframework in .libraries/SmartCardIO/"
+    },
+    {
+      "name": "SnapKit",
+      "repository": "https://github.com/SnapKit/SnapKit.git",
+      "version": "5.7.1",
+      "revision": "2842e6e84e82eb9a8dac0100ca90d9444b0307f4",
+      "mode": "source",
+      "minIOS": "15.0",
+      "products": [
+        { "scheme": "SnapKit", "framework": "SnapKit" }
+      ]
+    },
+    {
+      "name": "Starscream",
+      "repository": "https://github.com/daltoniam/Starscream.git",
+      "version": "4.0.8",
+      "revision": "c6bfd1af48efcc9a9ad203665db12375ba6b145a",
+      "mode": "source",
+      "minIOS": "15.0",
+      "products": [
+        { "scheme": "Starscream", "framework": "Starscream" }
+      ]
+    },
+    {
+      "name": "Stripe",
+      "repository": "https://github.com/stripe/stripe-ios.git",
+      "version": "25.6.2",
+      "revision": "4501f8d8b93991978059440843c9105daef9ff4e",
+      "mode": "source",
+      "minIOS": "15.0",
+      "buildSettings": {
+        "GCC_TREAT_WARNINGS_AS_ERRORS": "NO",
+        "SWIFT_TREAT_WARNINGS_AS_ERRORS": "NO"
+      },
+      "products": [
+        { "scheme": "StripeiOS", "framework": "Stripe" },
+        { "scheme": "StripeApplePay", "framework": "StripeApplePay" },
+        { "scheme": "StripeCameraCore", "framework": "StripeCameraCore" },
+        { "scheme": "StripeCardScan", "framework": "StripeCardScan" },
+        { "scheme": "StripeConnect", "framework": "StripeConnect" },
+        { "scheme": "StripeCore", "framework": "StripeCore" },
+        { "scheme": "StripeCryptoOnramp", "framework": "StripeCryptoOnramp" },
+        { "scheme": "StripeFinancialConnections", "framework": "StripeFinancialConnections" },
+        { "scheme": "StripeIdentity", "framework": "StripeIdentity" },
+        { "scheme": "StripeIssuing", "framework": "StripeIssuing" },
+        { "scheme": "StripePayments", "framework": "StripePayments" },
+        { "scheme": "StripePaymentSheet", "framework": "StripePaymentSheet" },
+        { "scheme": "StripePaymentsUI", "framework": "StripePaymentsUI" },
+        { "scheme": "StripeUICore", "framework": "StripeUICore" }
+      ]
+    }
+  ]
+}

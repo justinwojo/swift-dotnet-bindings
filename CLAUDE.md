@@ -11,7 +11,8 @@ Experimental Swift/.NET interop project. Generates C# bindings from compiled Swi
 - `src/Swift.Bindings.Templates/` — `dotnet new swift-binding` project template
 - `src/Swift.Runtime/src/Swift/` — Runtime: SwiftString, SwiftArray, SafeHandle, ARC (NuGet: `Swift.Runtime 0.1.0-preview.1`)
 - `TestFramework/` — Comprehensive test library + runtime tests (iOS Simulator)
-- `BindingTesting/` — Real-world library validation (Nuke, BlinkID, Lottie, CryptoSwift)
+- `validation-libraries.json` — Library validation manifest (31 targets across 18 libraries)
+- `scripts/` — `fetch-libraries.sh` (build xcframeworks), `lib.sh` (shared helpers)
 - `src/docs/` — Design docs, status, known issues
 - `docs/` — High-level philosophy (`binding-overview.md`)
 
@@ -37,7 +38,9 @@ cd TestFramework
 #   --safe-only      Skip [CrashRisk] classes (no Mono JIT crash)
 
 # Real-world library validation:
-cd BindingTesting/Nuke && ./build-all.sh && ./validate-sim.sh 15
+scripts/fetch-libraries.sh              # Fetch xcframeworks (first time)
+./validate-libraries.sh                 # Compile gate (all libraries)
+./validate-libraries.sh --filter Nuke   # Validate one library
 ```
 
 ## Generator CLI Usage
@@ -57,7 +60,7 @@ dotnet run --project src/Swift.Bindings/src -- \
 # Example: generate + compile bindings for Nuke
 mkdir -p /tmp/nuke-output
 dotnet run --project src/Swift.Bindings/src -- \
-  --xcframework BindingTesting/Nuke/Nuke.xcframework \
+  --xcframework .libraries/Nuke/Nuke.xcframework \
   -o /tmp/nuke-output/
 ```
 
@@ -106,44 +109,35 @@ Mutually exclusive with `--xcframework`. Does NOT emit `.csproj`/`.targets`.
 
 ## Validating Third-Party Libraries
 
-Track binding errors in `src/docs/binding-errors.md`. Libraries to validate live in two places:
+Track binding errors in `src/docs/Completed/binding-errors.md`. All 31 validation libraries are declared in `validation-libraries.json`.
 
-- **`BindingTesting/`** — Nuke, BlinkID, Lottie, CryptoSwift (have shell scripts + test apps)
-- **`/Users/wojo/Dev/Libraries/`** — Additional libraries (Alamofire, Stripe family, SkeletonView, Mappedin, Mixpanel, SmartCardIO, BRLMPrinterKit, MicroblinkPlatform, etc.)
-
-### Full validation workflow for a library
+### Quick start
 
 ```bash
-# 1. Generate bindings
-mkdir -p /tmp/validation/LibraryName
-dotnet run --project src/Swift.Bindings/src -- \
-  --xcframework /path/to/Library.xcframework \
-  -o /tmp/validation/LibraryName/
+# First time: fetch all public libraries (~30-60 min, builds xcframeworks)
+scripts/fetch-libraries.sh
 
-# 2. Compile to check for errors
-cd /tmp/validation/LibraryName
-dotnet build Library.Swift.iOS.csproj -p:EnableDefaultCompileItems=false 2>&1 | grep -E "error CS"
+# Run compile gate
+./validate-libraries.sh
 
-# 3. Count lines / errors
-wc -l Swift.Library.cs
-dotnet build Library.Swift.iOS.csproj -p:EnableDefaultCompileItems=false 2>&1 | grep "Error(s)"
+# Validate a single library
+./validate-libraries.sh --filter Nuke --verbose
+
+# Fetch + validate in one command
+./validate-libraries.sh --fetch --filter Nuke
 ```
 
-### Batch validation script pattern
+### Validation profiles
 
-```bash
-PROJ="src/Swift.Bindings/src/Swift.Bindings.csproj"
-for lib in Nuke Lottie BlinkID CryptoSwift; do
-  echo "=== $lib ==="
-  mkdir -p /tmp/validation/$lib
-  dotnet run --project $PROJ -- \
-    --xcframework BindingTesting/$lib/$lib.xcframework \
-    -o /tmp/validation/$lib/ 2>&1 | tail -3
-  cd /tmp/validation/$lib
-  dotnet build *.csproj -p:EnableDefaultCompileItems=false 2>&1 | grep "Error(s)"
-  cd -
-done
-```
+- **public** (27 targets): Auto-fetchable via SPM. Any contributor can run `scripts/fetch-libraries.sh`.
+- **full** (31 targets): Includes 4 proprietary/manual libraries (BRLMPrinterKit, Mappedin, MicroblinkPlatform, SmartCardIO). Place xcframeworks in `.libraries/<name>/`.
+
+### Adding a new library
+
+1. Add entry to `validation-libraries.json` (repo URL, version, mode)
+2. `scripts/fetch-libraries.sh --filter NewLib`
+3. `./validate-libraries.sh --filter NewLib`
+4. Run full validation to update `.validation-baseline.json`
 
 ### Known non-binding failures (not generator bugs)
 
@@ -225,6 +219,6 @@ Coverage report shows must-pass features as passing/degraded/missing. Verify no 
 
 - `src/docs/roadmap.md` — Forward-looking prioritized work queue
 - `src/docs/Completed/dx-msbuild-sdk-design.md` — MSBuild SDK design (Steps 1-5, all complete)
-- `src/docs/binding-errors.md` — Third-party library binding error tracking
+- `src/docs/Completed/binding-errors.md` — Third-party library binding error tracking
 - `src/docs/Future/emitter-redesign-proposal.md` — Architecture direction
 - `src/docs/known-issues-workarounds.md` — Runtime workarounds

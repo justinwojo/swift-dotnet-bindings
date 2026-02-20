@@ -75,7 +75,7 @@ public class ExistentialOptionalGuardTests
     {
         // The validator always passes constructors through (line 721: if IsConstructor return null).
         // The actual constructor existential guard lives in MethodHandler.EmitConstructor (line 167),
-        // which is tested indirectly via integration tests (TestFramework/BindingTesting).
+        // which is tested indirectly via integration tests (TestFramework).
         // This test verifies the validator doesn't interfere with constructor existential params.
         var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule.ImageProcessing");
         var optionalExistentialParam = CreateOptionalExistentialTypeSpec("TestModule.ImageProcessing");

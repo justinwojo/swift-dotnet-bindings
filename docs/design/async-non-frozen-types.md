@@ -197,7 +197,7 @@ var image = await pipeline.image(url);  // Works with URL
 
 ## Testing
 
-The `BindingTesting/Nuke/NukeTestApp` project tests this scenario:
+The Nuke test app (now in `swift-dotnet-packages`) tests this scenario:
 - Creates an `ImageRequest` from a URL string
 - Calls `ImagePipeline.image(ImageRequest)` async method
 - Currently crashes due to the value copy issue

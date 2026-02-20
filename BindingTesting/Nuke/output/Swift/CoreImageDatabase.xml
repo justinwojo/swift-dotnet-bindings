@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<swifttypedatabase version="1.0" moduleName="CoreImage" modulePath="/System/Library/Frameworks/CoreImage.framework/CoreImage">
-    <entities>
-        <entity managedNameSpace="Swift" managedTypeName="CIContext">
-            <typedeclaration kind="class" name="CIContext" module="CoreImage" mangledName="$sSo9CIContextC" frozen="false" requiresMemoryManagement="true" />
-        </entity>
-    </entities>
-</swifttypedatabase>

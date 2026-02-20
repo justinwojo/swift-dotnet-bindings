@@ -166,7 +166,8 @@ src/
 └── Swift.Bindings.Templates/    dotnet new template
 
 TestFramework/                   Comprehensive test library (93 features)
-BindingTesting/                  Real-world library validation
+validation-libraries.json        Library validation manifest (31 targets)
+scripts/                         Fetch + build infrastructure
 ```
 
 ---
