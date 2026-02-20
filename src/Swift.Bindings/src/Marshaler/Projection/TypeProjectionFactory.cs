@@ -88,6 +88,12 @@ public class TypeProjectionFactory
         if (TypeSpecHelpers.IsGenericTypeParameter(name))
             return null;
 
+        // Swift special type names that can't be projected:
+        // - "Self": dynamic self-type (protocol extensions, class factory methods)
+        // - "repeat": parameter packs (Swift 5.9+ variadic generics)
+        if (name is "Self" or "repeat")
+            return null;
+
         // Route NamedTypeSpec.IsAny to existential
         if (namedType.IsAny)
         {

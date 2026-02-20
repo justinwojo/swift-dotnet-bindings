@@ -14,13 +14,21 @@
     {
       "name": "BlinkID",
       "repository": "https://github.com/BlinkID/blinkid-swift-package.git",
-      "version": "v7.6.2",
+      "version": "7.6.2",
       "revision": "64908e64a4bbcba3b7323bdb2ed160534fc4d4d6",
       "mode": "binary",
       "minIOS": "15.0",
       "products": [
         { "framework": "BlinkID" }
       ]
+    },
+    {
+      "name": "BlinkIDUX",
+      "mode": "manual",
+      "products": [
+        { "framework": "BlinkIDUX" }
+      ],
+      "note": "BlinkIDUX SDK — place xcframework in .libraries/BlinkIDUX/"
     },
     {
       "name": "BRLMPrinterKit",

@@ -216,6 +216,9 @@ src/Swift.Bindings.Sdk/bin/
 # LLVM profiling data
 *.profraw
 
+# AI review files
+/*Review.md
+
 # CMake generated files in IntegrationTests
 # Note: Source files are in FunctionalTests/ and StressTests/ subdirectories
 src/Swift.Bindings/tests/IntegrationTests/CMakeCache.txt

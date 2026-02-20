@@ -234,10 +234,10 @@ namespace BindingsGeneration
             foreach (var propertyDecl in enumDecl.Properties)
             {
                 var propertyName = NameProvider.GetPropertyName(propertyDecl.Name, enumDecl.Name);
-                if (propertyDecl.IsStatic && emittedCaseConstructorNames.Contains(propertyName))
+                if (emittedCaseConstructorNames.Contains(propertyName))
                 {
-                    _logger.LogInformation($"Skipping enum static property '{enumDecl.Name}.{propertyName}' because a case constructor with the same C# name is already emitted.");
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, enumDecl, SkipReason.DuplicateSignature, $"Enum static property '{propertyName}' collides with case constructor name.");
+                    _logger.LogInformation($"Skipping enum property '{enumDecl.Name}.{propertyName}' because a case constructor with the same C# name is already emitted.");
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, enumDecl, SkipReason.DuplicateSignature, $"Enum property '{propertyName}' collides with case constructor name.");
                     continue;
                 }
 
@@ -263,10 +263,23 @@ namespace BindingsGeneration
             var iSwiftObjectWriter = new EnumISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, enumDecl, typeNameWithGenerics, pinvokeHelperContext);
             iSwiftObjectWriter.WriteEnumImplementation();
 
-            // Collect property names for method/property collision detection
-            // Include nested type names and containing type name for consistent naming with PropertyHandler
+            // Collect all emitted member names for method/property collision detection.
+            // Include actual property names, case constructor names, and synthesized names.
             var propertyNames = new HashSet<string>(enumDecl.Properties.Select(p =>
                 NameProvider.GetPropertyName(p.Name, enumDecl.Name)));
+
+            // Include case-derived names to prevent method collisions
+            foreach (var caseName in emittedCaseConstructorNames)
+                propertyNames.Add(caseName);
+            if (enumDecl.Cases.Any())
+            {
+                propertyNames.Add("CaseTag");
+                propertyNames.Add("Tag");
+            }
+            foreach (var caseDecl in enumDecl.Cases.Where(c => c.HasAssociatedValues))
+                propertyNames.Add($"TryGet{NameProvider.ToPascalCase(caseDecl.Name)}");
+            foreach (var caseDecl in enumDecl.Cases.Where(c => !c.HasAssociatedValues))
+                propertyNames.Add(NameProvider.ToPascalCase(caseDecl.Name));
 
             // Record enum operators — equality operators are handled by C# enum semantics
             // (RawValue comparison), other operators are unsupported on enum types.

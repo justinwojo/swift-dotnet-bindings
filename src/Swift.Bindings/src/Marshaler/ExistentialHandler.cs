@@ -318,6 +318,12 @@ public class ExistentialHandler
                 return "object";
             }
 
+            // Generic protocol existentials (e.g., "any EventStream<τ_0_0.Event>")
+            // have associated type refs we can't resolve to concrete C# types.
+            // Use AnyType to preserve API surface (not "object" which triggers member pruning).
+            if (firstProtocol.GenericParameters.Count > 0)
+                return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
+
             return NameProvider.GetInterfaceName(firstProtocol.NameWithoutModule, moduleName: firstProtocol.Module);
         }
 

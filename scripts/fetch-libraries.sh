@@ -74,6 +74,10 @@ verify_revision() {
         echo -e "  ${DIM}Verifying tag $tag...${NC}"
         local remote_sha
         remote_sha=$(git ls-remote "$repo" "refs/tags/$tag" "refs/tags/$tag^{}" 2>/dev/null | tail -1 | awk '{print $1}')
+        # Try v-prefixed tag if plain tag not found
+        if [[ -z "$remote_sha" && "$tag" != v* ]]; then
+            remote_sha=$(git ls-remote "$repo" "refs/tags/v$tag" "refs/tags/v$tag^{}" 2>/dev/null | tail -1 | awk '{print $1}')
+        fi
         if [[ -z "$remote_sha" ]]; then
             echo -e "  ${RED}Tag '$tag' not found in $repo${NC}"
             return 1

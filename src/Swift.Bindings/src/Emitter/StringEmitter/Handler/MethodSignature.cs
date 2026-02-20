@@ -408,7 +408,16 @@ namespace BindingsGeneration
                 SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
                 return;
             }
-            SetReturnType(typeRecord.CSharpTypeName.FullyQualifiedName);
+
+            // Guard: if resolved name is bare generic (e.g., "SwiftOptional" from
+            // Optional<UnsupportedClosure>), use AnyType to prevent CS0305.
+            var resolvedReturnName = typeRecord.CSharpTypeName.FullyQualifiedName;
+            if (TypeDatabaseExtensions.IsBareGenericTypeName(resolvedReturnName))
+            {
+                SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
+                return;
+            }
+            SetReturnType(resolvedReturnName);
         }
 
         /// <summary>
@@ -477,7 +486,16 @@ namespace BindingsGeneration
                     AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, csParamName);
                     continue;
                 }
-                AddParameter(typeRecord.CSharpTypeName.FullyQualifiedName, csParamName, inoutModifier);
+
+                // Guard: if resolved name is bare generic (e.g., "SwiftOptional" from
+                // Optional<UnsupportedClosure>), use AnyType to prevent CS0305.
+                var resolvedParamName = typeRecord.CSharpTypeName.FullyQualifiedName;
+                if (TypeDatabaseExtensions.IsBareGenericTypeName(resolvedParamName))
+                {
+                    AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, csParamName, inoutModifier);
+                    continue;
+                }
+                AddParameter(resolvedParamName, csParamName, inoutModifier);
             }
         }
 
