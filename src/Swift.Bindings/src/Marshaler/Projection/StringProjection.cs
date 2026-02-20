@@ -48,4 +48,8 @@ public class StringProjection : ITypeProjection
 
     public bool RequiresSwiftWrapper => false;
     public string? GetSwiftWrapperCode(SwiftWrapperContext context) => null;
+
+    public string? GetParameterElementConversion(string elementVar) => $"new SwiftString({elementVar})";
+    public string? GetReturnElementConversion(string elementVar) => $"{elementVar}.ToString()";
+    public bool ElementRequiresDisposal => true;
 }

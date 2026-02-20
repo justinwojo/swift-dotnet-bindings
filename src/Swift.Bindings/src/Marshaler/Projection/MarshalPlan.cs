@@ -48,3 +48,16 @@ public abstract record MarshalStatement
     /// <summary>A using declaration that ensures disposal.</summary>
     public sealed record Using(string Type, string Name, string InitExpression) : MarshalStatement;
 }
+
+/// <summary>
+/// A callback method + optional static field that must be emitted as a sibling to the main method.
+/// Used by closure and async projections.
+/// </summary>
+public record CallbackDeclaration(
+    string MethodName,
+    string CallingConvention,
+    string Signature,
+    string ReturnType,
+    List<MarshalStatement> Body,
+    string? StaticFieldDeclaration
+);

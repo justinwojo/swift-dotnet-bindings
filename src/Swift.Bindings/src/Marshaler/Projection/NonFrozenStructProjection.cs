@@ -39,4 +39,7 @@ public class NonFrozenStructProjection : ITypeProjection
 
     public bool RequiresSwiftWrapper => false;
     public string? GetSwiftWrapperCode(SwiftWrapperContext context) => null;
+
+    public string? GetParameterElementConversion(string elementVar) => $"{elementVar}.Payload.DangerousGetHandle()";
+    public string? GetReturnElementConversion(string elementVar) => $"new {_typeName}({elementVar})";
 }

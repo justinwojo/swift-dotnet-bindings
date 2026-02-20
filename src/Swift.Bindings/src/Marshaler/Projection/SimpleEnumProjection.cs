@@ -41,4 +41,7 @@ public class SimpleEnumProjection : ITypeProjection
 
     public bool RequiresSwiftWrapper => false;
     public string? GetSwiftWrapperCode(SwiftWrapperContext context) => null;
+
+    public string? GetParameterElementConversion(string elementVar) => $"({_underlyingType}){elementVar}";
+    public string? GetReturnElementConversion(string elementVar) => $"({_enumTypeName}){elementVar}";
 }

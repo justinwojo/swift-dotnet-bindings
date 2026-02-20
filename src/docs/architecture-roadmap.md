@@ -75,46 +75,76 @@ All 7 projections are reachable from `TypeProjectionFactory` — including `Nati
 
 ---
 
-### Session 2: Complex Projections
+### Session 2: Complex Projections — COMPLETE (Feb 19, 2026)
 
 **Goal**: Handle every hard case from the supplement. After this session, the factory can project any Swift type the generator encounters.
 
-#### 2a. Collection Projections
+#### 2a. Collection Projections — COMPLETE
 
-- `ArrayProjection(inner)` — composable with inner element projection. Param: `IEnumerable<T>` → `SwiftArray<T>` via `FromEnumerable`. Return: `SwiftArray<T>` → `IReadOnlyList<T>` via `AsProjected`.
-- `DictionaryProjection(key, value)` — multi-statement MarshalPlan with `Select` + `FromDictionary` + `try/finally` disposal for converted elements (supplement Case 1).
-- Nested composition: `ArrayProjection(StringProjection)` → proper element-wise conversion.
+- `ArrayProjection(inner)` — composable with inner element projection. Param: `IEnumerable<T>` → `SwiftArray<T>` via `FromEnumerable` + `PayloadBuffer`. Return: `SwiftArray<T>` → `IReadOnlyList<T>` via `MarshalFromSwift` + `AsProjected`. Element-wise conversion via inner projection's `GetParameterElementConversion`/`GetReturnElementConversion`. Disposal in try/finally when `ElementRequiresDisposal=true`.
+- `DictionaryProjection(key, value)` — parallel pattern to Array. Multi-statement MarshalPlan with `Select` + `FromDictionary` + per-key/per-value disposal. Supports `AsProjected(k => ..., v => ...)` with independent key/value conversion lambdas (supplement Case 1).
+- Nested composition works recursively: `ArrayProjection(StringProjection)` → proper element-wise SwiftString conversion.
 
-#### 2b. Optional Projection
+#### 2b. Optional Projection — COMPLETE
 
-- `OptionalProjection(inner)` — `T?` for simple inners (nullable annotation), `SwiftOptional<T>` for complex.
-- None/Some branching as `MarshalStatement.Block` in the MarshalPlan.
-- Full nesting: `OptionalProjection(DictionaryProjection(StringProjection, ArrayProjection(StringProjection)))` (supplement Case 2 — the 15-line emission with 3 disposal scopes).
+- `OptionalProjection(inner)` — `T?` for all inners, `SwiftOptional<T>` at P/Invoke level.
+- Three parameter paths: (1) simple inner (blittable) → inline ternary NewSome/NewNone, (2) element-converting inner (string, enum) → if/else Block with conversion, (3) container inner (Array, Dictionary) → if/else Block embedding inner's full param plan.
+- Return: `MarshalFromSwift + ToNullable()` for standard types, discriminant check (`SwiftOptionalCases.None`) for existential inners (supplement Case 4 + 8).
+- Full nesting verified: `OptionalProjection(DictionaryProjection(StringProjection, ArrayProjection(StringProjection)))` (supplement Case 2).
 
-#### 2c. Existential Projection
+#### 2c. Existential Projection — COMPLETE
 
-- `ExistentialProjection(containerType, interfaceType)` — three-tier: well-known protocol → named type, known protocol with proxy → `IProtocol`, unknown → `object`.
-- `ISwiftExistentialConvertible` extraction in parameter direction, proxy wrapping in return direction.
-- Compose: `OptionalProjection(ExistentialProjection)` (supplement Case 8), `ArrayProjection(ExistentialProjection)` (supplement Case 6).
+- `ExistentialProjection(containerType, publicType, proxyClassName)` — three-tier resolution: well-known protocol (Swift.Error → AnyError), known protocol with proxy (IProtocol → proxy class), unknown → object.
+- Parameter: `ISwiftExistentialConvertible<Container>.GetExistentialContainer()`. Return: proxy construction or well-known type construction.
+- Element conversions enable composition: `ArrayProjection(ExistentialProjection)` (supplement Case 6), `OptionalProjection(ExistentialProjection)` (supplement Case 8).
 
-#### 2d. Closure Projection
+#### 2d. Closure Projection — COMPLETE
 
-- Closure types → `Action<>/Func<>` with inner type projection on parameters/return.
-- Closure return with non-frozen struct params — lambda body generation with native memory allocation and VWT calls (supplement Case 5).
-- Optional closure → nullable delegate.
+- `ClosureProjection` — `Action<>/Func<>` with inner arg/return projections. Escaping → `SwiftClosureData` + `GCHandle.Alloc` + callback declaration. Non-escaping → function pointer type.
+- `CallbackDeclarations` property provides `[UnmanagedCallersOnly]` callback method with reverse type conversions (P/Invoke → delegate types for args, forward conversion for return).
+- Return plan: lambda body wrapping function pointer invocation with type conversion (supplement Case 5).
+- Callback naming via `ProjectionContext.CallbackNamePrefix`.
 
-#### 2e. Tuple Projection
+#### 2e. Tuple Projection — COMPLETE
 
-- Tuple types → `ValueTuple<>` with per-element projection.
-- String elements in tuples require conversion in async callback context (supplement Case 7).
+- `TupleProjection(elements)` — `ValueTuple<>` with per-element projection. All-blittable tuples → PassThrough. Mixed types → per-element conversion in setup statements.
+- Composes with all inner projections: `TupleProjection(StringProjection, BlittableProjection)` → element-wise `ToString()` in return direction.
 
-#### 2f. Async Projection
+#### 2f. Async Projection — COMPLETE
 
-- Async return with Swift wrapper generation + C# callback emission (supplement Case 7).
-- `ReturnStrategy.AsyncCallback` path in MarshalPlan.
-- This likely requires `MarshalPlan` extensions for cross-file emission.
+- `AsyncProjection(innerReturn, throws)` — `Task<T>` / `Task`. `RequiresSwiftWrapper=true`. P/Invoke returns void; result delivered via callback.
+- `GetSwiftWrapperCode` generates Swift `@_silgen_name` wrapper with `Task { }` pattern, callback/errorCallback invocations, do/catch for throwing methods.
+- `CallbackDeclarations` provides success callback (with inner projection's return element conversion) and error callback (OperationCanceledException/SwiftException).
+- `ReturnStrategy.AsyncCallback` plan produces `TaskCompletionSource` + `GCHandle` setup.
+- Composes: `AsyncProjection(TupleProjection(StringProjection, BlittableProjection))` (supplement Case 7).
 
-**Validation**: Unit tests on each projection in isolation. Verify composition produces correct plans for all 8 supplement Section 3 cases.
+#### 2g. ITypeProjection Extensions — COMPLETE
+
+Added default interface methods to `ITypeProjection`:
+- `GetParameterElementConversion(elementVar)` / `GetReturnElementConversion(elementVar)` — element-wise conversion for use in container `Select()` lambdas.
+- `ElementRequiresDisposal` — controls try/finally disposal in container parameter plans.
+- `CallbackDeclarations` — sibling callback methods for closures and async.
+
+Added `CallbackDeclaration` record to MarshalPlan.cs. Extended `ProjectionContext` with `IsAsync`, `Throws`, `CallbackNamePrefix`.
+
+Overrode element methods on 5 simple projections: StringProjection (SwiftString + disposal), SimpleEnumProjection (cast), ObjCBridgedProjection (Handle/GetNSObject), NonFrozenStructProjection (Payload/construct), NativeRemappedProjection (wrapper + disposal).
+
+#### 2h. Factory Routing — COMPLETE
+
+`TypeProjectionFactory.Project()` now handles every TypeSpec:
+- **Async wrapping** (first check): `IsAsync && !IsParameter` → wraps inner return in `AsyncProjection`, strips IsAsync before recursing.
+- **TupleTypeSpec** → recursive per-element projection, empty tuples → null.
+- **ClosureTypeSpec** → recursive arg/return projection, callback name from context.
+- **ProtocolListTypeSpec** → existential via `ExistentialHandler`.
+- **NamedTypeSpec.IsAny** → converts to `ProtocolListTypeSpec` via `ExistentialHandler.ToProtocolListTypeSpec()`.
+- **Swift.Optional/Array/Dictionary** → recursive generic parameter projection.
+- Simple types preserved: Bool, String, ObjC, SimpleEnum, NativeRemapped, NonFrozen, Blittable.
+
+**Deferred limitations**:
+- `Optional<Optional<T>>` — inner `OptionalProjection` reports `ContainerTypeName = IntPtr` (the default), so nested optionals produce `SwiftOptional<IntPtr>` instead of `SwiftOptional<SwiftOptional<T>>`. No real Swift API in any of the 31 validated libraries uses `Optional<Optional<T>>`. A skip test (`NestedOptionalOptional_IsKnownLimitation`) guards against silent regression.
+- Async Swift/C# callback type divergence — `GetSwiftWrapperCode` and `CallbackDeclarations` independently choose callback parameter types. For non-trivial returns (tuples, strings, structs), the Swift wrapper template may use different type names than the C# callback signature. Session 3's emitter must reconcile these when it has full ABI context. The `SwiftCallbackReturnType` field on `SwiftWrapperContext` is the hook.
+
+**Validation**: 3700 unit tests (261 new: 127 complex projection + 134 Session 1), 700 integration tests, 207 runtime tests — all passing. All 8 supplement hard cases verified as composition tests. **Key references**: Supplement Section 3 (hard cases), Section 2 (real-world types)
 
 ---
 
@@ -137,6 +167,8 @@ Replace `GetCSharpTypeName` internals in `ProtocolProxyEmitter.Helpers.cs` with 
 #### 3c. Migrate WrapperEmitter.Marshalling + WrapperEmitter.Return
 
 Replace the inline marshalling code (~1600 combined lines) with `MarshalPlan` rendering. The projection produces the plan; the emitter walks `MarshalStatement` nodes and writes them to the CodeWriter. The massive if/else chains for dictionaries, optionals, existentials, etc. collapse into `projection.GetParameterPlan(paramName)`.
+
+**Required test**: For async methods with tuple/string/complex returns, assert that the emitted Swift callback parameter types exactly match the emitted C# callback signatures. This enforces the callback signature reconciliation that Session 2 deferred (see Session 2 deferred limitations).
 
 #### 3d. Migrate Remaining Callers
 
@@ -247,7 +279,7 @@ With per-parameter marshalling handled by `MarshalPlan` and method-level concern
 | Session | Phase | What | Scope |
 |---------|-------|------|-------|
 | **1** | Build | MarshalledType DU + TypeProjectionFactory core + simple projections | **COMPLETE** — new infra + Parameter.Type refactor |
-| **2** | Build | Complex projections (collections, optional, existential, closure, tuple, async) | New code, no existing code changed |
+| **2** | Build | Complex projections (collections, optional, existential, closure, tuple, async) | **COMPLETE** — 7 new projections, recursive factory routing |
 | **3** | Migrate | Rip out 4 old paths, wire factory everywhere, Conductor cleanup, delete dead code | Massive change across ~40+ files |
 | **4** | Lock Down | Consistency tests, MarshalPlan tests, golden files, full library validation | Tests + validation only |
 | **5** | Decompose | Split MethodHandler + WrapperEmitter into composable handlers + MethodMarshalPlan | Refactor ~6 files, add new handler classes |

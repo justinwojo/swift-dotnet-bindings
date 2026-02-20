@@ -13,6 +13,15 @@ public record ProjectionContext
 
     /// <summary>Whether this type is being projected as a parameter (true) or return value (false).</summary>
     public bool IsParameter { get; init; }
+
+    /// <summary>Whether the method is async. When true and IsParameter is false, wraps the return projection in AsyncProjection.</summary>
+    public bool IsAsync { get; init; }
+
+    /// <summary>Whether the method throws. Used by async projection for error callback generation.</summary>
+    public bool Throws { get; init; }
+
+    /// <summary>Unique prefix for callback names. Used by closures and async projections for callback method naming.</summary>
+    public string? CallbackNamePrefix { get; init; }
 }
 
 /// <summary>
@@ -20,51 +29,104 @@ public record ProjectionContext
 /// Given a TypeSpec and context, returns the appropriate ITypeProjection
 /// that knows how to marshal the type between C# and Swift.
 ///
-/// In Session 1, only simple projections are supported. Returns null for
-/// unsupported types (tuples, closures, async, etc.) — these will be added
-/// in Session 2.
+/// Supports all Swift type categories:
+/// - Simple types (bool, string, enums, ObjC bridged, blittable, non-frozen)
+/// - Generic containers (Array, Dictionary, Optional)
+/// - Tuples (per-element composition)
+/// - Closures (Action/Func with callback declarations)
+/// - Protocol existentials (3-tier: well-known, proxy, object)
+/// - Async (Task/Task&lt;T&gt; with Swift wrapper and callbacks)
 /// </summary>
 public class TypeProjectionFactory
 {
     /// <summary>
     /// Produces a type projection for the given TypeSpec, or null if the type
-    /// is not yet supported by the factory.
+    /// is not supported by the factory.
     /// </summary>
     /// <param name="typeSpec">The Swift type to project.</param>
     /// <param name="context">Context for the projection.</param>
     /// <returns>A type projection, or null if unsupported.</returns>
     public ITypeProjection? Project(TypeSpec typeSpec, ProjectionContext context)
     {
-        // Tuples — Session 2
-        if (typeSpec is TupleTypeSpec)
-            return null;
+        // Async wrapping — must be before all TypeSpec dispatch.
+        // When IsAsync && !IsParameter, wrap the inner return projection in AsyncProjection.
+        // Strip IsAsync before recursing to prevent double-wrap.
+        if (context.IsAsync && !context.IsParameter)
+        {
+            // Void async methods have empty tuple return → Task (no inner projection)
+            if (typeSpec.IsEmptyTuple)
+                return new AsyncProjection(null, context.Throws, context.CallbackNamePrefix);
 
-        // Closures — Session 2
-        if (typeSpec is ClosureTypeSpec)
-            return null;
+            var innerProjection = Project(typeSpec, context with { IsAsync = false });
+            if (innerProjection == null)
+                return null;
+            return new AsyncProjection(innerProjection, context.Throws, context.CallbackNamePrefix);
+        }
 
-        // Protocol lists (existentials) — Session 2
-        if (typeSpec is ProtocolListTypeSpec)
-            return null;
+        // TypeSpec dispatch (only reached when !IsAsync or IsParameter)
+        if (typeSpec is TupleTypeSpec tupleType)
+            return ProjectTuple(tupleType, context);
+
+        if (typeSpec is ClosureTypeSpec closureType)
+            return ProjectClosure(closureType, context);
+
+        if (typeSpec is ProtocolListTypeSpec protocolList)
+            return ProjectExistential(protocolList, context);
 
         if (typeSpec is NamedTypeSpec namedType)
-        {
             return ProjectNamedType(namedType, context);
-        }
 
         return null;
     }
 
     private ITypeProjection? ProjectNamedType(NamedTypeSpec namedType, ProjectionContext context)
     {
-        // Check for well-known simple types first
         var name = namedType.Name;
 
-        // Bool
+        // Route NamedTypeSpec.IsAny to existential
+        if (namedType.IsAny)
+        {
+            var handler = new ExistentialHandler(context.TypeDatabase);
+            var protocolList = handler.ToProtocolListTypeSpec(namedType);
+            if (protocolList != null)
+                return ProjectExistential(protocolList, context);
+            return null;
+        }
+
+        // Generic container types
+        if (name == "Swift.Optional" && namedType.GenericParameters.Count == 1)
+        {
+            var inner = namedType.GenericParameters[0];
+            var isExistentialInner = inner is ProtocolListTypeSpec ||
+                (inner is NamedTypeSpec innerNamed && innerNamed.IsAny);
+
+            var innerProjection = Project(inner, context);
+            if (innerProjection == null)
+                return null;
+            return new OptionalProjection(innerProjection, isExistentialInner);
+        }
+
+        if (name == "Swift.Array" && namedType.GenericParameters.Count == 1)
+        {
+            var elemProjection = Project(namedType.GenericParameters[0], context);
+            if (elemProjection == null)
+                return null;
+            return new ArrayProjection(elemProjection, context.IsParameter);
+        }
+
+        if (name == "Swift.Dictionary" && namedType.GenericParameters.Count == 2)
+        {
+            var keyProjection = Project(namedType.GenericParameters[0], context);
+            var valueProjection = Project(namedType.GenericParameters[1], context);
+            if (keyProjection == null || valueProjection == null)
+                return null;
+            return new DictionaryProjection(keyProjection, valueProjection, context.IsParameter);
+        }
+
+        // Well-known simple types
         if (name == "Swift.Bool")
             return new BoolProjection();
 
-        // String
         if (name == "Swift.String")
             return new StringProjection();
 
@@ -85,8 +147,6 @@ public class TypeProjectionFactory
         }
 
         // Native remapped types (URL → NSUrl, Data → NSData)
-        // Must check before non-frozen/blittable since native-remapped types need
-        // specific wrapper conversion, not generic SafeHandle/blittable handling.
         if (typeRecord.NativeTypeName != null)
         {
             var isFrozen = MarshallingHelpers.IsTypeFrozen(typeRecord);
@@ -104,7 +164,75 @@ public class TypeProjectionFactory
         if (!MarshallingHelpers.RequiresMemoryManagement(typeRecord))
             return new BlittableProjection(typeRecord.CSharpTypeName.FullyQualifiedName);
 
-        // Frozen with memory management — not a simple projection
+        // Frozen with memory management — not supported
         return null;
+    }
+
+    private ITypeProjection? ProjectTuple(TupleTypeSpec tupleType, ProjectionContext context)
+    {
+        if (tupleType.Elements.Count == 0)
+            return null;
+
+        var elementProjections = new List<ITypeProjection>();
+        foreach (var element in tupleType.Elements)
+        {
+            var proj = Project(element, context);
+            if (proj == null)
+                return null;
+            elementProjections.Add(proj);
+        }
+
+        return new TupleProjection(elementProjections);
+    }
+
+    private ITypeProjection? ProjectClosure(ClosureTypeSpec closureType, ProjectionContext context)
+    {
+        var argProjections = new List<ITypeProjection>();
+        foreach (var arg in closureType.EachArgument())
+        {
+            var proj = Project(arg, context with { IsParameter = true });
+            if (proj == null)
+                return null;
+            argProjections.Add(proj);
+        }
+
+        ITypeProjection? returnProjection = null;
+        if (closureType.HasReturn())
+        {
+            returnProjection = Project(closureType.ReturnType, context with { IsParameter = false });
+            if (returnProjection == null)
+                return null;
+        }
+
+        var callbackName = context.CallbackNamePrefix != null
+            ? $"{context.CallbackNamePrefix}Callback"
+            : "closureCallback";
+
+        return new ClosureProjection(
+            argProjections,
+            returnProjection,
+            closureType.IsEscaping,
+            closureType.Throws,
+            closureType.IsAsync,
+            callbackName);
+    }
+
+    private ITypeProjection? ProjectExistential(ProtocolListTypeSpec protocolList, ProjectionContext context)
+    {
+        var handler = new ExistentialHandler(context.TypeDatabase);
+        var containerType = handler.GetCSharpExistentialType(protocolList);
+        var publicType = handler.GetPublicExistentialType(protocolList);
+
+        // Determine proxy class name:
+        // - well-known protocols (e.g. Swift.Error → AnyError): no proxy
+        // - "object" fallback: no proxy
+        // - known protocols with interface: has proxy
+        string? proxyClassName = null;
+        if (!handler.TryGetWellKnownProtocolType(protocolList, out _) && publicType != "object")
+        {
+            proxyClassName = handler.GetProxyClassName(protocolList);
+        }
+
+        return new ExistentialProjection(containerType, publicType, proxyClassName);
     }
 }

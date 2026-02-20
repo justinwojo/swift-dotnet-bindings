@@ -74,4 +74,8 @@ public class NativeRemappedProjection : ITypeProjection
 
     public bool RequiresSwiftWrapper => false;
     public string? GetSwiftWrapperCode(SwiftWrapperContext context) => null;
+
+    public string? GetParameterElementConversion(string elementVar) => $"new {_swiftWrapperType}({elementVar})";
+    public string? GetReturnElementConversion(string elementVar) => $"new {_swiftWrapperType}({elementVar}).To{_publicType}()";
+    public bool ElementRequiresDisposal => true;
 }

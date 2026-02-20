@@ -230,14 +230,16 @@ public class TypeProjectionFactoryTests
     }
 
     [Fact]
-    public void Project_ClosureType_ReturnsNull()
+    public void Project_ClosureType_ReturnsClosureProjection()
     {
         var typeSpec = new ClosureTypeSpec();
         var ctx = CreateContext();
 
         var projection = _factory.Project(typeSpec, ctx);
 
-        Assert.Null(projection);
+        Assert.NotNull(projection);
+        Assert.IsType<ClosureProjection>(projection);
+        Assert.Equal("Action", projection.PublicType);
     }
 
     [Fact]

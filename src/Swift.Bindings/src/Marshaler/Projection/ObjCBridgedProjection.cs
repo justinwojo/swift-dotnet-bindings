@@ -43,4 +43,7 @@ public class ObjCBridgedProjection : ITypeProjection
 
     public bool RequiresSwiftWrapper => false;
     public string? GetSwiftWrapperCode(SwiftWrapperContext context) => null;
+
+    public string? GetParameterElementConversion(string elementVar) => $"{elementVar}.Handle";
+    public string? GetReturnElementConversion(string elementVar) => $"Runtime.GetNSObject<{_csharpTypeName}>({elementVar})!";
 }

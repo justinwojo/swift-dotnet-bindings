@@ -61,6 +61,56 @@ public interface ITypeProjection
     /// <param name="context">Context for generating the Swift wrapper.</param>
     /// <returns>Swift source code for the wrapper, or null.</returns>
     string? GetSwiftWrapperCode(SwiftWrapperContext context);
+
+    /// <summary>
+    /// Expression to convert a public-type element to P/Invoke type in a Select() lambda.
+    /// Null means no conversion needed (passthrough).
+    /// Used by container projections (Array, Dictionary, Optional) for element-wise composition.
+    /// </summary>
+    string? GetParameterElementConversion(string elementVar) => null;
+
+    /// <summary>
+    /// Expression to convert a P/Invoke element back to public type in a Select() lambda.
+    /// Null means no conversion needed (passthrough).
+    /// </summary>
+    string? GetReturnElementConversion(string elementVar) => null;
+
+    /// <summary>
+    /// Whether elements produced by GetParameterElementConversion require disposal.
+    /// When true, container projections emit disposal code in finally blocks.
+    /// </summary>
+    bool ElementRequiresDisposal => false;
+
+    /// <summary>
+    /// Optional callback/static-field declarations needed alongside the main method.
+    /// Used by closures (callback thunk + function pointer field) and async (success/error callbacks).
+    /// </summary>
+    IReadOnlyList<CallbackDeclaration> CallbackDeclarations => Array.Empty<CallbackDeclaration>();
+
+    /// <summary>
+    /// The C# runtime container type name for intermediate marshalling.
+    /// For container projections (Array → SwiftArray&lt;T&gt;, Dictionary → SwiftDictionary&lt;K,V&gt;),
+    /// this is the full container type used before PayloadBuffer extraction.
+    /// For all others, defaults to PInvokeType.
+    /// Used by OptionalProjection to construct SwiftOptional&lt;ContainerType&gt;.
+    /// </summary>
+    string ContainerTypeName => PInvokeType;
+
+    /// <summary>
+    /// Gets a parameter plan that creates the container object without extracting PayloadBuffer.
+    /// Returns null for non-container projections (use GetParameterPlan instead).
+    /// Used by OptionalProjection to wrap container objects in SwiftOptional before flattening.
+    /// The PInvokeExpression of the returned plan is the container variable name.
+    /// </summary>
+    MarshalPlan? GetContainerCreationPlan(string paramName) => null;
+
+    /// <summary>
+    /// Expression to convert a container value to its public type.
+    /// For example, ArrayProjection returns "{var}.AsProjected(e =&gt; e.ToString())".
+    /// Returns null for non-container projections.
+    /// Used by OptionalProjection return plan to convert the Some value of an optional container.
+    /// </summary>
+    string? GetReturnContainerConversion(string containerVar) => null;
 }
 
 /// <summary>
@@ -76,4 +126,17 @@ public record SwiftWrapperContext
 
     /// <summary>The method name.</summary>
     public string MethodName { get; init; } = "";
+
+    /// <summary>
+    /// The Swift expression for calling the original method (e.g., "try await __self.fetchData(arg0)").
+    /// Set by the emitter in Session 3. If empty, falls back to a placeholder using MethodName.
+    /// </summary>
+    public string OriginalCallExpression { get; init; } = "";
+
+    /// <summary>
+    /// The Swift type name for the async callback's return parameter (e.g., "String", "(String, Int)").
+    /// Set by the emitter in Session 3 for complex return types where C# PInvokeType doesn't map to Swift.
+    /// If empty, AsyncProjection falls back to mapping PInvokeType via MapPInvokeTypeToSwift.
+    /// </summary>
+    public string SwiftCallbackReturnType { get; init; } = "";
 }
