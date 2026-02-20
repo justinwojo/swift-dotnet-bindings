@@ -173,7 +173,7 @@ public static class NameProvider
     {
         // Use last 8 chars of mangled name hash to disambiguate overloads
         // whose parameters marshal to the same C# types (e.g., URL and ImageRequest both become SafeHandle)
-        var mangledHash = Math.Abs(methodDecl.MangledName.GetHashCode()).ToString("X8");
+        var mangledHash = EmitterUtility.DeterministicHash8(methodDecl.MangledName);
         return $"PInvoke_{methodDecl.Name}_{mangledHash}";
     }
 
@@ -753,7 +753,7 @@ public static class NameProvider
     /// </summary>
     public static string GetAsyncCallbackFieldName(MethodDecl methodDecl)
     {
-        var mangledHash = Math.Abs(methodDecl.MangledName.GetHashCode()).ToString("X8");
+        var mangledHash = EmitterUtility.DeterministicHash8(methodDecl.MangledName);
         return $"s_{methodDecl.Name}Callback_{mangledHash}";
     }
 
@@ -763,7 +763,7 @@ public static class NameProvider
     /// </summary>
     public static string GetAsyncCallbackMethodName(MethodDecl methodDecl)
     {
-        var mangledHash = Math.Abs(methodDecl.MangledName.GetHashCode()).ToString("X8");
+        var mangledHash = EmitterUtility.DeterministicHash8(methodDecl.MangledName);
         return $"{methodDecl.Name}OnComplete_{mangledHash}";
     }
 
@@ -773,7 +773,7 @@ public static class NameProvider
     /// </summary>
     public static string GetAsyncErrorCallbackFieldName(MethodDecl methodDecl)
     {
-        var mangledHash = Math.Abs(methodDecl.MangledName.GetHashCode()).ToString("X8");
+        var mangledHash = EmitterUtility.DeterministicHash8(methodDecl.MangledName);
         return $"s_{methodDecl.Name}ErrorCallback_{mangledHash}";
     }
 
@@ -783,7 +783,7 @@ public static class NameProvider
     /// </summary>
     public static string GetAsyncErrorCallbackMethodName(MethodDecl methodDecl)
     {
-        var mangledHash = Math.Abs(methodDecl.MangledName.GetHashCode()).ToString("X8");
+        var mangledHash = EmitterUtility.DeterministicHash8(methodDecl.MangledName);
         return $"{methodDecl.Name}OnError_{mangledHash}";
     }
 

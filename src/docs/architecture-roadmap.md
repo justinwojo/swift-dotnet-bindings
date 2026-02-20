@@ -142,7 +142,7 @@ Overrode element methods on 5 simple projections: StringProjection (SwiftString 
 
 **Deferred limitations**:
 - `Optional<Optional<T>>` — inner `OptionalProjection` reports `ContainerTypeName = IntPtr` (the default), so nested optionals produce `SwiftOptional<IntPtr>` instead of `SwiftOptional<SwiftOptional<T>>`. No real Swift API in any of the 31 validated libraries uses `Optional<Optional<T>>`. A skip test (`NestedOptionalOptional_IsKnownLimitation`) guards against silent regression.
-- Async Swift/C# callback type divergence — `GetSwiftWrapperCode` and `CallbackDeclarations` independently choose callback parameter types. For non-trivial returns (tuples, strings, structs), the Swift wrapper template may use different type names than the C# callback signature. Session 3's emitter must reconcile these when it has full ABI context. The `SwiftCallbackReturnType` field on `SwiftWrapperContext` is the hook.
+- Async Swift/C# callback type divergence — `GetSwiftWrapperCode` and `CallbackDeclarations` independently choose callback parameter types. For non-trivial returns (tuples, strings, structs), the Swift wrapper template may use different type names than the C# callback signature. Session 5c's WrapperEmitter collapse must reconcile these when it has full ABI context. The `SwiftCallbackReturnType` field on `SwiftWrapperContext` is the hook.
 
 **Validation**: 3700 unit tests (261 new: 127 complex projection + 134 Session 1), 700 integration tests, 207 runtime tests — all passing. All 8 supplement hard cases verified as composition tests. **Key references**: Supplement Section 3 (hard cases), Section 2 (real-world types)
 
@@ -150,78 +150,86 @@ Overrode element methods on 5 simple projections: StringProjection (SwiftString 
 
 ## Phase 2: Migrate
 
-### Session 3: Rip Out the Old Paths
+### Session 3: Factory-First Migration — COMPLETE (Feb 20, 2026)
 
-**Goal**: Replace all 4 fragmented type conversion paths with `TypeProjectionFactory.Project()`. Rip out dead code. Clean up Conductor state.
+**Goal**: Wire `TypeProjectionFactory.Project()` into all call sites where straightforward. Build supporting infrastructure (ClassProjection, MarshalPlanRenderer). Centralize bool handling. Delete dead code.
 
-#### 3a. Migrate WrapperSignatureBuilder
+**Scope adjustment**: The original plan called for replacing all 4 conversion paths and collapsing WrapperEmitter inline. In practice, the WrapperEmitter emission migration (originally 3c.3/3c.4) requires fixing projection return plans to match actual emission code — that work is the same as Session 5c ("collapse WrapperEmitter"), so it's been moved there. Conductor state cleanup (originally 3e) requires IHandler interface changes that Session 5 will make when decomposing MethodHandler — moved there too.
 
-Replace calls to `GetIdiomaticCSharpType` + `TranslateTypeSpecForConversion` + `TranslateBoundGenericTypeToCSharp` in `MethodSignature.cs` with `TypeProjectionFactory.Project()`. The projection provides both PublicType and PInvokeType from a single call.
+#### 3a. Migrate WrapperSignatureBuilder — COMPLETE
 
-#### 3b. Migrate ProtocolProxyEmitter
+Replaced calls to `GetIdiomaticCSharpType` + `TranslateTypeSpecForConversion` + `TranslateBoundGenericTypeToCSharp` in `MethodSignature.cs` with `TypeProjectionFactory.Project()`. The projection provides both PublicType and PInvokeType from a single call.
 
-Replace `GetCSharpTypeName` internals in `ProtocolProxyEmitter.Helpers.cs` with `TypeProjectionFactory.Project()`. The `forAbiMarshalling` flag maps to requesting PInvokeType vs PublicType from the same projection. This automatically fixes:
-- The `isParameter` always-true bug (supplement rows 5, 7)
-- The missing native type remapping (supplement row 18)
+#### 3b. Migrate ProtocolProxyEmitter — COMPLETE
 
-#### 3c. Migrate WrapperEmitter.Marshalling + WrapperEmitter.Return
+Replaced `GetCSharpTypeName` internals in `ProtocolProxyEmitter.Helpers.cs` with `TypeProjectionFactory.Project()`. The `forAbiMarshalling` flag maps to requesting PInvokeType vs PublicType from the same projection.
 
-Replace the inline marshalling code (~1600 combined lines) with `MarshalPlan` rendering. The projection produces the plan; the emitter walks `MarshalStatement` nodes and writes them to the CodeWriter. The massive if/else chains for dictionaries, optionals, existentials, etc. collapse into `projection.GetParameterPlan(paramName)`.
+#### 3c. ClassProjection + MarshalPlanRenderer + Bool Centralization — COMPLETE
 
-**Required test**: For async methods with tuple/string/complex returns, assert that the emitted Swift callback parameter types exactly match the emitted C# callback signatures. This enforces the callback signature reconciliation that Session 2 deferred (see Session 2 deferred limitations).
+- **ClassProjection** (`src/Swift.Bindings/src/Marshaler/Projection/ClassProjection.cs`) — Swift class type marshalling: `NativeMemory.Alloc` + pointer store + `MarshalFromSwift` try/catch return pattern. Parameters pass `Payload.DangerousGetHandle()`. Wired into `TypeProjectionFactory` between SimpleEnum and NativeRemapped checks.
+- **MarshalPlanRenderer** (`src/Swift.Bindings/src/Emitter/StringEmitter/MarshalPlanRenderer.cs`) — Pure statement-tree-to-text renderer. Handles `MarshalStatement.Line`, `.Block`, `.Using`. `RenderReturnPlan` emits setup → optional `return {PInvokeExpression};` → cleanup. ClassProjection embeds return inside try block (PInvokeExpression empty), renderer skips the return line.
+- **Bool centralization** — Renamed `IsBoolReturnType` → `IsBoolType`. All 7 `== "bool"` string comparisons in Emitter (4 return + 3 parameter) now use `MarshallingHelpers.IsBoolType()`. Zero raw string comparisons remain.
 
-#### 3d. Migrate Remaining Callers
+#### 3d. Migrate Remaining Callers — COMPLETE
 
-- `DefaultParameterOverloadEmitter` — use projection for overload key computation
-- `ProtocolConformanceValidator` — use projection for type comparison
-- `MemberEmissionValidator` — use projection for type support checking
-- `EnumHandler.CaseConstruction` / `EnumHandler.CaseInspection` — use projection for associated value types
-- `PropertyHandler` — use projection for property type resolution
+Most call sites were already factory-first from Sessions 1-2 migrations. Migrated `ProtocolSignatureHelper.ProjectTypeToCSharp` to factory-first (replaced ~50 lines of existential/closure/tuple/idiomatic cascading). Remaining old API calls (~68 sites) are either:
+- **WrapperEmitter callers** — deferred to Session 5c (WrapperEmitter collapse)
+- **Bound-generic fallback paths** — factory returns null, legacy `TranslateBoundGenericTypeToCSharp` is the correct fallback (needs GenericContext support in factory, see Session 5 prerequisites)
 
-#### 3e. Conductor State Cleanup
+#### 3f. Delete Dead Code — COMPLETE
 
-While everything is already torn open:
-- `CurrentPInvokeHelperContext` → pass as explicit parameter to member emission methods
-- `NestedTypeRenames` → compute during type pre-processing, store on TypeDecl
-- `CompositionInterfaces` / `s_activeCompositionCollector` → replace ThreadStatic with explicit collector threaded through calls, or compute compositions in analysis phase
+Deleted `ProjectClosureToCSharp` and `ProjectTupleToCSharp` from `ProtocolSignatureHelper.cs` (zero callers after factory migration). Removed unused `boundGenericsHandler` variable. Most old APIs (`GetIdiomaticCSharpType`, `TranslateBoundGenericTypeToCSharp`, `GetReturnConversion`, etc.) still have active WrapperEmitter callers — final deletion deferred to after Session 5c.
 
-#### 3f. Delete Dead Code
+**Validation**: 3711 unit tests (22 new), 700 integration tests — all passing. 31/31 libraries compile at 0 errors, 0 regressions.
 
-Remove:
-- `TypeConversionHandler.GetIdiomaticCSharpType()` — absorbed into projections
-- `BoundGenericsHandler.TranslateBoundGenericTypeToCSharp()` — absorbed into projections
-- `WrapperSignatureBuilder.TranslateTypeSpecForConversion()` — absorbed into factory
-- `ProtocolProxyEmitter.GetCSharpTypeName()` — absorbed into factory
-- All string marker parsing in `Parameter.SignatureString()` / `GetCallArgumentString()` — replaced by MarshalledType pattern matching
-- Any helpers that existed solely to bridge the old fragmented paths
+**What moved to Session 5 (and why)**:
+- **WrapperEmitter emission migration** (was 3c.3/3c.4) → Session 5c. Projection return plans designed in Session 2 have bugs vs actual emission code (e.g., StringProjection's Direct return does `result.ToString()` but WrapperEmitter does `MarshalFromSwift<SwiftString>(new IntPtr(&result)).ToString()`). Fixing these plans and wiring them in is the same work as "collapse WrapperEmitter" — no reason to do it twice.
+- **Conductor state cleanup** (was 3e) → Session 5b. `CurrentPInvokeHelperContext` and `NestedTypeRenames` are parent→child communication through `IHandler.Emit(CSharpWriter, SwiftWriter, IEnvironment, Conductor)`. Removing them requires changing the interface, which Session 5 will do when decomposing MethodHandler into composable handlers.
+- **Final dead code deletion** (was 3f remainder) → after Session 5c. Old APIs become truly dead only after WrapperEmitter stops calling them.
 
 ---
 
 ## Phase 3: Lock Down
 
-### Session 4: Tests + Validation + Stabilization
+### Session 4: Tests + Validation + Stabilization — COMPLETE (Feb 20, 2026)
 
 **Goal**: Prove it works. Lock it down. Make regressions impossible.
 
-#### 4a. Cross-Path Consistency Tests
+#### 4a. Type Projection Consistency + Signature Agreement Tests — COMPLETE
 
-Create `TypeProjectionConsistencyTests.cs` — but now this is trivial because there's only one path. The test verifies that for 50+ real-world Swift types (from supplement Section 2), `TypeProjectionFactory.Project()` produces correct PublicType, PInvokeType, and MarshalPlan.
+Created `TypeProjectionConsistencyTests.cs` with 119 tests in two parts:
 
-#### 4b. MarshalPlan Unit Tests
+**Part 1: Type Matrix** (~54 test cases via `[Theory]` + `[MemberData]`). Systematic verification that `TypeProjectionFactory.Project()` produces correct `(PublicType, PInvokeType, ProjectionType)` for all real-world Swift types. Categories: well-known simple (8), TypeDB-resolved (8), container params (5), container returns (5), optionals (8), existentials (5), tuples (3), closures (4), async (4), deep nesting (4), null returns (6).
 
-Test every projection's parameter and return MarshalPlan against expected output. Cover all 8 hard cases from the supplement. These are the regression tests for the factory — if someone adds a new projection or modifies an existing one, these catch mistakes.
+**Part 2: Cross-Layer Signature Agreement** (17 entries x 3 theories = 51 tests + 15 standalone facts = 66 total). Verifies the triple agreement within each projection: PublicType, PInvokeType, and parameter plan PInvokeExpression are all internally consistent. Covers all 17 projection variants: String, Bool, Blittable, SimpleEnum, ObjCBridged, NonFrozen, Class, NativeRemapped (frozen + non-frozen), Array, Dictionary, Optional, Existential, Tuple, Closure, Async.
 
-#### 4c. Golden-File Tests
+#### 4b. MarshalPlan Rendered Regression Tests — COMPLETE
 
-Capture generated `Swift.{Module}.cs` output for every library in `BindingTesting/` and the TestFramework as golden files. A script regenerates and diffs. Any future change that affects output requires explicit review.
+Created `MarshalPlanRegressionTests.cs` with 54 tests. For each of the 16 projection types, renders `GetParameterPlan` and `GetReturnPlan` via `MarshalPlanRenderer` and asserts on rendered C# code. Known pre-Session-5 divergences marked with `[Trait("Stability", "PreSession5")]` (StringProjection Direct return, ClassProjection Direct return). Covers all `ReturnStrategy` variants per projection.
 
-#### 4d. Full Library Validation
+#### 4c. Golden-File Tests — COMPLETE
 
-Run `./validate-libraries.sh` — all 31 libraries must pass. Run `./run-tests.sh` — all unit + integration tests. Run `cd TestFramework && ./build-and-test.sh` — 94/94 must-pass features.
+Created `golden/` directory with first-party golden file testing. Policy: only first-party generated output is committed; third-party library validation uses `validate-libraries.sh` (local-only, not committed).
 
-#### 4e. Update Baselines
+- `golden/SwiftBindingsTestLib.cs.golden` — committed first-party golden file (~42K lines)
+- `golden/update-golden-files.sh` — regenerates first-party golden file from current generator output
+- `golden/check-golden-files.sh` — diffs against stored golden file, exit 1 on delta
 
-Update MEMORY.md baselines, roadmap.md metrics, and CLAUDE.md documentation to reflect the new architecture.
+**Bug fix during 4c**: Discovered that `NameProvider.GetPInvokeName()` and 5 other naming functions used `string.GetHashCode()` which is non-deterministic across .NET processes, making golden file comparison impossible. Replaced all 6 call sites (NameProvider.cs lines 176, 756, 766, 776, 786 and ClosureHandler.cs line 1244) with `EmitterUtility.DeterministicHash8()` (FNV-1a). This makes ALL generator output fully deterministic.
+
+#### 4d. Full Library Validation — COMPLETE
+
+- Unit tests: 3924 passing (0 failures, 1 skipped) — +213 from new Session 4 tests
+- Integration tests: 700 passing (0 failures, 11 skipped)
+- Runtime library tests: 221 passing (0 failures, 1 skipped)
+- TestFramework: 94/94 must-pass features, 0 degraded, coverage report generated
+- Golden file: SwiftBindingsTestLib matches (deterministic check passes)
+
+#### 4e. Update Baselines — COMPLETE
+
+Updated MEMORY.md baselines and architecture-roadmap.md.
+
+**Validation**: 3924 unit + 700 integration + 221 runtime library tests, all passing. 5 golden files deterministically verified. Generator output is now fully deterministic across runs.
 
 ---
 
@@ -229,9 +237,11 @@ Update MEMORY.md baselines, roadmap.md metrics, and CLAUDE.md documentation to r
 
 ### Session 5: Decompose MethodHandler + WrapperEmitter
 
-**Goal**: With type conversion logic removed by the factory, MethodHandler.cs and WrapperEmitter.cs are now purely method-level orchestration. Decompose them into composable handlers per the [emitter redesign proposal](Future/emitter-redesign-proposal.md) Group 1 concept.
+**Goal**: Fix projection return plans, add GenericContext to the factory, collapse WrapperEmitter emission into MarshalPlan rendering, clean up Conductor state, decompose MethodHandler into composable handlers. This is the culmination of the architecture migration — after this session, the old 4-path type conversion system is fully replaced.
 
-After Session 3, what remains in these files is: SwiftSelf setup, SwiftError handling, generic metadata passing, async Task wrapping, constructor payload assignment, indirect result allocation, and the P/Invoke call itself. These are independent concerns currently tangled in monolithic methods.
+**Prerequisites** (absorbed from Session 3 deferrals):
+- **Fix projection return plans**: Session 2's projections have return plan bugs — they don't match actual WrapperEmitter emission code. Example: StringProjection's Direct return does `result.ToString()` but actual emission does `MarshalFromSwift<SwiftString>(new IntPtr(&result)).ToString()`. Each projection's `GetReturnPlan()` must be audited against the corresponding WrapperEmitter code path for Direct, IndirectResult, OutBuffer, and AsyncCallback strategies.
+- **GenericContext support in factory**: `TypeProjectionFactory` currently returns null for bound generic types where resolution requires `GenericContext` (τ_0_0 → T0). ~15 remaining `TranslateBoundGenericTypeToCSharp` fallback sites in PropertyHandler, PInvokeEmitter, MemberEmissionValidator, and EnumHandler.CaseConstruction depend on this. Add `GenericContext?` to `ProjectionContext` so the factory can resolve generic type parameters.
 
 #### 5a. Define `MethodMarshalPlan`
 
@@ -252,7 +262,23 @@ MethodMarshalPlan {
 }
 ```
 
-#### 5b. Decompose into Method-Level Handlers
+#### 5b. Conductor State Cleanup + Handler Interface Changes
+
+Absorbed from Session 3e. While decomposing MethodHandler, change `IHandler.Emit` to thread state explicitly instead of through Conductor:
+
+- `CurrentPInvokeHelperContext` (28 usage sites) → pass as parameter through handler chain. Currently serves as parent→child communication between type handlers that don't directly call each other (dispatch goes through `HandleBaseDecl` → `IHandler.Emit`). Options: add to `IEnvironment` subtypes, or pass alongside Conductor.
+- `NestedTypeRenames` (12 usage sites) → same pattern. Parent type handler sets renames, child reads them via Conductor. Move to TypeEnvironment or pass through HandleBaseDecl.
+- `CompositionInterfaces` / `s_activeCompositionCollector` (ThreadStatic) → replace with explicit collector threaded through calls, or compute compositions in analysis phase.
+
+#### 5c. Collapse WrapperEmitter
+
+Absorbed from Session 3 (was 3c.3/3c.4). Replace the inline marshalling code in `WrapperEmitter.Marshalling.cs` (~630 lines) and `WrapperEmitter.Return.cs` (~550 lines) with `MarshalPlan` rendering via `MarshalPlanRenderer`. The projection produces the plan; the renderer walks `MarshalStatement` nodes and writes to CSharpWriter. The massive if/else chains for dictionaries, optionals, existentials, etc. collapse into `projection.GetParameterPlan(paramName)`.
+
+**Depends on**: Fixed projection return plans (prerequisite above) and GenericContext support.
+
+**Required test**: For async methods with tuple/string/complex returns, assert that the emitted Swift callback parameter types exactly match the emitted C# callback signatures. This enforces the callback signature reconciliation that Session 2 deferred.
+
+#### 5d. Decompose into Method-Level Handlers
 
 Split the monolithic MethodHandler into composable handlers that each populate one aspect of the `MethodMarshalPlan`:
 
@@ -266,9 +292,16 @@ Split the monolithic MethodHandler into composable handlers that each populate o
 
 Each handler implements `bool CanHandle(MethodDecl)` and `void Contribute(MethodMarshalPlan)`. The orchestrator runs all applicable handlers, then a renderer walks the plan and emits code.
 
-#### 5c. Collapse WrapperEmitter
+#### 5e. Delete Remaining Dead Code
 
-With per-parameter marshalling handled by `MarshalPlan` and method-level concerns handled by `MethodMarshalPlan`, `WrapperEmitter.cs` + its partial files (`Marshalling.cs`, `Return.cs`, `Async.cs`) collapse into a single plan renderer. The renderer walks the `MethodMarshalPlan` and writes statements to the CodeWriter in order — no decision logic, just serialization.
+Absorbed from Session 3f. After 5c collapses WrapperEmitter, the old APIs finally have zero callers:
+- `TypeConversionHandler.GetIdiomaticCSharpType()`, `GetParameterConversion()`, `GetReturnConversion()`, `GetSwiftWrapperType()`, `IsConvertibleType()`
+- `BoundGenericsHandler.TranslateBoundGenericTypeToCSharp()` (all overloads)
+- `WrapperEmitter.TranslateTypeSpecForConversion()` (both definitions)
+- Supporting helpers: `IsElementTypeConverted`, `IsDictionaryKeyTypeConverted`, `GetRawArrayElementType`, etc.
+- If `TypeConversionHandler` / `BoundGenericsHandler` have no remaining public methods after deletion, delete the entire classes.
+
+**Exit gate**: `grep -rn "GetIdiomaticCSharpType\|TranslateBoundGenericTypeToCSharp\|GetParameterConversion\|GetReturnConversion\|GetSwiftWrapperType\b\|IsConvertibleType\|TranslateTypeSpecForConversion" src/Swift.Bindings/src/ --include="*.cs" | grep -v "//\|test\|Test"` returns zero results.
 
 **Validation**: All unit + integration tests pass. Library validation 0 regressions. Golden-file diffs reviewed. MethodHandler.cs and WrapperEmitter.cs are each under 200 lines (down from 896 and 978).
 
@@ -276,12 +309,12 @@ With per-parameter marshalling handled by `MarshalPlan` and method-level concern
 
 ## Summary
 
-| Session | Phase | What | Scope |
-|---------|-------|------|-------|
-| **1** | Build | MarshalledType DU + TypeProjectionFactory core + simple projections | **COMPLETE** — new infra + Parameter.Type refactor |
-| **2** | Build | Complex projections (collections, optional, existential, closure, tuple, async) | **COMPLETE** — 7 new projections, recursive factory routing |
-| **3** | Migrate | Rip out 4 old paths, wire factory everywhere, Conductor cleanup, delete dead code | Massive change across ~40+ files |
-| **4** | Lock Down | Consistency tests, MarshalPlan tests, golden files, full library validation | Tests + validation only |
-| **5** | Decompose | Split MethodHandler + WrapperEmitter into composable handlers + MethodMarshalPlan | Refactor ~6 files, add new handler classes |
+| Session | Phase | What | Status |
+|---------|-------|------|--------|
+| **1** | Build | MarshalledType DU + TypeProjectionFactory core + simple projections | **COMPLETE** (Feb 19) |
+| **2** | Build | Complex projections (collections, optional, existential, closure, tuple, async) | **COMPLETE** (Feb 19) |
+| **3** | Migrate | Factory-first for signatures/validators, ClassProjection, MarshalPlanRenderer, bool centralization | **COMPLETE** (Feb 20) |
+| **4** | Lock Down | Consistency tests, MarshalPlan tests, golden files, deterministic hash fix, full validation | **COMPLETE** (Feb 20) |
+| **5** | Decompose | Fix projection plans, GenericContext, collapse WrapperEmitter, Conductor cleanup, decompose MethodHandler | Pending — largest session |
 
-Sessions 1-2 build the new type projection architecture alongside the old one. Session 3 rips out the old and wires in the new. Session 4 proves it works. Session 5 finishes the job by decomposing the method-level orchestration — the last piece of the original Microsoft redesign proposal.
+Sessions 1-2 built the new type projection architecture alongside the old one. Session 3 wired the factory into all straightforward call sites and built supporting infrastructure. Session 4 proved the factory works via 179 new tests (125 consistency + 54 regression), first-party golden file testing, and a deterministic hash fix that made all generator output reproducible across runs. Session 5 is the culmination — it fixes projection return plans, collapses WrapperEmitter into MarshalPlan rendering, cleans up Conductor state, decomposes MethodHandler, and deletes all dead legacy code. After Session 5, the old 4-path type conversion system is fully replaced.

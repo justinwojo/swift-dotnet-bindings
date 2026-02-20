@@ -1241,7 +1241,7 @@ public class ClosureHandler
     /// <returns>The callback function name.</returns>
     public static string GetCallbackFunctionName(string methodName, string parameterName, string mangledName)
     {
-        var mangledHash = Math.Abs(mangledName.GetHashCode()).ToString("X8");
+        var mangledHash = EmitterUtility.DeterministicHash8(mangledName);
         return $"{methodName}_{parameterName}_{mangledHash}_Callback";
     }
 
