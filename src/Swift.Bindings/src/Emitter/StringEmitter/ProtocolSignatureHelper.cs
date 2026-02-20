@@ -14,7 +14,6 @@ internal static class ProtocolSignatureHelper
     /// </summary>
     public static string GetMethodSignatureKey(MethodDecl methodDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext = null)
     {
-        var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
         var paramTypes = new List<string>();
         // Skip first element (return type) in CSSignature
         for (int i = 1; i < methodDecl.CSSignature.Count; i++)
@@ -112,53 +111,24 @@ internal static class ProtocolSignatureHelper
     /// <param name="isParameter">True for parameter types (arrays → IEnumerable), false for return types (arrays → IReadOnlyList).</param>
     public static string ProjectTypeToCSharp(TypeSpec typeSpec, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext = null, bool isParameter = false)
     {
-        // Associated type references → generic param
+        // Associated type references → generic param (factory doesn't handle these)
         if (typeSpec is AssociatedTypeReferenceSpec assocRef)
             return MapAssociatedTypeToGenericParam(assocRef, protocolContext);
 
-        var existentialHandler = new ExistentialHandler(typeDatabase);
-
-        // Existential types (any Protocol)
-        if (existentialHandler.IsExistential(typeSpec))
+        // Factory-first: handles existentials, closures, tuples, containers (Array, Dict, Optional),
+        // string, bool, ObjC bridged, simple enum, native remapped, class, non-frozen, blittable
+        var factory = new TypeProjectionFactory();
+        var projection = factory.Project(typeSpec, new ProjectionContext
         {
-            var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
-            if (protocolList != null && existentialHandler.IsSupportedExistential(protocolList))
-                return existentialHandler.GetPublicExistentialType(protocolList);
-        }
+            TypeDatabase = typeDatabase,
+            IsParameter = isParameter
+        });
+        if (projection != null)
+            return projection.PublicType;
 
-        // Optional-wrapped existential
-        if (existentialHandler.IsOptionalExistential(typeSpec))
-        {
-            var innerProtocolList = existentialHandler.UnwrapOptionalExistential(typeSpec);
-            if (innerProtocolList != null && existentialHandler.IsSupportedExistential(innerProtocolList))
-            {
-                var publicInnerType = existentialHandler.GetPublicExistentialType(innerProtocolList);
-                if (publicInnerType != "object")
-                    return existentialHandler.GetPublicOptionalExistentialType(innerProtocolList);
-            }
-        }
-
-        // Closures → Action/Func
-        if (typeSpec is ClosureTypeSpec closureTypeSpec)
-            return ProjectClosureToCSharp(closureTypeSpec, typeDatabase, protocolContext, isParameter);
-
-        // Tuples → ValueTuple
-        if (typeSpec is TupleTypeSpec tupleTypeSpec && !tupleTypeSpec.IsEmptyTuple)
-            return ProjectTupleToCSharp(tupleTypeSpec, typeDatabase, protocolContext, isParameter);
-
-        // Bound generics (Optional<T>, Array<T>, etc.)
+        // Fallback for types the factory can't handle (user-defined bound generics, protocol-kind, etc.)
         if (typeSpec is NamedTypeSpec namedTypeSpec && namedTypeSpec.ContainsGenericParameters)
         {
-            // Try idiomatic conversion first (SwiftString→string, SwiftArray→IEnumerable/IReadOnlyList, etc.)
-            // Pass typeTranslator so GetElementType can recursively resolve generic type args
-            var typeConversion = new TypeConversionHandler(typeDatabase);
-            var idiomaticType = typeConversion.GetIdiomaticCSharpType(typeSpec, isParameter: isParameter,
-                ts => ProjectTypeToCSharp(ts, typeDatabase, protocolContext, isParameter));
-            if (idiomaticType != null)
-                return idiomaticType;
-
-            // Try BoundGenericsHandler for recognized bound generics (Optional<T>, Array<T>, etc.)
-            // Falls back to raw type lookup for unrecognized generics (SwiftDictionary<K,V>, etc.)
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
             try
             {
@@ -176,65 +146,13 @@ internal static class ProtocolSignatureHelper
             }
             catch (NotSupportedException)
             {
-                // Unrecognized bound generic (e.g., SwiftDictionary<K,V>) — return AnyType
-                // to avoid bare type name without generic args (CS0305)
                 return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
             }
         }
 
-        // Standard named type lookup with idiomatic + native remapping
-        {
-            var record = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
-            var rawType = record.CSharpTypeName.FullyQualifiedName;
-            var typeConversion = new TypeConversionHandler(typeDatabase);
-            var idiomaticType = typeConversion.GetIdiomaticCSharpType(typeSpec, isParameter: isParameter);
-            if (idiomaticType != null)
-                return idiomaticType;
-            // Native type remapping (Foundation.URL → NSUrl, Foundation.Data → NSData)
-            if (typeConversion.HasNativeTypeRemapping(typeSpec))
-            {
-                var nativeType = typeConversion.GetNativeTypeName(typeSpec);
-                if (nativeType != null)
-                    return nativeType;
-            }
-            return rawType;
-        }
-    }
-
-    private static string ProjectClosureToCSharp(ClosureTypeSpec closureTypeSpec, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext, bool isParameter = false)
-    {
-        var paramTypes = new List<string>();
-        foreach (var arg in closureTypeSpec.EachArgument())
-            paramTypes.Add(ProjectTypeToCSharp(arg, typeDatabase, protocolContext, isParameter));
-
-        var returnType = closureTypeSpec.ReturnType;
-        bool hasReturn = !returnType.IsEmptyTuple;
-
-        if (!hasReturn)
-        {
-            if (paramTypes.Count == 0) return "Action";
-            return $"Action<{string.Join(", ", paramTypes)}>";
-        }
-        else
-        {
-            var returnTypeName = ProjectTypeToCSharp(returnType, typeDatabase, protocolContext, isParameter);
-            if (paramTypes.Count == 0) return $"Func<{returnTypeName}>";
-            return $"Func<{string.Join(", ", paramTypes)}, {returnTypeName}>";
-        }
-    }
-
-    private static string ProjectTupleToCSharp(TupleTypeSpec tupleTypeSpec, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext, bool isParameter = false)
-    {
-        var elements = new List<string>();
-        foreach (var element in tupleTypeSpec.Elements)
-        {
-            var typeName = ProjectTypeToCSharp(element, typeDatabase, protocolContext, isParameter);
-            if (!string.IsNullOrEmpty(element.TypeLabel))
-                elements.Add($"{typeName} {element.TypeLabel}");
-            else
-                elements.Add(typeName);
-        }
-        return $"({string.Join(", ", elements)})";
+        // Final fallback: raw type record lookup
+        var record = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
+        return record.CSharpTypeName.FullyQualifiedName;
     }
 
     /// <summary>

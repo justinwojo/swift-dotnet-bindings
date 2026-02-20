@@ -130,7 +130,7 @@ namespace BindingsGeneration
             {
                 var (_, _, name, typeSpec) = parameters[i];
                 var pInvokeType = GetPInvokeType(typeSpec, typeDatabase);
-                var marshalPrefix = pInvokeType == "bool" ? "[MarshalAs(UnmanagedType.U1)] " : "";
+                var marshalPrefix = MarshallingHelpers.IsBoolType(pInvokeType) ? "[MarshalAs(UnmanagedType.U1)] " : "";
                 pInvokeParams.Add($"{marshalPrefix}{pInvokeType} {name}");
             }
 

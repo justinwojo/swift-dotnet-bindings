@@ -659,7 +659,7 @@ namespace BindingsGeneration
                 csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
                 csWriter.WriteLine($"[LibraryImport(\"{libPath}\", EntryPoint = \"{entryPoint}\")]");
                 var pInvokeReturnType = methodDecl.IsAsync ? "void" : pInvokeSignature.ReturnType;
-                if (MarshallingHelpers.IsBoolReturnType(pInvokeReturnType))
+                if (MarshallingHelpers.IsBoolType(pInvokeReturnType))
                     csWriter.WriteLine("[return: MarshalAs(UnmanagedType.U1)]");
                 var pInvokeParams = pInvokeSignature.PInvokeParametersString();
                 var unsafeModifier = pInvokeParams.Contains("void*") || pInvokeParams.Contains("delegate*") ? "unsafe " : "";

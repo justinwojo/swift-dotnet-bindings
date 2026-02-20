@@ -193,7 +193,7 @@ public class TypeProjectionFactoryTests
     }
 
     [Fact]
-    public void Project_NonFrozenClass_ReturnsNonFrozenStructProjection()
+    public void Project_Class_ReturnsClassProjection()
     {
         var db = new MockTypeDatabase();
         db.AddType("TestModule.MyClass", new TypeRecord
@@ -210,8 +210,62 @@ public class TypeProjectionFactoryTests
         var projection = _factory.Project(typeSpec, ctx);
 
         Assert.NotNull(projection);
-        Assert.IsType<NonFrozenStructProjection>(projection);
+        Assert.IsType<ClassProjection>(projection);
         Assert.Equal("Swift.TestModule.MyClass", projection.PublicType);
+        Assert.Equal("IntPtr", projection.PInvokeType);
+    }
+
+    #endregion
+
+    #region ClassProjection
+
+    [Fact]
+    public void ClassProjection_ParameterPlan_UsesDangerousGetHandle()
+    {
+        var projection = new ClassProjection("Swift.TestModule.MyClass");
+        var plan = projection.GetParameterPlan("myParam");
+
+        Assert.Equal("myParam.Payload.DangerousGetHandle()", plan.PInvokeExpression);
+        Assert.Empty(plan.SetupStatements);
+        Assert.Empty(plan.CleanupStatements);
+    }
+
+    [Fact]
+    public void ClassProjection_ReturnPlan_EmitsTryCatch()
+    {
+        var projection = new ClassProjection("Swift.TestModule.MyClass");
+        var plan = projection.GetReturnPlan("result", ReturnStrategy.Direct);
+
+        Assert.True(plan.RequiresUnsafe);
+        // Return is embedded in setup (try block), PInvokeExpression is empty
+        Assert.Equal("", plan.PInvokeExpression);
+        Assert.Equal(3, plan.SetupStatements.Count);
+
+        // First: NativeMemory.Alloc
+        var alloc = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
+        Assert.Contains("NativeMemory.Alloc", alloc.Code);
+
+        // Second: try block with pointer store + return
+        var tryBlock = Assert.IsType<MarshalStatement.Block>(plan.SetupStatements[1]);
+        Assert.Equal("try", tryBlock.Header);
+        Assert.Equal(2, tryBlock.Body.Count);
+        var returnLine = Assert.IsType<MarshalStatement.Line>(tryBlock.Body[1]);
+        Assert.Contains("MarshalFromSwift", returnLine.Code);
+        Assert.Contains("return", returnLine.Code);
+
+        // Third: catch block with free + throw
+        var catchBlock = Assert.IsType<MarshalStatement.Block>(plan.SetupStatements[2]);
+        Assert.Equal("catch", catchBlock.Header);
+        Assert.Equal(2, catchBlock.Body.Count);
+    }
+
+    [Fact]
+    public void ClassProjection_ElementConversions()
+    {
+        var projection = new ClassProjection("Swift.TestModule.MyClass");
+
+        Assert.Equal("e.Payload.DangerousGetHandle()", projection.GetParameterElementConversion("e"));
+        Assert.Equal("new Swift.TestModule.MyClass(e)", projection.GetReturnElementConversion("e"));
     }
 
     #endregion

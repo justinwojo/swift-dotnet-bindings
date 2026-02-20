@@ -114,9 +114,10 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Checks if a P/Invoke return type string represents bool, which requires
-        /// [return: MarshalAs(UnmanagedType.U1)] for LibraryImport compatibility.
+        /// Checks if a P/Invoke type string represents bool, which requires
+        /// [MarshalAs(UnmanagedType.U1)] for LibraryImport compatibility.
+        /// Used for both parameter and return type marshalling.
         /// </summary>
-        public static bool IsBoolReturnType(string returnType) => returnType == "bool";
+        public static bool IsBoolType(string type) => type == "bool";
     }
 }

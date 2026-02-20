@@ -164,6 +164,10 @@ public class TypeProjectionFactory
             return new SimpleEnumProjection(typeRecord.CSharpTypeName.FullyQualifiedName, underlyingType);
         }
 
+        // Classes (non-frozen, pointer-based)
+        if (typeRecord.Kind == TypeRecordKind.Class)
+            return new ClassProjection(typeRecord.CSharpTypeName.FullyQualifiedName);
+
         // Native remapped types (URL → NSUrl, Data → NSData)
         if (typeRecord.NativeTypeName != null)
         {

@@ -318,7 +318,7 @@ namespace BindingsGeneration
         /// <param name="modifier">Optional parameter modifier (e.g., "out").</param>
         protected void AddParameter(string type, string name, string modifier = "")
         {
-            var marshalledType = type == "bool" ? MarshalledType.Bool : new MarshalledType.Simple(type);
+            var marshalledType = MarshallingHelpers.IsBoolType(type) ? MarshalledType.Bool : new MarshalledType.Simple(type);
             _parameters.Add(new Parameter(marshalledType, name, modifier));
         }
     }

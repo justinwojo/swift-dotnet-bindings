@@ -324,13 +324,13 @@ namespace BindingsGeneration
             foreach (var param in paramDecls)
             {
                 var paramType = GetSimpleParamType(param.SwiftTypeSpec, typeDatabase);
-                var marshalPrefix = paramType == "bool" ? "[MarshalAs(UnmanagedType.U1)] " : "";
+                var marshalPrefix = MarshallingHelpers.IsBoolType(paramType!) ? "[MarshalAs(UnmanagedType.U1)] " : "";
                 pinvokeParams.Add($"{marshalPrefix}{paramType} {NameProvider.GetCSharpParameterName(param)}");
             }
 
             var pinvokeReturnType = returnsVoid ? "void" : (returnsEnum ? csUnderlyingType : csReturnType);
             csWriter.WriteLine($"[LibraryImport(\"SwiftBindings\", EntryPoint = \"{wrapperSymbol}\")]");
-            if (MarshallingHelpers.IsBoolReturnType(pinvokeReturnType))
+            if (MarshallingHelpers.IsBoolType(pinvokeReturnType))
                 csWriter.WriteLine("[return: MarshalAs(UnmanagedType.U1)]");
             csWriter.WriteLine($"private static partial {pinvokeReturnType} PInvoke_{methodPascalName}({string.Join(", ", pinvokeParams)});");
             csWriter.WriteLine();

@@ -188,7 +188,7 @@ public class PInvokeDeclaration
         csWriter.WriteLine($"[LibraryImport(\"{LibraryPath}\", EntryPoint = \"{EntryPoint}\")]");
 
         var returnTypeStr = IsAsync ? "void" : ReturnType;
-        if (MarshallingHelpers.IsBoolReturnType(returnTypeStr))
+        if (MarshallingHelpers.IsBoolType(returnTypeStr))
             csWriter.WriteLine("[return: MarshalAs(UnmanagedType.U1)]");
         var paramsStr = ParametersString;
 
