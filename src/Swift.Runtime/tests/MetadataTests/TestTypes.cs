@@ -35,9 +35,9 @@ struct SwiftIntMock : ISwiftObject
         return TypeMetadata.GetTypeMetadataOrThrow<nint>();
     }
 
-    static ISwiftObject ISwiftObject.NewFromPayload(IntPtr payload)
+    static unsafe ISwiftObject ISwiftObject.NewFromPayload(IntPtr payload)
     {
-        return new SwiftIntMock((int)payload);
+        return new SwiftIntMock(*(int*)payload);
     }
 
     int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)

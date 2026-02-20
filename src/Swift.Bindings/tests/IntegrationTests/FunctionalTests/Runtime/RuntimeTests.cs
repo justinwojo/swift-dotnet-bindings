@@ -179,7 +179,8 @@ namespace BindingsGeneration.FunctionalTests
         public void TestEmptySet()
         {
             var set = GetSet(0);
-            Assert.Equal(0, set.Count);
+            int count = set.Count;
+            Assert.Equal(0, count);
             Assert.Equal(0, SumSet(set));
         }
 
@@ -187,7 +188,8 @@ namespace BindingsGeneration.FunctionalTests
         public void TestOneElementSet()
         {
             var set = GetSet(1);
-            Assert.Equal(1, set.Count);
+            int count = set.Count;
+            Assert.Equal(1, count);
             Assert.Equal(0, SumSet(set));
         }
 
@@ -297,7 +299,8 @@ namespace BindingsGeneration.FunctionalTests
                     barrier.SignalAndWait();
                     try
                     {
-                        Assert.Equal(1, resource.Count);
+                        int resourceCount = resource.Count;
+                        Assert.Equal(1, resourceCount);
                     }
                     catch (ObjectDisposedException ex)
                     {
