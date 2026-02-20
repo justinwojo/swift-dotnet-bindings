@@ -417,42 +417,8 @@ namespace BindingsGeneration
         {
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
 
-            // Check for associated type references in protocol context
-            string csharpTypeName;
-            if (propertyDecl.SwiftTypeSpec is AssociatedTypeReferenceSpec assocRef)
-            {
-                csharpTypeName = ProtocolSignatureHelper.MapAssociatedTypeToGenericParam(assocRef, protocolContext);
-            }
-            else if (boundGenericsHandler.IsBoundGeneric(propertyDecl))
-            {
-                csharpTypeName = boundGenericsHandler.TranslateBoundGenericTypeToCSharp(propertyDecl);
-            }
-            else
-            {
-                csharpTypeName = typeDatabase.GetTypeRecordOrAnyType(propertyDecl.SwiftTypeSpec).CSharpTypeName.FullyQualifiedName;
-            }
-
-            // Apply idiomatic type conversion (SwiftString → string, SwiftArray → IReadOnlyList, etc.)
-            // Interface property types must match the implementing class property types
-            var typeConversionHandler = new TypeConversionHandler(typeDatabase);
-            var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(
-                propertyDecl.SwiftTypeSpec,
-                isParameter: false,
-                typeSpec =>
-                {
-                    var rec = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
-                    return rec.CSharpTypeName.FullyQualifiedName;
-                });
-            if (idiomaticType != null)
-            {
-                csharpTypeName = idiomaticType;
-            }
-            else if (typeConversionHandler.HasNativeTypeRemapping(propertyDecl.SwiftTypeSpec))
-            {
-                var nativeType = typeConversionHandler.GetNativeTypeName(propertyDecl.SwiftTypeSpec);
-                if (nativeType != null)
-                    csharpTypeName = nativeType;
-            }
+            // Resolve property type using factory-first projection
+            var csharpTypeName = GetCSharpTypeName(propertyDecl.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext, isParameter: false);
 
             // Determine accessors
             var hasGetter = propertyDecl.Accessors.OfType<GetAccessorDecl>().Any();
@@ -498,53 +464,16 @@ namespace BindingsGeneration
         private void EmitInterfaceSubscript(CSharpWriter csWriter, SubscriptDecl subscriptDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext = null)
         {
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
-            var typeConversionHandler = new TypeConversionHandler(typeDatabase);
             NameProvider.DeduplicateParameterNamesForParameterList(subscriptDecl.IndexParameters);
 
-            // Get return type — apply idiomatic type conversion (SwiftOptional → T?, SwiftString → string)
-            string returnTypeName;
-            var idiomaticReturnType = typeConversionHandler.GetIdiomaticCSharpType(subscriptDecl.ReturnTypeSpec, isParameter: false);
-            if (idiomaticReturnType != null)
-            {
-                returnTypeName = idiomaticReturnType;
-            }
-            else if (subscriptDecl.ReturnTypeSpec is AssociatedTypeReferenceSpec assocRef)
-            {
-                returnTypeName = ProtocolSignatureHelper.MapAssociatedTypeToGenericParam(assocRef, protocolContext);
-            }
-            else if (subscriptDecl.ReturnTypeSpec is NamedTypeSpec namedTypeSpec && namedTypeSpec.ContainsGenericParameters)
-            {
-                // Create a temporary property to use the BoundGenericsHandler
-                var tempProperty = new PropertyDecl
-                {
-                    Name = "_temp",
-                    SwiftTypeSpec = subscriptDecl.ReturnTypeSpec,
-                    IsStatic = false,
-                    HasStorage = false,
-                    Accessors = new List<AccessorDecl>(),
-                    ParentDecl = null,
-                    ModuleDecl = null
-                };
-                try
-                {
-                    returnTypeName = boundGenericsHandler.TranslateBoundGenericTypeToCSharp(tempProperty);
-                }
-                catch (NotSupportedException)
-                {
-                    returnTypeName = TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
-                }
-            }
-            else
-            {
-                returnTypeName = typeDatabase.GetTypeRecordOrAnyType(subscriptDecl.ReturnTypeSpec).CSharpTypeName.FullyQualifiedName;
-            }
+            // Resolve return type using factory-first projection
+            var returnTypeName = GetCSharpTypeName(subscriptDecl.ReturnTypeSpec, typeDatabase, boundGenericsHandler, protocolContext, isParameter: false);
 
-            // Build index parameters — apply idiomatic type conversion
+            // Build index parameters
             var parameters = new List<string>();
             foreach (var param in subscriptDecl.IndexParameters)
             {
-                var idiomaticParamType = typeConversionHandler.GetIdiomaticCSharpType(param.SwiftTypeSpec, isParameter: true);
-                var paramTypeName = idiomaticParamType ?? GetCSharpTypeName(param.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext);
+                var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext);
                 var paramName = NameProvider.GetCSharpParameterName(param);
                 parameters.Add($"{paramTypeName} {paramName}");
             }
@@ -605,30 +534,14 @@ namespace BindingsGeneration
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
             NameProvider.DeduplicateParameterNames(methodDecl.CSSignature);
 
-            // Get return type - apply idiomatic type conversions (SwiftString -> string, etc.)
-            // and native type remapping (Foundation.URL -> NSUrl, Foundation.Data -> NSData)
-            // to match what MethodHandler emits on concrete types
-            var typeConversionHandler = new TypeConversionHandler(typeDatabase);
+            // Get return type using factory-first projection
             var returnType = "void";
             if (methodDecl.CSSignature.Count > 0)
             {
                 var returnArg = methodDecl.CSSignature[0];
                 if (returnArg.SwiftTypeSpec is not TupleTypeSpec tuple || !tuple.IsEmptyTuple)
                 {
-                    var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(returnArg.SwiftTypeSpec, isParameter: false);
-                    if (idiomaticType != null)
-                    {
-                        returnType = idiomaticType;
-                    }
-                    else if (typeConversionHandler.HasNativeTypeRemapping(returnArg.SwiftTypeSpec))
-                    {
-                        returnType = typeConversionHandler.GetNativeTypeName(returnArg.SwiftTypeSpec)
-                            ?? GetCSharpTypeName(returnArg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext);
-                    }
-                    else
-                    {
-                        returnType = GetCSharpTypeName(returnArg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext);
-                    }
+                    returnType = GetCSharpTypeName(returnArg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext, isParameter: false);
                 }
             }
 
@@ -637,21 +550,7 @@ namespace BindingsGeneration
             for (int i = 1; i < methodDecl.CSSignature.Count; i++)
             {
                 var arg = methodDecl.CSSignature[i];
-                var idiomaticParamType = typeConversionHandler.GetIdiomaticCSharpType(arg.SwiftTypeSpec, isParameter: true);
-                string argTypeName;
-                if (idiomaticParamType != null)
-                {
-                    argTypeName = idiomaticParamType;
-                }
-                else if (typeConversionHandler.HasNativeTypeRemapping(arg.SwiftTypeSpec))
-                {
-                    argTypeName = typeConversionHandler.GetNativeTypeName(arg.SwiftTypeSpec)
-                        ?? GetCSharpTypeName(arg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext);
-                }
-                else
-                {
-                    argTypeName = GetCSharpTypeName(arg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext);
-                }
+                var argTypeName = GetCSharpTypeName(arg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext);
                 var argName = NameProvider.GetCSharpParameterName(arg);
                 parameters.Add($"{argTypeName} {argName}");
             }
@@ -715,7 +614,7 @@ namespace BindingsGeneration
         /// For protocol interfaces, this also handles closures, tuples, and existentials with relaxed requirements
         /// since we're just emitting signatures, not PInvoke implementations.
         /// </summary>
-        private string GetCSharpTypeName(TypeSpec typeSpec, ITypeDatabase typeDatabase, BoundGenericsHandler boundGenericsHandler, ProtocolDecl? protocolContext = null)
+        private string GetCSharpTypeName(TypeSpec typeSpec, ITypeDatabase typeDatabase, BoundGenericsHandler boundGenericsHandler, ProtocolDecl? protocolContext = null, bool isParameter = true)
         {
             // Handle associated type references (e.g., Self.Element, τ_0_0.Element)
             if (typeSpec is AssociatedTypeReferenceSpec assocRef)
@@ -723,79 +622,59 @@ namespace BindingsGeneration
                 return ProtocolSignatureHelper.MapAssociatedTypeToGenericParam(assocRef, protocolContext);
             }
 
-            // Handle existential types (any Protocol, protocol compositions)
-            var existentialHandler = new ExistentialHandler(typeDatabase);
-            if (existentialHandler.IsExistential(typeSpec))
+            // Factory-first: handles existentials, closures, tuples, optionals, arrays, dicts, native remapping
+            var factory = new TypeProjectionFactory();
+            var projection = factory.Project(typeSpec, new ProjectionContext
             {
-                var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
-                if (protocolList != null && existentialHandler.IsSupportedExistential(protocolList))
-                {
-                    return existentialHandler.GetPublicExistentialType(protocolList);
-                }
+                TypeDatabase = typeDatabase,
+                IsParameter = isParameter
+            });
+            if (projection != null)
+                return projection.PublicType;
+
+            // Closure fallback when factory can't fully resolve (e.g., inner types not in TypeDatabase)
+            if (typeSpec is ClosureTypeSpec closureType)
+                return GetClosureCSharpType(closureType, typeDatabase, protocolContext);
+
+            // Tuple fallback
+            if (typeSpec is TupleTypeSpec tupleType)
+            {
+                if (tupleType.IsEmptyTuple) return "void";
+                var elements = tupleType.Elements.Select(e => GetCSharpTypeName(e, typeDatabase, boundGenericsHandler, protocolContext, isParameter)).ToList();
+                return $"({string.Join(", ", elements)})";
             }
 
-            // Handle Optional-wrapped existential types (e.g., (any ImageDecoding)?)
-            if (existentialHandler.IsOptionalExistential(typeSpec))
-            {
-                var innerProtocolList = existentialHandler.UnwrapOptionalExistential(typeSpec);
-                if (innerProtocolList != null && existentialHandler.IsSupportedExistential(innerProtocolList))
-                {
-                    var publicInnerType = existentialHandler.GetPublicExistentialType(innerProtocolList);
-                    if (publicInnerType != "object")
-                    {
-                        return existentialHandler.GetPublicOptionalExistentialType(innerProtocolList);
-                    }
-                }
-            }
-
-            // Handle closures - translate to C# delegate types for protocol interfaces
-            if (typeSpec is ClosureTypeSpec closureTypeSpec)
-            {
-                return GetClosureCSharpType(closureTypeSpec, typeDatabase, protocolContext);
-            }
-
-            // Handle tuples - translate to C# ValueTuple types for protocol interfaces
-            if (typeSpec is TupleTypeSpec tupleTypeSpec && !tupleTypeSpec.IsEmptyTuple)
-            {
-                return GetTupleCSharpType(tupleTypeSpec, typeDatabase, protocolContext);
-            }
-
-            // C9: Check for idiomatic type conversions first (e.g., Optional<Bool> → bool?, Array<String> → IReadOnlyList<string>)
-            // This ensures protocol interface signatures match concrete implementations which use GetIdiomaticCSharpType.
-            if (typeSpec is NamedTypeSpec namedTypeSpec)
+            // Idiomatic conversion fallback — handles types the factory couldn't fully resolve
+            // (e.g., Optional<Dictionary<AnyHashable, Int>> where inner types aren't in TypeDatabase)
+            if (typeSpec is NamedTypeSpec idioNamedType)
             {
                 var typeConversionHandler = new TypeConversionHandler(typeDatabase);
-                // Pass typeTranslator so GetElementType can recursively resolve generic type args
-                // (e.g., Optional<Dictionary<K,V>> → SwiftDictionary<K_resolved, V_resolved>?)
-                var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(typeSpec, isParameter: true,
+                var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(typeSpec, isParameter: isParameter,
                     ts => GetCSharpTypeName(ts, typeDatabase, boundGenericsHandler, protocolContext));
                 if (idiomaticType != null)
                     return idiomaticType;
+            }
 
-                // Handle bound generics (e.g., Optional<T>, Array<T>)
-                if (namedTypeSpec.ContainsGenericParameters)
+            // Legacy fallback: bound generics not yet covered by factory
+            if (typeSpec is NamedTypeSpec namedTypeSpec && namedTypeSpec.ContainsGenericParameters)
+            {
+                var tempProperty = new PropertyDecl
                 {
-                    // Create a temporary property to use the BoundGenericsHandler
-                    var tempProperty = new PropertyDecl
-                    {
-                        Name = "_temp",
-                        SwiftTypeSpec = typeSpec,
-                        IsStatic = false,
-                        HasStorage = false,
-                        Accessors = new List<AccessorDecl>(),
-                        ParentDecl = null,
-                        ModuleDecl = null
-                    };
-                    try
-                    {
-                        return boundGenericsHandler.TranslateBoundGenericTypeToCSharp(tempProperty);
-                    }
-                    catch (NotSupportedException)
-                    {
-                        // Unrecognized bound generic (e.g., SwiftDictionary<K,V>) — return AnyType
-                        // to avoid bare type name without generic args (CS0305)
-                        return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
-                    }
+                    Name = "_temp",
+                    SwiftTypeSpec = typeSpec,
+                    IsStatic = false,
+                    HasStorage = false,
+                    Accessors = new List<AccessorDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = null
+                };
+                try
+                {
+                    return boundGenericsHandler.TranslateBoundGenericTypeToCSharp(tempProperty);
+                }
+                catch (NotSupportedException)
+                {
+                    return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
                 }
             }
 
@@ -919,20 +798,7 @@ namespace BindingsGeneration
         private bool HasAnyTypeGenericArgInPropertyType(PropertyDecl propertyDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext)
         {
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
-
-            string csharpTypeName;
-            if (propertyDecl.SwiftTypeSpec is AssociatedTypeReferenceSpec assocRef)
-            {
-                csharpTypeName = ProtocolSignatureHelper.MapAssociatedTypeToGenericParam(assocRef, protocolContext);
-            }
-            else if (boundGenericsHandler.IsBoundGeneric(propertyDecl))
-            {
-                csharpTypeName = boundGenericsHandler.TranslateBoundGenericTypeToCSharp(propertyDecl);
-            }
-            else
-            {
-                csharpTypeName = typeDatabase.GetTypeRecordOrAnyType(propertyDecl.SwiftTypeSpec).CSharpTypeName.FullyQualifiedName;
-            }
+            var csharpTypeName = GetCSharpTypeName(propertyDecl.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext, isParameter: false);
 
             // IsBareGenericTypeName is a safety net for resolved C# names that slipped through
             // TypeSpec-level HasBareGenericUsage (checked upstream in emit loop).
@@ -949,36 +815,7 @@ namespace BindingsGeneration
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
 
             // Check return type
-            string returnTypeName;
-            if (subscriptDecl.ReturnTypeSpec is AssociatedTypeReferenceSpec assocRef)
-            {
-                returnTypeName = ProtocolSignatureHelper.MapAssociatedTypeToGenericParam(assocRef, protocolContext);
-            }
-            else if (subscriptDecl.ReturnTypeSpec is NamedTypeSpec namedTypeSpec && namedTypeSpec.ContainsGenericParameters)
-            {
-                var tempProperty = new PropertyDecl
-                {
-                    Name = "_temp",
-                    SwiftTypeSpec = subscriptDecl.ReturnTypeSpec,
-                    IsStatic = false,
-                    HasStorage = false,
-                    Accessors = new List<AccessorDecl>(),
-                    ParentDecl = null,
-                    ModuleDecl = null
-                };
-                try
-                {
-                    returnTypeName = boundGenericsHandler.TranslateBoundGenericTypeToCSharp(tempProperty);
-                }
-                catch (NotSupportedException)
-                {
-                    returnTypeName = TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
-                }
-            }
-            else
-            {
-                returnTypeName = typeDatabase.GetTypeRecordOrAnyType(subscriptDecl.ReturnTypeSpec).CSharpTypeName.FullyQualifiedName;
-            }
+            var returnTypeName = GetCSharpTypeName(subscriptDecl.ReturnTypeSpec, typeDatabase, boundGenericsHandler, protocolContext, isParameter: false);
 
             if (ContainsAnyTypeGenericArg(returnTypeName) ||
                 TypeDatabaseExtensions.IsBareGenericTypeName(returnTypeName))
@@ -1004,7 +841,6 @@ namespace BindingsGeneration
         private bool HasAnyTypeGenericArgInSignature(MethodDecl methodDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext)
         {
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
-            var typeConversionHandler = new TypeConversionHandler(typeDatabase);
 
             // Check return type
             if (methodDecl.CSSignature.Count > 0)
@@ -1013,7 +849,7 @@ namespace BindingsGeneration
                 if (returnArg.SwiftTypeSpec is not TupleTypeSpec tuple || !tuple.IsEmptyTuple)
                 {
                     var returnType = ResolveMethodTypeName(returnArg.SwiftTypeSpec, isParameter: false,
-                        typeDatabase, boundGenericsHandler, typeConversionHandler, protocolContext);
+                        typeDatabase, boundGenericsHandler, protocolContext);
                     if (ContainsAnyTypeGenericArg(returnType) ||
                         TypeDatabaseExtensions.IsBareGenericTypeName(returnType))
                         return true;
@@ -1025,7 +861,7 @@ namespace BindingsGeneration
             {
                 var arg = methodDecl.CSSignature[i];
                 var paramType = ResolveMethodTypeName(arg.SwiftTypeSpec, isParameter: true,
-                    typeDatabase, boundGenericsHandler, typeConversionHandler, protocolContext);
+                    typeDatabase, boundGenericsHandler, protocolContext);
                 if (ContainsAnyTypeGenericArg(paramType) ||
                     TypeDatabaseExtensions.IsBareGenericTypeName(paramType))
                     return true;
@@ -1040,25 +876,14 @@ namespace BindingsGeneration
         /// </summary>
         private string ResolveMethodTypeName(TypeSpec swiftTypeSpec, bool isParameter,
             ITypeDatabase typeDatabase, BoundGenericsHandler boundGenericsHandler,
-            TypeConversionHandler typeConversionHandler, ProtocolDecl? protocolContext)
+            ProtocolDecl? protocolContext)
         {
-            var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(swiftTypeSpec, isParameter: isParameter);
-            if (idiomaticType != null)
-                return idiomaticType;
-
-            if (typeConversionHandler.HasNativeTypeRemapping(swiftTypeSpec))
-            {
-                return typeConversionHandler.GetNativeTypeName(swiftTypeSpec)
-                    ?? GetCSharpTypeName(swiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext);
-            }
-
-            return GetCSharpTypeName(swiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext);
+            return GetCSharpTypeName(swiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext, isParameter: isParameter);
         }
 
         private string BuildEmittedSignature(MethodDecl methodDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext)
         {
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
-            var typeConversionHandler = new TypeConversionHandler(typeDatabase);
 
             var returnTypeSpec = methodDecl.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
             bool hasReturnValue = returnTypeSpec != null && !returnTypeSpec.IsEmptyTuple;
@@ -1069,7 +894,7 @@ namespace BindingsGeneration
             {
                 var arg = methodDecl.CSSignature[i];
                 var paramType = ResolveMethodTypeName(arg.SwiftTypeSpec, isParameter: true,
-                    typeDatabase, boundGenericsHandler, typeConversionHandler, protocolContext);
+                    typeDatabase, boundGenericsHandler, protocolContext);
                 paramType = ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity(paramType, arg.SwiftTypeSpec, typeDatabase);
                 paramTypes.Add(paramType);
             }

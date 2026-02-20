@@ -105,7 +105,10 @@ public class TypeProjectionFactory
             var isExistentialInner = inner is ProtocolListTypeSpec ||
                 (inner is NamedTypeSpec innerNamed && innerNamed.IsAny);
 
-            var innerProjection = Project(inner, context);
+            // Optional inner types always use IsParameter=false (return-style projection).
+            // This matches the legacy GetIdiomaticCSharpType behavior where Optional<Dictionary<K,V>>
+            // always produces IReadOnlyDictionary (not IDictionary), regardless of outer context.
+            var innerProjection = Project(inner, context with { IsParameter = false });
             if (innerProjection == null)
                 return null;
             return new OptionalProjection(innerProjection, isExistentialInner);

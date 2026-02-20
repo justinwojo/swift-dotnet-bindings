@@ -428,7 +428,6 @@ public static class DefaultParameterOverloadEmitter
             ? "ctor"
             : NameProvider.GetPublicMethodName(overloadDecl.Name, overloadDecl.IsAsync, hasReturnValue: hasReturnValue);
 
-        var typeConversionHandler = new TypeConversionHandler(typeDatabase);
         var paramTypes = new List<string>();
         for (int i = 1; i < overloadDecl.CSSignature.Count; i++)
         {
@@ -444,11 +443,16 @@ public static class DefaultParameterOverloadEmitter
             {
                 typeSpecForKey = optionalClosureSpec.GenericParameters[0];
             }
-            var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(typeSpecForKey, isParameter: true);
-            string paramType;
-            if (idiomaticType != null)
+            var factory = new TypeProjectionFactory();
+            var projection = factory.Project(typeSpecForKey, new ProjectionContext
             {
-                paramType = idiomaticType;
+                TypeDatabase = typeDatabase,
+                IsParameter = true
+            });
+            string paramType;
+            if (projection != null)
+            {
+                paramType = projection.PublicType;
             }
             else
             {

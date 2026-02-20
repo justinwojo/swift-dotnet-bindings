@@ -576,7 +576,9 @@ public class ProtocolProxyEmitterTests
 
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("public (Swift.AnyType, Swift.AnyType) Decompose()", output);
+        // Factory returns null for tuple (Swift.Int not in test DB), but fallback
+        // resolves elements individually: Swift.Int → AnyType, Swift.Bool → bool (well-known)
+        Assert.Contains("public (Swift.AnyType, bool) Decompose()", output);
     }
 
     [Fact]
@@ -628,8 +630,11 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
-    public void EmitProxyClass_WithProtocolCompositionProperty_UsesExistentialContainerType()
+    public void EmitProxyClass_WithProtocolCompositionProperty_UsesCompositionInterface()
     {
+        // Protocol compositions produce a combined interface name (IP1AndP2) via
+        // ExistentialHandler.GetCompositionInterfaceName. The factory routes through
+        // ExistentialProjection which uses GetPublicExistentialType.
         var protocolDecl = CreateSimpleProtocol("ExistentialProtocol");
         protocolDecl.Properties.Add(new PropertyDecl
         {
@@ -651,12 +656,14 @@ public class ProtocolProxyEmitterTests
 
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("public Swift.Runtime.ExistentialContainer2 Delegate", output);
+        Assert.Contains("IP1AndP2 Delegate", output);
     }
 
     [Fact]
-    public void EmitProxyClass_WithAnyExistentialProperty_UsesAnyTypeToMatchInterface()
+    public void EmitProxyClass_WithAnyExistentialProperty_UsesObjectForAnyType()
     {
+        // Swift "any" existential resolves to "object" via the ExistentialProjection
+        // 3-tier fallback: well-known → proxy → object.
         var protocolDecl = CreateSimpleProtocol("AnyExistentialProtocol");
         var anyExistential = new NamedTypeSpec("Swift.Any.Type") { IsAny = true };
         protocolDecl.Properties.Add(new PropertyDecl
@@ -675,7 +682,7 @@ public class ProtocolProxyEmitterTests
 
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("public Swift.AnyType ValueType", output);
+        Assert.Contains("public object ValueType", output);
     }
 
     [Fact]

@@ -325,14 +325,23 @@ public class ProtocolConformanceValidator
     /// </summary>
     private string GetInterfaceSubscriptReturnType(SubscriptDecl protoSubscript, ProtocolDecl protocolContext)
     {
-        var boundGenericsHandler = new BoundGenericsHandler(_typeDatabase);
+        // Try factory-based projection (handles idiomatic conversion + closures + tuples + existentials)
+        var factory = new TypeProjectionFactory();
+        var projection = factory.Project(protoSubscript.ReturnTypeSpec, new ProjectionContext
+        {
+            TypeDatabase = _typeDatabase,
+            IsParameter = false
+        });
+        if (projection != null)
+            return projection.PublicType;
 
         if (protoSubscript.ReturnTypeSpec is AssociatedTypeReferenceSpec assocRef)
-        {
             return ProtocolSignatureHelper.MapAssociatedTypeToGenericParam(assocRef, protocolContext);
-        }
-        else if (protoSubscript.ReturnTypeSpec is NamedTypeSpec namedTypeSpec && namedTypeSpec.ContainsGenericParameters)
+
+        // Legacy fallback: bound generics not yet covered by factory
+        if (protoSubscript.ReturnTypeSpec is NamedTypeSpec namedTypeSpec && namedTypeSpec.ContainsGenericParameters)
         {
+            var boundGenericsHandler = new BoundGenericsHandler(_typeDatabase);
             var tempProperty = new PropertyDecl
             {
                 Name = "_temp",
@@ -349,14 +358,11 @@ public class ProtocolConformanceValidator
             }
             catch (NotSupportedException)
             {
-                // Unrecognized bound generic subscript return type — fall back to AnyType
                 return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
             }
         }
-        else
-        {
-            return _typeDatabase.GetTypeRecordOrAnyType(protoSubscript.ReturnTypeSpec).CSharpTypeName.FullyQualifiedName;
-        }
+
+        return _typeDatabase.GetTypeRecordOrAnyType(protoSubscript.ReturnTypeSpec).CSharpTypeName.FullyQualifiedName;
     }
 
     /// <summary>

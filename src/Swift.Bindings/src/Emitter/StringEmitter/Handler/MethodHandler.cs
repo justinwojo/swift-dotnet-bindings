@@ -722,15 +722,13 @@ namespace BindingsGeneration
                     .Take(parameters.Count - 1)
                     .Select(p =>
                     {
-                        var idiomaticType = methodEnv.TypeConversionHandler.GetIdiomaticCSharpType(p.SwiftTypeSpec, isParameter: true);
-                        if (idiomaticType != null) return idiomaticType;
-                        if (methodEnv.ExistentialHandler.IsExistential(p.SwiftTypeSpec))
+                        var factory = new TypeProjectionFactory();
+                        var projection = factory.Project(p.SwiftTypeSpec, new ProjectionContext
                         {
-                            var protocolList = methodEnv.ExistentialHandler.ToProtocolListTypeSpec(p.SwiftTypeSpec);
-                            return protocolList != null
-                                ? methodEnv.ExistentialHandler.GetPublicExistentialType(protocolList)
-                                : "object";
-                        }
+                            TypeDatabase = methodEnv.TypeDatabase,
+                            IsParameter = true
+                        });
+                        if (projection != null) return projection.PublicType;
                         if (methodEnv.TypeDatabase.TryGetTypeRecord(p.SwiftTypeSpec, out var record))
                             return record.CSharpTypeName.FullyQualifiedName;
                         return p.SwiftTypeSpec.ToString();
@@ -775,19 +773,15 @@ namespace BindingsGeneration
             foreach (var p in nonClosureParams)
             {
                 var csName = NameProvider.GetCSharpParameterName(p);
-                var idiomaticType = methodEnv.TypeConversionHandler.GetIdiomaticCSharpType(p.SwiftTypeSpec, isParameter: true);
-                string paramType;
-                if (idiomaticType != null)
-                    paramType = idiomaticType;
-                else if (methodEnv.ExistentialHandler.IsExistential(p.SwiftTypeSpec))
+                var factory = new TypeProjectionFactory();
+                var projection = factory.Project(p.SwiftTypeSpec, new ProjectionContext
                 {
-                    // Existential parameters (any Protocol, AnyObject) use the public existential type
-                    // to match the main method's signature (e.g., "object" for AnyObject).
-                    var protocolList = methodEnv.ExistentialHandler.ToProtocolListTypeSpec(p.SwiftTypeSpec);
-                    paramType = protocolList != null
-                        ? methodEnv.ExistentialHandler.GetPublicExistentialType(protocolList)
-                        : "object";
-                }
+                    TypeDatabase = methodEnv.TypeDatabase,
+                    IsParameter = true
+                });
+                string paramType;
+                if (projection != null)
+                    paramType = projection.PublicType;
                 else if (methodEnv.TypeDatabase.TryGetTypeRecord(p.SwiftTypeSpec, out var record))
                     paramType = record.CSharpTypeName.FullyQualifiedName;
                 else

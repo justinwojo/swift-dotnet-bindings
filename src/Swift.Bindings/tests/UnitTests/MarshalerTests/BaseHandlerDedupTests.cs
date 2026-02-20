@@ -50,10 +50,10 @@ public class BaseHandlerDedupTests
     }
 
     [Fact]
-    public void GetProjectedCSharpMethodKey_NonEmptyTuple_ResolvesToAnyType()
+    public void GetProjectedCSharpMethodKey_NonEmptyTuple_ResolvesToProjectedTuple()
     {
-        // Non-empty tuples hit the `_ => AnyType` default in GetTypeRecordOrAnyType(TypeSpec),
-        // so they resolve without throwing. This tests the normal AnyType fallback, not the catch block.
+        // Factory resolves tuple elements (Swift.Int → long, Swift.Bool → bool),
+        // producing a concrete projected tuple type in the dedup key.
         var typeDatabase = new BasicTypeDatabase();
         var moduleDecl = CreateModuleDecl();
 
@@ -84,7 +84,9 @@ public class BaseHandlerDedupTests
         var result = InvokeGetProjectedCSharpMethodKey(method, typeDatabase);
 
         Assert.NotNull(result);
-        Assert.Contains("Swift.AnyType", result);
+        // Factory resolves tuple: Swift.Int from DB → long (System.Int64 keyword alias),
+        // Swift.Bool well-known → bool
+        Assert.Contains("(long, bool)", result);
     }
 
     [Fact]

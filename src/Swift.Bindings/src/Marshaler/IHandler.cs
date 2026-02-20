@@ -257,7 +257,6 @@ namespace BindingsGeneration
                 ? "ctor"
                 : NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: hasReturnValue);
 
-            var typeConversionHandler = new TypeConversionHandler(typeDatabase);
             var paramTypes = new List<string>();
             for (int i = 1; i < methodDecl.CSSignature.Count; i++)
             {
@@ -273,24 +272,29 @@ namespace BindingsGeneration
                 {
                     typeSpecForKey = optionalClosureSpec.GenericParameters[0];
                 }
-                var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(typeSpecForKey, isParameter: true);
                 string paramType;
-                if (idiomaticType != null)
+                try
                 {
-                    paramType = idiomaticType;
-                }
-                else
-                {
-                    try
+                    var factory = new TypeProjectionFactory();
+                    var projection = factory.Project(typeSpecForKey, new ProjectionContext
+                    {
+                        TypeDatabase = typeDatabase,
+                        IsParameter = true
+                    });
+                    if (projection != null)
+                    {
+                        paramType = projection.PublicType;
+                    }
+                    else
                     {
                         var typeRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpecForKey);
                         paramType = typeRecord.CSharpTypeName.FullyQualifiedName;
                     }
-                    catch (Exception ex)
-                    {
-                        logger?.LogWarning($"GetProjectedCSharpMethodKey: Failed to resolve type '{typeSpecForKey}' for method '{methodDecl.Name}', using string fallback: {ex.Message}");
-                        paramType = typeSpecForKey?.ToString() ?? "unknown";
-                    }
+                }
+                catch (Exception ex)
+                {
+                    logger?.LogWarning($"GetProjectedCSharpMethodKey: Failed to resolve type '{typeSpecForKey}' for method '{methodDecl.Name}', using string fallback: {ex.Message}");
+                    paramType = typeSpecForKey?.ToString() ?? "unknown";
                 }
                 // Normalize nullable reference types: Optional<Class> and Class produce
                 // the same C# overload (nullable annotations are erased at runtime).

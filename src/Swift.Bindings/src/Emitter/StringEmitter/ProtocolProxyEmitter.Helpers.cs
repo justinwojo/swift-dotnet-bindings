@@ -6,9 +6,9 @@ namespace BindingsGeneration;
 public partial class ProtocolProxyEmitter
 {
     /// <summary>
-    /// Resolves a Swift type to its C# name. Uses factory-based projection for NamedTypeSpec
-    /// with fallbacks for closures, existentials, tuples, and idiomatic conversion.
-    /// When <paramref name="forAbiMarshalling"/> is true, returns the P/Invoke type
+    /// Resolves a Swift type to its C# name. Uses TypeProjectionFactory for public type
+    /// resolution (!forAbiMarshalling) with fallbacks for closures, existentials, and bound generics.
+    /// When <paramref name="forAbiMarshalling"/> is true, returns the ABI type
     /// (e.g., Swift.SwiftString, ExistentialContainer0) suitable for MarshalFromSwift&lt;T&gt;.
     /// When false (default), returns the idiomatic C# type (e.g., string, bool?)
     /// used in interface/implementation signatures.
@@ -21,11 +21,24 @@ public partial class ProtocolProxyEmitter
         if (typeSpec is AssociatedTypeReferenceSpec associatedTypeRef)
             return $"T{associatedTypeRef.AssociatedTypeName}";
 
-        // Closures: always use GetClosureCSharpType (factory can fail if inner types unknown)
+        // Factory-first path for public (non-ABI) type resolution.
+        // Handles closures, tuples, existentials, strings, arrays, dicts, optionals, etc.
+        if (!forAbiMarshalling)
+        {
+            var factory = new TypeProjectionFactory();
+            var projection = factory.Project(typeSpec, new ProjectionContext
+            {
+                TypeDatabase = _typeDatabase,
+                IsParameter = isParameter
+            });
+            if (projection != null)
+                return projection.PublicType;
+        }
+
+        // ABI marshalling path (or factory fallback for unsupported types)
         if (typeSpec is ClosureTypeSpec closureTypeSpec)
             return GetClosureCSharpType(closureTypeSpec);
 
-        // Tuples: use GetTupleCSharpType (preserves element labels)
         if (typeSpec is TupleTypeSpec tupleTypeSpec)
         {
             if (tupleTypeSpec.IsEmptyTuple)
@@ -33,7 +46,7 @@ public partial class ProtocolProxyEmitter
             return GetTupleCSharpType(tupleTypeSpec);
         }
 
-        // Existentials: keep explicit handling (must match ProtocolHandler interface emission until 3d)
+        // Existentials: ABI → container type, public → interface/well-known
         var existentialHandler = new ExistentialHandler(_typeDatabase);
         if (existentialHandler.IsExistential(typeSpec))
         {
@@ -50,12 +63,10 @@ public partial class ProtocolProxyEmitter
                         : existentialHandler.GetPublicExistentialType(protocolList);
                 }
             }
-            // Unsupported existentials fall through to type database fallback
         }
 
-        // Idiomatic type conversion (String → string, Array → IReadOnlyList, Dict → IReadOnlyDictionary,
-        // Optional → T?, etc.). Must match what ProtocolHandler.cs emits for interface signatures.
-        // P0 fix: skip for ABI marshalling — MarshalFromSwift<T> needs Swift wrapper types.
+        // Idiomatic conversion fallback — handles types the factory couldn't fully resolve
+        // (e.g., Optional<Dictionary<AnyHashable, Int>> where inner types aren't in TypeDatabase)
         if (!forAbiMarshalling && typeSpec is NamedTypeSpec)
         {
             var typeConversionHandler = new TypeConversionHandler(_typeDatabase);
@@ -116,6 +127,17 @@ public partial class ProtocolProxyEmitter
     /// </summary>
     private string GetInterfaceCompatiblePropertyTypeName(PropertyDecl property)
     {
+        // Try factory first for well-resolved types
+        var factory = new TypeProjectionFactory();
+        var projection = factory.Project(property.SwiftTypeSpec, new ProjectionContext
+        {
+            TypeDatabase = _typeDatabase,
+            IsParameter = false
+        });
+        if (projection != null)
+            return projection.PublicType;
+
+        // Fallback: existing resolution cascade
         var boundGenericsHandler = new BoundGenericsHandler(_typeDatabase);
         var rawType = boundGenericsHandler.IsBoundGeneric(property)
             ? boundGenericsHandler.TranslateBoundGenericTypeToCSharp(property)

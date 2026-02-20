@@ -660,9 +660,6 @@ namespace BindingsGeneration
         {
             var emittedProperties = new HashSet<string>();
             var emittedMethods = new HashSet<string>();
-            var typeConversionHandler = new TypeConversionHandler(typeDatabase);
-            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
-            var existentialHandler = new ExistentialHandler(typeDatabase);
 
             foreach (var interfaceName in parentInterfaces)
             {
@@ -680,7 +677,7 @@ namespace BindingsGeneration
                     if (!emittedProperties.Add(property.Name))
                         continue;
 
-                    var csharpType = ResolvePropertyType(property, typeDatabase, typeConversionHandler, boundGenericsHandler, existentialHandler);
+                    var csharpType = ResolvePropertyType(property, typeDatabase);
                     var propertyName = NameProvider.GetPropertyName(property.Name);
                     var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
                     var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
@@ -707,8 +704,8 @@ namespace BindingsGeneration
                     if (!emittedMethods.Add(methodKey))
                         continue;
 
-                    var returnType = ResolveMethodReturnType(method, typeDatabase, typeConversionHandler, boundGenericsHandler, existentialHandler);
-                    var parameters = ResolveMethodParameters(method, typeDatabase, typeConversionHandler, boundGenericsHandler, existentialHandler);
+                    var returnType = ResolveMethodReturnType(method, typeDatabase);
+                    var parameters = ResolveMethodParameters(method, typeDatabase);
                     bool hasReturnValue = method.CSSignature.Count > 0 && !method.CSSignature.First().SwiftTypeSpec.IsEmptyTuple;
                     var methodName = NameProvider.GetPublicMethodName(method.Name, method.IsAsync, hasReturnValue);
 
@@ -729,78 +726,32 @@ namespace BindingsGeneration
         /// <summary>
         /// Resolves a property's C# type using the same chain as ProtocolHandler.EmitInterfaceProperty.
         /// </summary>
-        private static string ResolvePropertyType(PropertyDecl property, ITypeDatabase typeDatabase,
-            TypeConversionHandler typeConversionHandler, BoundGenericsHandler boundGenericsHandler,
-            ExistentialHandler existentialHandler)
+        private static string ResolvePropertyType(PropertyDecl property, ITypeDatabase typeDatabase)
         {
-            string rawType;
-            if (boundGenericsHandler.IsBoundGeneric(property))
-                rawType = boundGenericsHandler.TranslateBoundGenericTypeToCSharp(property);
-            else if (existentialHandler.IsExistential(property.SwiftTypeSpec))
-            {
-                var pl = existentialHandler.ToProtocolListTypeSpec(property.SwiftTypeSpec);
-                rawType = pl != null && existentialHandler.IsSupportedExistential(pl)
-                    ? existentialHandler.GetPublicExistentialType(pl)
-                    : typeDatabase.GetTypeRecordOrAnyType(property.SwiftTypeSpec).CSharpTypeName.FullyQualifiedName;
-            }
-            else
-                rawType = typeDatabase.GetTypeRecordOrAnyType(property.SwiftTypeSpec).CSharpTypeName.FullyQualifiedName;
-
-            var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(
-                property.SwiftTypeSpec,
-                isParameter: false,
-                ts => typeDatabase.GetTypeRecordOrAnyType(ts).CSharpTypeName.FullyQualifiedName);
-            if (idiomaticType != null) return idiomaticType;
-            if (typeConversionHandler.HasNativeTypeRemapping(property.SwiftTypeSpec))
-            {
-                var native = typeConversionHandler.GetNativeTypeName(property.SwiftTypeSpec);
-                if (native != null) return native;
-            }
-            return rawType;
+            return ResolveCSharpTypeName(property.SwiftTypeSpec, typeDatabase, isParameter: false);
         }
 
         /// <summary>
         /// Resolves a method's return type using the same chain as ProtocolHandler.EmitInterfaceMethod.
         /// </summary>
-        private static string ResolveMethodReturnType(MethodDecl method, ITypeDatabase typeDatabase,
-            TypeConversionHandler typeConversionHandler, BoundGenericsHandler boundGenericsHandler,
-            ExistentialHandler existentialHandler)
+        private static string ResolveMethodReturnType(MethodDecl method, ITypeDatabase typeDatabase)
         {
             if (method.CSSignature.Count == 0) return "void";
             var returnArg = method.CSSignature[0];
             if (returnArg.SwiftTypeSpec is TupleTypeSpec tuple && tuple.IsEmptyTuple) return "void";
-
-            var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(returnArg.SwiftTypeSpec, isParameter: false);
-            if (idiomaticType != null) return idiomaticType;
-            if (typeConversionHandler.HasNativeTypeRemapping(returnArg.SwiftTypeSpec))
-            {
-                var native = typeConversionHandler.GetNativeTypeName(returnArg.SwiftTypeSpec);
-                if (native != null) return native;
-            }
-            return ResolveCSharpTypeName(returnArg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, existentialHandler);
+            return ResolveCSharpTypeName(returnArg.SwiftTypeSpec, typeDatabase, isParameter: false);
         }
 
         /// <summary>
         /// Resolves method parameters to C# parameter declarations.
         /// </summary>
-        private static List<string> ResolveMethodParameters(MethodDecl method, ITypeDatabase typeDatabase,
-            TypeConversionHandler typeConversionHandler, BoundGenericsHandler boundGenericsHandler,
-            ExistentialHandler existentialHandler)
+        private static List<string> ResolveMethodParameters(MethodDecl method, ITypeDatabase typeDatabase)
         {
             var parameters = new List<string>();
             for (int i = 1; i < method.CSSignature.Count; i++)
             {
                 var arg = method.CSSignature[i];
-                var idiomaticParamType = typeConversionHandler.GetIdiomaticCSharpType(arg.SwiftTypeSpec, isParameter: true);
-                string paramTypeName;
-                if (idiomaticParamType != null)
-                    paramTypeName = idiomaticParamType;
-                else if (typeConversionHandler.HasNativeTypeRemapping(arg.SwiftTypeSpec))
-                    paramTypeName = typeConversionHandler.GetNativeTypeName(arg.SwiftTypeSpec)
-                        ?? ResolveCSharpTypeName(arg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, existentialHandler);
-                else
-                    paramTypeName = ResolveCSharpTypeName(arg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, existentialHandler);
-
+                var paramTypeName = ResolveCSharpTypeName(arg.SwiftTypeSpec, typeDatabase);
                 var paramName = NameProvider.GetCSharpParameterName(arg);
                 parameters.Add($"{paramTypeName} {paramName}");
             }
@@ -811,41 +762,22 @@ namespace BindingsGeneration
         /// Resolves a TypeSpec to its C# type name, handling closures, tuples, existentials, bound generics,
         /// and standard types. Mirrors ProtocolHandler.GetCSharpTypeName() for composition proxy stubs.
         /// </summary>
-        private static string ResolveCSharpTypeName(TypeSpec typeSpec, ITypeDatabase typeDatabase,
-            BoundGenericsHandler boundGenericsHandler, ExistentialHandler existentialHandler)
+        private static string ResolveCSharpTypeName(TypeSpec typeSpec, ITypeDatabase typeDatabase, bool isParameter = true)
         {
-            // C9b: Apply idiomatic type conversion for nested types (e.g., closure params like Array<UInt8> → IEnumerable<byte>).
-            // Without this, composition proxy stubs emit Action<SwiftArray<byte>> while the interface declares Action<IEnumerable<byte>>.
-            var typeConversionHandler = new TypeConversionHandler(typeDatabase);
-            var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(typeSpec, isParameter: true);
-            if (idiomaticType != null) return idiomaticType;
-
-            // Handle existential types (any Protocol, protocol compositions)
-            if (existentialHandler.IsExistential(typeSpec))
+            // Factory-first: handles existentials, closures, tuples, optionals, arrays, dicts, native remapping
+            var factory = new TypeProjectionFactory();
+            var projection = factory.Project(typeSpec, new ProjectionContext
             {
-                var pl = existentialHandler.ToProtocolListTypeSpec(typeSpec);
-                if (pl != null && existentialHandler.IsSupportedExistential(pl))
-                    return existentialHandler.GetPublicExistentialType(pl);
-            }
+                TypeDatabase = typeDatabase,
+                IsParameter = isParameter
+            });
+            if (projection != null)
+                return projection.PublicType;
 
-            // Handle closures — translate to Action<T>/Func<T,R> delegate types
-            if (typeSpec is ClosureTypeSpec closureTypeSpec)
-            {
-                return ResolveClosureCSharpType(closureTypeSpec, typeDatabase, boundGenericsHandler, existentialHandler);
-            }
-
-            // Handle tuples — translate to ValueTuple types
-            if (typeSpec is TupleTypeSpec tupleTypeSpec && !tupleTypeSpec.IsEmptyTuple)
-            {
-                var elements = tupleTypeSpec.Elements
-                    .Select(e => ResolveCSharpTypeName(e, typeDatabase, boundGenericsHandler, existentialHandler))
-                    .ToList();
-                return $"({string.Join(", ", elements)})";
-            }
-
-            // Handle bound generics (e.g., Optional<T>, Array<T>)
+            // Legacy fallback: bound generics not yet covered by factory
             if (typeSpec is NamedTypeSpec namedTypeSpec && namedTypeSpec.ContainsGenericParameters)
             {
+                var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
                 var tempProperty = new PropertyDecl
                 {
                     Name = "_temp",
@@ -856,42 +788,19 @@ namespace BindingsGeneration
                     ParentDecl = null,
                     ModuleDecl = null
                 };
-                return boundGenericsHandler.TranslateBoundGenericTypeToCSharp(tempProperty);
+                try
+                {
+                    return boundGenericsHandler.TranslateBoundGenericTypeToCSharp(tempProperty);
+                }
+                catch (NotSupportedException)
+                {
+                    return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
+                }
             }
 
             // Standard type lookup
             return typeDatabase.GetTypeRecordOrAnyType(typeSpec).CSharpTypeName.FullyQualifiedName;
         }
 
-        /// <summary>
-        /// Translates a ClosureTypeSpec to Action/Func delegate type.
-        /// Mirrors ProtocolHandler.GetClosureCSharpType().
-        /// </summary>
-        private static string ResolveClosureCSharpType(ClosureTypeSpec closureTypeSpec, ITypeDatabase typeDatabase,
-            BoundGenericsHandler boundGenericsHandler, ExistentialHandler existentialHandler)
-        {
-            var paramTypes = new List<string>();
-            foreach (var arg in closureTypeSpec.EachArgument())
-            {
-                paramTypes.Add(ResolveCSharpTypeName(arg, typeDatabase, boundGenericsHandler, existentialHandler));
-            }
-
-            var returnType = closureTypeSpec.ReturnType;
-            bool hasReturn = !returnType.IsEmptyTuple;
-
-            if (!hasReturn)
-            {
-                if (paramTypes.Count == 0)
-                    return "Action";
-                return $"Action<{string.Join(", ", paramTypes)}>";
-            }
-            else
-            {
-                var returnTypeName = ResolveCSharpTypeName(returnType, typeDatabase, boundGenericsHandler, existentialHandler);
-                if (paramTypes.Count == 0)
-                    return $"Func<{returnTypeName}>";
-                return $"Func<{string.Join(", ", paramTypes)}, {returnTypeName}>";
-            }
-        }
     }
 }
