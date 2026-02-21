@@ -23,7 +23,7 @@ public class CompositeProjectionTests
         var proj = new DictionaryProjection(key, val, isParameter: true);
         var plan = proj.GetParameterPlan("dict");
 
-        Assert.Equal("dictBuf", plan.PInvokeExpression);
+        Assert.Equal("dictBuffer", plan.PInvokeExpression);
 
         // Should have Select conversion
         var firstLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
@@ -52,7 +52,7 @@ public class CompositeProjectionTests
 
         // Parameter plan should have branching (complex inner)
         var plan = optionalProj.GetParameterPlan("data");
-        Assert.Equal("dataBuf", plan.PInvokeExpression);
+        Assert.Equal("dataBuffer", plan.PInvokeExpression);
 
         // Should have if/else blocks for Optional null check
         Assert.Contains(plan.SetupStatements, s => s is MarshalStatement.Block b && b.Header.Contains("if ("));
@@ -140,7 +140,7 @@ public class CompositeProjectionTests
         Assert.Equal("IntPtr", proj.PInvokeType);
 
         var plan = proj.GetParameterPlan("items");
-        Assert.Equal("itemsBuf", plan.PInvokeExpression);
+        Assert.Equal("itemsBuffer", plan.PInvokeExpression);
 
         // Should have Select with container extraction
         var firstLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
@@ -203,7 +203,7 @@ public class CompositeProjectionTests
         Assert.Equal("IImageProcessing?", proj.PublicType);
 
         var plan = proj.GetParameterPlan("processor");
-        Assert.Equal("processorBuf", plan.PInvokeExpression);
+        Assert.Equal("processorBuffer", plan.PInvokeExpression);
 
         // Should have if/else branching (existential has element conversion)
         Assert.Contains(plan.SetupStatements, s => s is MarshalStatement.Block b && b.Header.Contains("if ("));
@@ -297,6 +297,49 @@ public class CompositeProjectionTests
 
         Assert.Equal("Task<string?>", asyncProj.PublicType);
         Assert.True(asyncProj.RequiresSwiftWrapper);
+    }
+
+    [Fact]
+    public void ClosureWithEnumArg_FallbackCast_UsesUnderlyingType()
+    {
+        // Closure with SimpleEnum arg — IsCastablePInvokeType guard allows the cast
+        // because enum underlying types (int) are safe to cast, unlike IntPtr (classes).
+        var enumProj = new SimpleEnumProjection("Status", "int");
+        var closureProj = new ClosureProjection(
+            new ITypeProjection[] { enumProj },
+            returnProjection: new BlittableProjection("Int64"),
+            isEscaping: true, throws: false, isAsync: false,
+            callbackName: "enumCb");
+
+        // Callback body: PInvoke arg (int) should be cast to public type (Status)
+        var callbacks = closureProj.CallbackDeclarations;
+        var bodyCode = string.Join("\n", callbacks[0].Body.OfType<MarshalStatement.Line>().Select(l => l.Code));
+        Assert.Contains("(Status)", bodyCode);
+
+        // Return plan (closure invoker): public arg (Status) should be cast to PInvoke type (int)
+        var plan = closureProj.GetReturnPlan("result", ReturnStrategy.Direct);
+        var lambdaLine = plan.SetupStatements.OfType<MarshalStatement.Line>()
+            .FirstOrDefault(l => l.Code.Contains("closureResult"));
+        Assert.NotNull(lambdaLine);
+        Assert.Contains("(int)", lambdaLine!.Code);
+    }
+
+    [Fact]
+    public void ClosureWithClassArg_NoCast_IntPtrExcluded()
+    {
+        // Closure with class arg (PInvokeType=IntPtr) — IsCastablePInvokeType
+        // must NOT insert a cast, because (MyClass)someIntPtr is invalid C#.
+        var classProj = new ClassProjection("MyViewController");
+        var closureProj = new ClosureProjection(
+            new ITypeProjection[] { classProj },
+            returnProjection: null,
+            isEscaping: true, throws: false, isAsync: false,
+            callbackName: "classCb");
+
+        // Callback body should NOT contain (MyViewController) cast on the arg
+        var callbacks = closureProj.CallbackDeclarations;
+        var bodyCode = string.Join("\n", callbacks[0].Body.OfType<MarshalStatement.Line>().Select(l => l.Code));
+        Assert.DoesNotContain("(MyViewController)arg0", bodyCode);
     }
 
     [Fact]

@@ -37,7 +37,7 @@ public class ObjCBridgedProjection : ITypeProjection
     {
         return new MarshalPlan
         {
-            PInvokeExpression = $"Runtime.GetNSObject<{_csharpTypeName}>({resultName})!"
+            PInvokeExpression = $"ObjCRuntime.Runtime.GetNSObject<{_csharpTypeName}>({resultName})!"
         };
     }
 
@@ -45,5 +45,5 @@ public class ObjCBridgedProjection : ITypeProjection
     public string? GetSwiftWrapperCode(SwiftWrapperContext context) => null;
 
     public string? GetParameterElementConversion(string elementVar) => $"{elementVar}.Handle";
-    public string? GetReturnElementConversion(string elementVar) => $"Runtime.GetNSObject<{_csharpTypeName}>({elementVar})!";
+    public string? GetReturnElementConversion(string elementVar) => $"ObjCRuntime.Runtime.GetNSObject<{_csharpTypeName}>({elementVar})!";
 }

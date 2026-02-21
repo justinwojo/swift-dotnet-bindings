@@ -95,7 +95,13 @@ namespace BindingsGeneration
                 return;
             }
 
-            // Handle type conversion for return values
+            // Try projection-based return (covers string, array, dictionary, optional, enum, class,
+            // existential, ObjC bridged, native remapped — but NOT closures, tuples, or generics)
+            if (TryEmitReturnViaProjection(csWriter, returnArg))
+                return;
+
+            // Legacy fallback: type-converted returns the factory can't handle
+            // (bound generics with user-defined inner types, etc.)
             if (!_env.MethodDecl.IsAccessor && _env.TypeConversionHandler.IsConvertibleType(returnArg.SwiftTypeSpec))
             {
                 EmitTypeConvertedReturn(csWriter, returnArg);
@@ -327,6 +333,63 @@ namespace BindingsGeneration
             }
 
             csWriter.WriteLine("return result;");
+        }
+
+        /// <summary>
+        /// Determines the return strategy based on method characteristics.
+        /// </summary>
+        private ReturnStrategy DetermineReturnStrategy()
+        {
+            if (_requiresSwiftAsync) return ReturnStrategy.AsyncCallback;
+            if (_requiresIndirectResult) return ReturnStrategy.IndirectResult;
+            if (_env.BoundGenericsHandler.IsLargeOptionalReturn(_env.MethodDecl) &&
+                (_env.MethodDecl.HasOptionalPointerWrapper || _env.MethodDecl.UsesWrapperLibrary))
+                return ReturnStrategy.OutBuffer;
+            return ReturnStrategy.Direct;
+        }
+
+        /// <summary>
+        /// Tries to emit return marshalling via the projection factory.
+        /// Returns true if handled, false to fall through to legacy code.
+        /// Skips: async returns, accessors, closures, tuples, generics.
+        /// </summary>
+        private bool TryEmitReturnViaProjection(CSharpWriter csWriter, ArgumentDecl returnArg)
+        {
+            if (returnArg.SwiftTypeSpec.IsEmptyTuple) return false;
+            if (_requiresSwiftAsync) return false;
+            if (_env.MethodDecl.IsAccessor) return false;
+            if (_env.ClosureHandler.IsClosure(returnArg)) return false;
+            if (_env.TupleHandler.IsTuple(returnArg)) return false;
+            if (returnArg.IsGeneric) return false;
+
+            var projection = s_projectionFactory.Project(returnArg.SwiftTypeSpec,
+                new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false, GenericContext = _genericContext });
+            if (projection == null) return false;
+
+            var strategy = DetermineReturnStrategy();
+            string resultName = strategy switch
+            {
+                ReturnStrategy.IndirectResult => "new IntPtr(swiftIndirectResult.Value)",
+                ReturnStrategy.OutBuffer => "_optRetPtr",
+                _ => "result"
+            };
+
+            var plan = projection.GetReturnPlan(resultName, strategy);
+
+            // Wrap in unsafe block if plan needs it but method-level unsafe is not set
+            if (plan.RequiresUnsafe && !_needsUnsafeBody)
+            {
+                csWriter.WriteLine("unsafe {");
+                csWriter.Indent++;
+                MarshalPlanRenderer.RenderReturnPlan(csWriter, plan);
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+            }
+            else
+            {
+                MarshalPlanRenderer.RenderReturnPlan(csWriter, plan);
+            }
+            return true;
         }
 
         /// <summary>

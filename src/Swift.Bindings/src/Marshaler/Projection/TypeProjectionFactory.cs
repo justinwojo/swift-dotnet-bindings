@@ -191,11 +191,22 @@ public class TypeProjectionFactory
         if (typeRecord.NativeTypeName != null)
         {
             var isFrozen = MarshallingHelpers.IsTypeFrozen(typeRecord);
+            var nativeName = typeRecord.NativeTypeName.FullyQualifiedName;
+            var swiftName = typeRecord.CSharpTypeName.FullyQualifiedName;
+            // Derive factory methods from the native type name suffix (NSUrl → FromNSUrl/ToNSUrl)
+            var nativeShortName = nativeName.Contains('.') ? nativeName.Substring(nativeName.LastIndexOf('.') + 1) : nativeName;
             return new NativeRemappedProjection(
-                typeRecord.NativeTypeName.FullyQualifiedName,
-                typeRecord.CSharpTypeName.FullyQualifiedName,
-                isFrozen);
+                nativeName,
+                swiftName,
+                isFrozen,
+                toConversionMethod: $"To{nativeShortName}",
+                fromFactoryMethod: $"From{nativeShortName}");
         }
+
+        // Complex enums (non-simple) are C# classes with SafeHandle — not blittable.
+        // They need MarshalFromSwift marshalling. P/Invoke returns IntPtr.
+        if (typeRecord.Kind == TypeRecordKind.Enum && !typeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
+            return new NonFrozenStructProjection(typeRecord.CSharpTypeName.FullyQualifiedName, useMarshalFromSwift: true);
 
         // Non-frozen structs/classes
         if (!MarshallingHelpers.IsTypeFrozen(typeRecord))

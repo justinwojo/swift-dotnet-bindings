@@ -79,12 +79,17 @@ public class MarshalPlanRegressionTests
         var proj = new StringProjection();
         var plan = proj.GetParameterPlan("name");
 
-        Assert.Equal("nameSwift", plan.PInvokeExpression);
+        Assert.Equal("nameDisposable.Buffer", plan.PInvokeExpression);
 
         var usingStmt = Assert.IsType<MarshalStatement.Using>(plan.SetupStatements[0]);
         Assert.Equal("SwiftString", usingStmt.Type);
         Assert.Equal("nameSwift", usingStmt.Name);
         Assert.Equal("new SwiftString(name)", usingStmt.InitExpression);
+
+        var payloadUsing = Assert.IsType<MarshalStatement.Using>(plan.SetupStatements[1]);
+        Assert.Equal("PayloadBuffer<SwiftString.Buffer>", payloadUsing.Type);
+        Assert.Equal("nameDisposable", payloadUsing.Name);
+        Assert.Equal("nameSwift.PayloadBuffer", payloadUsing.InitExpression);
     }
 
     [Fact]
@@ -171,21 +176,22 @@ public class MarshalPlanRegressionTests
     #region NativeRemapped
 
     [Fact]
-    public void NativeRemapped_Frozen_ParameterPlan_UsingWrapper()
+    public void NativeRemapped_Frozen_ParameterPlan_VarNotUsing()
     {
-        var proj = new NativeRemappedProjection("Foundation.NSUrl", "SwiftURL", isFrozen: true);
+        var proj = new NativeRemappedProjection("Foundation.NSUrl", "SwiftURL", isFrozen: true, toConversionMethod: "ToNSUrl");
         var plan = proj.GetParameterPlan("url");
 
-        var usingStmt = Assert.IsType<MarshalStatement.Using>(plan.SetupStatements[0]);
-        Assert.Equal("SwiftURL", usingStmt.Type);
-        Assert.Contains("new SwiftURL(url)", usingStmt.InitExpression);
+        // Frozen types use var (no using) — no disposal needed for value types
+        var lineStmt = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
+        Assert.Contains("new SwiftURL(url)", lineStmt.Code);
+        Assert.Contains("urlSwift", lineStmt.Code);
         Assert.Equal("urlSwift", plan.PInvokeExpression);
     }
 
     [Fact]
     public void NativeRemapped_NonFrozen_ParameterPlan_UsesPayload()
     {
-        var proj = new NativeRemappedProjection("Foundation.NSData", "SwiftData", isFrozen: false);
+        var proj = new NativeRemappedProjection("Foundation.NSData", "SwiftData", isFrozen: false, toConversionMethod: "ToNSData");
         var plan = proj.GetParameterPlan("data");
 
         Assert.Contains("Payload", plan.PInvokeExpression);
@@ -194,19 +200,23 @@ public class MarshalPlanRegressionTests
     [Fact]
     public void NativeRemapped_ReturnPlan_ConvertsToPublicType()
     {
-        var proj = new NativeRemappedProjection("Foundation.NSUrl", "SwiftURL", isFrozen: true);
+        // Factory passes toConversionMethod from the short name (e.g., "ToNSUrl")
+        var proj = new NativeRemappedProjection("Foundation.NSUrl", "SwiftURL", isFrozen: true,
+            toConversionMethod: "ToNSUrl");
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
 
-        Assert.Contains("new SwiftURL(result).ToFoundation.NSUrl()", plan.PInvokeExpression);
+        Assert.Contains("result.ToNSUrl()", plan.PInvokeExpression);
     }
 
     [Fact]
     public void NativeRemapped_NonFrozen_ReturnPlan_ConvertsToPublicType()
     {
-        var proj = new NativeRemappedProjection("Foundation.NSData", "SwiftData", isFrozen: false);
+        // Factory passes toConversionMethod from the short name (e.g., "ToNSData")
+        var proj = new NativeRemappedProjection("Foundation.NSData", "SwiftData", isFrozen: false,
+            toConversionMethod: "ToNSData");
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
 
-        Assert.Contains("new SwiftData(result).ToFoundation.NSData()", plan.PInvokeExpression);
+        Assert.Contains("new SwiftData(result).ToNSData()", plan.PInvokeExpression);
     }
 
     #endregion
@@ -273,7 +283,7 @@ public class MarshalPlanRegressionTests
         var proj = new ArrayProjection(new BlittableProjection("Int64"), isParameter: true);
         var plan = proj.GetParameterPlan("nums");
 
-        Assert.Equal("numsBuf", plan.PInvokeExpression);
+        Assert.Equal("numsBuffer", plan.PInvokeExpression);
 
         // Direct path: no Select, no try/finally
         var firstLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
@@ -313,7 +323,7 @@ public class MarshalPlanRegressionTests
         var proj = new ArrayProjection(new StringProjection(), isParameter: true);
         var plan = proj.GetParameterPlan("names");
 
-        Assert.Equal("namesBuf", plan.PInvokeExpression);
+        Assert.Equal("namesBuffer", plan.PInvokeExpression);
 
         var firstLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
         Assert.Contains(".Select(e => new SwiftString(e)).ToList()", firstLine.Code);
@@ -354,7 +364,7 @@ public class MarshalPlanRegressionTests
         var proj = new DictionaryProjection(new StringProjection(), new StringProjection(), isParameter: true);
         var plan = proj.GetParameterPlan("dict");
 
-        Assert.Equal("dictBuf", plan.PInvokeExpression);
+        Assert.Equal("dictBuffer", plan.PInvokeExpression);
 
         var firstLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
         Assert.Contains(".Select(kvp => new KeyValuePair<SwiftString, SwiftString>", firstLine.Code);
@@ -387,7 +397,7 @@ public class MarshalPlanRegressionTests
         var proj = new OptionalProjection(new BlittableProjection("Int64"));
         var plan = proj.GetParameterPlan("count");
 
-        Assert.Equal("countBuf", plan.PInvokeExpression);
+        Assert.Equal("countBuffer", plan.PInvokeExpression);
 
         // Simple inner → inline ternary in Using
         var usingStmt = plan.SetupStatements.OfType<MarshalStatement.Using>()
@@ -427,7 +437,7 @@ public class MarshalPlanRegressionTests
         var proj = new OptionalProjection(new StringProjection());
         var plan = proj.GetParameterPlan("name");
 
-        Assert.Equal("nameBuf", plan.PInvokeExpression);
+        Assert.Equal("nameBuffer", plan.PInvokeExpression);
 
         // String inner needs complex path (element conversion)
         Assert.Contains(plan.SetupStatements, s => s is MarshalStatement.Block b && b.Header.Contains("if ("));
@@ -711,7 +721,7 @@ public class MarshalPlanRegressionTests
         Assert.Contains("foreach (var _item in namesConverted) _item.Dispose()", output);
         Assert.Contains("using var namesSwift = namesSwiftInner;", output);
         Assert.Contains("using var namesDisposable = namesSwift.PayloadBuffer;", output);
-        Assert.Contains("IntPtr namesBuf = namesDisposable.Buffer;", output);
+        Assert.Contains("IntPtr namesBuffer = namesDisposable.Buffer;", output);
     }
 
     [Fact]
@@ -725,6 +735,7 @@ public class MarshalPlanRegressionTests
         Assert.Contains("NewSome(countValue)", output);
         Assert.Contains("NewNone()", output);
         Assert.Contains("using var countDisposable = countSwift.PayloadBuffer;", output);
+        Assert.Contains("IntPtr countBuffer = countDisposable.Buffer;", output);
     }
 
     #endregion

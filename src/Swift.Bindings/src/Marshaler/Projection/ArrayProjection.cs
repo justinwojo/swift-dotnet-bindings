@@ -31,7 +31,9 @@ public class ArrayProjection : ITypeProjection
     public string PInvokeType => "IntPtr";
     public string? PInvokeAttribute => null;
 
-    public string ContainerTypeName => $"SwiftArray<{_elementProjection.PInvokeType}>";
+    public string SwiftContainerGenericType => ContainerTypeName;
+
+    public string ContainerTypeName => $"SwiftArray<{_elementProjection.SwiftContainerGenericType}>";
 
     /// <summary>
     /// Builds the container creation statements (element conversion + SwiftArray.FromEnumerable)
@@ -39,13 +41,14 @@ public class ArrayProjection : ITypeProjection
     /// </summary>
     private (List<MarshalStatement> setup, string containerExpr) BuildContainerSetup(string paramName)
     {
-        var rawElem = _elementProjection.PInvokeType;
+        var rawElem = _elementProjection.SwiftContainerGenericType;
         var elemConversion = _elementProjection.GetParameterElementConversion("e");
         var needsConversion = elemConversion != null;
         var setup = new List<MarshalStatement>();
 
-        if (needsConversion)
+        if (needsConversion && _elementProjection.ElementRequiresDisposal)
         {
+            // Materialize to list for disposal: .ToList() + try/finally + SwiftInner intermediate
             setup.Add(new MarshalStatement.Line(
                 $"var {paramName}Converted = {paramName}.Select(e => {elemConversion}).ToList();"));
             setup.Add(new MarshalStatement.Line(
@@ -56,25 +59,24 @@ public class ArrayProjection : ITypeProjection
                 new MarshalStatement.Line(
                     $"{paramName}SwiftInner = SwiftArray<{rawElem}>.FromEnumerable({paramName}Converted);")
             };
-
-            var finallyBody = new List<MarshalStatement>();
-            if (_elementProjection.ElementRequiresDisposal)
+            var finallyBody = new List<MarshalStatement>
             {
-                finallyBody.Add(new MarshalStatement.Line(
-                    $"foreach (var _item in {paramName}Converted) _item.Dispose();"));
-            }
-
-            if (finallyBody.Count > 0)
-            {
-                setup.Add(new MarshalStatement.Block("try", tryBody));
-                setup.Add(new MarshalStatement.Block("finally", finallyBody));
-            }
-            else
-            {
-                setup.AddRange(tryBody);
-            }
+                new MarshalStatement.Line(
+                    $"foreach (var _item in {paramName}Converted) _item.Dispose();")
+            };
+            setup.Add(new MarshalStatement.Block("try", tryBody));
+            setup.Add(new MarshalStatement.Block("finally", finallyBody));
 
             return (setup, $"{paramName}SwiftInner");
+        }
+        else if (needsConversion)
+        {
+            // Conversion needed but no disposal — lazy Select without materialization
+            setup.Add(new MarshalStatement.Line(
+                $"var {paramName}Containers = {paramName}.Select(e => {elemConversion});"));
+            setup.Add(new MarshalStatement.Line(
+                $"var {paramName}SwiftDirect = SwiftArray<{rawElem}>.FromEnumerable({paramName}Containers);"));
+            return (setup, $"{paramName}SwiftDirect");
         }
         else
         {
@@ -94,12 +96,12 @@ public class ArrayProjection : ITypeProjection
         setup.Add(new MarshalStatement.Using(
             "PayloadBuffer<IntPtr>", $"{paramName}Disposable", $"{paramName}Swift.PayloadBuffer"));
         setup.Add(new MarshalStatement.Line(
-            $"IntPtr {paramName}Buf = {paramName}Disposable.Buffer;"));
+            $"IntPtr {paramName}Buffer = {paramName}Disposable.Buffer;"));
 
         return new MarshalPlan
         {
             SetupStatements = setup,
-            PInvokeExpression = $"{paramName}Buf"
+            PInvokeExpression = $"{paramName}Buffer"
         };
     }
 
@@ -124,7 +126,9 @@ public class ArrayProjection : ITypeProjection
 
     public MarshalPlan GetReturnPlan(string resultName, ReturnStrategy strategy)
     {
-        var rawElem = _elementProjection.PInvokeType;
+        // Use MarshalFromSwiftType for return — classes/non-frozen structs need the real type name
+        // (not IntPtr) for MarshalFromSwift to construct instances via ISwiftObject.NewFromPayload.
+        var rawElem = _elementProjection.MarshalFromSwiftType;
         var elemConversion = _elementProjection.GetReturnElementConversion("e");
 
         var asProjected = elemConversion != null
@@ -150,6 +154,24 @@ public class ArrayProjection : ITypeProjection
             _ => MarshalPlan.PassThrough(resultName)
         };
     }
+
+    public string? GetParameterElementConversion(string elementVar)
+    {
+        var rawElem = _elementProjection.SwiftContainerGenericType;
+        var elemConversion = _elementProjection.GetParameterElementConversion("e");
+        if (elemConversion != null)
+            return $"SwiftArray<{rawElem}>.FromEnumerable({elementVar}.Select(e => {elemConversion}))";
+        return $"SwiftArray<{rawElem}>.FromEnumerable({elementVar})";
+    }
+
+    public string? GetReturnElementConversion(string elementVar)
+    {
+        var elemConversion = _elementProjection.GetReturnElementConversion("e");
+        var selector = elemConversion != null ? $"e => {elemConversion}" : "e => e";
+        return $"{elementVar}.AsProjected({selector})";
+    }
+
+    public bool ElementRequiresDisposal => true;
 
     public bool RequiresSwiftWrapper => false;
     public string? GetSwiftWrapperCode(SwiftWrapperContext context) => null;

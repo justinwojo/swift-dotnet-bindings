@@ -540,7 +540,7 @@ public class TypeProjectionConsistencyTests
     [Fact]
     public void SignatureAgreement_NativeRemapped_Frozen_ReturnsWrapperType()
     {
-        var proj = new NativeRemappedProjection("Foundation.NSUrl", "SwiftURL", isFrozen: true);
+        var proj = new NativeRemappedProjection("Foundation.NSUrl", "SwiftURL", isFrozen: true, toConversionMethod: "ToNSUrl");
 
         Assert.Equal("Foundation.NSUrl", proj.PublicType);
         Assert.Equal("SwiftURL", proj.PInvokeType);
@@ -549,7 +549,7 @@ public class TypeProjectionConsistencyTests
     [Fact]
     public void SignatureAgreement_NativeRemapped_NonFrozen_ReturnsSafeHandle()
     {
-        var proj = new NativeRemappedProjection("Foundation.NSData", "SwiftData", isFrozen: false);
+        var proj = new NativeRemappedProjection("Foundation.NSData", "SwiftData", isFrozen: false, toConversionMethod: "ToNSData");
 
         Assert.Equal("Foundation.NSData", proj.PublicType);
         Assert.Equal("SafeHandle", proj.PInvokeType);
@@ -564,8 +564,8 @@ public class TypeProjectionConsistencyTests
         yield return new object[] { "ObjCBridged", new ObjCBridgedProjection("UIImage") };
         yield return new object[] { "NonFrozenStruct", new NonFrozenStructProjection("Pipeline") };
         yield return new object[] { "Class", new ClassProjection("MyViewController") };
-        yield return new object[] { "NativeRemapped(frozen)", new NativeRemappedProjection("Foundation.NSUrl", "SwiftURL", true) };
-        yield return new object[] { "NativeRemapped(non-frozen)", new NativeRemappedProjection("Foundation.NSData", "SwiftData", false) };
+        yield return new object[] { "NativeRemapped(frozen)", new NativeRemappedProjection("Foundation.NSUrl", "SwiftURL", true, "ToNSUrl") };
+        yield return new object[] { "NativeRemapped(non-frozen)", new NativeRemappedProjection("Foundation.NSData", "SwiftData", false, "ToNSData") };
         yield return new object[] { "Array<String>", new ArrayProjection(new StringProjection(), false) };
         yield return new object[] { "Dict<String,String>", new DictionaryProjection(new StringProjection(), new StringProjection(), false) };
         yield return new object[] { "Optional<String>", new OptionalProjection(new StringProjection()) };

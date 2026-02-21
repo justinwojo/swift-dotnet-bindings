@@ -36,7 +36,9 @@ public class DictionaryProjection : ITypeProjection
     public string PInvokeType => "IntPtr";
     public string? PInvokeAttribute => null;
 
-    public string ContainerTypeName => $"SwiftDictionary<{_keyProjection.PInvokeType}, {_valueProjection.PInvokeType}>";
+    public string SwiftContainerGenericType => ContainerTypeName;
+
+    public string ContainerTypeName => $"SwiftDictionary<{_keyProjection.SwiftContainerGenericType}, {_valueProjection.SwiftContainerGenericType}>";
 
     /// <summary>
     /// Builds the container creation statements (key/value conversion + SwiftDictionary.FromDictionary)
@@ -44,8 +46,8 @@ public class DictionaryProjection : ITypeProjection
     /// </summary>
     private (List<MarshalStatement> setup, string containerExpr) BuildContainerSetup(string paramName)
     {
-        var rawK = _keyProjection.PInvokeType;
-        var rawV = _valueProjection.PInvokeType;
+        var rawK = _keyProjection.SwiftContainerGenericType;
+        var rawV = _valueProjection.SwiftContainerGenericType;
         var keyConv = _keyProjection.GetParameterElementConversion("kvp.Key");
         var valConv = _valueProjection.GetParameterElementConversion("kvp.Value");
         var needsConversion = keyConv != null || valConv != null;
@@ -108,12 +110,12 @@ public class DictionaryProjection : ITypeProjection
         setup.Add(new MarshalStatement.Using(
             "PayloadBuffer<IntPtr>", $"{paramName}Disposable", $"{paramName}Swift.PayloadBuffer"));
         setup.Add(new MarshalStatement.Line(
-            $"IntPtr {paramName}Buf = {paramName}Disposable.Buffer;"));
+            $"IntPtr {paramName}Buffer = {paramName}Disposable.Buffer;"));
 
         return new MarshalPlan
         {
             SetupStatements = setup,
-            PInvokeExpression = $"{paramName}Buf"
+            PInvokeExpression = $"{paramName}Buffer"
         };
     }
 
@@ -136,8 +138,9 @@ public class DictionaryProjection : ITypeProjection
 
     public MarshalPlan GetReturnPlan(string resultName, ReturnStrategy strategy)
     {
-        var rawK = _keyProjection.PInvokeType;
-        var rawV = _valueProjection.PInvokeType;
+        // Use MarshalFromSwiftType for return — classes/non-frozen structs need the real type name
+        var rawK = _keyProjection.MarshalFromSwiftType;
+        var rawV = _valueProjection.MarshalFromSwiftType;
         var keyConv = _keyProjection.GetReturnElementConversion("k");
         var valConv = _valueProjection.GetReturnElementConversion("v");
 

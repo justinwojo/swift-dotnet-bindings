@@ -17,6 +17,7 @@ public partial class ProtocolProxyEmitter
     private readonly ITypeDatabase _typeDatabase;
     private readonly ILogger _logger;
     private readonly string _moduleName;
+    private static readonly TypeProjectionFactory s_projectionFactory = new();
     private HashSet<string> _skippedMethodKeys = new HashSet<string>();
     private HashSet<string> _skippedPropertyNames = new HashSet<string>();
     private HashSet<int> _skippedSubscriptIndices = new HashSet<int>();

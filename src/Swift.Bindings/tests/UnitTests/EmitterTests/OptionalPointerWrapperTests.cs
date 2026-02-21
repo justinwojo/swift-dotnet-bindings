@@ -485,8 +485,9 @@ public class OptionalPointerWrapperTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        // Small optional (Int32) still uses PayloadBuffer<IntPtr>
-        Assert.Contains("PayloadBuffer<IntPtr>", csOutput);
+        // Small optional (Int32) still uses PayloadBuffer extraction (not DangerousGetHandle)
+        Assert.Contains(".PayloadBuffer", csOutput);
+        Assert.DoesNotContain("DangerousGetHandle", csOutput);
     }
 
     [Fact]

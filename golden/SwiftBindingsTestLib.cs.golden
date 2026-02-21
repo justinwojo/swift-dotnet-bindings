@@ -85,10 +85,8 @@ namespace Swift.SwiftBindingsTestLib
                     
                     var result = PInvoke_describeConstrained_CA6FF0E0(itemPayload, T0Metadata, T0DescribablePWT, T0TestIdentifiablePWT);
                     
-                    unsafe {
-                        var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                        return swiftResult.ToString();
-                    }
+                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
+                    return swiftResult.ToString();
                 }
                 
                 finally
@@ -144,7 +142,7 @@ namespace Swift.SwiftBindingsTestLib
             {
                 
                 using var textSwift = new SwiftString(text);
-                using PayloadBuffer<SwiftString.Buffer> textDisposable = textSwift.PayloadBuffer;
+                using var textDisposable = textSwift.PayloadBuffer;
                 
                 var result = PInvoke_makeDescribable_B85BC40F(textDisposable.Buffer);
                 
@@ -199,9 +197,9 @@ namespace Swift.SwiftBindingsTestLib
             {
                 
                 using var idSwift = new SwiftString(id);
-                using PayloadBuffer<SwiftString.Buffer> idDisposable = idSwift.PayloadBuffer;
+                using var idDisposable = idSwift.PayloadBuffer;
                 using var textSwift = new SwiftString(text);
-                using PayloadBuffer<SwiftString.Buffer> textDisposable = textSwift.PayloadBuffer;
+                using var textDisposable = textSwift.PayloadBuffer;
                 
                 var result = PInvoke_makeIdentifiableDescribable_B15F17F5(idDisposable.Buffer, textDisposable.Buffer);
                 
@@ -230,15 +228,15 @@ namespace Swift.SwiftBindingsTestLib
                 try
                 {
                     
-                    var itemsContainers = items.Select(i => ((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)i).GetExistentialContainer());
-                    using var itemsSwift = SwiftArray<Swift.Runtime.ExistentialContainer1>.FromEnumerable(itemsContainers);
-                    using PayloadBuffer<IntPtr> itemsDisposable = itemsSwift.PayloadBuffer;
+                    var itemsContainers = items.Select(e => ((ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)e).GetExistentialContainer());
+                    var itemsSwiftDirect = SwiftArray<Swift.Runtime.ExistentialContainer1>.FromEnumerable(itemsContainers);
+                    using var itemsSwift = itemsSwiftDirect;
+                    using var itemsDisposable = itemsSwift.PayloadBuffer;
                     IntPtr itemsBuffer = itemsDisposable.Buffer;
                     
                     var result = PInvoke_describeAll_2EA61D14(itemsBuffer);
                     
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.SwiftString>>(new IntPtr(&result));
-                    return swiftResult.AsProjected(e => e.ToString());
+                    return SwiftMarshal.MarshalFromSwift<SwiftArray<SwiftString>>(new IntPtr(&result)).AsProjected(e => e.ToString());
                 }
                 
                 finally
@@ -262,7 +260,7 @@ namespace Swift.SwiftBindingsTestLib
             {
                 
                 using var textSwift = new SwiftString(text);
-                using PayloadBuffer<SwiftString.Buffer> textDisposable = textSwift.PayloadBuffer;
+                using var textDisposable = textSwift.PayloadBuffer;
                 
                 var result = PInvoke_makeOpaqueDescribable_F4E1351D(textDisposable.Buffer);
                 
@@ -289,9 +287,9 @@ namespace Swift.SwiftBindingsTestLib
             {
                 
                 using var idSwift = new SwiftString(id);
-                using PayloadBuffer<SwiftString.Buffer> idDisposable = idSwift.PayloadBuffer;
+                using var idDisposable = idSwift.PayloadBuffer;
                 using var textSwift = new SwiftString(text);
-                using PayloadBuffer<SwiftString.Buffer> textDisposable = textSwift.PayloadBuffer;
+                using var textDisposable = textSwift.PayloadBuffer;
                 
                 var result = PInvoke_makeOpaqueComposition_D52B2840(idDisposable.Buffer, textDisposable.Buffer);
                 
@@ -414,10 +412,8 @@ namespace Swift.SwiftBindingsTestLib
                     
                     var result = PInvoke_constrained_BBA98441(itemPayload, T0Metadata, T0DescribablePWT);
                     
-                    unsafe {
-                        var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                        return swiftResult.ToString();
-                    }
+                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
+                    return swiftResult.ToString();
                 }
                 
                 finally
@@ -454,10 +450,8 @@ namespace Swift.SwiftBindingsTestLib
                     
                     var result = PInvoke_multiConstrained_09235B5F(itemPayload, T0Metadata, T0DescribablePWT, T0TestIdentifiablePWT);
                     
-                    unsafe {
-                        var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                        return swiftResult.ToString();
-                    }
+                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
+                    return swiftResult.ToString();
                 }
                 
                 finally
@@ -695,9 +689,9 @@ namespace Swift.SwiftBindingsTestLib
                 {
                     
                     using var nameSwift = new SwiftString(name);
-                    using PayloadBuffer<SwiftString.Buffer> nameDisposable = nameSwift.PayloadBuffer;
+                    using var nameDisposable = nameSwift.PayloadBuffer;
                     using var soundSwift = new SwiftString(sound);
-                    using PayloadBuffer<SwiftString.Buffer> soundDisposable = soundSwift.PayloadBuffer;
+                    using var soundDisposable = soundSwift.PayloadBuffer;
                     
                     var result = PInvoke_createAnimal_697B0B06(nameDisposable.Buffer, soundDisposable.Buffer);
                     
@@ -876,7 +870,7 @@ namespace Swift.SwiftBindingsTestLib
                 {
                     
                     using var inputSwift = new SwiftString(input);
-                    using PayloadBuffer<SwiftString.Buffer> inputDisposable = inputSwift.PayloadBuffer;
+                    using var inputDisposable = inputSwift.PayloadBuffer;
                     
                     var result = PInvoke_parseNumber_B8AA2BEC(inputDisposable.Buffer, out var error);
                     
@@ -1041,7 +1035,7 @@ namespace Swift.SwiftBindingsTestLib
                 {
                     
                     using var inputSwift = new SwiftString(input);
-                    using PayloadBuffer<SwiftString.Buffer> inputDisposable = inputSwift.PayloadBuffer;
+                    using var inputDisposable = inputSwift.PayloadBuffer;
                     
                     var result = PInvoke_validate_399F3294(inputDisposable.Buffer, maxLength, out var error);
                     
@@ -1050,10 +1044,8 @@ namespace Swift.SwiftBindingsTestLib
                         throw new SwiftRuntimeException("Call to Swift method validate failed.");
                     }
                     
-                    unsafe {
-                        var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                        return swiftResult.ToString();
-                    }
+                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
+                    return swiftResult.ToString();
                 }
                 
                 finally
@@ -1074,7 +1066,7 @@ namespace Swift.SwiftBindingsTestLib
                 {
                     
                     using var inputSwift = new SwiftString(input);
-                    using PayloadBuffer<SwiftString.Buffer> inputDisposable = inputSwift.PayloadBuffer;
+                    using var inputDisposable = inputSwift.PayloadBuffer;
                     
                     var result = PInvoke_validate_CD232289(inputDisposable.Buffer, out var error);
                     
@@ -1083,10 +1075,8 @@ namespace Swift.SwiftBindingsTestLib
                         throw new SwiftRuntimeException("Call to Swift method validate failed.");
                     }
                     
-                    unsafe {
-                        var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                        return swiftResult.ToString();
-                    }
+                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
+                    return swiftResult.ToString();
                 }
                 
                 finally
@@ -1366,7 +1356,7 @@ namespace Swift.SwiftBindingsTestLib
                     
                     
                     using var nameSwift = new SwiftString(name);
-                    using PayloadBuffer<SwiftString.Buffer> nameDisposable = nameSwift.PayloadBuffer;
+                    using var nameDisposable = nameSwift.PayloadBuffer;
                     
                     PInvoke_createAsyncConfig_85217597(swiftIndirectResult, nameDisposable.Buffer);
                     
@@ -1396,7 +1386,7 @@ namespace Swift.SwiftBindingsTestLib
                 {
                     
                     using var identifierSwift = new SwiftString(identifier);
-                    using PayloadBuffer<SwiftString.Buffer> identifierDisposable = identifierSwift.PayloadBuffer;
+                    using var identifierDisposable = identifierSwift.PayloadBuffer;
                     
                     var result = PInvoke_createAsyncDataSource_550976B1(identifierDisposable.Buffer);
                     
@@ -1603,7 +1593,7 @@ namespace Swift.SwiftBindingsTestLib
                 {
                     
                     using var labelSwift = new SwiftString(label);
-                    using PayloadBuffer<SwiftString.Buffer> labelDisposable = labelSwift.PayloadBuffer;
+                    using var labelDisposable = labelSwift.PayloadBuffer;
                     
                     var result = PInvoke_createSharedState_6301698E(labelDisposable.Buffer);
                     
@@ -1699,10 +1689,8 @@ namespace Swift.SwiftBindingsTestLib
                     
                     var result = PInvoke_storeAndExecuteSendable_80056D38(workClosure);
                     
-                    unsafe {
-                        var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                        return swiftResult.ToString();
-                    }
+                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
+                    return swiftResult.ToString();
                 }
                 
                 finally
@@ -1761,7 +1749,7 @@ namespace Swift.SwiftBindingsTestLib
                 {
                     
                     using var nameSwift = new SwiftString(name);
-                    using PayloadBuffer<SwiftString.Buffer> nameDisposable = nameSwift.PayloadBuffer;
+                    using var nameDisposable = nameSwift.PayloadBuffer;
                     
                     var result = PInvoke_createSendableConfig_DEF05FCD(nameDisposable.Buffer, maxRetries);
                     
@@ -1801,14 +1789,13 @@ namespace Swift.SwiftBindingsTestLib
                 {
                     
                     using var orderIdSwift = new SwiftString(orderId);
-                    using PayloadBuffer<SwiftString.Buffer> orderIdDisposable = orderIdSwift.PayloadBuffer;
+                    using var orderIdDisposable = orderIdSwift.PayloadBuffer;
                     using var statusRawSwift = new SwiftString(statusRaw);
-                    using PayloadBuffer<SwiftString.Buffer> statusRawDisposable = statusRawSwift.PayloadBuffer;
+                    using var statusRawDisposable = statusRawSwift.PayloadBuffer;
                     
                     var result = PInvoke_createOrder_E387ABDE(orderIdDisposable.Buffer, statusRawDisposable.Buffer);
                     
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.SwiftBindingsTestLib.OrderContainer>>(new IntPtr(&result));
-                    return swiftResult.ToNullable();
+                    return SwiftMarshal.MarshalFromSwift<SwiftOptional<Swift.SwiftBindingsTestLib.OrderContainer>>(new IntPtr(&result)).ToNullable();
                 }
                 
                 finally
@@ -1834,14 +1821,13 @@ namespace Swift.SwiftBindingsTestLib
                 {
                     
                     using var paymentIdSwift = new SwiftString(paymentId);
-                    using PayloadBuffer<SwiftString.Buffer> paymentIdDisposable = paymentIdSwift.PayloadBuffer;
+                    using var paymentIdDisposable = paymentIdSwift.PayloadBuffer;
                     using var statusRawSwift = new SwiftString(statusRaw);
-                    using PayloadBuffer<SwiftString.Buffer> statusRawDisposable = statusRawSwift.PayloadBuffer;
+                    using var statusRawDisposable = statusRawSwift.PayloadBuffer;
                     
                     var result = PInvoke_createPayment_DBAB399A(paymentIdDisposable.Buffer, statusRawDisposable.Buffer);
                     
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.SwiftBindingsTestLib.PaymentContainer>>(new IntPtr(&result));
-                    return swiftResult.ToNullable();
+                    return SwiftMarshal.MarshalFromSwift<SwiftOptional<Swift.SwiftBindingsTestLib.PaymentContainer>>(new IntPtr(&result)).ToNullable();
                 }
                 
                 finally
@@ -1923,12 +1909,11 @@ namespace Swift.SwiftBindingsTestLib
                 {
                     
                     using var rawValueSwift = new SwiftString(rawValue);
-                    using PayloadBuffer<SwiftString.Buffer> rawValueDisposable = rawValueSwift.PayloadBuffer;
+                    using var rawValueDisposable = rawValueSwift.PayloadBuffer;
                     
                     var result = PInvoke_createLogLevel_F8788922(rawValueDisposable.Buffer);
                     
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.SwiftBindingsTestLib.LogLevel>>(new IntPtr(&result));
-                    return swiftResult.ToNullable();
+                    return SwiftMarshal.MarshalFromSwift<SwiftOptional<Swift.SwiftBindingsTestLib.LogLevel>>(new IntPtr(&result)).ToNullable();
                 }
                 
                 finally
@@ -1980,7 +1965,7 @@ namespace Swift.SwiftBindingsTestLib
             {
                 
                 using var rawValueSwift = new SwiftString(rawValue);
-                using PayloadBuffer<SwiftString.Buffer> rawValueDisposable = rawValueSwift.PayloadBuffer;
+                using var rawValueDisposable = rawValueSwift.PayloadBuffer;
                 
                 var result = PInvoke_validateLogLevelRoundTrip_B5817376(rawValueDisposable.Buffer);
                 
@@ -2010,12 +1995,11 @@ namespace Swift.SwiftBindingsTestLib
                 {
                     
                     using var rawValueSwift = new SwiftString(rawValue);
-                    using PayloadBuffer<SwiftString.Buffer> rawValueDisposable = rawValueSwift.PayloadBuffer;
+                    using var rawValueDisposable = rawValueSwift.PayloadBuffer;
                     
                     var result = PInvoke_createGreeting_F5ED71CC(rawValueDisposable.Buffer);
                     
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.SwiftBindingsTestLib.Greeting>>(new IntPtr(&result));
-                    return swiftResult.ToNullable();
+                    return SwiftMarshal.MarshalFromSwift<SwiftOptional<Swift.SwiftBindingsTestLib.Greeting>>(new IntPtr(&result)).ToNullable();
                 }
                 
                 finally
@@ -2039,7 +2023,7 @@ namespace Swift.SwiftBindingsTestLib
             {
                 
                 using var rawValueSwift = new SwiftString(rawValue);
-                using PayloadBuffer<SwiftString.Buffer> rawValueDisposable = rawValueSwift.PayloadBuffer;
+                using var rawValueDisposable = rawValueSwift.PayloadBuffer;
                 
                 var result = PInvoke_validateGreetingRoundTrip_73C93CFF(rawValueDisposable.Buffer);
                 
@@ -2069,16 +2053,15 @@ namespace Swift.SwiftBindingsTestLib
                 {
                     
                     using var methodRawSwift = new SwiftString(methodRaw);
-                    using PayloadBuffer<SwiftString.Buffer> methodRawDisposable = methodRawSwift.PayloadBuffer;
+                    using var methodRawDisposable = methodRawSwift.PayloadBuffer;
                     using var contentTypeRawSwift = new SwiftString(contentTypeRaw);
-                    using PayloadBuffer<SwiftString.Buffer> contentTypeRawDisposable = contentTypeRawSwift.PayloadBuffer;
+                    using var contentTypeRawDisposable = contentTypeRawSwift.PayloadBuffer;
                     using var urlSwift = new SwiftString(url);
-                    using PayloadBuffer<SwiftString.Buffer> urlDisposable = urlSwift.PayloadBuffer;
+                    using var urlDisposable = urlSwift.PayloadBuffer;
                     
                     var result = PInvoke_createNetworkConfig_E345FB94(methodRawDisposable.Buffer, contentTypeRawDisposable.Buffer, urlDisposable.Buffer);
                     
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.SwiftBindingsTestLib.NetworkConfig>>(new IntPtr(&result));
-                    return swiftResult.ToNullable();
+                    return SwiftMarshal.MarshalFromSwift<SwiftOptional<Swift.SwiftBindingsTestLib.NetworkConfig>>(new IntPtr(&result)).ToNullable();
                 }
                 
                 finally
@@ -2158,7 +2141,7 @@ namespace Swift.SwiftBindingsTestLib
             {
                 
                 using var rawValueSwift = new SwiftString(rawValue);
-                using PayloadBuffer<SwiftString.Buffer> rawValueDisposable = rawValueSwift.PayloadBuffer;
+                using var rawValueDisposable = rawValueSwift.PayloadBuffer;
                 
                 var result = PInvoke_validateCaseSensitiveRoundTrip_FD892092(rawValueDisposable.Buffer);
                 
@@ -2186,9 +2169,9 @@ namespace Swift.SwiftBindingsTestLib
             {
                 
                 using var nameSwift = new SwiftString(name);
-                using PayloadBuffer<SwiftString.Buffer> nameDisposable = nameSwift.PayloadBuffer;
+                using var nameDisposable = nameSwift.PayloadBuffer;
                 using var greetingSwift = new SwiftString(greeting);
-                using PayloadBuffer<SwiftString.Buffer> greetingDisposable = greetingSwift.PayloadBuffer;
+                using var greetingDisposable = greetingSwift.PayloadBuffer;
                 
                 var result = PInvoke_greet_9565AC13(nameDisposable.Buffer, greetingDisposable.Buffer);
                 
@@ -2213,7 +2196,7 @@ namespace Swift.SwiftBindingsTestLib
             {
                 
                 using var nameSwift = new SwiftString(name);
-                using PayloadBuffer<SwiftString.Buffer> nameDisposable = nameSwift.PayloadBuffer;
+                using var nameDisposable = nameSwift.PayloadBuffer;
                 
                 var result = PInvoke_greet_B3376FD6(nameDisposable.Buffer);
                 
@@ -2243,7 +2226,7 @@ namespace Swift.SwiftBindingsTestLib
             {
                 
                 using var querySwift = new SwiftString(query);
-                using PayloadBuffer<SwiftString.Buffer> queryDisposable = querySwift.PayloadBuffer;
+                using var queryDisposable = querySwift.PayloadBuffer;
                 
                 var result = PInvoke_search_47BEAA63(queryDisposable.Buffer, limit, offset);
                 
@@ -2268,7 +2251,7 @@ namespace Swift.SwiftBindingsTestLib
             {
                 
                 using var querySwift = new SwiftString(query);
-                using PayloadBuffer<SwiftString.Buffer> queryDisposable = querySwift.PayloadBuffer;
+                using var queryDisposable = querySwift.PayloadBuffer;
                 
                 var result = PInvoke_search_70BEA3CC(queryDisposable.Buffer);
                 
@@ -2293,7 +2276,7 @@ namespace Swift.SwiftBindingsTestLib
             {
                 
                 using var querySwift = new SwiftString(query);
-                using PayloadBuffer<SwiftString.Buffer> queryDisposable = querySwift.PayloadBuffer;
+                using var queryDisposable = querySwift.PayloadBuffer;
                 
                 var result = PInvoke_search_73BEA885(queryDisposable.Buffer, limit);
                 
@@ -2323,7 +2306,7 @@ namespace Swift.SwiftBindingsTestLib
             {
                 
                 using var hostSwift = new SwiftString(host);
-                using PayloadBuffer<SwiftString.Buffer> hostDisposable = hostSwift.PayloadBuffer;
+                using var hostDisposable = hostSwift.PayloadBuffer;
                 
                 var result = PInvoke_configure_FB90C0EB(hostDisposable.Buffer, port, secure);
                 
@@ -2348,7 +2331,7 @@ namespace Swift.SwiftBindingsTestLib
             {
                 
                 using var hostSwift = new SwiftString(host);
-                using PayloadBuffer<SwiftString.Buffer> hostDisposable = hostSwift.PayloadBuffer;
+                using var hostDisposable = hostSwift.PayloadBuffer;
                 
                 var result = PInvoke_configure_98FF6D46(hostDisposable.Buffer);
                 
@@ -2373,7 +2356,7 @@ namespace Swift.SwiftBindingsTestLib
             {
                 
                 using var hostSwift = new SwiftString(host);
-                using PayloadBuffer<SwiftString.Buffer> hostDisposable = hostSwift.PayloadBuffer;
+                using var hostDisposable = hostSwift.PayloadBuffer;
                 
                 var result = PInvoke_configure_97FF6BB3(hostDisposable.Buffer, port);
                 
@@ -2404,14 +2387,14 @@ namespace Swift.SwiftBindingsTestLib
                 try
                 {
                     
-                    using var arraySwift = SwiftArray<int>.FromEnumerable(array);
-                    using PayloadBuffer<IntPtr> arrayDisposable = arraySwift.PayloadBuffer;
+                    var arraySwiftDirect = SwiftArray<int>.FromEnumerable(array);
+                    using var arraySwift = arraySwiftDirect;
+                    using var arrayDisposable = arraySwift.PayloadBuffer;
                     IntPtr arrayBuffer = arrayDisposable.Buffer;
                     
                     var result = PInvoke_findIndex_92FCB6F2(arrayBuffer, _value);
                     
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<int>>(new IntPtr(&result));
-                    return swiftResult.ToNullable();
+                    return SwiftMarshal.MarshalFromSwift<SwiftOptional<int>>(new IntPtr(&result)).ToNullable();
                 }
                 
                 finally
@@ -2436,16 +2419,17 @@ namespace Swift.SwiftBindingsTestLib
                 try
                 {
                     
-                    using var animalsSwift = SwiftArray<Swift.SwiftBindingsTestLib.Animal>.FromEnumerable(animals);
-                    using PayloadBuffer<IntPtr> animalsDisposable = animalsSwift.PayloadBuffer;
+                    var animalsContainers = animals.Select(e => e.Payload.DangerousGetHandle());
+                    var animalsSwiftDirect = SwiftArray<IntPtr>.FromEnumerable(animalsContainers);
+                    using var animalsSwift = animalsSwiftDirect;
+                    using var animalsDisposable = animalsSwift.PayloadBuffer;
                     IntPtr animalsBuffer = animalsDisposable.Buffer;
                     using var nameSwift = new SwiftString(name);
-                    using PayloadBuffer<SwiftString.Buffer> nameDisposable = nameSwift.PayloadBuffer;
+                    using var nameDisposable = nameSwift.PayloadBuffer;
                     
                     var result = PInvoke_findAnimalByName_E3485BBE(animalsBuffer, nameDisposable.Buffer);
                     
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.SwiftBindingsTestLib.Animal>>(new IntPtr(&result));
-                    return swiftResult.ToNullable();
+                    return SwiftMarshal.MarshalFromSwift<SwiftOptional<Swift.SwiftBindingsTestLib.Animal>>(new IntPtr(&result)).ToNullable();
                 }
                 
                 finally
@@ -2470,16 +2454,14 @@ namespace Swift.SwiftBindingsTestLib
                 try
                 {
                     
-                    using var _valueSwift = _value is {} _valueValue ? SwiftOptional<int>.NewSome(_valueValue) : SwiftOptional<int>.NewNone();
-                    using PayloadBuffer<IntPtr> _valueDisposable = _valueSwift.PayloadBuffer;
+                    using var _valueSwift = _value is { } _valueValue ? SwiftOptional<int>.NewSome(_valueValue) : SwiftOptional<int>.NewNone();
+                    using var _valueDisposable = _valueSwift.PayloadBuffer;
                     IntPtr _valueBuffer = _valueDisposable.Buffer;
                     
                     var result = PInvoke_describeOptionalInt_672CBC87(_valueBuffer);
                     
-                    unsafe {
-                        var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                        return swiftResult.ToString();
-                    }
+                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
+                    return swiftResult.ToString();
                 }
                 
                 finally
@@ -2504,16 +2486,22 @@ namespace Swift.SwiftBindingsTestLib
                 try
                 {
                     
-                    using var _valueStr = _value is {} _valueValue ? new SwiftString(_valueValue) : null;
-                    using var _valueSwift = _valueStr != null ? SwiftOptional<Swift.SwiftString>.NewSome(_valueStr) : SwiftOptional<Swift.SwiftString>.NewNone();
+                    SwiftOptional<SwiftString> _valueSwiftInner;
+                    if (_value is { } _valueValue)
+                    {
+                        _valueSwiftInner = SwiftOptional<SwiftString>.NewSome(new SwiftString(_valueValue));
+                    }
+                    else
+                    {
+                        _valueSwiftInner = SwiftOptional<SwiftString>.NewNone();
+                    }
+                    using var _valueSwift = _valueSwiftInner;
                     IntPtr _valueBuffer = _valueSwift.Payload.DangerousGetHandle();
                     
                     var result = PInvoke_describeOptionalString_3089AA57(_valueBuffer);
                     
-                    unsafe {
-                        var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                        return swiftResult.ToString();
-                    }
+                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
+                    return swiftResult.ToString();
                 }
                 
                 finally
@@ -2789,8 +2777,8 @@ namespace Swift.SwiftBindingsTestLib
                 try
                 {
                     
-                    using var ptrSwift = ptr is {} ptrValue ? SwiftOptional<System.IntPtr>.NewSome(ptrValue) : SwiftOptional<System.IntPtr>.NewNone();
-                    using PayloadBuffer<IntPtr> ptrDisposable = ptrSwift.PayloadBuffer;
+                    using var ptrSwift = ptr is { } ptrValue ? SwiftOptional<System.IntPtr>.NewSome(ptrValue) : SwiftOptional<System.IntPtr>.NewNone();
+                    using var ptrDisposable = ptrSwift.PayloadBuffer;
                     IntPtr ptrBuffer = ptrDisposable.Buffer;
                     
                     var result = PInvoke_optionalOpaquePointer_C39AA2B9(ptrBuffer);
@@ -3401,8 +3389,9 @@ namespace Swift.SwiftBindingsTestLib
                 try
                 {
                     
-                    using var sliceSwift = SwiftArray<int>.FromEnumerable(slice);
-                    using PayloadBuffer<IntPtr> sliceDisposable = sliceSwift.PayloadBuffer;
+                    var sliceSwiftDirect = SwiftArray<int>.FromEnumerable(slice);
+                    using var sliceSwift = sliceSwiftDirect;
+                    using var sliceDisposable = sliceSwift.PayloadBuffer;
                     IntPtr sliceBuffer = sliceDisposable.Buffer;
                     
                     var result = PInvoke_sumArraySlice_5DE0C301(sliceBuffer);
@@ -3428,8 +3417,9 @@ namespace Swift.SwiftBindingsTestLib
                 try
                 {
                     
-                    using var sliceSwift = SwiftArray<byte>.FromEnumerable(slice);
-                    using PayloadBuffer<IntPtr> sliceDisposable = sliceSwift.PayloadBuffer;
+                    var sliceSwiftDirect = SwiftArray<byte>.FromEnumerable(slice);
+                    using var sliceSwift = sliceSwiftDirect;
+                    using var sliceDisposable = sliceSwift.PayloadBuffer;
                     IntPtr sliceBuffer = sliceDisposable.Buffer;
                     
                     var result = PInvoke_arraySliceCount_5201F472(sliceBuffer);
@@ -3455,8 +3445,9 @@ namespace Swift.SwiftBindingsTestLib
                 try
                 {
                     
-                    using var sliceSwift = SwiftArray<byte>.FromEnumerable(slice);
-                    using PayloadBuffer<IntPtr> sliceDisposable = sliceSwift.PayloadBuffer;
+                    var sliceSwiftDirect = SwiftArray<byte>.FromEnumerable(slice);
+                    using var sliceSwift = sliceSwiftDirect;
+                    using var sliceDisposable = sliceSwift.PayloadBuffer;
                     IntPtr sliceBuffer = sliceDisposable.Buffer;
                     
                     var result = PInvoke_isEmptyArraySlice_508A726D(sliceBuffer);
@@ -3483,11 +3474,13 @@ namespace Swift.SwiftBindingsTestLib
                 try
                 {
                     
-                    using var firstSwift = SwiftArray<byte>.FromEnumerable(first);
-                    using PayloadBuffer<IntPtr> firstDisposable = firstSwift.PayloadBuffer;
+                    var firstSwiftDirect = SwiftArray<byte>.FromEnumerable(first);
+                    using var firstSwift = firstSwiftDirect;
+                    using var firstDisposable = firstSwift.PayloadBuffer;
                     IntPtr firstBuffer = firstDisposable.Buffer;
-                    using var secondSwift = SwiftArray<byte>.FromEnumerable(second);
-                    using PayloadBuffer<IntPtr> secondDisposable = secondSwift.PayloadBuffer;
+                    var secondSwiftDirect = SwiftArray<byte>.FromEnumerable(second);
+                    using var secondSwift = secondSwiftDirect;
+                    using var secondDisposable = secondSwift.PayloadBuffer;
                     IntPtr secondBuffer = secondDisposable.Buffer;
                     
                     var result = PInvoke_combinedSliceCount_5BDE9010(firstBuffer, secondBuffer);
@@ -3513,8 +3506,9 @@ namespace Swift.SwiftBindingsTestLib
                 try
                 {
                     
-                    using var sliceSwift = SwiftArray<byte>.FromEnumerable(slice);
-                    using PayloadBuffer<IntPtr> sliceDisposable = sliceSwift.PayloadBuffer;
+                    var sliceSwiftDirect = SwiftArray<byte>.FromEnumerable(slice);
+                    using var sliceSwift = sliceSwiftDirect;
+                    using var sliceDisposable = sliceSwift.PayloadBuffer;
                     IntPtr sliceBuffer = sliceDisposable.Buffer;
                     
                     var result = PInvoke_firstOrThrow_E06AE22A(sliceBuffer, out var error);
@@ -3548,8 +3542,9 @@ namespace Swift.SwiftBindingsTestLib
                 try
                 {
                     
-                    using var arraySwift = SwiftArray<int>.FromEnumerable(array);
-                    using PayloadBuffer<IntPtr> arrayDisposable = arraySwift.PayloadBuffer;
+                    var arraySwiftDirect = SwiftArray<int>.FromEnumerable(array);
+                    using var arraySwift = arraySwiftDirect;
+                    using var arrayDisposable = arraySwift.PayloadBuffer;
                     IntPtr arrayBuffer = arrayDisposable.Buffer;
                     
                     var result = PInvoke_arrayCount_12FD5283(arrayBuffer);
@@ -3579,8 +3574,9 @@ namespace Swift.SwiftBindingsTestLib
                 try
                 {
                     
-                    using var arraySwift = SwiftArray<int>.FromEnumerable(array);
-                    using PayloadBuffer<IntPtr> arrayDisposable = arraySwift.PayloadBuffer;
+                    var arraySwiftDirect = SwiftArray<int>.FromEnumerable(array);
+                    using var arraySwift = arraySwiftDirect;
+                    using var arrayDisposable = arraySwift.PayloadBuffer;
                     IntPtr arrayBuffer = arrayDisposable.Buffer;
                     
                     var result = PInvoke_sumArray_AEC90DB6(arrayBuffer);
@@ -3610,8 +3606,9 @@ namespace Swift.SwiftBindingsTestLib
                 try
                 {
                     
-                    using var arraySwift = SwiftArray<int>.FromEnumerable(array);
-                    using PayloadBuffer<IntPtr> arrayDisposable = arraySwift.PayloadBuffer;
+                    var arraySwiftDirect = SwiftArray<int>.FromEnumerable(array);
+                    using var arraySwift = arraySwiftDirect;
+                    using var arrayDisposable = arraySwift.PayloadBuffer;
                     IntPtr arrayBuffer = arrayDisposable.Buffer;
                     
                     var result = PInvoke_isEmptyArray_51884325(arrayBuffer);
@@ -3645,7 +3642,7 @@ namespace Swift.SwiftBindingsTestLib
                     
                     var result = PInvoke_createIntArray_5284A16A(count, _value);
                     
-                    return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<int>>(new IntPtr(&result));
+                    return SwiftMarshal.MarshalFromSwift<SwiftArray<int>>(new IntPtr(&result)).AsProjected(e => e);
                 }
                 
                 finally
@@ -3671,14 +3668,13 @@ namespace Swift.SwiftBindingsTestLib
                 {
                     
                     using var firstSwift = new SwiftString(first);
-                    using PayloadBuffer<SwiftString.Buffer> firstDisposable = firstSwift.PayloadBuffer;
+                    using var firstDisposable = firstSwift.PayloadBuffer;
                     using var secondSwift = new SwiftString(second);
-                    using PayloadBuffer<SwiftString.Buffer> secondDisposable = secondSwift.PayloadBuffer;
+                    using var secondDisposable = secondSwift.PayloadBuffer;
                     
                     var result = PInvoke_createStringArray_A82128DC(firstDisposable.Buffer, secondDisposable.Buffer);
                     
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.SwiftString>>(new IntPtr(&result));
-                    return swiftResult.AsProjected(e => e.ToString());
+                    return SwiftMarshal.MarshalFromSwift<SwiftArray<SwiftString>>(new IntPtr(&result)).AsProjected(e => e.ToString());
                 }
                 
                 finally
@@ -3703,13 +3699,14 @@ namespace Swift.SwiftBindingsTestLib
                 try
                 {
                     
-                    using var arraySwift = SwiftArray<int>.FromEnumerable(array);
-                    using PayloadBuffer<IntPtr> arrayDisposable = arraySwift.PayloadBuffer;
+                    var arraySwiftDirect = SwiftArray<int>.FromEnumerable(array);
+                    using var arraySwift = arraySwiftDirect;
+                    using var arrayDisposable = arraySwift.PayloadBuffer;
                     IntPtr arrayBuffer = arrayDisposable.Buffer;
                     
                     var result = PInvoke_reverseIntArray_19BE9707(arrayBuffer);
                     
-                    return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<int>>(new IntPtr(&result));
+                    return SwiftMarshal.MarshalFromSwift<SwiftArray<int>>(new IntPtr(&result)).AsProjected(e => e);
                 }
                 
                 finally
@@ -3734,14 +3731,15 @@ namespace Swift.SwiftBindingsTestLib
                 try
                 {
                     
-                    using var animalsSwift = SwiftArray<Swift.SwiftBindingsTestLib.Animal>.FromEnumerable(animals);
-                    using PayloadBuffer<IntPtr> animalsDisposable = animalsSwift.PayloadBuffer;
+                    var animalsContainers = animals.Select(e => e.Payload.DangerousGetHandle());
+                    var animalsSwiftDirect = SwiftArray<IntPtr>.FromEnumerable(animalsContainers);
+                    using var animalsSwift = animalsSwiftDirect;
+                    using var animalsDisposable = animalsSwift.PayloadBuffer;
                     IntPtr animalsBuffer = animalsDisposable.Buffer;
                     
                     var result = PInvoke_describeAnimals_097536C6(animalsBuffer);
                     
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.SwiftString>>(new IntPtr(&result));
-                    return swiftResult.AsProjected(e => e.ToString());
+                    return SwiftMarshal.MarshalFromSwift<SwiftArray<SwiftString>>(new IntPtr(&result)).AsProjected(e => e.ToString());
                 }
                 
                 finally
@@ -3766,13 +3764,14 @@ namespace Swift.SwiftBindingsTestLib
                 try
                 {
                     
-                    using var arraySwift = SwiftArray<int>.FromEnumerable(array);
-                    using PayloadBuffer<IntPtr> arrayDisposable = arraySwift.PayloadBuffer;
+                    var arraySwiftDirect = SwiftArray<int>.FromEnumerable(array);
+                    using var arraySwift = arraySwiftDirect;
+                    using var arrayDisposable = arraySwift.PayloadBuffer;
                     IntPtr arrayBuffer = arrayDisposable.Buffer;
                     
                     var result = PInvoke_filterPositive_C9148D05(arrayBuffer);
                     
-                    return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<int>>(new IntPtr(&result));
+                    return SwiftMarshal.MarshalFromSwift<SwiftArray<int>>(new IntPtr(&result)).AsProjected(e => e);
                 }
                 
                 finally
@@ -3969,10 +3968,8 @@ namespace Swift.SwiftBindingsTestLib
                     
                     var result = PInvoke_describeName_E53CA03C(namedPayload, T0Metadata, T0NamedPWT);
                     
-                    unsafe {
-                        var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                        return swiftResult.ToString();
-                    }
+                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
+                    return swiftResult.ToString();
                 }
                 
                 finally
@@ -4008,10 +4005,8 @@ namespace Swift.SwiftBindingsTestLib
                     
                     var result = PInvoke_describePriority_FFCBFB08(prioritizedPayload, T0Metadata, T0PrioritizedPWT);
                     
-                    unsafe {
-                        var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                        return swiftResult.ToString();
-                    }
+                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
+                    return swiftResult.ToString();
                 }
                 
                 finally
@@ -4047,10 +4042,8 @@ namespace Swift.SwiftBindingsTestLib
                     
                     var result = PInvoke_describeTask_859F36AC(taskPayload, T0Metadata, T0TaskDescriptorPWT);
                     
-                    unsafe {
-                        var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                        return swiftResult.ToString();
-                    }
+                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
+                    return swiftResult.ToString();
                 }
                 
                 finally
@@ -4083,15 +4076,13 @@ namespace Swift.SwiftBindingsTestLib
                     SwiftMarshal.MarshalToSwift(processor, ref processorPayloadSpan);
                     
                     using var inputSwift = new SwiftString(input);
-                    using PayloadBuffer<SwiftString.Buffer> inputDisposable = inputSwift.PayloadBuffer;
+                    using var inputDisposable = inputSwift.PayloadBuffer;
                     var T0StringProcessorPWT = ProtocolWitnessTable.GetOrThrow<T0, IStringProcessor>();
                     
                     var result = PInvoke_runProcessor_9985F4C4(processorPayload, inputDisposable.Buffer, T0Metadata, T0StringProcessorPWT);
                     
-                    unsafe {
-                        var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                        return swiftResult.ToString();
-                    }
+                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
+                    return swiftResult.ToString();
                 }
                 
                 finally
@@ -4242,7 +4233,7 @@ namespace Swift.SwiftBindingsTestLib
             {
                 
                 using var inputSwift = new SwiftString(input);
-                using PayloadBuffer<SwiftString.Buffer> inputDisposable = inputSwift.PayloadBuffer;
+                using var inputDisposable = inputSwift.PayloadBuffer;
                 
                 var result = PInvoke_runProcessorExistential_BD76386F(((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)processor).GetExistentialContainer(), inputDisposable.Buffer);
                 
@@ -4328,15 +4319,15 @@ namespace Swift.SwiftBindingsTestLib
                 try
                 {
                     
-                    var itemsContainers = items.Select(i => ((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)i).GetExistentialContainer());
-                    using var itemsSwift = SwiftArray<Swift.Runtime.ExistentialContainer1>.FromEnumerable(itemsContainers);
-                    using PayloadBuffer<IntPtr> itemsDisposable = itemsSwift.PayloadBuffer;
+                    var itemsContainers = items.Select(e => ((ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)e).GetExistentialContainer());
+                    var itemsSwiftDirect = SwiftArray<Swift.Runtime.ExistentialContainer1>.FromEnumerable(itemsContainers);
+                    using var itemsSwift = itemsSwiftDirect;
+                    using var itemsDisposable = itemsSwift.PayloadBuffer;
                     IntPtr itemsBuffer = itemsDisposable.Buffer;
                     
                     var result = PInvoke_describeAllNamed_287015A7(itemsBuffer);
                     
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.SwiftString>>(new IntPtr(&result));
-                    return swiftResult.AsProjected(e => e.ToString());
+                    return SwiftMarshal.MarshalFromSwift<SwiftArray<SwiftString>>(new IntPtr(&result)).AsProjected(e => e.ToString());
                 }
                 
                 finally
@@ -4362,14 +4353,15 @@ namespace Swift.SwiftBindingsTestLib
                 try
                 {
                     
-                    var itemsContainers = items.Select(i => ((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)i).GetExistentialContainer());
-                    using var itemsSwift = SwiftArray<Swift.Runtime.ExistentialContainer1>.FromEnumerable(itemsContainers);
-                    using PayloadBuffer<IntPtr> itemsDisposable = itemsSwift.PayloadBuffer;
+                    var itemsContainers = items.Select(e => ((ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)e).GetExistentialContainer());
+                    var itemsSwiftDirect = SwiftArray<Swift.Runtime.ExistentialContainer1>.FromEnumerable(itemsContainers);
+                    using var itemsSwift = itemsSwiftDirect;
+                    using var itemsDisposable = itemsSwift.PayloadBuffer;
                     IntPtr itemsBuffer = itemsDisposable.Buffer;
                     
                     var result = PInvoke_getAllPriorities_81F9DE32(itemsBuffer);
                     
-                    return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.SwiftBindingsTestLib.TaskPriority>>(new IntPtr(&result));
+                    return SwiftMarshal.MarshalFromSwift<SwiftArray<Swift.SwiftBindingsTestLib.TaskPriority>>(new IntPtr(&result)).AsProjected(e => e);
                 }
                 
                 finally
@@ -5106,8 +5098,9 @@ namespace Swift.SwiftBindingsTestLib
                 _payload = new SwiftSafeHandle<IntContainer>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                using var itemsSwift = SwiftArray<int>.FromEnumerable(items);
-                using PayloadBuffer<IntPtr> itemsDisposable = itemsSwift.PayloadBuffer;
+                var itemsSwiftDirect = SwiftArray<int>.FromEnumerable(items);
+                using var itemsSwift = itemsSwiftDirect;
+                using var itemsDisposable = itemsSwift.PayloadBuffer;
                 IntPtr itemsBuffer = itemsDisposable.Buffer;
                 PInvoke_init_7729F485(swiftIndirectResult, itemsBuffer);
                 
@@ -5324,7 +5317,7 @@ namespace Swift.SwiftBindingsTestLib
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
                 using var labelSwift = new SwiftString(label);
-                using PayloadBuffer<SwiftString.Buffer> labelDisposable = labelSwift.PayloadBuffer;
+                using var labelDisposable = labelSwift.PayloadBuffer;
                 PInvoke_init_6467DBDF(swiftIndirectResult, labelDisposable.Buffer);
                 
             }
@@ -6111,9 +6104,9 @@ namespace Swift.SwiftBindingsTestLib
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
                 using var firstSwift = new SwiftString(first);
-                using PayloadBuffer<SwiftString.Buffer> firstDisposable = firstSwift.PayloadBuffer;
+                using var firstDisposable = firstSwift.PayloadBuffer;
                 using var secondSwift = new SwiftString(second);
-                using PayloadBuffer<SwiftString.Buffer> secondDisposable = secondSwift.PayloadBuffer;
+                using var secondDisposable = secondSwift.PayloadBuffer;
                 PInvoke_init_48EE6ACF(swiftIndirectResult, firstDisposable.Buffer, secondDisposable.Buffer);
                 
             }
@@ -6139,10 +6132,8 @@ namespace Swift.SwiftBindingsTestLib
                     
                     var result = PInvoke_joined_1970F119(self);
                     
-                    unsafe {
-                        var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                        return swiftResult.ToString();
-                    }
+                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
+                    return swiftResult.ToString();
                 }
                 
                 finally
@@ -8117,10 +8108,8 @@ namespace Swift.SwiftBindingsTestLib
                     
                     var result = PInvoke_describe_6BB2B4E1(self);
                     
-                    unsafe {
-                        var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                        return swiftResult.ToString();
-                    }
+                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
+                    return swiftResult.ToString();
                 }
                 
                 finally
@@ -8670,9 +8659,9 @@ namespace Swift.SwiftBindingsTestLib
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
                 using var nameSwift = new SwiftString(name);
-                using PayloadBuffer<SwiftString.Buffer> nameDisposable = nameSwift.PayloadBuffer;
+                using var nameDisposable = nameSwift.PayloadBuffer;
                 using var soundSwift = new SwiftString(sound);
-                using PayloadBuffer<SwiftString.Buffer> soundDisposable = soundSwift.PayloadBuffer;
+                using var soundDisposable = soundSwift.PayloadBuffer;
                 PInvoke_init_E497DD71(swiftIndirectResult, nameDisposable.Buffer, soundDisposable.Buffer);
                 
             }
@@ -8701,10 +8690,8 @@ namespace Swift.SwiftBindingsTestLib
                     
                     var result = PInvoke_speak_53396897(self);
                     
-                    unsafe {
-                        var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                        return swiftResult.ToString();
-                    }
+                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
+                    return swiftResult.ToString();
                 }
                 
                 finally
@@ -8739,10 +8726,8 @@ namespace Swift.SwiftBindingsTestLib
                     
                     var result = PInvoke_describe_F041ED5B(self);
                     
-                    unsafe {
-                        var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                        return swiftResult.ToString();
-                    }
+                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
+                    return swiftResult.ToString();
                 }
                 
                 finally
@@ -8926,9 +8911,9 @@ namespace Swift.SwiftBindingsTestLib
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
                 using var nameSwift = new SwiftString(name);
-                using PayloadBuffer<SwiftString.Buffer> nameDisposable = nameSwift.PayloadBuffer;
+                using var nameDisposable = nameSwift.PayloadBuffer;
                 using var breedSwift = new SwiftString(breed);
-                using PayloadBuffer<SwiftString.Buffer> breedDisposable = breedSwift.PayloadBuffer;
+                using var breedDisposable = breedSwift.PayloadBuffer;
                 PInvoke_init_87F7C61F(swiftIndirectResult, nameDisposable.Buffer, breedDisposable.Buffer);
                 
             }
@@ -8957,10 +8942,8 @@ namespace Swift.SwiftBindingsTestLib
                     
                     var result = PInvoke_describe_95FA0440(self);
                     
-                    unsafe {
-                        var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                        return swiftResult.ToString();
-                    }
+                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
+                    return swiftResult.ToString();
                 }
                 
                 finally
@@ -8995,10 +8978,8 @@ namespace Swift.SwiftBindingsTestLib
                     
                     var result = PInvoke_fetch_CC54C7C8(self);
                     
-                    unsafe {
-                        var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                        return swiftResult.ToString();
-                    }
+                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
+                    return swiftResult.ToString();
                 }
                 
                 finally
@@ -9629,7 +9610,7 @@ namespace Swift.SwiftBindingsTestLib
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
                 using var storedStringSwift = new SwiftString(storedString);
-                using PayloadBuffer<SwiftString.Buffer> storedStringDisposable = storedStringSwift.PayloadBuffer;
+                using var storedStringDisposable = storedStringSwift.PayloadBuffer;
                 PInvoke_init_ACD70D05(swiftIndirectResult, storedInt, storedStringDisposable.Buffer);
                 
             }
@@ -10345,7 +10326,7 @@ namespace Swift.SwiftBindingsTestLib
         unsafe
         {
             using var nameSwift = new SwiftString(name);
-            using PayloadBuffer<SwiftString.Buffer> nameDisposable = nameSwift.PayloadBuffer;
+            using var nameDisposable = nameSwift.PayloadBuffer;
             var result = PInvoke_init_648EE131(constantValue, mutableValue, nameDisposable.Buffer);
             
             
@@ -11263,7 +11244,7 @@ public NestedOuter( Swift.SwiftBindingsTestLib.NestedOuter.InnerInfo inner,  str
     unsafe
     {
         using var labelSwift = new SwiftString(label);
-        using PayloadBuffer<SwiftString.Buffer> labelDisposable = labelSwift.PayloadBuffer;
+        using var labelDisposable = labelSwift.PayloadBuffer;
         var result = PInvoke_init_4DB19E84(inner, labelDisposable.Buffer);
         
         
@@ -11862,9 +11843,19 @@ public BatchConfig( string name,  int maxRetries,  IReadOnlyList<int>? tags)
     unsafe
     {
         using var nameSwift = new SwiftString(name);
-        using PayloadBuffer<SwiftString.Buffer> nameDisposable = nameSwift.PayloadBuffer;
-        using var tagsSwift = tags is {} tagsValue ? SwiftOptional<Swift.SwiftArray<int>>.NewSome(SwiftArray<int>.FromEnumerable(tagsValue)) : SwiftOptional<Swift.SwiftArray<int>>.NewNone();
-        using PayloadBuffer<IntPtr> tagsDisposable = tagsSwift.PayloadBuffer;
+        using var nameDisposable = nameSwift.PayloadBuffer;
+        SwiftOptional<SwiftArray<int>> tagsSwiftInner;
+        if (tags is { } tagsValue)
+        {
+            var tagsValueSwiftDirect = SwiftArray<int>.FromEnumerable(tagsValue);
+            tagsSwiftInner = SwiftOptional<SwiftArray<int>>.NewSome(tagsValueSwiftDirect);
+        }
+        else
+        {
+            tagsSwiftInner = SwiftOptional<SwiftArray<int>>.NewNone();
+        }
+        using var tagsSwift = tagsSwiftInner;
+        using var tagsDisposable = tagsSwift.PayloadBuffer;
         IntPtr tagsBuffer = tagsDisposable.Buffer;
         var result = PInvoke_init_41887F47(nameDisposable.Buffer, maxRetries, tagsBuffer);
         
@@ -11934,10 +11925,8 @@ public string GetEffectiveName()
             
             var result = PInvoke_effectiveName_29570547(self);
             
-            unsafe {
-                var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                return swiftResult.ToString();
-            }
+            var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
+            return swiftResult.ToString();
         }
         
         finally
@@ -12118,9 +12107,9 @@ public partial class ValueAnimal : ISwiftObject, IDisposable, IHasValue
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
             using var nameSwift = new SwiftString(name);
-            using PayloadBuffer<SwiftString.Buffer> nameDisposable = nameSwift.PayloadBuffer;
+            using var nameDisposable = nameSwift.PayloadBuffer;
             using var soundSwift = new SwiftString(sound);
-            using PayloadBuffer<SwiftString.Buffer> soundDisposable = soundSwift.PayloadBuffer;
+            using var soundDisposable = soundSwift.PayloadBuffer;
             PInvoke_init_522829E0(swiftIndirectResult, nameDisposable.Buffer, soundDisposable.Buffer, _value);
             
         }
@@ -12211,10 +12200,8 @@ public partial class ValueAnimal : ISwiftObject, IDisposable, IHasValue
                 
                 var result = PInvoke_summary_614EB3BC(self);
                 
-                unsafe {
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                    return swiftResult.ToString();
-                }
+                var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
+                return swiftResult.ToString();
             }
             
             finally
@@ -12411,8 +12398,7 @@ public partial class Registry : ISwiftObject, IDisposable
                 
                 var result = PInvoke_lookup_4BDCDB0F(id, self);
                 
-                var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.SwiftBindingsTestLib.Animal>>(new IntPtr(&result));
-                return swiftResult.ToNullable();
+                return SwiftMarshal.MarshalFromSwift<SwiftOptional<Swift.SwiftBindingsTestLib.Animal>>(new IntPtr(&result)).ToNullable();
             }
             
             finally
@@ -12784,7 +12770,7 @@ public partial class EventHandler : ISwiftObject, IDisposable
                     onCompleteClosure = default; // Zero-initialized = nil in Swift
                 }
                 using var labelSwift = new SwiftString(label);
-                using PayloadBuffer<SwiftString.Buffer> labelDisposable = labelSwift.PayloadBuffer;
+                using var labelDisposable = labelSwift.PayloadBuffer;
                 PInvoke_init_5D66AB7B(swiftIndirectResult, labelDisposable.Buffer, onCompleteClosure);
                 
             }
@@ -14595,7 +14581,7 @@ public partial class TypedThrowingParser : ISwiftObject, IDisposable
                 
                 
                 using var inputSwift = new SwiftString(input);
-                using PayloadBuffer<SwiftString.Buffer> inputDisposable = inputSwift.PayloadBuffer;
+                using var inputDisposable = inputSwift.PayloadBuffer;
                 
                 var result = PInvoke_parse_53ABFB29(inputDisposable.Buffer, self, out var error);
                 
@@ -14808,7 +14794,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, int, IntP
             {
                 
                 using var inputSwift = new SwiftString(input);
-                using PayloadBuffer<SwiftString.Buffer> inputDisposable = inputSwift.PayloadBuffer;
+                using var inputDisposable = inputSwift.PayloadBuffer;
                 
                 PInvoke_asyncParse_028ADCF1(s_asyncParseCallback_028ADCF1, s_asyncParseErrorCallback_028ADCF1, GCHandle.ToIntPtr(handle), inputDisposable.Buffer, _payload.DangerousGetHandle());
                 
@@ -16020,7 +16006,7 @@ public partial class AsyncConfig : ISwiftObject, IDisposable
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
             using var nameSwift = new SwiftString(name);
-            using PayloadBuffer<SwiftString.Buffer> nameDisposable = nameSwift.PayloadBuffer;
+            using var nameDisposable = nameSwift.PayloadBuffer;
             PInvoke_init_F373A2C9(swiftIndirectResult, nameDisposable.Buffer, delay);
             
         }
@@ -16037,7 +16023,7 @@ public partial class AsyncConfig : ISwiftObject, IDisposable
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
             using var nameSwift = new SwiftString(name);
-            using PayloadBuffer<SwiftString.Buffer> nameDisposable = nameSwift.PayloadBuffer;
+            using var nameDisposable = nameSwift.PayloadBuffer;
             PInvoke_init_0240D697(swiftIndirectResult, nameDisposable.Buffer);
             
         }
@@ -16183,7 +16169,7 @@ public partial class AsyncDataSource : ISwiftObject, IDisposable
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
             using var identifierSwift = new SwiftString(identifier);
-            using PayloadBuffer<SwiftString.Buffer> identifierDisposable = identifierSwift.PayloadBuffer;
+            using var identifierDisposable = identifierSwift.PayloadBuffer;
             PInvoke_init_A69BBFA9(swiftIndirectResult, identifierDisposable.Buffer);
             
         }
@@ -16574,7 +16560,7 @@ public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
             using var nameSwift = new SwiftString(name);
-            using PayloadBuffer<SwiftString.Buffer> nameDisposable = nameSwift.PayloadBuffer;
+            using var nameDisposable = nameSwift.PayloadBuffer;
             PInvoke_init_9486E444(swiftIndirectResult, nameDisposable.Buffer);
             
         }
@@ -17352,7 +17338,7 @@ public AsyncResult( int id,  string message,  bool success)
     unsafe
     {
         using var messageSwift = new SwiftString(message);
-        using PayloadBuffer<SwiftString.Buffer> messageDisposable = messageSwift.PayloadBuffer;
+        using var messageDisposable = messageSwift.PayloadBuffer;
         var result = PInvoke_init_316B296A(id, messageDisposable.Buffer, success);
         
         
@@ -17907,9 +17893,9 @@ public partial class AsyncTask : ISwiftObject, IDisposable
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
             using var taskIdSwift = new SwiftString(taskId);
-            using PayloadBuffer<SwiftString.Buffer> taskIdDisposable = taskIdSwift.PayloadBuffer;
+            using var taskIdDisposable = taskIdSwift.PayloadBuffer;
             using var statusSwift = new SwiftString(status);
-            using PayloadBuffer<SwiftString.Buffer> statusDisposable = statusSwift.PayloadBuffer;
+            using var statusDisposable = statusSwift.PayloadBuffer;
             PInvoke_init_85AB1904(swiftIndirectResult, taskIdDisposable.Buffer, statusDisposable.Buffer);
             
         }
@@ -17926,7 +17912,7 @@ public partial class AsyncTask : ISwiftObject, IDisposable
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
             using var taskIdSwift = new SwiftString(taskId);
-            using PayloadBuffer<SwiftString.Buffer> taskIdDisposable = taskIdSwift.PayloadBuffer;
+            using var taskIdDisposable = taskIdSwift.PayloadBuffer;
             PInvoke_init_1D27DC74(swiftIndirectResult, taskIdDisposable.Buffer);
             
         }
@@ -17952,10 +17938,8 @@ public partial class AsyncTask : ISwiftObject, IDisposable
                 
                 var result = PInvoke_getDescription_FE9C3159(self);
                 
-                unsafe {
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                    return swiftResult.ToString();
-                }
+                var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
+                return swiftResult.ToString();
             }
             
             finally
@@ -18108,7 +18092,7 @@ public partial class AsyncStringWorker : ISwiftObject, IDisposable
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
             using var prefixSwift = new SwiftString(prefix);
-            using PayloadBuffer<SwiftString.Buffer> prefixDisposable = prefixSwift.PayloadBuffer;
+            using var prefixDisposable = prefixSwift.PayloadBuffer;
             PInvoke_init_E507B4F2(swiftIndirectResult, prefixDisposable.Buffer);
             
         }
@@ -19182,7 +19166,7 @@ public partial class AsyncArrayWorker : ISwiftObject, IDisposable
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
             using var identifierSwift = new SwiftString(identifier);
-            using PayloadBuffer<SwiftString.Buffer> identifierDisposable = identifierSwift.PayloadBuffer;
+            using var identifierDisposable = identifierSwift.PayloadBuffer;
             PInvoke_init_B7B2B2F7(swiftIndirectResult, identifierDisposable.Buffer);
             
         }
@@ -20743,7 +20727,7 @@ public partial class AsyncComplexWorker : ISwiftObject, IDisposable
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
             using var workerIdSwift = new SwiftString(workerId);
-            using PayloadBuffer<SwiftString.Buffer> workerIdDisposable = workerIdSwift.PayloadBuffer;
+            using var workerIdDisposable = workerIdSwift.PayloadBuffer;
             PInvoke_init_AF615155(swiftIndirectResult, workerIdDisposable.Buffer);
             
         }
@@ -22451,7 +22435,7 @@ public partial class MainActorViewModel : ISwiftObject, IDisposable
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
             using var titleSwift = new SwiftString(title);
-            using PayloadBuffer<SwiftString.Buffer> titleDisposable = titleSwift.PayloadBuffer;
+            using var titleDisposable = titleSwift.PayloadBuffer;
             PInvoke_init_F0955738(swiftIndirectResult, titleDisposable.Buffer);
             
         }
@@ -22879,10 +22863,8 @@ public partial class MainActorMethods : ISwiftObject, IDisposable
                 
                 var result = PInvoke_mainActorMethod_AA83CAC4(self);
                 
-                unsafe {
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                    return swiftResult.ToString();
-                }
+                var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
+                return swiftResult.ToString();
             }
             
             finally
@@ -22917,10 +22899,8 @@ public partial class MainActorMethods : ISwiftObject, IDisposable
                 
                 var result = PInvoke_regularMethod_5906F1EB(self);
                 
-                unsafe {
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                    return swiftResult.ToString();
-                }
+                var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
+                return swiftResult.ToString();
             }
             
             finally
@@ -23073,7 +23053,7 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
             using var nameSwift = new SwiftString(name);
-            using PayloadBuffer<SwiftString.Buffer> nameDisposable = nameSwift.PayloadBuffer;
+            using var nameDisposable = nameSwift.PayloadBuffer;
             PInvoke_init_B98C720C(swiftIndirectResult, nameDisposable.Buffer);
             
         }
@@ -24493,10 +24473,8 @@ public partial class Counter : ISwiftObject, IDisposable
                 
                 var result = PInvoke_description_EEA245E7(self);
                 
-                unsafe {
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                    return swiftResult.ToString();
-                }
+                var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
+                return swiftResult.ToString();
             }
             
             finally
@@ -24795,7 +24773,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_p
             {
                 
                 using var inputSwift = new SwiftString(input);
-                using PayloadBuffer<SwiftString.Buffer> inputDisposable = inputSwift.PayloadBuffer;
+                using var inputDisposable = inputSwift.PayloadBuffer;
                 
                 PInvoke_process_6566B5F0(s_processCallback_6566B5F0, s_processErrorCallback_6566B5F0, GCHandle.ToIntPtr(handle), inputDisposable.Buffer, *(IntPtr*)_payload.DangerousGetHandle());
                 
@@ -25014,7 +24992,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_p
             {
                 
                 using var inputSwift = new SwiftString(input);
-                using PayloadBuffer<SwiftString.Buffer> inputDisposable = inputSwift.PayloadBuffer;
+                using var inputDisposable = inputSwift.PayloadBuffer;
                 
                 PInvoke_computeHash_02F27608(s_computeHashCallback_02F27608, s_computeHashErrorCallback_02F27608, GCHandle.ToIntPtr(handle), inputDisposable.Buffer, *(IntPtr*)_payload.DangerousGetHandle());
                 
@@ -25272,7 +25250,7 @@ public partial class SharedState : ISwiftObject, IDisposable
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
             using var labelSwift = new SwiftString(label);
-            using PayloadBuffer<SwiftString.Buffer> labelDisposable = labelSwift.PayloadBuffer;
+            using var labelDisposable = labelSwift.PayloadBuffer;
             PInvoke_init_8A645EAD(swiftIndirectResult, labelDisposable.Buffer);
             
         }
@@ -25795,7 +25773,7 @@ public partial class SendableConfig : ISwiftObject, IDisposable
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
             using var nameSwift = new SwiftString(name);
-            using PayloadBuffer<SwiftString.Buffer> nameDisposable = nameSwift.PayloadBuffer;
+            using var nameDisposable = nameSwift.PayloadBuffer;
             PInvoke_init_139AE5F5(swiftIndirectResult, nameDisposable.Buffer, maxRetries);
             
         }
@@ -25824,10 +25802,8 @@ public partial class SendableConfig : ISwiftObject, IDisposable
                 
                 var result = PInvoke_describe_3F85E210(self);
                 
-                unsafe {
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                    return swiftResult.ToString();
-                }
+                var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
+                return swiftResult.ToString();
             }
             
             finally
@@ -26645,7 +26621,7 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
             using var urlSwift = new SwiftString(url);
-            using PayloadBuffer<SwiftString.Buffer> urlDisposable = urlSwift.PayloadBuffer;
+            using var urlDisposable = urlSwift.PayloadBuffer;
             PInvoke_init_C56C097E(swiftIndirectResult, method.Payload.DangerousGetHandle(), contentType.Payload.DangerousGetHandle(), urlDisposable.Buffer);
             
         }
@@ -27131,7 +27107,7 @@ public partial class OrderContainer : ISwiftObject, IDisposable
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
             using var orderIdSwift = new SwiftString(orderId);
-            using PayloadBuffer<SwiftString.Buffer> orderIdDisposable = orderIdSwift.PayloadBuffer;
+            using var orderIdDisposable = orderIdSwift.PayloadBuffer;
             PInvoke_init_A551FAD8(swiftIndirectResult, orderIdDisposable.Buffer, status.Payload.DangerousGetHandle());
             
         }
@@ -27617,7 +27593,7 @@ public partial class PaymentContainer : ISwiftObject, IDisposable
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
             using var paymentIdSwift = new SwiftString(paymentId);
-            using PayloadBuffer<SwiftString.Buffer> paymentIdDisposable = paymentIdSwift.PayloadBuffer;
+            using var paymentIdDisposable = paymentIdSwift.PayloadBuffer;
             PInvoke_init_88AD27EC(swiftIndirectResult, paymentIdDisposable.Buffer, status.Payload.DangerousGetHandle());
             
         }
@@ -29085,7 +29061,7 @@ public MutableProps( int _value,  string name)
     unsafe
     {
         using var nameSwift = new SwiftString(name);
-        using PayloadBuffer<SwiftString.Buffer> nameDisposable = nameSwift.PayloadBuffer;
+        using var nameDisposable = nameSwift.PayloadBuffer;
         var result = PInvoke_init_0392D803(_value, nameDisposable.Buffer);
         
         
@@ -29336,7 +29312,7 @@ public partial class NonFrozenMutableProps : ISwiftObject, IDisposable
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
             using var labelSwift = new SwiftString(label);
-            using PayloadBuffer<SwiftString.Buffer> labelDisposable = labelSwift.PayloadBuffer;
+            using var labelDisposable = labelSwift.PayloadBuffer;
             PInvoke_init_24C6EE80(swiftIndirectResult, _value, labelDisposable.Buffer);
             
         }
@@ -29580,7 +29556,7 @@ public partial class MutableClass : ISwiftObject, IDisposable
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
             using var titleSwift = new SwiftString(title);
-            using PayloadBuffer<SwiftString.Buffer> titleDisposable = titleSwift.PayloadBuffer;
+            using var titleDisposable = titleSwift.PayloadBuffer;
             PInvoke_init_E5EA6507(swiftIndirectResult, counter, titleDisposable.Buffer);
             
         }
@@ -30897,7 +30873,7 @@ public ReadOnlyProps( int storedInt,  double storedDouble,  string storedString)
     unsafe
     {
         using var storedStringSwift = new SwiftString(storedString);
-        using PayloadBuffer<SwiftString.Buffer> storedStringDisposable = storedStringSwift.PayloadBuffer;
+        using var storedStringDisposable = storedStringSwift.PayloadBuffer;
         var result = PInvoke_init_F5A3FA81(storedInt, storedDouble, storedStringDisposable.Buffer);
         
         
@@ -31122,7 +31098,7 @@ public partial class NonFrozenReadOnlyProps : ISwiftObject, IDisposable
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
             using var storedStringSwift = new SwiftString(storedString);
-            using PayloadBuffer<SwiftString.Buffer> storedStringDisposable = storedStringSwift.PayloadBuffer;
+            using var storedStringDisposable = storedStringSwift.PayloadBuffer;
             PInvoke_init_EF719900(swiftIndirectResult, storedInt, storedStringDisposable.Buffer);
             
         }
@@ -31447,14 +31423,22 @@ public OptionalConfig( string? label,  int? count,  string fallbackLabel)
 {
     unsafe
     {
-        using var labelStr = label is {} labelValue ? new SwiftString(labelValue) : null;
-        using var labelSwift = labelStr != null ? SwiftOptional<Swift.SwiftString>.NewSome(labelStr) : SwiftOptional<Swift.SwiftString>.NewNone();
+        SwiftOptional<SwiftString> labelSwiftInner;
+        if (label is { } labelValue)
+        {
+            labelSwiftInner = SwiftOptional<SwiftString>.NewSome(new SwiftString(labelValue));
+        }
+        else
+        {
+            labelSwiftInner = SwiftOptional<SwiftString>.NewNone();
+        }
+        using var labelSwift = labelSwiftInner;
         IntPtr labelBuffer = labelSwift.Payload.DangerousGetHandle();
-        using var countSwift = count is {} countValue ? SwiftOptional<int>.NewSome(countValue) : SwiftOptional<int>.NewNone();
-        using PayloadBuffer<IntPtr> countDisposable = countSwift.PayloadBuffer;
+        using var countSwift = count is { } countValue ? SwiftOptional<int>.NewSome(countValue) : SwiftOptional<int>.NewNone();
+        using var countDisposable = countSwift.PayloadBuffer;
         IntPtr countBuffer = countDisposable.Buffer;
         using var fallbackLabelSwift = new SwiftString(fallbackLabel);
-        using PayloadBuffer<SwiftString.Buffer> fallbackLabelDisposable = fallbackLabelSwift.PayloadBuffer;
+        using var fallbackLabelDisposable = fallbackLabelSwift.PayloadBuffer;
         var result = PInvoke_init_827AD6A1(labelBuffer, countBuffer, fallbackLabelDisposable.Buffer);
         
         
@@ -31489,10 +31473,8 @@ public string GetEffectiveLabel()
             
             var result = PInvoke_effectiveLabel_06354D60(self);
             
-            unsafe {
-                var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                return swiftResult.ToString();
-            }
+            var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
+            return swiftResult.ToString();
         }
         
         finally
@@ -31677,7 +31659,7 @@ public partial class PointerWorker : ISwiftObject, IDisposable
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
             using var labelSwift = new SwiftString(label);
-            using PayloadBuffer<SwiftString.Buffer> labelDisposable = labelSwift.PayloadBuffer;
+            using var labelDisposable = labelSwift.PayloadBuffer;
             PInvoke_init_258B9F1B(swiftIndirectResult, labelDisposable.Buffer);
             
         }
@@ -31706,10 +31688,8 @@ public partial class PointerWorker : ISwiftObject, IDisposable
                 
                 var result = PInvoke_describeValue_EE20FBA7(ptr, self);
                 
-                unsafe {
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                    return swiftResult.ToString();
-                }
+                var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
+                return swiftResult.ToString();
             }
             
             finally
@@ -31952,10 +31932,8 @@ public partial class RawMemoryWorker : ISwiftObject, IDisposable
                 
                 var result = PInvoke_readInt32_596CE92C(ptr, self);
                 
-                unsafe {
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                    return swiftResult.ToString();
-                }
+                var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
+                return swiftResult.ToString();
             }
             
             finally
@@ -32140,7 +32118,7 @@ public partial class HandleWrapper : ISwiftObject, IDisposable
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
             using var nameSwift = new SwiftString(name);
-            using PayloadBuffer<SwiftString.Buffer> nameDisposable = nameSwift.PayloadBuffer;
+            using var nameDisposable = nameSwift.PayloadBuffer;
             PInvoke_init_35BA0B53(swiftIndirectResult, nameDisposable.Buffer);
             
         }
@@ -32169,10 +32147,8 @@ public partial class HandleWrapper : ISwiftObject, IDisposable
                 
                 var result = PInvoke_describe_9B805396(ptr, self);
                 
-                unsafe {
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                    return swiftResult.ToString();
-                }
+                var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
+                return swiftResult.ToString();
             }
             
             finally
@@ -32697,8 +32673,9 @@ public partial class SliceProcessor : ISwiftObject, IDisposable
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                using var dataSwift = SwiftArray<int>.FromEnumerable(data);
-                using PayloadBuffer<IntPtr> dataDisposable = dataSwift.PayloadBuffer;
+                var dataSwiftDirect = SwiftArray<int>.FromEnumerable(data);
+                using var dataSwift = dataSwiftDirect;
+                using var dataDisposable = dataSwift.PayloadBuffer;
                 IntPtr dataBuffer = dataDisposable.Buffer;
                 
                 var result = PInvoke_processSlice_6B267883(dataBuffer, self);
@@ -32726,8 +32703,9 @@ public partial class SliceProcessor : ISwiftObject, IDisposable
             try
             {
                 
-                using var dataSwift = SwiftArray<int>.FromEnumerable(data);
-                using PayloadBuffer<IntPtr> dataDisposable = dataSwift.PayloadBuffer;
+                var dataSwiftDirect = SwiftArray<int>.FromEnumerable(data);
+                using var dataSwift = dataSwiftDirect;
+                using var dataDisposable = dataSwift.PayloadBuffer;
                 IntPtr dataBuffer = dataDisposable.Buffer;
                 
                 var result = PInvoke_totalSlice_38C7BBA2(dataBuffer);
@@ -34058,9 +34036,9 @@ public partial class SimpleItem : ISwiftObject, IDisposable
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
             using var idSwift = new SwiftString(id);
-            using PayloadBuffer<SwiftString.Buffer> idDisposable = idSwift.PayloadBuffer;
+            using var idDisposable = idSwift.PayloadBuffer;
             using var labelSwift = new SwiftString(label);
-            using PayloadBuffer<SwiftString.Buffer> labelDisposable = labelSwift.PayloadBuffer;
+            using var labelDisposable = labelSwift.PayloadBuffer;
             PInvoke_init_DF9660A7(swiftIndirectResult, idDisposable.Buffer, labelDisposable.Buffer);
             
         }
@@ -34086,10 +34064,8 @@ public partial class SimpleItem : ISwiftObject, IDisposable
                 
                 var result = PInvoke_describe_4E933DBC(self);
                 
-                unsafe {
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                    return swiftResult.ToString();
-                }
+                var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
+                return swiftResult.ToString();
             }
             
             finally
@@ -34516,7 +34492,7 @@ public partial class DisplayItem : ISwiftObject, IDisposable, IDisplayable
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
             using var textSwift = new SwiftString(text);
-            using PayloadBuffer<SwiftString.Buffer> textDisposable = textSwift.PayloadBuffer;
+            using var textDisposable = textSwift.PayloadBuffer;
             PInvoke_init_9431CF09(swiftIndirectResult, textDisposable.Buffer);
             
         }
@@ -34542,10 +34518,8 @@ public partial class DisplayItem : ISwiftObject, IDisposable, IDisplayable
                 
                 var result = PInvoke_describe_4EA6D6C7(self);
                 
-                unsafe {
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                    return swiftResult.ToString();
-                }
+                var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
+                return swiftResult.ToString();
             }
             
             finally
@@ -34577,10 +34551,8 @@ public partial class DisplayItem : ISwiftObject, IDisposable, IDisplayable
                 
                 var result = PInvoke_display_B95905ED(self);
                 
-                unsafe {
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                    return swiftResult.ToString();
-                }
+                var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
+                return swiftResult.ToString();
             }
             
             finally
@@ -34769,7 +34741,7 @@ public partial class Person : ISwiftObject, IDisposable, IAgeable
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
             using var nameSwift = new SwiftString(name);
-            using PayloadBuffer<SwiftString.Buffer> nameDisposable = nameSwift.PayloadBuffer;
+            using var nameDisposable = nameSwift.PayloadBuffer;
             PInvoke_init_932EA90F(swiftIndirectResult, nameDisposable.Buffer, age);
             
         }
@@ -39293,7 +39265,7 @@ public partial class NamedItem : ISwiftObject, IDisposable
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
             using var nameSwift = new SwiftString(name);
-            using PayloadBuffer<SwiftString.Buffer> nameDisposable = nameSwift.PayloadBuffer;
+            using var nameDisposable = nameSwift.PayloadBuffer;
             PInvoke_init_F427A159(swiftIndirectResult, nameDisposable.Buffer);
             
         }
@@ -39475,7 +39447,7 @@ public partial class MutableNamedItem : ISwiftObject, IDisposable
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
             using var nameSwift = new SwiftString(name);
-            using PayloadBuffer<SwiftString.Buffer> nameDisposable = nameSwift.PayloadBuffer;
+            using var nameDisposable = nameSwift.PayloadBuffer;
             PInvoke_init_1DE38739(swiftIndirectResult, nameDisposable.Buffer);
             
         }
@@ -40027,7 +39999,7 @@ public partial class SimpleTask : ISwiftObject, IDisposable
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
             using var taskNameSwift = new SwiftString(taskName);
-            using PayloadBuffer<SwiftString.Buffer> taskNameDisposable = taskNameSwift.PayloadBuffer;
+            using var taskNameDisposable = taskNameSwift.PayloadBuffer;
             PInvoke_init_C8043FE1(swiftIndirectResult, taskNameDisposable.Buffer, status.Payload.DangerousGetHandle(), priority.Payload.DangerousGetHandle());
             
         }
@@ -40174,7 +40146,7 @@ public partial class EchoProcessor : ISwiftObject, IDisposable, IStringProcessor
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
             using var prefixSwift = new SwiftString(prefix);
-            using PayloadBuffer<SwiftString.Buffer> prefixDisposable = prefixSwift.PayloadBuffer;
+            using var prefixDisposable = prefixSwift.PayloadBuffer;
             PInvoke_init_0DD011CE(swiftIndirectResult, prefixDisposable.Buffer);
             
         }
@@ -40201,14 +40173,12 @@ public partial class EchoProcessor : ISwiftObject, IDisposable, IStringProcessor
                 
                 
                 using var inputSwift = new SwiftString(input);
-                using PayloadBuffer<SwiftString.Buffer> inputDisposable = inputSwift.PayloadBuffer;
+                using var inputDisposable = inputSwift.PayloadBuffer;
                 
                 var result = PInvoke_process_AD65EAFF(inputDisposable.Buffer, self);
                 
-                unsafe {
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                    return swiftResult.ToString();
-                }
+                var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
+                return swiftResult.ToString();
             }
             
             finally
@@ -40243,10 +40213,8 @@ public partial class EchoProcessor : ISwiftObject, IDisposable, IStringProcessor
                 
                 var result = PInvoke_getOutput_31BFA72C(self);
                 
-                unsafe {
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                    return swiftResult.ToString();
-                }
+                var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
+                return swiftResult.ToString();
             }
             
             finally
@@ -41488,7 +41456,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
             {
                 
                 using var keySwift = new SwiftString(key);
-                using PayloadBuffer<SwiftString.Buffer> keyDisposable = keySwift.PayloadBuffer;
+                using var keyDisposable = keySwift.PayloadBuffer;
                 
                 PInvoke_init_80118581(s_initCallback_80118581, s_initErrorCallback_80118581, GCHandle.ToIntPtr(handle), keyDisposable.Buffer);
                 
@@ -41522,10 +41490,8 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 
                 var result = PInvoke_getKey_3F2A0A59(self);
                 
-                unsafe {
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                    return swiftResult.ToString();
-                }
+                var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
+                return swiftResult.ToString();
             }
             
             finally

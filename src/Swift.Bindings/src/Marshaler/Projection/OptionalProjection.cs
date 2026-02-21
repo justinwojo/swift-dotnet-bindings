@@ -14,30 +14,37 @@ public class OptionalProjection : ITypeProjection
 {
     private readonly ITypeProjection _innerProjection;
     private readonly bool _isExistentialInner;
+    private readonly bool _useDangerousGetHandle;
 
     /// <summary>
     /// Creates an optional projection.
     /// </summary>
     /// <param name="innerProjection">The projection for the wrapped type.</param>
     /// <param name="isExistentialInner">Whether the inner type is an existential (uses discriminant check instead of ToNullable).</param>
-    public OptionalProjection(ITypeProjection innerProjection, bool isExistentialInner = false)
+    /// <param name="useDangerousGetHandle">When true, uses DangerousGetHandle() instead of PayloadBuffer for large Optional params passed to Swift wrappers.</param>
+    public OptionalProjection(ITypeProjection innerProjection, bool isExistentialInner = false, bool useDangerousGetHandle = false)
     {
         _innerProjection = innerProjection;
         _isExistentialInner = isExistentialInner;
+        _useDangerousGetHandle = useDangerousGetHandle;
     }
 
     /// <summary>The inner projection for the wrapped type.</summary>
     public ITypeProjection InnerProjection => _innerProjection;
+
+    /// <summary>Whether the inner type is an existential.</summary>
+    public bool IsExistentialInner => _isExistentialInner;
 
     public string PublicType => $"{_innerProjection.PublicType}?";
     public string PInvokeType => "IntPtr";
     public string? PInvokeAttribute => null;
 
     /// <summary>
-    /// The SwiftOptional type parameter — uses ContainerTypeName for containers (SwiftArray, SwiftDictionary)
-    /// and PInvokeType for all others.
+    /// The SwiftOptional type parameter — uses SwiftContainerGenericType which returns the correct
+    /// C# type for use as a generic parameter in Swift containers (enum name for enums,
+    /// SwiftArray&lt;T&gt; for arrays, etc.)
     /// </summary>
-    private string OptionalTypeParam => _innerProjection.ContainerTypeName;
+    private string OptionalTypeParam => _innerProjection.SwiftContainerGenericType;
 
     public MarshalPlan GetParameterPlan(string paramName)
     {
@@ -96,39 +103,50 @@ public class OptionalProjection : ITypeProjection
                 $"{paramName} is {{ }} {paramName}Value ? SwiftOptional<{optTypeParam}>.NewSome({paramName}Value) : SwiftOptional<{optTypeParam}>.NewNone()"));
         }
 
-        setup.Add(new MarshalStatement.Using(
-            "PayloadBuffer<IntPtr>", $"{paramName}Disposable", $"{paramName}Swift.PayloadBuffer"));
-        setup.Add(new MarshalStatement.Line(
-            $"IntPtr {paramName}Buf = {paramName}Disposable.Buffer;"));
+        if (_useDangerousGetHandle)
+        {
+            // Large Optional passed to Swift wrapper — pass pointer to full Optional buffer
+            setup.Add(new MarshalStatement.Line(
+                $"IntPtr {paramName}Buffer = {paramName}Swift.Payload.DangerousGetHandle();"));
+        }
+        else
+        {
+            setup.Add(new MarshalStatement.Using(
+                "PayloadBuffer<IntPtr>", $"{paramName}Disposable", $"{paramName}Swift.PayloadBuffer"));
+            setup.Add(new MarshalStatement.Line(
+                $"IntPtr {paramName}Buffer = {paramName}Disposable.Buffer;"));
+        }
 
         return new MarshalPlan
         {
             SetupStatements = setup,
-            PInvokeExpression = $"{paramName}Buf"
+            PInvokeExpression = $"{paramName}Buffer"
         };
     }
 
     public MarshalPlan GetReturnPlan(string resultName, ReturnStrategy strategy)
     {
-        var optTypeParam = OptionalTypeParam;
+        // Use MarshalFromSwiftType for return MarshalFromSwift calls — for classes/non-frozen structs,
+        // this is the actual type name (not IntPtr), which MarshalFromSwift needs to construct instances.
+        var returnTypeParam = _innerProjection.MarshalFromSwiftType;
 
         if (_isExistentialInner)
         {
             // Existential inner — discriminant check + proxy construction
             var elemConversion = _innerProjection.GetReturnElementConversion("swiftResult.Some");
             var convExpr = elemConversion ?? "swiftResult.Some";
-            return BuildDiscriminantReturnPlan(resultName, strategy, optTypeParam, convExpr);
+            return BuildDiscriminantReturnPlan(resultName, strategy, returnTypeParam, convExpr);
         }
 
         // Container inner (Array, Dictionary) — discriminant check + container conversion
         var containerConv = _innerProjection.GetReturnContainerConversion("swiftResult.Some");
         if (containerConv != null)
         {
-            return BuildDiscriminantReturnPlan(resultName, strategy, optTypeParam, containerConv);
+            return BuildDiscriminantReturnPlan(resultName, strategy, returnTypeParam, containerConv);
         }
 
         // Non-existential, non-container — ToNullable() path
-        var marshalFromSwift = $"SwiftMarshal.MarshalFromSwift<SwiftOptional<{optTypeParam}>>";
+        var marshalFromSwift = $"SwiftMarshal.MarshalFromSwift<SwiftOptional<{returnTypeParam}>>";
         var innerRetConv = _innerProjection.GetReturnElementConversion("rawVal");
 
         if (innerRetConv != null)

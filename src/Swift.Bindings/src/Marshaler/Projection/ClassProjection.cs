@@ -22,6 +22,12 @@ public class ClassProjection : ITypeProjection
     public string PInvokeType => "IntPtr";
     public string? PInvokeAttribute => null;
 
+    /// <summary>
+    /// For MarshalFromSwift, use the class name (not IntPtr). MarshalFromSwift needs the real
+    /// type to construct instances via ISwiftObject.NewFromPayload.
+    /// </summary>
+    public string MarshalFromSwiftType => _typeName;
+
     public MarshalPlan GetParameterPlan(string paramName)
     {
         return new MarshalPlan
@@ -61,6 +67,9 @@ public class ClassProjection : ITypeProjection
     public string? GetParameterElementConversion(string elementVar) =>
         $"{elementVar}.Payload.DangerousGetHandle()";
 
-    public string? GetReturnElementConversion(string elementVar) =>
-        $"new {_typeName}({elementVar})";
+    /// <summary>
+    /// No return element conversion needed. When used inside Optional, ToNullable() handles
+    /// construction via ISwiftObject.NewFromPayload. Standalone returns use GetReturnPlan.
+    /// </summary>
+    public string? GetReturnElementConversion(string elementVar) => null;
 }

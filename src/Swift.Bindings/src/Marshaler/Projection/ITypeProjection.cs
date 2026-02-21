@@ -88,6 +88,16 @@ public interface ITypeProjection
     IReadOnlyList<CallbackDeclaration> CallbackDeclarations => Array.Empty<CallbackDeclaration>();
 
     /// <summary>
+    /// The C# type to use when this projection appears as a generic parameter inside a Swift
+    /// container (SwiftArray&lt;T&gt;, SwiftDictionary&lt;K,V&gt;, SwiftOptional&lt;T&gt;).
+    /// For most projections this equals PInvokeType. Overridden by:
+    /// - SimpleEnumProjection: returns enum PublicType (enums are blittable, generic param uses enum name)
+    /// - StringProjection: returns "SwiftString" (PInvokeType is SwiftString.Buffer for lowered calls)
+    /// - Container projections: returns ContainerTypeName (e.g., SwiftArray&lt;SwiftString&gt;)
+    /// </summary>
+    string SwiftContainerGenericType => PInvokeType;
+
+    /// <summary>
     /// The C# runtime container type name for intermediate marshalling.
     /// For container projections (Array → SwiftArray&lt;T&gt;, Dictionary → SwiftDictionary&lt;K,V&gt;),
     /// this is the full container type used before PayloadBuffer extraction.
@@ -95,6 +105,15 @@ public interface ITypeProjection
     /// Used by OptionalProjection to construct SwiftOptional&lt;ContainerType&gt;.
     /// </summary>
     string ContainerTypeName => PInvokeType;
+
+    /// <summary>
+    /// The C# type to use in MarshalFromSwift&lt;T&gt;() calls for return marshalling.
+    /// Defaults to SwiftContainerGenericType. Overridden by:
+    /// - ClassProjection: returns PublicType (class name needed for ISwiftObject.NewFromPayload)
+    /// - NonFrozenStructProjection: returns PublicType (same reason)
+    /// For parameter direction, SwiftContainerGenericType is used instead (IntPtr for classes).
+    /// </summary>
+    string MarshalFromSwiftType => SwiftContainerGenericType;
 
     /// <summary>
     /// Gets a parameter plan that creates the container object without extracting PayloadBuffer.

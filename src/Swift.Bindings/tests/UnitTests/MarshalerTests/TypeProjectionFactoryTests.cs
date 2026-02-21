@@ -265,7 +265,9 @@ public class TypeProjectionFactoryTests
         var projection = new ClassProjection("Swift.TestModule.MyClass");
 
         Assert.Equal("e.Payload.DangerousGetHandle()", projection.GetParameterElementConversion("e"));
-        Assert.Equal("new Swift.TestModule.MyClass(e)", projection.GetReturnElementConversion("e"));
+        // Return element conversion is null — when used inside Optional, ToNullable() handles
+        // construction via ISwiftObject.NewFromPayload. Standalone returns use GetReturnPlan.
+        Assert.Null(projection.GetReturnElementConversion("e"));
     }
 
     #endregion

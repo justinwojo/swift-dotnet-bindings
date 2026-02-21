@@ -39,9 +39,15 @@ public class SimpleEnumProjection : ITypeProjection
         };
     }
 
+    // Enums are blittable — SwiftArray<MyEnum> uses the enum name, not the underlying type
+    public string SwiftContainerGenericType => _enumTypeName;
+
     public bool RequiresSwiftWrapper => false;
     public string? GetSwiftWrapperCode(SwiftWrapperContext context) => null;
 
-    public string? GetParameterElementConversion(string elementVar) => $"({_underlyingType}){elementVar}";
-    public string? GetReturnElementConversion(string elementVar) => $"({_enumTypeName}){elementVar}";
+    // Enums are blittable — no element conversion needed inside containers.
+    // SwiftArray<MyEnum> / SwiftDictionary<MyEnum,...> work with enum values directly.
+    // Standalone parameter/return plans handle the cast to/from underlying type.
+    public string? GetParameterElementConversion(string elementVar) => null;
+    public string? GetReturnElementConversion(string elementVar) => null;
 }

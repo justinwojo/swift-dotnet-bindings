@@ -102,6 +102,15 @@ public class ClosureProjection : ITypeProjection
             lambdaArgs.Add(argName);
             var conv = _argProjections[i].GetParameterElementConversion(argName);
 
+            // For blittable types with different public/PInvoke types (enums),
+            // element conversion may be null (containers don't need it) but closures
+            // still need the cast for function pointer calls.
+            // Only for castable types (int, byte, etc.) — NOT IntPtr/SafeHandle which
+            // need constructor-based marshalling (classes, non-frozen structs).
+            if (conv == null && IsCastablePInvokeType(_argProjections[i].PInvokeType) &&
+                _argProjections[i].PInvokeType != _argProjections[i].PublicType)
+                conv = $"({_argProjections[i].PInvokeType}){argName}";
+
             if (conv != null && _argProjections[i].PInvokeType != _argProjections[i].PublicType)
             {
                 // Non-frozen struct args need VWT copy
@@ -119,6 +128,13 @@ public class ClosureProjection : ITypeProjection
         // Build the function pointer call expression
         var fpArgs = string.Join(", ", callArgs.Append($"{resultName}.Context"));
         var returnConv = _returnProjection?.GetReturnElementConversion("fpResult");
+        // For blittable types with different public/PInvoke types (enums),
+        // element conversion may be null but closures need the cast.
+        // Only for castable types — NOT IntPtr/SafeHandle (classes, non-frozen structs).
+        if (returnConv == null && _returnProjection != null &&
+            IsCastablePInvokeType(_returnProjection.PInvokeType) &&
+            _returnProjection.PInvokeType != _returnProjection.PublicType)
+            returnConv = $"({_returnProjection.PublicType})fpResult";
 
         string lambdaBody;
         if (_returnProjection != null)
@@ -175,6 +191,12 @@ public class ClosureProjection : ITypeProjection
             for (int i = 0; i < _argProjections.Count; i++)
             {
                 var conv = _argProjections[i].GetReturnElementConversion($"arg{i}");
+                // For blittable types with different public/PInvoke types (enums),
+                // element conversion may be null but closures need the cast.
+                // Only for castable types — NOT IntPtr/SafeHandle (classes, non-frozen structs).
+                if (conv == null && IsCastablePInvokeType(_argProjections[i].PInvokeType) &&
+                    _argProjections[i].PInvokeType != _argProjections[i].PublicType)
+                    conv = $"({_argProjections[i].PublicType})arg{i}";
                 invokeArgs.Add(conv ?? $"arg{i}");
             }
 
@@ -182,6 +204,12 @@ public class ClosureProjection : ITypeProjection
             if (_returnProjection != null)
             {
                 var retConv = _returnProjection.GetParameterElementConversion("delResult");
+                // For blittable types with different public/PInvoke types (enums),
+                // element conversion may be null but closures need the cast.
+                // Only for castable types — NOT IntPtr/SafeHandle (classes, non-frozen structs).
+                if (retConv == null && IsCastablePInvokeType(_returnProjection.PInvokeType) &&
+                    _returnProjection.PInvokeType != _returnProjection.PublicType)
+                    retConv = $"({_returnProjection.PInvokeType})delResult";
                 if (retConv != null)
                 {
                     body.Add(new MarshalStatement.Line($"var delResult = del({invokeArgList});"));
@@ -272,4 +300,12 @@ public class ClosureProjection : ITypeProjection
             types = types.Append("void");
         return $"delegate* unmanaged[Swift]<{string.Join(", ", types)}>";
     }
+
+    /// <summary>
+    /// Returns true if the PInvokeType supports direct C# casting (enum underlying types like int, byte).
+    /// Returns false for IntPtr/SafeHandle types which need constructor-based marshalling
+    /// (classes, non-frozen structs) and would produce invalid casts like (MyClass)intPtrArg.
+    /// </summary>
+    private static bool IsCastablePInvokeType(string pInvokeType) =>
+        pInvokeType is not "IntPtr" and not "SafeHandle" and not "SwiftClosureData";
 }

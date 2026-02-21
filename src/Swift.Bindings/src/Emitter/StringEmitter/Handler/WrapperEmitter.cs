@@ -11,6 +11,8 @@ namespace BindingsGeneration
     /// </summary>
     internal partial class WrapperEmitter
     {
+        private static readonly TypeProjectionFactory s_projectionFactory = new();
+
         private readonly MethodEnvironment _env;
         private readonly GenericContext _genericContext;
         private readonly Signature _wrapperSignature;

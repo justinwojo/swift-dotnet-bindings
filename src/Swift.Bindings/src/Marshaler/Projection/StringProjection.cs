@@ -20,13 +20,11 @@ public class StringProjection : ITypeProjection
         {
             SetupStatements = new List<MarshalStatement>
             {
-                new MarshalStatement.Using("SwiftString", $"{paramName}Swift", $"new SwiftString({paramName})")
+                new MarshalStatement.Using("SwiftString", $"{paramName}Swift", $"new SwiftString({paramName})"),
+                new MarshalStatement.Using("PayloadBuffer<SwiftString.Buffer>", $"{paramName}Disposable",
+                    $"{paramName}Swift.PayloadBuffer")
             },
-            PInvokeExpression = $"{paramName}Swift",
-            UsingDeclarations = new List<(string, string)>
-            {
-                ("SwiftString", $"{paramName}Swift")
-            }
+            PInvokeExpression = $"{paramName}Disposable.Buffer"
         };
     }
 

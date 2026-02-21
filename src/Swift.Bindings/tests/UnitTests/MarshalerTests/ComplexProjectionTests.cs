@@ -136,7 +136,7 @@ public class ComplexProjectionTests
         var proj = new ArrayProjection(elem, isParameter: true);
         var plan = proj.GetParameterPlan("items");
 
-        Assert.Equal("itemsBuf", plan.PInvokeExpression);
+        Assert.Equal("itemsBuffer", plan.PInvokeExpression);
         // Should have Using for SwiftArray and PayloadBuffer
         Assert.True(plan.SetupStatements.Count >= 2);
     }
@@ -148,7 +148,7 @@ public class ComplexProjectionTests
         var proj = new ArrayProjection(elem, isParameter: true);
         var plan = proj.GetParameterPlan("names");
 
-        Assert.Equal("namesBuf", plan.PInvokeExpression);
+        Assert.Equal("namesBuffer", plan.PInvokeExpression);
         // Should have Select conversion line
         var firstLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
         Assert.Contains(".Select(", firstLine.Code);
@@ -159,16 +159,17 @@ public class ComplexProjectionTests
     }
 
     [Fact]
-    public void Array_ParamPlan_EnumElement_NoDisposal()
+    public void Array_ParamPlan_EnumElement_DirectFromEnumerable()
     {
+        // Enums are blittable — no element conversion needed. Direct FromEnumerable.
         var elem = new SimpleEnumProjection("Direction", "int");
         var proj = new ArrayProjection(elem, isParameter: true);
         var plan = proj.GetParameterPlan("dirs");
 
-        Assert.Equal("dirsBuf", plan.PInvokeExpression);
-        // Should have Select conversion but NO try/finally (enums don't need disposal)
+        Assert.Equal("dirsBuffer", plan.PInvokeExpression);
+        // No Select — enums pass directly to FromEnumerable
         var firstLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
-        Assert.Contains(".Select(", firstLine.Code);
+        Assert.Contains("FromEnumerable(dirs)", firstLine.Code);
         Assert.DoesNotContain(plan.SetupStatements, s => s is MarshalStatement.Block b && b.Header == "finally");
     }
 
@@ -263,7 +264,7 @@ public class ComplexProjectionTests
         var proj = new DictionaryProjection(key, val, isParameter: true);
         var plan = proj.GetParameterPlan("dict");
 
-        Assert.Equal("dictBuf", plan.PInvokeExpression);
+        Assert.Equal("dictBuffer", plan.PInvokeExpression);
         // No Select conversion needed — first stmt is container creation, then Using + PayloadBuffer
         var firstSetup = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
         Assert.Contains("FromDictionary", firstSetup.Code);
@@ -277,7 +278,7 @@ public class ComplexProjectionTests
         var proj = new DictionaryProjection(key, val, isParameter: true);
         var plan = proj.GetParameterPlan("dict");
 
-        Assert.Equal("dictBuf", plan.PInvokeExpression);
+        Assert.Equal("dictBuffer", plan.PInvokeExpression);
         var firstLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
         Assert.Contains(".Select(", firstLine.Code);
         Assert.Contains("new SwiftString", firstLine.Code);
@@ -310,16 +311,16 @@ public class ComplexProjectionTests
     }
 
     [Fact]
-    public void Dictionary_ReturnPlan_BothConversions()
+    public void Dictionary_ReturnPlan_StringKeyEnumValue()
     {
         var key = new StringProjection();
         var val = new SimpleEnumProjection("Direction", "int");
         var proj = new DictionaryProjection(key, val, isParameter: false);
         var plan = proj.GetReturnPlan("result", ReturnStrategy.IndirectResult);
 
+        // String key has conversion (ToString), enum value has no conversion (blittable passthrough)
         Assert.Contains(".AsProjected(k =>", plan.PInvokeExpression);
         Assert.Contains("ToString()", plan.PInvokeExpression);
-        Assert.Contains("(Direction)", plan.PInvokeExpression);
     }
 
     [Fact]
@@ -360,7 +361,7 @@ public class ComplexProjectionTests
         var proj = new OptionalProjection(inner);
         var plan = proj.GetParameterPlan("val");
 
-        Assert.Equal("valBuf", plan.PInvokeExpression);
+        Assert.Equal("valBuffer", plan.PInvokeExpression);
         // Simple inner (no element conversion) → Using with ternary
         var firstSetup = plan.SetupStatements[0];
         var usingStmt = Assert.IsType<MarshalStatement.Using>(firstSetup);
@@ -376,7 +377,7 @@ public class ComplexProjectionTests
         var proj = new OptionalProjection(inner);
         var plan = proj.GetParameterPlan("name");
 
-        Assert.Equal("nameBuf", plan.PInvokeExpression);
+        Assert.Equal("nameBuffer", plan.PInvokeExpression);
         // Complex inner (has element conversion) → Block if/else
         Assert.Contains(plan.SetupStatements, s => s is MarshalStatement.Block b && b.Header.Contains("if ("));
         Assert.Contains(plan.SetupStatements, s => s is MarshalStatement.Block b && b.Header == "else");
@@ -446,7 +447,7 @@ public class ComplexProjectionTests
         var proj = new OptionalProjection(arrayProj);
         var plan = proj.GetParameterPlan("items");
 
-        Assert.Equal("itemsBuf", plan.PInvokeExpression);
+        Assert.Equal("itemsBuffer", plan.PInvokeExpression);
         // SwiftOptional should use SwiftArray<Int64>, not IntPtr
         var allCode = string.Join("\n", plan.SetupStatements.OfType<MarshalStatement.Line>().Select(l => l.Code));
         var allUsings = string.Join("\n", plan.SetupStatements.OfType<MarshalStatement.Using>().Select(u => u.Type));
@@ -463,7 +464,7 @@ public class ComplexProjectionTests
         var proj = new OptionalProjection(dictProj);
         var plan = proj.GetParameterPlan("data");
 
-        Assert.Equal("dataBuf", plan.PInvokeExpression);
+        Assert.Equal("dataBuffer", plan.PInvokeExpression);
         var allCode = string.Join("\n", plan.SetupStatements.OfType<MarshalStatement.Line>().Select(l => l.Code));
         var allUsings = string.Join("\n", plan.SetupStatements.OfType<MarshalStatement.Using>().Select(u => u.Type));
         var combined = allCode + "\n" + allUsings;
@@ -1057,11 +1058,13 @@ public class ComplexProjectionTests
     }
 
     [Fact]
-    public void SimpleEnum_ElementConversions()
+    public void SimpleEnum_ElementConversions_AreNull()
     {
+        // Enums are blittable — no element conversion needed inside containers.
+        // Standalone parameter/return plans handle the cast to/from underlying type.
         var proj = new SimpleEnumProjection("Direction", "int");
-        Assert.Equal("(int)e", proj.GetParameterElementConversion("e"));
-        Assert.Equal("(Direction)e", proj.GetReturnElementConversion("e"));
+        Assert.Null(proj.GetParameterElementConversion("e"));
+        Assert.Null(proj.GetReturnElementConversion("e"));
     }
 
     [Fact]
@@ -1069,7 +1072,7 @@ public class ComplexProjectionTests
     {
         var proj = new ObjCBridgedProjection("UIImage");
         Assert.Equal("e.Handle", proj.GetParameterElementConversion("e"));
-        Assert.Equal("Runtime.GetNSObject<UIImage>(e)!", proj.GetReturnElementConversion("e"));
+        Assert.Equal("ObjCRuntime.Runtime.GetNSObject<UIImage>(e)!", proj.GetReturnElementConversion("e"));
     }
 
     [Fact]
@@ -1077,16 +1080,50 @@ public class ComplexProjectionTests
     {
         var proj = new NonFrozenStructProjection("MyClass");
         Assert.Equal("e.Payload.DangerousGetHandle()", proj.GetParameterElementConversion("e"));
-        Assert.Equal("new MyClass(e)", proj.GetReturnElementConversion("e"));
+        // Return element conversion is null — when used inside Optional, ToNullable() handles
+        // construction via ISwiftObject.NewFromPayload. Standalone returns use GetReturnPlan.
+        Assert.Null(proj.GetReturnElementConversion("e"));
     }
 
     [Fact]
     public void NativeRemapped_ElementConversions()
     {
-        var proj = new NativeRemappedProjection("NSData", "SwiftData", isFrozen: true);
+        var proj = new NativeRemappedProjection("NSData", "SwiftData", isFrozen: true, toConversionMethod: "ToNSData");
         Assert.Equal("new SwiftData(e)", proj.GetParameterElementConversion("e"));
         Assert.Equal("new SwiftData(e).ToNSData()", proj.GetReturnElementConversion("e"));
         Assert.True(proj.ElementRequiresDisposal);
+    }
+
+    [Fact]
+    public void NativeRemapped_InArray_ParamPlan_UsesFromFactoryMethod()
+    {
+        // Array<Foundation.NSUrl> parameter — element conversion should use FromNSUrl factory method
+        var elem = new NativeRemappedProjection("Foundation.NSUrl", "SwiftURL", isFrozen: true,
+            toConversionMethod: "ToNSUrl", fromFactoryMethod: "FromNSUrl");
+        var proj = new ArrayProjection(elem, isParameter: true);
+        var plan = proj.GetParameterPlan("urls");
+
+        Assert.Equal("urlsBuffer", plan.PInvokeExpression);
+        var firstLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
+        Assert.Contains(".Select(", firstLine.Code);
+        Assert.Contains("SwiftURL.FromNSUrl", firstLine.Code);
+        // Should have disposal since NativeRemapped.ElementRequiresDisposal = true
+        Assert.Contains(plan.SetupStatements, s => s is MarshalStatement.Block b && b.Header == "finally");
+    }
+
+    [Fact]
+    public void NativeRemapped_InArray_ReturnPlan_UsesToConversionMethod()
+    {
+        // Array<Foundation.NSUrl> return — element conversion should use ToNSUrl
+        var elem = new NativeRemappedProjection("Foundation.NSUrl", "SwiftURL", isFrozen: true,
+            toConversionMethod: "ToNSUrl", fromFactoryMethod: "FromNSUrl");
+        var proj = new ArrayProjection(elem, isParameter: false);
+        var plan = proj.GetReturnPlan("result", ReturnStrategy.IndirectResult);
+
+        Assert.Contains(".AsProjected(e =>", plan.PInvokeExpression);
+        Assert.Contains("ToNSUrl()", plan.PInvokeExpression);
+        // Must NOT contain the namespace-qualified fallback "ToFoundation.NSUrl"
+        Assert.DoesNotContain("ToFoundation", plan.PInvokeExpression);
     }
 
     #endregion

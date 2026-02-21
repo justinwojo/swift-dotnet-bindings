@@ -176,8 +176,15 @@ public static partial class ClosureEmitter
         string asyncFuncExpr = parameterName;
         if (hasReturn && returnAbiType != null)
         {
-            var typeConversionHandler = new TypeConversionHandler(closureHandler.TypeDatabase);
-            var paramConversion = typeConversionHandler.GetParameterConversion("r", closureTypeSpec.ReturnType);
+            var projection = new TypeProjectionFactory().Project(closureTypeSpec.ReturnType,
+                new ProjectionContext { TypeDatabase = closureHandler.TypeDatabase, IsParameter = true });
+            // Only apply conversion when the public type differs from the ABI type AND
+            // the conversion produces a value (not a handle extraction).
+            // Classes/non-frozen structs have PublicType == ABI type — no conversion needed.
+            // String (public="string", ABI="SwiftString") needs new SwiftString(r).
+            var paramConversion = (projection != null && projection.PublicType != returnAbiType)
+                ? projection.GetParameterElementConversion("r")
+                : null;
             if (paramConversion != null)
             {
                 // e.g., string → new SwiftString(r): wrap Func<Task<string>> → Func<Task<SwiftString>>

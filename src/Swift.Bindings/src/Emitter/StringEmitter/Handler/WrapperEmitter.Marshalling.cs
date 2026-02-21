@@ -272,8 +272,7 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Emits type conversions for parameters that use idiomatic .NET types.
-        /// Converts string -> SwiftString, IEnumerable&lt;T&gt; -> SwiftArray&lt;T&gt;, T? -> SwiftOptional&lt;T&gt;.
-        /// Also handles payload buffer creation for bound generic types that have been type-converted.
+        /// Uses projection-first approach: tries TypeProjectionFactory, falls back to inline code.
         /// </summary>
         private void EmitTypeConversions(CSharpWriter csWriter)
         {
@@ -286,7 +285,7 @@ namespace BindingsGeneration
                     if (_env.ExistentialHandler.IsOptionalExistential(argumentDecl.SwiftTypeSpec) &&
                         !_env.ClosureHandler.IsOptionalClosure(argumentDecl.SwiftTypeSpec))
                     {
-                        EmitOptionalExistentialParamConversion(csWriter, argumentDecl);
+                        TryEmitParameterConversionViaProjection(csWriter, argumentDecl);
                     }
                 }
                 return;
@@ -294,156 +293,164 @@ namespace BindingsGeneration
 
             foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1))
             {
-                var csName = NameProvider.GetCSharpParameterName(argumentDecl);
+                if (!_env.TypeConversionHandler.IsConvertibleType(argumentDecl.SwiftTypeSpec) &&
+                    !_env.ExistentialHandler.IsOptionalExistential(argumentDecl.SwiftTypeSpec) &&
+                    !_env.TypeConversionHandler.HasNativeTypeRemapping(argumentDecl.SwiftTypeSpec))
+                    continue;
+                if (_env.ClosureHandler.IsOptionalClosure(argumentDecl.SwiftTypeSpec))
+                    continue;
 
-                if (_env.TypeConversionHandler.IsSwiftString(argumentDecl.SwiftTypeSpec))
+                if (!TryEmitParameterConversionViaProjection(csWriter, argumentDecl))
                 {
-                    // string -> SwiftString (using pattern for automatic disposal)
-                    csWriter.WriteLine($"using var {csName}Swift = new SwiftString({csName});");
-                    csWriter.WriteLine($"using PayloadBuffer<SwiftString.Buffer> {csName}Disposable = {csName}Swift.PayloadBuffer;");
+                    // Fallback for types the projection factory can't handle:
+                    // - B12 ObjC optional inner (Handle extraction)
+                    // - Containers with user-defined bound generic inner types
+                    EmitLegacyParameterConversion(csWriter, argumentDecl);
                 }
-                else if (_env.TypeConversionHandler.IsSwiftArray(argumentDecl.SwiftTypeSpec))
+            }
+        }
+
+        /// <summary>
+        /// Tries to emit parameter conversion via the projection factory.
+        /// Returns true if the projection handled the parameter, false if fallback is needed.
+        /// </summary>
+        private bool TryEmitParameterConversionViaProjection(CSharpWriter csWriter, ArgumentDecl argumentDecl)
+        {
+            var projection = s_projectionFactory.Project(argumentDecl.SwiftTypeSpec,
+                new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = true, GenericContext = _genericContext });
+            if (projection == null)
+                return false;
+
+            // B12: ObjC optional inner — factory returns OptionalProjection but we need handle extraction
+            if (projection is OptionalProjection optProj)
+            {
+                var optNamed = argumentDecl.SwiftTypeSpec as NamedTypeSpec;
+                var innerElement = optNamed?.GenericParameters.FirstOrDefault();
+                if (innerElement is NamedTypeSpec innerNamed && innerNamed.HasModule() &&
+                    TypeDatabaseExtensions.IsObjCModuleType(innerNamed))
+                    return false; // Fall back to inline ObjC handle extraction
+            }
+
+            var csName = NameProvider.GetCSharpParameterName(argumentDecl);
+
+            // Check if large Optional param needs DangerousGetHandle override
+            if (projection is OptionalProjection optProjForHandle)
+            {
+                bool needsLargeOptOverride = _env.BoundGenericsHandler.IsLargeOptionalParam(argumentDecl.SwiftTypeSpec) &&
+                    (_env.MethodDecl.HasOptionalPointerWrapper || _env.MethodDecl.UsesWrapperLibrary ||
+                     _env.MethodDecl.IsAsync || _requiresOpaqueReturnWrapper);
+                if (needsLargeOptOverride)
                 {
-                    // IEnumerable<T> -> SwiftArray<T>
-                    var swiftType = _env.TypeConversionHandler.GetSwiftWrapperType(
-                        argumentDecl.SwiftTypeSpec,
+                    projection = new OptionalProjection(optProjForHandle.InnerProjection, optProjForHandle.IsExistentialInner, useDangerousGetHandle: true);
+                }
+            }
+
+            var plan = projection.GetParameterPlan(csName);
+            MarshalPlanRenderer.RenderStatements(csWriter, plan.SetupStatements);
+            return true;
+        }
+
+        /// <summary>
+        /// Legacy fallback for parameter conversion when the projection factory returns null.
+        /// Handles containers with user-defined bound generic inner types and B12 ObjC optional inner.
+        /// </summary>
+        private void EmitLegacyParameterConversion(CSharpWriter csWriter, ArgumentDecl argumentDecl)
+        {
+            var csName = NameProvider.GetCSharpParameterName(argumentDecl);
+
+            if (_env.TypeConversionHandler.IsSwiftArray(argumentDecl.SwiftTypeSpec))
+            {
+                var swiftType = _env.TypeConversionHandler.GetSwiftWrapperType(
+                    argumentDecl.SwiftTypeSpec,
+                    typeSpec => TranslateTypeSpecForConversion(typeSpec));
+                var elementTypeSpec = (argumentDecl.SwiftTypeSpec as NamedTypeSpec)?.GenericParameters.FirstOrDefault();
+                if (elementTypeSpec != null && _env.TypeConversionHandler.IsSwiftString(elementTypeSpec))
+                {
+                    csWriter.WriteLine($"var {csName}Converted = {csName}.Select(e => new SwiftString(e)).ToList();");
+                    csWriter.WriteLine($"{swiftType} {csName}SwiftInner;");
+                    csWriter.WriteLine($"try {{ {csName}SwiftInner = {swiftType}.FromEnumerable({csName}Converted); }}");
+                    csWriter.WriteLine($"finally {{ foreach (var _item in {csName}Converted) _item.Dispose(); }}");
+                    csWriter.WriteLine($"using var {csName}Swift = {csName}SwiftInner;");
+                }
+                else
+                {
+                    csWriter.WriteLine($"using var {csName}Swift = {swiftType}.FromEnumerable({csName});");
+                }
+                csWriter.WriteLine($"using var {csName}Disposable = {csName}Swift.PayloadBuffer;");
+                var bufferName = NameProvider.GetBoundGenericBufferName(csName);
+                csWriter.WriteLine($"IntPtr {bufferName} = {csName}Disposable.Buffer;");
+            }
+            else if (_env.TypeConversionHandler.IsSwiftDictionary(argumentDecl.SwiftTypeSpec))
+            {
+                var swiftType = _env.TypeConversionHandler.GetSwiftWrapperType(
+                    argumentDecl.SwiftTypeSpec,
+                    typeSpec => TranslateTypeSpecForConversion(typeSpec));
+                var dictTypeSpec = argumentDecl.SwiftTypeSpec as NamedTypeSpec;
+                var keyTypeSpec = dictTypeSpec?.GenericParameters.FirstOrDefault();
+                var valueTypeSpec = dictTypeSpec?.GenericParameters.Count > 1 ? dictTypeSpec.GenericParameters[1] : null;
+                bool keyIsString = keyTypeSpec != null && _env.TypeConversionHandler.IsSwiftString(keyTypeSpec);
+                bool valueIsString = valueTypeSpec != null && _env.TypeConversionHandler.IsSwiftString(valueTypeSpec);
+                bool valueIsArray = valueTypeSpec is NamedTypeSpec valArraySpec && _env.TypeConversionHandler.IsSwiftArray(valArraySpec);
+                bool keyConverted = keyTypeSpec != null && _env.TypeConversionHandler.IsDictionaryKeyTypeConverted(dictTypeSpec!,
+                    typeSpec => TranslateTypeSpecForConversion(typeSpec));
+                bool valueConverted = valueTypeSpec != null && _env.TypeConversionHandler.IsDictionaryValueTypeConverted(dictTypeSpec!,
+                    typeSpec => TranslateTypeSpecForConversion(typeSpec));
+
+                if (keyConverted || valueConverted)
+                {
+                    var keyExpr = keyIsString ? $"new SwiftString(kvp.Key)" : "kvp.Key";
+                    string valueExpr;
+                    if (valueIsString) valueExpr = "new SwiftString(kvp.Value)";
+                    else if (valueIsArray) valueExpr = GetDictValueArrayConversion("kvp.Value", (NamedTypeSpec)valueTypeSpec!);
+                    else valueExpr = "kvp.Value";
+                    var rawKeyType = _env.TypeConversionHandler.GetRawDictionaryKeyType(dictTypeSpec!,
                         typeSpec => TranslateTypeSpecForConversion(typeSpec));
-                    // Check if array element is an existential (public API uses IEnumerable<IProtocol>,
-                    // but SwiftArray needs ExistentialContainer elements)
-                    var elementTypeSpec = (argumentDecl.SwiftTypeSpec as NamedTypeSpec)?.GenericParameters.FirstOrDefault();
-                    if (elementTypeSpec != null && _env.ExistentialHandler.IsExistential(elementTypeSpec))
-                    {
-                        var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(elementTypeSpec);
-                        if (protocolList != null && _env.ExistentialHandler.IsSupportedExistential(protocolList))
-                        {
-                            var containerType = _env.ExistentialHandler.GetCSharpExistentialType(protocolList);
-                            csWriter.WriteLine($"var {csName}Containers = {csName}.Select(i => ((Swift.Runtime.ISwiftExistentialConvertible<{containerType}>)i).GetExistentialContainer());");
-                            csWriter.WriteLine($"using var {csName}Swift = {swiftType}.FromEnumerable({csName}Containers);");
-                        }
-                        else
-                        {
-                            csWriter.WriteLine($"using var {csName}Swift = {swiftType}.FromEnumerable({csName});");
-                        }
-                    }
-                    else if (elementTypeSpec != null && _env.TypeConversionHandler.IsSwiftString(elementTypeSpec))
-                    {
-                        // Element type converted: public API is IEnumerable<string>,
-                        // but SwiftArray<SwiftString>.FromEnumerable needs IEnumerable<SwiftString>
-                        // try/finally ensures temporary SwiftStrings are disposed even if FromEnumerable throws
-                        csWriter.WriteLine($"var {csName}Converted = {csName}.Select(e => new SwiftString(e)).ToList();");
-                        csWriter.WriteLine($"{swiftType} {csName}SwiftInner;");
-                        csWriter.WriteLine($"try {{ {csName}SwiftInner = {swiftType}.FromEnumerable({csName}Converted); }}");
-                        csWriter.WriteLine($"finally {{ foreach (var _item in {csName}Converted) _item.Dispose(); }}");
-                        csWriter.WriteLine($"using var {csName}Swift = {csName}SwiftInner;");
-                    }
-                    else
-                    {
-                        csWriter.WriteLine($"using var {csName}Swift = {swiftType}.FromEnumerable({csName});");
-                    }
-                    // Create payload buffer for P/Invoke (same as bound generic handling)
-                    csWriter.WriteLine($"using PayloadBuffer<IntPtr> {csName}Disposable = {csName}Swift.PayloadBuffer;");
+                    var rawValueType = _env.TypeConversionHandler.GetRawDictionaryValueType(dictTypeSpec!,
+                        typeSpec => TranslateTypeSpecForConversion(typeSpec));
+                    csWriter.WriteLine($"var {csName}Converted = {csName}.Select(kvp => new KeyValuePair<{rawKeyType}, {rawValueType}>({keyExpr}, {valueExpr})).ToList();");
+                    csWriter.WriteLine($"{swiftType} {csName}SwiftInner;");
+                    var disposeStatements = new List<string>();
+                    if (keyIsString) disposeStatements.Add($"_item.Key.Dispose()");
+                    if (valueIsString || valueIsArray) disposeStatements.Add($"_item.Value.Dispose()");
+                    var disposeExpr = string.Join("; ", disposeStatements);
+                    csWriter.WriteLine($"try {{ {csName}SwiftInner = {swiftType}.FromDictionary({csName}Converted); }}");
+                    csWriter.WriteLine($"finally {{ foreach (var _item in {csName}Converted) {{ {disposeExpr}; }} }}");
+                    csWriter.WriteLine($"using var {csName}Swift = {csName}SwiftInner;");
+                }
+                else
+                {
+                    csWriter.WriteLine($"using var {csName}Swift = {swiftType}.FromDictionary({csName});");
+                }
+                csWriter.WriteLine($"using var {csName}Disposable = {csName}Swift.PayloadBuffer;");
+                var dictBufName = NameProvider.GetBoundGenericBufferName(csName);
+                csWriter.WriteLine($"IntPtr {dictBufName} = {csName}Disposable.Buffer;");
+            }
+            else if (_env.TypeConversionHandler.IsSwiftOptional(argumentDecl.SwiftTypeSpec))
+            {
+                var optNamedType = argumentDecl.SwiftTypeSpec as NamedTypeSpec;
+                var innerElement = optNamedType?.GenericParameters.FirstOrDefault();
+
+                // B12 ObjC optional inner
+                if (innerElement is NamedTypeSpec innerNamed && innerNamed.HasModule() &&
+                    TypeDatabaseExtensions.IsObjCModuleType(innerNamed))
+                {
                     var bufferName = NameProvider.GetBoundGenericBufferName(csName);
-                    csWriter.WriteLine($"IntPtr {bufferName} = {csName}Disposable.Buffer;");
+                    csWriter.WriteLine($"IntPtr {bufferName} = {csName}?.Handle ?? IntPtr.Zero;");
                 }
-                else if (_env.TypeConversionHandler.IsSwiftDictionary(argumentDecl.SwiftTypeSpec))
+                else
                 {
-                    // IDictionary<K,V> -> SwiftDictionary<K,V>
+                    // Generic Optional with unsupported inner type — use TranslateBound fallback
                     var swiftType = _env.TypeConversionHandler.GetSwiftWrapperType(
                         argumentDecl.SwiftTypeSpec,
-                        typeSpec => TranslateTypeSpecForConversion(typeSpec));
-                    var dictTypeSpec = argumentDecl.SwiftTypeSpec as NamedTypeSpec;
-                    var keyTypeSpec = dictTypeSpec?.GenericParameters.FirstOrDefault();
-                    var valueTypeSpec = dictTypeSpec?.GenericParameters.Count > 1 ? dictTypeSpec.GenericParameters[1] : null;
-                    bool keyIsString = keyTypeSpec != null && _env.TypeConversionHandler.IsSwiftString(keyTypeSpec);
-                    bool valueIsString = valueTypeSpec != null && _env.TypeConversionHandler.IsSwiftString(valueTypeSpec);
-                    bool valueIsArray = valueTypeSpec is NamedTypeSpec valArraySpec2 && _env.TypeConversionHandler.IsSwiftArray(valArraySpec2);
-                    bool keyConverted = keyTypeSpec != null && _env.TypeConversionHandler.IsDictionaryKeyTypeConverted(dictTypeSpec!,
-                        typeSpec => TranslateTypeSpecForConversion(typeSpec));
-                    bool valueConverted = valueTypeSpec != null && _env.TypeConversionHandler.IsDictionaryValueTypeConverted(dictTypeSpec!,
                         typeSpec => TranslateTypeSpecForConversion(typeSpec));
 
-                    if (keyConverted || valueConverted)
+                    if (innerElement is NamedTypeSpec innerArrayNamed && _env.TypeConversionHandler.IsSwiftArray(innerArrayNamed))
                     {
-                        // Key/value types converted: public API uses idiomatic types, but SwiftDictionary needs raw types
-                        // Convert via .Select() with try/finally for disposal of temporary disposable items
-                        var keyExpr = keyIsString ? $"new SwiftString(kvp.Key)" : "kvp.Key";
-                        string valueExpr;
-                        if (valueIsString)
-                            valueExpr = "new SwiftString(kvp.Value)";
-                        else if (valueIsArray)
-                            valueExpr = GetDictValueArrayConversion("kvp.Value", (NamedTypeSpec)valueTypeSpec!);
-                        else
-                            valueExpr = "kvp.Value";
-                        var rawKeyType = _env.TypeConversionHandler.GetRawDictionaryKeyType(dictTypeSpec!,
-                            typeSpec => TranslateTypeSpecForConversion(typeSpec));
-                        var rawValueType = _env.TypeConversionHandler.GetRawDictionaryValueType(dictTypeSpec!,
-                            typeSpec => TranslateTypeSpecForConversion(typeSpec));
-                        csWriter.WriteLine($"var {csName}Converted = {csName}.Select(kvp => new KeyValuePair<{rawKeyType}, {rawValueType}>({keyExpr}, {valueExpr})).ToList();");
-                        csWriter.WriteLine($"{swiftType} {csName}SwiftInner;");
-                        // Build disposal: dispose both keys and values that are IDisposable
-                        var disposeStatements = new List<string>();
-                        if (keyIsString) disposeStatements.Add($"_item.Key.Dispose()");
-                        if (valueIsString || valueIsArray) disposeStatements.Add($"_item.Value.Dispose()");
-                        var disposeExpr = string.Join("; ", disposeStatements);
-                        csWriter.WriteLine($"try {{ {csName}SwiftInner = {swiftType}.FromDictionary({csName}Converted); }}");
-                        csWriter.WriteLine($"finally {{ foreach (var _item in {csName}Converted) {{ {disposeExpr}; }} }}");
-                        csWriter.WriteLine($"using var {csName}Swift = {csName}SwiftInner;");
-                    }
-                    else
-                    {
-                        csWriter.WriteLine($"using var {csName}Swift = {swiftType}.FromDictionary({csName});");
-                    }
-                    // Create payload buffer for P/Invoke (same as bound generic handling)
-                    csWriter.WriteLine($"using PayloadBuffer<IntPtr> {csName}Disposable = {csName}Swift.PayloadBuffer;");
-                    var dictBufName = NameProvider.GetBoundGenericBufferName(csName);
-                    csWriter.WriteLine($"IntPtr {dictBufName} = {csName}Disposable.Buffer;");
-                }
-                else if (_env.ExistentialHandler.IsOptionalExistential(argumentDecl.SwiftTypeSpec) &&
-                         !_env.ClosureHandler.IsOptionalClosure(argumentDecl.SwiftTypeSpec))
-                {
-                    EmitOptionalExistentialParamConversion(csWriter, argumentDecl);
-                }
-                else if (_env.TypeConversionHandler.IsSwiftOptional(argumentDecl.SwiftTypeSpec) &&
-                         !_env.ClosureHandler.IsOptionalClosure(argumentDecl.SwiftTypeSpec))
-                {
-                    // B12: Check if inner element is an ObjC-bridged type (e.g., UIViewController)
-                    // ObjC types have .Handle property but not ISwiftObject, so SwiftOptional<T> would be invalid.
-                    // Emit IntPtr fallback using the ObjC .Handle property.
-                    var optNamedTypeB12 = argumentDecl.SwiftTypeSpec as NamedTypeSpec;
-                    var innerElementB12 = optNamedTypeB12?.GenericParameters.FirstOrDefault();
-                    if (innerElementB12 is NamedTypeSpec innerNamedB12 && innerNamedB12.HasModule() &&
-                        TypeDatabaseExtensions.IsObjCModuleType(innerNamedB12))
-                    {
-                        var bufferName = NameProvider.GetBoundGenericBufferName(csName);
-                        csWriter.WriteLine($"IntPtr {bufferName} = {csName}?.Handle ?? IntPtr.Zero;");
-                    }
-                    else
-                    {
-                    // T? -> SwiftOptional<T> (but not for optional closures - those are handled by EmitClosureSetup)
-                    // Use pattern matching which works for both nullable value types and reference types
-                    var swiftType = _env.TypeConversionHandler.GetSwiftWrapperType(
-                        argumentDecl.SwiftTypeSpec,
-                        typeSpec => TranslateTypeSpecForConversion(typeSpec));
-                    // Check if inner element type was converted (e.g., string → SwiftString, IReadOnlyList → SwiftArray)
-                    var optNamedType = argumentDecl.SwiftTypeSpec as NamedTypeSpec;
-                    var innerElementSpec = optNamedType?.GenericParameters.FirstOrDefault();
-                    if (innerElementSpec != null && _env.TypeConversionHandler.IsSwiftString(innerElementSpec))
-                    {
-                        // Public API is string?, but SwiftOptional<SwiftString>.NewSome needs SwiftString
-                        // Use named intermediate so the temporary SwiftString is deterministically disposed
-                        csWriter.WriteLine($"using var {csName}Str = {csName} is {{}} {csName}Value ? new SwiftString({csName}Value) : null;");
-                        csWriter.WriteLine($"using var {csName}Swift = {csName}Str != null ? {swiftType}.NewSome({csName}Str) : {swiftType}.NewNone();");
-                    }
-                    else if (innerElementSpec is NamedTypeSpec innerNamed && _env.TypeConversionHandler.IsSwiftArray(innerNamed))
-                    {
-                        // Public API is IReadOnlyList<T>?, but SwiftOptional<SwiftArray<T>>.NewSome needs SwiftArray<T>
-                        // Convert using FromEnumerable before wrapping in Optional
-                        var rawArrayElement = _env.TypeConversionHandler.GetRawArrayElementType(innerNamed);
+                        var rawArrayElement = _env.TypeConversionHandler.GetRawArrayElementType(innerArrayNamed);
                         string arrayConversion;
                         if (rawArrayElement != null)
                         {
-                            // Check if element type needs conversion (e.g., string → SwiftString)
-                            var innerArrayElementSpec = innerNamed.GenericParameters.FirstOrDefault();
+                            var innerArrayElementSpec = innerArrayNamed.GenericParameters.FirstOrDefault();
                             if (innerArrayElementSpec != null && _env.TypeConversionHandler.IsSwiftString(innerArrayElementSpec))
                                 arrayConversion = $"SwiftArray<{rawArrayElement}>.FromEnumerable({csName}Value.Select(e => new SwiftString(e)))";
                             else
@@ -455,10 +462,8 @@ namespace BindingsGeneration
                         }
                         csWriter.WriteLine($"using var {csName}Swift = {csName} is {{}} {csName}Value ? {swiftType}.NewSome({arrayConversion}) : {swiftType}.NewNone();");
                     }
-                    else if (innerElementSpec is NamedTypeSpec innerDictNamed && _env.TypeConversionHandler.IsSwiftDictionary(innerDictNamed))
+                    else if (innerElement is NamedTypeSpec innerDictNamed && _env.TypeConversionHandler.IsSwiftDictionary(innerDictNamed))
                     {
-                        // Public API is IReadOnlyDictionary<K,V>?, but SwiftOptional<SwiftDictionary<K,V>>.NewSome needs SwiftDictionary<K,V>
-                        // Convert using FromDictionary before wrapping in Optional
                         var rawDictKey = _env.TypeConversionHandler.GetRawDictionaryKeyType(innerDictNamed,
                             typeSpec => TranslateTypeSpecForConversion(typeSpec));
                         var rawDictValue = _env.TypeConversionHandler.GetRawDictionaryValueType(innerDictNamed,
@@ -476,21 +481,17 @@ namespace BindingsGeneration
                                 typeSpec => TranslateTypeSpecForConversion(typeSpec));
                             if (dictKeyConverted || dictValueConverted)
                             {
-                                // Materialize converted pairs into a list so temporaries can be disposed.
-                                // Mirrors the non-optional dictionary branch's ToList() + try/finally pattern.
                                 var kExpr = dictKeyIsString ? $"new SwiftString(kvp.Key)" : "kvp.Key";
                                 string vExpr;
                                 if (dictValueIsString) vExpr = "new SwiftString(kvp.Value)";
                                 else if (dictValueIsArray) vExpr = GetDictValueArrayConversion("kvp.Value", (NamedTypeSpec)innerDictValueSpec!);
                                 else vExpr = "kvp.Value";
                                 var swiftDictType = $"SwiftDictionary<{rawDictKey}, {rawDictValue}>";
-                                // Build disposal: dispose keys and values that are IDisposable
                                 var disposeStatements = new List<string>();
                                 if (dictKeyIsString) disposeStatements.Add($"_item.Key.Dispose()");
                                 if (dictValueIsString || dictValueIsArray) disposeStatements.Add($"_item.Value.Dispose()");
                                 var disposeExpr = string.Join("; ", disposeStatements);
 
-                                // Use inner variable for conditional assignment, then 'using var' for disposal
                                 csWriter.WriteLine($"{swiftType} {csName}SwiftInner;");
                                 csWriter.WriteLine($"if ({csName} is {{}} {csName}Value)");
                                 csWriter.WriteLine($"{{");
@@ -506,7 +507,6 @@ namespace BindingsGeneration
                             }
                             else
                             {
-                                // Non-converted keys/values: still need to dispose intermediate FromDictionary result
                                 var swiftDictType = $"SwiftDictionary<{rawDictKey}, {rawDictValue}>";
                                 csWriter.WriteLine($"{swiftType} {csName}SwiftInner;");
                                 csWriter.WriteLine($"if ({csName} is {{}} {csName}Value)");
@@ -527,75 +527,39 @@ namespace BindingsGeneration
                     {
                         csWriter.WriteLine($"using var {csName}Swift = {csName} is {{}} {csName}Value ? {swiftType}.NewSome({csName}Value) : {swiftType}.NewNone();");
                     }
+
                     // Create payload for P/Invoke
-                    // Use DangerousGetHandle for any method with a Swift wrapper that has large Optional params.
-                    // The wrapper accepts UnsafeRawPointer and dereferences via .pointee, avoiding truncation.
                     if (_env.BoundGenericsHandler.IsLargeOptionalParam(argumentDecl.SwiftTypeSpec) &&
                         (_env.MethodDecl.HasOptionalPointerWrapper || _env.MethodDecl.UsesWrapperLibrary ||
                          _env.MethodDecl.IsAsync || _requiresOpaqueReturnWrapper))
                     {
-                        // Pass pointer to the full Optional buffer — Swift wrapper dereferences via .pointee
                         var bufferName = NameProvider.GetBoundGenericBufferName(csName);
                         csWriter.WriteLine($"IntPtr {bufferName} = {csName}Swift.Payload.DangerousGetHandle();");
                     }
                     else
                     {
-                        // Original path for small Optionals (e.g., Optional<Int32>)
-                        csWriter.WriteLine($"using PayloadBuffer<IntPtr> {csName}Disposable = {csName}Swift.PayloadBuffer;");
+                        csWriter.WriteLine($"using var {csName}Disposable = {csName}Swift.PayloadBuffer;");
                         var bufferName = NameProvider.GetBoundGenericBufferName(csName);
                         csWriter.WriteLine($"IntPtr {bufferName} = {csName}Disposable.Buffer;");
                     }
-                    } // end else (non-ObjC optional element)
-                }
-                else if (_env.TypeConversionHandler.HasNativeTypeRemapping(argumentDecl.SwiftTypeSpec))
-                {
-                    // Native type remapping: Foundation.NSUrl -> Swift.URL, Foundation.NSData -> Swift.Data
-                    var conversion = _env.TypeConversionHandler.GetNativeParameterConversion(csName, argumentDecl.SwiftTypeSpec);
-                    if (conversion != null)
-                    {
-                        if (_env.TypeConversionHandler.IsFoundationURL(argumentDecl.SwiftTypeSpec))
-                        {
-                            // URL is non-frozen and requires disposal
-                            csWriter.WriteLine($"using var {csName}Swift = {conversion};");
-                        }
-                        else
-                        {
-                            // Data is a frozen struct
-                            csWriter.WriteLine($"var {csName}Swift = {conversion};");
-                        }
-                    }
                 }
             }
-        }
-
-        /// <summary>
-        /// Emits Optional-existential parameter conversion.
-        /// Extracts the existential container from the interface type and wraps in SwiftOptional.
-        /// Used by both non-accessor methods and accessor setters.
-        /// </summary>
-        private void EmitOptionalExistentialParamConversion(CSharpWriter csWriter, ArgumentDecl argumentDecl)
-        {
-            var csName = NameProvider.GetCSharpParameterName(argumentDecl);
-            var innerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(argumentDecl.SwiftTypeSpec);
-            if (innerProtocolList != null && _env.ExistentialHandler.IsSupportedExistential(innerProtocolList) &&
-                _env.ExistentialHandler.GetPublicExistentialType(innerProtocolList) != "object")
+            else if (_env.TypeConversionHandler.HasNativeTypeRemapping(argumentDecl.SwiftTypeSpec))
             {
-                var containerType = _env.ExistentialHandler.GetCSharpExistentialType(innerProtocolList);
-                var swiftType = _env.TypeConversionHandler.GetSwiftWrapperType(
-                    argumentDecl.SwiftTypeSpec,
-                    typeSpec => TranslateTypeSpecForConversion(typeSpec));
-                csWriter.WriteLine($"using var {csName}Swift = {csName} is {{}} {csName}Value");
-                csWriter.WriteLine($"    ? {swiftType}.NewSome(((Swift.Runtime.ISwiftExistentialConvertible<{containerType}>){csName}Value).GetExistentialContainer())");
-                csWriter.WriteLine($"    : {swiftType}.NewNone();");
-                csWriter.WriteLine($"using PayloadBuffer<IntPtr> {csName}Disposable = {csName}Swift.PayloadBuffer;");
-                var bufferName = NameProvider.GetBoundGenericBufferName(csName);
-                csWriter.WriteLine($"IntPtr {bufferName} = {csName}Disposable.Buffer;");
+                var conversion = _env.TypeConversionHandler.GetNativeParameterConversion(csName, argumentDecl.SwiftTypeSpec);
+                if (conversion != null)
+                {
+                    if (_env.TypeConversionHandler.IsFoundationURL(argumentDecl.SwiftTypeSpec))
+                        csWriter.WriteLine($"using var {csName}Swift = {conversion};");
+                    else
+                        csWriter.WriteLine($"var {csName}Swift = {conversion};");
+                }
             }
         }
 
         /// <summary>
         /// Builds a conversion expression for a dictionary value that is a SwiftArray.
-        /// Converts from IReadOnlyList/IEnumerable to SwiftArray, including element conversion.
+        /// Legacy helper for bound generic fallback paths.
         /// </summary>
         private string GetDictValueArrayConversion(string expr, NamedTypeSpec arraySpec)
         {
@@ -612,11 +576,10 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Translates a TypeSpec to C# type name for use in type conversion handlers.
-        /// Handles generic types by translating their type parameters.
+        /// Legacy helper for bound generic fallback paths.
         /// </summary>
         private string TranslateTypeSpecForConversion(TypeSpec typeSpec)
         {
-            // Handle existential types (ProtocolListTypeSpec and NamedTypeSpec with IsAny)
             if (_env.ExistentialHandler.IsExistential(typeSpec))
             {
                 var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(typeSpec);
@@ -627,7 +590,6 @@ namespace BindingsGeneration
 
             if (typeSpec is NamedTypeSpec namedTypeSpec)
             {
-                // Check if this is a generic type parameter that can be resolved
                 if (TypeSpecHelpers.IsGenericTypeParameter(namedTypeSpec.Name) &&
                     _genericContext.TryResolve(namedTypeSpec.Name, out var csName))
                 {
@@ -635,16 +597,12 @@ namespace BindingsGeneration
                 }
 
                 var typeRecord = _env.TypeDatabase.GetTypeRecordOrAnyType(namedTypeSpec);
-
-                // If the type falls back to AnyType or is IntPtr (pointer types), don't append generic parameters
-                // Pointer types like UnsafeMutablePointer<T> resolve to IntPtr which doesn't support generics
                 if (typeRecord == TypeDatabaseExtensions.AnyType ||
                     typeRecord == TypeDatabaseExtensions.IntPtrType)
                 {
                     return typeRecord.CSharpTypeName.FullyQualifiedName;
                 }
 
-                // Handle generic parameters
                 if (namedTypeSpec.GenericParameters.Count > 0)
                 {
                     var translatedParams = namedTypeSpec.GenericParameters
