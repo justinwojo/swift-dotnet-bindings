@@ -336,7 +336,7 @@ public class TypeHandlersOutputTests
         var handler = new FrozenStructHandler(new NullLogger<FrozenStructHandler>());
         var env = handler.Marshal(parentStructDecl, typeDatabase);
         var conductor = new Conductor(new NullLoggerFactory());
-        handler.Emit(csWriter, swiftWriter, env, conductor);
+        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
 
         var output = csOutput.ToString();
 
@@ -741,7 +741,7 @@ public class TypeHandlersOutputTests
 
         var env = handler.Marshal(typeDecl, typeDatabase);
         var conductor = new Conductor(new NullLoggerFactory());
-        handler.Emit(csWriter, swiftWriter, env, conductor);
+        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
 
         return (csOutput.ToString(), swiftOutput.ToString());
     }

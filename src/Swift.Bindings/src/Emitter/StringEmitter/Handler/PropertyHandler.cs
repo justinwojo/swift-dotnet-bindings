@@ -58,7 +58,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
     }
 
     /// <inheritdoc/>
-    public void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor)
+    public void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor, TypeHandlerContext context)
     {
         // This will emit the C# equivalent of the Swift property.
         // To achieve this, the process is divided into the following steps:
@@ -84,7 +84,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 SkipProperty(SkipReason.UnsupportedAsyncStream, "AsyncStream element type is not supported.");
                 return;
             }
-            if (conductor.CurrentPInvokeHelperContext != null)
+            if (context.PInvokeHelperContext != null)
             {
                 SkipProperty(SkipReason.GenericTypeCallback,
                     "AsyncStream property requires [UnmanagedCallersOnly] callback inside generic type.");
@@ -327,11 +327,11 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 // flag is set again in the emission loop below.
                 accessor.Method.IsAccessor = true;
                 var accessorEnv = (MethodEnvironment)methodHandler.Marshal(accessor.Method, propertyEnv.TypeDatabase);
-                if (conductor.CurrentPInvokeHelperContext != null && accessorEnv.PInvokeHelperContext == null)
+                if (context.PInvokeHelperContext != null && accessorEnv.PInvokeHelperContext == null)
                 {
-                    accessorEnv = new MethodEnvironment(accessorEnv.MethodDecl, accessorEnv.TypeDatabase, accessorEnv.SiblingPropertyNames, conductor.CurrentPInvokeHelperContext);
+                    accessorEnv = new MethodEnvironment(accessorEnv.MethodDecl, accessorEnv.TypeDatabase, accessorEnv.SiblingPropertyNames, context.PInvokeHelperContext);
                 }
-                if (HasUnsupportedProtocolConstraints(accessorEnv))
+                if (MethodValidationGates.HasUnsupportedProtocolConstraints(accessorEnv))
                 {
                     _logger.LogWarning($"PropertyHandler: Skipping property {propertyDecl.Name} because accessor {accessor.Method.Name} has unsupported protocol constraints.");
                     SkipProperty(SkipReason.GenericProtocolConstraint, $"Accessor '{accessor.Method.Name}' has constraints on protocols with associated types.");
@@ -389,8 +389,15 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 // Mark the method as an accessor to prevent type conversions
                 // Type conversions would cause a mismatch between property type and accessor return/param types
                 accessor.Method.IsAccessor = true;
-                var accessorEnv = methodHandler.Marshal(accessor.Method, propertyEnv.TypeDatabase);
-                methodHandler.Emit(csWriter, swiftWriter, accessorEnv, conductor);
+                var accessorEnv = (MethodEnvironment)methodHandler.Marshal(accessor.Method, propertyEnv.TypeDatabase);
+                // Thread PInvokeHelperContext from parent type context into the accessor's environment.
+                // PropertyHandler calls methodHandler.Emit directly (bypassing HandleBaseDecl),
+                // so we must manually inject the context's PInvokeHelperContext.
+                if (context.PInvokeHelperContext != null && accessorEnv.PInvokeHelperContext == null)
+                {
+                    accessorEnv = new MethodEnvironment(accessorEnv.MethodDecl, accessorEnv.TypeDatabase, accessorEnv.SiblingPropertyNames, context.PInvokeHelperContext);
+                }
+                methodHandler.Emit(csWriter, swiftWriter, accessorEnv, conductor, context);
             }
         }
 
@@ -427,34 +434,6 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         csWriter.WriteLine("}");
         csWriter.WriteLine();
         ReportCollector.RecordMemberEmitted(BindingItemKind.Property, propertyDecl.Name, propertyDecl.ParentDecl);
-    }
-
-    /// <summary>
-    /// Checks whether a method has constraints on protocols with associated types.
-    /// This mirrors MethodHandler logic so property preflight can skip wrappers when accessors would be skipped.
-    /// </summary>
-    private static bool HasUnsupportedProtocolConstraints(MethodEnvironment methodEnv)
-    {
-        if (!methodEnv.MethodDecl.IsGeneric)
-            return false;
-
-        foreach (var param in methodEnv.MethodDecl.GenericParameters)
-        {
-            foreach (var conformance in param.GenericConformances)
-            {
-                if (conformance.Kind != ConformanceKind.Protocol)
-                    continue;
-
-                if (methodEnv.TypeDatabase.TryGetTypeRecord(conformance.ConformanceTarget, out var record) &&
-                    record.Kind == TypeRecordKind.Protocol &&
-                    record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes))
-                {
-                    return true;
-                }
-            }
-        }
-
-        return false;
     }
 
     /// <summary>

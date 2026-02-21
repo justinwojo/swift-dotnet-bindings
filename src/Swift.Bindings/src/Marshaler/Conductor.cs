@@ -25,29 +25,6 @@ namespace BindingsGeneration
         private readonly List<IArgumentHandlerFactory> _argumentHandlerFactories;
 
         /// <summary>
-        /// Gets or sets the current P/Invoke helper context for generic types.
-        /// This is set by type handlers when processing a generic type, and cleared afterward.
-        /// Used to collect P/Invoke declarations that need to be emitted in a separate helper class
-        /// to avoid CS7042 (DllImport in generic type).
-        /// </summary>
-        public PInvokeHelperContext? CurrentPInvokeHelperContext { get; set; }
-
-        /// <summary>
-        /// Helper contexts from nested generic types that must be emitted outside the outermost
-        /// generic parent. When a generic type is nested inside another generic type, its helper
-        /// class cannot be emitted inline (still inside the outer generic → CS7042). Instead it
-        /// is deferred here and emitted by the outermost generic type handler.
-        /// </summary>
-        public List<PInvokeHelperContext> DeferredPInvokeHelperContexts { get; } = new();
-
-        /// <summary>
-        /// Gets or sets the current nested type rename map.
-        /// Set by type handlers to rename nested types that collide with property names.
-        /// Maps original type name → renamed type name (e.g., "Configuration" → "ConfigurationInfo").
-        /// </summary>
-        public Dictionary<string, string>? NestedTypeRenames { get; set; }
-
-        /// <summary>
         /// Per-conductor collection of protocol composition interfaces (e.g., "IAgeableAndNameable").
         /// Populated during type/method emission when multi-protocol existentials are encountered.
         /// Uses SortedDictionary for deterministic emission order.

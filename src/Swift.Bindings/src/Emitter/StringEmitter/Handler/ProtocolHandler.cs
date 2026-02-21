@@ -63,7 +63,7 @@ namespace BindingsGeneration
         }
 
         /// <inheritdoc/>
-        public void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor)
+        public void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor, TypeHandlerContext context)
         {
             var protocolEnv = (TypeEnvironment)env;
             var protocolDecl = (ProtocolDecl)protocolEnv.TypeDecl;

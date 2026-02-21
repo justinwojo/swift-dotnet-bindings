@@ -1046,7 +1046,7 @@ public class ArraySliceNormalizationEmitterTests
         var handler = new MethodHandler(NullLogger.Instance);
         var env = new MethodEnvironment(methodDecl, typeDatabase);
         var conductor = new Conductor(new NullLoggerFactory());
-        handler.Emit(csWriter, swiftWriter, env, conductor);
+        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
     }
 
     private static int CountOccurrences(string text, string pattern)

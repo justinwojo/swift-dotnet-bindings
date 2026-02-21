@@ -58,7 +58,7 @@ namespace BindingsGeneration
                 try
                 {
                     var env = moduleHandler.Marshal(moduleDecl, _typeDatabase);
-                    moduleHandler.Emit(csWriter, swiftWriter, env, _conductor);
+                    moduleHandler.Emit(csWriter, swiftWriter, env, _conductor, TypeHandlerContext.Empty);
                     collectedViews = SwiftUIBridgeCollector.GetCollectedViews();
                 }
                 finally

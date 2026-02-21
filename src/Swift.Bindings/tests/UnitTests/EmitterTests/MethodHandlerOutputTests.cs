@@ -1008,10 +1008,11 @@ public class MethodHandlerOutputTests
         var swiftWriter = new SwiftWriter(swiftOutput);
 
         var handler = new MethodHandler(new NullLogger<MethodHandler>());
-        var env = new MethodEnvironment(methodDecl, typeDatabase);
+        var pinvokeCtx = new PInvokeHelperContext("GenericBox", new[] { "T0" });
+        var env = new MethodEnvironment(methodDecl, typeDatabase, pinvokeHelperContext: pinvokeCtx);
         var conductor = new Conductor(new NullLoggerFactory());
-        conductor.CurrentPInvokeHelperContext = new PInvokeHelperContext("GenericBox", new[] { "T0" });
-        handler.Emit(csWriter, swiftWriter, env, conductor);
+        var context = new TypeHandlerContext(pinvokeCtx, new(), null);
+        handler.Emit(csWriter, swiftWriter, env, conductor, context);
 
         return (csOutput.ToString(), swiftOutput.ToString());
     }
@@ -1026,10 +1027,11 @@ public class MethodHandlerOutputTests
         var swiftWriter = new SwiftWriter(swiftOutput);
 
         var handler = new ConstructorHandler(new NullLogger<ConstructorHandler>(), new HashSet<string>());
-        var env = new MethodEnvironment(methodDecl, typeDatabase);
+        var pinvokeCtx = new PInvokeHelperContext("GenericBox", new[] { "T0" });
+        var env = new MethodEnvironment(methodDecl, typeDatabase, pinvokeHelperContext: pinvokeCtx);
         var conductor = new Conductor(new NullLoggerFactory());
-        conductor.CurrentPInvokeHelperContext = new PInvokeHelperContext("GenericBox", new[] { "T0" });
-        handler.Emit(csWriter, swiftWriter, env, conductor);
+        var context = new TypeHandlerContext(pinvokeCtx, new(), null);
+        handler.Emit(csWriter, swiftWriter, env, conductor, context);
 
         return (csOutput.ToString(), swiftOutput.ToString());
     }
@@ -1336,7 +1338,7 @@ public class MethodHandlerOutputTests
         var handler = new MethodHandler(new NullLogger<MethodHandler>());
         var env = new MethodEnvironment(methodDecl, typeDatabase, siblingPropertyNames);
         var conductor = new Conductor(new NullLoggerFactory());
-        handler.Emit(csWriter, swiftWriter, env, conductor);
+        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
 
         return (csOutput.ToString(), swiftOutput.ToString());
     }

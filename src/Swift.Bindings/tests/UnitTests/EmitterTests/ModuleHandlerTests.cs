@@ -654,7 +654,7 @@ public class ModuleHandlerTests
         var loggerFactory = new Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory();
         var conductor = new Conductor(loggerFactory, namespaceResolver);
 
-        handler.Emit(csWriter, swiftWriter, env, conductor);
+        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
 
         return (csStringWriter.ToString(), swiftStringWriter.ToString());
     }

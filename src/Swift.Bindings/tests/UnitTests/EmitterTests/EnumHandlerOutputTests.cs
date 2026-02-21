@@ -1967,7 +1967,7 @@ public class EnumHandlerOutputTests
         var handler = new EnumHandler(new NullLogger<EnumHandler>());
         var env = handler.Marshal(enumDecl, typeDatabase);
         var conductor = new Conductor(new NullLoggerFactory());
-        handler.Emit(csWriter, swiftWriter, env, conductor);
+        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
 
         return (csOutput.ToString(), swiftOutput.ToString());
     }

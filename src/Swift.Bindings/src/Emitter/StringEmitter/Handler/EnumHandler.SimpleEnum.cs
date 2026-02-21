@@ -53,10 +53,10 @@ namespace BindingsGeneration
         /// for instance methods and properties.
         /// </summary>
         private void EmitSimpleEnum(CSharpWriter csWriter, SwiftWriter swiftWriter,
-            EnumDecl enumDecl, ModuleDecl moduleDecl, ITypeDatabase typeDatabase, Conductor conductor)
+            EnumDecl enumDecl, ModuleDecl moduleDecl, ITypeDatabase typeDatabase, Conductor conductor, TypeHandlerContext context)
         {
-            var enumName = conductor.NestedTypeRenames != null &&
-                conductor.NestedTypeRenames.TryGetValue(enumDecl.Name, out var renamedName)
+            var enumName = context.NestedTypeRenames != null &&
+                context.NestedTypeRenames.TryGetValue(enumDecl.Name, out var renamedName)
                 ? renamedName : enumDecl.Name;
             var csUnderlyingType = GetCSharpEnumUnderlyingType(enumDecl.RawValueTypeName);
 
@@ -127,7 +127,7 @@ namespace BindingsGeneration
             }
 
             // Emit nested types using base handler
-            base.HandleBaseDecl(csWriter, swiftWriter, enumDecl.Types, conductor, typeDatabase);
+            base.HandleBaseDecl(csWriter, swiftWriter, enumDecl.Types, conductor, typeDatabase, context);
         }
 
         /// <summary>

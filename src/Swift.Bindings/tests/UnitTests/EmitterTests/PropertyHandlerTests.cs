@@ -1079,7 +1079,7 @@ public class PropertyHandlerTests
         var handler = new PropertyHandler(new NullLogger<PropertyHandler>());
         var env = handler.Marshal(property, typeDatabase);
         var conductor = new Conductor(new NullLoggerFactory());
-        handler.Emit(csWriter, swiftWriter, env, conductor);
+        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
 
         return (csOutput.ToString(), swiftOutput.ToString());
     }
@@ -1361,6 +1361,38 @@ public class PropertyHandlerTests
         Assert.Equal("IDataCaching", result);
     }
 
+    #region 5D.1 — Generic Type Property Accessor PInvokeHelperContext Threading
+
+    [Fact]
+    public void Emit_PropertyAccessorInGenericType_UsesPInvokeHelperClass()
+    {
+        // 5D.1 fix: PropertyHandler calls methodHandler.Emit directly for accessors,
+        // bypassing HandleBaseDecl. Without explicit PInvokeHelperContext injection,
+        // accessor P/Invoke declarations are emitted inline in the generic type → CS7042.
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("GenericBox", moduleDecl);
+        classDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new(
+                TypeName: "τ_0_0",
+                SugaredTypeName: "T",
+                GenericConformances: new List<GenericParameterConformance>(),
+                AssosiatedTypeConformances: new List<GenericParameterConformance>())
+        };
+
+        var property = CreateEmittablePropertyDecl(classDecl, moduleDecl, "count", "Swift.Int", hasGetter: true, hasSetter: false);
+
+        var (csOutput, _) = EmitPropertyInGenericContext(property, typeDatabase);
+
+        // Accessor P/Invoke should be routed to the helper class, not emitted inline
+        Assert.Contains("GenericBox_PInvoke", csOutput);
+        // Should NOT contain a bare [LibraryImport] inside the generic type
+        Assert.DoesNotContain("[LibraryImport", csOutput);
+    }
+
+    #endregion
+
     #region WU4 — Generic Type AsyncStream Guard
 
     [Fact]
@@ -1392,8 +1424,9 @@ public class PropertyHandlerTests
         var handler = new PropertyHandler(new NullLogger<PropertyHandler>());
         var env = handler.Marshal(property, typeDatabase);
         var conductor = new Conductor(new NullLoggerFactory());
-        conductor.CurrentPInvokeHelperContext = new PInvokeHelperContext("GenericBox", new[] { "T0" });
-        handler.Emit(csWriter, swiftWriter, env, conductor);
+        var pinvokeCtx = new PInvokeHelperContext("GenericBox", new[] { "T0" });
+        var context = new TypeHandlerContext(pinvokeCtx, new(), null);
+        handler.Emit(csWriter, swiftWriter, env, conductor, context);
 
         return (csOutput.ToString(), swiftOutput.ToString());
     }

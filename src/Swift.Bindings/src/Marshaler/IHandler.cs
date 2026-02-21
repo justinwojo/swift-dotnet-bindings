@@ -28,7 +28,8 @@ namespace BindingsGeneration
         /// <param name="swiftWriter">The swiftWriter instance.</param>
         /// <param name="env">The environment.</param>
         /// <param name="conductor">The conductor instance.</param>
-        void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor);
+        /// <param name="context">The type handler context (P/Invoke helper, renames, etc.).</param>
+        void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor, TypeHandlerContext context);
     }
 
     /// <summary>
@@ -90,9 +91,9 @@ namespace BindingsGeneration
         /// <param name="decl">The list of base declarations.</param>
         /// <param name="conductor">The conductor instance.</param>
         /// <param name="typeDatabase">The type database instance.</param>
+        /// <param name="context">The type handler context (P/Invoke helper, renames, etc.).</param>
         /// <param name="siblingPropertyNames">Optional set of property names for detecting method/property collisions.</param>
-        /// <param name="pinvokeHelperContext">Optional P/Invoke helper context for generic types (to avoid CS7042).</param>
-        protected virtual void HandleBaseDecl(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnumerable<BaseDecl> decl, Conductor conductor, ITypeDatabase typeDatabase, IReadOnlySet<string>? siblingPropertyNames = null, PInvokeHelperContext? pinvokeHelperContext = null)
+        protected virtual void HandleBaseDecl(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnumerable<BaseDecl> decl, Conductor conductor, ITypeDatabase typeDatabase, TypeHandlerContext context, IReadOnlySet<string>? siblingPropertyNames = null)
         {
             // Track emitted method signatures to avoid duplicates
             var emittedMethodSignatures = new HashSet<string>();
@@ -114,7 +115,7 @@ namespace BindingsGeneration
                     if (conductor.TryGetTypeHandler(structDecl, out var handler))
                     {
                         var env = handler.Marshal(structDecl, typeDatabase);
-                        handler.Emit(csWriter, swiftWriter, env, conductor);
+                        handler.Emit(csWriter, swiftWriter, env, conductor, context);
                     }
                     else
                     {
@@ -135,7 +136,7 @@ namespace BindingsGeneration
                     if (conductor.TryGetTypeHandler(classDecl, out var handler))
                     {
                         var env = handler.Marshal(classDecl, typeDatabase);
-                        handler.Emit(csWriter, swiftWriter, env, conductor);
+                        handler.Emit(csWriter, swiftWriter, env, conductor, context);
                     }
                     else
                     {
@@ -148,7 +149,7 @@ namespace BindingsGeneration
                     if (conductor.TryGetTypeHandler(protocolDecl, out var handler))
                     {
                         var env = handler.Marshal(protocolDecl, typeDatabase);
-                        handler.Emit(csWriter, swiftWriter, env, conductor);
+                        handler.Emit(csWriter, swiftWriter, env, conductor, context);
                     }
                     else
                     {
@@ -161,7 +162,7 @@ namespace BindingsGeneration
                     if (conductor.TryGetTypeHandler(enumDecl, out var handler))
                     {
                         var env = handler.Marshal(enumDecl, typeDatabase);
-                        handler.Emit(csWriter, swiftWriter, env, conductor);
+                        handler.Emit(csWriter, swiftWriter, env, conductor, context);
                     }
                     else
                     {
@@ -219,11 +220,11 @@ namespace BindingsGeneration
                     if (conductor.TryGetMethodHandler(methodDecl, out var handler))
                     {
                         // Pass property names and P/Invoke helper context to the method environment
-                        var env = new MethodEnvironment(methodDecl, typeDatabase, siblingPropertyNames, pinvokeHelperContext);
+                        var env = new MethodEnvironment(methodDecl, typeDatabase, siblingPropertyNames, context.PInvokeHelperContext);
                         // C6/C7: Share projected signature set so DefaultParameterOverloadEmitter
                         // can dedup against methods already emitted from the main pass
                         env.EmittedProjectedSignatures = emittedProjectedSignatures;
-                        handler.Emit(csWriter, swiftWriter, env, conductor);
+                        handler.Emit(csWriter, swiftWriter, env, conductor, context);
                     }
                     else
                     {

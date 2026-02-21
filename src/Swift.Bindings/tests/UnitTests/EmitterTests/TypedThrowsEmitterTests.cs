@@ -311,7 +311,7 @@ public class TypedThrowsEmitterTests
         var handler = new MethodHandler(new NullLogger<MethodHandler>());
         var env = handler.Marshal(methodDecl, typeDatabase);
 
-        handler.Emit(csWriter, swiftWriter, env, conductor);
+        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
 
         return (csStringWriter.ToString(), swiftStringWriter.ToString());
     }

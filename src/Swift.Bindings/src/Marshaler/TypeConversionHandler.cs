@@ -831,27 +831,6 @@ public class TypeConversionHandler
     }
 
     /// <summary>
-    /// Gets the native .NET type name for use in public method signatures.
-    /// Returns null if no native remapping is configured.
-    /// </summary>
-    public string? GetNativeTypeName(TypeSpec? typeSpec)
-    {
-        if (typeSpec is not NamedTypeSpec namedTypeSpec)
-            return null;
-
-        if (!namedTypeSpec.HasModule())
-            return null;
-
-        var typeName = SwiftTypeName.FromTypeSpec(namedTypeSpec);
-        if (_typeDatabase.TryGetTypeRecord(typeName, out var typeRecord))
-        {
-            return typeRecord.NativeTypeName?.FullyQualifiedName;
-        }
-
-        return null;
-    }
-
-    /// <summary>
     /// Gets the conversion expression for converting a native .NET parameter to a Swift type.
     /// For example: Foundation.NSUrl nsUrl → Swift.URL.FromNSUrl(nsUrl)
     /// </summary>

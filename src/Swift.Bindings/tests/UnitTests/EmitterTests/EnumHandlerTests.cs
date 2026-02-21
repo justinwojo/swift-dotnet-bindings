@@ -638,7 +638,7 @@ public class EnumHandlerTests
         var csWriter = new CSharpWriter(csOutput);
         var swiftWriter = new SwiftWriter(swiftOutput);
         var conductor = new Conductor(NullLoggerFactory.Instance);
-        handler.Emit(csWriter, swiftWriter, env, conductor);
+        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
 
         var output = csOutput.ToString();
 
@@ -710,7 +710,7 @@ public class EnumHandlerTests
         var csWriter = new CSharpWriter(csOutput);
         var swiftWriter = new SwiftWriter(swiftOutput);
         var conductor = new Conductor(NullLoggerFactory.Instance);
-        handler.Emit(csWriter, swiftWriter, env, conductor);
+        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
 
         var output = csOutput.ToString();
 

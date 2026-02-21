@@ -65,7 +65,7 @@ namespace BindingsGeneration
         }
 
         /// <inheritdoc/>
-        public void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor)
+        public void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor, TypeHandlerContext context)
         {
             var moduleEnv = (ModuleEnvironment)env;
             var moduleDecl = moduleEnv.ModuleDecl;
@@ -145,7 +145,7 @@ namespace BindingsGeneration
                         if (conductor.TryGetMethodHandler(methodDecl, out var methodHandler))
                         {
                             var methodEnv = methodHandler.Marshal(methodDecl, env.TypeDatabase);
-                            methodHandler.Emit(csWriter, swiftWriter, methodEnv, conductor);
+                            methodHandler.Emit(csWriter, swiftWriter, methodEnv, conductor, context);
                         }
                         else
                         {
@@ -159,7 +159,7 @@ namespace BindingsGeneration
                     csWriter.WriteLine();
                 }
 
-                base.HandleBaseDecl(csWriter, swiftWriter, moduleDecl.Types, conductor, env.TypeDatabase);
+                base.HandleBaseDecl(csWriter, swiftWriter, moduleDecl.Types, conductor, env.TypeDatabase, context);
 
                 // Emit composition interfaces (e.g., IAgeableAndNameable : IAgeable, INameable)
                 // These are collected during method/property emission when multi-protocol existentials are encountered.

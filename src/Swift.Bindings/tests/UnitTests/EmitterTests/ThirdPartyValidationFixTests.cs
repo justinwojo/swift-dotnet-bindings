@@ -220,8 +220,7 @@ public class ThirdPartyValidationFixTests
     {
         // When a generic type is nested inside a generic parent, its helper class
         // must NOT be emitted inline (would still be inside outer generic → CS7042).
-        // Instead it should be deferred and emitted at the outermost level.
-        var conductor = new Conductor(new Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory());
+        // Instead it should be deferred via TypeHandlerContext and emitted at the outermost level.
 
         // Simulate outer generic creating its context
         var outerContext = new PInvokeHelperContext("Outer", new[] { "T0" });
@@ -233,7 +232,6 @@ public class ThirdPartyValidationFixTests
             ReturnType = "void",
             ParametersString = ""
         });
-        conductor.CurrentPInvokeHelperContext = outerContext;
 
         // Simulate nested generic creating its own context
         var innerContext = new PInvokeHelperContext("Inner", new[] { "U0" });
@@ -246,14 +244,16 @@ public class ThirdPartyValidationFixTests
             ParametersString = ""
         });
 
-        // Inner is nested inside outer (previousContext != null) → defer
-        var previousContext = conductor.CurrentPInvokeHelperContext;
-        Assert.NotNull(previousContext); // We're inside a generic parent
-        conductor.DeferredPInvokeHelperContexts.Add(innerContext);
+        // Inner is nested inside outer (previousContext != null) → defer via TypeHandlerContext
+        var deferred = new List<PInvokeHelperContext>();
+        var ctx = new TypeHandlerContext(outerContext, deferred, null);
+
+        Assert.NotNull(ctx.PInvokeHelperContext); // We're inside a generic parent
+        deferred.Add(innerContext);
 
         // Verify deferred list has the inner context
-        Assert.Single(conductor.DeferredPInvokeHelperContexts);
-        Assert.Same(innerContext, conductor.DeferredPInvokeHelperContexts[0]);
+        Assert.Single(ctx.DeferredPInvokeHelperContexts);
+        Assert.Same(innerContext, ctx.DeferredPInvokeHelperContexts[0]);
     }
 
     [Fact]
@@ -261,7 +261,6 @@ public class ThirdPartyValidationFixTests
     {
         // Verify the emitted code shape: outer helper emitted first, then deferred inner helpers.
         // Both should be at the same level (outside any generic type).
-        var conductor = new Conductor(new Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory());
 
         var outerContext = new PInvokeHelperContext("Outer", new[] { "T0" });
         outerContext.AddDeclaration(new PInvokeDeclaration
@@ -284,15 +283,17 @@ public class ThirdPartyValidationFixTests
             ReturnType = "void",
             ParametersString = ""
         });
-        conductor.DeferredPInvokeHelperContexts.Add(innerContext);
+
+        var deferred = new List<PInvokeHelperContext> { innerContext };
+        var ctx = new TypeHandlerContext(outerContext, deferred, null);
 
         // Emit as the outermost handler would: own + deferred
         var stringWriter = new StringWriter();
         var csWriter = new CSharpWriter(stringWriter);
         outerContext.EmitHelperClass(csWriter);
-        foreach (var deferred in conductor.DeferredPInvokeHelperContexts)
-            deferred.EmitHelperClass(csWriter);
-        conductor.DeferredPInvokeHelperContexts.Clear();
+        foreach (var deferredCtx in ctx.DeferredPInvokeHelperContexts)
+            deferredCtx.EmitHelperClass(csWriter);
+        ctx.DeferredPInvokeHelperContexts.Clear();
 
         var output = stringWriter.ToString();
 
@@ -307,7 +308,7 @@ public class ThirdPartyValidationFixTests
         Assert.True(outerIdx < innerIdx, "Outer helper should be emitted before inner helper");
 
         // Deferred list was cleared
-        Assert.Empty(conductor.DeferredPInvokeHelperContexts);
+        Assert.Empty(ctx.DeferredPInvokeHelperContexts);
     }
 
     [Fact]
@@ -593,7 +594,7 @@ public class ThirdPartyValidationFixTests
         var handler = new ModuleHandler(
             new Microsoft.Extensions.Logging.Abstractions.NullLogger<ModuleHandler>());
         var env = handler.Marshal(moduleDecl, typeDatabase);
-        handler.Emit(csWriter, swiftWriter, env, conductor);
+        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
 
         return (csStringWriter.ToString(), swiftStringWriter.ToString());
     }

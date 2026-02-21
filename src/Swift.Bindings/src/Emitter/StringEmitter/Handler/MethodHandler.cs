@@ -85,16 +85,9 @@ namespace BindingsGeneration
         }
 
         /// <inheritdoc/>
-        public void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor)
+        public void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor, TypeHandlerContext context)
         {
             var methodEnv = (MethodEnvironment)env;
-
-            // If the conductor has a P/Invoke helper context and the environment doesn't,
-            // create a new environment with the context (for generic type support)
-            if (conductor.CurrentPInvokeHelperContext != null && methodEnv.PInvokeHelperContext == null)
-            {
-                methodEnv = new MethodEnvironment(methodEnv.MethodDecl, methodEnv.TypeDatabase, methodEnv.SiblingPropertyNames, conductor.CurrentPInvokeHelperContext);
-            }
 
             // Skip constructors that need [UnmanagedCallersOnly] callbacks in generic types.
             // DllImport is handled by PInvokeHelperContext hoisting, but callbacks can't be hoisted.
@@ -370,16 +363,9 @@ namespace BindingsGeneration
         }
 
         /// <inheritdoc/>
-        public void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor)
+        public void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor, TypeHandlerContext context)
         {
             var methodEnv = (MethodEnvironment)env;
-
-            // If the conductor has a P/Invoke helper context and the environment doesn't,
-            // create a new environment with the context (for generic type support)
-            if (conductor.CurrentPInvokeHelperContext != null && methodEnv.PInvokeHelperContext == null)
-            {
-                methodEnv = new MethodEnvironment(methodEnv.MethodDecl, methodEnv.TypeDatabase, methodEnv.SiblingPropertyNames, conductor.CurrentPInvokeHelperContext);
-            }
 
             // Skip methods that need [UnmanagedCallersOnly] callbacks in generic types.
             // DllImport is handled by PInvokeHelperContext hoisting, but callbacks can't be hoisted.
@@ -405,7 +391,7 @@ namespace BindingsGeneration
 
             // Skip methods with constraints on protocols with associated types
             // (these protocols generate generic C# interfaces which can't be used as constraints without type arguments)
-            if (HasUnsupportedProtocolConstraints(methodEnv))
+            if (MethodValidationGates.HasUnsupportedProtocolConstraints(methodEnv))
             {
                 _logger.LogWarning($"Skipping method {methodEnv.MethodDecl.Name}: has constraints on protocols with associated types");
                 if (!isAccessor)
@@ -655,36 +641,6 @@ namespace BindingsGeneration
         private static bool _requiresOpaqueReturn(MethodEnvironment methodEnv) =>
             methodEnv.MethodDecl.CSSignature.Count > 0 &&
             methodEnv.MethodDecl.CSSignature.First().SwiftTypeSpec is ProtocolListTypeSpec { IsOpaque: true };
-
-        /// <summary>
-        /// Checks if the method has constraints on protocols with associated types.
-        /// Such protocols generate generic C# interfaces which can't be used as constraints without type arguments.
-        /// </summary>
-        private bool HasUnsupportedProtocolConstraints(MethodEnvironment methodEnv)
-        {
-            if (!methodEnv.MethodDecl.IsGeneric)
-                return false;
-
-            foreach (var param in methodEnv.MethodDecl.GenericParameters)
-            {
-                foreach (var conformance in param.GenericConformances)
-                {
-                    if (conformance.Kind == ConformanceKind.Protocol)
-                    {
-                        if (methodEnv.TypeDatabase.TryGetTypeRecord(conformance.ConformanceTarget, out var record))
-                        {
-                            if (record.Kind == TypeRecordKind.Protocol &&
-                                record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes))
-                            {
-                                return true;
-                            }
-                        }
-                    }
-                }
-            }
-
-            return false;
-        }
 
         /// <summary>
         /// Emits a Task-returning overload for methods with completion handler closures.

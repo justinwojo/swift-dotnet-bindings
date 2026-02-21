@@ -1355,7 +1355,7 @@ public class ClosureCdeclEmitterTests
         var handler = new MethodHandler(new NullLogger<MethodHandler>());
         var env = new MethodEnvironment(methodDecl, typeDatabase);
         var conductor = new Conductor(new NullLoggerFactory());
-        handler.Emit(csWriter, swiftWriter, env, conductor);
+        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
 
         return (csOutput.ToString(), swiftOutput.ToString());
     }
@@ -1372,7 +1372,7 @@ public class ClosureCdeclEmitterTests
         var handler = new ConstructorHandler(new NullLogger<ConstructorHandler>(), new HashSet<string>());
         var env = new MethodEnvironment(methodDecl, typeDatabase);
         var conductor = new Conductor(new NullLoggerFactory());
-        handler.Emit(csWriter, swiftWriter, env, conductor);
+        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
 
         return (csOutput.ToString(), swiftOutput.ToString());
     }

@@ -2512,7 +2512,7 @@ public class ProtocolHandlerOutputTests
         var handler = new ProtocolHandler(new NullLogger<ProtocolHandler>());
         var env = handler.Marshal(protocolDecl, typeDatabase);
         var conductor = new Conductor(new NullLoggerFactory());
-        handler.Emit(csWriter, swiftWriter, env, conductor);
+        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
 
         return (csOutput.ToString(), swiftOutput.ToString());
     }

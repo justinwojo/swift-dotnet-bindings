@@ -64,7 +64,7 @@ namespace BindingsGeneration
         }
 
         /// <inheritdoc/>
-        public void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor)
+        public void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor, TypeHandlerContext context)
         {
             var enumEnv = (TypeEnvironment)env;
             var enumDecl = (EnumDecl)enumEnv.TypeDecl;
@@ -97,27 +97,26 @@ namespace BindingsGeneration
             if ((enumDecl.IsSimpleEnum && CanSafelyEmitAsSimpleEnum(enumDecl)) ||
                 (enumDecl.IsStringRawValueSimpleEnum && CanSafelyEmitAsSimpleEnum(enumDecl)))
             {
-                EmitSimpleEnum(csWriter, swiftWriter, enumDecl, moduleDecl, env.TypeDatabase, conductor);
+                EmitSimpleEnum(csWriter, swiftWriter, enumDecl, moduleDecl, env.TypeDatabase, conductor, context);
                 return;
             }
 
-            var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(enumDecl, conductor.NestedTypeRenames);
+            var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(enumDecl, context.NestedTypeRenames);
             var whereClause = GenericTypeEmitter.GetWhereClause(enumDecl, env.TypeDatabase);
 
             // Create P/Invoke helper context for generic enums (to avoid CS7042).
             var ownPInvokeContext = PInvokeHelperContext.CreateIfGeneric(enumDecl);
-            var previousContext = conductor.CurrentPInvokeHelperContext;
-            var pinvokeHelperContext = ownPInvokeContext ?? previousContext;
-            conductor.CurrentPInvokeHelperContext = pinvokeHelperContext;
+            var pinvokeHelperContext = ownPInvokeContext ?? context.PInvokeHelperContext;
 
             // Compute nested type renames to resolve property/nested-type name collisions
-            // Note: TypeDatabase is already updated by the pre-pass in ModuleHandler; this call
-            // is idempotent and returns the local rename dictionary needed for conductor.NestedTypeRenames.
             var nestedTypeRenames = NameProvider.ComputeAndApplyNestedTypeRenames(enumDecl, env.TypeDatabase);
-            var previousRenames = conductor.NestedTypeRenames;
-            conductor.NestedTypeRenames = nestedTypeRenames;
 
-            try
+            // Build child context for nested handlers
+            var childContext = context with {
+                PInvokeHelperContext = pinvokeHelperContext,
+                NestedTypeRenames = nestedTypeRenames
+            };
+
             {
                 var conformanceValidator = new ProtocolConformanceValidator(moduleDecl, env.TypeDatabase);
                 var interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
@@ -251,7 +250,7 @@ namespace BindingsGeneration
                 if (conductor.TryGetPropertyHandler(propertyDecl, out var propertyHandler))
                 {
                     var propertyEnv = propertyHandler.Marshal(propertyDecl, env.TypeDatabase);
-                    propertyHandler.Emit(csWriter, swiftWriter, propertyEnv, conductor);
+                    propertyHandler.Emit(csWriter, swiftWriter, propertyEnv, conductor, childContext);
                 }
                 else
                 {
@@ -296,8 +295,8 @@ namespace BindingsGeneration
                 ReportCollector.RecordMemberEmitted(BindingItemKind.Method, methodDecl.Name, enumDecl);
 
             // Emit nested types and methods using base handler
-            base.HandleBaseDecl(csWriter, swiftWriter, enumDecl.Types, conductor, env.TypeDatabase);
-            base.HandleBaseDecl(csWriter, swiftWriter, enumDecl.Methods.Where(m => !m.IsConstructor).ToList(), conductor, env.TypeDatabase, propertyNames, pinvokeHelperContext);
+            base.HandleBaseDecl(csWriter, swiftWriter, enumDecl.Types, conductor, env.TypeDatabase, childContext);
+            base.HandleBaseDecl(csWriter, swiftWriter, enumDecl.Methods.Where(m => !m.IsConstructor).ToList(), conductor, env.TypeDatabase, childContext, propertyNames);
 
             csWriter.Indent--;
             csWriter.WriteLine("}");
@@ -308,21 +307,16 @@ namespace BindingsGeneration
                 // (emitting here would still be inside the outer generic type → CS7042).
                 if (ownPInvokeContext != null)
                 {
-                    if (previousContext != null)
-                        conductor.DeferredPInvokeHelperContexts.Add(ownPInvokeContext);
+                    if (context.PInvokeHelperContext != null)
+                        context.DeferredPInvokeHelperContexts.Add(ownPInvokeContext);
                     else
                     {
                         ownPInvokeContext.EmitHelperClass(csWriter);
-                        foreach (var deferred in conductor.DeferredPInvokeHelperContexts)
+                        foreach (var deferred in context.DeferredPInvokeHelperContexts)
                             deferred.EmitHelperClass(csWriter);
-                        conductor.DeferredPInvokeHelperContexts.Clear();
+                        context.DeferredPInvokeHelperContexts.Clear();
                     }
                 }
-            }
-            finally
-            {
-                conductor.CurrentPInvokeHelperContext = previousContext;
-                conductor.NestedTypeRenames = previousRenames;
             }
         }
 

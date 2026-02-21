@@ -442,25 +442,39 @@ public class ConductorTests
 
     #endregion
 
-    #region PInvokeHelperContext
+    #region TypeHandlerContext
 
     [Fact]
-    public void CurrentPInvokeHelperContext_DefaultsToNull()
+    public void TypeHandlerContext_Empty_HasNullProperties()
     {
-        Assert.Null(_conductor.CurrentPInvokeHelperContext);
+        var ctx = TypeHandlerContext.Empty;
+        Assert.Null(ctx.PInvokeHelperContext);
+        Assert.NotNull(ctx.DeferredPInvokeHelperContexts);
+        Assert.Empty(ctx.DeferredPInvokeHelperContexts);
+        Assert.Null(ctx.NestedTypeRenames);
     }
 
     [Fact]
-    public void CurrentPInvokeHelperContext_CanBeSetAndCleared()
+    public void TypeHandlerContext_WithPInvokeHelperContext_CarriesContext()
     {
-        var context = new PInvokeHelperContext("TestType", new List<string> { "T" });
-        _conductor.CurrentPInvokeHelperContext = context;
+        var pinvokeCtx = new PInvokeHelperContext("TestType", new List<string> { "T" });
+        var ctx = new TypeHandlerContext(pinvokeCtx, new(), null);
 
-        Assert.NotNull(_conductor.CurrentPInvokeHelperContext);
-        Assert.Equal("TestType_PInvoke", _conductor.CurrentPInvokeHelperContext.HelperClassName);
+        Assert.NotNull(ctx.PInvokeHelperContext);
+        Assert.Equal("TestType_PInvoke", ctx.PInvokeHelperContext!.HelperClassName);
+    }
 
-        _conductor.CurrentPInvokeHelperContext = null;
-        Assert.Null(_conductor.CurrentPInvokeHelperContext);
+    [Fact]
+    public void TypeHandlerContext_WithDeferredContexts_CarriesList()
+    {
+        var deferred = new List<PInvokeHelperContext>
+        {
+            new PInvokeHelperContext("Inner", new[] { "U0" })
+        };
+        var ctx = new TypeHandlerContext(null, deferred, null);
+
+        Assert.Single(ctx.DeferredPInvokeHelperContexts);
+        Assert.Equal("Inner_PInvoke", ctx.DeferredPInvokeHelperContexts[0].HelperClassName);
     }
 
     #endregion
