@@ -41,6 +41,17 @@ namespace BindingsGeneration
                 var paramName = typeSpec.TypeLabel ?? $"value{i}";
                 // Sanitize parameter name (remove invalid characters, ensure starts with letter)
                 paramName = SanitizeParameterName(paramName);
+                // Skip enum cases with tuple parameters containing unresolved existential elements.
+                // When a tuple element is an existential that can't be projected to an interface
+                // (e.g., Any → ExistentialContainer0), the public type leaks ABI types that are
+                // invalid as C# tuple elements. The method body would also pass @object.object
+                // to P/Invoke expecting ExistentialContainer0, with no runtime conversion available.
+                if (typeSpec is TupleTypeSpec && publicType.Contains("ExistentialContainer"))
+                {
+                    _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' has tuple with unresolved existential element. Skipping case.");
+                    return false;
+                }
+
                 parameters.Add((csharpType, publicType, paramName, typeSpec));
             }
 

@@ -1,217 +1,152 @@
 # Binding Errors — Third-Party Library Validation
 
-Last updated: 2026-02-20 | Baseline: 21/32 passed, 11 failed, 0 no output
+Last updated: 2026-02-20 | Baseline: 24/32 passed, 8 failed, 55 errors
+
+Previous: [Sessions A-C (binding-errors.md)](Completed/binding-errors.md) — fixed 8 categories, 13→21 pass
+Session D: fixed 4 categories, 21→24 pass (Alamofire, BlinkIDUX, RxSwift flipped)
+
+---
 
 ## Validation Summary
 
 | Library | Targets | Result | Error Count | Error Categories |
 |---------|---------|--------|-------------|-----------------|
-| Alamofire | 1 | **Fail** | 1 | Closure AnyType fallback |
-| BlinkID | 1 | **Pass** | 0 | — |
-| BlinkIDUX | 1 | **Fail** | 1 | Closure AnyType fallback |
-| BRLMPrinterKit | 1 | **Pass** | 0 | — |
-| CryptoSwift | 1 | **Pass** | 0 | — |
-| GRDB | 1 | **Fail** | 8 | Closure AnyType fallback, other |
-| KeychainAccess | 1 | **Pass** | 0 | — |
-| Kingfisher | 1 | **Fail** | 32 | Closure AnyType fallback, other |
-| Lottie | 1 | **Pass** | 0 | — |
-| Mappedin | 1 | **Pass** | 0 | — |
-| MicroblinkPlatform | 1 | **Pass** | 0 | — |
-| Mixpanel | 1 | **Fail** | 3 | Unresolved cross-module protocol, closure AnyType fallback |
-| Nuke | 1 | **Pass** | 0 | — |
-| RxSwift | 1 | **Fail** | 5 | Closure AnyType fallback |
-| SkeletonView | 1 | **Pass** | 0 | — |
-| SmartCardIO | 1 | **Pass** | 0 | — |
-| SnapKit | 1 | **Pass** | 0 | — |
-| Starscream | 1 | **Fail** | 5 | Closure AnyType fallback |
-| Stripe | 14 | **Mixed** | 16 | See Stripe breakdown below |
-| **Total** | **32** | **21 pass** | **66** | |
+| Alamofire | 1 | Pass | 0 | — |
+| BlinkID | 1 | Pass | 0 | — |
+| BlinkIDUX | 1 | Pass | 0 | — |
+| BRLMPrinterKit | 1 | Pass | 0 | — |
+| CryptoSwift | 1 | Pass | 0 | — |
+| GRDB | 1 | **Fail** | 8 | Constructor dedup, SwiftVoid constraint, self-conformance |
+| KeychainAccess | 1 | Pass | 0 | — |
+| Kingfisher | 1 | **Fail** | 34 | SwiftVoid constraint, missing Foundation types, bare SwiftOptional |
+| Lottie | 1 | Pass | 0 | — |
+| Mappedin | 1 | Pass | 0 | — |
+| MicroblinkPlatform | 1 | Pass | 0 | — |
+| Mixpanel | 1 | **Fail** | 1 | Cross-module protocol AnyType |
+| Nuke | 1 | Pass | 0 | — |
+| RxSwift | 1 | Pass | 0 | — |
+| SkeletonView | 1 | Pass | 0 | — |
+| SmartCardIO | 1 | Pass | 0 | — |
+| SnapKit | 1 | Pass | 0 | — |
+| Starscream | 1 | **Fail** | 5 | Closure AnyType in wrapper methods, Data→string mismatch |
+| Stripe | 14 | **Mixed** | 7 | See Stripe breakdown below |
+| **Total** | **32** | **24 pass** | **55** | |
 
 ### Stripe Breakdown
 
 | Framework | Result | Errors | Primary Pattern |
 |-----------|--------|--------|-----------------|
 | Stripe | Pass | 0 | — |
-| StripeApplePay | **Pass** | 0 | — |
-| StripeCameraCore | **Pass** | 0 | — |
+| StripeApplePay | Pass | 0 | — |
+| StripeCameraCore | Pass | 0 | — |
 | StripeCardScan | Pass | 0 | — |
-| StripeConnect | **Pass** | 0 | — |
-| StripeCore | Fail | 2 | Unresolved cross-module protocol, closure AnyType fallback |
+| StripeConnect | Pass | 0 | — |
+| StripeCore | **Fail** | 1 | Cross-module protocol AnyType in dict |
 | StripeCryptoOnramp | Pass | 0 | — |
 | StripeFinancialConnections | Pass | 0 | — |
 | StripeIdentity | Pass | 0 | — |
 | StripeIssuing | Pass | 0 | — |
-| StripePayments | Fail | 2 | Unresolved cross-module protocol |
-| StripePaymentSheet | Fail | 3 | Unresolved cross-module protocol |
-| StripePaymentsUI | **Pass** | 0 | — |
-| StripeUICore | Fail | 4 | Unresolved cross-module protocol, closure AnyType fallback |
+| StripePayments | **Fail** | 2 | Cross-module protocol in dict return |
+| StripePaymentSheet | **Fail** | 3 | Async closure return type mismatch |
+| StripePaymentsUI | Pass | 0 | — |
+| StripeUICore | **Fail** | 1 | Cross-module protocol array param |
 
 ---
 
-## Error Categories
+## Session D Fixes (2026-02-20)
 
-### 1. Generator Crash: Unqualified Type Names (`Self`, `repeat`) — FIXED (Session A)
+### Fixed: Tuple-with-Existential in Enum Case Construction (Category 7)
+**File:** `EnumHandler.CaseConstruction.cs`
+**Fix:** Added skip gate for tuple parameters containing `ExistentialContainer` in publicType. Prevents leaking ABI types into public enum case signatures.
+**Result:** Eliminated 32 ExistentialContainer cascade errors from Kingfisher. Kingfisher still fails (34 errors) due to pre-existing SwiftVoid constraint, missing Foundation types (RunLoopMode, URLSessionAuthChallengeDisposition, FileAttributeKey), and bare SwiftOptional errors.
 
-**Affected:** Alamofire, GRDB, Kingfisher (crash on `Self`), StripeCore (crash on `repeat`)
+### Fixed: Optional\<Existential\> Protocol Proxy Receiver (Category 6)
+**File:** `ProtocolProxyEmitter.Receivers.cs`
+**Fix:** Added `Optional<existential>` handling to `GetReceiverExistentialGetterConversion()` and `GetReceiverExistentialSetterConversion()`. Also fixed priority ordering — existential conversions now checked before `GetParameterConversion`/`GetReturnConversion` which incorrectly resolve `Optional<any Error>` to `SwiftOptional<AnyType>`. Also fixed ABI type override for `Optional<existential>` in property receiver to use `SwiftOptional<ExistentialContainer>`.
+**Result:** BlinkIDUX 1→0. **Flipped to pass.**
 
-**Fix:** Added explicit `name is "Self" or "repeat"` guard in `TypeProjectionFactory.ProjectNamedType()` after the `IsGenericTypeParameter()` check. Returns `null` (unsupported projection). Placed before `IsAny` existential routing to avoid intercepting unqualified existential spellings.
+### Fixed: Closure Inner Type Not Native-Remapped (Category 5)
+**File:** `ClosureHandler.cs`
+**Fix:** Added native type remapping in `TranslateTypeSpecToCSharp()` for types with `NativeTypeName` (e.g., Foundation.Data → Foundation.NSData). Matches `GetIdiomaticCSharpType` output used for property signatures.
+**Result:** Alamofire 1→0. **Flipped to pass.**
 
-**Result:** All 4 libraries now produce bindings (with remaining errors from other categories).
+### Fixed: Closure AnyType in Protocol Proxy Receivers (Category 1, partial)
+**File:** `ProtocolHandler.cs`
+**Fix:** Added unsupported closure check to `skippedMethodKeys` flow (methods) and `skippedPropertyNames` flow (properties). Uses `ClosureHandler.IsSupportedClosure()` to detect closures that would produce AnyType in receiver marshalling. Propagates to receiver, static init, and interface impl via existing skip set plumbing.
+**Result:** RxSwift 5→0 (**flipped to pass**), StripeCore 2→1, StripeUICore 4→1, Mixpanel 3→1. Starscream errors are in wrapper methods (not protocol receivers), so unchanged.
 
----
-
-### 2. Optional\<any Protocol\> Property Getter/Setter (CS0266 + CS1061) — FIXED (Session C)
-
-**Affected:** Lottie (2), Nuke (3), Mixpanel (6), Mappedin (4), StripeApplePay (4), StripeCameraCore (2), StripeConnect (14), StripePaymentsUI (8), StripeUICore (26) — **~69 errors total**
-
-This was the **dominant error pattern**, accounting for ~60% of all compile errors.
-
-#### Getter (CS0266)
-
-**Symptom:** `Cannot implicitly convert type 'SwiftOptional<AnyType>' to 'ISomeProtocol?'`
-
-**Root cause:** For accessor methods (`IsAccessor=true`), `IsConvertibleType` is gated on `!IsAccessor` (line 99 of `EmitReturnMethod`), so Optional-existential returns fell through to `RequiresBoundGenericMarshalling` which emitted `SwiftMarshal.MarshalFromSwift<SwiftOptional<AnyType>>(...)` — wrong type.
-
-**Fix:** Inserted accessor-scoped `IsOptionalExistential` check in `WrapperEmitter.Return.cs` before the bound-generic handler. P/Invoke returns IntPtr for Optional-existential — marshals to `SwiftOptional<ExistentialContainer>` then wraps `.Some` in proxy class or returns null for `.None`. Added `GetPublicExistentialType() != "object"` guard to prevent bare `"Proxy"` name for unresolved protocols. Same guard hardened in 3 pre-existing Optional-existential return paths (`EmitTypeConvertedReturn`, `EmitOptionalReturnBufferRead`, `EmitTypeConvertedIndirectReturn`).
-
-#### Setter (CS1061)
-
-**Symptom:** `'ISomeProtocol' does not contain a definition for 'PayloadBuffer'`
-
-**Root cause:** `EmitBoundGenericArguments` processed Optional-existential as a bound generic, calling `.PayloadBuffer` on the interface type. The accessor early return in `EmitTypeConversions` prevented the dedicated existential marshalling from running.
-
-**Fix:** Added exclusion guard in `EmitBoundGenericArguments` for Optional-existential params. Extracted `EmitOptionalExistentialParamConversion()` helper from existing inline code. Modified accessor early return in `EmitTypeConversions` to call it for Optional-existential params before returning. Added `GetPublicExistentialType() != "object"` guard for consistency.
-
-**Result:** ~69 errors eliminated. 8 libraries flipped to pass (Lottie, Mappedin, Nuke, SkeletonView, StripeApplePay, StripeCameraCore, StripeConnect, StripePaymentsUI).
+### Hardened: Optional\<Existential\> ABI Type Override for All Receiver Sites
+**File:** `ProtocolProxyEmitter.Receivers.cs`
+**Fix:** Extracted `OverrideOptionalExistentialAbiType()` helper and applied it to all 5 `forAbiMarshalling: true` call sites: property receiver, subscript return type, subscript index params (getter + setter), and method params. Previously only property receivers had the override; subscript and method receivers could regress to `SwiftOptional<AnyType>` (incorrect memory layout for `MarshalFromSwift`).
+**Result:** No validation change (no current libraries exercise `Optional<any Protocol>` in subscript/method receiver params). Latent bug prevention.
+**Residual risk:** No targeted test case yet for `Optional<any Protocol>` in subscript/method parameters. Structurally covered, but runtime behavior unverified.
 
 ---
 
-### 3. Optional\<UnsupportedClosure\> Emits Bare `SwiftOptional` (CS0305) — FIXED (Session A)
+## Remaining Error Categories
 
-**Affected:** SkeletonView (2), Starscream (1), StripePayments (2), StripePaymentSheet (10) — **15 errors total**
+### 1. Closure AnyType in Wrapper Methods — CS1503
+**Count:** ~5 errors | **Libraries:** Starscream (4), others
+**Root cause:** Methods with unsupported closures as parameters still get emitted in wrapper methods (non-protocol context). The Session D fix only covers protocol proxy receivers.
+**Fix approach:** Extend `ShouldSkipMethodEmission` to catch unsupported closures in more contexts.
 
-**Fix:** Added `IsBareGenericTypeName` guard in `WrapperSignatureBuilder.HandleArguments()` and `HandleReturnType()` type-record fallback paths in `MethodSignature.cs`. When the resolved type name is bare generic (e.g., `SwiftOptional` without `<T>`), emits `AnyType` instead. Preserves `inoutModifier` in the parameter path.
+### 2. Cross-Module Protocol → AnyType — CS0266/CS1503
+**Count:** ~5 errors | **Libraries:** Mixpanel (1), StripeCore (1), StripePayments (2), StripeUICore (1)
+**Root cause:** Protocol TypeRecord defined in a different module not loaded as dependency.
+**Fix approach:** Build config — use `--framework-dependency` + cross-module databases.
 
-**Result:** Bare `SwiftOptional` CS0305 errors eliminated. Some previously-hidden errors now visible (closure AnyType fallback, Optional protocol) since methods are no longer blocked by the bare generic.
+### 3. Async Closure Return Type Mismatch — CS0029
+**Count:** 3 errors | **Libraries:** StripePaymentSheet (3)
+**Root cause:** Async closures projected as sync closures in public signature.
+**Fix approach:** Detect async closures at signature level and wrap return type in `Task<>`.
 
----
+### 4. GRDB-Specific Errors — CS0111/CS0315/CS0535/CS0314
+**Count:** 8 errors | **Libraries:** GRDB (8)
+- CS0111 (3): Constructor dedup after closure skip
+- CS0315 (3): SwiftVoid constraint
+- CS0314 (1): Cross-module protocol constraint
+- CS0535 (1): Self-referential protocol conformance
 
-### 4. Closure Parameter as `AnyType` in P/Invoke (CS1503) — FIXED (Session B)
+### 5. Kingfisher Residual Errors
+**Count:** 34 errors | **Libraries:** Kingfisher (34)
+- CS0315 (16): SwiftVoid as type parameter constrained to ISwiftObject
+- CS0234 (14): Missing Foundation types (RunLoopMode, URLSessionAuthChallengeDisposition, FileAttributeKey)
+- CS0305 (4): Bare SwiftOptional (missing type arguments)
 
-**Affected:** Nuke (5), Mixpanel (1), Mappedin (4), StripeCryptoOnramp (1) — **11 errors total** (was)
-
-**Fix:** Added unsupported closure parameter check to `MemberEmissionValidator.ShouldSkipMethodEmission` (before the constructor early-return, so both methods and constructors are covered) and `CanEmitMethod` (for conformance validation). Uses `ClosureHandler.IsSupportedClosure()` to detect unsupported closures and returns `SkipReason.UnsupportedClosure` to skip the method/constructor entirely.
-
-**Result:** Methods/constructors with unmarshallable closure parameters are now cleanly skipped instead of emitting broken code. API surface reduction is expected — these closures require expanded Cdecl wrapper support to emit correctly. Skipped members are tracked in `binding-report.json` under `SkipReason.UnsupportedClosure`.
-
-**Residual:** The skipped APIs are visible in the binding report. Future work to expand closure Cdecl wrapper support (beyond the current 8 constraints) would recover these APIs.
-
----
-
-### 5. Optional\<Array\<T\>\> Property Projection Inconsistency (CS0266) — FIXED (Session B)
-
-**Affected:** BlinkID (1)
-
-**Fix:** Added `GetIdiomaticCSharpType` fallback in 3 property type projection sites when `TypeProjectionFactory.Project()` returns `null` (can't project user-defined generic types). The fallback uses the same `TranslateTypeSpecWithGenerics` helper as the getter/setter body conversion, ensuring the property declaration type matches.
-
-- `PropertyHandler.Emit`: After factory returns null, tries `GetIdiomaticCSharpType` with `typeTranslator`
-- `MemberEmissionValidator.CanEmitProperty`: Same idiomatic override after `TranslateBoundGenericTypeToCSharp`
-- `ProtocolConformanceValidator.GetInterfacePropertyType`: Same override in bound generic branch
-
-`TranslateTypeSpecWithGenerics` promoted from `private static` to `internal static` for shared access.
-
-**Result:** BlinkID now compiles cleanly (1 → 0 errors). Also covers `Optional<Dictionary<K,V>>` with generic key/value types (same mechanism).
-
----
-
-### 6. Generic Protocol Existential Missing Type Argument (CS0305) — FIXED (Session A)
-
-**Affected:** BlinkIDUX (3)
-
-**Fix:** Added guard in `ExistentialHandler.GetPublicExistentialType()` — when a protocol `NamedTypeSpec` has `GenericParameters.Count > 0`, returns `AnyType` instead of emitting bare `IProtocol`. Uses `AnyType` (not `"object"`) to preserve API surface and avoid triggering member pruning in `MemberEmissionValidator` and `MethodHandler`.
-
-**Result:** BlinkIDUX dropped from 3 to 2 errors. The CS0305 bare `IEventStream` is gone; remaining errors are different categories.
-
----
-
-### 7. Enum Case/Property Name Collision (CS0102) — FIXED (Session A)
-
-**Affected:** RxSwift (1)
-
-**Fix:** In `EnumHandler.cs`: (1) Removed `IsStatic` restriction on property collision check — instance properties now also skipped when they collide with case constructor names. (2) Expanded `propertyNames` set passed to `HandleBaseDecl` for method collision detection to include case constructor names, `CaseTag`, `Tag`, `TryGet{CaseName}`, and simple case property names.
-
-**Result:** RxSwift CS0102 eliminated. Remaining 5 errors are closure AnyType fallback.
-
----
-
-### 8. Protocol Proxy Receiver Existential Conversions (CS1503) — FIXED (Session C)
-
-**Affected:** StripeUICore (3), Mixpanel (1) — **4 errors total**
-
-**Symptom:** Various `CS1503` errors where protocol proxy receiver code had mismatched types between the public interface and the ABI marshalling layer.
-
-**Root cause:** Protocol proxy receivers marshal ABI types (`ExistentialContainer`) but the public interface methods expect idiomatic C# types (`IProtocol`, `IReadOnlyList<IProtocol>`, `IReadOnlyDictionary<K, IProtocol>`). No conversion existed between ABI existential types and projected protocol interfaces in the proxy receiver emission path.
-
-**Fix:** Added two helper methods in `ProtocolProxyEmitter.Receivers.cs`:
-- `GetReceiverExistentialGetterConversion()` — converts C# idiomatic → Swift ABI for getter returns. Handles standalone existentials (via `ISwiftExistentialConvertible.GetExistentialContainer()`), `Array<existential>` (via `SwiftArray.FromEnumerable` with element container extraction), and `Dictionary<K, existential>` (via `SwiftDictionary.FromDictionary` with value container extraction).
-- `GetReceiverExistentialSetterConversion()` — converts Swift ABI → C# idiomatic for setter params. Wraps containers in proxy classes for standalone, array (via `.AsProjected`), and dictionary (via `.ToDictionary`) cases.
-
-Integrated at 7 sites: property getter, property setter, method params, method return, subscript getter, subscript setter, and dictionary value conversion in `GetReceiverDictionaryConversion`.
-
-All paths guard on `GetPublicExistentialType() != "object"` to prevent bare `"Proxy"` name for unresolved protocols.
-
-**Result:** 4 errors eliminated. Remaining StripeUICore/Mixpanel errors are from different categories (unresolved cross-module protocols, closure AnyType fallback).
+### 6. Starscream Data→String Mismatch — CS1503
+**Count:** 1 error | **Libraries:** Starscream (1)
+**Root cause:** `Swift.Data` passed where `string` expected — native remapping not applied in this context.
 
 ---
 
 ## Error Count by Category
 
-| # | Category | Status | Errors | Libraries Affected |
-|---|----------|--------|--------|-------------------|
-| 1 | Generator crash (Self/repeat) | **FIXED** (A) | 0 (was 4 libs blocked) | — |
-| 2 | Optional\<any Protocol\> property get/set | **FIXED** (C) | 0 (was ~69) | — |
-| 3 | Optional\<UnsupportedClosure\> bare SwiftOptional | **FIXED** (A) | 0 (was 15) | — |
-| 4 | Closure param AnyType fallback | **FIXED** (B) | 0 (was ~30+, skipped) | — |
-| 5 | Optional\<Array\<T\>\> projection inconsistency | **FIXED** (B) | 0 (was 1) | — |
-| 6 | Generic protocol existential missing type arg | **FIXED** (A) | 0 (was 3) | — |
-| 7 | Enum case/property name collision | **FIXED** (A) | 0 (was 1) | — |
-| 8 | Protocol proxy receiver type mismatch | **FIXED** (C) | 0 (was 4) | — |
-
-All 8 original error categories are now fixed.
+| # | Category | Errors | Libraries | Fix Complexity |
+|---|----------|--------|-----------|---------------|
+| 1 | Closure AnyType in wrapper methods | ~5 | 2 | Moderate — expand skip gate |
+| 2 | Cross-module protocol → AnyType | ~5 | 4 | Low — build config |
+| 3 | Async closure return type mismatch | 3 | 1 | Moderate — async closure projection |
+| 4 | GRDB-specific (dedup, SwiftVoid, self-conformance) | 8 | 1 | Mixed — 4 distinct sub-issues |
+| 5 | Kingfisher residual (SwiftVoid, Foundation types, bare generics) | 34 | 1 | Mixed — multiple distinct issues |
+| 6 | Data→string mismatch | 1 | 1 | Low — native remapping scope |
 
 ---
 
-## Remaining Errors (66 total across 11 libraries)
+## Recommended Fix Order
 
-The remaining errors fall into categories not yet tracked above:
+**Quick wins (flip libraries to pass):**
 
-| Pattern | Approx Count | Libraries |
-|---------|-------------|-----------|
-| Closure with AnyType fallback (unsupported closure type not caught by skip gate) | ~30 | Alamofire, BlinkIDUX, GRDB, Kingfisher, Mixpanel, RxSwift, Starscream, StripeCore, StripeUICore |
-| Unresolved cross-module protocol (protocol TypeRecord not available, projects to AnyType) | ~10 | Mixpanel, StripeCore, StripePayments, StripePaymentSheet, StripeUICore |
-| Other (array-of-existential param type mismatch, closure cross-wiring) | ~26 | GRDB, Kingfisher |
+1. **Category 3** (StripePaymentSheet, 3 errors) — Async closure return projection. Flips StripePaymentSheet to pass.
+2. **Category 1** (Starscream, ~4 closure errors) — Extend `ShouldSkipMethodEmission` for wrapper methods. May flip Starscream.
 
----
+**Medium effort:**
 
-## Fix Complexity (Remaining)
+3. **Category 4** (GRDB, 8 errors) — Four distinct sub-issues.
+4. **Category 5** (Kingfisher, 34 errors) — SwiftVoid needs `ISwiftObject` impl or skip gate; Foundation types need Apple framework TypeRecords; bare generics need detection.
 
-| Pattern | Files | Complexity | Notes |
-|---------|-------|------------|-------|
-| Closure AnyType fallback | `MemberEmissionValidator.cs` | Moderate | Expand skip gate or add more Cdecl wrapper coverage |
-| Unresolved cross-module protocol | `ModuleDatabaseEmitter.cs`, consumer builds | Moderate | Requires cross-module database for protocol TypeRecords |
-| Kingfisher/GRDB bulk errors | Various | TBD | Need per-error triage |
+**Build config (not generator fixes):**
 
----
+5. **Category 2** (Stripe inter-module, Mixpanel) — Cross-module protocol TypeRecords.
 
-## Session Summary
-
-| Session | Categories | Status | Errors Fixed | Pass Rate |
-|---------|-----------|--------|-------------|-----------|
-| A | 1, 3, 6, 7 | **COMPLETE** | 19 errors + 4 crashes unblocked | 11/32 (0 crashes) |
-| B | 4, 5 | **COMPLETE** | 43 errors eliminated (220 → 177) | 13/32 |
-| C | 2, 8 | **COMPLETE** | 111 errors eliminated (177 → 66) | 21/32 |
-
-**Notes:**
-- Session A unblocked 4 crashed libraries, inflating visible error count (115 → 220) as expected.
-- Session B eliminated 43 errors and flipped 2 libraries to pass (BlinkID, StripeCryptoOnramp).
-- Session C eliminated 111 errors and flipped 8 libraries to pass (Lottie, Mappedin, Nuke, SkeletonView, StripeApplePay, StripeCameraCore, StripeConnect, StripePaymentsUI). All 8 original error categories are now fixed. Remaining 66 errors are new patterns (closure AnyType fallback, unresolved cross-module protocols).
+**Potential pass rate after quick wins:** 24 → 25-26/32
+**Potential pass rate after all:** 28-30/32

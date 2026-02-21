@@ -145,6 +145,21 @@ namespace BindingsGeneration
                     continue;
                 }
 
+                // Skip closure-typed properties with unsupported closure types — the receiver
+                // can't marshal AnyType to/from delegate types in [UnmanagedCallersOnly] callbacks.
+                var closureHandlerProp = new ClosureHandler(env.TypeDatabase);
+                if (closureHandlerProp.IsClosure(propertyDecl))
+                {
+                    var closureSpec = closureHandlerProp.GetClosureTypeSpec(propertyDecl);
+                    if (closureSpec != null && !closureHandlerProp.IsSupportedClosure(closureSpec))
+                    {
+                        skippedPropertyNames.Add(propertyDecl.Name);
+                        _logger.LogDebug($"Skipping property '{propertyDecl.Name}' in interface {protocolDecl.Name} - unsupported closure type.");
+                        ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, protocolDecl, SkipReason.UnsupportedClosure, "Property has unsupported closure type that can't be marshalled in protocol receiver.");
+                        continue;
+                    }
+                }
+
                 EmitInterfaceProperty(csWriter, propertyDecl, env.TypeDatabase, protocolDecl);
                 emittedInterfaceMemberCount++;
                 ReportCollector.RecordMemberEmitted(BindingItemKind.Property, propertyDecl.Name, protocolDecl);
@@ -280,6 +295,23 @@ namespace BindingsGeneration
                     skippedMethodKeys.Add(methodKey);
                     _logger.LogDebug($"Skipping method '{methodDecl.Name}' in interface {protocolDecl.Name} - has existential parameter.");
                     ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, SkipReason.UnsupportedExistential, "Method has existential parameter that can't be marshalled in protocol receiver.");
+                    continue;
+                }
+
+                // Skip methods with unsupported closure parameters — receiver can't marshal
+                // AnyType to/from Action<>/Func<> delegate types in [UnmanagedCallersOnly] callbacks.
+                var closureHandlerSkip = new ClosureHandler(env.TypeDatabase);
+                bool hasUnsupportedClosureParam = methodDecl.CSSignature.Skip(1).Any(arg =>
+                {
+                    if (!closureHandlerSkip.IsClosure(arg)) return false;
+                    var closureSpec = closureHandlerSkip.GetClosureTypeSpec(arg);
+                    return closureSpec != null && !closureHandlerSkip.IsSupportedClosure(closureSpec);
+                });
+                if (hasUnsupportedClosureParam)
+                {
+                    skippedMethodKeys.Add(methodKey);
+                    _logger.LogDebug($"Skipping method '{methodDecl.Name}' in interface {protocolDecl.Name} - has unsupported closure parameter.");
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, SkipReason.UnsupportedClosure, "Method has unsupported closure parameter that can't be marshalled in protocol receiver.");
                     continue;
                 }
 

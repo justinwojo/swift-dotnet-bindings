@@ -76,7 +76,11 @@ public partial class ProtocolProxyEmitter
         var proxyClassName = GetProxyClassName(protocolDecl);
         // P0: Use ABI type for MarshalFromSwift (setter reads Swift memory layout),
         // not the idiomatic type used for signatures.
-        var abiTypeName = GetCSharpTypeName(property.SwiftTypeSpec, forAbiMarshalling: true);
+        // For Optional<existential>, override ABI type to use SwiftOptional<ExistentialContainer>
+        // instead of SwiftOptional<AnyType> (which GetCSharpTypeName returns as fallback).
+        var abiTypeName = OverrideOptionalExistentialAbiType(
+            GetCSharpTypeName(property.SwiftTypeSpec, forAbiMarshalling: true),
+            property.SwiftTypeSpec);
 
         var pascalPropertyName = NameProvider.GetPropertyName(property.Name);
 
@@ -87,9 +91,11 @@ public partial class ProtocolProxyEmitter
             {
                 // The interface property uses idiomatic C# types (e.g., string, string?, IReadOnlyList<string>)
                 // but MarshalToSwiftBuffer expects Swift ABI types (SwiftString, SwiftOptional<SwiftString>, etc.).
-                // Use GetParameterConversion to convert the idiomatic value back to the Swift wrapper type.
+                // Check existential conversions first — they're more specific than GetParameterConversion
+                // which would incorrectly use AnyType for Optional<any Protocol> instead of the container type.
+                var existentialGetterConv = GetReceiverExistentialGetterConversion("result", property.SwiftTypeSpec);
                 var typeConversionHandler = new TypeConversionHandler(_typeDatabase);
-                var getterConversion = typeConversionHandler.GetParameterConversion("result", property.SwiftTypeSpec);
+                var getterConversion = existentialGetterConv ?? typeConversionHandler.GetParameterConversion("result", property.SwiftTypeSpec);
 
                 writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]");
                 writer.WriteLine($"private static IntPtr {receiverName}(IntPtr vtHandle, IntPtr selfContainer)");
@@ -105,16 +111,7 @@ public partial class ProtocolProxyEmitter
                 }
                 else
                 {
-                    var existentialGetterConv = GetReceiverExistentialGetterConversion("result", property.SwiftTypeSpec);
-                    if (existentialGetterConv != null)
-                    {
-                        writer.WriteLine($"var swiftResult = {existentialGetterConv};");
-                        writer.WriteLine("return MarshalToSwiftBuffer(swiftResult);");
-                    }
-                    else
-                    {
-                        writer.WriteLine("return MarshalToSwiftBuffer(result);");
-                    }
+                    writer.WriteLine("return MarshalToSwiftBuffer(result);");
                 }
                 writer.Indent--;
                 writer.WriteLine("}");
@@ -128,13 +125,13 @@ public partial class ProtocolProxyEmitter
             if (emittedReceivers.Add(receiverName))
             {
                 // Check if the property type needs conversion (e.g., SwiftOptional<SwiftString> → string?)
-                // The receiver marshals the Swift ABI type, but the interface uses the idiomatic C# type
+                // The receiver marshals the Swift ABI type, but the interface uses the idiomatic C# type.
+                // Check existential conversions first — they're more specific than GetReturnConversion
+                // which would incorrectly use AnyType for Optional<any Protocol> instead of the container type.
+                var existentialSetterConv = GetReceiverExistentialSetterConversion("value", property.SwiftTypeSpec);
                 var typeConversionHandler = new TypeConversionHandler(_typeDatabase);
-                var returnConversion = typeConversionHandler.GetReturnConversion("value", property.SwiftTypeSpec);
-                var existentialSetterConv = returnConversion == null
-                    ? GetReceiverExistentialSetterConversion("value", property.SwiftTypeSpec)
-                    : null;
-                var assignmentExpr = returnConversion ?? existentialSetterConv ?? "value";
+                var returnConversion = existentialSetterConv ?? typeConversionHandler.GetReturnConversion("value", property.SwiftTypeSpec);
+                var assignmentExpr = returnConversion ?? "value";
 
                 writer.WriteLines($$"""
                     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
@@ -155,7 +152,9 @@ public partial class ProtocolProxyEmitter
     {
         var proxyClassName = GetProxyClassName(protocolDecl);
         // P0: Use ABI type for MarshalFromSwift (reads Swift memory layout)
-        var returnTypeName = GetCSharpTypeName(subscript.ReturnTypeSpec, forAbiMarshalling: true);
+        var returnTypeName = OverrideOptionalExistentialAbiType(
+            GetCSharpTypeName(subscript.ReturnTypeSpec, forAbiMarshalling: true),
+            subscript.ReturnTypeSpec);
         var paramCount = subscript.IndexParameters.Count;
 
         if (subscript.HasGetter)
@@ -179,7 +178,9 @@ public partial class ProtocolProxyEmitter
                 for (int i = 0; i < subscript.IndexParameters.Count; i++)
                 {
                     var param = subscript.IndexParameters[i];
-                    var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, forAbiMarshalling: true);
+                    var paramTypeName = OverrideOptionalExistentialAbiType(
+                        GetCSharpTypeName(param.SwiftTypeSpec, forAbiMarshalling: true),
+                        param.SwiftTypeSpec);
                     writer.WriteLine($"var index{i} = MarshalFromSwift<{paramTypeName}>(arg{i});");
                 }
 
@@ -233,7 +234,9 @@ public partial class ProtocolProxyEmitter
                 for (int i = 0; i < subscript.IndexParameters.Count; i++)
                 {
                     var param = subscript.IndexParameters[i];
-                    var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, forAbiMarshalling: true);
+                    var paramTypeName = OverrideOptionalExistentialAbiType(
+                        GetCSharpTypeName(param.SwiftTypeSpec, forAbiMarshalling: true),
+                        param.SwiftTypeSpec);
                     writer.WriteLine($"var index{i} = MarshalFromSwift<{paramTypeName}>(arg{i});");
                 }
 
@@ -311,7 +314,9 @@ public partial class ProtocolProxyEmitter
         int argIndex = 0;
         foreach (var param in method.CSSignature.Skip(1))
         {
-            var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, forAbiMarshalling: true);
+            var paramTypeName = OverrideOptionalExistentialAbiType(
+                GetCSharpTypeName(param.SwiftTypeSpec, forAbiMarshalling: true),
+                param.SwiftTypeSpec);
             var rawArgName = $"rawParam{argIndex}";
             var argName = $"param{argIndex}";
 
@@ -476,6 +481,27 @@ public partial class ProtocolProxyEmitter
 
         var existentialHandler = new ExistentialHandler(_typeDatabase);
 
+        // Optional<existential>: C# returns ISomeProtocol? → convert to SwiftOptional<Container>
+        if (existentialHandler.IsOptionalExistential(typeSpec))
+        {
+            var innerProtocolList = existentialHandler.UnwrapOptionalExistential(typeSpec);
+            if (innerProtocolList != null && existentialHandler.IsSupportedExistential(innerProtocolList))
+            {
+                var publicType = existentialHandler.GetPublicExistentialType(innerProtocolList);
+                if (publicType != "object")
+                {
+                    var containerType = existentialHandler.GetCSharpExistentialType(innerProtocolList);
+
+                    string extractExpr;
+                    if (existentialHandler.TryGetWellKnownProtocolType(innerProtocolList, out _))
+                        extractExpr = $"{varName}Val.GetExistentialContainer()";
+                    else
+                        extractExpr = $"((Swift.Runtime.ISwiftExistentialConvertible<{containerType}>){varName}Val).GetExistentialContainer()";
+                    return $"({varName} is {{}} {varName}Val ? SwiftOptional<{containerType}>.NewSome({extractExpr}) : SwiftOptional<{containerType}>.NewNone())";
+                }
+            }
+        }
+
         // Standalone existential: cast to ISwiftExistentialConvertible and extract container
         if (existentialHandler.IsExistential(typeSpec))
         {
@@ -542,6 +568,28 @@ public partial class ProtocolProxyEmitter
             return null;
 
         var existentialHandler = new ExistentialHandler(_typeDatabase);
+
+        // Optional<existential>: SwiftOptional<Container> → ISomeProtocol?
+        if (existentialHandler.IsOptionalExistential(typeSpec))
+        {
+            var innerProtocolList = existentialHandler.UnwrapOptionalExistential(typeSpec);
+            if (innerProtocolList != null && existentialHandler.IsSupportedExistential(innerProtocolList))
+            {
+                var publicType = existentialHandler.GetPublicExistentialType(innerProtocolList);
+                if (publicType != "object")
+                {
+                    string wrapExpr;
+                    if (existentialHandler.TryGetWellKnownProtocolType(innerProtocolList, out var wkType))
+                        wrapExpr = $"new {wkType}({varName}.Some)";
+                    else
+                    {
+                        var proxyName = existentialHandler.GetProxyClassName(innerProtocolList);
+                        wrapExpr = $"new {proxyName}({varName}.Some)";
+                    }
+                    return $"({varName}.Case == Swift.SwiftOptionalCases.None ? null : ({publicType}?){wrapExpr})";
+                }
+            }
+        }
 
         // Standalone existential: wrap container in proxy
         if (existentialHandler.IsExistential(typeSpec))
@@ -612,6 +660,31 @@ public partial class ProtocolProxyEmitter
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Overrides the ABI type name for Optional&lt;existential&gt; types.
+    /// <c>GetCSharpTypeName(..., forAbiMarshalling: true)</c> falls through to BoundGenericsHandler
+    /// which maps existential generic args to AnyType, producing <c>SwiftOptional&lt;AnyType&gt;</c>.
+    /// The correct ABI type is <c>SwiftOptional&lt;ExistentialContainer{N}&gt;</c> so that
+    /// <c>MarshalFromSwift&lt;T&gt;</c> reads the correct memory layout.
+    /// Returns the corrected type name, or the original if no override is needed.
+    /// </summary>
+    private string OverrideOptionalExistentialAbiType(string abiTypeName, TypeSpec? typeSpec)
+    {
+        if (typeSpec == null)
+            return abiTypeName;
+        var existentialHandler = new ExistentialHandler(_typeDatabase);
+        if (existentialHandler.IsOptionalExistential(typeSpec))
+        {
+            var innerProtocolList = existentialHandler.UnwrapOptionalExistential(typeSpec);
+            if (innerProtocolList != null && existentialHandler.IsSupportedExistential(innerProtocolList))
+            {
+                var containerType = existentialHandler.GetCSharpExistentialType(innerProtocolList);
+                return $"SwiftOptional<{containerType}>";
+            }
+        }
+        return abiTypeName;
     }
 
     private void EmitConstructors(CSharpWriter writer, ProtocolDecl protocolDecl, string interfaceName)
