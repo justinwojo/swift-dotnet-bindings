@@ -208,17 +208,26 @@ public static class MemberEmissionValidator
                 var boundGenericContext = property.ParentDecl is TypeDecl boundParentType && boundParentType.IsGeneric
                     ? GenericContext.FromType(boundParentType)
                     : GenericContext.Empty;
-                projectedTypeName = boundGenericsHandler.TranslateBoundGenericTypeToCSharp(property, boundGenericContext);
-
-                // Apply idiomatic type override for container types (Optional<Array>, Optional<Dictionary>)
-                // to match PropertyHandler emission which does the same fallback.
-                var typeConversionHandler = new TypeConversionHandler(typeDatabase);
-                Func<TypeSpec, string> idiomaticTranslator = ts =>
-                    PropertyHandler.TranslateTypeSpecWithGenerics(ts, typeDatabase, boundGenericContext);
-                var idiomaticOverride = typeConversionHandler.GetIdiomaticCSharpType(
-                    property.SwiftTypeSpec, isParameter: false, idiomaticTranslator);
-                if (idiomaticOverride != null)
-                    projectedTypeName = idiomaticOverride;
+                var factory = new TypeProjectionFactory();
+                var projection = factory.Project(property.SwiftTypeSpec, new ProjectionContext
+                {
+                    TypeDatabase = typeDatabase,
+                    IsParameter = false,
+                    GenericContext = boundGenericContext
+                });
+                if (projection != null)
+                {
+                    projectedTypeName = projection.PublicType;
+                }
+                else if (property.SwiftTypeSpec is NamedTypeSpec propBoundGeneric && propBoundGeneric.ContainsGenericParameters)
+                {
+                    var bgh = new BoundGenericsHandler(typeDatabase);
+                    projectedTypeName = bgh.TranslateBoundGenericTypeToCSharp(property.SwiftTypeSpec, boundGenericContext);
+                }
+                else
+                {
+                    projectedTypeName = typeDatabase.GetTypeRecordOrAnyType(property.SwiftTypeSpec).CSharpTypeName.FullyQualifiedName;
+                }
             }
             else if (isGenericTypeParam && property.ParentDecl is TypeDecl genericParentType && genericParentType.IsGeneric)
             {
@@ -572,6 +581,12 @@ public static class MemberEmissionValidator
                 {
                     projectedReturnTypeName = projection.PublicType;
                 }
+                else if (returnArg.SwiftTypeSpec is NamedTypeSpec retBoundGeneric && retBoundGeneric.ContainsGenericParameters)
+                {
+                    // Bound generic fallback: produce raw ABI type name (mirrors MethodSignature.HandleReturnType)
+                    var bgh = new BoundGenericsHandler(typeDatabase);
+                    projectedReturnTypeName = bgh.TranslateBoundGenericTypeToCSharp(returnArg.SwiftTypeSpec, GenericContext.Empty);
+                }
                 else
                 {
                     // Fallback: TypeRecord lookup (protocol → AnyType, others → CSharpTypeName)
@@ -646,25 +661,28 @@ public static class MemberEmissionValidator
         // Check return type
         if (subscript.ReturnTypeSpec != null)
         {
-            if (subscript.ReturnTypeSpec is NamedTypeSpec namedTypeSpec && namedTypeSpec.ContainsGenericParameters)
+            var subscriptGenericContext = subscript.ParentDecl is TypeDecl subscriptParentType && subscriptParentType.IsGeneric
+                ? GenericContext.FromType(subscriptParentType)
+                : GenericContext.Empty;
+            var subscriptFactory = new TypeProjectionFactory();
+            var subscriptProjection = subscriptFactory.Project(subscript.ReturnTypeSpec, new ProjectionContext
             {
-                // Bound generic subscript return - create temp property to check
-                var tempProperty = new PropertyDecl
-                {
-                    Name = "_temp",
-                    SwiftTypeSpec = subscript.ReturnTypeSpec,
-                    IsStatic = false,
-                    HasStorage = false,
-                    Accessors = new List<AccessorDecl>(),
-                    ParentDecl = null,
-                    ModuleDecl = null
-                };
-                projectedReturnTypeName = boundGenericsHandler.TranslateBoundGenericTypeToCSharp(tempProperty);
+                TypeDatabase = typeDatabase,
+                IsParameter = false,
+                GenericContext = subscriptGenericContext
+            });
+            if (subscriptProjection != null)
+            {
+                projectedReturnTypeName = subscriptProjection.PublicType;
+            }
+            else if (subscript.ReturnTypeSpec is NamedTypeSpec subBoundGeneric && subBoundGeneric.ContainsGenericParameters)
+            {
+                var bgh = new BoundGenericsHandler(typeDatabase);
+                projectedReturnTypeName = bgh.TranslateBoundGenericTypeToCSharp(subscript.ReturnTypeSpec, subscriptGenericContext);
             }
             else
             {
-                var typeRecord = typeDatabase.GetTypeRecordOrAnyType(subscript.ReturnTypeSpec);
-                projectedReturnTypeName = typeRecord.CSharpTypeName.FullyQualifiedName;
+                projectedReturnTypeName = typeDatabase.GetTypeRecordOrAnyType(subscript.ReturnTypeSpec).CSharpTypeName.FullyQualifiedName;
             }
         }
         else

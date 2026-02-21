@@ -170,6 +170,11 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             return;
         }
 
+        // Build generic context early — needed for bound generic translation, factory projection, and getter/setter emission.
+        var propertyGenericContext = propertyDecl.ParentDecl is TypeDecl propParentType && propParentType.IsGeneric
+            ? GenericContext.FromType(propParentType)
+            : (GenericContext?)null;
+
         string csTypeName;
         if (isExistential)
         {
@@ -222,19 +227,27 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 return;
             }
 
-            // Build a generic context from the parent type so bound generic args like Optional<τ_0_0> resolve correctly
-            var boundGenericContext = propertyDecl.ParentDecl is TypeDecl boundParentType && boundParentType.IsGeneric
-                ? GenericContext.FromType(boundParentType)
-                : GenericContext.Empty;
-            csTypeName = propertyEnv.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(propertyDecl, boundGenericContext);
+            // Bound generic property types use TranslateBoundGenericTypeToCSharp for the raw ABI
+            // type name (e.g., SwiftOptional<SwiftArray<int>>). WrapperEmitter uses this raw type for
+            // marshalling in getter/setter bodies. The public property type (e.g., IReadOnlyList<int>?)
+            // is resolved separately by the factory call below.
+            // NOTE: Intentionally uses GenericContext.Empty (not propertyGenericContext) so that generic
+            // type params (τ_0_0) resolve to AnyType. This causes the AnyType skip below to fire for
+            // bound generics containing unresolvable generic params (e.g., Optional<Array<Foo<τ_0_0>>>).
+            // Without this, the property would be emitted with ABI type but WrapperEmitter's getter body
+            // applies public type conversions (Array→IReadOnlyList), causing a type mismatch (CS0266).
+            // The factory projection (with GenericContext) runs after and correctly overrides csTypeName
+            // for types it CAN project (standard containers without user-defined bound generics).
+            // Deferred to 5B: once WrapperEmitter is replaced by plan-based rendering, use GenericContext.
+            csTypeName = propertyEnv.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(propertyDecl);
         }
         else if (TypeSpecHelpers.IsGenericTypeParameter(propertyDecl.SwiftTypeSpec) &&
                  propertyDecl.ParentDecl is TypeDecl genericParentType && genericParentType.IsGeneric)
         {
             // Property type is a generic type parameter (e.g., T in Wrapper<T>)
-            var context = GenericContext.FromType(genericParentType);
+            var genCtx = GenericContext.FromType(genericParentType);
             var typeName = (propertyDecl.SwiftTypeSpec as NamedTypeSpec)?.Name;
-            if (typeName != null && context.TryResolve(typeName, out var resolved))
+            if (typeName != null && genCtx.TryResolve(typeName, out var resolved))
                 csTypeName = resolved;
             else if (typeRecord != null)
                 csTypeName = typeRecord.CSharpTypeName.FullyQualifiedName;
@@ -256,49 +269,35 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             return;
         }
 
-        // Skip properties with AnyType - the accessor methods will be skipped due to unsupported types
-        if (csTypeName.Contains("AnyType"))
-        {
-            _logger.LogWarning($"PropertyHandler: Skipping property {propertyDecl.Name} with unsupported AnyType in type {csTypeName}.");
-            SkipProperty(SkipReason.AnyTypeFallback, $"Property type resolved to AnyType ({csTypeName}).");
-            return;
-        }
-
-        // Build generic context for resolving generic type parameters (τ_0_0 → T0) in property types
-        var propertyGenericContext = propertyDecl.ParentDecl is TypeDecl parentType && parentType.IsGeneric
-            ? GenericContext.FromType(parentType)
-            : null;
-
         // Apply idiomatic type projection (SwiftString -> string, SwiftArray -> IReadOnlyList, etc.)
         // This unifies property types with method return types.
         // Skip for existential/optional-existential properties — their types are already
         // determined by ExistentialHandler and shouldn't be overridden by generic Optional handling.
+        // For bound generics, the factory with GenericContext may project correctly even if the raw
+        // ABI name contains AnyType (e.g., Optional<τ_0_0> → T0? when GenericContext resolves τ_0_0).
         if (!isExistential && !isOptionalExistential)
         {
             var factory = new TypeProjectionFactory();
             var projection = factory.Project(propertyDecl.SwiftTypeSpec, new ProjectionContext
             {
                 TypeDatabase = propertyEnv.TypeDatabase,
-                IsParameter = false
+                IsParameter = false,
+                GenericContext = propertyGenericContext
             });
             if (projection != null)
             {
                 csTypeName = projection.PublicType;
             }
-            else
-            {
-                // Fallback: when factory can't project (e.g., Optional<Array<UserType<T>>>
-                // where UserType has generic parameters), use GetIdiomaticCSharpType with
-                // typeTranslator to match the getter/setter body conversion.
-                Func<TypeSpec, string> typeTranslator = ts =>
-                    TranslateTypeSpecWithGenerics(ts, propertyEnv.TypeDatabase, propertyGenericContext);
-                var idiomaticType = propertyEnv.TypeConversionHandler.GetIdiomaticCSharpType(
-                    propertyDecl.SwiftTypeSpec, isParameter: false, typeTranslator);
-                if (idiomaticType != null)
-                {
-                    csTypeName = idiomaticType;
-                }
-            }
+        }
+
+        // Skip properties with AnyType - the accessor methods will be skipped due to unsupported types.
+        // This check runs AFTER factory projection, so types that the factory can resolve (e.g.,
+        // Optional<τ_0_0> with GenericContext) won't be incorrectly skipped.
+        if (csTypeName.Contains("AnyType"))
+        {
+            _logger.LogWarning($"PropertyHandler: Skipping property {propertyDecl.Name} with unsupported AnyType in type {csTypeName}.");
+            SkipProperty(SkipReason.AnyTypeFallback, $"Property type resolved to AnyType ({csTypeName}).");
+            return;
         }
 
         // Detect and skip async properties (properties with async getters/setters are not yet supported)

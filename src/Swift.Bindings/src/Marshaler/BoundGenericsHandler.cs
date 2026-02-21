@@ -155,6 +155,18 @@ public class BoundGenericsHandler
     }
 
     /// <summary>
+    /// Translates a bound generic TypeSpec into a C# type name.
+    /// Used by protocol/proxy emission paths that have a TypeSpec but no parent declaration.
+    /// </summary>
+    public string TranslateBoundGenericTypeToCSharp(TypeSpec typeSpec, GenericContext genericContext)
+    {
+        if (typeSpec is not NamedTypeSpec namedTypeSpec || !namedTypeSpec.ContainsGenericParameters)
+            throw new NotSupportedException(
+                $"Attempted to translate non-bound-generic TypeSpec: {typeSpec}");
+        return TranslateBoundGenericTypeToCSharp(namedTypeSpec, genericContext, moduleDecl: null);
+    }
+
+    /// <summary>
     /// Tries to find the first existential type argument within a bound generic type.
     /// </summary>
     /// <param name="typeSpec">The type specification to inspect.</param>
@@ -513,6 +525,12 @@ public class BoundGenericsHandler
             TupleTypeSpec { IsEmptyTuple: true } => "Swift.SwiftVoid",
             TupleTypeSpec tupleTypeSpec => _tupleHandler.GetCSharpTupleType(tupleTypeSpec,
                 ts => TranslateTypeSpecToCSharp(ts, genericContext, moduleDecl)),
+            // Associated type references (e.g., Self.Element inside Array<Self.Element>) degrade to AnyType.
+            // These appear in protocol signatures with associated types and can't be resolved without
+            // concrete type binding. Callers (ProtocolHandler, ProtocolSignatureHelper, etc.) handle
+            // AnyType appropriately.
+            AssociatedTypeReferenceSpec => TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName,
+            ProtocolListTypeSpec => TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName,
             _ => throw new NotSupportedException(
                 $"Type spec {typeSpec.GetType().Name} ({typeSpec}) is not supported as a generic parameter")
         };

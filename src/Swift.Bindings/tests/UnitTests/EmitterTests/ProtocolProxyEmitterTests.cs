@@ -1752,10 +1752,12 @@ public class ProtocolProxyEmitterTests
 
         var output = EmitProxyClass(protocolDecl);
 
-        // The Dictionary in the closure param must have generic type arguments (projected to IReadOnlyDictionary)
-        Assert.Contains("IReadOnlyDictionary<", output);
+        // The Dictionary in the closure param must have generic type arguments (not bare SwiftDictionary).
+        // With factory-based projection, the raw ABI type is used when the factory can't fully resolve
+        // the closure (e.g., AnyHashable not in TypeDatabase). The key requirement is generic args present.
+        Assert.Contains("SwiftDictionary<", output);
         // Must NOT emit bare type without generic args
-        Assert.DoesNotContain("IReadOnlyDictionary?", output.Replace("IReadOnlyDictionary<", ""));
+        Assert.DoesNotContain("SwiftDictionary?", output.Replace("SwiftDictionary<", ""));
     }
 
     private void RegisterSwiftOptional()

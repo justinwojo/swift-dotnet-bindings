@@ -88,15 +88,16 @@ public class MarshalPlanRegressionTests
     }
 
     [Fact]
-    [Trait("Stability", "PreSession5")]
-    public void String_ReturnPlan_Direct_RendersToString()
+    public void String_ReturnPlan_Direct_MarshalFromSwiftThenToString()
     {
         var proj = new StringProjection();
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
 
-        // Current behavior — Session 5 will change to MarshalFromSwift pattern
-        Assert.Equal("result.ToString()", plan.PInvokeExpression);
-        Assert.False(plan.RequiresUnsafe);
+        Assert.Equal("swiftResult.ToString()", plan.PInvokeExpression);
+        Assert.True(plan.RequiresUnsafe);
+        Assert.Single(plan.SetupStatements);
+        var setupLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result))", setupLine.Code);
     }
 
     [Fact]
@@ -244,7 +245,6 @@ public class MarshalPlanRegressionTests
     }
 
     [Fact]
-    [Trait("Stability", "PreSession5")]
     public void Class_ReturnPlan_Direct_TryCatchNativeMemory()
     {
         var proj = new ClassProjection("ViewController");
@@ -641,14 +641,14 @@ public class MarshalPlanRegressionTests
     #region Rendered Output Regression
 
     [Fact]
-    [Trait("Stability", "PreSession5")]
     public void Rendered_String_Direct_Return()
     {
         var proj = new StringProjection();
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
         var output = Render(plan);
 
-        Assert.Contains("return result.ToString();", output);
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result))", output);
+        Assert.Contains("return swiftResult.ToString();", output);
     }
 
     [Fact]

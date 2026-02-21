@@ -233,52 +233,144 @@ Updated MEMORY.md baselines and architecture-roadmap.md.
 
 ---
 
+## Interlude: Library Validation Fix Sessions A-E (Feb 20, 2026)
+
+Between Phase 3 (Lock Down) and Phase 4 (Decompose), five sessions of binding error fixes were applied to improve library validation from 24/32 to 27/32 passing. These fixes were necessary — they resolved real bugs blocking library compilation — but they added technical debt to old-architecture code paths.
+
+### Architecture Alignment Assessment
+
+| Category | Lines Added | Files | Assessment |
+|----------|-------------|-------|------------|
+| Old architecture expansion | ~590 | WrapperEmitter.Return.cs, ProtocolProxyEmitter.Receivers.cs, ClosureEmitter.Async.cs, ProtocolConformanceValidator.cs | Adds to code Session 5 will replace |
+| Old architecture fallback (factory limitation) | ~30 | PropertyHandler.cs, MemberEmissionValidator.cs | `GetIdiomaticCSharpType` fallback when factory returns null for bound generics |
+| Old architecture refactoring | ~57 | WrapperEmitter.Marshalling.cs | Extracted `EmitOptionalExistentialParamConversion()` — still inline strings, but reduced duplication |
+| Architecturally neutral (skip gates) | ~125 | ProtocolHandler.cs, MemberEmissionValidator.cs, EnumHandler.cs, EnumHandler.CaseConstruction.cs, MethodSignature.cs | Controls *whether* to emit, not *how* — both architectures need these |
+| New architecture fixes | ~53 | ClosureProjection.cs, TypeProjectionFactory.cs, ExistentialHandler.cs, ClosureHandler.cs | Genuine improvements to the new system |
+| Runtime fix | ~30 | AsyncClosureHelper.cs | Orthogonal to generator architecture |
+
+**~55% of changes went to old-architecture paths.** This was largely unavoidable — the bugs lived in code that Session 5 explicitly deferred (WrapperEmitter emission, ProtocolProxyEmitter receiver marshalling, bound-generic fallbacks).
+
+### Specific Debt Added
+
+**1. ProtocolProxyEmitter.Receivers.cs (+321 lines) — highest impact.** Three new helper methods (`GetReceiverExistentialGetterConversion`, `GetReceiverExistentialSetterConversion`, `OverrideOptionalExistentialAbiType`) manually reproduce conversions that `ExistentialProjection`, `OptionalProjection`, `ArrayProjection`, and `DictionaryProjection` already implement. ~250 lines of hand-rolled string-template code duplicating existing factory projections. These instantiate `new ExistentialHandler(_typeDatabase)` and `new TypeConversionHandler(_typeDatabase)` inline — the exact pattern the factory was built to replace.
+
+**2. WrapperEmitter.Return.cs (+194 lines).** Four near-identical Optional-existential blocks across the direct, conversion, indirect-result, and out-buffer return strategies. Each adds `if (publicType != "object")` guards with nested existential resolution. `OptionalProjection(ExistentialProjection(...)).GetReturnPlan()` handles this centrally in ~15 lines.
+
+**3. ClosureEmitter.Async.cs (+24 lines).** Uses old-API `TypeConversionHandler.GetParameterConversion()` for async closure delegate type conversion. Slated for deletion in Session 5e.
+
+**4. Factory fallback pattern (3 files) — RESOLVED by Session 5A.** `PropertyHandler.cs`, `MemberEmissionValidator.cs`, and `ProtocolConformanceValidator.cs` previously fell back to `GetIdiomaticCSharpType()` when factory returned null. Session 5A added `GenericContext` support, eliminating all `GetIdiomaticCSharpType` callers from Emitter (Gate 5 passes). Bound generic fallbacks now use `TranslateBoundGenericTypeToCSharp` to produce raw ABI type names.
+
+### Impact on Session 5
+
+These changes increase Session 5's scope:
+
+| Session 5 Sub-task | Additional Debt to Resolve |
+|---------------------|---------------------------|
+| 5A prerequisites (GenericContext) | ~~3 new `GetIdiomaticCSharpType` fallback sites~~ → **RESOLVED** (Session 5A eliminated all `GetIdiomaticCSharpType` from Emitter) |
+| 5B (Collapse WrapperEmitter) | 4 new Optional-existential blocks in Return.cs (~140 lines), extracted `EmitOptionalExistentialParamConversion` in Marshalling.cs |
+| 5B (Collapse Receiver emission) | 3 new receiver helper methods in ProtocolProxyEmitter.Receivers.cs (~250 lines to replace with projection calls) |
+| 5C (Delete dead code) | `GetParameterConversion()` usage in ClosureEmitter.Async.cs |
+
+### New Architecture Improvements from Sessions A-E
+
+Not all changes were debt. These improvements to the new system carry forward:
+
+- **ClosureProjection.cs** — Now correctly handles async and throwing closures (`Func<Task<T>>`, `Func<SwiftResult<T, SwiftError>>`). Previously produced incorrect delegate types.
+- **TypeProjectionFactory.cs** — Returns null for `"Self"` and `"repeat"` Swift special forms (crash prevention).
+- **ExistentialHandler.cs** — Returns `AnyType` for generic protocol existentials (`any EventStream<T>`) where associated types can't be resolved.
+- **ClosureHandler.cs** — Checks `NativeTypeName` on type records so native-remapped types use correct C# names in closure signatures.
+
+---
+
 ## Phase 4: Method Handler Decomposition
 
-### Session 5: Decompose MethodHandler + WrapperEmitter
+The original Session 5 has been split into three sessions (5A/5B/5C) based on dependency analysis and scope. Each session has a clear deliverable, validation gate, and can be completed independently.
 
-**Goal**: Fix projection return plans, add GenericContext to the factory, collapse WrapperEmitter emission into MarshalPlan rendering, clean up Conductor state, decompose MethodHandler into composable handlers. This is the culmination of the architecture migration — after this session, the old 4-path type conversion system is fully replaced.
-
-**Prerequisites** (absorbed from Session 3 deferrals):
-- **Fix projection return plans**: Session 2's projections have return plan bugs — they don't match actual WrapperEmitter emission code. Example: StringProjection's Direct return does `result.ToString()` but actual emission does `MarshalFromSwift<SwiftString>(new IntPtr(&result)).ToString()`. Each projection's `GetReturnPlan()` must be audited against the corresponding WrapperEmitter code path for Direct, IndirectResult, OutBuffer, and AsyncCallback strategies.
-- **GenericContext support in factory**: `TypeProjectionFactory` currently returns null for bound generic types where resolution requires `GenericContext` (τ_0_0 → T0). ~15 remaining `TranslateBoundGenericTypeToCSharp` fallback sites in PropertyHandler, PInvokeEmitter, MemberEmissionValidator, and EnumHandler.CaseConstruction depend on this. Add `GenericContext?` to `ProjectionContext` so the factory can resolve generic type parameters.
-
-#### 5a. Define `MethodMarshalPlan`
-
-A method-level plan that composes per-parameter `MarshalPlan` objects (from the factory) with method-level concerns:
-
+**Dependency chain:**
 ```
-MethodMarshalPlan {
-    PublicSignature           // C# method signature
-    PInvokeDeclaration        // [LibraryImport] declaration
-    ParameterPlans[]          // Per-param MarshalPlan from TypeProjectionFactory
-    ReturnPlan                // MarshalPlan from TypeProjectionFactory
-    SwiftSelfSetup?           // SwiftSelf creation (instance methods)
-    SwiftErrorSetup?          // SwiftError + post-call check (throwing methods)
-    GenericMetadataSetup?     // TypeMetadata + PWT extraction (generic methods)
-    IndirectResultSetup?      // Stack allocation for large returns
-    AsyncWrapperSetup?        // Task + callback infrastructure (async methods)
-    SwiftWrapperCode?         // Generated Swift @_silgen_name wrapper
-}
+Prerequisites ──→ 5A (Foundation) ──→ 5B (Collapse Emission) ──→ 5C (Decompose + Clean)
+                                          5B also absorbs ProtocolProxyEmitter.Receivers debt
 ```
 
-#### 5b. Conductor State Cleanup + Handler Interface Changes
+### Session 5A: Foundation — Fix Plans + GenericContext + MethodMarshalPlan — COMPLETE (Feb 20, 2026)
 
-Absorbed from Session 3e. While decomposing MethodHandler, change `IHandler.Emit` to thread state explicitly instead of through Conductor:
+**Goal**: Fix the projection return plans to match actual emission, add GenericContext to the factory so it handles standard container types, and define the MethodMarshalPlan structure.
+
+#### 5A.1. Fix Projection Return Plans — COMPLETE
+
+Fixed StringProjection's Direct return plan to match WrapperEmitter emission: `MarshalFromSwift<SwiftString>(new IntPtr(&result)).ToString()` with `RequiresUnsafe = true`. ClassProjection's Direct return was already correct (verified). All `[Trait("Stability", "PreSession5")]` tests updated and pass without exclusion.
+
+#### 5A.2. GenericContext Support in Factory — COMPLETE
+
+Added `GenericContext?` to `ProjectionContext`. Factory now resolves generic type parameters (τ_0_0 → T0) via `BlittableProjection`. Standard containers (Optional, Array, Dictionary) with resolvable inner types now project correctly.
+
+**Eliminated all `GetIdiomaticCSharpType` callers from Emitter**: Zero results from `grep -rn "GetIdiomaticCSharpType" src/Swift.Bindings/src/Emitter/ --type cs`. Gate 5 passes.
+
+**`TranslateBoundGenericTypeToCSharp` scope**: The factory returns null for user-defined bound generic types (e.g., `SwiftResult<T1,T2>`, `Optional<FrozenWithMemoryStruct>`) because `ProjectBoundGeneric` produces public types that violate `ISwiftObject` constraints on generic type parameters. These sites use `TranslateBoundGenericTypeToCSharp` as a fallback to produce raw ABI type names. Present in 13 Emitter files:
+- **3 deferred-to-5B** (legacy emission): WrapperEmitter.Return.cs, WrapperEmitter.cs, PInvokeEmitter.cs
+- **10 non-emission paths** (necessary fallbacks): MethodSignature.cs, PropertyHandler.cs, EnumHandler.CaseConstruction.cs, ModuleHandler.cs, MemberEmissionValidator.cs, ProtocolHandler.cs, ProtocolProxyEmitter.Helpers.cs, ProtocolSignatureHelper.cs, ProtocolConformanceValidator.cs, DefaultParameterOverloadEmitter.cs
+
+The 10 non-emission fallback sites fire only when the factory can't project a user-defined bound generic (inner type is unsupported, e.g., frozen-with-memory-management structs). 5B's first acceptance gate: remove `TranslateBoundGenericTypeToCSharp` from the 3 deferred files; the 10 non-emission sites remain until `ProjectBoundGeneric` can produce public-vs-raw types correctly.
+
+#### 5A.3. Define MethodMarshalPlan — COMPLETE
+
+Created `src/Swift.Bindings/src/Marshaler/Projection/MethodMarshalPlan.cs` — pure data definition capturing method-level concerns: PublicSignature, PInvokeDeclaration, ParameterPlans, ReturnPlan, SwiftSelf, SwiftError, GenericMetadata, IndirectResult, Async, OptionalPointerWrapper, CallbackDeclarations. Supporting types: MethodSignatureInfo, PInvokeDeclarationInfo, ParameterMarshalInfo, SwiftSelfSetup (7 SwiftSelfKind variants), SwiftErrorSetup, GenericMetadataSetup, IndirectResultSetup, AsyncSetup, OptionalPointerWrapperSetup. Tests in MethodMarshalPlanTests.cs.
+
+**Validation**: 3934 unit tests (0 failures), 700 integration tests (0 failures), golden files pass, library validation 27/32 (baseline maintained). All PreSession5 tests pass without exclusion.
+
+---
+
+### Session 5B: Collapse Emission — WrapperEmitter + ProtocolProxyEmitter.Receivers
+
+**Goal**: Replace the inline marshalling code in WrapperEmitter and ProtocolProxyEmitter.Receivers with `MarshalPlan` rendering via `MarshalPlanRenderer`. This is the highest-impact session — it eliminates the largest concentration of old-architecture code and the debt added by Sessions A-E.
+
+#### 5B.1. Collapse WrapperEmitter.Marshalling.cs
+
+Replace the inline marshalling code (~630+ lines, increased by Sessions A-E) with `MarshalPlan` rendering. The projection produces the plan; the renderer walks `MarshalStatement` nodes and writes to CSharpWriter. The massive if/else chains for dictionaries, optionals, existentials, etc. collapse into `projection.GetParameterPlan(paramName)`.
+
+Specific Session A-E debt to eliminate:
+- `EmitOptionalExistentialParamConversion()` private method → replaced by `OptionalProjection(ExistentialProjection(...)).GetParameterPlan()`
+
+#### 5B.2. Collapse WrapperEmitter.Return.cs
+
+Replace the inline return code (~550+ lines, increased by Sessions A-E) with `MarshalPlan` rendering. The 4 near-identical Optional-existential blocks added by Sessions A-E all collapse into a single `OptionalProjection(ExistentialProjection(...)).GetReturnPlan()` call.
+
+#### 5B.3. Collapse ProtocolProxyEmitter.Receivers Marshalling
+
+Replace the 3 helper methods added by Sessions A-E with projection calls:
+- `GetReceiverExistentialGetterConversion()` (~85 lines) → `ExistentialProjection.GetParameterElementConversion()` (parameter direction: C# interface → ExistentialContainer for MarshalToSwiftBuffer)
+- `GetReceiverExistentialSetterConversion()` (~80 lines) → `ExistentialProjection.GetReturnElementConversion()` (return direction: ExistentialContainer → proxy class for C# implementation)
+- `OverrideOptionalExistentialAbiType()` (~18 lines) → `OptionalProjection(ExistentialProjection(...)).PInvokeType`
+
+These methods handle `Array<existential>` and `Dictionary<K, existential>` manually — `ArrayProjection(ExistentialProjection)` and `DictionaryProjection(_, ExistentialProjection)` already compute these compositions.
+
+#### 5B.4. Replace ClosureEmitter.Async.cs Old-API Usage
+
+Replace `TypeConversionHandler.GetParameterConversion()` call in async closure delegate wrapping with the inner return projection from `ClosureProjection`.
+
+**Depends on**: Session 5A (fixed return plans, GenericContext, MethodMarshalPlan) — COMPLETE.
+
+**First acceptance gate**: Remove `TranslateBoundGenericTypeToCSharp` from WrapperEmitter.Return.cs, WrapperEmitter.cs, and PInvokeEmitter.cs. These 3 files are the only remaining legacy emission paths using old bound generic translation.
+
+**Required test**: For async methods with tuple/string/complex returns, assert that the emitted Swift callback parameter types exactly match the emitted C# callback signatures. This enforces the callback signature reconciliation that Session 2 deferred.
+
+**Validation**: All unit + integration tests pass. Library validation 0 regressions. Golden-file diffs reviewed and updated. WrapperEmitter.Marshalling.cs and WrapperEmitter.Return.cs are each under 100 lines. The 3 receiver helper methods are deleted.
+
+---
+
+### Session 5C: Decompose + Clean — Conductor, MethodHandler, Dead Code
+
+**Goal**: Clean up Conductor state, decompose the monolithic MethodHandler into composable handlers, and delete all remaining legacy code. After this session, the old 4-path type conversion system is fully replaced.
+
+#### 5C.1. Conductor State Cleanup + Handler Interface Changes
+
+Absorbed from Session 3e. Change `IHandler.Emit` to thread state explicitly instead of through Conductor:
 
 - `CurrentPInvokeHelperContext` (28 usage sites) → pass as parameter through handler chain. Currently serves as parent→child communication between type handlers that don't directly call each other (dispatch goes through `HandleBaseDecl` → `IHandler.Emit`). Options: add to `IEnvironment` subtypes, or pass alongside Conductor.
 - `NestedTypeRenames` (12 usage sites) → same pattern. Parent type handler sets renames, child reads them via Conductor. Move to TypeEnvironment or pass through HandleBaseDecl.
 - `CompositionInterfaces` / `s_activeCompositionCollector` (ThreadStatic) → replace with explicit collector threaded through calls, or compute compositions in analysis phase.
 
-#### 5c. Collapse WrapperEmitter
-
-Absorbed from Session 3 (was 3c.3/3c.4). Replace the inline marshalling code in `WrapperEmitter.Marshalling.cs` (~630 lines) and `WrapperEmitter.Return.cs` (~550 lines) with `MarshalPlan` rendering via `MarshalPlanRenderer`. The projection produces the plan; the renderer walks `MarshalStatement` nodes and writes to CSharpWriter. The massive if/else chains for dictionaries, optionals, existentials, etc. collapse into `projection.GetParameterPlan(paramName)`.
-
-**Depends on**: Fixed projection return plans (prerequisite above) and GenericContext support.
-
-**Required test**: For async methods with tuple/string/complex returns, assert that the emitted Swift callback parameter types exactly match the emitted C# callback signatures. This enforces the callback signature reconciliation that Session 2 deferred.
-
-#### 5d. Decompose into Method-Level Handlers
+#### 5C.2. Decompose into Method-Level Handlers
 
 Split the monolithic MethodHandler into composable handlers that each populate one aspect of the `MethodMarshalPlan`:
 
@@ -292,18 +384,19 @@ Split the monolithic MethodHandler into composable handlers that each populate o
 
 Each handler implements `bool CanHandle(MethodDecl)` and `void Contribute(MethodMarshalPlan)`. The orchestrator runs all applicable handlers, then a renderer walks the plan and emits code.
 
-#### 5e. Delete Remaining Dead Code
+#### 5C.3. Delete All Remaining Dead Code
 
-Absorbed from Session 3f. After 5c collapses WrapperEmitter, the old APIs finally have zero callers:
+Absorbed from Session 3f. After 5B collapses WrapperEmitter and receivers, the old APIs finally have zero callers:
 - `TypeConversionHandler.GetIdiomaticCSharpType()`, `GetParameterConversion()`, `GetReturnConversion()`, `GetSwiftWrapperType()`, `IsConvertibleType()`
 - `BoundGenericsHandler.TranslateBoundGenericTypeToCSharp()` (all overloads)
 - `WrapperEmitter.TranslateTypeSpecForConversion()` (both definitions)
 - Supporting helpers: `IsElementTypeConverted`, `IsDictionaryKeyTypeConverted`, `GetRawArrayElementType`, etc.
+- Session A-E artifacts: `EmitOptionalExistentialParamConversion`, `GetReceiverExistentialGetterConversion`, `GetReceiverExistentialSetterConversion`, `OverrideOptionalExistentialAbiType`
 - If `TypeConversionHandler` / `BoundGenericsHandler` have no remaining public methods after deletion, delete the entire classes.
 
-**Exit gate**: `grep -rn "GetIdiomaticCSharpType\|TranslateBoundGenericTypeToCSharp\|GetParameterConversion\|GetReturnConversion\|GetSwiftWrapperType\b\|IsConvertibleType\|TranslateTypeSpecForConversion" src/Swift.Bindings/src/ --include="*.cs" | grep -v "//\|test\|Test"` returns zero results.
+**Exit gate**: `grep -rn "GetIdiomaticCSharpType\|TranslateBoundGenericTypeToCSharp\|GetParameterConversion\|GetReturnConversion\|GetSwiftWrapperType\b\|IsConvertibleType\|TranslateTypeSpecForConversion\|GetReceiverExistentialGetterConversion\|GetReceiverExistentialSetterConversion\|EmitOptionalExistentialParamConversion" src/Swift.Bindings/src/ --include="*.cs" | grep -v "//\|test\|Test"` returns zero results.
 
-**Validation**: All unit + integration tests pass. Library validation 0 regressions. Golden-file diffs reviewed. MethodHandler.cs and WrapperEmitter.cs are each under 200 lines (down from 896 and 978).
+**Validation**: All unit + integration tests pass. Library validation 0 regressions. Golden-file diffs reviewed. MethodHandler.cs and WrapperEmitter.cs are each under 200 lines (down from 896 and 978+).
 
 ---
 
@@ -315,6 +408,11 @@ Absorbed from Session 3f. After 5c collapses WrapperEmitter, the old APIs finall
 | **2** | Build | Complex projections (collections, optional, existential, closure, tuple, async) | **COMPLETE** (Feb 19) |
 | **3** | Migrate | Factory-first for signatures/validators, ClassProjection, MarshalPlanRenderer, bool centralization | **COMPLETE** (Feb 20) |
 | **4** | Lock Down | Consistency tests, MarshalPlan tests, golden files, deterministic hash fix, full validation | **COMPLETE** (Feb 20) |
-| **5** | Decompose | Fix projection plans, GenericContext, collapse WrapperEmitter, Conductor cleanup, decompose MethodHandler | Pending — largest session |
+| *A-E* | *(Bug fixes)* | *Library validation fixes (24/32 → 27/32); added ~590 lines of old-architecture debt* | *COMPLETE (Feb 20)* |
+| **5A** | Decompose | Fix projection return plans, GenericContext support, MethodMarshalPlan definition | **COMPLETE** (Feb 20) |
+| **5B** | Decompose | Collapse WrapperEmitter + ProtocolProxyEmitter.Receivers into MarshalPlan rendering | Pending — highest impact |
+| **5C** | Decompose | Conductor state cleanup, MethodHandler decomposition, delete all dead legacy code | Pending |
 
-Sessions 1-2 built the new type projection architecture alongside the old one. Session 3 wired the factory into all straightforward call sites and built supporting infrastructure. Session 4 proved the factory works via 179 new tests (125 consistency + 54 regression), first-party golden file testing, and a deterministic hash fix that made all generator output reproducible across runs. Session 5 is the culmination — it fixes projection return plans, collapses WrapperEmitter into MarshalPlan rendering, cleans up Conductor state, decomposes MethodHandler, and deletes all dead legacy code. After Session 5, the old 4-path type conversion system is fully replaced.
+Sessions 1-2 built the new type projection architecture alongside the old one. Session 3 wired the factory into all straightforward call sites. Session 4 proved the factory works via tests and golden files. Sessions A-E fixed library validation bugs but added ~590 lines of old-architecture debt (primarily in WrapperEmitter and ProtocolProxyEmitter.Receivers).
+
+Session 5A built the foundation: correct projection plans, GenericContext for standard containers, and MethodMarshalPlan data structure. The factory handles all standard container types; user-defined bound generics (e.g., `SwiftResult<T1,T2>`) still fall back to `TranslateBoundGenericTypeToCSharp` in 13 Emitter files because `ProjectBoundGeneric` produces public types that violate `ISwiftObject` constraints. Session 5B is the highest-impact session — it collapses WrapperEmitter and the receiver helpers into MarshalPlan rendering, eliminating the largest concentration of old-architecture code including all Session A-E debt. Session 5C completes the migration by decomposing MethodHandler and deleting all legacy code. After Session 5C, the old 4-path type conversion system is fully replaced.

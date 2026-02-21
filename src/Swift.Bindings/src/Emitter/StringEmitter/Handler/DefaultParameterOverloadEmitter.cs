@@ -454,6 +454,11 @@ public static class DefaultParameterOverloadEmitter
             {
                 paramType = projection.PublicType;
             }
+            else if (typeSpecForKey is NamedTypeSpec dpBoundGeneric && dpBoundGeneric.ContainsGenericParameters)
+            {
+                var bgh = new BoundGenericsHandler(typeDatabase);
+                paramType = bgh.TranslateBoundGenericTypeToCSharp(typeSpecForKey, GenericContext.Empty);
+            }
             else
             {
                 try

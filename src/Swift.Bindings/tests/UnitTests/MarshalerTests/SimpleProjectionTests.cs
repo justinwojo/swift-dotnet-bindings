@@ -148,7 +148,10 @@ public class SimpleProjectionTests
     {
         var proj = new StringProjection();
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
-        Assert.Equal("result.ToString()", plan.PInvokeExpression);
+        Assert.Equal("swiftResult.ToString()", plan.PInvokeExpression);
+        Assert.True(plan.RequiresUnsafe);
+        Assert.Single(plan.SetupStatements);
+        Assert.Contains("MarshalFromSwift<SwiftString>", ((MarshalStatement.Line)plan.SetupStatements[0]).Code);
     }
 
     [Fact]

@@ -357,22 +357,14 @@ namespace BindingsGeneration
                 var projection = _factory.Project(argument.SwiftTypeSpec, new ProjectionContext
                 {
                     TypeDatabase = _env.TypeDatabase,
-                    IsParameter = false
+                    IsParameter = false,
+                    GenericContext = _genericContext
                 });
                 if (projection != null && !ShouldSkipProjectionForAccessor(argument.SwiftTypeSpec))
                 {
                     SetReturnType(projection.PublicType);
                     return;
                 }
-            }
-
-            // Fallback: bound generics (user-defined generic types like Result<T, E>
-            // that the factory returns null for because it can't translate generic args)
-            if (_env.BoundGenericsHandler.IsBoundGeneric(argument))
-            {
-                var csTypeParam = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(argument, _genericContext);
-                SetReturnType(csTypeParam);
-                return;
             }
 
             // Fallback: tuple return types (preserves element labels and shallow conversion)
@@ -390,6 +382,19 @@ namespace BindingsGeneration
                     }));
                 else
                     SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
+                return;
+            }
+
+            // Fallback: bound generic return types that the factory couldn't project.
+            // Covers two cases:
+            //   1. Accessors: factory skipped by ShouldSkipProjectionForAccessor to preserve raw ABI types
+            //   2. Non-accessors: factory returns null when inner type is unsupported (e.g., frozen-with-memory
+            //      structs like AsyncResult cause Optional<AsyncResult> to fail projection)
+            // TranslateBoundGenericTypeToCSharp produces the correct raw name with generic args
+            // (e.g., SwiftOptional<SwiftArray<int>>). Deferred to 5B when WrapperEmitter is replaced.
+            if (_env.BoundGenericsHandler.IsBoundGeneric(argument))
+            {
+                SetReturnType(_env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(argument, _genericContext));
                 return;
             }
 
@@ -439,21 +444,17 @@ namespace BindingsGeneration
                     var projection = _factory.Project(argument.SwiftTypeSpec, new ProjectionContext
                     {
                         TypeDatabase = _env.TypeDatabase,
-                        IsParameter = true
+                        IsParameter = true,
+                        GenericContext = _genericContext
                     });
                     if (projection != null && !ShouldSkipProjectionForAccessor(argument.SwiftTypeSpec))
                     {
-                        AddParameter(projection.PublicType, csParamName);
+                        // Preserve ref modifier for inout generic type parameters (e.g., non-frozen struct T).
+                        // Only generic params need ref — concrete types have marshalling handled by WrapperEmitter.
+                        var projInoutModifier = (argument.IsInOut && argument.IsGeneric) ? "ref" : "";
+                        AddParameter(projection.PublicType, csParamName, projInoutModifier);
                         continue;
                     }
-                }
-
-                // Fallback: bound generics (user-defined generic types)
-                if (_env.BoundGenericsHandler.IsBoundGeneric(argument))
-                {
-                    var csTypeParam = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(argument, _genericContext);
-                    AddParameter(csTypeParam, csParamName);
-                    continue;
                 }
 
                 // Fallback: tuple arguments (preserves element labels and shallow conversion)
@@ -465,6 +466,14 @@ namespace BindingsGeneration
                         AddParameter(_env.TupleHandler.GetCSharpTupleType(tupleTypeSpec, _genericContext), csParamName);
                     else
                         AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, csParamName);
+                    continue;
+                }
+
+                // Fallback: bound generic parameters the factory couldn't project.
+                // Same rationale as HandleReturnType — deferred to 5B.
+                if (_env.BoundGenericsHandler.IsBoundGeneric(argument))
+                {
+                    AddParameter(_env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(argument, _genericContext), csParamName);
                     continue;
                 }
 

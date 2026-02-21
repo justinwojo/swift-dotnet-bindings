@@ -22,6 +22,9 @@ public record ProjectionContext
 
     /// <summary>Unique prefix for callback names. Used by closures and async projections for callback method naming.</summary>
     public string? CallbackNamePrefix { get; init; }
+
+    /// <summary>Optional generic context for resolving τ_0_0 → T0 mappings in bound generic types.</summary>
+    public GenericContext? GenericContext { get; init; }
 }
 
 /// <summary>
@@ -83,10 +86,13 @@ public class TypeProjectionFactory
     {
         var name = namedType.Name;
 
-        // Generic type parameters (τ_0_0, T, U, etc.) cannot be projected — they're
-        // resolved by the caller via GenericTypeMapping.
+        // Generic type parameters (τ_0_0, T, U, etc.) — resolve via GenericContext if available.
         if (TypeSpecHelpers.IsGenericTypeParameter(name))
+        {
+            if (context.GenericContext?.TryResolve(name, out var csTypeName) == true)
+                return new BlittableProjection(csTypeName);
             return null;
+        }
 
         // Swift special type names that can't be projected:
         // - "Self": dynamic self-type (protocol extensions, class factory methods)
@@ -148,10 +154,17 @@ public class TypeProjectionFactory
         if (IsPointerType(name))
             return new BlittableProjection("System.IntPtr");
 
-        // User-defined types with generic parameters require bound-generic translation
-        // (e.g., Result<String, Error> → Result<string, AnyError>) that the factory
-        // doesn't handle yet. Return null to let callers use the legacy path.
+        // User-defined types with generic parameters: return null to fall through to
+        // TranslateBoundGenericTypeToCSharp which handles raw ABI type names correctly.
+        // The factory produces public types (string, IReadOnlyList) for generic args, which
+        // violate ISwiftObject constraints on generic type parameters. Deferred to 5B when
+        // proper public-vs-raw type distinction is implemented.
         if (namedType.GenericParameters.Count > 0)
+            return null;
+
+        // Guard: names without module qualification (no dot) can't be resolved.
+        // Test fixtures may use bare names like "SomeUnknownProtocol".
+        if (!name.Contains('.'))
             return null;
 
         // Try to resolve from the type database

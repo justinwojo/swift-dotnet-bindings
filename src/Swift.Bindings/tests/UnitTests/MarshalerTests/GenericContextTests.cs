@@ -331,6 +331,63 @@ public class GenericContextTests
         Assert.Contains("AnyType", result);
     }
 
+    [Fact]
+    public void TranslateBoundGenericTypeToCSharp_PropertyWithGenericContext_ResolvesCorrectly()
+    {
+        // Verify that TranslateBoundGenericTypeToCSharp with explicit GenericContext
+        // resolves τ_0_0 via the context, producing T0 instead of AnyType.
+        // PropertyHandler intentionally uses GenericContext.Empty for the ABI type (to
+        // trigger AnyType skip when factory can't project), but the factory projection
+        // with GenericContext handles the public type override.
+        var optionalTypeSpec = new NamedTypeSpec("Swift.Optional");
+        optionalTypeSpec.GenericParameters.Add(new NamedTypeSpec("τ_0_0"));
+
+        var parentType = CreateGenericTypeDecl("Container", new[] { "τ_0_0" });
+        var propertyDecl = new PropertyDecl
+        {
+            Name = "value",
+            SwiftTypeSpec = optionalTypeSpec,
+            ParentDecl = parentType,
+            ModuleDecl = null,
+            Accessors = new List<AccessorDecl>(),
+            HasStorage = true,
+            IsStatic = false
+        };
+
+        var handler = new BoundGenericsHandler(new MockTypeDatabase());
+
+        // With explicit GenericContext: resolves T0 correctly
+        var ctx = GenericContext.FromType(parentType);
+        var resultWithContext = handler.TranslateBoundGenericTypeToCSharp(propertyDecl, ctx);
+        Assert.Contains("SwiftOptional", resultWithContext);
+        Assert.Contains("T0", resultWithContext);
+        Assert.DoesNotContain("AnyType", resultWithContext);
+
+        // Without context (PropertyDecl overload): degrades to AnyType.
+        // PropertyHandler relies on this to skip properties where WrapperEmitter
+        // would produce mismatched getter bodies for user-defined bound generics.
+        var resultWithoutContext = handler.TranslateBoundGenericTypeToCSharp(propertyDecl);
+        Assert.Contains("SwiftOptional", resultWithoutContext);
+        Assert.Contains("AnyType", resultWithoutContext);
+    }
+
+    [Fact]
+    public void TranslateBoundGenericTypeToCSharp_ArrayOfAssociatedType_DegradesToAnyType()
+    {
+        // P2 regression: Array<Self.Element> should degrade to AnyType for the inner type
+        // instead of throwing NotSupportedException.
+        var arrayTypeSpec = new NamedTypeSpec("Swift.Array");
+        arrayTypeSpec.GenericParameters.Add(new AssociatedTypeReferenceSpec("Self", "Element"));
+
+        var handler = new BoundGenericsHandler(new MockTypeDatabase());
+
+        // Should NOT throw — degrades inner type to AnyType
+        var result = handler.TranslateBoundGenericTypeToCSharp(arrayTypeSpec, GenericContext.Empty);
+
+        Assert.Contains("SwiftArray", result);
+        Assert.Contains("AnyType", result);
+    }
+
     #endregion
 
     #region Helper Methods

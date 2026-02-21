@@ -655,12 +655,13 @@ namespace BindingsGeneration
                 return ProtocolSignatureHelper.MapAssociatedTypeToGenericParam(assocRef, protocolContext);
             }
 
-            // Factory-first: handles existentials, closures, tuples, optionals, arrays, dicts, native remapping
+            // Factory-first with GenericContext: handles all types
             var factory = new TypeProjectionFactory();
             var projection = factory.Project(typeSpec, new ProjectionContext
             {
                 TypeDatabase = typeDatabase,
-                IsParameter = isParameter
+                IsParameter = isParameter,
+                GenericContext = GenericContext.Empty
             });
             if (projection != null)
                 return projection.PublicType;
@@ -677,41 +678,13 @@ namespace BindingsGeneration
                 return $"({string.Join(", ", elements)})";
             }
 
-            // Idiomatic conversion fallback — handles types the factory couldn't fully resolve
-            // (e.g., Optional<Dictionary<AnyHashable, Int>> where inner types aren't in TypeDatabase)
-            if (typeSpec is NamedTypeSpec idioNamedType)
-            {
-                var typeConversionHandler = new TypeConversionHandler(typeDatabase);
-                var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(typeSpec, isParameter: isParameter,
-                    ts => GetCSharpTypeName(ts, typeDatabase, boundGenericsHandler, protocolContext, isParameter));
-                if (idiomaticType != null)
-                    return idiomaticType;
-            }
+            // Bound generic fallback: produce full type name with generic args
+            // (e.g., BatchedCollection<Swift.AnyType> for unknown inner types).
+            // Factory returns null when inner types can't be projected (existentials, unknown types).
+            if (typeSpec is NamedTypeSpec boundGeneric && boundGeneric.ContainsGenericParameters)
+                return boundGenericsHandler.TranslateBoundGenericTypeToCSharp(typeSpec, GenericContext.Empty);
 
-            // Legacy fallback: bound generics not yet covered by factory
-            if (typeSpec is NamedTypeSpec namedTypeSpec && namedTypeSpec.ContainsGenericParameters)
-            {
-                var tempProperty = new PropertyDecl
-                {
-                    Name = "_temp",
-                    SwiftTypeSpec = typeSpec,
-                    IsStatic = false,
-                    HasStorage = false,
-                    Accessors = new List<AccessorDecl>(),
-                    ParentDecl = null,
-                    ModuleDecl = null
-                };
-                try
-                {
-                    return boundGenericsHandler.TranslateBoundGenericTypeToCSharp(tempProperty);
-                }
-                catch (NotSupportedException)
-                {
-                    return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
-                }
-            }
-
-            // For non-generic types, use the standard lookup
+            // Type record fallback
             return typeDatabase.GetTypeRecordOrAnyType(typeSpec).CSharpTypeName.FullyQualifiedName;
         }
 

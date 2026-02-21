@@ -121,7 +121,8 @@ internal static class ProtocolSignatureHelper
         var projection = factory.Project(typeSpec, new ProjectionContext
         {
             TypeDatabase = typeDatabase,
-            IsParameter = isParameter
+            IsParameter = isParameter,
+            GenericContext = GenericContext.Empty
         });
         if (projection != null)
             return projection.PublicType;
@@ -155,39 +156,12 @@ internal static class ProtocolSignatureHelper
             return $"({string.Join(", ", elements)})";
         }
 
-        // Idiomatic conversion fallback — handles types the factory couldn't fully resolve
-        // (e.g., Optional<Dictionary<AnyHashable, Int>> where inner types aren't in TypeDatabase)
-        if (typeSpec is NamedTypeSpec)
+        // Bound generic fallback: produce full type name with generic args
+        // (e.g., BatchedCollection<Swift.AnyType> for unknown inner types).
+        if (typeSpec is NamedTypeSpec boundGeneric && boundGeneric.ContainsGenericParameters)
         {
-            var typeConversionHandler = new TypeConversionHandler(typeDatabase);
-            var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(typeSpec, isParameter: isParameter,
-                ts => ProjectTypeToCSharp(ts, typeDatabase, protocolContext, isParameter));
-            if (idiomaticType != null)
-                return idiomaticType;
-        }
-
-        // Fallback for types the factory can't handle (user-defined bound generics, protocol-kind, etc.)
-        if (typeSpec is NamedTypeSpec namedTypeSpec && namedTypeSpec.ContainsGenericParameters)
-        {
-            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
-            try
-            {
-                var tempProperty = new PropertyDecl
-                {
-                    Name = "_temp",
-                    SwiftTypeSpec = typeSpec,
-                    IsStatic = false,
-                    HasStorage = false,
-                    Accessors = new List<AccessorDecl>(),
-                    ParentDecl = null,
-                    ModuleDecl = null
-                };
-                return boundGenericsHandler.TranslateBoundGenericTypeToCSharp(tempProperty);
-            }
-            catch (NotSupportedException)
-            {
-                return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
-            }
+            var bgh = new BoundGenericsHandler(typeDatabase);
+            return bgh.TranslateBoundGenericTypeToCSharp(typeSpec, GenericContext.Empty);
         }
 
         // Final fallback: raw type record lookup

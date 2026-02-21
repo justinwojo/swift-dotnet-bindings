@@ -214,27 +214,22 @@ public class ProtocolConformanceValidator
         if (protoProperty.SwiftTypeSpec is AssociatedTypeReferenceSpec)
             return "?";  // PAT - should have been filtered earlier
 
-        // Try factory-based projection (handles String→string, Array→IReadOnlyList, native remapping, etc.)
+        // Use factory with GenericContext for all types including bound generics
         var factory = new TypeProjectionFactory();
         var projection = factory.Project(protoProperty.SwiftTypeSpec, new ProjectionContext
         {
             TypeDatabase = _typeDatabase,
-            IsParameter = false
+            IsParameter = false,
+            GenericContext = GenericContext.Empty
         });
         if (projection != null)
             return projection.PublicType;
 
-        // Fallback: bound generics, then raw TypeRecord
-        if (boundGenericsHandler.IsBoundGeneric(protoProperty))
+        // Bound generic fallback: produce full type name with generic args
+        if (protoProperty.SwiftTypeSpec is NamedTypeSpec propBoundGeneric && propBoundGeneric.ContainsGenericParameters)
         {
-            var rawType = boundGenericsHandler.TranslateBoundGenericTypeToCSharp(protoProperty);
-            // Apply idiomatic override for container types, using same translator as PropertyHandler
-            var typeConversionHandler = new TypeConversionHandler(_typeDatabase);
-            Func<TypeSpec, string> translator = ts =>
-                PropertyHandler.TranslateTypeSpecWithGenerics(ts, _typeDatabase, null);
-            var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(
-                protoProperty.SwiftTypeSpec, isParameter: false, translator);
-            return idiomaticType ?? rawType;
+            var bgh = new BoundGenericsHandler(_typeDatabase);
+            return bgh.TranslateBoundGenericTypeToCSharp(protoProperty.SwiftTypeSpec, GenericContext.Empty);
         }
 
         return _typeDatabase.GetTypeRecordOrAnyType(protoProperty.SwiftTypeSpec).CSharpTypeName.FullyQualifiedName;
@@ -253,34 +248,26 @@ public class ProtocolConformanceValidator
             var returnArg = protoMethod.CSSignature[0];
             if (returnArg.SwiftTypeSpec is not TupleTypeSpec tuple || !tuple.IsEmptyTuple)
             {
-                // Try factory-based projection (handles idiomatic conversion + native remapping)
-                var factory = new TypeProjectionFactory();
-                var projection = factory.Project(returnArg.SwiftTypeSpec, new ProjectionContext
+                // Try factory-based projection with GenericContext
+                var methodFactory = new TypeProjectionFactory();
+                var methodProjection = methodFactory.Project(returnArg.SwiftTypeSpec, new ProjectionContext
                 {
                     TypeDatabase = _typeDatabase,
-                    IsParameter = false
+                    IsParameter = false,
+                    GenericContext = GenericContext.Empty
                 });
-                if (projection != null)
+                if (methodProjection != null)
                 {
-                    returnType = projection.PublicType;
+                    returnType = methodProjection.PublicType;
                 }
                 else if (returnArg.SwiftTypeSpec is AssociatedTypeReferenceSpec assocRef)
                 {
                     returnType = ProtocolSignatureHelper.MapAssociatedTypeToGenericParam(assocRef, protocolContext);
                 }
-                else if (boundGenericsHandler.IsBoundGeneric(returnArg))
+                else if (returnArg.SwiftTypeSpec is NamedTypeSpec retBoundGeneric && retBoundGeneric.ContainsGenericParameters)
                 {
-                    var tempProperty = new PropertyDecl
-                    {
-                        Name = "_temp",
-                        SwiftTypeSpec = returnArg.SwiftTypeSpec,
-                        IsStatic = false,
-                        HasStorage = false,
-                        Accessors = new List<AccessorDecl>(),
-                        ParentDecl = null,
-                        ModuleDecl = null
-                    };
-                    returnType = boundGenericsHandler.TranslateBoundGenericTypeToCSharp(tempProperty);
+                    var bgh = new BoundGenericsHandler(_typeDatabase);
+                    returnType = bgh.TranslateBoundGenericTypeToCSharp(returnArg.SwiftTypeSpec, GenericContext.Empty);
                 }
                 else
                 {
@@ -334,41 +321,25 @@ public class ProtocolConformanceValidator
     /// </summary>
     private string GetInterfaceSubscriptReturnType(SubscriptDecl protoSubscript, ProtocolDecl protocolContext)
     {
-        // Try factory-based projection (handles idiomatic conversion + closures + tuples + existentials)
-        var factory = new TypeProjectionFactory();
-        var projection = factory.Project(protoSubscript.ReturnTypeSpec, new ProjectionContext
+        // Factory-based projection with GenericContext
+        var subscriptFactory = new TypeProjectionFactory();
+        var subscriptProjection = subscriptFactory.Project(protoSubscript.ReturnTypeSpec, new ProjectionContext
         {
             TypeDatabase = _typeDatabase,
-            IsParameter = false
+            IsParameter = false,
+            GenericContext = GenericContext.Empty
         });
-        if (projection != null)
-            return projection.PublicType;
+        if (subscriptProjection != null)
+            return subscriptProjection.PublicType;
 
         if (protoSubscript.ReturnTypeSpec is AssociatedTypeReferenceSpec assocRef)
             return ProtocolSignatureHelper.MapAssociatedTypeToGenericParam(assocRef, protocolContext);
 
-        // Legacy fallback: bound generics not yet covered by factory
-        if (protoSubscript.ReturnTypeSpec is NamedTypeSpec namedTypeSpec && namedTypeSpec.ContainsGenericParameters)
+        // Bound generic fallback
+        if (protoSubscript.ReturnTypeSpec is NamedTypeSpec subBoundGeneric && subBoundGeneric.ContainsGenericParameters)
         {
-            var boundGenericsHandler = new BoundGenericsHandler(_typeDatabase);
-            var tempProperty = new PropertyDecl
-            {
-                Name = "_temp",
-                SwiftTypeSpec = protoSubscript.ReturnTypeSpec,
-                IsStatic = false,
-                HasStorage = false,
-                Accessors = new List<AccessorDecl>(),
-                ParentDecl = null,
-                ModuleDecl = null
-            };
-            try
-            {
-                return boundGenericsHandler.TranslateBoundGenericTypeToCSharp(tempProperty);
-            }
-            catch (NotSupportedException)
-            {
-                return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
-            }
+            var bgh = new BoundGenericsHandler(_typeDatabase);
+            return bgh.TranslateBoundGenericTypeToCSharp(protoSubscript.ReturnTypeSpec, GenericContext.Empty);
         }
 
         return _typeDatabase.GetTypeRecordOrAnyType(protoSubscript.ReturnTypeSpec).CSharpTypeName.FullyQualifiedName;

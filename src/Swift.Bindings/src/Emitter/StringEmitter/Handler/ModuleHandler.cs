@@ -764,38 +764,22 @@ namespace BindingsGeneration
         /// </summary>
         private static string ResolveCSharpTypeName(TypeSpec typeSpec, ITypeDatabase typeDatabase, bool isParameter = true)
         {
-            // Factory-first: handles existentials, closures, tuples, optionals, arrays, dicts, native remapping
+            // Factory-first with GenericContext: handles all types including bound generics
             var factory = new TypeProjectionFactory();
             var projection = factory.Project(typeSpec, new ProjectionContext
             {
                 TypeDatabase = typeDatabase,
-                IsParameter = isParameter
+                IsParameter = isParameter,
+                GenericContext = GenericContext.Empty
             });
             if (projection != null)
                 return projection.PublicType;
 
-            // Legacy fallback: bound generics not yet covered by factory
-            if (typeSpec is NamedTypeSpec namedTypeSpec && namedTypeSpec.ContainsGenericParameters)
+            // Bound generic fallback: produce raw ABI type name with generic args
+            if (typeSpec is NamedTypeSpec boundGeneric && boundGeneric.ContainsGenericParameters)
             {
-                var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
-                var tempProperty = new PropertyDecl
-                {
-                    Name = "_temp",
-                    SwiftTypeSpec = typeSpec,
-                    IsStatic = false,
-                    HasStorage = false,
-                    Accessors = new List<AccessorDecl>(),
-                    ParentDecl = null,
-                    ModuleDecl = null
-                };
-                try
-                {
-                    return boundGenericsHandler.TranslateBoundGenericTypeToCSharp(tempProperty);
-                }
-                catch (NotSupportedException)
-                {
-                    return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
-                }
+                var bgh = new BoundGenericsHandler(typeDatabase);
+                return bgh.TranslateBoundGenericTypeToCSharp(typeSpec, GenericContext.Empty);
             }
 
             // Standard type lookup

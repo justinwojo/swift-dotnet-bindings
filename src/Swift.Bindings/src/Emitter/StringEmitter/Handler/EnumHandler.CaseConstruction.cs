@@ -198,24 +198,12 @@ namespace BindingsGeneration
             }
 
             // Handle bound generics (e.g., Optional<T>, Array<T>)
+            // Use TranslateBoundGenericTypeToCSharp (NOT factory) to produce raw ABI type names
+            // (e.g., SwiftArray<string>, SwiftOptional<SwiftResult<...>>). The factory produces
+            // public types (IReadOnlyList<string>) which don't have .Payload for P/Invoke access.
             if (typeSpec is NamedTypeSpec namedTypeSpec && namedTypeSpec.ContainsGenericParameters)
             {
-                // Create a temporary property to use the BoundGenericsHandler
-                var tempProperty = new PropertyDecl
-                {
-                    Name = "_temp",
-                    SwiftTypeSpec = typeSpec,
-                    IsStatic = false,
-                    HasStorage = false,
-                    Accessors = new List<AccessorDecl>(),
-                    ParentDecl = null,
-                    ModuleDecl = null
-                };
-                // Not all generic types are bound generics (e.g., UnsafePointer<T>, optional closures).
-                // Fall back to standard lookup for types the BoundGenericsHandler can't translate.
-                if (!boundGenericsHandler.IsBoundGeneric(tempProperty))
-                    return typeDatabase.GetTypeRecordOrAnyType(typeSpec).CSharpTypeName.FullyQualifiedName;
-                return boundGenericsHandler.TranslateBoundGenericTypeToCSharp(tempProperty);
+                return boundGenericsHandler.TranslateBoundGenericTypeToCSharp(typeSpec, GenericContext.Empty);
             }
 
             // Handle tuple types

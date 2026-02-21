@@ -29,7 +29,8 @@ public partial class ProtocolProxyEmitter
             var projection = factory.Project(typeSpec, new ProjectionContext
             {
                 TypeDatabase = _typeDatabase,
-                IsParameter = isParameter
+                IsParameter = isParameter,
+                GenericContext = GenericContext.Empty
             });
             if (projection != null)
                 return projection.PublicType;
@@ -65,60 +66,17 @@ public partial class ProtocolProxyEmitter
             }
         }
 
-        // Idiomatic conversion fallback — handles types the factory couldn't fully resolve
-        // (e.g., Optional<Dictionary<AnyHashable, Int>> where inner types aren't in TypeDatabase)
-        if (!forAbiMarshalling && typeSpec is NamedTypeSpec)
+        // Bound generic fallback: produce full type name with generic args
+        // (e.g., BatchedCollection<Swift.AnyType> for unknown inner types)
+        if (typeSpec is NamedTypeSpec proxyBoundGeneric && proxyBoundGeneric.ContainsGenericParameters)
         {
-            var typeConversionHandler = new TypeConversionHandler(_typeDatabase);
-            var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(typeSpec, isParameter: isParameter,
-                ts => GetCSharpTypeName(ts, isParameter: isParameter));
-            if (idiomaticType != null)
-                return idiomaticType;
+            var bgh = new BoundGenericsHandler(_typeDatabase);
+            return bgh.TranslateBoundGenericTypeToCSharp((TypeSpec)proxyBoundGeneric, GenericContext.Empty);
         }
 
-        // Optional<existential> for well-known protocols (e.g., Optional<any Error> → AnyError?)
-        if (!forAbiMarshalling && typeSpec is NamedTypeSpec optionalExistentialType &&
-            optionalExistentialType.Name == "Swift.Optional" && optionalExistentialType.GenericParameters.Count == 1)
-        {
-            var innerTypeSpec = optionalExistentialType.GenericParameters[0];
-            if (existentialHandler.IsExistential(innerTypeSpec))
-            {
-                var innerProtocolList = existentialHandler.ToProtocolListTypeSpec(innerTypeSpec);
-                if (innerProtocolList != null && existentialHandler.TryGetWellKnownProtocolType(innerProtocolList, out var wkt))
-                    return $"{wkt}?";
-            }
-        }
-
-        // Bound generics and type record fallback
-        try
-        {
-            if (typeSpec is NamedTypeSpec namedType && namedType.GenericParameters.Count > 0)
-            {
-                var boundGenericsHandler = new BoundGenericsHandler(_typeDatabase);
-                var tempProperty = new PropertyDecl
-                {
-                    Name = "_temp",
-                    SwiftTypeSpec = typeSpec,
-                    IsStatic = false,
-                    HasStorage = false,
-                    Accessors = new List<AccessorDecl>(),
-                    ParentDecl = null,
-                    ModuleDecl = null
-                };
-                return boundGenericsHandler.TranslateBoundGenericTypeToCSharp(tempProperty);
-            }
-
-            var record = _typeDatabase.GetTypeRecordOrAnyType(typeSpec);
-            return record.CSharpTypeName.FullyQualifiedName;
-        }
-        catch
-        {
-            if (typeSpec is NamedTypeSpec { ContainsGenericParameters: true })
-                return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
-            if (typeSpec is NamedTypeSpec namedType2)
-                return namedType2.NameWithoutModule;
-            return "object";
-        }
+        // Type record fallback
+        var record = _typeDatabase.GetTypeRecordOrAnyType(typeSpec);
+        return record.CSharpTypeName.FullyQualifiedName;
     }
 
     /// <summary>
@@ -127,41 +85,28 @@ public partial class ProtocolProxyEmitter
     /// </summary>
     private string GetInterfaceCompatiblePropertyTypeName(PropertyDecl property)
     {
-        // Try factory first for well-resolved types
-        var factory = new TypeProjectionFactory();
-        var projection = factory.Project(property.SwiftTypeSpec, new ProjectionContext
+        // Factory with GenericContext for all types including bound generics
+        var propGenericContext = property.ParentDecl is TypeDecl propParentType && propParentType.IsGeneric
+            ? GenericContext.FromType(propParentType)
+            : GenericContext.Empty;
+        var propFactory = new TypeProjectionFactory();
+        var propProjection = propFactory.Project(property.SwiftTypeSpec, new ProjectionContext
         {
             TypeDatabase = _typeDatabase,
-            IsParameter = false
+            IsParameter = false,
+            GenericContext = propGenericContext
         });
-        if (projection != null)
-            return projection.PublicType;
+        if (propProjection != null)
+            return propProjection.PublicType;
 
-        // Fallback: existing resolution cascade
-        var boundGenericsHandler = new BoundGenericsHandler(_typeDatabase);
-        var rawType = boundGenericsHandler.IsBoundGeneric(property)
-            ? boundGenericsHandler.TranslateBoundGenericTypeToCSharp(property)
-            : _typeDatabase.GetTypeRecordOrAnyType(property.SwiftTypeSpec).CSharpTypeName.FullyQualifiedName;
-
-        // Apply idiomatic type conversion to match interface declaration (SwiftString → string, etc.)
-        var typeConversionHandler = new TypeConversionHandler(_typeDatabase);
-        var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(
-            property.SwiftTypeSpec,
-            isParameter: false,
-            typeSpec =>
-            {
-                var rec = _typeDatabase.GetTypeRecordOrAnyType(typeSpec);
-                return rec.CSharpTypeName.FullyQualifiedName;
-            });
-        if (idiomaticType != null)
-            return idiomaticType;
-        if (typeConversionHandler.HasNativeTypeRemapping(property.SwiftTypeSpec))
+        // Bound generic fallback: produce full type name with generic args
+        if (property.SwiftTypeSpec is NamedTypeSpec propBoundGeneric && propBoundGeneric.ContainsGenericParameters)
         {
-            var nativeType = typeConversionHandler.GetNativeTypeName(property.SwiftTypeSpec);
-            if (nativeType != null)
-                return nativeType;
+            var bgh = new BoundGenericsHandler(_typeDatabase);
+            return bgh.TranslateBoundGenericTypeToCSharp(property.SwiftTypeSpec, propGenericContext);
         }
-        return rawType;
+
+        return _typeDatabase.GetTypeRecordOrAnyType(property.SwiftTypeSpec).CSharpTypeName.FullyQualifiedName;
     }
 
     /// <summary>
