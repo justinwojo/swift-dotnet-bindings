@@ -530,7 +530,11 @@ namespace BindingsGeneration
                 return;
 
             var returnArg = _env.MethodDecl.CSSignature.First();
-            var swiftType = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg, _genericContext);
+            var projection = s_projectionFactory.Project(returnArg.SwiftTypeSpec,
+                new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false, GenericContext = _genericContext });
+            // ContainerTypeName gives e.g. SwiftOptional<SwiftString> for TypeMetadata resolution.
+            // Fallback to _wrapperSignature.ReturnType if factory can't project (user-defined generics).
+            var swiftType = projection?.ContainerTypeName ?? _wrapperSignature.ReturnType;
             csWriter.WriteLines($$"""
                 var _optRetSize = (int)TypeMetadata.GetTypeMetadataOrThrow<{{swiftType}}>().Size;
                 byte* _optRetBuf = stackalloc byte[_optRetSize];

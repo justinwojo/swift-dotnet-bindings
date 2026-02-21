@@ -36,9 +36,16 @@ public class DictionaryProjection : ITypeProjection
     public string PInvokeType => "IntPtr";
     public string? PInvokeAttribute => null;
 
-    public string SwiftContainerGenericType => ContainerTypeName;
+    public string SwiftContainerGenericType => $"SwiftDictionary<{_keyProjection.SwiftContainerGenericType}, {_valueProjection.SwiftContainerGenericType}>";
 
-    public string ContainerTypeName => $"SwiftDictionary<{_keyProjection.SwiftContainerGenericType}, {_valueProjection.SwiftContainerGenericType}>";
+    public string ContainerTypeName => $"SwiftDictionary<{_keyProjection.MarshalFromSwiftType}, {_valueProjection.MarshalFromSwiftType}>";
+
+    /// <summary>
+    /// For MarshalFromSwift in return direction, use MarshalFromSwiftType of inner key/value
+    /// (same as ContainerTypeName). This ensures OptionalProjection wrapping a DictionaryProjection
+    /// gets the public type names not P/Invoke types.
+    /// </summary>
+    public string MarshalFromSwiftType => ContainerTypeName;
 
     /// <summary>
     /// Builds the container creation statements (key/value conversion + SwiftDictionary.FromDictionary)
@@ -106,7 +113,7 @@ public class DictionaryProjection : ITypeProjection
         var (setup, containerExpr) = BuildContainerSetup(paramName);
 
         setup.Add(new MarshalStatement.Using(
-            ContainerTypeName, $"{paramName}Swift", containerExpr));
+            SwiftContainerGenericType, $"{paramName}Swift", containerExpr));
         setup.Add(new MarshalStatement.Using(
             "PayloadBuffer<IntPtr>", $"{paramName}Disposable", $"{paramName}Swift.PayloadBuffer"));
         setup.Add(new MarshalStatement.Line(

@@ -310,9 +310,9 @@ public class TypeProjectionFactoryTests
     }
 
     [Fact]
-    public void Project_FrozenWithMemoryManagement_ReturnsNull()
+    public void Project_FrozenWithMemoryManagement_ReturnsFrozenWithMemoryProjection()
     {
-        // Frozen + RequiresMemoryManagement (like Swift.String in the DB) — not a simple blittable
+        // Frozen + RequiresMemoryManagement (ClassWithBufferStruct) — P/Invoke returns .Buffer
         var db = new MockTypeDatabase();
         db.AddType("TestModule.ManagedFrozen", new TypeRecord
         {
@@ -327,7 +327,96 @@ public class TypeProjectionFactoryTests
 
         var projection = _factory.Project(typeSpec, ctx);
 
-        Assert.Null(projection);
+        Assert.NotNull(projection);
+        Assert.IsType<FrozenWithMemoryProjection>(projection);
+        Assert.Equal("Swift.TestModule.ManagedFrozen", projection.PublicType);
+        Assert.Equal("Swift.TestModule.ManagedFrozen.Buffer", projection.PInvokeType);
+    }
+
+    #endregion
+
+    #region FrozenWithMemoryProjection
+
+    [Fact]
+    public void FrozenWithMemoryProjection_ParameterPlan_UsesPayloadBuffer()
+    {
+        var projection = new FrozenWithMemoryProjection("Swift.TestModule.ManagedFrozen");
+        var plan = projection.GetParameterPlan("item");
+
+        Assert.Equal("itemDisposable.Buffer", plan.PInvokeExpression);
+        Assert.Single(plan.SetupStatements);
+        var usingStmt = Assert.IsType<MarshalStatement.Using>(plan.SetupStatements[0]);
+        Assert.Equal("PayloadBuffer<Swift.TestModule.ManagedFrozen.Buffer>", usingStmt.Type);
+        Assert.Equal("itemDisposable", usingStmt.Name);
+        Assert.Equal("item.PayloadBuffer", usingStmt.InitExpression);
+    }
+
+    [Fact]
+    public void FrozenWithMemoryProjection_ReturnPlan_Direct_MarshalFromSwiftWithAddressOf()
+    {
+        var projection = new FrozenWithMemoryProjection("Swift.TestModule.ManagedFrozen");
+        var plan = projection.GetReturnPlan("result", ReturnStrategy.Direct);
+
+        Assert.True(plan.RequiresUnsafe);
+        Assert.Equal("SwiftMarshal.MarshalFromSwift<Swift.TestModule.ManagedFrozen>(new IntPtr(&result))", plan.PInvokeExpression);
+    }
+
+    [Fact]
+    public void FrozenWithMemoryProjection_ReturnPlan_IndirectResult_MarshalFromSwiftDirect()
+    {
+        var projection = new FrozenWithMemoryProjection("Swift.TestModule.ManagedFrozen");
+        var plan = projection.GetReturnPlan("result", ReturnStrategy.IndirectResult);
+
+        Assert.False(plan.RequiresUnsafe);
+        Assert.Equal("SwiftMarshal.MarshalFromSwift<Swift.TestModule.ManagedFrozen>(result)", plan.PInvokeExpression);
+    }
+
+    [Fact]
+    public void FrozenWithMemoryProjection_ReturnPlan_OutBuffer_MarshalFromSwiftDirect()
+    {
+        var projection = new FrozenWithMemoryProjection("Swift.TestModule.ManagedFrozen");
+        var plan = projection.GetReturnPlan("_optRetPtr", ReturnStrategy.OutBuffer);
+
+        Assert.Equal("SwiftMarshal.MarshalFromSwift<Swift.TestModule.ManagedFrozen>(_optRetPtr)", plan.PInvokeExpression);
+    }
+
+    [Fact]
+    public void FrozenWithMemoryProjection_ContainerTypeName_UsesBuffer()
+    {
+        var projection = new FrozenWithMemoryProjection("Swift.TestModule.ManagedFrozen");
+        Assert.Equal("Swift.TestModule.ManagedFrozen.Buffer", projection.ContainerTypeName);
+        Assert.Equal("Swift.TestModule.ManagedFrozen.Buffer", projection.SwiftContainerGenericType);
+    }
+
+    [Fact]
+    public void FrozenWithMemoryProjection_MarshalFromSwiftType_UsesTypeName()
+    {
+        var projection = new FrozenWithMemoryProjection("Swift.TestModule.ManagedFrozen");
+        Assert.Equal("Swift.TestModule.ManagedFrozen", projection.MarshalFromSwiftType);
+    }
+
+    [Fact]
+    public void FrozenWithMemoryProjection_ElementConversions()
+    {
+        var projection = new FrozenWithMemoryProjection("Swift.TestModule.ManagedFrozen");
+
+        // Parameter element conversion returns null — frozen-with-memory types can't be safely
+        // composed inside containers (PayloadBuffer lifecycle can't be managed in a LINQ Select).
+        // Returning null causes a C# compile error if this composition is ever attempted.
+        Assert.Null(projection.GetParameterElementConversion("e"));
+        Assert.Null(projection.GetReturnElementConversion("e"));
+    }
+
+    [Fact]
+    public void OptionalProjection_FrozenWithMemory_ContainerTypeName()
+    {
+        // ContainerTypeName uses MarshalFromSwiftType (public type name) for MarshalFromSwift calls.
+        // SwiftContainerGenericType uses SwiftContainerGenericType (.Buffer) for P/Invoke generic params.
+        var inner = new FrozenWithMemoryProjection("Swift.TestModule.ManagedFrozen");
+        var optional = new OptionalProjection(inner);
+
+        Assert.Equal("SwiftOptional<Swift.TestModule.ManagedFrozen>", optional.ContainerTypeName);
+        Assert.Equal("SwiftOptional<Swift.TestModule.ManagedFrozen.Buffer>", optional.SwiftContainerGenericType);
     }
 
     #endregion

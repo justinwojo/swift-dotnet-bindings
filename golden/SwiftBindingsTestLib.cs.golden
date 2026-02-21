@@ -11718,7 +11718,9 @@ private Swift.SwiftOptional<Swift.SwiftArray<int>> Tags_Get()
             
             var result = PInvoke_tags_Get_E37E1532(self);
             
-            return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.SwiftArray<int>>>(new IntPtr(&result));
+            unsafe {
+                return SwiftMarshal.MarshalFromSwift<SwiftOptional<SwiftArray<int>>>(new IntPtr(&result));
+            }
         }
         
         finally
@@ -21462,10 +21464,10 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
             try
             {
                 // Read result from pointer (Swift allocated memory and stored the value)
-                var result = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.SwiftBindingsTestLib.AsyncResult>>(resultPtr);
+                var result = SwiftMarshal.MarshalFromSwift<Swift.SwiftBindingsTestLib.AsyncResult?>(resultPtr);
 
                 // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
-                if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<Swift.SwiftOptional<Swift.SwiftBindingsTestLib.AsyncResult>> holderTcs)
+                if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult?> holderTcs)
                 {
                     // Free copy buffer memory for non-frozen params and release retained self
                     for (int i = 1; i < holder.Length; i++)
@@ -21488,7 +21490,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                     }
                     holderTcs.TrySetResult(result);
                 }
-                else if (handle.Target is TaskCompletionSource<Swift.SwiftOptional<Swift.SwiftBindingsTestLib.AsyncResult>> directTcs)
+                else if (handle.Target is TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult?> directTcs)
                 {
                     directTcs.TrySetResult(result);
                 }
@@ -21509,7 +21511,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
             try
             {
                 // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
-                if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<Swift.SwiftOptional<Swift.SwiftBindingsTestLib.AsyncResult>> holderTcs)
+                if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult?> holderTcs)
                 {
                     if (isCancellation != 0)
                     {
@@ -21556,7 +21558,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                         holderTcs.TrySetException(exception);
                     }
                 }
-                else if (handle.Target is TaskCompletionSource<Swift.SwiftOptional<Swift.SwiftBindingsTestLib.AsyncResult>> directTcs)
+                else if (handle.Target is TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult?> directTcs)
                 {
                     var errorMessage = Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
                     directTcs.TrySetException(new SwiftException(errorMessage));
@@ -21570,11 +21572,11 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
     /// <summary>
     /// Async method returning optional struct (some).
     /// </summary>
-    public Task<Swift.SwiftOptional<Swift.SwiftBindingsTestLib.AsyncResult>> GetOptionalResultAsync(System.Threading.CancellationToken cancellationToken = default)
+    public Task<Swift.SwiftBindingsTestLib.AsyncResult?> GetOptionalResultAsync(System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
-            TaskCompletionSource<Swift.SwiftOptional<Swift.SwiftBindingsTestLib.AsyncResult>> task = new TaskCompletionSource<Swift.SwiftOptional<Swift.SwiftBindingsTestLib.AsyncResult>>();
+            TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult?> task = new TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult?>();
             object[] _asyncCallHolder = new object[] { task, new DeferredSafeHandleRelease(_payload), (object)this, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             if (cancellationToken.IsCancellationRequested)
@@ -21593,7 +21595,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                     }
                 }
                 handle.Free();
-                return Task.FromCanceled<Swift.SwiftOptional<Swift.SwiftBindingsTestLib.AsyncResult>>(cancellationToken);
+                return Task.FromCanceled<Swift.SwiftBindingsTestLib.AsyncResult?>(cancellationToken);
             }
             if (cancellationToken.CanBeCanceled)
             {
@@ -21601,7 +21603,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
-                        var (tcs, token, id) = ((TaskCompletionSource<Swift.SwiftOptional<Swift.SwiftBindingsTestLib.AsyncResult>>, System.Threading.CancellationToken, long))state!;
+                        var (tcs, token, id) = ((TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult?>, System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
@@ -21639,10 +21641,10 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
             try
             {
                 // Read result from pointer (Swift allocated memory and stored the value)
-                var result = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.SwiftBindingsTestLib.AsyncResult>>(resultPtr);
+                var result = SwiftMarshal.MarshalFromSwift<Swift.SwiftBindingsTestLib.AsyncResult?>(resultPtr);
 
                 // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
-                if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<Swift.SwiftOptional<Swift.SwiftBindingsTestLib.AsyncResult>> holderTcs)
+                if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult?> holderTcs)
                 {
                     // Free copy buffer memory for non-frozen params and release retained self
                     for (int i = 1; i < holder.Length; i++)
@@ -21665,7 +21667,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                     }
                     holderTcs.TrySetResult(result);
                 }
-                else if (handle.Target is TaskCompletionSource<Swift.SwiftOptional<Swift.SwiftBindingsTestLib.AsyncResult>> directTcs)
+                else if (handle.Target is TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult?> directTcs)
                 {
                     directTcs.TrySetResult(result);
                 }
@@ -21686,7 +21688,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
             try
             {
                 // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
-                if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<Swift.SwiftOptional<Swift.SwiftBindingsTestLib.AsyncResult>> holderTcs)
+                if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult?> holderTcs)
                 {
                     if (isCancellation != 0)
                     {
@@ -21733,7 +21735,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                         holderTcs.TrySetException(exception);
                     }
                 }
-                else if (handle.Target is TaskCompletionSource<Swift.SwiftOptional<Swift.SwiftBindingsTestLib.AsyncResult>> directTcs)
+                else if (handle.Target is TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult?> directTcs)
                 {
                     var errorMessage = Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
                     directTcs.TrySetException(new SwiftException(errorMessage));
@@ -21747,11 +21749,11 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
     /// <summary>
     /// Async method returning optional struct (none).
     /// </summary>
-    public Task<Swift.SwiftOptional<Swift.SwiftBindingsTestLib.AsyncResult>> GetNilResultAsync(System.Threading.CancellationToken cancellationToken = default)
+    public Task<Swift.SwiftBindingsTestLib.AsyncResult?> GetNilResultAsync(System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
-            TaskCompletionSource<Swift.SwiftOptional<Swift.SwiftBindingsTestLib.AsyncResult>> task = new TaskCompletionSource<Swift.SwiftOptional<Swift.SwiftBindingsTestLib.AsyncResult>>();
+            TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult?> task = new TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult?>();
             object[] _asyncCallHolder = new object[] { task, new DeferredSafeHandleRelease(_payload), (object)this, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             if (cancellationToken.IsCancellationRequested)
@@ -21770,7 +21772,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                     }
                 }
                 handle.Free();
-                return Task.FromCanceled<Swift.SwiftOptional<Swift.SwiftBindingsTestLib.AsyncResult>>(cancellationToken);
+                return Task.FromCanceled<Swift.SwiftBindingsTestLib.AsyncResult?>(cancellationToken);
             }
             if (cancellationToken.CanBeCanceled)
             {
@@ -21778,7 +21780,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
-                        var (tcs, token, id) = ((TaskCompletionSource<Swift.SwiftOptional<Swift.SwiftBindingsTestLib.AsyncResult>>, System.Threading.CancellationToken, long))state!;
+                        var (tcs, token, id) = ((TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult?>, System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
@@ -31158,12 +31160,12 @@ private Swift.SwiftOptional<Swift.SwiftString> Label_Get()
         {
             
             
-            var _optRetSize = (int)TypeMetadata.GetTypeMetadataOrThrow<Swift.SwiftOptional<Swift.SwiftString>>().Size;
+            var _optRetSize = (int)TypeMetadata.GetTypeMetadataOrThrow<SwiftOptional<SwiftString>>().Size;
             byte* _optRetBuf = stackalloc byte[_optRetSize];
             IntPtr _optRetPtr = (IntPtr)_optRetBuf;
             PInvoke_label_Get_D757583D(_optRetPtr, _payload.DangerousGetHandle());
             
-            var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.SwiftString>>(_optRetPtr);
+            var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftOptional<SwiftString>>(_optRetPtr);
             return swiftResult.ToNullable();
         }
         
@@ -31230,7 +31232,9 @@ private Swift.SwiftOptional<int> Count_Get()
             
             var result = PInvoke_count_Get_7CA995F8(self);
             
-            return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<int>>(new IntPtr(&result));
+            unsafe {
+                return SwiftMarshal.MarshalFromSwift<SwiftOptional<int>>(new IntPtr(&result));
+            }
         }
         
         finally
@@ -40634,7 +40638,7 @@ public partial class SimplePriorityHandler : ISwiftObject, IDisposable, IPriorit
                 
                 PInvoke_getPriority_AF0F3E89(swiftIndirectResult, self);
                 
-                return SwiftMarshal.MarshalFromSwift<Swift.SwiftBindingsTestLib.TaskPriority>(new IntPtr(swiftIndirectResult.Value));
+                return (Swift.SwiftBindingsTestLib.TaskPriority)SwiftMarshal.MarshalFromSwift<Swift.SwiftBindingsTestLib.TaskPriority>(new IntPtr(swiftIndirectResult.Value));
             }
             
             finally

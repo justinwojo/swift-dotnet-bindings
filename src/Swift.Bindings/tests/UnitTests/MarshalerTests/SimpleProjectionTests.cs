@@ -364,11 +364,11 @@ public class SimpleProjectionTests
     }
 
     [Fact]
-    public void NonFrozenStruct_ReturnPlan_ConstructsFromHandle()
+    public void NonFrozenStruct_ReturnPlan_UsesMarshalFromSwift()
     {
         var proj = new NonFrozenStructProjection("MyClass");
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
-        Assert.Equal("new MyClass(result)", plan.PInvokeExpression);
+        Assert.Equal("SwiftMarshal.MarshalFromSwift<MyClass>(result)", plan.PInvokeExpression);
     }
 
     [Fact]

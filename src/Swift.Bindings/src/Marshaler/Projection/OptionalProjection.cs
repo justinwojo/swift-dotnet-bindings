@@ -40,6 +40,19 @@ public class OptionalProjection : ITypeProjection
     public string? PInvokeAttribute => null;
 
     /// <summary>
+    /// The container type name for this Optional — used in MarshalFromSwift calls (return direction).
+    /// Uses MarshalFromSwiftType for the inner type so that non-frozen structs/classes use their
+    /// public type name (e.g., SwiftOptional&lt;AssetType&gt;) instead of IntPtr.
+    /// </summary>
+    public string ContainerTypeName => $"SwiftOptional<{_innerProjection.MarshalFromSwiftType}>";
+
+    /// <summary>
+    /// When this Optional appears as a generic parameter inside another container,
+    /// use the full SwiftOptional type name with P/Invoke-level inner type.
+    /// </summary>
+    public string SwiftContainerGenericType => $"SwiftOptional<{_innerProjection.SwiftContainerGenericType}>";
+
+    /// <summary>
     /// The SwiftOptional type parameter — uses SwiftContainerGenericType which returns the correct
     /// C# type for use as a generic parameter in Swift containers (enum name for enums,
     /// SwiftArray&lt;T&gt; for arrays, etc.)

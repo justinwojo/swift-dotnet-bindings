@@ -49,74 +49,43 @@ namespace BindingsGeneration
                 return;
             }
 
-            // Check indirect result first - it takes precedence since the result is stored there.
-            // This handles failable initializers (init?) that return SwiftOptional via indirect result.
+            // Projection-based return — handles all return strategies (Direct, IndirectResult, OutBuffer)
+            // via DetermineReturnStrategy(). Covers string, array, dictionary, optional, enum, class,
+            // existential, ObjC bridged, native remapped, frozen-with-memory, non-frozen structs.
+            // Skips: accessors, closures, tuples, generics, async.
+            if (TryEmitReturnViaProjection(csWriter, returnArg))
+                return;
+
+            // IndirectResult fallback — for accessor returns and generic returns where the factory
+            // returns null (user-defined generics). Uses the wrapper signature's return type.
             if (_requiresIndirectResult)
             {
-                // Handle type conversion for indirect result
-                if (!_env.MethodDecl.IsAccessor && _env.TypeConversionHandler.IsConvertibleType(returnArg.SwiftTypeSpec))
-                {
-                    EmitTypeConvertedIndirectReturn(csWriter, returnArg);
-                    return;
-                }
-
-                // Handle native type remapping for indirect result
-                if (!_env.MethodDecl.IsAccessor && _env.TypeConversionHandler.HasNativeTypeRemapping(returnArg.SwiftTypeSpec))
-                {
-                    var swiftWrapperType = _env.TypeConversionHandler.GetSwiftWrapperTypeForNative(returnArg.SwiftTypeSpec);
-                    if (_env.TypeConversionHandler.IsFoundationURL(returnArg.SwiftTypeSpec))
-                    {
-                        // URL via indirect result - marshal from handle and convert
-                        csWriter.WriteLines($$"""
-                            var swiftResult = ({{swiftWrapperType}})SwiftMarshal.MarshalFromSwift<{{swiftWrapperType}}>(new IntPtr(swiftIndirectResult.Value));
-                            return swiftResult.ToNSUrl();
-                            """);
-                    }
-                    else if (_env.TypeConversionHandler.IsFoundationData(returnArg.SwiftTypeSpec))
-                    {
-                        // Data via indirect result - marshal and convert
-                        csWriter.WriteLines($$"""
-                            var swiftResult = SwiftMarshal.MarshalFromSwift<{{swiftWrapperType}}>(new IntPtr(swiftIndirectResult.Value));
-                            return swiftResult.ToNSData();
-                            """);
-                    }
-                    return;
-                }
-
                 csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(new IntPtr(swiftIndirectResult.Value));");
                 return;
             }
 
-            // Large Optional return via out-buffer — result is in _optRetPtr, not 'result' variable
+            // Large Optional return via out-buffer fallback — for accessor returns where projection
+            // is skipped. Uses projection ContainerTypeName for the SwiftOptional type if available.
             if (_env.BoundGenericsHandler.IsLargeOptionalReturn(_env.MethodDecl) &&
                 (_env.MethodDecl.HasOptionalPointerWrapper || _env.MethodDecl.UsesWrapperLibrary))
             {
-                EmitOptionalReturnBufferRead(csWriter, returnArg);
+                var projection = s_projectionFactory.Project(returnArg.SwiftTypeSpec,
+                    new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false, GenericContext = _genericContext });
+                var swiftType = projection?.ContainerTypeName ?? _wrapperSignature.ReturnType;
+                csWriter.WriteLines($$"""
+                    var swiftResult = SwiftMarshal.MarshalFromSwift<{{swiftType}}>(_optRetPtr);
+                    return swiftResult.ToNullable();
+                    """);
                 return;
             }
 
-            // Try projection-based return (covers string, array, dictionary, optional, enum, class,
-            // existential, ObjC bridged, native remapped — but NOT closures, tuples, or generics)
-            if (TryEmitReturnViaProjection(csWriter, returnArg))
-                return;
-
-            // Legacy fallback: type-converted returns the factory can't handle
-            // (bound generics with user-defined inner types, etc.)
-            if (!_env.MethodDecl.IsAccessor && _env.TypeConversionHandler.IsConvertibleType(returnArg.SwiftTypeSpec))
-            {
-                EmitTypeConvertedReturn(csWriter, returnArg);
-                return;
-            }
-
-            // Accessor-only: Optional-existential returns are intercepted by BoundGenerics below
-            // because IsConvertibleType is gated on !IsAccessor above. Handle them explicitly here.
-            // P/Invoke returns IntPtr for Optional<existential> — marshal to SwiftOptional<Container> first.
+            // Accessor-only: Optional-existential returns — P/Invoke returns IntPtr for Optional<existential>,
+            // marshal to SwiftOptional<Container> first.
             if (_env.MethodDecl.IsAccessor && _env.ExistentialHandler.IsOptionalExistential(returnArg.SwiftTypeSpec))
             {
                 var innerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(returnArg.SwiftTypeSpec)!;
                 var publicType = _env.ExistentialHandler.GetPublicExistentialType(innerProtocolList);
                 // Unresolved protocol (publicType == "object") → no proxy class exists, fall through
-                // to bound-generic handler which will emit SwiftMarshal.MarshalFromSwift<SwiftOptional<AnyType>>
                 if (publicType != "object")
                 {
                     var containerType = _env.ExistentialHandler.GetCSharpExistentialType(innerProtocolList);
@@ -142,10 +111,34 @@ namespace BindingsGeneration
                 }
             }
 
-            // Bound generics that return IntPtr directly (not via indirect result)
+            // Bound generics that return directly — use projection for type name
             if (_env.BoundGenericsHandler.RequiresBoundGenericMarshalling(returnArg))
             {
-                csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{_env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg, _genericContext)}>(new IntPtr(&result));");
+                var projection = s_projectionFactory.Project(returnArg.SwiftTypeSpec,
+                    new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false, GenericContext = _genericContext });
+                if (projection != null)
+                {
+                    var marshalType = projection.ContainerTypeName;
+                    csWriter.WriteLines($$"""
+                        unsafe {
+                            return SwiftMarshal.MarshalFromSwift<{{marshalType}}>(new IntPtr(&result));
+                        }
+                        """);
+                    return;
+                }
+                // Factory returned null — user-defined generic (e.g., Box<(T) -> ()>,
+                // DownloadResponsePublisher<T1>). The factory can't project these because their
+                // generic parameters may not satisfy ISwiftObject constraints. The wrapper signature
+                // return type is correct here: WrapperSignatureBuilder resolves it via
+                // TranslateBoundGenericTypeToCSharp which produces fully-qualified C# type names
+                // (not AnyType). MarshalFromSwift<T> instantiates via ISwiftObject.NewFromPayload.
+                var fallbackType = _wrapperSignature.ReturnType;
+                csWriter.WriteLines($$"""
+                    // Bound-generic fallback: factory cannot project {{fallbackType}}
+                    unsafe {
+                        return SwiftMarshal.MarshalFromSwift<{{fallbackType}}>(new IntPtr(&result));
+                    }
+                    """);
                 return;
             }
 
@@ -246,6 +239,8 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Type-record dispatch — handles returns where TryEmitReturnViaProjection returned false
+            // (accessor returns, or types the factory can't resolve like ObjC classes from system frameworks).
             if (!returnArg.IsGeneric)
             {
                 var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(returnArg.SwiftTypeSpec);
@@ -265,7 +260,6 @@ namespace BindingsGeneration
                 }
 
                 // Swift classes return pointer directly - allocate buffer and store the pointer
-                // The buffer is then managed by SwiftSafeHandle
                 if (typeRecord.Kind == TypeRecordKind.Class)
                 {
                     csWriter.WriteLines($$"""
@@ -291,30 +285,7 @@ namespace BindingsGeneration
                     return;
                 }
 
-                // Native type remapping: convert Swift type to native .NET type
-                if (!_env.MethodDecl.IsAccessor && _env.TypeConversionHandler.HasNativeTypeRemapping(returnArg.SwiftTypeSpec))
-                {
-                    var swiftWrapperType = _env.TypeConversionHandler.GetSwiftWrapperTypeForNative(returnArg.SwiftTypeSpec);
-                    if (_env.TypeConversionHandler.IsFoundationURL(returnArg.SwiftTypeSpec))
-                    {
-                        // URL is non-frozen, result is IntPtr (SafeHandle marshalling)
-                        // Marshal from handle using MarshalFromSwift (URL constructor is private)
-                        csWriter.WriteLines($$"""
-                            var swiftResult = ({{swiftWrapperType}})SwiftMarshal.MarshalFromSwift<{{swiftWrapperType}}>(result);
-                            return swiftResult.ToNSUrl();
-                            """);
-                    }
-                    else if (_env.TypeConversionHandler.IsFoundationData(returnArg.SwiftTypeSpec))
-                    {
-                        // Data is frozen struct, marshal from buffer and convert to NSData
-                        csWriter.WriteLines($$"""
-                            var swiftResult = SwiftMarshal.MarshalFromSwift<{{swiftWrapperType}}>(new IntPtr(&result));
-                            return swiftResult.ToNSData();
-                            """);
-                    }
-                    return;
-                }
-
+                // Frozen with memory management — MarshalFromSwift from buffer
                 if ((typeRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0 && (typeRecord.Flags & TypeRecordFlags.Frozen) != 0)
                 {
                     csWriter.WriteLine($$"""
@@ -443,291 +414,6 @@ namespace BindingsGeneration
                 csWriter.WriteLine(line);
             }
             csWriter.WriteLine($"return ({string.Join(", ", resultElements)});");
-        }
-
-        /// <summary>
-        /// Emits return handling for type-converted return values.
-        /// Converts Swift types (SwiftString, SwiftArray, SwiftOptional) to idiomatic .NET types.
-        /// </summary>
-        private void EmitTypeConvertedReturn(CSharpWriter csWriter, ArgumentDecl returnArg)
-        {
-            if (_env.TypeConversionHandler.IsSwiftString(returnArg.SwiftTypeSpec))
-            {
-                // SwiftString.Buffer -> string
-                // Marshal from buffer to SwiftString, then convert to string
-                csWriter.WriteLines($$"""
-                    unsafe {
-                        var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                        return swiftResult.ToString();
-                    }
-                    """);
-            }
-            else if (_env.TypeConversionHandler.IsSwiftArray(returnArg.SwiftTypeSpec))
-            {
-                if (returnArg.SwiftTypeSpec is NamedTypeSpec arrSpec &&
-                    TryEmitArrayOfProtocolReturn(csWriter, arrSpec, "new IntPtr(&result)"))
-                    return;
-
-                var swiftType = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg, _genericContext);
-                var returnConversion = _env.TypeConversionHandler.GetReturnConversion("swiftResult", returnArg.SwiftTypeSpec);
-
-                if (returnConversion != null && returnConversion != "swiftResult")
-                {
-                    // Element type requires conversion (e.g., SwiftArray<SwiftString> → IReadOnlyList<string>)
-                    csWriter.WriteLines($$"""
-                        var swiftResult = SwiftMarshal.MarshalFromSwift<{{swiftType}}>(new IntPtr(&result));
-                        return {{returnConversion}};
-                        """);
-                }
-                else
-                {
-                    // No element conversion — SwiftArray<T> implements IReadOnlyList<T>
-                    csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{swiftType}>(new IntPtr(&result));");
-                }
-            }
-            else if (_env.TypeConversionHandler.IsSwiftDictionary(returnArg.SwiftTypeSpec))
-            {
-                var swiftType = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg, _genericContext);
-                var returnConversion = _env.TypeConversionHandler.GetReturnConversion("swiftResult", returnArg.SwiftTypeSpec);
-
-                if (returnConversion != null && returnConversion != "swiftResult")
-                {
-                    // Key/value type requires conversion (e.g., SwiftDictionary<SwiftString, SwiftString> → IReadOnlyDictionary<string, string>)
-                    csWriter.WriteLines($$"""
-                        var swiftResult = SwiftMarshal.MarshalFromSwift<{{swiftType}}>(new IntPtr(&result));
-                        return {{returnConversion}};
-                        """);
-                }
-                else
-                {
-                    // No conversion — SwiftDictionary<K,V> implements IReadOnlyDictionary<K,V>
-                    csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{swiftType}>(new IntPtr(&result));");
-                }
-            }
-            else if (_env.TypeConversionHandler.IsSwiftOptional(returnArg.SwiftTypeSpec))
-            {
-                var swiftType = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg, _genericContext);
-
-                // Check if the Optional wraps an existential — needs proxy wrapping
-                if (_env.ExistentialHandler.IsOptionalExistential(returnArg.SwiftTypeSpec))
-                {
-                    var innerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(returnArg.SwiftTypeSpec)!;
-                    var convPublicType = _env.ExistentialHandler.GetPublicExistentialType(innerProtocolList);
-                    // Only wrap in proxy if protocol is resolved (not "object")
-                    if (convPublicType != "object")
-                    {
-                        var containerType = _env.ExistentialHandler.GetCSharpExistentialType(innerProtocolList);
-                        var marshalType = $"Swift.SwiftOptional<{containerType}>";
-                        // Well-known protocol types (Swift.Error → AnyError) use direct runtime type
-                        if (_env.ExistentialHandler.TryGetWellKnownProtocolType(innerProtocolList, out var wellKnownConvType))
-                        {
-                            csWriter.WriteLines($$"""
-                                var swiftResult = SwiftMarshal.MarshalFromSwift<{{marshalType}}>(new IntPtr(&result));
-                                if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
-                                return new {{wellKnownConvType}}(swiftResult.Some);
-                                """);
-                        }
-                        else
-                        {
-                            var convProxyClassName = _env.ExistentialHandler.GetProxyClassName(innerProtocolList);
-                            csWriter.WriteLines($$"""
-                                var swiftResult = SwiftMarshal.MarshalFromSwift<{{marshalType}}>(new IntPtr(&result));
-                                if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
-                                return new {{convProxyClassName}}(swiftResult.Some);
-                                """);
-                        }
-                        return; // Handled — don't fall through to generic Optional path
-                    }
-                }
-                // Fall through: either not Optional-existential, or unresolved protocol
-                {
-                    // SwiftOptional<T> -> T?
-                    // Marshal to SwiftOptional, then convert to nullable
-                    csWriter.WriteLines($$"""
-                        var swiftResult = SwiftMarshal.MarshalFromSwift<{{swiftType}}>(new IntPtr(&result));
-                        return swiftResult.ToNullable();
-                        """);
-                }
-            }
-        }
-
-        /// <summary>
-        /// Emits return handling for large Optional return values read from an out-buffer.
-        /// The Swift wrapper wrote the result to _optRetPtr; we read it via MarshalFromSwift.
-        /// </summary>
-        private void EmitOptionalReturnBufferRead(CSharpWriter csWriter, ArgumentDecl returnArg)
-        {
-            var swiftType = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg, _genericContext);
-
-            // Check if the Optional wraps an existential — needs proxy wrapping
-            if (_env.ExistentialHandler.IsOptionalExistential(returnArg.SwiftTypeSpec))
-            {
-                var innerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(returnArg.SwiftTypeSpec)!;
-                var bufPublicType = _env.ExistentialHandler.GetPublicExistentialType(innerProtocolList);
-                // Only wrap in proxy if protocol is resolved (not "object")
-                if (bufPublicType != "object")
-                {
-                    var containerType = _env.ExistentialHandler.GetCSharpExistentialType(innerProtocolList);
-                    var marshalType = $"Swift.SwiftOptional<{containerType}>";
-                    if (_env.ExistentialHandler.TryGetWellKnownProtocolType(innerProtocolList, out var wellKnownType))
-                    {
-                        csWriter.WriteLines($$"""
-                            var swiftResult = SwiftMarshal.MarshalFromSwift<{{marshalType}}>(_optRetPtr);
-                            if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
-                            return new {{wellKnownType}}(swiftResult.Some);
-                            """);
-                    }
-                    else
-                    {
-                        var proxyName = _env.ExistentialHandler.GetProxyClassName(innerProtocolList);
-                        csWriter.WriteLines($$"""
-                            var swiftResult = SwiftMarshal.MarshalFromSwift<{{marshalType}}>(_optRetPtr);
-                            if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
-                            return new {{proxyName}}(swiftResult.Some);
-                            """);
-                    }
-                    return;
-                }
-            }
-            // Fall through: not Optional-existential, or unresolved protocol
-            {
-                // Standard optional from buffer
-                csWriter.WriteLines($$"""
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<{{swiftType}}>(_optRetPtr);
-                    return swiftResult.ToNullable();
-                    """);
-            }
-        }
-
-        /// <summary>
-        /// Emits return handling for type-converted return values via indirect result.
-        /// Converts Swift types (SwiftString, SwiftArray, SwiftOptional) to idiomatic .NET types.
-        /// </summary>
-        private void EmitTypeConvertedIndirectReturn(CSharpWriter csWriter, ArgumentDecl returnArg)
-        {
-            if (_env.TypeConversionHandler.IsSwiftString(returnArg.SwiftTypeSpec))
-            {
-                // SwiftString -> string via indirect result
-                csWriter.WriteLines($$"""
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(swiftIndirectResult.Value));
-                    return swiftResult.ToString();
-                    """);
-            }
-            else if (_env.TypeConversionHandler.IsSwiftArray(returnArg.SwiftTypeSpec))
-            {
-                if (returnArg.SwiftTypeSpec is NamedTypeSpec arrSpec &&
-                    TryEmitArrayOfProtocolReturn(csWriter, arrSpec, "new IntPtr(swiftIndirectResult.Value)"))
-                    return;
-
-                var swiftType = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg, _genericContext);
-                var returnConversion = _env.TypeConversionHandler.GetReturnConversion("swiftResult", returnArg.SwiftTypeSpec);
-
-                if (returnConversion != null && returnConversion != "swiftResult")
-                {
-                    csWriter.WriteLines($$"""
-                        var swiftResult = SwiftMarshal.MarshalFromSwift<{{swiftType}}>(new IntPtr(swiftIndirectResult.Value));
-                        return {{returnConversion}};
-                        """);
-                }
-                else
-                {
-                    csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{swiftType}>(new IntPtr(swiftIndirectResult.Value));");
-                }
-            }
-            else if (_env.TypeConversionHandler.IsSwiftDictionary(returnArg.SwiftTypeSpec))
-            {
-                var swiftType = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg, _genericContext);
-                var returnConversion = _env.TypeConversionHandler.GetReturnConversion("swiftResult", returnArg.SwiftTypeSpec);
-
-                if (returnConversion != null && returnConversion != "swiftResult")
-                {
-                    csWriter.WriteLines($$"""
-                        var swiftResult = SwiftMarshal.MarshalFromSwift<{{swiftType}}>(new IntPtr(swiftIndirectResult.Value));
-                        return {{returnConversion}};
-                        """);
-                }
-                else
-                {
-                    csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{swiftType}>(new IntPtr(swiftIndirectResult.Value));");
-                }
-            }
-            else if (_env.TypeConversionHandler.IsSwiftOptional(returnArg.SwiftTypeSpec))
-            {
-                var swiftType = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg, _genericContext);
-
-                // Check if the Optional wraps an existential — needs proxy wrapping
-                if (_env.ExistentialHandler.IsOptionalExistential(returnArg.SwiftTypeSpec))
-                {
-                    var innerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(returnArg.SwiftTypeSpec)!;
-                    var indirectPublicType = _env.ExistentialHandler.GetPublicExistentialType(innerProtocolList);
-                    // Only wrap in proxy if protocol is resolved (not "object")
-                    if (indirectPublicType != "object")
-                    {
-                        var containerType = _env.ExistentialHandler.GetCSharpExistentialType(innerProtocolList);
-                        var marshalType = $"Swift.SwiftOptional<{containerType}>";
-                        // Well-known protocol types (Swift.Error → AnyError) use direct runtime type
-                        if (_env.ExistentialHandler.TryGetWellKnownProtocolType(innerProtocolList, out var wellKnownIndirectType))
-                        {
-                            csWriter.WriteLines($"""
-                                var swiftResult = SwiftMarshal.MarshalFromSwift<{marshalType}>(new IntPtr(swiftIndirectResult.Value));
-                                if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
-                                return new {wellKnownIndirectType}(swiftResult.Some);
-                                """);
-                        }
-                        else
-                        {
-                            var indirectProxyClassName = _env.ExistentialHandler.GetProxyClassName(innerProtocolList);
-                            csWriter.WriteLines($"""
-                                var swiftResult = SwiftMarshal.MarshalFromSwift<{marshalType}>(new IntPtr(swiftIndirectResult.Value));
-                                if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
-                                return new {indirectProxyClassName}(swiftResult.Some);
-                                """);
-                        }
-                        return; // Handled — don't fall through to generic Optional path
-                    }
-                }
-                // Fall through: not Optional-existential, or unresolved protocol
-                // (replaces prior else block — same code path)
-                {
-                    // SwiftOptional<T> -> T? via indirect result
-                    csWriter.WriteLines($$"""
-                        var swiftResult = SwiftMarshal.MarshalFromSwift<{{swiftType}}>(new IntPtr(swiftIndirectResult.Value));
-                        return swiftResult.ToNullable();
-                        """);
-                }
-            }
-        }
-
-        /// <summary>
-        /// Tries to emit array-of-protocol return marshalling.
-        /// Returns true if the array element is an existential and was handled; false to fall through.
-        /// </summary>
-        private bool TryEmitArrayOfProtocolReturn(CSharpWriter csWriter, NamedTypeSpec arrayTypeSpec, string ptrExpr)
-        {
-            var elementTypeSpec = arrayTypeSpec.GenericParameters.FirstOrDefault();
-            if (elementTypeSpec == null || !_env.ExistentialHandler.IsExistential(elementTypeSpec))
-                return false;
-
-            var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(elementTypeSpec);
-            if (protocolList == null || !_env.ExistentialHandler.IsSupportedExistential(protocolList))
-                return false;
-
-            var containerType = _env.ExistentialHandler.GetCSharpExistentialType(protocolList);
-            var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList);
-            if (publicType == "object")
-                return false;
-
-            string elementProjection;
-            if (_env.ExistentialHandler.TryGetWellKnownProtocolType(protocolList, out var wellKnownType))
-                elementProjection = $"new {wellKnownType}(c)";
-            else
-                elementProjection = $"new {_env.ExistentialHandler.GetProxyClassName(protocolList)}(c)";
-
-            csWriter.WriteLines($$"""
-                var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftArray<{{containerType}}>>({{ptrExpr}});
-                return swiftResult.AsProjected<{{publicType}}>(c => {{elementProjection}});
-                """);
-            return true;
         }
 
         /// <summary>

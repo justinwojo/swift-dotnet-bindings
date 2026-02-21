@@ -45,6 +45,9 @@ public class NonFrozenStructProjection : ITypeProjection
 
     public MarshalPlan GetReturnPlan(string resultName, ReturnStrategy strategy)
     {
+        // All non-frozen struct returns use MarshalFromSwift — the constructor taking
+        // SwiftHandle/IntPtr is private. MarshalFromSwift goes through ISwiftObject.NewFromPayload.
+        // Complex enums (_useMarshalFromSwift) need an explicit cast to the type.
         if (_useMarshalFromSwift)
         {
             return new MarshalPlan
@@ -55,7 +58,7 @@ public class NonFrozenStructProjection : ITypeProjection
 
         return new MarshalPlan
         {
-            PInvokeExpression = $"new {_typeName}({resultName})"
+            PInvokeExpression = $"SwiftMarshal.MarshalFromSwift<{_typeName}>({resultName})"
         };
     }
 

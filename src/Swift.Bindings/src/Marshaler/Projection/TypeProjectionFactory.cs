@@ -216,8 +216,8 @@ public class TypeProjectionFactory
         if (!MarshallingHelpers.RequiresMemoryManagement(typeRecord))
             return new BlittableProjection(typeRecord.CSharpTypeName.FullyQualifiedName);
 
-        // Frozen with memory management — not supported
-        return null;
+        // Frozen with memory management (ClassWithBufferStruct) — P/Invoke returns .Buffer by value
+        return new FrozenWithMemoryProjection(typeRecord.CSharpTypeName.FullyQualifiedName);
     }
 
     private ITypeProjection? ProjectTuple(TupleTypeSpec tupleType, ProjectionContext context)

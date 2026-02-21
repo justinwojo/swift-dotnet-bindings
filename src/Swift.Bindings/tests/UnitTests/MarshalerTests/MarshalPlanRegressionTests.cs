@@ -233,12 +233,58 @@ public class MarshalPlanRegressionTests
     }
 
     [Fact]
-    public void NonFrozenStruct_ReturnPlan_ConstructsNew()
+    public void NonFrozenStruct_ReturnPlan_UsesMarshalFromSwift()
     {
         var proj = new NonFrozenStructProjection("Pipeline");
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
 
-        Assert.Equal("new Pipeline(result)", plan.PInvokeExpression);
+        Assert.Equal("SwiftMarshal.MarshalFromSwift<Pipeline>(result)", plan.PInvokeExpression);
+    }
+
+    #endregion
+
+    #region FrozenWithMemory
+
+    [Fact]
+    public void FrozenWithMemory_ParameterPlan_PayloadBuffer()
+    {
+        var proj = new FrozenWithMemoryProjection("ManagedFrozen");
+        var plan = proj.GetParameterPlan("item");
+
+        Assert.Equal("itemDisposable.Buffer", plan.PInvokeExpression);
+        Assert.Single(plan.SetupStatements);
+        var usingStmt = Assert.IsType<MarshalStatement.Using>(plan.SetupStatements[0]);
+        Assert.Equal("PayloadBuffer<ManagedFrozen.Buffer>", usingStmt.Type);
+        Assert.Equal("item.PayloadBuffer", usingStmt.InitExpression);
+    }
+
+    [Fact]
+    public void FrozenWithMemory_ReturnPlan_Direct_RequiresUnsafe()
+    {
+        var proj = new FrozenWithMemoryProjection("ManagedFrozen");
+        var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
+
+        Assert.True(plan.RequiresUnsafe);
+        Assert.Equal("SwiftMarshal.MarshalFromSwift<ManagedFrozen>(new IntPtr(&result))", plan.PInvokeExpression);
+    }
+
+    [Fact]
+    public void FrozenWithMemory_ReturnPlan_IndirectResult()
+    {
+        var proj = new FrozenWithMemoryProjection("ManagedFrozen");
+        var plan = proj.GetReturnPlan("result", ReturnStrategy.IndirectResult);
+
+        Assert.False(plan.RequiresUnsafe);
+        Assert.Equal("SwiftMarshal.MarshalFromSwift<ManagedFrozen>(result)", plan.PInvokeExpression);
+    }
+
+    [Fact]
+    public void FrozenWithMemory_ReturnPlan_OutBuffer()
+    {
+        var proj = new FrozenWithMemoryProjection("ManagedFrozen");
+        var plan = proj.GetReturnPlan("_optRetPtr", ReturnStrategy.OutBuffer);
+
+        Assert.Equal("SwiftMarshal.MarshalFromSwift<ManagedFrozen>(_optRetPtr)", plan.PInvokeExpression);
     }
 
     #endregion

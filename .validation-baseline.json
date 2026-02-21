@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-02-21T15:35:28Z",
-  "git_sha": "847eb48",
+  "timestamp": "2026-02-21T17:26:35Z",
+  "git_sha": "55e21db",
   "runtime_version": "0.1.0-preview.5",
   "compile_gate": {
     "total": 32,
@@ -11,21 +11,21 @@
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
-        "lines": 43751,
-        "gen_seconds": 3
+        "lines": 43831,
+        "gen_seconds": 2
       },
       "BlinkID": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
-        "lines": 51605,
+        "lines": 51995,
         "gen_seconds": 2
       },
       "BlinkIDUX": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
-        "lines": 9076,
+        "lines": 9086,
         "gen_seconds": 1
       },
       "BRLMPrinterKit": {
@@ -39,43 +39,43 @@
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
-        "lines": 32027,
+        "lines": 32091,
         "gen_seconds": 2
       },
       "GRDB": {
         "generate": "fail",
         "compile": "fail",
         "errors": 8,
-        "lines": 79830,
-        "gen_seconds": 3
+        "lines": 79958,
+        "gen_seconds": 4
       },
       "KeychainAccess": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
-        "lines": 11206,
+        "lines": 11214,
         "gen_seconds": 1
       },
       "Kingfisher": {
         "generate": "fail",
         "compile": "fail",
         "errors": 30,
-        "lines": 47723,
+        "lines": 47754,
         "gen_seconds": 3
       },
       "Lottie": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
-        "lines": 34514,
-        "gen_seconds": 3
+        "lines": 34548,
+        "gen_seconds": 2
       },
       "Mappedin": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
-        "lines": 50784,
-        "gen_seconds": 3
+        "lines": 51095,
+        "gen_seconds": 2
       },
       "MicroblinkPlatform": {
         "generate": "ok",
@@ -88,42 +88,42 @@
         "generate": "fail",
         "compile": "fail",
         "errors": 1,
-        "lines": 7138,
-        "gen_seconds": 2
+        "lines": 7150,
+        "gen_seconds": 1
       },
       "Nuke": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
-        "lines": 22629,
+        "lines": 22637,
         "gen_seconds": 2
       },
       "RxSwift": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
-        "lines": 11683,
+        "lines": 11727,
         "gen_seconds": 2
       },
       "SkeletonView": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
-        "lines": 13237,
+        "lines": 13247,
         "gen_seconds": 2
       },
       "SmartCardIO": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
-        "lines": 4598,
+        "lines": 4610,
         "gen_seconds": 2
       },
       "SnapKit": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
-        "lines": 10538,
+        "lines": 10540,
         "gen_seconds": 1
       },
       "Starscream": {
@@ -144,15 +144,15 @@
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
-        "lines": 2870,
-        "gen_seconds": 2
+        "lines": 2872,
+        "gen_seconds": 1
       },
       "StripeCameraCore": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
-        "lines": 3649,
-        "gen_seconds": 1
+        "lines": 3657,
+        "gen_seconds": 2
       },
       "StripeCardScan": {
         "generate": "ok",
@@ -165,21 +165,21 @@
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
-        "lines": 12181,
+        "lines": 12207,
         "gen_seconds": 1
       },
       "StripeCore": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
-        "lines": 34115,
-        "gen_seconds": 1
+        "lines": 34161,
+        "gen_seconds": 2
       },
       "StripeCryptoOnramp": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
-        "lines": 6882,
+        "lines": 6888,
         "gen_seconds": 3
       },
       "StripeFinancialConnections": {
@@ -187,49 +187,49 @@
         "compile": "ok",
         "errors": 0,
         "lines": 2662,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "StripeIdentity": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
-        "lines": 1688,
-        "gen_seconds": 2
+        "lines": 1690,
+        "gen_seconds": 1
       },
       "StripeIssuing": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
-        "lines": 1496,
-        "gen_seconds": 1
+        "lines": 1498,
+        "gen_seconds": 2
       },
       "StripePayments": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
-        "lines": 94089,
-        "gen_seconds": 3
+        "lines": 94504,
+        "gen_seconds": 2
       },
       "StripePaymentSheet": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
-        "lines": 49157,
+        "lines": 49271,
         "gen_seconds": 3
       },
       "StripePaymentsUI": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
-        "lines": 13607,
-        "gen_seconds": 2
+        "lines": 13613,
+        "gen_seconds": 1
       },
       "StripeUICore": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
-        "lines": 32329,
-        "gen_seconds": 2
+        "lines": 32363,
+        "gen_seconds": 1
       }
     }
   }

@@ -147,6 +147,10 @@ public class TypeProjectionConsistencyTests
         yield return new object[] { "SimpleEnum(Int64)", N("TestModule.BigEnum"), false,
             "Swift.TestModule.BigEnum", "long", typeof(SimpleEnumProjection) };
 
+        // Frozen with memory management (ClassWithBufferStruct)
+        yield return new object[] { "FrozenWithMemory", N("TestModule.ManagedFrozen"), false,
+            "Swift.TestModule.ManagedFrozen", "Swift.TestModule.ManagedFrozen.Buffer", typeof(FrozenWithMemoryProjection) };
+
         // Non-frozen struct
         yield return new object[] { "NonFrozenStruct", N("TestModule.Pipeline"), false,
             "Swift.TestModule.Pipeline", "IntPtr", typeof(NonFrozenStructProjection) };
@@ -564,6 +568,7 @@ public class TypeProjectionConsistencyTests
         yield return new object[] { "ObjCBridged", new ObjCBridgedProjection("UIImage") };
         yield return new object[] { "NonFrozenStruct", new NonFrozenStructProjection("Pipeline") };
         yield return new object[] { "Class", new ClassProjection("MyViewController") };
+        yield return new object[] { "FrozenWithMemory", new FrozenWithMemoryProjection("ManagedFrozen") };
         yield return new object[] { "NativeRemapped(frozen)", new NativeRemappedProjection("Foundation.NSUrl", "SwiftURL", true, "ToNSUrl") };
         yield return new object[] { "NativeRemapped(non-frozen)", new NativeRemappedProjection("Foundation.NSData", "SwiftData", false, "ToNSData") };
         yield return new object[] { "Array<String>", new ArrayProjection(new StringProjection(), false) };
@@ -676,6 +681,16 @@ public class TypeProjectionConsistencyTests
             Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
             Kind = TypeRecordKind.Enum,
             RawValueTypeName = "Int64"
+        });
+
+        // Frozen with memory management (ClassWithBufferStruct)
+        db.AddType("TestModule.ManagedFrozen", new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "ManagedFrozen"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ManagedFrozen"),
+            MetadataAccessor = "",
+            Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Struct
         });
 
         // Non-frozen struct

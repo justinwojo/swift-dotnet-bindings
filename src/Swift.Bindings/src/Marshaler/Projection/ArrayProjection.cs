@@ -31,9 +31,16 @@ public class ArrayProjection : ITypeProjection
     public string PInvokeType => "IntPtr";
     public string? PInvokeAttribute => null;
 
-    public string SwiftContainerGenericType => ContainerTypeName;
+    public string SwiftContainerGenericType => $"SwiftArray<{_elementProjection.SwiftContainerGenericType}>";
 
-    public string ContainerTypeName => $"SwiftArray<{_elementProjection.SwiftContainerGenericType}>";
+    public string ContainerTypeName => $"SwiftArray<{_elementProjection.MarshalFromSwiftType}>";
+
+    /// <summary>
+    /// For MarshalFromSwift in return direction, use MarshalFromSwiftType of inner elements
+    /// (same as ContainerTypeName). This ensures OptionalProjection wrapping an ArrayProjection
+    /// gets the public type names (e.g., SwiftArray&lt;STPPaymentMethod&gt;) not P/Invoke types.
+    /// </summary>
+    public string MarshalFromSwiftType => ContainerTypeName;
 
     /// <summary>
     /// Builds the container creation statements (element conversion + SwiftArray.FromEnumerable)
@@ -92,7 +99,7 @@ public class ArrayProjection : ITypeProjection
 
         // Wrap in Using for ownership + PayloadBuffer extraction
         setup.Add(new MarshalStatement.Using(
-            ContainerTypeName, $"{paramName}Swift", containerExpr));
+            SwiftContainerGenericType, $"{paramName}Swift", containerExpr));
         setup.Add(new MarshalStatement.Using(
             "PayloadBuffer<IntPtr>", $"{paramName}Disposable", $"{paramName}Swift.PayloadBuffer"));
         setup.Add(new MarshalStatement.Line(
