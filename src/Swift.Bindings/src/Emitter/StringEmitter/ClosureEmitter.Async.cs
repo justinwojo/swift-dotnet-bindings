@@ -160,16 +160,34 @@ public static partial class ClosureEmitter
         var stateVar = $"{parameterName}State";
 
         var hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;
-        var returnCSharpType = hasReturn
+        var returnAbiType = hasReturn
             ? closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true)
             : null;
 
         var stateType = hasReturn
-            ? $"AsyncThrowingClosureState<{returnCSharpType}>"
+            ? $"AsyncThrowingClosureState<{returnAbiType}>"
             : "AsyncThrowingClosureStateVoid";
 
+        // Check if the public delegate return type differs from the ABI type.
+        // The delegate parameter uses projected types (e.g., string) from BuildDelegateType,
+        // but AsyncThrowingClosureState<T> uses ABI types (e.g., SwiftString) for MarshalToSwift.
+        // When they differ, wrap the user's delegate with ContinueWith to convert the result.
+        // NOTE: Cannot use async/await here because this code may be inside an unsafe context (CS4004).
+        string asyncFuncExpr = parameterName;
+        if (hasReturn && returnAbiType != null)
+        {
+            var typeConversionHandler = new TypeConversionHandler(closureHandler.TypeDatabase);
+            var paramConversion = typeConversionHandler.GetParameterConversion("r", closureTypeSpec.ReturnType);
+            if (paramConversion != null)
+            {
+                // e.g., string → new SwiftString(r): wrap Func<Task<string>> → Func<Task<SwiftString>>
+                // Use ContinueWith + Unwrap to avoid async/await in unsafe context.
+                asyncFuncExpr = $"() => {parameterName}().ContinueWith(t => {{ var r = t.GetAwaiter().GetResult(); return {paramConversion}; }}, TaskContinuationOptions.ExecuteSynchronously)";
+            }
+        }
+
         csWriter.WriteLines($$"""
-            var {{stateVar}} = new {{stateType}} { AsyncFunc = {{parameterName}} };
+            var {{stateVar}} = new {{stateType}} { AsyncFunc = {{asyncFuncExpr}} };
             var {{handleVar}} = GCHandle.Alloc({{stateVar}});
             var {{parameterName}}ContextPtr = GCHandle.ToIntPtr({{handleVar}});
             """);

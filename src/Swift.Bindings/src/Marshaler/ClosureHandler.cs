@@ -21,6 +21,9 @@ public class ClosureHandler
         _existentialHandler = new ExistentialHandler(typeDatabase);
     }
 
+    /// <summary>Gets the type database used by this handler.</summary>
+    public ITypeDatabase TypeDatabase => _typeDatabase;
+
     /// <summary>
     /// Determines whether the specified argument declaration represents a closure type.
     /// Also returns true for Optional closures (e.g., Optional&lt;() -&gt; Void&gt;).

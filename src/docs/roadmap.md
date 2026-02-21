@@ -204,7 +204,7 @@ Unified item covering all remaining runtime type leakage in public signatures. I
 |------|-------------|--------|-------|
 | **7a. Post-cross-module audit** | After Task 1, regenerate Stripe modules and count remaining empty interfaces. Identify root cause per interface (AnyType fallback vs genuinely memberless protocol). | Low | Generated output analysis |
 | **7b. Emit diagnostic on empty interfaces** | For protocols that genuinely have members in ABI JSON but all were skipped, emit `[Obsolete("...", DiagnosticId = "SB0004")]` with the skip reasons. For protocols with zero ABI members, consider suppression. | Low | `ProtocolHandler.cs`, `ProtocolProxyEmitter.cs` |
-| **7c. Reduce member skip rate** | For members skipped due to non-blittable existential params or unsupported signatures, evaluate whether projection improvements (Task 2, 6) resolve the skip. | Medium | `MemberEmissionValidator.cs` |
+| **7c. Reduce member skip rate** | For members skipped due to non-blittable existential params or unsupported signatures, evaluate whether projection improvements (Task 2, 6) resolve the skip. Includes closure-bearing methods: Session E broadened the skip gate to skip ALL closure params from protocol interfaces/receivers because `GetCSharpTypeName(forAbiMarshalling: true)` can't resolve closures (even supported ones like `Optional<() -> Void>`) — falls through to AnyType. Recovering these requires implementing closure marshalling in protocol proxy receivers (`ProtocolProxyEmitter.Helpers.cs`). | Medium | `MemberEmissionValidator.cs`, `ProtocolHandler.cs` |
 
 **Acceptance gate**: Empty protocol interfaces with skipped-member root cause drop to 0. Genuinely empty protocols (no ABI members) get explicit diagnostic.
 

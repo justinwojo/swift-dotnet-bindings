@@ -216,12 +216,41 @@ public class ClosureProjection : ITypeProjection
         }
     }
 
+    // NOTE: Async/throws wrapping logic here mirrors ClosureHandler.GetCSharpDelegateType()
+    // (lines 555-581). Both paths take different inputs — ClosureProjection uses
+    // ITypeProjection.PublicType strings while ClosureHandler uses TranslateTypeSpecToCSharp
+    // on TypeSpec. Future centralization should extract a shared helper.
     private string BuildDelegateType()
     {
         var argTypes = _argProjections.Select(p => p.PublicType).ToList();
-        if (_returnProjection != null)
+        var coreReturnType = _returnProjection?.PublicType;
+
+        // Wrap return type based on async/throws modifiers
+        string? finalReturnType;
+        if (_isAsync && _throws)
         {
-            argTypes.Add(_returnProjection.PublicType);
+            // Async+throwing: error via continuation, not SwiftResult
+            finalReturnType = coreReturnType != null ? $"Task<{coreReturnType}>" : "Task";
+        }
+        else if (_throws)
+        {
+            // Throwing (non-async): wrap in SwiftResult
+            var successType = coreReturnType ?? "Swift.SwiftVoid";
+            finalReturnType = $"Swift.SwiftResult<{successType}, SwiftError>";
+        }
+        else if (_isAsync)
+        {
+            // Async only: Task or Task<T>
+            finalReturnType = coreReturnType != null ? $"Task<{coreReturnType}>" : "Task";
+        }
+        else
+        {
+            finalReturnType = coreReturnType;
+        }
+
+        if (finalReturnType != null)
+        {
+            argTypes.Add(finalReturnType);
             return $"Func<{string.Join(", ", argTypes)}>";
         }
 

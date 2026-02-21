@@ -96,19 +96,29 @@ public static class AsyncClosureHelper
 
                 // Marshal result to native buffer and call Swift's success callback
                 var metadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
-                unsafe
+                try
                 {
-                    var resultBuffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
-                    try
+                    unsafe
                     {
-                        var resultSpan = new Span<byte>((void*)resultBuffer, (int)metadata.Size);
-                        SwiftMarshal.MarshalToSwift(result, ref resultSpan);
-                        successAction(continuationBoxPtr, resultBuffer);
+                        var resultBuffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
+                        try
+                        {
+                            var resultSpan = new Span<byte>((void*)resultBuffer, (int)metadata.Size);
+                            SwiftMarshal.MarshalToSwift(result, ref resultSpan);
+                            successAction(continuationBoxPtr, resultBuffer);
+                        }
+                        finally
+                        {
+                            NativeMemory.Free((void*)resultBuffer);
+                        }
                     }
-                    finally
-                    {
-                        NativeMemory.Free((void*)resultBuffer);
-                    }
+                }
+                finally
+                {
+                    // Dispose the result if it's a disposable wrapper type (e.g., SwiftString
+                    // created by an async closure conversion lambda). Without this, the native
+                    // resource is retained until GC/finalization.
+                    (result as IDisposable)?.Dispose();
                 }
             }
             catch (Exception ex)

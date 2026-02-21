@@ -1723,11 +1723,12 @@ public class ProtocolHandlerOutputTests
     #region Dictionary Generic Arg Preservation (typeTranslator fix)
 
     [Fact]
-    public void Emit_InterfaceMethodWithOptionalDictionaryClosure_PreservesGenericArgs()
+    public void Emit_InterfaceMethodWithClosureParam_SkippedFromProtocol()
     {
-        // Bug fix: Protocol interface method with Optional<Dictionary<K,V>> in closure param
-        // must emit SwiftDictionary<K,V>? (with generic args), not bare SwiftDictionary?
-        // This tests the typeTranslator fix in ProtocolHandler.GetCSharpTypeName (line 755).
+        // Protocol methods with closure parameters are skipped because proxy receivers
+        // can't marshal closures (MarshalFromSwift<T> falls through to AnyType).
+        // This verifies the skip gate works for closures with complex generic args
+        // like Optional<Dictionary<K,V>>.
         var typeDatabase = CreateTypeDatabaseWithDictionary();
         var moduleDecl = CreateModuleDecl("TestModule");
 
@@ -1766,6 +1767,65 @@ public class ProtocolHandlerOutputTests
                     {
                         CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl),
                         CreateArgument("completion", closureType, moduleDecl)
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl,
+                    Throws = false,
+                    IsAsync = false,
+                    Visibility = Visibility.Public
+                }
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        Assert.Contains("public interface IDataFetcher", csOutput);
+        Assert.DoesNotContain("FetchData", csOutput);
+    }
+
+    [Fact]
+    public void Emit_InterfaceMethodWithOptionalDictionary_PreservesGenericArgs()
+    {
+        // Bug fix: Protocol interface method with Optional<Dictionary<K,V>> in non-closure param
+        // must emit IReadOnlyDictionary<K,V>? (with generic args), not bare IReadOnlyDictionary?
+        // This tests the typeTranslator fix in ProtocolHandler.GetCSharpTypeName.
+        // (The original closure-based test was superseded by the closure skip gate;
+        // this test covers the same generic-arg preservation through a non-closure path.)
+        var typeDatabase = CreateTypeDatabaseWithDictionary();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "DataFetcher",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.DataFetcher"),
+            MangledName = "$s10TestModule11DataFetcherP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                new()
+                {
+                    Name = "fetchData",
+                    MangledName = "$s10TestModule11DataFetcherP9fetchDatayyF",
+                    MethodType = MethodType.Instance,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl),
+                        CreateArgument("data", new NamedTypeSpec("Swift.Optional",
+                            new NamedTypeSpec("Swift.Dictionary",
+                                new NamedTypeSpec("Swift.AnyHashable"),
+                                new NamedTypeSpec("Swift.Int"))), moduleDecl)
                     },
                     GenericParameters = new List<GenericArgumentDecl>(),
                     ParentDecl = null,

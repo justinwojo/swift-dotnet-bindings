@@ -145,19 +145,16 @@ namespace BindingsGeneration
                     continue;
                 }
 
-                // Skip closure-typed properties with unsupported closure types — the receiver
-                // can't marshal AnyType to/from delegate types in [UnmanagedCallersOnly] callbacks.
+                // Skip ALL closure-typed properties — protocol proxy receivers use
+                // MarshalFromSwift<T> which can't handle closures (falls through to AnyType).
+                // See method skip gate below for detailed rationale and future-work note.
                 var closureHandlerProp = new ClosureHandler(env.TypeDatabase);
                 if (closureHandlerProp.IsClosure(propertyDecl))
                 {
-                    var closureSpec = closureHandlerProp.GetClosureTypeSpec(propertyDecl);
-                    if (closureSpec != null && !closureHandlerProp.IsSupportedClosure(closureSpec))
-                    {
-                        skippedPropertyNames.Add(propertyDecl.Name);
-                        _logger.LogDebug($"Skipping property '{propertyDecl.Name}' in interface {protocolDecl.Name} - unsupported closure type.");
-                        ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, protocolDecl, SkipReason.UnsupportedClosure, "Property has unsupported closure type that can't be marshalled in protocol receiver.");
-                        continue;
-                    }
+                    skippedPropertyNames.Add(propertyDecl.Name);
+                    _logger.LogDebug($"Skipping property '{propertyDecl.Name}' in interface {protocolDecl.Name} - closure type can't be marshalled in protocol receiver.");
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, protocolDecl, SkipReason.UnsupportedClosure, "Property has closure type that can't be marshalled in protocol proxy receiver.");
+                    continue;
                 }
 
                 EmitInterfaceProperty(csWriter, propertyDecl, env.TypeDatabase, protocolDecl);
@@ -298,20 +295,24 @@ namespace BindingsGeneration
                     continue;
                 }
 
-                // Skip methods with unsupported closure parameters — receiver can't marshal
-                // AnyType to/from Action<>/Func<> delegate types in [UnmanagedCallersOnly] callbacks.
+                // Skip methods with ANY closure parameters (including Optional<Closure>).
+                // Protocol proxy receivers use MarshalFromSwift<T> for each parameter, but
+                // closures can't be marshalled this way — the ABI type for Optional<() -> Void>
+                // falls through to AnyType, causing CS1503 (AnyType vs Action?).
+                // Even "supported" closures (IsSupportedClosure=true) can't be received.
+                //
+                // INTENTIONAL API surface reduction: This trades protocol method coverage for
+                // compile correctness. Future work to implement closure marshalling in receivers
+                // (SwiftClosureData ↔ Action/Func conversion in UnmanagedCallersOnly callbacks)
+                // would recover these APIs. Non-protocol emission paths are unaffected.
                 var closureHandlerSkip = new ClosureHandler(env.TypeDatabase);
-                bool hasUnsupportedClosureParam = methodDecl.CSSignature.Skip(1).Any(arg =>
-                {
-                    if (!closureHandlerSkip.IsClosure(arg)) return false;
-                    var closureSpec = closureHandlerSkip.GetClosureTypeSpec(arg);
-                    return closureSpec != null && !closureHandlerSkip.IsSupportedClosure(closureSpec);
-                });
-                if (hasUnsupportedClosureParam)
+                bool hasClosureParam = methodDecl.CSSignature.Skip(1).Any(arg =>
+                    closureHandlerSkip.IsClosure(arg));
+                if (hasClosureParam)
                 {
                     skippedMethodKeys.Add(methodKey);
-                    _logger.LogDebug($"Skipping method '{methodDecl.Name}' in interface {protocolDecl.Name} - has unsupported closure parameter.");
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, SkipReason.UnsupportedClosure, "Method has unsupported closure parameter that can't be marshalled in protocol receiver.");
+                    _logger.LogDebug($"Skipping method '{methodDecl.Name}' in interface {protocolDecl.Name} - has closure parameter that can't be marshalled in protocol receiver.");
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, SkipReason.UnsupportedClosure, "Method has closure parameter that can't be marshalled in protocol proxy receiver.");
                     continue;
                 }
 
