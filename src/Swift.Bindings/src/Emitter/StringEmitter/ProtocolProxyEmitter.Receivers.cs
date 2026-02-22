@@ -380,7 +380,12 @@ public partial class ProtocolProxyEmitter
         var keyExpr = keyConv ?? "kvp.Key";
         var valueExpr = valConv ?? "kvp.Value";
 
-        return $"{rawArgName}.ToDictionary(kvp => {keyExpr}, kvp => {valueExpr})";
+        // Cast values to the public interface type to satisfy invariant Dictionary<K,V>.
+        // e.g., Dictionary<string, RowAdapterProxy> doesn't satisfy IDictionary<string, IRowAdapter>
+        // even though RowAdapterProxy : IRowAdapter, because Dictionary is invariant.
+        var valPubType = dict.ValueProjection.PublicType;
+        var keyPubType = dict.KeyProjection.PublicType;
+        return $"{rawArgName}.ToDictionary(kvp => ({keyPubType}){keyExpr}, kvp => ({valPubType}){valueExpr})";
     }
 
     /// <summary>
@@ -544,7 +549,9 @@ public partial class ProtocolProxyEmitter
     {
         var containerConv = innerContainer.GetReturnContainerConversion($"{varName}.Some");
         var someExpr = containerConv ?? $"{varName}.Some";
-        return $"({varName}.Case == Swift.SwiftOptionalCases.None ? ({idiomaticType}?)null : {someExpr})";
+        // Cast the some arm to the idiomatic type to avoid ternary covariance issues.
+        // e.g., Dictionary<string, MixpanelTypeProxy> vs IReadOnlyDictionary<string, IMixpanelType>
+        return $"({varName}.Case == Swift.SwiftOptionalCases.None ? ({idiomaticType}?)null : ({idiomaticType}){someExpr})";
     }
 
     /// <summary>

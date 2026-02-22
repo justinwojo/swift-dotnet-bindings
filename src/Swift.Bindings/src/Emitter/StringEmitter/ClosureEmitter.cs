@@ -91,6 +91,26 @@ public static partial class ClosureEmitter
             var ct = closureHandler.GetPInvokeExistentialType(closureTypeSpec.ReturnType);
             returnStatement = $"return ({ct})del({invokeArgsString});";
         }
+        else if (returnType == "void*" && closureTypeSpec.ReturnType is NamedTypeSpec retNamedType && IsPointerType(retNamedType))
+        {
+            // Pointer return types (OpaquePointer, UnsafeRawPointer, etc.): delegate returns IntPtr,
+            // callback ABI expects void* — just cast the pointer value directly.
+            returnStatement = $"return (void*)del({invokeArgsString});";
+        }
+        else if (returnType == "void*" && !closureHandler.CanUseDirectCallbackReturn(closureTypeSpec.ReturnType))
+        {
+            // Non-frozen struct / ObjC class returns: the callback signature uses void*
+            // but del() returns the C# type. Marshal to a native buffer.
+            var csharpRetType = closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true);
+            returnStatement = $"""
+                    var _result = del({invokeArgsString});
+                            var _resultMetadata = TypeMetadata.GetTypeMetadataOrThrow<{csharpRetType}>();
+                            var _resultBuffer = (void*)NativeMemory.Alloc(_resultMetadata.Size);
+                            var _resultSpan = new Span<byte>(_resultBuffer, (int)_resultMetadata.Size);
+                            SwiftMarshal.MarshalToSwift(_result, ref _resultSpan);
+                            return _resultBuffer;
+                """;
+        }
         else
         {
             returnStatement = $"return del({invokeArgsString});";
@@ -321,8 +341,14 @@ public static partial class ClosureEmitter
 
         // Check if this parameter needs marshalling from void*
         var callbackType = GetCallbackParameterType(typeSpec, closureHandler);
-        if (callbackType == "void*" && typeSpec is NamedTypeSpec namedType && !IsPointerType(namedType))
+        if (callbackType == "void*" && typeSpec is NamedTypeSpec namedType)
         {
+            if (IsPointerType(namedType))
+            {
+                // Pointer types (OpaquePointer, UnsafeRawPointer, etc.) are void* in the callback
+                // but IntPtr in the delegate — just cast.
+                return $"new IntPtr(arg{argIndex})";
+            }
             // The callback receives void* but the delegate expects the actual type.
             // Use SwiftMarshal.MarshalFromSwift to convert.
             var delegateType = closureHandler.TranslateTypeSpecToCSharp(typeSpec);

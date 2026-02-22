@@ -66,6 +66,11 @@ public static class CompletionHandlerDetector
         if (closureSpec.HasReturn())
             return false;
 
+        // Throwing closures project to Func<SwiftResult<T, SwiftError>> which has non-void
+        // return in the C# delegate — the TCS lambda pattern doesn't work for these.
+        if (closureSpec.Throws)
+            return false;
+
         // Must be trailing (last parameter)
         var parameters = methodDecl.CSSignature.Skip(1).ToList();
         if (parameters.Count == 0)

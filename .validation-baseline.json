@@ -1,18 +1,18 @@
 {
-  "timestamp": "2026-02-22T17:23:46Z",
-  "git_sha": "d58da68",
+  "timestamp": "2026-02-22T18:25:34Z",
+  "git_sha": "1d81cb2",
   "runtime_version": "0.1.0-preview.5",
   "compile_gate": {
     "total": 32,
-    "passed": 29,
-    "failed": 3,
+    "passed": 32,
+    "failed": 0,
     "libraries": {
       "Alamofire": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 43859,
-        "gen_seconds": 2
+        "gen_seconds": 3
       },
       "BlinkID": {
         "generate": "fail",
@@ -40,13 +40,13 @@
         "compile": "ok",
         "errors": 0,
         "lines": 32044,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "GRDB": {
         "generate": "fail",
-        "compile": "fail",
-        "errors": 22,
-        "lines": 79743,
+        "compile": "ok",
+        "errors": 0,
+        "lines": 79652,
         "gen_seconds": 3
       },
       "KeychainAccess": {
@@ -54,13 +54,13 @@
         "compile": "ok",
         "errors": 0,
         "lines": 11214,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "Kingfisher": {
         "generate": "fail",
-        "compile": "fail",
-        "errors": 2,
-        "lines": 47327,
+        "compile": "ok",
+        "errors": 0,
+        "lines": 47331,
         "gen_seconds": 3
       },
       "Lottie": {
@@ -74,7 +74,7 @@
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
-        "lines": 51095,
+        "lines": 51293,
         "gen_seconds": 3
       },
       "MicroblinkPlatform": {
@@ -86,8 +86,8 @@
       },
       "Mixpanel": {
         "generate": "fail",
-        "compile": "fail",
-        "errors": 1,
+        "compile": "ok",
+        "errors": 0,
         "lines": 7150,
         "gen_seconds": 2
       },
@@ -166,14 +166,14 @@
         "compile": "ok",
         "errors": 0,
         "lines": 12207,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "StripeCore": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 34134,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "StripeCryptoOnramp": {
         "generate": "fail",

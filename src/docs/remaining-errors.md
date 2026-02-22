@@ -1,49 +1,54 @@
-# Remaining Library Validation Errors
+# Library Validation Status
 
 **Date**: 2026-02-22
-**Baseline**: 29/32 libraries passing (3986 unit + 700 integration tests)
+**Baseline**: 32/32 libraries passing (3988 unit + 700 integration tests)
 
-## Recent Fix: Unconditional Factory Routing for Protocol Proxy ABI Types
+All validation libraries compile with 0 errors.
 
-**Fixed**: `GetCSharpTypeName(forAbiMarshalling: true)` now unconditionally routes through
-`TypeProjectionFactory` for all types. Uses `projection.MarshalFromSwiftType` for ABI types
-and `projection.PublicType` for public types.
+## Recent Fixes (this session)
 
-**Projection fixes** (safe for both protocol proxy and container composition):
-- `NativeRemappedProjection`: Added `MarshalFromSwiftType => _swiftWrapperType` (was SafeHandle).
-  Also fixed `GetReturnElementConversion` to not re-wrap elements that are already the wrapper type.
-- `OptionalProjection`: Added `MarshalFromSwiftType => ContainerTypeName` (was SwiftOptional<IntPtr>)
-- `OverrideOptionalExistentialAbiType` removed (factory handles Optional<existential>)
+### Bug 1: Throwing/non-throwing closure void* return for non-frozen structs
+Closure callbacks returning non-frozen structs or ObjC classes as `void*` now marshal via
+`TypeMetadata.GetTypeMetadataOrThrow<T>()` + `NativeMemory.Alloc` + `SwiftMarshal.MarshalToSwift`.
+Affected: GRDB (8 errors), Kingfisher (1 error).
 
-**Receiver conversion handling** (for types where MarshalFromSwiftType = IntPtr):
-- ObjC bridged types: `MarshalFromSwift<IntPtr>` + `GetNSObject<T>()` conversion added to
-  `GetReceiverSetterConversion`, `GetReceiverGetterConversion`, and Optional setter/getter.
-  Using `MarshalFromSwiftType => _csharpTypeName` would crash at runtime (ObjC classes lack Swift metadata).
+### Bug 2: Async TCS wrapping throwing closures
+`CompletionHandlerDetector.IsCompletionHandler` now excludes throwing closures (`closureSpec.Throws`).
+Throwing closures project to `Func<SwiftResult<T, SwiftError>>` with non-void return, making the
+TCS lambda incompatible. Affected: GRDB (3 errors).
 
-**Impact**: GRDB 27→22 errors, Kingfisher 3→2, Mixpanel 1 (unchanged).
-Alamofire, StripeCore, StripePaymentsUI, StripeUICore all fixed (4 libraries recovered).
+### Bug 3: SwiftString not projected to string in closure delegates
+`ClosureHandler.TranslateTypeSpecToCSharp` now checks `MarshallingHelpers.IsSwiftString` before
+typeRecord lookup, returning `"string"` instead of `"SwiftString"`. Affected: GRDB (1 error).
 
-## Failing Libraries
+### Bug 4: Dictionary covariance in protocol proxy receivers
+Two sub-fixes: (a) `GetReceiverDictionaryConversion` adds explicit public type casts in `.ToDictionary()`;
+(b) `OptionalProjection.GetReturnElementConversion` converts `SwiftOptional<T>` → `T?` for dict values;
+(c) `DictionaryProjection.GetReturnElementConversion` enables array-of-dictionary receiver conversion.
+Affected: GRDB (2 errors).
 
-### 1. GRDB — 22 errors
+### Bug 5: UIViewAnimationOptions enum in SwiftObjectHelper
+Apple framework value types (remapped structs/enums like UIViewAnimationOptions) now use
+`TypeMetadata.GetTypeMetadataOrThrow<T>()` instead of `SwiftObjectHelper<T>.GetTypeMetadata()`.
+`TypeDatabaseExtensions.IsRemappedAppleValueType` made internal for access from EnumHandler.
+Affected: Kingfisher (1 error).
 
-| Category | Count | Root Cause |
-|----------|-------|------------|
-| Throwing closure return type mismatch | ~10 | Swift closures that `throws` get projected as `Func<..., SwiftResult<T, SwiftError>>`. Async wrapper template calls `tcs.TrySetResult(result)` (returns `bool`) where the delegate expects `SwiftResult`. |
-| Non-frozen struct to void* return | ~8 | Closure callbacks returning non-frozen structs emit the struct type where `void*` is expected. |
-| Dictionary Optional covariance | ~2 | `IReadOnlyDictionary<string, SwiftOptional<DatabaseValue>>` vs `IReadOnlyDictionary<string, DatabaseValue?>`. |
-| Dictionary RowAdapter covariance | ~1 | `Dictionary<string, RowAdapterProxy>` vs `IDictionary<string, IRowAdapter>`. |
-| Closure SwiftString to string projection | ~1 | `Action<ResultCode, SwiftString>` can't convert to `Action<ResultCode, string>`. |
+### Bug 6: Ternary covariance in optional container setter receivers
+`GetReceiverOptionalContainerSetterConversion` now casts the some arm to the idiomatic type.
+Affected: Mixpanel (1 error).
 
-### 2. Kingfisher — 2 errors
+### Bug 7: OpaquePointer void* → IntPtr in closure callbacks
+`GetInvokeArgExpression` now handles pointer types (OpaquePointer, etc.) that are `void*` in
+the callback but `IntPtr` in the delegate, using `new IntPtr(argN)`. Affected: GRDB (1 error).
 
-| Category | Count | Root Cause |
-|----------|-------|------------|
-| UIImage to void* closure return | 1 | Closure returning UIImage (ObjC class) emits the class type where `void*` is expected. |
-| UIViewAnimationOptions in SwiftObjectHelper | 1 | .NET enum (UIKit) in tuple metadata requires `SwiftObjectHelper<T>.GetTypeMetadata()` but the type doesn't implement `ISwiftObject`. |
+### Bug 8: Pointer-return closure ABI regression guard (code review fix)
+The Bug 1 void* marshalling branches also matched pointer return types (OpaquePointer,
+UnsafeRawPointer, etc.) which should return the raw pointer value, not a buffer address.
+Added `IsPointerType` guard before the buffer-allocation branch in both throwing and
+non-throwing callback paths — pointer returns now emit `return (void*)result` directly.
 
-### 3. Mixpanel — 1 error
+## Previous Fix: Unconditional Factory Routing for Protocol Proxy ABI Types
 
-| Category | Count | Root Cause |
-|----------|-------|------------|
-| Dictionary ternary covariance | 1 | `IReadOnlyDictionary<string, IMixpanelType>` vs `IReadOnlyDictionary<string, MixpanelTypeProxy>` in conditional expression. Both types are correct (existential resolved properly) but C# can't infer the common type. |
+`GetCSharpTypeName(forAbiMarshalling: true)` unconditionally routes through `TypeProjectionFactory`.
+Uses `projection.MarshalFromSwiftType` for ABI types and `projection.PublicType` for public types.
+Recovered 4 libraries: Alamofire, StripeCore, StripePaymentsUI, StripeUICore.

@@ -249,6 +249,23 @@ public class OptionalProjection : ITypeProjection
         };
     }
 
+    /// <summary>
+    /// Element-level conversion for when this Optional appears as a dictionary/array value.
+    /// Converts SwiftOptional&lt;T&gt; → T? via .ToNullable() with optional inner element conversion.
+    /// </summary>
+    public string? GetReturnElementConversion(string elementVar)
+    {
+        var innerConv = _innerProjection.GetReturnElementConversion("_optVal");
+        if (innerConv != null)
+        {
+            // Inner needs conversion: e.g., SwiftOptional<SwiftString> → string?
+            // ToNullable() gives SwiftString?, then convert the inner value.
+            return $"({elementVar}.ToNullable() is {{ }} _optVal ? ({_innerProjection.PublicType}?){innerConv} : null)";
+        }
+        // Simple inner: SwiftOptional<T> → T?
+        return $"{elementVar}.ToNullable()";
+    }
+
     public bool RequiresSwiftWrapper => false;
     public string? GetSwiftWrapperCode(SwiftWrapperContext context) => null;
 }

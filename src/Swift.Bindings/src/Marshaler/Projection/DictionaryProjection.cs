@@ -193,6 +193,22 @@ public class DictionaryProjection : ITypeProjection
         return ".AsProjected(v => v)";
     }
 
+    /// <summary>
+    /// Element-level conversion for when this Dictionary appears inside a container (e.g., Array&lt;Dictionary&gt;).
+    /// Converts SwiftDictionary&lt;K,V&gt; → IDictionary&lt;PublicK,PublicV&gt; via .ToDictionary() with
+    /// key/value conversion lambdas, using explicit public type casts for invariant Dictionary covariance.
+    /// </summary>
+    public string? GetReturnElementConversion(string elementVar)
+    {
+        var keyConv = _keyProjection.GetReturnElementConversion("kvp.Key");
+        var valConv = _valueProjection.GetReturnElementConversion("kvp.Value");
+        var keyExpr = keyConv ?? "kvp.Key";
+        var valueExpr = valConv ?? "kvp.Value";
+        var keyPubType = _keyProjection.PublicType;
+        var valPubType = _valueProjection.PublicType;
+        return $"{elementVar}.ToDictionary(kvp => ({keyPubType}){keyExpr}, kvp => ({valPubType}){valueExpr})";
+    }
+
     public bool RequiresSwiftWrapper => false;
     public string? GetSwiftWrapperCode(SwiftWrapperContext context) => null;
 }

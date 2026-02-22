@@ -700,7 +700,7 @@ public static class TypeDatabaseExtensions
     /// Determines whether the specified NamedTypeSpec is an Apple framework value type
     /// with a non-standard .NET name that needs remapping.
     /// </summary>
-    private static bool IsRemappedAppleValueType(NamedTypeSpec typeSpec)
+    internal static bool IsRemappedAppleValueType(NamedTypeSpec typeSpec)
     {
         if (!typeSpec.HasModule())
             return false;

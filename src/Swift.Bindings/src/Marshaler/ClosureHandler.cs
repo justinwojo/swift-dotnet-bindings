@@ -893,6 +893,11 @@ public class ClosureHandler
             if (namedType.ContainsGenericParameters)
                 return TranslateBoundGenericToCSharp(namedType);
 
+            // Swift.String must project to "string" to match GetIdiomaticCSharpType's output.
+            // Without this, closures use SwiftString while interface methods use string → CS0029.
+            if (MarshallingHelpers.IsSwiftString(namedType))
+                return "string";
+
             var typeRecord = _typeDatabase.GetTypeRecordOrAnyType(namedType);
             // Native remapped types (e.g., Foundation.Data → Foundation.NSData, Foundation.URL → Foundation.NSUrl)
             // must use NativeTypeName to match GetIdiomaticCSharpType's output for property types.

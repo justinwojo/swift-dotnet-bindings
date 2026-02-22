@@ -121,6 +121,25 @@ public static partial class ClosureEmitter
                 var ct = closureHandler.GetPInvokeExistentialType(closureTypeSpec.ReturnType);
                 csWriter.WriteLine($"        return ({ct})swiftResult.Success;");
             }
+            else if (returnType == "void*" && closureTypeSpec.ReturnType is NamedTypeSpec retNamedType && IsPointerType(retNamedType))
+            {
+                // Pointer return types (OpaquePointer, UnsafeRawPointer, etc.): delegate returns IntPtr,
+                // callback ABI expects void* — just cast the pointer value directly.
+                csWriter.WriteLine("        return (void*)swiftResult.Success;");
+            }
+            else if (returnType == "void*" && !closureHandler.CanUseDirectCallbackReturn(closureTypeSpec.ReturnType))
+            {
+                // Non-frozen struct / ObjC class returns: the callback signature uses void*
+                // but swiftResult.Success is the C# type. Marshal to a native buffer.
+                var csharpSuccessType = closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true);
+                csWriter.WriteLines($$"""
+                            var _successMetadata = TypeMetadata.GetTypeMetadataOrThrow<{{csharpSuccessType}}>();
+                            var _successBuffer = (void*)NativeMemory.Alloc(_successMetadata.Size);
+                            var _successSpan = new Span<byte>(_successBuffer, (int)_successMetadata.Size);
+                            SwiftMarshal.MarshalToSwift(swiftResult.Success, ref _successSpan);
+                            return _successBuffer;
+                    """);
+            }
             else
             {
                 csWriter.WriteLine("        return swiftResult.Success;");

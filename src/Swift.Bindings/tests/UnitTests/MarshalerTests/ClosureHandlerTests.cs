@@ -813,7 +813,7 @@ public class ClosureHandlerTests
         var optionalArray = new NamedTypeSpec("Swift.Optional", arrayString);
         var result = handler.TranslateTypeSpecToCSharp(optionalArray);
 
-        Assert.Equal("Swift.SwiftArray<Swift.SwiftString>?", result);
+        Assert.Equal("Swift.SwiftArray<string>?", result);
     }
 
     [Fact]
@@ -2056,7 +2056,7 @@ public class ClosureHandlerTests
             new NamedTypeSpec("Swift.Int"));
         var result = handler.TranslateTypeSpecToCSharp(typedDict);
 
-        Assert.Equal("Swift.SwiftDictionary<Swift.SwiftString, long>", result);
+        Assert.Equal("Swift.SwiftDictionary<string, long>", result);
     }
 
     #endregion

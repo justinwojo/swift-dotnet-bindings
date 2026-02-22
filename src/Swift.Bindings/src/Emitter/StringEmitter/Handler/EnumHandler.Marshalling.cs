@@ -90,6 +90,12 @@ namespace BindingsGeneration
             {
                 csWriter.WriteLine($"elementMetadataArray[{index}] = TypeMetadata.GetTypeMetadataOrThrow<{metadataType}>();");
             }
+            // Apple framework value types (remapped structs/enums like UIViewAnimationOptions)
+            // are .NET value types that don't implement ISwiftObject — use GetTypeMetadataOrThrow.
+            else if (typeSpec is NamedTypeSpec appleNamedSpec && TypeDatabaseExtensions.IsRemappedAppleValueType(appleNamedSpec))
+            {
+                csWriter.WriteLine($"elementMetadataArray[{index}] = TypeMetadata.GetTypeMetadataOrThrow<{csharpType}>();");
+            }
             else
             {
                 // Assume the type implements ISwiftObject
