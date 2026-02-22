@@ -260,3 +260,46 @@ public record OptionalPointerWrapperSetup
     /// <summary>Stack allocation code for the out-buffer.</summary>
     public required string AllocationCode { get; init; }
 }
+
+/// <summary>
+/// A complete plan for emitting a sync method body.
+/// Built by MethodMarshalPlanBuilder, consumed by WrapperEmitter's thin Emit* wrappers.
+/// </summary>
+public record SyncMethodPlan
+{
+    /// <summary>SwiftSelf creation for instance methods (null for static/free functions).</summary>
+    public SwiftSelfSetup? SwiftSelf { get; init; }
+
+    /// <summary>SwiftError setup for throwing methods (null for non-throwing).</summary>
+    public SwiftErrorSetup? SwiftError { get; init; }
+
+    /// <summary>Indirect result setup for constructors (null when not needed).</summary>
+    public IndirectResultSetup? IndirectResultConstructor { get; init; }
+
+    /// <summary>Indirect result setup for methods (null when not needed).</summary>
+    public IndirectResultSetup? IndirectResultMethod { get; init; }
+
+    /// <summary>Optional return buffer setup for large Optional returns (null when not needed).</summary>
+    public OptionalPointerWrapperSetup? OptionalReturnBuffer { get; init; }
+
+    /// <summary>Declaration lines emitted before the try block (TypeMetadata, IntPtr, GCHandle).</summary>
+    public IReadOnlyList<string> DeclarationLines { get; init; } = Array.Empty<string>();
+
+    /// <summary>Generic argument marshalling lines emitted inside the try block (stackalloc + MarshalToSwift).</summary>
+    public IReadOnlyList<string> GenericArgumentMarshallingLines { get; init; } = Array.Empty<string>();
+
+    /// <summary>Generic inout writeback lines emitted after the P/Invoke call.</summary>
+    public IReadOnlyList<string> GenericInoutWritebackLines { get; init; } = Array.Empty<string>();
+
+    /// <summary>Protocol witness table extraction statements.</summary>
+    public IReadOnlyList<string> WitnessTableStatements { get; init; } = Array.Empty<string>();
+
+    /// <summary>The P/Invoke call statement.</summary>
+    public required string PInvokeCallStatement { get; init; }
+
+    /// <summary>The fixed block header (e.g., "fixed (T* __self = &amp;this)"), or null.</summary>
+    public string? FixedBlockHeader { get; init; }
+
+    /// <summary>Whether the method body requires an unsafe block.</summary>
+    public bool RequiresUnsafe { get; init; }
+}

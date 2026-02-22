@@ -30,6 +30,7 @@ namespace BindingsGeneration
         private readonly bool useTypedErrorCallback;
         private readonly string? typedThrowsSwiftErrorType;  // e.g., "SwiftBindingsTestLib.ParseError"
         private readonly string? typedThrowsCSharpErrorType;  // e.g., "ParseError"
+        private readonly SyncMethodPlan _syncPlan;
         private bool _needsUnsafeBody;
 
         internal WrapperEmitter(
@@ -91,6 +92,15 @@ namespace BindingsGeneration
                         || (_env.MethodDecl.UsesFreeFunctionWrapper && _requiresSwiftSelf);
                 }
             }
+
+            // Build the sync method plan
+            var builder = new MethodMarshalPlanBuilder(
+                _env, _genericContext, _wrapperSignature, _pInvokeSignature,
+                _requiresIndirectResult, _requiresSwiftSelf, _requiresSwiftError,
+                _requiresSwiftAsync, _requiresFixedBlock,
+                IsProtocolAvailableForConstraint);
+            _syncPlan = builder.BuildSyncPlan();
+            _needsUnsafeBody = _syncPlan.RequiresUnsafe;
         }
 
         /// <summary>
@@ -158,168 +168,6 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Emits a static factory method for failable initializers (init?).
-        /// Instead of a constructor, generates a TryCreate method that returns null on failure.
-        /// </summary>
-        /// <param name="csWriter">The CSharpWriter instance.</param>
-        internal void EmitFailableFactory(CSharpWriter csWriter)
-        {
-            var typeName = GetResolvedTypeName();
-
-            // Support both struct and class parents
-            bool isFrozenValue = false;
-            TypeRecord typeRecord;
-            if (_env.ParentDecl is StructDecl structDecl)
-            {
-                typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(structDecl.SwiftTypeName);
-                isFrozenValue = MarshallingHelpers.IsTypeFrozen(typeRecord) && !MarshallingHelpers.RequiresMemoryManagement(typeRecord);
-            }
-            else if (_env.ParentDecl is ClassDecl classDecl)
-            {
-                typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(classDecl.SwiftTypeName);
-                // Classes are never frozen value types
-                isFrozenValue = false;
-            }
-            else
-            {
-                return;
-            }
-
-            // Emit closure callbacks before factory body (like methods do)
-            bool hasClosures = _env.MethodDecl.CSSignature.Skip(1).Any(_env.ClosureHandler.IsClosure);
-            if (hasClosures)
-            {
-                EmitClosureCallbacks(csWriter);
-            }
-
-            XmlDocCommentEmitter.EmitMethodDocComment(csWriter, _env.MethodDecl, isFailableFactory: true);
-            // Emit signature: public static bool TryCreate(params, out TypeName result)
-            var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.Visibility);
-            _needsUnsafeBody = true;
-            csWriter.WriteLine($"{accessModifier} static bool TryCreate({_wrapperSignature.ParametersString()}{(_wrapperSignature.Parameters.Count > 0 ? ", " : "")}out {typeName} result)");
-            EmitBodyStart(csWriter);
-            EmitUnsafeBlockStart(csWriter);
-
-            // Declare TypeMetadata, payload, and GCHandle variables for generic/closure args
-            EmitDeclarationsForAllocations(csWriter);
-
-            // Get metadata for Self type
-            csWriter.WriteLine($"var selfMetadata = TypeMetadata.GetTypeMetadataOrThrow<{typeName}>();");
-            csWriter.WriteLine();
-
-            // Get metadata for SwiftOptional<Self>
-            var optionalMetadataCall = _env.PInvokeHelperContext != null
-                ? $"{_env.PInvokeHelperContext.HelperClassName}.PInvokesForSwiftOptional_MetadataAccessor"
-                : "PInvokesForSwiftOptional_MetadataAccessor";
-            csWriter.WriteLine($"var optionalMetadata = {optionalMetadataCall}(");
-            csWriter.Indent++;
-            csWriter.WriteLine("TypeMetadataRequest.Complete, selfMetadata);");
-            csWriter.Indent--;
-            csWriter.WriteLine();
-
-            // Allocate buffer for SwiftOptional<Self> result
-            csWriter.WriteLine("void* resultBuffer = NativeMemory.AllocZeroed(optionalMetadata.Size);");
-            csWriter.WriteLine("try");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-
-            // Create SwiftIndirectResult pointing to the optional buffer
-            csWriter.WriteLine("var swiftIndirectResult = new SwiftIndirectResult(resultBuffer);");
-            csWriter.WriteLine();
-
-            // Marshal arguments using existing helpers
-            EmitSafeHandleAddRef(csWriter);
-            EmitGenericArguments(csWriter);
-            EmitBoundGenericArguments(csWriter);
-            EmitClosureMarshalling(csWriter);
-            EmitTypeConversions(csWriter);
-            EmitProtocolWitnessTables(csWriter);
-
-            // Call P/Invoke (writes Optional<Self> into resultBuffer)
-            EmitPInvokeCall(csWriter);
-
-            // Write back inout generic params before error check (so mutations survive exceptions)
-            EmitGenericInoutWriteback(csWriter);
-
-            // Check SwiftError if the constructor throws
-            EmitSwiftError(csWriter);
-
-            // Check tag: 0 = Some, 1 = None
-            csWriter.WriteLine("uint tag = optionalMetadata.ValueWitnessTable->GetEnumTag((byte*)resultBuffer, optionalMetadata);");
-            csWriter.WriteLine();
-            csWriter.WriteLine("if (tag == 1) // None");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-            csWriter.WriteLine("result = default;");
-            csWriter.WriteLine("return false;");
-            csWriter.Indent--;
-            csWriter.WriteLine("}");
-            csWriter.WriteLine();
-
-            // Extract value based on type kind
-            if (isFrozenValue)
-            {
-                // Frozen struct (C# value type): read value directly from the optional's payload
-                csWriter.WriteLine($"result = *({typeName}*)resultBuffer;");
-                csWriter.WriteLine("return true;");
-            }
-            else
-            {
-                // Non-frozen or frozen-with-memory-management (C# class):
-                // copy payload and create instance via the private SwiftHandle constructor
-                csWriter.WriteLines($$"""
-                    IntPtr payloadBuffer = (IntPtr)NativeMemory.Alloc(selfMetadata.Size);
-                    selfMetadata.ValueWitnessTable->InitializeWithCopy((void*)payloadBuffer, resultBuffer, selfMetadata);
-                    result = new {{typeName}}(payloadBuffer);
-                    return true;
-                    """);
-            }
-
-            csWriter.Indent--;
-            csWriter.WriteLine("}");
-            csWriter.WriteLine("finally");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-            csWriter.WriteLine("optionalMetadata.ValueWitnessTable->Destroy(resultBuffer, optionalMetadata);");
-            csWriter.WriteLine("NativeMemory.Free(resultBuffer);");
-            // Clean up generic payloads and closure GCHandles
-            EmitSafeHandleRelease(csWriter);
-            csWriter.Indent--;
-            csWriter.WriteLine("}");
-
-            EmitUnsafeBlockEnd(csWriter);
-            EmitBodyEnd(csWriter);
-        }
-
-        /// <summary>
-        /// Emits the P/Invoke for the SwiftOptional metadata accessor ($sSqMa).
-        /// Called once per type that has failable initializers, to avoid duplicate declarations.
-        /// </summary>
-        internal void EmitOptionalMetadataAccessorPInvoke(CSharpWriter csWriter)
-        {
-            if (_env.PInvokeHelperContext != null)
-            {
-                // AddDeclaration deduplicates by method name
-                _env.PInvokeHelperContext.AddDeclaration(new PInvokeDeclaration
-                {
-                    LibraryPath = "/usr/lib/swift/libswiftCore.dylib",
-                    EntryPoint = "$sSqMa",
-                    MethodName = "PInvokesForSwiftOptional_MetadataAccessor",
-                    ReturnType = "TypeMetadata",
-                    ParametersString = "TypeMetadataRequest request, TypeMetadata typeMetadata",
-                    IsAsync = false
-                });
-            }
-            else
-            {
-                csWriter.WriteLine("[LibraryImport(\"/usr/lib/swift/libswiftCore.dylib\", EntryPoint = \"$sSqMa\")]");
-                csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
-                csWriter.WriteLine("private static partial TypeMetadata PInvokesForSwiftOptional_MetadataAccessor(TypeMetadataRequest request, TypeMetadata typeMetadata);");
-                csWriter.WriteLine();
-            }
-        }
-
-        /// <summary>
         /// Emits the method wrapper.
         /// </summary>
         /// <param name="writer">The IndentedTextWriter instance.</param>
@@ -374,35 +222,8 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitDeclarationsForAllocations(CSharpWriter csWriter)
         {
-            foreach (var genericParameter in _env.MethodDecl.GenericParameters)
-            {
-                var csTypeParamName = _env.GenericTypeMapping[genericParameter.TypeName].TypeParameter;
-                var metadataName = NameProvider.GetMetadataName(csTypeParamName);
-
-                csWriter.WriteLine($"TypeMetadata {metadataName} = TypeMetadata.GetTypeMetadataOrThrow<{csTypeParamName}>();");
-            }
-
-            foreach (var argument in _env.MethodDecl.CSSignature.Skip(1).Where(a => a.IsGeneric))
-            {
-                var csName = NameProvider.GetCSharpParameterName(argument);
-                var payloadName = NameProvider.GetPayloadName(csName);
-                csWriter.WriteLine($"IntPtr {payloadName} = IntPtr.Zero;");
-            }
-
-            // Declare GCHandle variables for escaping closures (except async+throwing which handle their own)
-            foreach (var argument in _env.MethodDecl.CSSignature.Skip(1).Where(_env.ClosureHandler.IsClosure))
-            {
-                var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argument)!;
-                // Skip async+throwing closures - they declare GCHandle in EmitAsyncThrowingClosureMarshallingSetup
-                // and free it in the Task.Run's finally block
-                if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec) &&
-                    _env.ClosureHandler.RequiresThunk(closureTypeSpec) &&
-                    !_env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec))
-                {
-                    var csName = NameProvider.GetCSharpParameterName(argument);
-                    csWriter.WriteLine($"GCHandle {csName}Handle = default;");
-                }
-            }
+            foreach (var line in _syncPlan.DeclarationLines)
+                csWriter.WriteLine(line);
         }
 
         /// <summary>
@@ -411,59 +232,8 @@ namespace BindingsGeneration
         /// <param name="csWriter">The IndentedTextWriter instance.</param>
         private void EmitSwiftSelf(CSharpWriter csWriter)
         {
-            if (!_requiresSwiftSelf)
-            {
-                return;
-            }
-
-            // Async methods either use singleton workaround or pass self as explicit IntPtr parameter.
-            // Either way, no SwiftSelf variable is needed on the C# side.
-            // Standalone closure Cdecl wrapper methods also pass self as explicit IntPtr.
-            // Note: wrapper generator paths (ArraySlice, DefaultParam) with HasClosureCdeclWrapper
-            // still use extension methods with implicit self → SwiftSelf is still needed.
-            if (_requiresSwiftAsync || _env.MethodDecl.UsesFreeFunctionWrapper)
-            {
-                return;
-            }
-
-            // Frozen struct setters use a fixed block to get a pointer to 'this'
-            if (_requiresFixedBlock)
-            {
-                csWriter.WriteLine("var self = new SwiftSelf(__self);");
-            }
-            else if (_env.ParentDecl is StructDecl structDecl && structDecl.IsFrozen)
-            {
-                var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(structDecl.SwiftTypeName);
-                if (MarshallingHelpers.RequiresMemoryManagement(typeRecord))
-                {
-                    // Setters need pointer semantics (SwiftSelf without type parameter)
-                    // Getters can use value semantics (SwiftSelf<T.Buffer>)
-                    if (MarshallingHelpers.MethodIsSetter(_env.MethodDecl))
-                        csWriter.WriteLine($"var self = new SwiftSelf((void*)_payload.DangerousGetHandle());");
-                    else
-                    {
-                        var resolvedName = GetResolvedTypeName();
-                        csWriter.WriteLine($"var self = new SwiftSelf<{resolvedName}.Buffer>(*({resolvedName}.Buffer*)_payload.DangerousGetHandle());");
-                    }
-                }
-                else
-                {
-                    var resolvedName = GetResolvedTypeName();
-                    csWriter.WriteLine($"var self = new SwiftSelf<{resolvedName}>(this);");
-                }
-            }
-            else if (_env.ParentDecl is ClassDecl)
-            {
-                // For Swift classes, the payload buffer contains a pointer to the class instance.
-                // We need to dereference to get the actual class pointer for SwiftSelf.
-                csWriter.WriteLine("var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());");
-            }
-            else
-            {
-                // For non-frozen structs, the buffer IS the struct data, so buffer address is correct.
-                csWriter.WriteLine("var self = new SwiftSelf((void*)_payload.DangerousGetHandle());");
-            }
-
+            if (_syncPlan.SwiftSelf == null) return;
+            csWriter.WriteLine(_syncPlan.SwiftSelf.CreationCode);
             csWriter.WriteLine();
         }
 
@@ -473,28 +243,8 @@ namespace BindingsGeneration
         /// <param name="csWriter">The IndentedTextWriter instance.</param>
         private void EmitIndirectResultConstructor(CSharpWriter csWriter)
         {
-            if (!_requiresIndirectResult)
-            {
-                return;
-            }
-
-            // Bug #7: Include generic type parameters in SwiftSafeHandle<> for generic types.
-            // Without this, generic types like BatchedCollection<T0> emit SwiftSafeHandle<BatchedCollection>
-            // which causes CS0305 (missing type arguments).
-            var typeName = GetResolvedTypeName();
-            if (_env.ParentDecl is TypeDecl typeDecl && typeDecl.IsGeneric)
-            {
-                var genericParams = string.Join(", ", typeDecl.GenericParameters.Select(p =>
-                    _env.GenericTypeMapping.TryGetValue(p.TypeName, out var mapped) ? mapped.TypeParameter : p.TypeName));
-                typeName = $"{typeName}<{genericParams}>";
-            }
-
-            var text = $$"""
-            _payload = new SwiftSafeHandle<{{typeName}}>((IntPtr)NativeMemory.Alloc(_payloadSize));
-            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
-            """;
-
-            csWriter.WriteLines(text);
+            if (_syncPlan.IndirectResultConstructor == null) return;
+            csWriter.WriteLines(_syncPlan.IndirectResultConstructor.AllocationCode);
             csWriter.WriteLine();
         }
 
@@ -504,18 +254,8 @@ namespace BindingsGeneration
         /// <param name="csWriter">The IndentedTextWriter instance.</param>
         private void EmitIndirectResultMethod(CSharpWriter csWriter)
         {
-            if (!_requiresIndirectResult)
-            {
-                return;
-            }
-
-            var text = $$"""
-            var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<{{_wrapperSignature.ReturnType}}>();
-            var payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
-            var swiftIndirectResult = new SwiftIndirectResult(payload);
-            """;
-
-            csWriter.WriteLines(text);
+            if (_syncPlan.IndirectResultMethod == null) return;
+            csWriter.WriteLines(_syncPlan.IndirectResultMethod.AllocationCode);
             csWriter.WriteLine();
         }
 
@@ -525,21 +265,8 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitOptionalReturnBuffer(CSharpWriter csWriter)
         {
-            if (!_env.BoundGenericsHandler.IsLargeOptionalReturn(_env.MethodDecl) ||
-                (!_env.MethodDecl.HasOptionalPointerWrapper && !_env.MethodDecl.UsesWrapperLibrary))
-                return;
-
-            var returnArg = _env.MethodDecl.CSSignature.First();
-            var projection = s_projectionFactory.Project(returnArg.SwiftTypeSpec,
-                new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false, GenericContext = _genericContext });
-            // ContainerTypeName gives e.g. SwiftOptional<SwiftString> for TypeMetadata resolution.
-            // Fallback to _wrapperSignature.ReturnType if factory can't project (user-defined generics).
-            var swiftType = projection?.ContainerTypeName ?? _wrapperSignature.ReturnType;
-            csWriter.WriteLines($$"""
-                var _optRetSize = (int)TypeMetadata.GetTypeMetadataOrThrow<{{swiftType}}>().Size;
-                byte* _optRetBuf = stackalloc byte[_optRetSize];
-                IntPtr _optRetPtr = (IntPtr)_optRetBuf;
-                """);
+            if (_syncPlan.OptionalReturnBuffer == null) return;
+            csWriter.WriteLines(_syncPlan.OptionalReturnBuffer.AllocationCode);
         }
 
         /// <summary>
@@ -548,26 +275,7 @@ namespace BindingsGeneration
         /// <param name="writer">The IndentedTextWriter instance.</param>
         private void EmitPInvokeCall(CSharpWriter csWriter)
         {
-            var voidReturn = _env.MethodDecl.CSSignature.First().SwiftTypeSpec.IsEmptyTuple;
-            bool hasOptionalReturnBuffer = _env.BoundGenericsHandler.IsLargeOptionalReturn(_env.MethodDecl) &&
-                (_env.MethodDecl.HasOptionalPointerWrapper || _env.MethodDecl.UsesWrapperLibrary);
-            var returnPrefix = (_requiresIndirectResult || _requiresSwiftAsync || voidReturn || hasOptionalReturnBuffer) ? "" : "var result = ";
-            var pInvokeName = NameProvider.GetPInvokeName(_env.MethodDecl);
-            var callArgs = _pInvokeSignature.CallArgumentsString();
-
-            // If we're inside a generic type, call via the helper class and pass metadata parameters
-            if (_env.PInvokeHelperContext != null)
-            {
-                var metadataArgs = string.Join(", ", _env.PInvokeHelperContext.GetMetadataArgumentList());
-                var fullArgs = string.IsNullOrEmpty(callArgs)
-                    ? metadataArgs
-                    : (string.IsNullOrEmpty(metadataArgs) ? callArgs : $"{callArgs}, {metadataArgs}");
-                csWriter.WriteLine($"{returnPrefix}{_env.PInvokeHelperContext.HelperClassName}.{pInvokeName}({fullArgs});");
-            }
-            else
-            {
-                csWriter.WriteLine($"{returnPrefix}{pInvokeName}({callArgs});");
-            }
+            csWriter.WriteLine(_syncPlan.PInvokeCallStatement);
             csWriter.WriteLine();
         }
 
@@ -577,111 +285,9 @@ namespace BindingsGeneration
         /// <param name="csWriter">The IndentedTextWriter instance.</param>
         private void EmitSwiftError(CSharpWriter csWriter)
         {
-            if (!_requiresSwiftError)
-            {
-                return;
-            }
-
-            // For typed throws with a resolvable error type, throw SwiftException<TError>
-            // with the error message but no error value (sync path can't extract from existential box).
-            // This provides typed catch(SwiftException<ParseError>) IntelliSense.
-            string? syncTypedErrorType = null;
-            if (_env.MethodDecl.HasTypedThrows &&
-                _env.TypeDatabase.TryGetTypeRecord(_env.MethodDecl.ThrownErrorType!, out var syncErrorTypeRecord))
-            {
-                syncTypedErrorType = syncErrorTypeRecord.CSharpTypeName.FullyQualifiedName;
-            }
-
-            string text;
-            if (syncTypedErrorType != null)
-            {
-                text = $$"""
-                if (error.Value != null)
-                {
-                    throw new SwiftException<{{syncTypedErrorType}}>("Call to Swift method {{_env.MethodDecl.Name}} failed.");
-                }
-                """;
-            }
-            else
-            {
-                text = $$"""
-                if (error.Value != null)
-                {
-                    throw new SwiftRuntimeException("Call to Swift method {{_env.MethodDecl.Name}} failed.");
-                }
-                """;
-            }
-
-            csWriter.WriteLines(text);
+            if (_syncPlan.SwiftError == null) return;
+            csWriter.WriteLines(_syncPlan.SwiftError.ErrorCheckCode);
             csWriter.WriteLine();
-        }
-
-        /// <summary>
-        /// Returns only the method-own generic parameters (excluding those inherited from the parent type).
-        /// Methods inside generic types have their parent type's generic params copied into GenericParameters
-        /// by the parser. These should not be redeclared on the method/constructor signature because:
-        /// - For methods: it shadows the type's params (CS0693 warning, semantically wrong)
-        /// - For constructors: C# doesn't support generic constructors
-        /// </summary>
-        private List<GenericArgumentDecl> GetMethodOwnGenericParams()
-        {
-            if (!_env.MethodDecl.IsGeneric)
-                return new List<GenericArgumentDecl>();
-
-            // Accessor methods never have their own generic params
-            if (_env.MethodDecl.IsAccessor)
-                return new List<GenericArgumentDecl>();
-
-            // If parent is not a generic type, all params are method-own
-            if (_env.ParentDecl is not TypeDecl typeDecl || !typeDecl.IsGeneric)
-                return _env.MethodDecl.GenericParameters;
-
-            // Filter out params that match the parent type's generic params
-            var typeParamNames = new HashSet<string>(typeDecl.GenericParameters.Select(p => p.TypeName));
-            return _env.MethodDecl.GenericParameters
-                .Where(p => !typeParamNames.Contains(p.TypeName))
-                .ToList();
-        }
-
-        /// <summary>
-        /// Builds the where clause for generic constraints.
-        /// Only emits constraints for method-own generic parameters (not type-inherited ones).
-        /// Type-level constraints are already declared on the containing type.
-        /// </summary>
-        /// <returns>The where clause string, or empty string if no constraints.</returns>
-        private string BuildWhereClause()
-        {
-            var methodOwnParams = GetMethodOwnGenericParams();
-            if (methodOwnParams.Count == 0)
-                return "";
-
-            var constraints = new List<string>();
-
-            foreach (var param in methodOwnParams)
-            {
-                if (!_env.GenericTypeMapping.TryGetValue(param.TypeName, out var csNameInfo))
-                    continue;
-
-                var csName = csNameInfo.TypeParameter;
-                var paramConstraints = new List<string> { "ISwiftObject" };
-
-                foreach (var conformance in param.GenericConformances)
-                {
-                    // Skip unknown protocols and protocols with associated types
-                    // (protocols with associated types generate generic interfaces which can't be used as constraints)
-                    if (!IsProtocolAvailableForConstraint(conformance.ConformanceTarget))
-                        continue;
-
-                    var interfaceName = NameProvider.GetInterfaceName(conformance.ConformanceTarget.Name, moduleName: conformance.ConformanceTarget.Module);
-                    paramConstraints.Add(interfaceName);
-                }
-
-                constraints.Add($"where {csName} : {string.Join(", ", paramConstraints)}");
-            }
-
-            return constraints.Count > 0
-                ? "    " + string.Join("\n    ", constraints)
-                : "";
         }
 
         /// <summary>
@@ -704,178 +310,6 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Emits the constructor signature.
-        /// </summary>
-        /// <param name="csWriter">The IndentedTextWriter instance.</param>
-        private void EmitSignatureConstructor(CSharpWriter csWriter)
-        {
-            // C# does not support generic constructors — never emit <...> on a constructor.
-            // Type-level generic params are already declared on the containing type.
-            var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.Visibility);
-            // Use the resolved C# type name (may be renamed for nested type collision avoidance)
-            var constructorName = GetResolvedTypeName();
-            _needsUnsafeBody = true;
-            csWriter.WriteLine($"{accessModifier} {constructorName}({_wrapperSignature.ParametersString(BuildOriginalSwiftTypeAttributes())})");
-        }
-
-        /// <summary>
-        /// Emits the method signature.
-        /// </summary>
-        /// <param name="writer">The IndentedTextWriter instance.</param>
-        private void EmitSignatureMethod(CSharpWriter csWriter)
-        {
-            // Only emit <T0, T1, ...> for method-own generic params.
-            // Type-level params are already declared on the containing type and must not be redeclared.
-            var methodOwnParams = GetMethodOwnGenericParams();
-            var genericParams = methodOwnParams.Count > 0
-                ? $"<{string.Join(", ", methodOwnParams.Select(p => _env.GenericTypeMapping[p.TypeName].TypeParameter))}>"
-                : "";
-
-            bool containsBoundGenerics = _env.MethodDecl.CSSignature.Any(_env.BoundGenericsHandler.IsBoundGeneric);
-
-            // Closure parameters that pass EmitClosureMarshalling emit delegate* unmanaged pointers,
-            // which require unsafe context (matches gating at Marshalling.cs:153-156)
-            bool hasClosureParams = _env.MethodDecl.CSSignature.Skip(1).Any(arg =>
-            {
-                if (!_env.ClosureHandler.IsClosure(arg)) return false;
-                var closureSpec = _env.ClosureHandler.GetClosureTypeSpec(arg);
-                return closureSpec != null && _env.ClosureHandler.IsSupportedClosure(closureSpec);
-            });
-
-            // Async constructors emit as static CreateAsync() factory methods
-            // (C# doesn't support async constructors)
-            bool isAsyncConstructor = _env.MethodDecl.IsConstructor && _env.MethodDecl.IsAsync;
-
-            var staticKeyword = _env.MethodDecl.MethodType == MethodType.Static || _env.ParentDecl is ModuleDecl || isAsyncConstructor ? "static " : "";
-            // Class-type returns use sizeof(IntPtr) + pointer dereference for payload allocation
-            var returnArg = _env.MethodDecl.CSSignature.First();
-            bool hasClassReturn = !returnArg.SwiftTypeSpec.IsEmptyTuple && !returnArg.IsGeneric &&
-                !_env.ExistentialHandler.IsExistential(returnArg.SwiftTypeSpec) &&
-                !_env.ExistentialHandler.IsOptionalExistential(returnArg.SwiftTypeSpec) &&
-                !_env.TupleHandler.IsTuple(returnArg) &&
-                _env.TypeDatabase.TryGetTypeRecord(returnArg.SwiftTypeSpec, out var returnTypeRecord) &&
-                returnTypeRecord.Kind == TypeRecordKind.Class && !MarshallingHelpers.IsObjCBridged(returnTypeRecord);
-
-            _needsUnsafeBody = _requiresIndirectResult || _requiresSwiftSelf || _requiresSwiftAsync || _requiresSwiftError || methodOwnParams.Count > 0 || containsBoundGenerics || hasClosureParams || hasClassReturn;
-
-            var returnType = _wrapperSignature.ReturnType;
-            if (_requiresSwiftAsync)
-            {
-                returnType = $"Task{(_env.MethodDecl.CSSignature.First().SwiftTypeSpec.IsEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}";
-            }
-
-            // Use CreateAsync for async constructors (with collision detection)
-            var methodName = isAsyncConstructor
-                ? NameProvider.GetMethodName("createAsync", _env.SiblingPropertyNames)
-                : _env.CSharpMethodName;
-
-            var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.Visibility);
-            // Async methods get CancellationToken as the last parameter
-            var cancellationTokenParam = _requiresSwiftAsync
-                ? $"{(_wrapperSignature.Parameters.Count > 0 ? ", " : "")}System.Threading.CancellationToken cancellationToken = default"
-                : "";
-            csWriter.WriteLine($"{accessModifier} {staticKeyword}{returnType} {methodName}{genericParams}({_wrapperSignature.ParametersString(BuildOriginalSwiftTypeAttributes())}{cancellationTokenParam})");
-
-            // Emit where clauses for generic constraints
-            var whereClause = BuildWhereClause();
-            if (!string.IsNullOrEmpty(whereClause))
-                csWriter.WriteLines(whereClause);
-        }
-
-        /// <summary>
-        /// Emits the body start.
-        /// </summary>
-        /// <param name="csWriter">The IndentedTextWriter instance.</param>
-        private void EmitBodyStart(CSharpWriter csWriter)
-        {
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-        }
-
-        /// <summary>
-        /// Emits [Obsolete] with custom DiagnosticId for methods with unmitigated JIT risks or missing exported symbols.
-        /// Uses SB0001 for JIT risk (Mono-specific, safe on NativeAOT) and SB0002 for missing symbols.
-        /// Combined issues use SB0001 (broader scope). Skips accessors — property-level [Obsolete] requires
-        /// separate PropertyHandler wiring. Consumer .targets suppress these via SwiftBindingsInteropMode=Direct.
-        /// </summary>
-        private void EmitSafetyObsolete(CSharpWriter csWriter)
-        {
-            bool hasJitRisk = false;
-            var issues = new List<string>();
-
-            // Deliverable 1: JIT risk (skip accessors — see property deferral)
-            if (!_env.MethodDecl.IsAccessor &&
-                _env.MethodDecl.DetectedJitRisks != MonoJitRiskDetector.MonoJitRisk.None)
-            {
-                var (_, needsWrapper) = PInvokeEmitter.ComputeEntryPoint((MethodDecl)_env.MethodDecl);
-                if (!needsWrapper)
-                {
-                    hasJitRisk = true;
-                    issues.Add("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns " +
-                        "that crash on Mono runtime. Safe on NativeAOT (PublishAot=true)");
-                }
-            }
-
-            // Deliverable 2: Missing symbol (skip accessors — same as JIT risk above)
-            if (!_env.MethodDecl.IsAccessor && _env.MethodDecl.IsMissingExportedSymbol)
-            {
-                issues.Add("P/Invoke entry point not exported by the library. " +
-                    "This method will throw EntryPointNotFoundException at runtime");
-            }
-
-            if (issues.Count > 0)
-            {
-                var message = string.Join(". ", issues) + ".";
-                // SB0001: JIT risk (suppressible on NativeAOT via SwiftBindingsInteropMode=Direct)
-                // SB0002: Missing symbol (not runtime-dependent — always relevant)
-                var diagnosticId = hasJitRisk ? "SB0001" : "SB0002";
-                csWriter.WriteLine($"[Obsolete(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(message)}\", " +
-                    $"DiagnosticId = \"{diagnosticId}\", " +
-                    $"UrlFormat = \"https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md\")]");
-            }
-        }
-
-        /// <summary>
-        /// Builds a dictionary mapping parameter names to [OriginalSwiftType] attribute strings
-        /// for parameters that fell back to AnyType during type projection.
-        /// Returns null when no parameters have fallbacks (avoids allocation).
-        /// </summary>
-        private Dictionary<string, string>? BuildOriginalSwiftTypeAttributes()
-        {
-            Dictionary<string, string>? attrs = null;
-            var parameters = _wrapperSignature.Parameters;
-            var csSignatureParams = _env.MethodDecl.CSSignature.Skip(1).ToList();
-
-            for (int i = 0; i < parameters.Count && i < csSignatureParams.Count; i++)
-            {
-                if (UnsupportedSwiftTypeSupport.TryFindFallbackInfo(
-                    _env.TypeDatabase, _env.ClosureHandler, csSignatureParams[i].SwiftTypeSpec, out var info))
-                {
-                    attrs ??= new Dictionary<string, string>();
-                    attrs[parameters[i].Name] = $"[global::Swift.OriginalSwiftType(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(info.SwiftType)}\")]";
-                }
-            }
-            return attrs;
-        }
-
-        /// <summary>
-        /// Emits [return: OriginalSwiftType("...")] before the method signature when the return type
-        /// fell back to AnyType. Not called for constructors (C# constructors have no return type).
-        /// </summary>
-        private void EmitReturnTypeOriginalSwiftType(CSharpWriter csWriter)
-        {
-            // Constructors have no return type in C#, so [return:] is invalid
-            if (_env.MethodDecl.IsConstructor) return;
-
-            var returnArg = _env.MethodDecl.CSSignature.First();
-            if (UnsupportedSwiftTypeSupport.TryFindFallbackInfo(
-                _env.TypeDatabase, _env.ClosureHandler, returnArg.SwiftTypeSpec, out var info))
-            {
-                csWriter.WriteLine($"[return: global::Swift.OriginalSwiftType(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(info.SwiftType)}\")]");
-            }
-        }
-
-        /// <summary>
         /// Emits the finally block.
         /// </summary>
         private void EmitFinally(CSharpWriter csWriter)
@@ -892,10 +326,8 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitFixedBlockStart(CSharpWriter csWriter)
         {
-            if (!_requiresFixedBlock) return;
-
-            var resolvedName = GetResolvedTypeName();
-            csWriter.WriteLine($"fixed ({resolvedName}* __self = &this)");
+            if (_syncPlan.FixedBlockHeader == null) return;
+            csWriter.WriteLine(_syncPlan.FixedBlockHeader);
             csWriter.WriteLine("{");
             csWriter.Indent++;
         }
@@ -905,8 +337,7 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitFixedBlockEnd(CSharpWriter csWriter)
         {
-            if (!_requiresFixedBlock) return;
-
+            if (_syncPlan.FixedBlockHeader == null) return;
             csWriter.Indent--;
             csWriter.WriteLine("}");
         }
@@ -926,6 +357,16 @@ namespace BindingsGeneration
         private void EmitTryBlockEnd(CSharpWriter csWriter)
         {
             EmitBodyEnd(csWriter);
+        }
+
+        /// <summary>
+        /// Emits the body start.
+        /// </summary>
+        /// <param name="csWriter">The IndentedTextWriter instance.</param>
+        private void EmitBodyStart(CSharpWriter csWriter)
+        {
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
         }
 
         /// <summary>

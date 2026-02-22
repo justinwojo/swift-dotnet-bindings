@@ -1,0 +1,754 @@
+// Copyright (c) 2026 Justin Wojciechowski.
+// Licensed under the MIT License.
+
+#nullable enable
+
+using Xunit;
+
+namespace BindingsGeneration.Tests;
+
+/// <summary>
+/// Unit tests for MethodMarshalPlanBuilder.
+/// Tests that the builder correctly extracts method-level concerns into SyncMethodPlan.
+/// </summary>
+public class MethodMarshalPlanBuilderTests
+{
+    #region SwiftSelf Tests
+
+    [Fact]
+    public void SwiftSelf_StaticMethod_ReturnsNull()
+    {
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup(
+            "compute", isStatic: true, parentKind: ParentKind.Class);
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresSwiftSelf: false);
+        Assert.Null(plan.SwiftSelf);
+    }
+
+    [Fact]
+    public void SwiftSelf_AsyncMethod_ReturnsNull()
+    {
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup(
+            "fetch", parentKind: ParentKind.Class, isAsync: true);
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig,
+            requiresSwiftSelf: true, requiresSwiftAsync: true);
+        Assert.Null(plan.SwiftSelf);
+    }
+
+    [Fact]
+    public void SwiftSelf_ClassInstance_ReturnsClassKind()
+    {
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup(
+            "fetch", parentKind: ParentKind.Class);
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresSwiftSelf: true);
+
+        Assert.NotNull(plan.SwiftSelf);
+        Assert.Equal(SwiftSelfKind.Class, plan.SwiftSelf!.Kind);
+        Assert.Contains("*(void**)", plan.SwiftSelf.CreationCode);
+    }
+
+    [Fact]
+    public void SwiftSelf_NonFrozenStruct_ReturnsNonFrozenKind()
+    {
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup(
+            "update", parentKind: ParentKind.NonFrozenStruct);
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresSwiftSelf: true);
+
+        Assert.NotNull(plan.SwiftSelf);
+        Assert.Equal(SwiftSelfKind.NonFrozenStruct, plan.SwiftSelf!.Kind);
+        Assert.Contains("(void*)_payload", plan.SwiftSelf.CreationCode);
+    }
+
+    [Fact]
+    public void SwiftSelf_FrozenStruct_ReturnsFrozenValueKind()
+    {
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup(
+            "getValue", parentKind: ParentKind.FrozenStruct);
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresSwiftSelf: true);
+
+        Assert.NotNull(plan.SwiftSelf);
+        Assert.Equal(SwiftSelfKind.FrozenStructValue, plan.SwiftSelf!.Kind);
+        Assert.Contains("SwiftSelf<", plan.SwiftSelf.CreationCode);
+        Assert.Contains("(this)", plan.SwiftSelf.CreationCode);
+    }
+
+    [Fact]
+    public void SwiftSelf_FixedBlock_ReturnsFixedBlockKind()
+    {
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup(
+            "setValue", parentKind: ParentKind.FrozenStruct);
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig,
+            requiresSwiftSelf: true, requiresFixedBlock: true);
+
+        Assert.NotNull(plan.SwiftSelf);
+        Assert.Equal(SwiftSelfKind.FixedBlock, plan.SwiftSelf!.Kind);
+        Assert.Contains("__self", plan.SwiftSelf.CreationCode);
+    }
+
+    [Fact]
+    public void SwiftSelf_FrozenStructWithMemory_ReturnsBufferKind()
+    {
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup(
+            "getUrl", parentKind: ParentKind.FrozenStructWithMemory);
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresSwiftSelf: true);
+
+        Assert.NotNull(plan.SwiftSelf);
+        Assert.Equal(SwiftSelfKind.FrozenStructBuffer, plan.SwiftSelf!.Kind);
+        Assert.Contains(".Buffer", plan.SwiftSelf.CreationCode);
+    }
+
+    #endregion
+
+    #region SwiftError Tests
+
+    [Fact]
+    public void SwiftError_NonThrowing_ReturnsNull()
+    {
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup("fetch", parentKind: ParentKind.Class);
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresSwiftError: false);
+        Assert.Null(plan.SwiftError);
+    }
+
+    [Fact]
+    public void SwiftError_UntypedThrows_ContainsSwiftRuntimeException()
+    {
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup(
+            "parse", parentKind: ParentKind.Class, throws: true);
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresSwiftError: true);
+
+        Assert.NotNull(plan.SwiftError);
+        Assert.False(plan.SwiftError!.IsTypedThrows);
+        Assert.Contains("SwiftRuntimeException", plan.SwiftError.ErrorCheckCode);
+        Assert.Contains("error.Value != null", plan.SwiftError.ErrorCheckCode);
+    }
+
+    [Fact]
+    public void SwiftError_TypedThrows_ContainsSwiftException()
+    {
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup(
+            "parse", parentKind: ParentKind.Class, throws: true, hasTypedThrows: true);
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresSwiftError: true);
+
+        Assert.NotNull(plan.SwiftError);
+        Assert.True(plan.SwiftError!.IsTypedThrows);
+        Assert.Contains("SwiftException<", plan.SwiftError.ErrorCheckCode);
+        Assert.Equal("Swift.TestModule.ParseError", plan.SwiftError.TypedErrorTypeName);
+    }
+
+    #endregion
+
+    #region IndirectResult Tests
+
+    [Fact]
+    public void IndirectResult_NotRequired_BothNull()
+    {
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup("fetch", parentKind: ParentKind.Class);
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresIndirectResult: false);
+
+        Assert.Null(plan.IndirectResultConstructor);
+        Assert.Null(plan.IndirectResultMethod);
+    }
+
+    [Fact]
+    public void IndirectResult_Constructor_ContainsSwiftSafeHandle()
+    {
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup(
+            "init", parentKind: ParentKind.Class, isConstructor: true);
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresIndirectResult: true);
+
+        Assert.NotNull(plan.IndirectResultConstructor);
+        Assert.True(plan.IndirectResultConstructor!.IsConstructor);
+        Assert.Contains("SwiftSafeHandle", plan.IndirectResultConstructor.AllocationCode);
+        Assert.Contains("SwiftIndirectResult", plan.IndirectResultConstructor.AllocationCode);
+    }
+
+    [Fact]
+    public void IndirectResult_Method_ContainsTypeMetadata()
+    {
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup(
+            "compute", parentKind: ParentKind.Class,
+            returnType: new NamedTypeSpec("TestModule.Widget"));
+        var (typeDb, testModule) = CreateTypeDatabaseWithModule("Loader");
+        RegisterType(testModule, "TestModule.Widget", "Swift.TestModule", "Widget",
+            TypeRecordFlags.RequiresMemoryManagement, TypeRecordKind.Class);
+        var env2 = new MethodEnvironment(env.MethodDecl, typeDb);
+        var plan = BuildPlan(env2, wrapperSig, pInvokeSig, requiresIndirectResult: true);
+
+        Assert.NotNull(plan.IndirectResultMethod);
+        Assert.False(plan.IndirectResultMethod!.IsConstructor);
+        Assert.Contains("TypeMetadata.GetTypeMetadataOrThrow", plan.IndirectResultMethod.AllocationCode);
+        Assert.Contains("NativeMemory.Alloc", plan.IndirectResultMethod.AllocationCode);
+    }
+
+    #endregion
+
+    #region OptionalReturnBuffer Tests
+
+    [Fact]
+    public void OptionalReturnBuffer_NonOptionalReturn_Null()
+    {
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup(
+            "getValue", parentKind: ParentKind.Class,
+            returnType: new NamedTypeSpec("Swift.Int"));
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig);
+        Assert.Null(plan.OptionalReturnBuffer);
+    }
+
+    [Fact]
+    public void OptionalReturnBuffer_LargeOptionalReturn_ContainsStackalloc()
+    {
+        // Optional<Swift.Int> is a "large optional" — triggers the return buffer
+        var optionalReturnType = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Int"));
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup(
+            "findValue", parentKind: ParentKind.Class,
+            returnType: optionalReturnType);
+        env.MethodDecl.HasOptionalPointerWrapper = true;
+        // Rebuild plan with the updated method
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig);
+
+        Assert.NotNull(plan.OptionalReturnBuffer);
+        Assert.Contains("stackalloc", plan.OptionalReturnBuffer!.AllocationCode);
+        Assert.Contains("TypeMetadata.GetTypeMetadataOrThrow", plan.OptionalReturnBuffer.AllocationCode);
+    }
+
+    [Fact]
+    public void OptionalReturnBuffer_AsyncMethod_Null()
+    {
+        // Async methods excluded from optional return buffer
+        var optionalReturnType = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Int"));
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup(
+            "findValueAsync", parentKind: ParentKind.Class,
+            returnType: optionalReturnType, isAsync: true);
+        env.MethodDecl.HasOptionalPointerWrapper = true;
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig);
+        Assert.Null(plan.OptionalReturnBuffer);
+    }
+
+    #endregion
+
+    #region DeclarationLines Tests
+
+    [Fact]
+    public void DeclarationLines_NoGenericsNoClosures_Empty()
+    {
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup("fetch", parentKind: ParentKind.Class);
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig);
+        Assert.Empty(plan.DeclarationLines);
+    }
+
+    [Fact]
+    public void DeclarationLines_GenericParam_ContainsMetadataAndPayload()
+    {
+        var (env, wrapperSig, pInvokeSig) = CreateGenericMethodSetup();
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig);
+
+        Assert.True(plan.DeclarationLines.Count >= 2);
+        Assert.Contains(plan.DeclarationLines, l => l.Contains("TypeMetadata"));
+        Assert.Contains(plan.DeclarationLines, l => l.Contains("IntPtr") && l.Contains("IntPtr.Zero"));
+    }
+
+    #endregion
+
+    #region PInvokeCall Tests
+
+    [Fact]
+    public void PInvokeCall_VoidReturn_NoResultPrefix()
+    {
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup("doWork", parentKind: ParentKind.Class);
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig);
+
+        Assert.DoesNotContain("var result = ", plan.PInvokeCallStatement);
+    }
+
+    [Fact]
+    public void PInvokeCall_NonVoidReturn_HasResultPrefix()
+    {
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup(
+            "compute", parentKind: ParentKind.Class,
+            returnType: new NamedTypeSpec("Swift.Int"));
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig);
+
+        Assert.Contains("var result = ", plan.PInvokeCallStatement);
+    }
+
+    [Fact]
+    public void PInvokeCall_IndirectResult_NoResultPrefix()
+    {
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup(
+            "compute", parentKind: ParentKind.Class,
+            returnType: new NamedTypeSpec("Swift.Int"));
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresIndirectResult: true);
+
+        Assert.DoesNotContain("var result = ", plan.PInvokeCallStatement);
+    }
+
+    #endregion
+
+    #region GenericArgumentMarshalling Tests
+
+    [Fact]
+    public void GenericArgMarshalling_NoGenerics_Empty()
+    {
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup("fetch", parentKind: ParentKind.Class);
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig);
+        Assert.Empty(plan.GenericArgumentMarshallingLines);
+    }
+
+    [Fact]
+    public void GenericArgMarshalling_HasGeneric_ContainsStackallocAndMarshal()
+    {
+        var (env, wrapperSig, pInvokeSig) = CreateGenericMethodSetup();
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig);
+
+        Assert.True(plan.GenericArgumentMarshallingLines.Count >= 3);
+        Assert.Contains(plan.GenericArgumentMarshallingLines, l => l.Contains("stackalloc"));
+        Assert.Contains(plan.GenericArgumentMarshallingLines, l => l.Contains("MarshalToSwift"));
+    }
+
+    #endregion
+
+    #region WitnessTable Tests
+
+    [Fact]
+    public void WitnessTable_NoGenerics_Empty()
+    {
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup("fetch", parentKind: ParentKind.Class);
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig);
+        Assert.Empty(plan.WitnessTableStatements);
+    }
+
+    #endregion
+
+    #region GenericInoutWriteback Tests
+
+    [Fact]
+    public void InoutWriteback_NoInout_Empty()
+    {
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup("fetch", parentKind: ParentKind.Class);
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig);
+        Assert.Empty(plan.GenericInoutWritebackLines);
+    }
+
+    #endregion
+
+    #region FixedBlock Tests
+
+    [Fact]
+    public void FixedBlock_NotRequired_NullHeader()
+    {
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup("fetch", parentKind: ParentKind.Class);
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresFixedBlock: false);
+        Assert.Null(plan.FixedBlockHeader);
+
+    }
+
+    [Fact]
+    public void FixedBlock_Required_ContainsFixedKeyword()
+    {
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup(
+            "setValue", parentKind: ParentKind.FrozenStruct);
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresFixedBlock: true);
+
+        Assert.NotNull(plan.FixedBlockHeader);
+        Assert.Contains("fixed (", plan.FixedBlockHeader!);
+        Assert.Contains("__self", plan.FixedBlockHeader);
+
+    }
+
+    #endregion
+
+    #region RequiresUnsafe Tests
+
+    [Fact]
+    public void RequiresUnsafe_Constructor_AlwaysTrue()
+    {
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup(
+            "init", parentKind: ParentKind.Class, isConstructor: true);
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig);
+        Assert.True(plan.RequiresUnsafe);
+    }
+
+    [Fact]
+    public void RequiresUnsafe_StaticVoidMethod_False()
+    {
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup(
+            "doWork", isStatic: true, parentKind: ParentKind.Module);
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig,
+            requiresSwiftSelf: false, requiresSwiftError: false);
+        Assert.False(plan.RequiresUnsafe);
+    }
+
+    [Fact]
+    public void RequiresUnsafe_InstanceMethod_True()
+    {
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup(
+            "fetch", parentKind: ParentKind.Class);
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresSwiftSelf: true);
+        Assert.True(plan.RequiresUnsafe);
+    }
+
+    [Fact]
+    public void RequiresUnsafe_ThrowingMethod_True()
+    {
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup(
+            "parse", isStatic: true, parentKind: ParentKind.Module, throws: true);
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig,
+            requiresSwiftSelf: false, requiresSwiftError: true);
+        Assert.True(plan.RequiresUnsafe);
+    }
+
+    #endregion
+
+    #region Test Helpers
+
+    private enum ParentKind
+    {
+        Module,
+        Class,
+        FrozenStruct,
+        FrozenStructWithMemory,
+        NonFrozenStruct
+    }
+
+    private static (MethodEnvironment env, Signature wrapperSig, Signature pInvokeSig)
+        CreateMethodSetup(
+            string name,
+            ParentKind parentKind = ParentKind.Module,
+            bool isStatic = false,
+            bool isConstructor = false,
+            bool isAsync = false,
+            bool throws = false,
+            bool hasTypedThrows = false,
+            TypeSpec? returnType = null)
+    {
+        var moduleDecl = CreateModuleDecl();
+        BaseDecl parentDecl;
+        TypeDatabase typeDb;
+        ModuleTypeDatabase testModule;
+
+        switch (parentKind)
+        {
+            case ParentKind.Class:
+                parentDecl = CreateClassDecl("Loader", moduleDecl);
+                (typeDb, testModule) = CreateTypeDatabaseWithModule("Loader");
+                break;
+            case ParentKind.FrozenStruct:
+                parentDecl = CreateFrozenStructDecl("Point", moduleDecl);
+                (typeDb, testModule) = CreateTypeDatabaseWithModule(structName: "Point", frozen: true);
+                break;
+            case ParentKind.FrozenStructWithMemory:
+                parentDecl = CreateFrozenStructDecl("UrlWrapper", moduleDecl);
+                (typeDb, testModule) = CreateTypeDatabaseWithModule(structName: "UrlWrapper", frozen: true, requiresMemoryManagement: true);
+                break;
+            case ParentKind.NonFrozenStruct:
+                var structDecl = new StructDecl
+                {
+                    Name = "Config",
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Config"),
+                    MangledName = "$s10TestModule6ConfigVN",
+                    Properties = new List<PropertyDecl>(),
+                    Methods = new List<MethodDecl>(),
+                    Types = new List<TypeDecl>(),
+                    Operators = new List<OperatorDecl>(),
+                    Subscripts = new List<SubscriptDecl>(),
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    Conformances = new List<TypeConformance>(),
+                    ParentDecl = moduleDecl,
+                    ModuleDecl = moduleDecl,
+                    IsFrozen = false,
+                    MetadataAccessor = "$s10TestModule6ConfigVMa"
+                };
+                moduleDecl.Types.Add(structDecl);
+                parentDecl = structDecl;
+                (typeDb, testModule) = CreateTypeDatabaseWithModule(structName: "Config", frozen: false);
+                break;
+            default:
+                parentDecl = moduleDecl;
+                (typeDb, testModule) = CreateTypeDatabaseWithModule();
+                break;
+        }
+
+        var method = new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s10TestModule{name.Length}{name}SiyF",
+            MethodType = isStatic || parentKind == ParentKind.Module ? MethodType.Static : MethodType.Instance,
+            IsConstructor = isConstructor,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", returnType ?? TupleTypeSpec.Empty, moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = throws,
+            IsAsync = isAsync,
+            Visibility = Visibility.Public
+        };
+
+        if (hasTypedThrows)
+        {
+            method.ThrownErrorType = new NamedTypeSpec("TestModule.ParseError");
+            RegisterType(testModule, "TestModule.ParseError", "Swift.TestModule", "ParseError",
+                TypeRecordFlags.Frozen, TypeRecordKind.Struct);
+        }
+
+        if (parentDecl is TypeDecl td)
+            td.Methods.Add(method);
+        else if (parentDecl is ModuleDecl md)
+            md.Methods.Add(method);
+
+        var env = new MethodEnvironment(method, typeDb);
+
+        var wrapperRetType = returnType != null ? "long" : "void";
+        var pInvokeRetType = returnType != null ? "Int64" : "void";
+        var wrapperSig = new Signature(wrapperRetType, Array.Empty<Parameter>());
+        var pInvokeSig = new Signature(pInvokeRetType, Array.Empty<Parameter>());
+
+        return (env, wrapperSig, pInvokeSig);
+    }
+
+    private static (MethodEnvironment env, Signature wrapperSig, Signature pInvokeSig)
+        CreateGenericMethodSetup()
+    {
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Container", moduleDecl);
+        var typeDb = CreateTypeDatabase("Container");
+
+        var method = new MethodDecl
+        {
+            Name = "process",
+            MangledName = "$s10TestModule9Container7processSiyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", TupleTypeSpec.Empty, moduleDecl),
+                new ArgumentDecl
+                {
+                    Name = "item",
+                    PrivateName = "_item",
+                    SwiftTypeSpec = new NamedTypeSpec("T"),
+                    IsInOut = false,
+                    IsGeneric = true,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl(
+                    "T",
+                    "T",
+                    new List<GenericParameterConformance>(),
+                    new List<GenericParameterConformance>())
+            },
+            ParentDecl = classDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        classDecl.Methods.Add(method);
+
+        var env = new MethodEnvironment(method, typeDb);
+        var wrapperSig = new Signature("void", Array.Empty<Parameter>());
+        var pInvokeSig = new Signature("void", Array.Empty<Parameter>());
+
+        return (env, wrapperSig, pInvokeSig);
+    }
+
+    private static SyncMethodPlan BuildPlan(
+        MethodEnvironment env,
+        Signature wrapperSig,
+        Signature pInvokeSig,
+        bool requiresIndirectResult = false,
+        bool requiresSwiftSelf = false,
+        bool requiresSwiftError = false,
+        bool requiresSwiftAsync = false,
+        bool requiresFixedBlock = false)
+    {
+        var genericContext = env.ParentDecl is TypeDecl parentType
+            ? GenericContext.FromMethodInType(env.MethodDecl, parentType)
+            : GenericContext.FromMethod(env.MethodDecl);
+
+        var builder = new MethodMarshalPlanBuilder(
+            env, genericContext, wrapperSig, pInvokeSig,
+            requiresIndirectResult, requiresSwiftSelf, requiresSwiftError,
+            requiresSwiftAsync, requiresFixedBlock,
+            protocolTypeName =>
+            {
+                if (env.TypeDatabase.TryGetTypeRecord(protocolTypeName, out var record))
+                    return record.Kind == TypeRecordKind.Protocol &&
+                           !record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes);
+                return false;
+            });
+
+        return builder.BuildSyncPlan();
+    }
+
+    private static ModuleDecl CreateModuleDecl()
+    {
+        return new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+    }
+
+    private static ClassDecl CreateClassDecl(string name, ModuleDecl moduleDecl)
+    {
+        var classDecl = new ClassDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}CN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Types.Add(classDecl);
+        return classDecl;
+    }
+
+    private static StructDecl CreateFrozenStructDecl(string name, ModuleDecl moduleDecl)
+    {
+        var structDecl = new StructDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}VN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = ""
+        };
+        moduleDecl.Types.Add(structDecl);
+        return structDecl;
+    }
+
+    private static ArgumentDecl CreateArg(string name, TypeSpec typeSpec, ModuleDecl moduleDecl)
+    {
+        return new ArgumentDecl
+        {
+            Name = name,
+            PrivateName = name,
+            SwiftTypeSpec = typeSpec,
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+    }
+
+    private static TypeDatabase CreateTypeDatabase(
+        string? className = null,
+        string? structName = null,
+        bool frozen = false,
+        bool requiresMemoryManagement = false)
+    {
+        var (typeDb, _) = CreateTypeDatabaseWithModule(className, structName, frozen, requiresMemoryManagement);
+        return typeDb;
+    }
+
+    private static (TypeDatabase typeDb, ModuleTypeDatabase testModule) CreateTypeDatabaseWithModule(
+        string? className = null,
+        string? structName = null,
+        bool frozen = false,
+        bool requiresMemoryManagement = false)
+    {
+        var typeDb = new TypeDatabase();
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        RegisterPrimitive(swiftModule, "Swift.Int", "System", "Int64", "$sSiMa");
+        RegisterPrimitive(swiftModule, "Swift.String", "Swift", "SwiftString", "$sSSMa",
+            TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement);
+        typeDb.AddModuleDatabase(swiftModule);
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+
+        if (className != null)
+        {
+            testModule.RegisterType(
+                SwiftTypeName.FromModuleQualifiedName($"TestModule.{className}"),
+                new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", className),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{className}"),
+                    MetadataAccessor = "$sMa",
+                    Flags = TypeRecordFlags.RequiresMemoryManagement,
+                    Kind = TypeRecordKind.Class
+                });
+        }
+
+        if (structName != null)
+        {
+            var flags = frozen ? TypeRecordFlags.Frozen : TypeRecordFlags.RequiresMemoryManagement;
+            if (requiresMemoryManagement)
+                flags |= TypeRecordFlags.RequiresMemoryManagement;
+            testModule.RegisterType(
+                SwiftTypeName.FromModuleQualifiedName($"TestModule.{structName}"),
+                new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", structName),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{structName}"),
+                    MetadataAccessor = "$sMa",
+                    Flags = flags,
+                    Kind = TypeRecordKind.Struct
+                });
+        }
+
+        typeDb.AddModuleDatabase(testModule);
+        return (typeDb, testModule);
+    }
+
+    private static void RegisterPrimitive(ModuleTypeDatabase module, string swiftName, string csNamespace, string csName, string accessor,
+        TypeRecordFlags flags = TypeRecordFlags.Frozen)
+    {
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName(swiftName),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(csNamespace, csName),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(swiftName),
+                MetadataAccessor = accessor,
+                Flags = flags,
+                Kind = TypeRecordKind.Struct
+            });
+    }
+
+    private static void RegisterType(ModuleTypeDatabase module, string swiftName, string csNamespace, string csName,
+        TypeRecordFlags flags, TypeRecordKind kind)
+    {
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName(swiftName),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(csNamespace, csName),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(swiftName),
+                MetadataAccessor = "$sMa",
+                Flags = flags,
+                Kind = kind
+            });
+    }
+
+    #endregion
+}

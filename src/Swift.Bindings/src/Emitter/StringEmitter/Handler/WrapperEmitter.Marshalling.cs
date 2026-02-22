@@ -793,20 +793,8 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitGenericArguments(CSharpWriter csWriter)
         {
-            foreach (var argument in _env.MethodDecl.CSSignature.Skip(1).Where(a => a.IsGeneric))
-            {
-                var csName = NameProvider.GetCSharpParameterName(argument);
-                var csTypeParamName = _env.GenericTypeMapping[argument.SwiftTypeSpec.ToString()].TypeParameter;
-                var metadataName = NameProvider.GetMetadataName(csTypeParamName);
-                var payloadName = NameProvider.GetPayloadName(csName);
-
-                var text = $$"""
-                Span<byte> {{payloadName}}Span = stackalloc byte[(int){{metadataName}}.Size];
-                {{payloadName}} = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference({{payloadName}}Span));
-                SwiftMarshal.MarshalToSwift({{csName}}, ref {{payloadName}}Span);
-                """;
-                csWriter.WriteLines(text);
-            }
+            foreach (var line in _syncPlan.GenericArgumentMarshallingLines)
+                csWriter.WriteLine(line);
             csWriter.WriteLine();
         }
 
@@ -816,35 +804,14 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitGenericInoutWriteback(CSharpWriter csWriter)
         {
-            foreach (var argument in _env.MethodDecl.CSSignature.Skip(1).Where(a => a.IsGeneric && a.IsInOut))
-            {
-                var csName = NameProvider.GetCSharpParameterName(argument);
-                var csTypeParamName = _env.GenericTypeMapping[argument.SwiftTypeSpec.ToString()].TypeParameter;
-                var payloadName = NameProvider.GetPayloadName(csName);
-
-                csWriter.WriteLine($"// Write back modified inout generic parameter");
-                csWriter.WriteLine($"{csName} = SwiftMarshal.MarshalFromSwift<{csTypeParamName}>({payloadName});");
-            }
+            foreach (var line in _syncPlan.GenericInoutWritebackLines)
+                csWriter.WriteLine(line);
         }
 
         private void EmitProtocolWitnessTables(CSharpWriter csWriter)
         {
-            foreach (var genericParameter in _env.MethodDecl.GenericParameters)
-            {
-                var csTypeParamName = _env.GenericTypeMapping[genericParameter.TypeName].TypeParameter;
-                var conformances = genericParameter.GenericConformances.OrderBy(c => c.ConformanceTarget.ModuleQualifiedName);
-                foreach (var conformance in conformances)
-                {
-                    // Skip unknown protocols and protocols with associated types
-                    // (protocols with associated types generate generic interfaces which can't be used here)
-                    if (!IsProtocolAvailableForConstraint(conformance.ConformanceTarget))
-                        continue;
-
-                    var pwtName = NameProvider.GetProtocolWitnessTableName(csTypeParamName, conformance.ConformanceTarget.Name);
-                    var protocolName = NameProvider.GetInterfaceName(conformance.ConformanceTarget.Name, moduleName: conformance.ConformanceTarget.Module);
-                    csWriter.WriteLine($"var {pwtName} = ProtocolWitnessTable.GetOrThrow<{csTypeParamName}, {protocolName}>();");
-                }
-            }
+            foreach (var line in _syncPlan.WitnessTableStatements)
+                csWriter.WriteLine(line);
             csWriter.WriteLine();
         }
     }
