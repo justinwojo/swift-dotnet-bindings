@@ -23,7 +23,7 @@ This document explores whether Swift Bindings could absorb Objective Sharpie's r
 Input:   ABI JSON + dylib + TBD + swiftinterface
 Parse:   ABI JSON → TypeDecl / MethodDecl model
 Marshal: TypeDatabase → type mapping → marshaling decisions
-Emit:    Swift.Module.cs (direct P/Invoke with DllImport)
+Emit:    Swift.Module.cs (direct P/Invoke with LibraryImport)
          + wrapper.swift (Cdecl wrappers for Mono JIT)
          + regular .csproj
 Runtime: CallConvSwift calling convention, Swift ARC, Value Witness Tables
@@ -48,7 +48,7 @@ Runtime: objc_msgSend (existing .NET MAUI ObjC registrar — no new runtime need
 | Memory management | Swift ARC (`swift_retain`/`release`) | ObjC retain/release (via NSObject registrar) |
 | Symbols | Mangled names (`$s4Nuke11...`) | Selectors (`-[UIImage imageNamed:]`) |
 | Type system | Value types, existentials, witnesses | All reference types, categories |
-| Output format | Direct P/Invoke C# code | `[BaseType]`/`[Export]` binding definitions |
+| Output format | Direct P/Invoke C# code (`[LibraryImport]`) | `[BaseType]`/`[Export]` binding definitions |
 | Runtime support | Custom (Swift.Runtime NuGet) | Built-in (.NET MAUI ObjC bridge) |
 
 The parsing, marshaling, and emission layers share almost nothing. The shared surface is at the infrastructure level.
@@ -59,8 +59,9 @@ These components already exist and would be reused directly:
 
 | Component | Current Location | Sharing Effort |
 |-----------|-----------------|----------------|
-| XCFramework resolution (slicing, plist, arch) | `XCFrameworkResolution.cs`, `PlistReader.cs` | Zero — already generic |
-| Framework dependency resolution (incl. ObjC) | `Program.cs`, `ResolveObjCFramework()` | Zero — already handles ObjC |
+| XCFramework resolution (slicing, plist, arch) | `XCFrameworkResolver.cs`, `PlistReader.cs` | Zero — already generic |
+| Framework dependency resolution (incl. ObjC) | `XCFrameworkResolver.cs`, `ResolveObjCFramework()` | Zero — already handles ObjC |
+| ObjC-only dependency detection | `FrameworkDependencyInfo.IsObjCOnly`, `BinaryDependencyAnalyzer.cs` | Zero — already distinguishes ObjC-only deps in the dependency graph |
 | CLI + System.CommandLine | `Program.cs` | Trivial — add detection branch |
 | Type database (ObjC bridged types) | `TypeDatabase`, `TypeDatabaseExtensions.cs` | Small extension |
 | MSBuild SDK (discover → generate → package) | `Swift.Bindings.Sdk/` | Moderate — route by framework type |
@@ -160,7 +161,7 @@ The JSON output contains all the declarations we need:
 - `EnumDecl` (NS_ENUM/NS_OPTIONS) → C# enum with `[Native]`
 - `TypedefDecl` → type aliases
 - `RecordDecl` → C# structs
-- `FunctionDecl` → `[DllImport]` declarations
+- `FunctionDecl` → `[DllImport]` / `[LibraryImport]` declarations
 
 ### Risk: AST JSON Schema Changes
 
@@ -217,7 +218,7 @@ A framework with both Swift and ObjC public API would run both pipelines:
 4. **Type database merge**: Swift types referencing ObjC types get correct cross-references
 5. **Project emission**: Single `.csproj` that includes both direct P/Invoke code and binding definitions
 
-The type database already handles ObjC-bridged types (`IsObjCModuleType`, `AppleObjCFrameworkModules`, `ObjCBridgedTypes`). Extending it to cross-reference between the two pipelines is natural.
+The type database already handles ObjC-bridged types (`IsObjCModuleType`, `AppleObjCFrameworkModules`). Extending it to cross-reference between the two pipelines is natural. The cross-module type resolution infrastructure (`ModuleDatabaseEmitter`, `--module-database` CLI option, SDK `_CollectSwiftModuleDatabases` target) could also serve for ObjC↔Swift type resolution in mixed frameworks — dependency module databases already serialize and reload type records across pipeline boundaries.
 
 ## Pros and Cons
 
@@ -321,4 +322,4 @@ dotnet-objc-sharpie (separate repo)
 - Clang AST dump format: output of `clang -ast-dump=json`
 - .NET MAUI binding project: `<IsBindingProject>true</IsBindingProject>` in `.csproj`
 - Objective Sharpie (archived): https://learn.microsoft.com/en-us/xamarin/cross-platform/macios/binding/objective-sharpie/
-- Current ObjC handling in this repo: `TypeDatabaseExtensions.cs` (`IsObjCModuleType`), `ResolveObjCFramework()`, `AppleObjCFrameworkModules`
+- Current ObjC handling in this repo: `TypeDatabaseExtensions.cs` (`IsObjCModuleType`, `AppleObjCFrameworkModules`), `XCFrameworkResolver.cs` (`ResolveObjCFramework()`)

@@ -715,43 +715,6 @@ public class ThirdPartyValidationFixTestsV3
 
     #endregion
 
-    #region B10 — Protocol proxy receiver type conversion
-
-    [Fact]
-    public void TypeConversionHandler_GetReturnConversion_OptionalString_ReturnsNonNullConversion()
-    {
-        var typeDatabase = CreateTypeDatabaseWithString();
-        var handler = new TypeConversionHandler(typeDatabase);
-
-        // Optional<String> → should return a conversion expression
-        // The receiver unmarshals SwiftOptional<SwiftString> but the C# impl expects string?
-        var optionalString = new NamedTypeSpec("Swift.Optional");
-        optionalString.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
-
-        var conversion = handler.GetReturnConversion("value", optionalString);
-
-        // Must produce a non-null conversion expression for the receiver to apply
-        Assert.NotNull(conversion);
-        // The conversion should reference the variable name
-        Assert.Contains("value", conversion);
-    }
-
-    [Fact]
-    public void TypeConversionHandler_GetReturnConversion_PlainInt_ReturnsNull()
-    {
-        var typeDatabase = CreateTypeDatabase();
-        var handler = new TypeConversionHandler(typeDatabase);
-
-        // Plain Int → no conversion needed (blittable type, same in both contexts)
-        var intSpec = new NamedTypeSpec("Swift.Int");
-
-        var conversion = handler.GetReturnConversion("value", intSpec);
-
-        Assert.Null(conversion);
-    }
-
-    #endregion
-
     #region Helper Methods
 
     private static MethodDecl CreateMethodDecl(string name, string parentTypeName,

@@ -303,7 +303,6 @@ public partial class ProtocolProxyEmitter
         // B10: After unmarshalling, apply type conversion from ABI to idiomatic C# types
         // (e.g., SwiftOptional<SwiftString> → string?) to match the interface method signature.
         // P0: Use ABI types for MarshalFromSwift — idiomatic types (string, bool?) can't read Swift memory.
-        var typeConversionHandler = new TypeConversionHandler(_typeDatabase);
         var argNames = new List<string>();
         int argIndex = 0;
         foreach (var param in method.CSSignature.Skip(1))
@@ -318,7 +317,7 @@ public partial class ProtocolProxyEmitter
             // IDictionary<K,V> (parameter form), but projection produces .AsProjected()
             // which returns IReadOnlyDictionary<K,V> (return form). IReadOnlyDictionary doesn't
             // implement IDictionary, so we must use .ToDictionary() for eager materialization.
-            var receiverDictConversion = GetReceiverDictionaryConversion(rawArgName, param.SwiftTypeSpec, typeConversionHandler);
+            var receiverDictConversion = GetReceiverDictionaryConversion(rawArgName, param.SwiftTypeSpec);
             if (receiverDictConversion != null)
             {
                 writer.WriteLine($"var {rawArgName} = MarshalFromSwift<{paramTypeName}>(rawArg{argIndex});");
@@ -370,85 +369,28 @@ public partial class ProtocolProxyEmitter
     }
 
     /// <summary>
-    /// Gets a dictionary conversion expression for receiver parameters.
+    /// Gets a dictionary conversion expression for receiver parameters using projections.
     /// Receivers pass unmarshalled ABI types to the C# interface implementation, which expects
-    /// IDictionary&lt;K,V&gt; (parameter form). GetReturnConversion uses .AsProjected() → IReadOnlyDictionary,
+    /// IDictionary&lt;K,V&gt; (parameter form). Projection-based .AsProjected() returns IReadOnlyDictionary,
     /// which doesn't implement IDictionary. This method uses .ToDictionary() for eager materialization
     /// to produce a Dictionary&lt;K,V&gt; that satisfies the IDictionary contract.
     /// Returns null if the type is not a dictionary or doesn't need conversion.
     /// </summary>
-    private string? GetReceiverDictionaryConversion(string rawArgName, TypeSpec? typeSpec, TypeConversionHandler typeConversionHandler)
+    private string? GetReceiverDictionaryConversion(string rawArgName, TypeSpec? typeSpec)
     {
-        if (typeSpec is not NamedTypeSpec namedType || !typeConversionHandler.IsSwiftDictionary(namedType))
-            return null;
+        if (typeSpec == null) return null;
 
-        if (namedType.GenericParameters.Count < 2)
-            return null;
+        var projection = s_projectionFactory.Project(typeSpec,
+            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = false });
+        if (projection is not DictionaryProjection dict) return null;
 
-        var keySpec = namedType.GenericParameters[0];
-        var valueSpec = namedType.GenericParameters[1];
-        bool keyConverted = typeConversionHandler.IsDictionaryKeyTypeConverted(namedType);
-        bool valueConverted = typeConversionHandler.IsDictionaryValueTypeConverted(namedType);
+        var keyConv = dict.KeyProjection.GetReturnElementConversion("kvp.Key");
+        var valConv = dict.ValueProjection.GetReturnElementConversion("kvp.Value");
 
-        // If no conversion needed for either key or value, check if value types differ
-        // between ABI and public interface (e.g., AnyType → object for existentials)
-        var publicValueType = GetCSharpTypeName(valueSpec, forAbiMarshalling: false);
-        var abiValueType = GetCSharpTypeName(valueSpec, forAbiMarshalling: true);
-        var publicKeyType = GetCSharpTypeName(keySpec, forAbiMarshalling: false);
-        var abiKeyType = GetCSharpTypeName(keySpec, forAbiMarshalling: true);
-
-        bool needsConversion = keyConverted || valueConverted || publicValueType != abiValueType || publicKeyType != abiKeyType;
-        if (!needsConversion)
-            return null;
-
-        // Build key/value selector expressions for .ToDictionary()
-        string keyExpr;
-        if (typeConversionHandler.IsSwiftString(keySpec))
-            keyExpr = "kvp.Key.ToString()";
-        else if (publicKeyType != abiKeyType)
-            keyExpr = $"({publicKeyType})kvp.Key";
-        else
-            keyExpr = "kvp.Key";
-
-        string valueExpr;
-        if (typeConversionHandler.IsSwiftString(valueSpec))
-            valueExpr = "kvp.Value.ToString()";
-        else if (valueSpec is NamedTypeSpec valArraySpec && typeConversionHandler.IsSwiftArray(valArraySpec))
-        {
-            // Nested array: project each value
-            var innerElemSpec = valArraySpec.GenericParameters.FirstOrDefault();
-            if (innerElemSpec != null && typeConversionHandler.IsSwiftString(innerElemSpec))
-                valueExpr = "(IReadOnlyList<string>)kvp.Value.AsProjected(e => e.ToString())";
-            else
-                valueExpr = $"(IReadOnlyList<{GetCSharpTypeName(innerElemSpec)}>)kvp.Value";
-        }
-        else if (publicValueType != abiValueType)
-        {
-            // Check if value is an existential that needs proxy wrapping instead of a plain cast.
-            // Skip if publicValueType is "object" — means unresolved protocol, no proxy class exists.
-            var existentialHandler = new ExistentialHandler(_typeDatabase);
-            if (publicValueType != "object" && existentialHandler.IsExistential(valueSpec))
-            {
-                var valProtocolList = existentialHandler.ToProtocolListTypeSpec(valueSpec);
-                if (valProtocolList != null && existentialHandler.IsSupportedExistential(valProtocolList) &&
-                    existentialHandler.GetPublicExistentialType(valProtocolList) != "object")
-                {
-                    if (existentialHandler.TryGetWellKnownProtocolType(valProtocolList, out var wkValType))
-                        valueExpr = $"({publicValueType})new {wkValType}(kvp.Value)";
-                    else
-                    {
-                        var valProxyName = existentialHandler.GetProxyClassName(valProtocolList);
-                        valueExpr = $"({publicValueType})new {valProxyName}(kvp.Value)";
-                    }
-                }
-                else
-                    valueExpr = $"({publicValueType})kvp.Value";
-            }
-            else
-                valueExpr = $"({publicValueType})kvp.Value";
-        }
-        else
-            valueExpr = "kvp.Value";
+        // SwiftDictionary<K,V> implements IReadOnlyDictionary, not IDictionary.
+        // Receiver params need IDictionary, so always materialize via .ToDictionary().
+        var keyExpr = keyConv ?? "kvp.Key";
+        var valueExpr = valConv ?? "kvp.Value";
 
         return $"{rawArgName}.ToDictionary(kvp => {keyExpr}, kvp => {valueExpr})";
     }

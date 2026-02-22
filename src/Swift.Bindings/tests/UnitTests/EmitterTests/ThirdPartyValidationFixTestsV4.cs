@@ -426,43 +426,6 @@ public class ThirdPartyValidationFixTestsV4
 
     #endregion
 
-    #region C9 — Protocol interface type alignment (StripeCameraCore)
-
-    [Fact]
-    public void ProtocolHandler_GetCSharpTypeName_OptionalBool_ReturnsIdiomaticType()
-    {
-        // C9: ProtocolHandler.GetCSharpTypeName must check idiomatic types first.
-        // Optional<Bool> should resolve to "bool?" not "SwiftOptional<Boolean>".
-        var typeDatabase = CreateTypeDatabaseWithBool();
-
-        var optionalBool = new NamedTypeSpec("Swift.Optional");
-        optionalBool.GenericParameters.Add(new NamedTypeSpec("Swift.Bool"));
-
-        var typeConversionHandler = new TypeConversionHandler(typeDatabase);
-        var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(optionalBool, isParameter: true);
-
-        Assert.NotNull(idiomaticType);
-        // TypeConversionHandler uses fully-qualified names from TypeDatabase
-        Assert.Contains("bool?", idiomaticType);
-    }
-
-    [Fact]
-    public void ProtocolHandler_GetCSharpTypeName_PlainInt_ReturnsNull()
-    {
-        // Plain Int in protocol context — no idiomatic conversion needed
-        // (not a bound generic, resolved via TypeDatabase).
-        var typeDatabase = CreateTypeDatabase();
-        var typeConversionHandler = new TypeConversionHandler(typeDatabase);
-
-        var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(
-            new NamedTypeSpec("Swift.Int"), isParameter: true);
-
-        // Int → no idiomatic conversion (it's a primitive, not a wrapper)
-        Assert.Null(idiomaticType);
-    }
-
-    #endregion
-
     #region ShouldSkipMethodEmission — scope tests
 
     [Fact]
@@ -946,29 +909,6 @@ public class ThirdPartyValidationFixTestsV4
         if (methodInfo == null)
             throw new InvalidOperationException("Could not find GetProjectedOverloadKey method");
         return (string)methodInfo.Invoke(null, new object[] { method, typeDatabase })!;
-    }
-
-    #endregion
-
-    #region C9b — Composition proxy idiomatic types (CryptoSwift)
-
-    [Fact]
-    public void ResolveCSharpTypeName_ClosureParamArray_UsesIdiomaticType()
-    {
-        // CryptoSwift: Composition proxy stubs emitted Action<SwiftArray<byte>> but the interface
-        // declared Action<IEnumerable<byte>>. The fix adds idiomatic type check in ResolveCSharpTypeName.
-        var typeDatabase = CreateTypeDatabaseWithArrayAndOptional();
-
-        var typeConversionHandler = new TypeConversionHandler(typeDatabase);
-
-        // Array<UInt8> should get idiomatic conversion to IEnumerable<byte> for parameters
-        var arraySpec = new NamedTypeSpec("Swift.Array");
-        arraySpec.GenericParameters.Add(new NamedTypeSpec("Swift.UInt8"));
-
-        var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(arraySpec, isParameter: true);
-        Assert.NotNull(idiomaticType);
-        Assert.Contains("IEnumerable", idiomaticType);
-        Assert.Contains("byte", idiomaticType);
     }
 
     #endregion
