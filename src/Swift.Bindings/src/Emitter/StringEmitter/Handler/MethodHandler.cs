@@ -687,23 +687,29 @@ namespace BindingsGeneration
             // Check for name collision with existing methods
             if (methodEnv.EmittedProjectedSignatures != null)
             {
-                // Build projected key for the overload (same params minus closure, plus CancellationToken)
-                var overloadParamTypes = parameters
-                    .Take(parameters.Count - 1)
-                    .Select(p =>
+                // Build projected key for the overload (same params minus closure, plus CancellationToken).
+                // Must match the key format from IHandler.GetProjectedCSharpMethodKey so that
+                // completion handler wrappers collide with native async methods of the same name.
+                var overloadParamTypes = new List<string>();
+                foreach (var p in parameters.Take(parameters.Count - 1))
+                {
+                    var factory = new TypeProjectionFactory();
+                    var projection = factory.Project(p.SwiftTypeSpec, new ProjectionContext
                     {
-                        var factory = new TypeProjectionFactory();
-                        var projection = factory.Project(p.SwiftTypeSpec, new ProjectionContext
-                        {
-                            TypeDatabase = methodEnv.TypeDatabase,
-                            IsParameter = true
-                        });
-                        if (projection != null) return projection.PublicType;
-                        if (methodEnv.TypeDatabase.TryGetTypeRecord(p.SwiftTypeSpec, out var record))
-                            return record.CSharpTypeName.FullyQualifiedName;
-                        return p.SwiftTypeSpec.ToString();
-                    })
-                    .ToList();
+                        TypeDatabase = methodEnv.TypeDatabase,
+                        IsParameter = true
+                    });
+                    string paramType;
+                    if (projection != null)
+                        paramType = projection.PublicType;
+                    else if (methodEnv.TypeDatabase.TryGetTypeRecord(p.SwiftTypeSpec, out var record))
+                        paramType = record.CSharpTypeName.FullyQualifiedName;
+                    else
+                        paramType = p.SwiftTypeSpec.ToString();
+                    paramType = ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity(
+                        paramType, p.SwiftTypeSpec, methodEnv.TypeDatabase);
+                    overloadParamTypes.Add(paramType);
+                }
                 overloadParamTypes.Add("System.Threading.CancellationToken");
                 var overloadKey = $"{asyncMethodName}({string.Join(",", overloadParamTypes)})";
                 if (!methodEnv.EmittedProjectedSignatures.Add(overloadKey))

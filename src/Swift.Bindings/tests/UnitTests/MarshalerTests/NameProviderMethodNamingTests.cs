@@ -11,27 +11,27 @@ namespace BindingsGeneration.Tests;
 /// </summary>
 public class NameProviderMethodNamingTests
 {
-    #region Noun-only + async → Get prefix
+    #region Noun-only + sync → Get prefix (async skips Get prefix)
 
     [Fact]
-    public void NounOnly_Async_WithReturn_GetsGetPrefix()
+    public void NounOnly_Async_WithReturn_SkipsGetPrefix()
     {
         var result = NameProvider.GetPublicMethodName("data", isAsync: true, hasReturnValue: true);
-        Assert.Equal("GetDataAsync", result);
+        Assert.Equal("DataAsync", result);
     }
 
     [Fact]
-    public void NounOnly_Image_Async_WithReturn_GetsGetPrefix()
+    public void NounOnly_Image_Async_WithReturn_SkipsGetPrefix()
     {
         var result = NameProvider.GetPublicMethodName("image", isAsync: true, hasReturnValue: true);
-        Assert.Equal("GetImageAsync", result);
+        Assert.Equal("ImageAsync", result);
     }
 
     [Fact]
-    public void NounOnly_Response_Async_WithReturn_GetsGetPrefix()
+    public void NounOnly_Response_Async_WithReturn_SkipsGetPrefix()
     {
         var result = NameProvider.GetPublicMethodName("response", isAsync: true, hasReturnValue: true);
-        Assert.Equal("GetResponseAsync", result);
+        Assert.Equal("ResponseAsync", result);
     }
 
     [Fact]
@@ -53,17 +53,17 @@ public class NameProviderMethodNamingTests
     }
 
     [Fact]
-    public void AsyncPrefix_PascalCase_Stripped()
+    public void AsyncPrefix_PascalCase_Stripped_NoGetPrefix()
     {
         var result = NameProvider.GetPublicMethodName("AsyncStaticString", isAsync: true, hasReturnValue: true);
-        Assert.Equal("GetStaticStringAsync", result);
+        Assert.Equal("StaticStringAsync", result);
     }
 
     [Fact]
-    public void AsyncPrefix_WithReturnValue_NounBecomesGetPrefixed()
+    public void AsyncPrefix_WithReturnValue_NounSkipsGetPrefix()
     {
         var result = NameProvider.GetPublicMethodName("asyncData", isAsync: true, hasReturnValue: true);
-        Assert.Equal("GetDataAsync", result);
+        Assert.Equal("DataAsync", result);
     }
 
     [Fact]
@@ -76,11 +76,12 @@ public class NameProviderMethodNamingTests
     }
 
     [Fact]
-    public void AsyncPrefix_StillStripped_WhenAsync()
+    public void AsyncPrefix_StillStripped_WhenAsync_NoGetPrefix()
     {
         // Async methods should still have the prefix stripped per .NET convention.
+        // Async methods skip the "Get" prefix — noun-only names are fine with Async suffix.
         var result = NameProvider.GetPublicMethodName("asyncInstance", isAsync: true, hasReturnValue: true);
-        Assert.Equal("GetInstanceAsync", result);
+        Assert.Equal("InstanceAsync", result);
     }
 
     #endregion

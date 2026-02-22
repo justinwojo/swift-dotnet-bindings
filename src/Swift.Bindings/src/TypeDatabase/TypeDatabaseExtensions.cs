@@ -513,6 +513,16 @@ public static class TypeDatabaseExtensions
         "CoreML", "Vision", "NaturalLanguage", "SoundAnalysis", "Speech",
         "MultipeerConnectivity", "UserNotifications", "NetworkExtension",
         "Intents", "IntentsUI",
+        "QuartzCore",
+    };
+
+    /// <summary>
+    /// Apple framework modules whose Swift module name differs from the .NET C# namespace.
+    /// Used by <see cref="CreateObjCBridgedTypeRecord"/> to resolve the correct namespace.
+    /// </summary>
+    private static readonly Dictionary<string, string> ModuleToCSharpNamespaceOverrides = new(StringComparer.Ordinal)
+    {
+        { "QuartzCore", "CoreAnimation" },
     };
 
     /// <summary>
@@ -595,6 +605,19 @@ public static class TypeDatabaseExtensions
         "Photos.PHImageContentMode",
         // Foundation NS_OPTIONS imported via NSRegularExpression.Options
         "Foundation.NSRegularExpression.Options",
+        // QuartzCore structs/enums (CoreAnimation namespace in .NET iOS)
+        "QuartzCore.CATransform3D",
+        "QuartzCore.CACornerMask",
+        "QuartzCore.CAEdgeAntialiasingMask",
+        "QuartzCore.CAAutoresizingMask",
+        "QuartzCore.CAContentsFormat",
+        "QuartzCore.CACornerCurve",
+        "QuartzCore.CAGradientLayerType",
+        "QuartzCore.CATextLayerAlignmentMode",
+        "QuartzCore.CATextLayerTruncationMode",
+        "QuartzCore.CAScroll",
+        "QuartzCore.CADynamicRange",
+        "QuartzCore.CAToneMapMode",
     };
 
     /// <summary>
@@ -635,6 +658,19 @@ public static class TypeDatabaseExtensions
         ["UIKit.UIView.AnimationOptions"] = ("UIKit", "UIViewAnimationOptions"),
         // Photos enum (already flat in .NET)
         ["Photos.PHImageContentMode"] = ("Photos", "PHImageContentMode"),
+        // QuartzCore value types: Swift module QuartzCore → .NET namespace CoreAnimation
+        ["QuartzCore.CATransform3D"] = ("CoreAnimation", "CATransform3D"),
+        ["QuartzCore.CACornerMask"] = ("CoreAnimation", "CACornerMask"),
+        ["QuartzCore.CAEdgeAntialiasingMask"] = ("CoreAnimation", "CAEdgeAntialiasingMask"),
+        ["QuartzCore.CAAutoresizingMask"] = ("CoreAnimation", "CAAutoresizingMask"),
+        ["QuartzCore.CAContentsFormat"] = ("CoreAnimation", "CAContentsFormat"),
+        ["QuartzCore.CACornerCurve"] = ("CoreAnimation", "CACornerCurve"),
+        ["QuartzCore.CAGradientLayerType"] = ("CoreAnimation", "CAGradientLayerType"),
+        ["QuartzCore.CATextLayerAlignmentMode"] = ("CoreAnimation", "CATextLayerAlignmentMode"),
+        ["QuartzCore.CATextLayerTruncationMode"] = ("CoreAnimation", "CATextLayerTruncationMode"),
+        ["QuartzCore.CAScroll"] = ("CoreAnimation", "CAScroll"),
+        ["QuartzCore.CADynamicRange"] = ("CoreAnimation", "CADynamicRange"),
+        ["QuartzCore.CAToneMapMode"] = ("CoreAnimation", "CAToneMapMode"),
     };
 
     /// <summary>
@@ -664,6 +700,12 @@ public static class TypeDatabaseExtensions
         ["Foundation.URLSessionWebSocketTask.Message"] = ("Foundation", "NSUrlSessionWebSocketMessage"),
         // Foundation stream class: Swift name → .NET ObjC name
         ["Foundation.Stream"] = ("Foundation", "NSStream"),
+        // QuartzCore NSString typedefs — not bound as standalone types in .NET iOS,
+        // but they are ObjC class references (NSString), not value types
+        ["QuartzCore.CALayerContentsGravity"] = ("Foundation", "NSString"),
+        ["QuartzCore.CAMediaTimingFunctionName"] = ("Foundation", "NSString"),
+        ["QuartzCore.CATransitionType"] = ("Foundation", "NSString"),
+        ["QuartzCore.CATransitionSubtype"] = ("Foundation", "NSString"),
     };
 
     /// <summary>
@@ -729,11 +771,15 @@ public static class TypeDatabaseExtensions
             };
         }
 
-        // ObjectiveC module types (NSObject, NSProxy) map to Foundation.* in C#
-        // Apple framework types (UIKit.UIImage, AppKit.NSImage) keep their module as namespace
-        var csharpNamespace = (swiftTypeName.Module == ObjCModuleName || swiftTypeName.Module == "Foundation")
-            ? "Foundation"
-            : swiftTypeName.Module;
+        // Resolve C# namespace: check module override table first, then ObjectiveC/Foundation → Foundation,
+        // then use Swift module name as-is (e.g., UIKit → UIKit).
+        string csharpNamespace;
+        if (ModuleToCSharpNamespaceOverrides.TryGetValue(swiftTypeName.Module, out var nsOverride))
+            csharpNamespace = nsOverride;
+        else if (swiftTypeName.Module == ObjCModuleName || swiftTypeName.Module == "Foundation")
+            csharpNamespace = "Foundation";
+        else
+            csharpNamespace = swiftTypeName.Module;
 
         // For nested ObjC types (e.g., UIKit.UIView.ContentMode), .NET iOS bindings flatten
         // the parent type into the name: UIView + ContentMode = UIViewContentMode.

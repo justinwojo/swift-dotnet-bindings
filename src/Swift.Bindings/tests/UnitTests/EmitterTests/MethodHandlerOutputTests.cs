@@ -38,6 +38,105 @@ public class MethodHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_CompletionHandlerOverload_SkippedWhenNativeAsyncCollides()
+    {
+        // Scenario: A native async method `collect(amount: Int) async -> String` has already
+        // been emitted with key "CollectAsync(nint,System.Threading.CancellationToken)".
+        // A sync method `collect(amount: Int, completion: (String) -> Void)` should detect
+        // the collision and skip emitting its completion handler wrapper.
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "/tmp/AsyncWrapper.dylib";
+
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        // Create the sync void method with a trailing completion handler closure
+        var closureSpec = new ClosureTypeSpec(
+            arguments: new NamedTypeSpec("Swift.String"), // (String) -> Void
+            returnType: TupleTypeSpec.Empty);
+
+        var method = new MethodDecl
+        {
+            Name = "collect",
+            MangledName = "$s10TestModule6LoaderCcollectSiyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl), // void return
+                CreateArgument("amount", new NamedTypeSpec("Swift.Int"), moduleDecl),
+                CreateArgument("completion", closureSpec, moduleDecl),
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        parentDecl.Methods.Add(method);
+
+        // Pre-populate with the key that a native async method would have produced.
+        // Swift.Int projects to long (System.Int64) via TypeProjectionFactory.
+        var emittedSignatures = new HashSet<string>
+        {
+            "CollectAsync(long,System.Threading.CancellationToken)"
+        };
+
+        var (csOutput, _) = EmitMethodWithSignatures(method, typeDatabase, emittedSignatures);
+
+        // The sync method itself should still be emitted
+        Assert.Contains("public void Collect(", csOutput);
+        // But the completion handler async wrapper should be skipped (collision)
+        Assert.DoesNotContain("CollectAsync", csOutput);
+    }
+
+    [Fact]
+    public void Emit_CompletionHandlerOverload_EmittedWhenNoCollision()
+    {
+        // Same setup as above but with no pre-existing key — the wrapper should be emitted
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "/tmp/AsyncWrapper.dylib";
+
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        var closureSpec = new ClosureTypeSpec(
+            arguments: new NamedTypeSpec("Swift.String"),
+            returnType: TupleTypeSpec.Empty);
+
+        var method = new MethodDecl
+        {
+            Name = "collect",
+            MangledName = "$s10TestModule6LoaderCcollectSiyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl),
+                CreateArgument("amount", new NamedTypeSpec("Swift.Int"), moduleDecl),
+                CreateArgument("completion", closureSpec, moduleDecl),
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        parentDecl.Methods.Add(method);
+
+        // Empty set — no collision
+        var emittedSignatures = new HashSet<string>();
+
+        var (csOutput, _) = EmitMethodWithSignatures(method, typeDatabase, emittedSignatures);
+
+        // Both the sync method and the async wrapper should be emitted
+        Assert.Contains("public void Collect(", csOutput);
+        Assert.Contains("CollectAsync", csOutput);
+    }
+
+    [Fact]
     public void Emit_ThrowingMethod_EmitsSwiftErrorHandling()
     {
         var typeDatabase = CreateTypeDatabase();
@@ -745,7 +844,7 @@ public class MethodHandlerOutputTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        // Optional<String> should remain as SwiftOptional<SwiftString>, NOT SwiftOptional<string>
+        // Optional<String> stays as SwiftOptional<SwiftString> in tuples (marshalling requires raw types)
         Assert.Contains("Swift.SwiftOptional<Swift.SwiftString>", csOutput);
         Assert.DoesNotContain("SwiftOptional<string>", csOutput);
     }
@@ -777,7 +876,7 @@ public class MethodHandlerOutputTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        // Array<String> should remain as SwiftArray<SwiftString>, NOT SwiftArray<string>
+        // Array<String> stays as SwiftArray<SwiftString> in tuples (marshalling requires raw types)
         Assert.Contains("Swift.SwiftArray<Swift.SwiftString>", csOutput);
         Assert.DoesNotContain("SwiftArray<string>", csOutput);
     }
@@ -1337,6 +1436,25 @@ public class MethodHandlerOutputTests
 
         var handler = new MethodHandler(new NullLogger<MethodHandler>());
         var env = new MethodEnvironment(methodDecl, typeDatabase, siblingPropertyNames);
+        var conductor = new Conductor(new NullLoggerFactory());
+        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
+
+        return (csOutput.ToString(), swiftOutput.ToString());
+    }
+
+    private static (string csOutput, string swiftOutput) EmitMethodWithSignatures(
+        MethodDecl methodDecl,
+        TypeDatabase typeDatabase,
+        HashSet<string> emittedProjectedSignatures)
+    {
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        var handler = new MethodHandler(new NullLogger<MethodHandler>());
+        var env = new MethodEnvironment(methodDecl, typeDatabase);
+        env.EmittedProjectedSignatures = emittedProjectedSignatures;
         var conductor = new Conductor(new NullLoggerFactory());
         handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
 

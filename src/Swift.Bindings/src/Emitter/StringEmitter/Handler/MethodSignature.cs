@@ -391,7 +391,8 @@ namespace BindingsGeneration
             //   2. Non-accessors: factory returns null when inner type is unsupported (e.g., frozen-with-memory
             //      structs like AsyncResult cause Optional<AsyncResult> to fail projection)
             // TranslateBoundGenericTypeToCSharp produces the correct raw name with generic args
-            // (e.g., SwiftOptional<SwiftArray<int>>). Deferred to 5B when WrapperEmitter is replaced.
+            // (e.g., SwiftOptional<SwiftArray<int>>). These types must stay raw because the marshalling
+            // body (WrapperEmitter) generates .Payload access that requires SwiftOptional<T>, not T?.
             if (_env.BoundGenericsHandler.IsBoundGeneric(argument))
             {
                 SetReturnType(_env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(argument, _genericContext));
@@ -470,7 +471,7 @@ namespace BindingsGeneration
                 }
 
                 // Fallback: bound generic parameters the factory couldn't project.
-                // Same rationale as HandleReturnType — deferred to 5B.
+                // Same rationale as HandleReturnType — raw types needed for marshalling body.
                 if (_env.BoundGenericsHandler.IsBoundGeneric(argument))
                 {
                     AddParameter(_env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(argument, _genericContext), csParamName);

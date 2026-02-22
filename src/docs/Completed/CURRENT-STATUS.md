@@ -1,11 +1,11 @@
 # Swift Bindings - Current Status
 
-**Last Updated**: February 2026 (DX Steps 1-5 + Validation Passes 1-4 + Framework Dependencies + DX Improvements + Emitter Test Audit + Theme Bridge Sessions 1-2)
-**Unit Tests**: 3,248 passed
+**Last Updated**: February 2026
+**Unit Tests**: 3,988 passed
 **Runtime Tests**: 188 passing on iOS Simulator at Tier 2 safe-only (28 pre-existing failures)
-**Runtime Library Tests**: 156 passing
-**Integration Tests**: 699 passing (11 skipped, pre-existing)
-**Libraries Validated**: 25 clean (0 generator errors) + 5 environmental-only — see `binding-errors.md` for full list
+**Runtime Library Tests**: 221 passing
+**Integration Tests**: 700 passing (11 skipped, pre-existing)
+**Libraries Validated**: 32/32 passing (all at 0 compile errors)
 
 ---
 

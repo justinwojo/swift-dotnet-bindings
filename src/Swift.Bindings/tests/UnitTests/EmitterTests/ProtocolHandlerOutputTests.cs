@@ -991,9 +991,9 @@ public class ProtocolHandlerOutputTests
     }
 
     [Fact]
-    public void Emit_AsyncValueMethod_GetsGetPrefix()
+    public void Emit_AsyncValueMethod_SkipsGetPrefix()
     {
-        // Async method with non-void return → should get Get prefix for noun names
+        // Async method with non-void return → no Get prefix (async methods skip it)
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var protocolDecl = new ProtocolDecl
@@ -1036,8 +1036,8 @@ public class ProtocolHandlerOutputTests
 
         var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
 
-        // Non-void return + noun name → GetDataAsync (with CancellationToken)
-        Assert.Contains("GetDataAsync(System.Threading.CancellationToken cancellationToken = default)", csOutput);
+        // Non-void return + noun name → DataAsync (async methods skip Get prefix)
+        Assert.Contains("DataAsync(System.Threading.CancellationToken cancellationToken = default)", csOutput);
     }
 
     #endregion

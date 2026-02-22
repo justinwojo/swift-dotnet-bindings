@@ -65,3 +65,31 @@ All completed phases are archived in `Completed/`. Key milestones:
 | DllImport Library Name | Replaced 9 hardcoded "SwiftBindings" strings with dynamic library name |
 
 SwiftUI Bridge v2 (Phases 1-3) and TestFramework Phases A-D ran in parallel, adding comprehensive parameter type support, ABI-driven async inference, bridge hints, and ~184 runtime tests.
+
+---
+
+## Roadmap Items Completed (Binding Quality Phase)
+
+### 1. Cross-Module Type Resolution (was P0 #1)
+
+Steps 1a-1d all complete. Generator emits `{Module}Database.xml` after processing; `--module-database` CLI option loads dependency databases; MSBuild SDK collects databases from NuGet packages via `_CollectSwiftModuleDatabases` target; cross-module protocol conformance expanded (whitelist removed). Validated: StripePaymentSheet resolves 46 StripeCore + 87 StripePayments types (0 AnyType). Key files: `ModuleDatabaseEmitter.cs`, `TypeDatabase.cs`, `Sdk.targets`, `ConsumerTargetsEmitter.cs`.
+
+### 2. ExistentialContainer Elimination from Public API (was P0 #2)
+
+`ExistentialContainer{N}` removed from all public closure/delegate signatures, tuple element types, and generic type arguments. Known protocols → interface type, well-known → runtime type (e.g. `AnyError`), unknown → `object`. P/Invoke layer still uses containers internally. 0 matches across all 32 libraries. Key files: `ClosureHandler.cs`, `TupleHandler.cs`, `ClosureEmitter.cs`.
+
+### 3. Native C# Enums for Simple Swift Enums (was P1 #3)
+
+Steps 3a-3c complete. String-raw-value enums with instance methods now emit as C# enums. Non-frozen simple enums supported (removed `IsFrozen` gate, added `CanSafelyEmitAsSimpleEnum` safety gate). `Lazy<T>`-backed singleton caching for class-based enum cases. ~15% of enums now native C# (up from ~5%). Key files: `EnumDecl.cs`, `EnumHandler.SimpleEnum.cs`, `ModuleProcessor.cs`.
+
+### 4. Optional<T> P/Invoke Truncation Fix (was P1 #4)
+
+`_optbuf` wrapper covers all paths: standalone methods, constructors, properties, mutating methods, wrapper-owned methods, async, and sync Optional returns. No more silent data truncation for `T.Size > 8`. Key files: `OptionalPointerWrapperEmitter.cs`, `PInvokeEmitter.cs`, `WrapperEmitter.Return.cs`.
+
+### 5. SwiftDictionary Projection (was P1 #5)
+
+Runtime `SwiftDictionary<K,V>` implements `IReadOnlyDictionary<K,V>`. Generator projects returns → `IReadOnlyDictionary<K,V>`, params → `IDictionary<K,V>`. 144 `SwiftDictionary` occurrences in public signatures → 0. Key files: `SwiftDictionary.cs`, `SwiftDictionaryProjection.cs`, `WrapperEmitter.Return.cs`.
+
+### Architecture Overhaul (Sessions 1-9)
+
+9-session architecture rework replacing fragmented type conversion with unified `TypeProjectionFactory` + `ITypeProjection` + `MarshalPlan`. Eliminated ~1,000 lines of overlapping conversion code. `TypeHandlerContext` replaced mutable Conductor state. All 32/32 libraries passing at 0 compile errors post-rework.

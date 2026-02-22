@@ -846,6 +846,8 @@ public static class NameProvider
         "Broadcast", "Multicast", "Relay", "Forward",
         "Put", "Patch", "Post",
         "Accept", "Accepts", "Pass", "Passes", "Sum", "Sums",
+        "Confirm", "Present", "Dismiss", "Select", "Deselect",
+        "Submit", "Complete", "Finish", "Collect",
     };
 
     /// <summary>
@@ -906,7 +908,7 @@ public static class NameProvider
 
         // 3. Add "Get" prefix for noun-only names with a return value
         //    Do this BEFORE property collision check so "Data" → "GetData" no longer collides
-        if (hasReturnValue && !StartsWithVerb(name))
+        if (hasReturnValue && !StartsWithVerb(name) && !isAsync)
             name = $"Get{name}";
 
         // 4. Property collision resolution (only if still colliding after verb prefix)

@@ -1665,10 +1665,10 @@ namespace Swift.SwiftBindingsTestLib
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
         private static unsafe void storeAndExecuteSendable_arg0_80056D38_Callback(void* indirectResult, SwiftSelf context)
         {
-            var del = SwiftClosureMarshaller.GetDelegateFromContext<Func<Swift.SwiftString>>(new IntPtr(context.Value));
+            var del = SwiftClosureMarshaller.GetDelegateFromContext<Func<string>>(new IntPtr(context.Value));
             var result = del();
             // Marshal the result to the indirect result buffer
-            var metadata = TypeMetadata.GetTypeMetadataOrThrow<Swift.SwiftString>();
+            var metadata = TypeMetadata.GetTypeMetadataOrThrow<string>();
             var resultSpan = new Span<byte>(indirectResult, (int)metadata.Size);
             SwiftMarshal.MarshalToSwift(result, ref resultSpan);
         }
@@ -16679,7 +16679,7 @@ public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
     /// <summary>
     /// Async throwing instance method.
     /// </summary>
-    public Task<int> GetThrowingMethodAsync( bool shouldThrow, System.Threading.CancellationToken cancellationToken = default)
+    public Task<int> ThrowingMethodAsync( bool shouldThrow, System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -17035,7 +17035,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     /// <summary>
     /// Async throwing static method.
     /// </summary>
-    public static Task<string> GetStaticThrowingAsync( bool shouldThrow, System.Threading.CancellationToken cancellationToken = default)
+    public static Task<string> StaticThrowingAsync( bool shouldThrow, System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -18925,7 +18925,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     /// <summary>
     /// Async static method returning String.
     /// </summary>
-    public static Task<string> GetStaticStringAsync(System.Threading.CancellationToken cancellationToken = default)
+    public static Task<string> StaticStringAsync(System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -20462,7 +20462,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     /// <summary>
     /// Async static method returning String array.
     /// </summary>
-    public static Task<IReadOnlyList<string>> GetStaticArrayAsync(System.Threading.CancellationToken cancellationToken = default)
+    public static Task<IReadOnlyList<string>> StaticArrayAsync(System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -21826,7 +21826,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
     /// <summary>
     /// Async static method returning complex type.
     /// </summary>
-    public static Task<Swift.SwiftBindingsTestLib.AsyncResult> GetStaticResultAsync(System.Threading.CancellationToken cancellationToken = default)
+    public static Task<Swift.SwiftBindingsTestLib.AsyncResult> StaticResultAsync(System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -22001,7 +22001,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
     /// <summary>
     /// Async static method returning class.
     /// </summary>
-    public static Task<Swift.SwiftBindingsTestLib.AsyncTask> GetStaticTaskAsync(System.Threading.CancellationToken cancellationToken = default)
+    public static Task<Swift.SwiftBindingsTestLib.AsyncTask> StaticTaskAsync(System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -23245,7 +23245,7 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
     /// <summary>
     /// Async instance method returning Int32.
     /// </summary>
-    public Task<int> GetReturnMethodAsync(System.Threading.CancellationToken cancellationToken = default)
+    public Task<int> ReturnMethodAsync(System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -23428,7 +23428,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     /// <summary>
     /// Async instance method returning String.
     /// </summary>
-    public Task<string> GetStringMethodAsync(System.Threading.CancellationToken cancellationToken = default)
+    public Task<string> StringMethodAsync(System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -23772,7 +23772,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     /// <summary>
     /// Async static method returning Int32.
     /// </summary>
-    public static Task<int> GetStaticReturnAsync(System.Threading.CancellationToken cancellationToken = default)
+    public static Task<int> StaticReturnAsync(System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
