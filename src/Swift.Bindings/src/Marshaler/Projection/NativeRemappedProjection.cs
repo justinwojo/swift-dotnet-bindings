@@ -40,6 +40,12 @@ public class NativeRemappedProjection : ITypeProjection
     public string PInvokeType => _isFrozen ? _swiftWrapperType : "SafeHandle";
     public string? PInvokeAttribute => null;
 
+    /// <summary>
+    /// For MarshalFromSwift deserialization, always use the Swift wrapper type name
+    /// (e.g., Swift.URL) so MarshalFromSwift returns the correct type with conversion methods.
+    /// </summary>
+    public string MarshalFromSwiftType => _swiftWrapperType;
+
     /// <summary>Method name for converting Swift wrapper → native .NET type (e.g., "ToNSUrl").</summary>
     public string ToConversionMethod => _toConversionMethod;
 
@@ -109,7 +115,9 @@ public class NativeRemappedProjection : ITypeProjection
             : $"new {_swiftWrapperType}({elementVar})";
     public string? GetReturnElementConversion(string elementVar)
     {
-        return $"new {_swiftWrapperType}({elementVar}).{_toConversionMethod}()";
+        // MarshalFromSwiftType returns _swiftWrapperType, so container elements are already the
+        // wrapper type (e.g., Swift.URL). Just call the conversion method directly.
+        return $"{elementVar}.{_toConversionMethod}()";
     }
     public bool ElementRequiresDisposal => true;
 }

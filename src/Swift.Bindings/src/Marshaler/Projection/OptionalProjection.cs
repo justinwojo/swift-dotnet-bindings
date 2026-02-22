@@ -47,6 +47,13 @@ public class OptionalProjection : ITypeProjection
     public string ContainerTypeName => $"SwiftOptional<{_innerProjection.MarshalFromSwiftType}>";
 
     /// <summary>
+    /// For MarshalFromSwift deserialization, use the inner type's MarshalFromSwiftType.
+    /// This ensures classes/non-frozen structs use their public name (e.g., SwiftOptional&lt;URLRequest&gt;)
+    /// rather than IntPtr (which SwiftContainerGenericType would produce).
+    /// </summary>
+    public string MarshalFromSwiftType => ContainerTypeName;
+
+    /// <summary>
     /// When this Optional appears as a generic parameter inside another container,
     /// use the full SwiftOptional type name with P/Invoke-level inner type.
     /// </summary>

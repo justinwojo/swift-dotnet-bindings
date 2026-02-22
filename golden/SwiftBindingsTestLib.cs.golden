@@ -37144,7 +37144,7 @@ public unsafe partial class MutableNamedProxy : IMutableNamed, ISwiftObject, IDi
     {
         var container = *(ExistentialContainer1*)selfContainer;
         var proxy = SwiftObjectRegistry.GetProxyFromContainer<MutableNamedProxy>(container);
-        var value = MarshalFromSwift<Swift.SwiftString>(valuePtr);
+        var value = MarshalFromSwift<SwiftString>(valuePtr);
         proxy._csharpImpl!.Name = value.ToString();
     }
     #endregion
@@ -38192,7 +38192,7 @@ public unsafe partial class StringProcessorProxy : IStringProcessor, ISwiftObjec
     {
         var container = *(ExistentialContainer1*)selfContainer;
         var proxy = SwiftObjectRegistry.GetProxyFromContainer<StringProcessorProxy>(container);
-        var rawParam0 = MarshalFromSwift<Swift.SwiftString>(rawArg0);
+        var rawParam0 = MarshalFromSwift<SwiftString>(rawArg0);
         var param0 = rawParam0.ToString();
         var result = proxy._csharpImpl!.Process(param0);
         return MarshalToSwiftBuffer(result);

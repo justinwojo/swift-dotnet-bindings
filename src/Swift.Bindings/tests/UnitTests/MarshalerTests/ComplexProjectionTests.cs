@@ -1090,7 +1090,9 @@ public class ComplexProjectionTests
     {
         var proj = new NativeRemappedProjection("NSData", "SwiftData", isFrozen: true, toConversionMethod: "ToNSData");
         Assert.Equal("new SwiftData(e)", proj.GetParameterElementConversion("e"));
-        Assert.Equal("new SwiftData(e).ToNSData()", proj.GetReturnElementConversion("e"));
+        // MarshalFromSwiftType = _swiftWrapperType, so container elements are already
+        // the wrapper type — just call the conversion method directly (no re-wrapping).
+        Assert.Equal("e.ToNSData()", proj.GetReturnElementConversion("e"));
         Assert.True(proj.ElementRequiresDisposal);
     }
 

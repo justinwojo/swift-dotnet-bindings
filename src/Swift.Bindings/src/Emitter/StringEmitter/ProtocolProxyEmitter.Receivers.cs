@@ -76,11 +76,7 @@ public partial class ProtocolProxyEmitter
         var proxyClassName = GetProxyClassName(protocolDecl);
         // P0: Use ABI type for MarshalFromSwift (setter reads Swift memory layout),
         // not the idiomatic type used for signatures.
-        // For Optional<existential>, override ABI type to use SwiftOptional<ExistentialContainer>
-        // instead of SwiftOptional<AnyType> (which GetCSharpTypeName returns as fallback).
-        var abiTypeName = OverrideOptionalExistentialAbiType(
-            GetCSharpTypeName(property.SwiftTypeSpec, forAbiMarshalling: true),
-            property.SwiftTypeSpec);
+        var abiTypeName = GetCSharpTypeName(property.SwiftTypeSpec, forAbiMarshalling: true);
 
         var pascalPropertyName = NameProvider.GetPropertyName(property.Name);
 
@@ -146,9 +142,7 @@ public partial class ProtocolProxyEmitter
     {
         var proxyClassName = GetProxyClassName(protocolDecl);
         // P0: Use ABI type for MarshalFromSwift (reads Swift memory layout)
-        var returnTypeName = OverrideOptionalExistentialAbiType(
-            GetCSharpTypeName(subscript.ReturnTypeSpec, forAbiMarshalling: true),
-            subscript.ReturnTypeSpec);
+        var returnTypeName = GetCSharpTypeName(subscript.ReturnTypeSpec, forAbiMarshalling: true);
         var paramCount = subscript.IndexParameters.Count;
 
         if (subscript.HasGetter)
@@ -172,9 +166,7 @@ public partial class ProtocolProxyEmitter
                 for (int i = 0; i < subscript.IndexParameters.Count; i++)
                 {
                     var param = subscript.IndexParameters[i];
-                    var paramTypeName = OverrideOptionalExistentialAbiType(
-                        GetCSharpTypeName(param.SwiftTypeSpec, forAbiMarshalling: true),
-                        param.SwiftTypeSpec);
+                    var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, forAbiMarshalling: true);
                     writer.WriteLine($"var index{i} = MarshalFromSwift<{paramTypeName}>(arg{i});");
                 }
 
@@ -228,9 +220,7 @@ public partial class ProtocolProxyEmitter
                 for (int i = 0; i < subscript.IndexParameters.Count; i++)
                 {
                     var param = subscript.IndexParameters[i];
-                    var paramTypeName = OverrideOptionalExistentialAbiType(
-                        GetCSharpTypeName(param.SwiftTypeSpec, forAbiMarshalling: true),
-                        param.SwiftTypeSpec);
+                    var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, forAbiMarshalling: true);
                     writer.WriteLine($"var index{i} = MarshalFromSwift<{paramTypeName}>(arg{i});");
                 }
 
@@ -307,9 +297,7 @@ public partial class ProtocolProxyEmitter
         int argIndex = 0;
         foreach (var param in method.CSSignature.Skip(1))
         {
-            var paramTypeName = OverrideOptionalExistentialAbiType(
-                GetCSharpTypeName(param.SwiftTypeSpec, forAbiMarshalling: true),
-                param.SwiftTypeSpec);
+            var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, forAbiMarshalling: true);
             var rawArgName = $"rawParam{argIndex}";
             var argName = $"param{argIndex}";
 
@@ -418,6 +406,7 @@ public partial class ProtocolProxyEmitter
             NativeRemappedProjection nrp => nrp.FromFactoryMethod != null
                 ? $"{nrp.SwiftWrapperType}.{nrp.FromFactoryMethod}({varName})"
                 : $"new {nrp.SwiftWrapperType}({varName})",
+            ObjCBridgedProjection => $"{varName}.Handle",
             ArrayProjection arr => GetReceiverArrayGetterConversion(arr, varName),
             DictionaryProjection dict => GetReceiverDictGetterConversion(dict, varName),
             OptionalProjection opt => GetReceiverOptionalGetterConversion(opt, varName),
@@ -457,6 +446,7 @@ public partial class ProtocolProxyEmitter
         {
             StringProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome(new SwiftString({varName}Val)) : SwiftOptional<{optType}>.NewNone())",
             NativeRemappedProjection nrp => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome({(nrp.FromFactoryMethod != null ? $"{nrp.SwiftWrapperType}.{nrp.FromFactoryMethod}({varName}Val)" : $"new {nrp.SwiftWrapperType}({varName}Val)")}) : SwiftOptional<{optType}>.NewNone())",
+            ObjCBridgedProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome({varName}Val.Handle) : SwiftOptional<{optType}>.NewNone())",
             ArrayProjection arr => BuildOptionalContainerGetterConversion(arr, varName, optType,
                 GetReceiverArrayGetterConversion(arr, $"{varName}Val")),
             DictionaryProjection dict => BuildOptionalContainerGetterConversion(dict, varName, optType,
@@ -502,6 +492,7 @@ public partial class ProtocolProxyEmitter
         {
             StringProjection => $"{varName}.ToString()",
             NativeRemappedProjection nrp => $"{varName}.{nrp.ToConversionMethod}()",
+            ObjCBridgedProjection objc => $"ObjCRuntime.Runtime.GetNSObject<{objc.PublicType}>({varName})!",
             ArrayProjection arr => GetReceiverArraySetterConversion(arr, varName),
             DictionaryProjection dict => GetReceiverDictSetterConversion(dict, varName),
             OptionalProjection opt => GetReceiverOptionalSetterConversion(opt, varName),
@@ -538,6 +529,7 @@ public partial class ProtocolProxyEmitter
         {
             StringProjection => $"((SwiftString?){varName})?.ToString()",
             NativeRemappedProjection nrp => $"(({nrp.SwiftWrapperType}?){varName})?.{nrp.ToConversionMethod}()",
+            ObjCBridgedProjection objc => $"({varName}.Case == Swift.SwiftOptionalCases.None ? null : ObjCRuntime.Runtime.GetNSObject<{objc.PublicType}>({varName}.Some)!)",
             ArrayProjection arr => GetReceiverOptionalContainerSetterConversion(arr, varName, arr.PublicType),
             DictionaryProjection dict => GetReceiverOptionalContainerSetterConversion(dict, varName, dict.PublicType),
             // Closures have their own ABI — passthrough, accessor methods handle marshalling.
@@ -648,24 +640,6 @@ public partial class ProtocolProxyEmitter
         }
 
         return null;
-    }
-
-    /// <summary>
-    /// Overrides the ABI type name for Optional&lt;existential&gt; types.
-    /// Uses TypeProjectionFactory to determine if the type is Optional&lt;existential&gt;,
-    /// and if so, returns the correct <c>SwiftOptional&lt;ExistentialContainer{N}&gt;</c> type.
-    /// Returns the original type name if no override is needed.
-    /// </summary>
-    private string OverrideOptionalExistentialAbiType(string abiTypeName, TypeSpec? typeSpec)
-    {
-        if (typeSpec == null) return abiTypeName;
-
-        var projection = s_projectionFactory.Project(typeSpec,
-            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = false });
-        if (projection is OptionalProjection optProj && optProj.InnerProjection is ExistentialProjection innerExist)
-            return $"SwiftOptional<{innerExist.PInvokeType}>";
-
-        return abiTypeName;
     }
 
     private void EmitConstructors(CSharpWriter writer, ProtocolDecl protocolDecl, string interfaceName)

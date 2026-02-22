@@ -1781,7 +1781,7 @@ public class ProtocolProxyEmitterTests
 
         Assert.Contains("Receive_label_set", output);
         // Must use ABI type for MarshalFromSwift, not idiomatic "string"
-        Assert.Contains("MarshalFromSwift<Swift.SwiftString>", output);
+        Assert.Contains("MarshalFromSwift<SwiftString>", output);
         Assert.DoesNotContain("MarshalFromSwift<string>", output);
     }
 
@@ -1808,7 +1808,7 @@ public class ProtocolProxyEmitterTests
 
         Assert.Contains("Receive_greet_0", output);
         // Must use ABI type for MarshalFromSwift
-        Assert.Contains("MarshalFromSwift<Swift.SwiftString>", output);
+        Assert.Contains("MarshalFromSwift<SwiftString>", output);
         Assert.DoesNotContain("MarshalFromSwift<string>", output);
     }
 
@@ -1905,6 +1905,25 @@ public class ProtocolProxyEmitterTests
         });
     }
 
+    /// <summary>
+    /// Registers a protocol type in the test TypeDatabase so that ExistentialHandler
+    /// resolves it to IProtocol (not "object" fallback).
+    /// </summary>
+    private void RegisterProtocol(string name)
+    {
+        _typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", $"I{name}"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol
+            })
+        });
+    }
+
     private void RegisterSwiftDictionary()
     {
         _typeDatabase.AddOutOfModuleTypes(new[]
@@ -1918,6 +1937,517 @@ public class ProtocolProxyEmitterTests
                 Kind = TypeRecordKind.Struct
             })
         });
+    }
+
+    /// <summary>
+    /// Registers an ObjC bridged type (e.g., NSUrlSession) in the TypeDatabase
+    /// so TypeProjectionFactory creates ObjCBridgedProjection for it.
+    /// </summary>
+    private void RegisterObjCBridgedType(string swiftName, string csharpName)
+    {
+        _typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName(swiftName), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(csharpName.Substring(0, csharpName.LastIndexOf('.')), csharpName.Substring(csharpName.LastIndexOf('.') + 1)),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(swiftName),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.ObjCBridged,
+                Kind = TypeRecordKind.Class
+            })
+        });
+    }
+
+    /// <summary>
+    /// Registers a native-remapped type (e.g., URL → NSUrl) in the TypeDatabase
+    /// so TypeProjectionFactory creates NativeRemappedProjection for it.
+    /// </summary>
+    private void RegisterNativeRemappedType(string swiftName, string csharpName, string nativeName, bool isFrozen = false)
+    {
+        var flags = TypeRecordFlags.None;
+        if (isFrozen)
+            flags |= TypeRecordFlags.Frozen;
+        _typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName(swiftName), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(csharpName.Substring(0, csharpName.LastIndexOf('.')), csharpName.Substring(csharpName.LastIndexOf('.') + 1)),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(swiftName),
+                NativeTypeName = CSharpTypeName.FromNamespaceAndName(nativeName.Substring(0, nativeName.LastIndexOf('.')), nativeName.Substring(nativeName.LastIndexOf('.') + 1)),
+                MetadataAccessor = "",
+                Flags = flags,
+                Kind = TypeRecordKind.Struct
+            })
+        });
+    }
+
+    #endregion
+
+    #region Protocol AnyType Resolution in Receiver ABI Types
+
+    [Fact]
+    public void EmitProxyClass_MethodReceiver_ArrayOfExistential_UsesExistentialContainerNotAnyType()
+    {
+        // Root cause fix: Array<any Protocol> in receiver param must use
+        // MarshalFromSwift<SwiftArray<Swift.Runtime.ExistentialContainer1>> not SwiftArray<AnyType>.
+        // Before fix, GetCSharpTypeName(forAbiMarshalling:true) skipped TypeProjectionFactory and
+        // fell through to BoundGenericsHandler which unconditionally converts existentials to AnyType.
+        var protocol = CreateSimpleProtocol("DataProtocol");
+        var method = CreateMethodDecl("process");
+        var arrayOfExistential = new NamedTypeSpec("Swift.Array");
+        arrayOfExistential.GenericParameters.Add(
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.Selectable") }));
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "items",
+            PrivateName = "items",
+            SwiftTypeSpec = arrayOfExistential,
+            IsGeneric = false, IsInOut = false,
+            ParentDecl = null, ModuleDecl = null
+        });
+        protocol.Methods.Add(method);
+        var output = EmitProxyClass(protocol);
+
+        Assert.Contains("Receive_process_0", output);
+        Assert.Contains("MarshalFromSwift<SwiftArray<Swift.Runtime.ExistentialContainer1>>", output);
+        Assert.DoesNotContain("SwiftArray<Swift.AnyType>", output);
+        Assert.DoesNotContain("SwiftArray<AnyType>", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_MethodReceiver_DictionaryWithExistentialValue_UsesExistentialContainer()
+    {
+        // Dictionary<String, any Protocol> in receiver param must use
+        // MarshalFromSwift<SwiftDictionary<SwiftString, Swift.Runtime.ExistentialContainer1>> not AnyType.
+        RegisterSwiftString();
+        var protocol = CreateSimpleProtocol("MapProtocol");
+        var method = CreateMethodDecl("update");
+        var dictOfExistential = new NamedTypeSpec("Swift.Dictionary");
+        dictOfExistential.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        dictOfExistential.GenericParameters.Add(
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.Mappable") }));
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "map",
+            PrivateName = "map",
+            SwiftTypeSpec = dictOfExistential,
+            IsGeneric = false, IsInOut = false,
+            ParentDecl = null, ModuleDecl = null
+        });
+        protocol.Methods.Add(method);
+        var output = EmitProxyClass(protocol);
+
+        Assert.Contains("Receive_update_0", output);
+        Assert.Contains("MarshalFromSwift<SwiftDictionary<SwiftString, Swift.Runtime.ExistentialContainer1>>", output);
+        Assert.DoesNotContain("AnyType", output.Substring(output.IndexOf("Receive_update_0")));
+    }
+
+    [Fact]
+    public void EmitProxyClass_MethodReceiver_BareExistential_UsesExistentialContainer()
+    {
+        // Bare existential (any Protocol) in receiver param must use
+        // MarshalFromSwift<Swift.Runtime.ExistentialContainer1> not MarshalFromSwift<AnyType>.
+        var protocol = CreateSimpleProtocol("HandlerProtocol");
+        var method = CreateMethodDecl("handle");
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "item",
+            PrivateName = "item",
+            SwiftTypeSpec = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.Processable") }),
+            IsGeneric = false, IsInOut = false,
+            ParentDecl = null, ModuleDecl = null
+        });
+        protocol.Methods.Add(method);
+        var output = EmitProxyClass(protocol);
+
+        Assert.Contains("Receive_handle_0", output);
+        Assert.Contains("MarshalFromSwift<Swift.Runtime.ExistentialContainer1>", output);
+        Assert.DoesNotContain("MarshalFromSwift<Swift.AnyType>", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_MethodReceiver_OptionalExistential_UsesSwiftOptionalExistentialContainer()
+    {
+        // Optional<any Protocol> in receiver param must use
+        // MarshalFromSwift<SwiftOptional<Swift.Runtime.ExistentialContainer1>> not SwiftOptional<AnyType>.
+        var protocol = CreateSimpleProtocol("OptionalExistProto");
+        var method = CreateMethodDecl("check");
+        var optionalExistential = new NamedTypeSpec("Swift.Optional");
+        optionalExistential.GenericParameters.Add(
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.Checkable") }));
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "item",
+            PrivateName = "item",
+            SwiftTypeSpec = optionalExistential,
+            IsGeneric = false, IsInOut = false,
+            ParentDecl = null, ModuleDecl = null
+        });
+        protocol.Methods.Add(method);
+        var output = EmitProxyClass(protocol);
+
+        Assert.Contains("Receive_check_0", output);
+        Assert.Contains("MarshalFromSwift<SwiftOptional<Swift.Runtime.ExistentialContainer1>>", output);
+        Assert.DoesNotContain("SwiftOptional<Swift.AnyType>", output);
+        Assert.DoesNotContain("SwiftOptional<AnyType>", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_PropertySetter_ArrayOfExistential_UsesExistentialContainer()
+    {
+        // Property setter with Array<any Protocol> must use correct ABI type for MarshalFromSwift.
+        var arrayOfExistential = new NamedTypeSpec("Swift.Array");
+        arrayOfExistential.GenericParameters.Add(
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.Renderable") }));
+        var protocolDecl = CreateProtocolWithProperty("RenderProto", "layers",
+            hasGetter: false, hasSetter: true, arrayOfExistential);
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("Receive_layers_set", output);
+        Assert.Contains("MarshalFromSwift<SwiftArray<Swift.Runtime.ExistentialContainer1>>", output);
+        Assert.DoesNotContain("SwiftArray<AnyType>", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_PropertyGetter_ArrayOfExistential_EmitsConversion()
+    {
+        // Property getter with Array<any Protocol> must convert elements via existential extraction.
+        // Without protocol registered in TypeDatabase, ExistentialProjection falls back to "object".
+        var arrayOfExistential = new NamedTypeSpec("Swift.Array");
+        arrayOfExistential.GenericParameters.Add(
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.Renderable") }));
+        var protocolDecl = CreateProtocolWithProperty("RenderProto", "layers",
+            hasGetter: true, hasSetter: false, arrayOfExistential);
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("Receive_layers_get", output);
+        // Should convert elements via existential extraction
+        Assert.Contains("SwiftArray<Swift.Runtime.ExistentialContainer1>.FromEnumerable", output);
+        Assert.Contains("ISwiftExistentialConvertible", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_SubscriptGetter_ExistentialParam_UsesExistentialContainer()
+    {
+        // Subscript index parameters with existential types must use ABI container type.
+        var protocol = CreateSimpleProtocol("SubscriptProto");
+        var subscript = new SubscriptDecl
+        {
+            Name = "subscript",
+            MangledName = "$sSubscriptProto9subscriptP",
+            ReturnTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IndexParameters = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = "key",
+                    PrivateName = "key",
+                    SwiftTypeSpec = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.Indexable") }),
+                    IsGeneric = false, IsInOut = false,
+                    ParentDecl = null, ModuleDecl = null
+                }
+            },
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("subscript_get") }
+            },
+            IsStatic = false,
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+        protocol.Subscripts.Add(subscript);
+        var output = EmitProxyClass(protocol);
+
+        Assert.Contains("Receive_subscript_0_get", output);
+        Assert.Contains("MarshalFromSwift<Swift.Runtime.ExistentialContainer1>", output);
+        Assert.DoesNotContain("MarshalFromSwift<Swift.AnyType>", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_MethodReceiver_MultiProtocolComposition_UsesExistentialContainer2()
+    {
+        // Two-protocol composition (any P1 & P2) uses ExistentialContainer2.
+        var protocol = CreateSimpleProtocol("CompositionProto");
+        var method = CreateMethodDecl("compose");
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "item",
+            PrivateName = "item",
+            SwiftTypeSpec = new ProtocolListTypeSpec(new[]
+            {
+                new NamedTypeSpec("TestModule.Encodable"),
+                new NamedTypeSpec("TestModule.Decodable")
+            }),
+            IsGeneric = false, IsInOut = false,
+            ParentDecl = null, ModuleDecl = null
+        });
+        protocol.Methods.Add(method);
+        var output = EmitProxyClass(protocol);
+
+        Assert.Contains("Receive_compose_0", output);
+        Assert.Contains("MarshalFromSwift<Swift.Runtime.ExistentialContainer2>", output);
+        Assert.DoesNotContain("AnyType", output.Substring(output.IndexOf("Receive_compose_0")));
+    }
+
+    [Fact]
+    public void EmitProxyClass_MethodReceiver_ArrayOfExistential_SetterConversionCorrect()
+    {
+        // Array<any Protocol> in receiver: conversion side should produce
+        // .AsProjected<IRenderable>(c => new RenderableProxy(c)) when protocol is registered.
+        RegisterProtocol("Renderable");
+        var protocol = CreateSimpleProtocol("ConversionProto");
+        var method = CreateMethodDecl("render");
+        var arrayOfExistential = new NamedTypeSpec("Swift.Array");
+        arrayOfExistential.GenericParameters.Add(
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.Renderable") }));
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "items",
+            PrivateName = "items",
+            SwiftTypeSpec = arrayOfExistential,
+            IsGeneric = false, IsInOut = false,
+            ParentDecl = null, ModuleDecl = null
+        });
+        protocol.Methods.Add(method);
+        var output = EmitProxyClass(protocol);
+
+        // Conversion side should use the proxy pattern
+        Assert.Contains("AsProjected<IRenderable>", output);
+        Assert.Contains("new RenderableProxy(", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_MethodReceiver_StringParam_AbiTypeUnchangedByFix()
+    {
+        // Regression: ensure String params still use Swift.SwiftString ABI type, not broken by existential fix.
+        RegisterSwiftString();
+        var protocol = CreateSimpleProtocol("StringCheckProto");
+        var method = CreateMethodDecl("greet");
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "name",
+            PrivateName = "name",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+            IsGeneric = false, IsInOut = false,
+            ParentDecl = null, ModuleDecl = null
+        });
+        protocol.Methods.Add(method);
+        var output = EmitProxyClass(protocol);
+
+        Assert.Contains("MarshalFromSwift<SwiftString>", output);
+        Assert.DoesNotContain("MarshalFromSwift<string>", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_MethodReceiver_BlittableParam_AbiTypeUnchangedByFix()
+    {
+        // Regression: blittable Int32 should still use System.Int32/int.
+        RegisterSwiftInt32();
+        var protocol = CreateSimpleProtocol("IntCheckProto");
+        var method = CreateMethodDecl("count");
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "n",
+            PrivateName = "n",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int32"),
+            IsGeneric = false, IsInOut = false,
+            ParentDecl = null, ModuleDecl = null
+        });
+        protocol.Methods.Add(method);
+        var output = EmitProxyClass(protocol);
+
+        Assert.Contains("MarshalFromSwift<int>", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_PropertySetter_OptionalExistential_UsesCorrectAbiType()
+    {
+        // Optional<any Protocol> property setter ABI type should be
+        // SwiftOptional<Swift.Runtime.ExistentialContainer1>, not SwiftOptional<AnyType>.
+        // Previously handled by OverrideOptionalExistentialAbiType; now handled by factory path.
+        var optionalExistential = new NamedTypeSpec("Swift.Optional");
+        optionalExistential.GenericParameters.Add(
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.Configurable") }));
+        var protocolDecl = CreateProtocolWithProperty("ConfigProto", "delegate",
+            hasGetter: false, hasSetter: true, optionalExistential);
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("Receive_delegate_set", output);
+        Assert.Contains("MarshalFromSwift<SwiftOptional<Swift.Runtime.ExistentialContainer1>>", output);
+        Assert.DoesNotContain("SwiftOptional<AnyType>", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_MethodReceiver_DictWithExistentialKey_UsesExistentialContainer()
+    {
+        // Dictionary<any Protocol, String> — existential as dictionary key.
+        RegisterSwiftString();
+        var protocol = CreateSimpleProtocol("DictKeyProto");
+        var method = CreateMethodDecl("lookup");
+        var dictSpec = new NamedTypeSpec("Swift.Dictionary");
+        dictSpec.GenericParameters.Add(
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.Hashable") }));
+        dictSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "map",
+            PrivateName = "map",
+            SwiftTypeSpec = dictSpec,
+            IsGeneric = false, IsInOut = false,
+            ParentDecl = null, ModuleDecl = null
+        });
+        protocol.Methods.Add(method);
+        var output = EmitProxyClass(protocol);
+
+        Assert.Contains("Receive_lookup_0", output);
+        Assert.Contains("MarshalFromSwift<SwiftDictionary<Swift.Runtime.ExistentialContainer1, SwiftString>>", output);
+        Assert.DoesNotContain("AnyType", output.Substring(output.IndexOf("Receive_lookup_0")));
+    }
+
+    [Fact]
+    public void EmitProxyClass_MethodReceiver_ObjCBridgedParam_UsesIntPtrAndGetNSObject()
+    {
+        // ObjC bridged types in protocol proxy receivers must use IntPtr for MarshalFromSwift
+        // (ObjC objects are pointer-based at ABI level) and GetNSObject for the conversion.
+        // Using MarshalFromSwiftType = _csharpTypeName would produce MarshalFromSwift<NSUrlSession>
+        // which crashes at runtime (ObjC classes don't have Swift metadata).
+        RegisterObjCBridgedType("Foundation.NSURLSession", "Foundation.NSUrlSession");
+        var protocol = CreateSimpleProtocol("SessionDelegate");
+        var method = CreateMethodDecl("didReceive");
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "session",
+            PrivateName = "session",
+            SwiftTypeSpec = new NamedTypeSpec("Foundation.NSURLSession"),
+            IsGeneric = false, IsInOut = false,
+            ParentDecl = null, ModuleDecl = null
+        });
+        protocol.Methods.Add(method);
+        var output = EmitProxyClass(protocol);
+
+        Assert.Contains("Receive_didReceive_0", output);
+        // Must use IntPtr for MarshalFromSwift (not the ObjC class name)
+        Assert.Contains("MarshalFromSwift<IntPtr>", output);
+        // Must apply GetNSObject conversion to wrap the IntPtr
+        Assert.Contains("GetNSObject<Foundation.NSUrlSession>", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_PropertySetter_ObjCBridgedType_UsesGetNSObjectConversion()
+    {
+        // ObjC bridged property setter: MarshalFromSwift<IntPtr> + GetNSObject conversion
+        RegisterObjCBridgedType("Foundation.NSURLSession", "Foundation.NSUrlSession");
+        var protocolDecl = CreateProtocolWithProperty("SessionProto", "session",
+            hasGetter: false, hasSetter: true, new NamedTypeSpec("Foundation.NSURLSession"));
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("Receive_session_set", output);
+        Assert.Contains("MarshalFromSwift<IntPtr>", output);
+        Assert.Contains("GetNSObject<Foundation.NSUrlSession>", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_PropertyGetter_ObjCBridgedType_UsesHandleConversion()
+    {
+        // ObjC bridged property getter: extract .Handle from the C# value to produce IntPtr
+        RegisterObjCBridgedType("Foundation.NSURLSession", "Foundation.NSUrlSession");
+        var protocolDecl = CreateProtocolWithProperty("SessionProto", "session",
+            hasGetter: true, hasSetter: false, new NamedTypeSpec("Foundation.NSURLSession"));
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("Receive_session_get", output);
+        // Getter must extract .Handle from the idiomatic type to produce IntPtr for Swift
+        Assert.Contains(".Handle", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_MethodReceiver_NativeRemappedParam_UsesSwiftWrapperType()
+    {
+        // NativeRemapped types (URL → NSUrl) must use the Swift wrapper type (Swift.URL)
+        // for MarshalFromSwift, not SafeHandle (which was the wrong default before override).
+        // Swift.URL implements ISwiftObject so MarshalFromSwift<Swift.URL> works correctly.
+        RegisterNativeRemappedType("Foundation.URL", "Swift.URL", "Foundation.NSUrl");
+        var protocol = CreateSimpleProtocol("UrlHandler");
+        var method = CreateMethodDecl("open");
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "url",
+            PrivateName = "url",
+            SwiftTypeSpec = new NamedTypeSpec("Foundation.URL"),
+            IsGeneric = false, IsInOut = false,
+            ParentDecl = null, ModuleDecl = null
+        });
+        protocol.Methods.Add(method);
+        var output = EmitProxyClass(protocol);
+
+        Assert.Contains("Receive_open_0", output);
+        // Must use Swift.URL (the Swift wrapper type) for MarshalFromSwift
+        Assert.Contains("MarshalFromSwift<Swift.URL>", output);
+        // Must apply ToNSUrl conversion
+        Assert.Contains("ToNSUrl", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_PropertyGetter_NativeRemappedType_UsesFromFactoryConversion()
+    {
+        // NativeRemapped property getter: convert from NSUrl to Swift.URL via factory method
+        RegisterNativeRemappedType("Foundation.URL", "Swift.URL", "Foundation.NSUrl");
+        var protocolDecl = CreateProtocolWithProperty("UrlProto", "endpoint",
+            hasGetter: true, hasSetter: false, new NamedTypeSpec("Foundation.URL"));
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("Receive_endpoint_get", output);
+        // Getter must convert NSUrl to Swift.URL for marshalling back to Swift
+        Assert.Contains("Swift.URL", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_MethodReceiver_OptionalObjCBridgedParam_UsesDiscriminantAndGetNSObject()
+    {
+        // Optional<ObjC> method param: MarshalFromSwift<SwiftOptional<IntPtr>> + discriminant check
+        // + GetNSObject<T>(varName.Some) conversion. Uses the ObjCBridgedProjection branch in
+        // GetReceiverOptionalSetterConversion, not the default nullable cast.
+        RegisterObjCBridgedType("Foundation.NSURLSession", "Foundation.NSUrlSession");
+        var protocol = CreateSimpleProtocol("OptSessionDelegate");
+        var method = CreateMethodDecl("didComplete");
+        var optObjC = new NamedTypeSpec("Swift.Optional");
+        optObjC.GenericParameters.Add(new NamedTypeSpec("Foundation.NSURLSession"));
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "session",
+            PrivateName = "session",
+            SwiftTypeSpec = optObjC,
+            IsGeneric = false, IsInOut = false,
+            ParentDecl = null, ModuleDecl = null
+        });
+        protocol.Methods.Add(method);
+        var output = EmitProxyClass(protocol);
+
+        Assert.Contains("Receive_didComplete_0", output);
+        // ABI type: SwiftOptional<IntPtr> (ObjC objects are pointers)
+        Assert.Contains("MarshalFromSwift<SwiftOptional<IntPtr>>", output);
+        // Conversion: discriminant check + GetNSObject wrapping
+        Assert.Contains("GetNSObject<Foundation.NSUrlSession>", output);
+        Assert.Contains("SwiftOptionalCases.None", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_PropertySetter_OptionalNativeRemapped_UsesSwiftWrapperType()
+    {
+        // Optional<URL> property setter: MarshalFromSwift<SwiftOptional<Swift.URL>> + ToNSUrl conversion.
+        // Uses the NativeRemappedProjection branch in GetReceiverOptionalSetterConversion.
+        RegisterNativeRemappedType("Foundation.URL", "Swift.URL", "Foundation.NSUrl");
+        var optUrl = new NamedTypeSpec("Swift.Optional");
+        optUrl.GenericParameters.Add(new NamedTypeSpec("Foundation.URL"));
+        var protocolDecl = CreateProtocolWithProperty("OptUrlProto", "redirect",
+            hasGetter: false, hasSetter: true, optUrl);
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("Receive_redirect_set", output);
+        // ABI type: SwiftOptional<Swift.URL> (URL implements ISwiftObject, valid for MarshalFromSwift)
+        Assert.Contains("MarshalFromSwift<SwiftOptional<Swift.URL>>", output);
+        // Conversion: cast to wrapper type + ToNSUrl
+        Assert.Contains("ToNSUrl", output);
     }
 
     #endregion

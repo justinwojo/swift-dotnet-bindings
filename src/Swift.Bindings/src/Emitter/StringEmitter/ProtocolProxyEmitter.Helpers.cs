@@ -21,9 +21,14 @@ public partial class ProtocolProxyEmitter
         if (typeSpec is AssociatedTypeReferenceSpec associatedTypeRef)
             return $"T{associatedTypeRef.AssociatedTypeName}";
 
-        // Factory-first path for public (non-ABI) type resolution.
-        // Handles closures, tuples, existentials, strings, arrays, dicts, optionals, etc.
-        if (!forAbiMarshalling)
+        // Factory-first path for type resolution.
+        // When forAbiMarshalling=true, use MarshalFromSwiftType — the type suitable for
+        // MarshalFromSwift<T> deserialization. This composes correctly through containers:
+        //   - Existentials: ExistentialContainer1 (not AnyType)
+        //   - Classes/NonFrozenStructs: public type name (not IntPtr)
+        //   - Strings: SwiftString (ABI type)
+        //   - Arrays/Dicts/Optionals: compose inner MarshalFromSwiftType recursively
+        // When forAbiMarshalling=false, use PublicType (e.g., IReadOnlyList<ISQLSelectable>)
         {
             var factory = new TypeProjectionFactory();
             var projection = factory.Project(typeSpec, new ProjectionContext
@@ -33,10 +38,10 @@ public partial class ProtocolProxyEmitter
                 GenericContext = GenericContext.Empty
             });
             if (projection != null)
-                return projection.PublicType;
+                return forAbiMarshalling ? projection.MarshalFromSwiftType : projection.PublicType;
         }
 
-        // ABI marshalling path (or factory fallback for unsupported types)
+        // Factory fallback for unsupported types
         if (typeSpec is ClosureTypeSpec closureTypeSpec)
             return GetClosureCSharpType(closureTypeSpec);
 
