@@ -524,7 +524,7 @@ namespace BindingsGeneration
             if (element is NamedTypeSpec named)
             {
                 // Bare SwiftString → string (only at top level, not inside generics)
-                if (applyIdiomaticConversion && _env.TypeConversionHandler.IsSwiftString(named))
+                if (applyIdiomaticConversion && MarshallingHelpers.IsSwiftString(named))
                     return "string";
 
                 var typeRecord = _env.TypeDatabase.GetTypeRecordOrAnyType(named);
@@ -594,7 +594,7 @@ namespace BindingsGeneration
             else if (pinvokeType.EndsWith(".Buffer"))
             {
                 // SwiftString.Buffer → string (via MarshalFromSwift + ToString)
-                if (_env.TypeConversionHandler.IsSwiftString(element))
+                if (MarshallingHelpers.IsSwiftString(element))
                     return $"var {resultName} = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&{itemName})).ToString();";
                 // Other .Buffer types (frozen structs with memory management)
                 return $"var {resultName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(new IntPtr(&{itemName}));";

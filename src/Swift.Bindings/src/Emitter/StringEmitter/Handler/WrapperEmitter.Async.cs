@@ -669,7 +669,7 @@ namespace BindingsGeneration
             // Convertible types (SwiftString -> string, SwiftArray -> IReadOnlyList, etc.) are already
             // properly marshalled and don't need InitWithCopy. Using SwiftObjectHelper with their projected
             // types (string, IReadOnlyList<T>) would fail since those types don't implement ISwiftObject.
-            var isConvertibleType = _env.TypeConversionHandler.IsConvertibleType(returnType.SwiftTypeSpec);
+            var isConvertibleType = MarshallingHelpers.IsConvertibleType(returnType.SwiftTypeSpec);
 
             // ObjC bridged types and convertible types don't need InitWithCopy
             var requiresInitWithCopy = !voidReturn && !isObjCBridged && !isConvertibleType && (MarshallingHelpers.RequiresMemoryManagement(returnTypeRecord) || returnType.IsGeneric);

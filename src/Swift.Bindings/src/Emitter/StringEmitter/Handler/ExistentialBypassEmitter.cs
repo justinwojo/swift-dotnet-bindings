@@ -102,7 +102,7 @@ public static class ExistentialBypassEmitter
             Visibility = methodDecl.Visibility
         };
 
-        var reducedEnv = new MethodEnvironment(reducedMethodDecl, env.TypeDatabase);
+        var reducedEnv = new MethodEnvironment(reducedMethodDecl, env.TypeDatabase, compositionCollector: env.CompositionCollector);
         var reducedSigHandler = new SignatureHandler(reducedEnv);
         var reducedWrapperSig = reducedSigHandler.GetWrapperSignature();
 

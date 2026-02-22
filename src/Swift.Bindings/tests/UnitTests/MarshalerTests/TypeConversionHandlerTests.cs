@@ -283,44 +283,6 @@ public class TypeConversionHandlerTests
 
     #endregion
 
-    #region GetSwiftWrapperType Tests
-
-    [Fact]
-    public void GetSwiftWrapperType_SwiftString_ReturnsSwiftString()
-    {
-        var typeSpec = new NamedTypeSpec("Swift.String");
-        var result = _handler.GetSwiftWrapperType(typeSpec);
-        Assert.Equal("SwiftString", result);
-    }
-
-    [Fact]
-    public void GetSwiftWrapperType_SwiftArray_ReturnsSwiftArrayWithElement()
-    {
-        var typeSpec = new NamedTypeSpec("Swift.Array");
-        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
-        var result = _handler.GetSwiftWrapperType(typeSpec, _ => "long");
-        Assert.Equal("SwiftArray<long>", result);
-    }
-
-    [Fact]
-    public void GetSwiftWrapperType_SwiftOptional_ReturnsSwiftOptionalWithElement()
-    {
-        var typeSpec = new NamedTypeSpec("Swift.Optional");
-        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
-        var result = _handler.GetSwiftWrapperType(typeSpec, _ => "long");
-        Assert.Equal("SwiftOptional<long>", result);
-    }
-
-    [Fact]
-    public void GetSwiftWrapperType_NonConvertibleType_ReturnsNull()
-    {
-        var typeSpec = new NamedTypeSpec("Swift.Int");
-        var result = _handler.GetSwiftWrapperType(typeSpec);
-        Assert.Null(result);
-    }
-
-    #endregion
-
     #region GetElementType Tests
 
     [Fact]
@@ -343,29 +305,6 @@ public class TypeConversionHandlerTests
     #endregion
 
     #region TypeTranslator Regression Tests (Property Getter/Setter Conversion)
-    [Fact]
-    public void GetSwiftWrapperType_SwiftArray_WithTranslator_UsesTranslatedElementType()
-    {
-        // Regression test: PropertyHandler property type declaration must pass a typeTranslator
-        // so that SwiftArray<T> gets the correct element type.
-        var typeSpec = new NamedTypeSpec("Swift.Array");
-        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.UInt8"));
-
-        var result = _handler.GetSwiftWrapperType(typeSpec, _ => "byte");
-        Assert.Equal("SwiftArray<byte>", result);
-    }
-
-    [Fact]
-    public void GetSwiftWrapperType_SwiftArray_WithoutTranslator_FallsBackToDbLookup()
-    {
-        // Without translator, unregistered element types produce incorrect wrapper types.
-        var typeSpec = new NamedTypeSpec("Swift.Array");
-        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.UInt8"));
-
-        var result = _handler.GetSwiftWrapperType(typeSpec);
-        Assert.NotNull(result);
-        Assert.DoesNotContain("byte", result);
-    }
 
     [Fact]
     public void GetIdiomaticCSharpType_SwiftArray_WithTranslator_ProducesCorrectGenericType()
@@ -446,54 +385,6 @@ public class TypeConversionHandlerTests
         Assert.Equal("result", result);
     }
 
-    #endregion
-
-    #region GetRawArrayElementType Tests
-
-    [Fact]
-    public void GetRawArrayElementType_SwiftArraySwiftString_ReturnsSwiftString()
-    {
-        var typeSpec = new NamedTypeSpec("Swift.Array");
-        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
-        var result = _handler.GetRawArrayElementType(typeSpec);
-        Assert.Equal("Swift.SwiftString", result);
-    }
-
-    [Fact]
-    public void GetRawArrayElementType_NonArray_ReturnsNull()
-    {
-        var typeSpec = new NamedTypeSpec("Swift.Int");
-        var result = _handler.GetRawArrayElementType(typeSpec);
-        Assert.Null(result);
-    }
-
-    #endregion
-
-    #region GetSwiftWrapperType — Raw Element Type Regression (Codex P0)
-
-    [Fact]
-    public void GetSwiftWrapperType_SwiftArray_SwiftString_UsesSwiftStringNotString()
-    {
-        // Regression: GetSwiftWrapperType must use raw element type (SwiftString)
-        // not the idiomatically converted type (string). SwiftArray<string> can't be
-        // marshalled — only SwiftArray<SwiftString> can.
-        var typeSpec = new NamedTypeSpec("Swift.Array");
-        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
-        var result = _handler.GetSwiftWrapperType(typeSpec);
-        Assert.Equal("SwiftArray<Swift.SwiftString>", result);
-        Assert.DoesNotContain("SwiftArray<string>", result);
-    }
-
-    [Fact]
-    public void GetSwiftWrapperType_SwiftOptional_SwiftString_UsesSwiftStringNotString()
-    {
-        // Regression: SwiftOptional<string> would fail at runtime in SwiftMarshal.MarshalToSwift
-        var typeSpec = new NamedTypeSpec("Swift.Optional");
-        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
-        var result = _handler.GetSwiftWrapperType(typeSpec);
-        Assert.Equal("SwiftOptional<Swift.SwiftString>", result);
-        Assert.DoesNotContain("SwiftOptional<string>", result);
-    }
     #endregion
 
     #region Optional<Closure> and Optional<Existential> Null Guard Paths (TC1)

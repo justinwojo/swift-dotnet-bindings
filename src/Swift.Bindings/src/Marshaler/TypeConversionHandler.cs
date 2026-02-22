@@ -229,18 +229,6 @@ public class TypeConversionHandler
     }
 
     /// <summary>
-    /// Gets the raw (unconverted) element type name from a SwiftArray type spec.
-    /// Public wrapper for <see cref="GetRawElementType"/> — used by emitters that need
-    /// the array element type for FromEnumerable() conversion.
-    /// </summary>
-    public string? GetRawArrayElementType(NamedTypeSpec arrayTypeSpec, Func<TypeSpec, string>? typeTranslator = null)
-    {
-        if (!IsSwiftArray(arrayTypeSpec))
-            return null;
-        return GetRawElementType(arrayTypeSpec, typeTranslator);
-    }
-
-    /// <summary>
     /// Gets the idiomatic (converted) key type from a SwiftDictionary type spec.
     /// Applies conversion (e.g., SwiftString → string).
     /// </summary>
@@ -260,26 +248,6 @@ public class TypeConversionHandler
         if (dictType.GenericParameters.Count < 2)
             return null;
         return GetConvertedGenericParam(dictType.GenericParameters[1], typeTranslator);
-    }
-
-    /// <summary>
-    /// Gets the raw (unconverted) key type from a SwiftDictionary type spec.
-    /// </summary>
-    public string? GetRawDictionaryKeyType(NamedTypeSpec dictType, Func<TypeSpec, string>? typeTranslator = null)
-    {
-        if (dictType.GenericParameters.Count < 2)
-            return null;
-        return GetRawGenericParam(dictType.GenericParameters[0], typeTranslator);
-    }
-
-    /// <summary>
-    /// Gets the raw (unconverted) value type from a SwiftDictionary type spec.
-    /// </summary>
-    public string? GetRawDictionaryValueType(NamedTypeSpec dictType, Func<TypeSpec, string>? typeTranslator = null)
-    {
-        if (dictType.GenericParameters.Count < 2)
-            return null;
-        return GetRawGenericParam(dictType.GenericParameters[1], typeTranslator);
     }
 
     /// <summary>
@@ -318,43 +286,6 @@ public class TypeConversionHandler
     }
 
     /// <summary>
-    /// Gets a raw (unconverted) type for a generic parameter.
-    /// </summary>
-    private string? GetRawGenericParam(TypeSpec typeSpec, Func<TypeSpec, string>? typeTranslator)
-    {
-        if (typeTranslator != null)
-            return typeTranslator(typeSpec);
-        if (typeSpec is NamedTypeSpec named)
-            return _typeDatabase.GetTypeRecordOrAnyType(named).CSharpTypeName.FullyQualifiedName;
-        return null;
-    }
-
-    /// <summary>
-    /// Builds the value expression for a dictionary parameter conversion's .Select() lambda.
-    /// Handles nested containers: SwiftString (new SwiftString), SwiftArray (FromEnumerable),
-    /// and SwiftDictionary (FromDictionary) value types.
-    /// </summary>
-    private string GetDictValueParamExpr(NamedTypeSpec dictSpec, bool valueConverted, Func<TypeSpec, string>? typeTranslator)
-    {
-        var valueSpec = dictSpec.GenericParameters[1];
-        if (valueConverted && IsSwiftString(valueSpec))
-            return "new SwiftString(kvp.Value)";
-
-        if (valueConverted && valueSpec is NamedTypeSpec valArraySpec && IsSwiftArray(valArraySpec))
-        {
-            var innerRawElem = GetRawElementType(valArraySpec, typeTranslator);
-            if (innerRawElem != null)
-            {
-                if (IsElementTypeConverted(valArraySpec, typeTranslator) && IsSwiftString(valArraySpec.GenericParameters.FirstOrDefault()))
-                    return $"SwiftArray<{innerRawElem}>.FromEnumerable(kvp.Value.Select(e => new SwiftString(e)))";
-                return $"SwiftArray<{innerRawElem}>.FromEnumerable(kvp.Value)";
-            }
-        }
-
-        return "kvp.Value";
-    }
-
-    /// <summary>
     /// Builds the value projection lambda for a dictionary return conversion's .AsProjected() call.
     /// Returns the lambda string (e.g., "v => v.ToString()", "v => v.AsProjected(e => e.ToString())"),
     /// or null if no value conversion is needed.
@@ -374,30 +305,6 @@ public class TypeConversionHandler
                 return "v => v.AsProjected(e => e.ToString())";
             // Array with non-converted elements: SwiftArray implements IReadOnlyList, cast is implicit
             return "v => (IReadOnlyList<" + GetElementType(valArraySpec, typeTranslator) + ">)v";
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Gets the raw (unconverted) element type name from a generic Swift type.
-    /// Unlike GetElementType(), this does NOT apply idiomatic conversion to the element.
-    /// Used when constructing SwiftArray&lt;SwiftString&gt; in parameter conversion.
-    /// </summary>
-    private string? GetRawElementType(NamedTypeSpec genericType, Func<TypeSpec, string>? typeTranslator = null)
-    {
-        if (genericType.GenericParameters.Count == 0)
-            return null;
-
-        var elementTypeSpec = genericType.GenericParameters[0];
-
-        if (typeTranslator != null)
-            return typeTranslator(elementTypeSpec);
-
-        if (elementTypeSpec is NamedTypeSpec elementNamedType)
-        {
-            var typeRecord = _typeDatabase.GetTypeRecordOrAnyType(elementNamedType);
-            return typeRecord.CSharpTypeName.FullyQualifiedName;
         }
 
         return null;
@@ -496,57 +403,6 @@ public class TypeConversionHandler
             }
 
             return $"(({idiomaticType}){resultVar})";
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Gets the Swift wrapper type name for use in P/Invoke declarations.
-    /// </summary>
-    /// <param name="typeSpec">The Swift type specification.</param>
-    /// <param name="typeTranslator">Optional function to translate inner type specs to C# type names.</param>
-    /// <returns>The Swift wrapper type name.</returns>
-    public string? GetSwiftWrapperType(TypeSpec? typeSpec, Func<TypeSpec, string>? typeTranslator = null)
-    {
-        if (typeSpec is not NamedTypeSpec namedTypeSpec)
-            return null;
-
-        if (IsSwiftString(namedTypeSpec))
-        {
-            return "SwiftString";
-        }
-
-        if (IsSwiftArray(namedTypeSpec))
-        {
-            // Use raw (unconverted) element type — SwiftArray<SwiftString>, not SwiftArray<string>
-            // GetElementType() would eagerly convert SwiftString→string, breaking marshalling
-            var elementType = GetRawElementType(namedTypeSpec, typeTranslator);
-            if (elementType == null)
-                return null;
-
-            return $"SwiftArray<{elementType}>";
-        }
-
-        if (IsSwiftDictionary(namedTypeSpec))
-        {
-            // Use raw (unconverted) types — SwiftDictionary<SwiftString, SwiftString>
-            var rawKeyType = GetRawDictionaryKeyType(namedTypeSpec, typeTranslator);
-            var rawValueType = GetRawDictionaryValueType(namedTypeSpec, typeTranslator);
-            if (rawKeyType == null || rawValueType == null)
-                return null;
-
-            return $"SwiftDictionary<{rawKeyType}, {rawValueType}>";
-        }
-
-        if (IsSwiftOptional(namedTypeSpec))
-        {
-            // Use raw (unconverted) element type — SwiftOptional<SwiftString>, not SwiftOptional<string>
-            var innerType = GetRawElementType(namedTypeSpec, typeTranslator);
-            if (innerType == null)
-                return null;
-
-            return $"SwiftOptional<{innerType}>";
         }
 
         return null;

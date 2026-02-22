@@ -68,6 +68,10 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         //    This step utilizes the previously generated accessor methods to implement the property's behavior.
 
         var propertyEnv = (PropertyEnvironment)env;
+        // Inject composition collector into existing ExistentialHandler if not already set.
+        // Marshal() creates environments without the collector; Emit() has the context.
+        if (context.CompositionCollector != null)
+            propertyEnv.ExistentialHandler.SetCompositionCollector(context.CompositionCollector);
         var propertyDecl = propertyEnv.PropertyDecl;
         void SkipProperty(SkipReason reason, string details)
         {
@@ -328,8 +332,11 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 var accessorEnv = (MethodEnvironment)methodHandler.Marshal(accessor.Method, propertyEnv.TypeDatabase);
                 if (context.PInvokeHelperContext != null && accessorEnv.PInvokeHelperContext == null)
                 {
-                    accessorEnv = new MethodEnvironment(accessorEnv.MethodDecl, accessorEnv.TypeDatabase, accessorEnv.SiblingPropertyNames, context.PInvokeHelperContext);
+                    accessorEnv = new MethodEnvironment(accessorEnv.MethodDecl, accessorEnv.TypeDatabase, accessorEnv.SiblingPropertyNames, context.PInvokeHelperContext, context.CompositionCollector);
                 }
+                // Inject composition collector into accessor's ExistentialHandler
+                if (context.CompositionCollector != null)
+                    accessorEnv.ExistentialHandler.SetCompositionCollector(context.CompositionCollector);
                 if (MethodValidationGates.HasUnsupportedProtocolConstraints(accessorEnv))
                 {
                     _logger.LogWarning($"PropertyHandler: Skipping property {propertyDecl.Name} because accessor {accessor.Method.Name} has unsupported protocol constraints.");
@@ -394,8 +401,11 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 // so we must manually inject the context's PInvokeHelperContext.
                 if (context.PInvokeHelperContext != null && accessorEnv.PInvokeHelperContext == null)
                 {
-                    accessorEnv = new MethodEnvironment(accessorEnv.MethodDecl, accessorEnv.TypeDatabase, accessorEnv.SiblingPropertyNames, context.PInvokeHelperContext);
+                    accessorEnv = new MethodEnvironment(accessorEnv.MethodDecl, accessorEnv.TypeDatabase, accessorEnv.SiblingPropertyNames, context.PInvokeHelperContext, context.CompositionCollector);
                 }
+                // Inject composition collector into accessor's ExistentialHandler
+                if (context.CompositionCollector != null)
+                    accessorEnv.ExistentialHandler.SetCompositionCollector(context.CompositionCollector);
                 methodHandler.Emit(csWriter, swiftWriter, accessorEnv, conductor, context);
             }
         }
@@ -636,8 +646,14 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
     private static (string? conversion, bool requiresDisposal) GetArrayAccessorSetterConversion(
         ArrayProjection arr, string valueExpr)
     {
-        var rawElem = arr.ElementProjection.SwiftContainerGenericType;
-        var elemConv = arr.ElementProjection.GetParameterElementConversion("e");
+        // Use MarshalFromSwiftType (public type) — accessor methods use the public type in their signatures,
+        // not PInvokeType (IntPtr) which SwiftContainerGenericType returns for Class/NonFrozenStruct.
+        var rawElem = arr.ElementProjection.MarshalFromSwiftType;
+        // Class/NonFrozenStruct elements: skip element conversion (DangerousGetHandle returns nint,
+        // but accessor methods take the public type directly — P/Invoke handles extraction).
+        var elemConv = arr.ElementProjection is ClassProjection or NonFrozenStructProjection
+            ? null
+            : arr.ElementProjection.GetParameterElementConversion("e");
         if (elemConv != null)
             return ($"SwiftArray<{rawElem}>.FromEnumerable({valueExpr}.Select(e => {elemConv}))", true);
         return ($"SwiftArray<{rawElem}>.FromEnumerable({valueExpr})", true);
@@ -646,10 +662,16 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
     private static (string? conversion, bool requiresDisposal) GetDictAccessorSetterConversion(
         DictionaryProjection dict, string valueExpr)
     {
-        var rawK = dict.KeyProjection.SwiftContainerGenericType;
-        var rawV = dict.ValueProjection.SwiftContainerGenericType;
-        var keyConv = dict.KeyProjection.GetParameterElementConversion("kvp.Key");
-        var valConv = dict.ValueProjection.GetParameterElementConversion("kvp.Value");
+        // Use MarshalFromSwiftType — accessor methods use the public type, not PInvokeType (IntPtr)
+        var rawK = dict.KeyProjection.MarshalFromSwiftType;
+        var rawV = dict.ValueProjection.MarshalFromSwiftType;
+        // Class/NonFrozenStruct elements: skip element conversion (accessor methods take the public type directly)
+        var keyConv = dict.KeyProjection is ClassProjection or NonFrozenStructProjection
+            ? null
+            : dict.KeyProjection.GetParameterElementConversion("kvp.Key");
+        var valConv = dict.ValueProjection is ClassProjection or NonFrozenStructProjection
+            ? null
+            : dict.ValueProjection.GetParameterElementConversion("kvp.Value");
         if (keyConv != null || valConv != null)
         {
             var keyExpr = keyConv ?? "kvp.Key";
@@ -668,7 +690,9 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         if (inner is ClosureProjection)
             return (null, false);
 
-        var optType = inner.SwiftContainerGenericType;
+        // Use MarshalFromSwiftType — accessor methods use the public type in their SwiftOptional<T> wrapper,
+        // not PInvokeType (IntPtr) which SwiftContainerGenericType returns for Class/NonFrozenStruct.
+        var optType = inner.MarshalFromSwiftType;
 
         // Container inner (Array, Dictionary) — must wrap with full container creation, not element conversion
         if (inner is ArrayProjection arr)
@@ -681,6 +705,11 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             var (dictConv, _) = GetDictAccessorSetterConversion(dict, $"{valueExpr}Val");
             return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({dictConv}) : SwiftOptional<{optType}>.NewNone())", true);
         }
+
+        // Class/NonFrozenStruct inner — accessor methods take the public type directly,
+        // not DangerousGetHandle() (IntPtr). Pass the value as-is; P/Invoke marshalling extracts the handle.
+        if (inner is ClassProjection or NonFrozenStructProjection)
+            return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({valueExpr}Val) : SwiftOptional<{optType}>.NewNone())", true);
 
         // Element conversion (String, NativeRemapped, etc.)
         var innerConv = inner.GetParameterElementConversion($"{valueExpr}Val");

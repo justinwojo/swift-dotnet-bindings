@@ -88,6 +88,13 @@ namespace BindingsGeneration
         public void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor, TypeHandlerContext context)
         {
             var methodEnv = (MethodEnvironment)env;
+            // Inject composition collector into existing ExistentialHandler if not already set.
+            // Marshal() creates environments without the collector; Emit() has the context.
+            // Must inject into the existing handler (not create a new env) because signature-building
+            // code references the existing ExistentialHandler — replacing the env wouldn't update
+            // the handler that was already used during Marshal().
+            if (context.CompositionCollector != null)
+                methodEnv.ExistentialHandler.SetCompositionCollector(context.CompositionCollector);
 
             // Skip constructors that need [UnmanagedCallersOnly] callbacks in generic types.
             // DllImport is handled by PInvokeHelperContext hoisting, but callbacks can't be hoisted.
@@ -163,7 +170,7 @@ namespace BindingsGeneration
                     // (WrapperEmitter.Marshalling handles Optional existential marshalling correctly).
                     var outerNamedType = argument.SwiftTypeSpec as NamedTypeSpec;
                     bool isOptionalWithKnownExistential = outerNamedType != null &&
-                        methodEnv.TypeConversionHandler.IsSwiftOptional(outerNamedType) &&
+                        MarshallingHelpers.IsSwiftOptional(outerNamedType) &&
                         outerNamedType.GenericParameters.Count > 0 &&
                         methodEnv.ExistentialHandler.IsExistential(outerNamedType.GenericParameters[0]);
                     if (isOptionalWithKnownExistential)
@@ -366,6 +373,13 @@ namespace BindingsGeneration
         public void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor, TypeHandlerContext context)
         {
             var methodEnv = (MethodEnvironment)env;
+            // Inject composition collector into existing ExistentialHandler if not already set.
+            // Marshal() creates environments without the collector; Emit() has the context.
+            // Must inject into the existing handler (not create a new env) because signature-building
+            // code references the existing ExistentialHandler — replacing the env wouldn't update
+            // the handler that was already used during Marshal().
+            if (context.CompositionCollector != null)
+                methodEnv.ExistentialHandler.SetCompositionCollector(context.CompositionCollector);
 
             // Skip methods that need [UnmanagedCallersOnly] callbacks in generic types.
             // DllImport is handled by PInvokeHelperContext hoisting, but callbacks can't be hoisted.
@@ -470,7 +484,7 @@ namespace BindingsGeneration
                     {
                         var outerNamedType = argument.SwiftTypeSpec as NamedTypeSpec;
                         bool isArrayWithDirectExistentialElement = outerNamedType != null &&
-                            methodEnv.TypeConversionHandler.IsSwiftArray(outerNamedType) &&
+                            MarshallingHelpers.IsSwiftArray(outerNamedType) &&
                             outerNamedType.GenericParameters.Count > 0 &&
                             methodEnv.ExistentialHandler.IsExistential(outerNamedType.GenericParameters[0]);
 
@@ -480,7 +494,7 @@ namespace BindingsGeneration
                         // where ObjC filtering drops protocols would produce container size mismatch.
                         bool isOptionalWithDirectExistentialElement = false;
                         if (outerNamedType != null &&
-                            methodEnv.TypeConversionHandler.IsSwiftOptional(outerNamedType) &&
+                            MarshallingHelpers.IsSwiftOptional(outerNamedType) &&
                             outerNamedType.GenericParameters.Count > 0 &&
                             methodEnv.ExistentialHandler.IsExistential(outerNamedType.GenericParameters[0]))
                         {

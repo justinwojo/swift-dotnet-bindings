@@ -220,7 +220,7 @@ namespace BindingsGeneration
                     if (conductor.TryGetMethodHandler(methodDecl, out var handler))
                     {
                         // Pass property names and P/Invoke helper context to the method environment
-                        var env = new MethodEnvironment(methodDecl, typeDatabase, siblingPropertyNames, context.PInvokeHelperContext);
+                        var env = new MethodEnvironment(methodDecl, typeDatabase, siblingPropertyNames, context.PInvokeHelperContext, context.CompositionCollector);
                         // C6/C7: Share projected signature set so DefaultParameterOverloadEmitter
                         // can dedup against methods already emitted from the main pass
                         env.EmittedProjectedSignatures = emittedProjectedSignatures;

@@ -75,7 +75,8 @@ public static class DefaultParameterOverloadEmitter
                 overloadDecl,
                 env.TypeDatabase,
                 env.SiblingPropertyNames,
-                env.PInvokeHelperContext);
+                env.PInvokeHelperContext,
+                env.CompositionCollector);
 
             // Check if the overload signature is fully marshallable
             var signatureHandler = new SignatureHandler(overloadEnv);

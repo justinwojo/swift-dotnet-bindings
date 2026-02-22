@@ -44,6 +44,8 @@ namespace BindingsGeneration
     /// </summary>
     public class ProtocolHandler : BaseHandler, ITypeHandler
     {
+        private SortedDictionary<string, List<string>>? _compositionCollector;
+
         /// <summary>
         /// Initializes a new instance of the <see cref="ProtocolHandler"/> class.
         /// </summary>
@@ -65,6 +67,7 @@ namespace BindingsGeneration
         /// <inheritdoc/>
         public void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor, TypeHandlerContext context)
         {
+            _compositionCollector = context.CompositionCollector;
             var protocolEnv = (TypeEnvironment)env;
             var protocolDecl = (ProtocolDecl)protocolEnv.TypeDecl;
             ReportCollector.RecordTypeEmitted(protocolDecl);
@@ -661,7 +664,8 @@ namespace BindingsGeneration
             {
                 TypeDatabase = typeDatabase,
                 IsParameter = isParameter,
-                GenericContext = GenericContext.Empty
+                GenericContext = GenericContext.Empty,
+                CompositionCollector = _compositionCollector
             });
             if (projection != null)
                 return projection.PublicType;

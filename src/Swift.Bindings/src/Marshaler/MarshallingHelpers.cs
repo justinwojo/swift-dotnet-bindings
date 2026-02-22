@@ -6,6 +6,71 @@ namespace BindingsGeneration
 {
     public static class MarshallingHelpers // TODO: Find better place for those
     {
+        private static readonly SwiftTypeName SwiftStringTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String");
+        private static readonly SwiftTypeName SwiftArrayTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Array");
+        private static readonly SwiftTypeName SwiftDictionaryTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Dictionary");
+        private static readonly SwiftTypeName SwiftOptionalTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional");
+
+        /// <summary>
+        /// Determines whether the specified type spec represents a type that can be
+        /// automatically converted to/from an idiomatic .NET type (String, Array, Dictionary, or Optional).
+        /// </summary>
+        public static bool IsConvertibleType(TypeSpec? typeSpec)
+        {
+            return IsSwiftString(typeSpec) ||
+                   IsSwiftArray(typeSpec) ||
+                   IsSwiftDictionary(typeSpec) ||
+                   IsSwiftOptional(typeSpec);
+        }
+
+        /// <summary>
+        /// Determines whether the specified type spec represents Swift.String.
+        /// </summary>
+        public static bool IsSwiftString(TypeSpec? typeSpec)
+        {
+            if (typeSpec is not NamedTypeSpec namedTypeSpec)
+                return false;
+            if (!namedTypeSpec.HasModule())
+                return false;
+            return SwiftTypeName.FromTypeSpec(namedTypeSpec).Equals(SwiftStringTypeName);
+        }
+
+        /// <summary>
+        /// Determines whether the specified type spec represents Swift.Array.
+        /// </summary>
+        public static bool IsSwiftArray(TypeSpec? typeSpec)
+        {
+            if (typeSpec is not NamedTypeSpec namedTypeSpec)
+                return false;
+            if (!namedTypeSpec.HasModule())
+                return false;
+            return SwiftTypeName.FromTypeSpec(namedTypeSpec).Equals(SwiftArrayTypeName);
+        }
+
+        /// <summary>
+        /// Determines whether the specified type spec represents Swift.Dictionary.
+        /// </summary>
+        public static bool IsSwiftDictionary(TypeSpec? typeSpec)
+        {
+            if (typeSpec is not NamedTypeSpec namedTypeSpec)
+                return false;
+            if (!namedTypeSpec.HasModule())
+                return false;
+            return SwiftTypeName.FromTypeSpec(namedTypeSpec).Equals(SwiftDictionaryTypeName);
+        }
+
+        /// <summary>
+        /// Determines whether the specified type spec represents Swift.Optional.
+        /// </summary>
+        public static bool IsSwiftOptional(TypeSpec? typeSpec)
+        {
+            if (typeSpec is not NamedTypeSpec namedTypeSpec)
+                return false;
+            if (!namedTypeSpec.HasModule())
+                return false;
+            return SwiftTypeName.FromTypeSpec(namedTypeSpec).Equals(SwiftOptionalTypeName);
+        }
+
         public static bool MethodRequiresIndirectResult(MethodEnvironment env)
         {
             if (env.MethodDecl.IsAsync) return false;

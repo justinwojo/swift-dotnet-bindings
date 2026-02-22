@@ -111,8 +111,10 @@ namespace BindingsGeneration
             // Scope composition interface collection across BOTH top-level methods and types.
             // Free functions can reference composition existentials (e.g., any Describable & TestIdentifiable),
             // so the collector must be active before emitting top-level methods.
-            conductor.SetActiveCompositionCollector();
-            try
+            // Populate composition collector on the context — threaded through
+            // MethodEnvironment/PropertyEnvironment → ExistentialHandler during emission.
+            conductor.CompositionInterfaces.Clear();
+            context = context with { CompositionCollector = conductor.CompositionInterfaces };
             {
                 // Emit top-level methods
                 if (moduleDecl.Methods.Any())
@@ -144,7 +146,7 @@ namespace BindingsGeneration
                     {
                         if (conductor.TryGetMethodHandler(methodDecl, out var methodHandler))
                         {
-                            var methodEnv = methodHandler.Marshal(methodDecl, env.TypeDatabase);
+                            var methodEnv = new MethodEnvironment(methodDecl, env.TypeDatabase, compositionCollector: context.CompositionCollector);
                             methodHandler.Emit(csWriter, swiftWriter, methodEnv, conductor, context);
                         }
                         else
@@ -177,10 +179,6 @@ namespace BindingsGeneration
                 {
                     EmitCompositionProxy(csWriter, compositionName, parentInterfaces, moduleDecl, env.TypeDatabase);
                 }
-            }
-            finally
-            {
-                Conductor.ClearActiveCompositionCollector();
             }
 
             // Emit DllImport framework resolver with [ModuleInitializer]

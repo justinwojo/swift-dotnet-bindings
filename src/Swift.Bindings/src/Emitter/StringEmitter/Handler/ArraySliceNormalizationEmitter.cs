@@ -275,7 +275,8 @@ public static class ArraySliceNormalizationEmitter
             normalizedMethodDecl,
             env.TypeDatabase,
             env.SiblingPropertyNames,
-            env.PInvokeHelperContext);
+            env.PInvokeHelperContext,
+            env.CompositionCollector);
 
         // Check if the normalized signature is fully marshallable
         var signatureHandler = new SignatureHandler(normalizedEnv);

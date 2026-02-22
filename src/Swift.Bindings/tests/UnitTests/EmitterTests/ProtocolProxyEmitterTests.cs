@@ -314,6 +314,70 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
+    public void EmitProxyClass_GetterReceiver_OptionalClass_UsesDangerousGetHandle()
+    {
+        // Session 9: Optional<Class> getter must extract IntPtr via .Payload.DangerousGetHandle()
+        // because optType is IntPtr (PInvokeType) but the property value is the public C# class.
+        _typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("TestModule.MyService"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "MyService"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyService"),
+                MetadataAccessor = "$s10TestModule9MyServiceCMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Class
+            })
+        });
+
+        var optionalClass = new NamedTypeSpec("Swift.Optional");
+        optionalClass.GenericParameters.Add(new NamedTypeSpec("TestModule.MyService"));
+        var protocolDecl = CreateProtocolWithProperty("OptClassProto", "service", hasGetter: true, hasSetter: true, optionalClass);
+        var output = EmitProxyClass(protocolDecl);
+
+        // Getter: must use DangerousGetHandle to extract IntPtr from the class instance
+        Assert.Contains("Receive_service_get", output);
+        Assert.Contains("DangerousGetHandle()", output);
+        Assert.Contains("SwiftOptional<", output);
+
+        // Setter: must use simple nullable cast (Optional already deserialized with public type)
+        Assert.Contains("Receive_service_set", output);
+        // Should NOT do redundant MarshalFromSwift on an already-typed value
+        Assert.DoesNotContain("MarshalFromSwift<TestModule.MyService>", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_GetterReceiver_OptionalNonFrozenStruct_UsesDangerousGetHandle()
+    {
+        // Session 9: Optional<NonFrozenStruct> getter must use DangerousGetHandle() like Class,
+        // because non-frozen structs use ClassWithOpaquePayload (SafeHandle-based) in C#.
+        _typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("TestModule.MyConfig"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "MyConfig"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyConfig"),
+                MetadataAccessor = "$s10TestModule8MyConfigVMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Struct
+            })
+        });
+
+        var optionalStruct = new NamedTypeSpec("Swift.Optional");
+        optionalStruct.GenericParameters.Add(new NamedTypeSpec("TestModule.MyConfig"));
+        var protocolDecl = CreateProtocolWithProperty("OptStructProto", "config", hasGetter: true, hasSetter: true, optionalStruct);
+        var output = EmitProxyClass(protocolDecl);
+
+        // Getter: must use DangerousGetHandle to extract IntPtr from non-frozen struct
+        Assert.Contains("Receive_config_get", output);
+        Assert.Contains("DangerousGetHandle()", output);
+
+        // Setter: simple nullable cast, no redundant MarshalFromSwift
+        Assert.Contains("Receive_config_set", output);
+        Assert.DoesNotContain("MarshalFromSwift<TestModule.MyConfig>", output);
+    }
+
+    [Fact]
     public void EmitProxyClass_ReceiverUsesSwiftObjectRegistry()
     {
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);

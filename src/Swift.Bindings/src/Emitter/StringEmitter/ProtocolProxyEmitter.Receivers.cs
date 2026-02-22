@@ -522,6 +522,10 @@ public partial class ProtocolProxyEmitter
             // Closures have their own ABI (SwiftClosureData/function pointers) — can't wrap in SwiftOptional.
             // Passthrough; accessor methods handle closure marshalling.
             ClosureProjection => null,
+            // Class/NonFrozenStruct: optType is IntPtr (PInvokeType), but varName is the public C# type.
+            // Extract IntPtr via .Payload.DangerousGetHandle() — matches GetParameterElementConversion.
+            ClassProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome({varName}Val.Payload.DangerousGetHandle()) : SwiftOptional<{optType}>.NewNone())",
+            NonFrozenStructProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome({varName}Val.Payload.DangerousGetHandle()) : SwiftOptional<{optType}>.NewNone())",
             // Blittable, SimpleEnum, etc. — MarshalToSwiftBuffer writes raw bytes via Unsafe.Write<T>,
             // so C# int? (Nullable<int>) is NOT layout-compatible with SwiftOptional<int> (a class).
             // Must explicitly wrap in SwiftOptional<T>.NewSome/NewNone.
@@ -596,6 +600,8 @@ public partial class ProtocolProxyEmitter
             DictionaryProjection dict => GetReceiverOptionalContainerSetterConversion(dict, varName, dict.PublicType),
             // Closures have their own ABI — passthrough, accessor methods handle marshalling.
             ClosureProjection => null,
+            // Class/NonFrozenStruct: the Optional is already deserialized as SwiftOptional<PublicType>
+            // via MarshalFromSwift — .Some returns PublicType, not IntPtr. Simple nullable cast suffices.
             _ => $"(({inner.PublicType}?){varName})"
         };
     }

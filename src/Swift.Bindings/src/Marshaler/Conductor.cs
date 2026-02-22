@@ -32,42 +32,6 @@ namespace BindingsGeneration
         public SortedDictionary<string, List<string>> CompositionInterfaces { get; } = new(StringComparer.Ordinal);
 
         /// <summary>
-        /// Thread-local reference to the active conductor's composition interface collector.
-        /// Scoped by ModuleHandler.Emit() via try/finally. This enables ExistentialHandler
-        /// (which doesn't have direct conductor access) to collect compositions per-run
-        /// rather than using static global state.
-        /// </summary>
-        [ThreadStatic]
-        private static SortedDictionary<string, List<string>>? s_activeCompositionCollector;
-
-        /// <summary>
-        /// Sets this conductor's CompositionInterfaces as the active collector for the current thread.
-        /// Must be paired with <see cref="ClearActiveCompositionCollector"/> in a finally block.
-        /// </summary>
-        public void SetActiveCompositionCollector()
-        {
-            CompositionInterfaces.Clear();
-            s_activeCompositionCollector = CompositionInterfaces;
-        }
-
-        /// <summary>
-        /// Clears the active composition collector for the current thread.
-        /// </summary>
-        public static void ClearActiveCompositionCollector()
-        {
-            s_activeCompositionCollector = null;
-        }
-
-        /// <summary>
-        /// Collects a composition interface into the active per-conductor collector.
-        /// No-op if no collector is active (safe for test scenarios without ModuleHandler).
-        /// </summary>
-        public static void CollectCompositionInterface(string compositionName, List<string> parentInterfaces)
-        {
-            s_activeCompositionCollector?.TryAdd(compositionName, parentInterfaces);
-        }
-
-        /// <summary>
         /// Initializes a new instance of the Conductor class and loads all handler factories.
         /// </summary>
         public Conductor(ILoggerFactory loggerFactory, NamespacePatternResolver? namespacePatternResolver = null)

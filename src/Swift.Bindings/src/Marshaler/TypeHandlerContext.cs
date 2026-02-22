@@ -24,7 +24,8 @@ namespace BindingsGeneration
     public record TypeHandlerContext(
         PInvokeHelperContext? PInvokeHelperContext,
         List<PInvokeHelperContext> DeferredPInvokeHelperContexts,
-        Dictionary<string, string>? NestedTypeRenames)
+        Dictionary<string, string>? NestedTypeRenames,
+        SortedDictionary<string, List<string>>? CompositionCollector = null)
     {
         public static TypeHandlerContext Empty => new(null, new(), null);
     }

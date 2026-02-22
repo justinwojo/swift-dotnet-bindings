@@ -376,7 +376,7 @@ namespace BindingsGeneration
                     (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec, _genericContext) && !(hasGenericElements && _env.MethodDecl.IsAsync)))
                     SetReturnType(_env.TupleHandler.GetCSharpTupleType(tupleTypeSpec, typeSpec =>
                     {
-                        if (_env.TypeConversionHandler.IsSwiftString(typeSpec))
+                        if (MarshallingHelpers.IsSwiftString(typeSpec))
                             return "string";
                         return TranslateTypeSpecForConversion(typeSpec);
                     }));
@@ -534,7 +534,7 @@ namespace BindingsGeneration
             if (_env.ExistentialHandler.IsOptionalExistential(typeSpec))
                 return false;
 
-            return _env.TypeConversionHandler.IsConvertibleType(typeSpec) ||
+            return MarshallingHelpers.IsConvertibleType(typeSpec) ||
                    _env.TypeConversionHandler.HasNativeTypeRemapping(typeSpec);
         }
 

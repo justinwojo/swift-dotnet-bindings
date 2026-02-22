@@ -1,235 +1,235 @@
 {
-  "timestamp": "2026-02-21T23:52:38Z",
-  "git_sha": "23327f1",
+  "timestamp": "2026-02-22T05:57:40Z",
+  "git_sha": "b571abe",
   "runtime_version": "0.1.0-preview.5",
   "compile_gate": {
     "total": 32,
-    "passed": 29,
-    "failed": 3,
+    "passed": 27,
+    "failed": 5,
     "libraries": {
       "Alamofire": {
-        "generate": "cached",
+        "generate": "fail",
         "compile": "ok",
         "errors": 0,
-        "lines": 43831,
-        "gen_seconds": 0
+        "lines": 43846,
+        "gen_seconds": 2
       },
       "BlinkID": {
-        "generate": "cached",
-        "compile": "ok",
-        "errors": 0,
-        "lines": 51995,
-        "gen_seconds": 0
+        "generate": "fail",
+        "compile": "fail",
+        "errors": 2,
+        "lines": 51981,
+        "gen_seconds": 2
       },
       "BlinkIDUX": {
-        "generate": "cached",
+        "generate": "fail",
         "compile": "ok",
         "errors": 0,
-        "lines": 9086,
-        "gen_seconds": 0
+        "lines": 9030,
+        "gen_seconds": 2
       },
       "BRLMPrinterKit": {
-        "generate": "cached",
+        "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 43,
-        "gen_seconds": 0
+        "gen_seconds": 2
       },
       "CryptoSwift": {
-        "generate": "cached",
+        "generate": "ok",
         "compile": "ok",
         "errors": 0,
-        "lines": 32091,
-        "gen_seconds": 0
+        "lines": 32082,
+        "gen_seconds": 2
       },
       "GRDB": {
-        "generate": "cached",
+        "generate": "fail",
         "compile": "fail",
         "errors": 8,
-        "lines": 79958,
-        "gen_seconds": 0
+        "lines": 80007,
+        "gen_seconds": 4
       },
       "KeychainAccess": {
-        "generate": "cached",
+        "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 11214,
-        "gen_seconds": 0
+        "gen_seconds": 1
       },
       "Kingfisher": {
-        "generate": "cached",
+        "generate": "fail",
         "compile": "fail",
         "errors": 30,
-        "lines": 47754,
-        "gen_seconds": 0
+        "lines": 47583,
+        "gen_seconds": 3
       },
       "Lottie": {
-        "generate": "cached",
-        "compile": "ok",
-        "errors": 0,
-        "lines": 34548,
-        "gen_seconds": 0
+        "generate": "ok",
+        "compile": "fail",
+        "errors": 1,
+        "lines": 34485,
+        "gen_seconds": 3
       },
       "Mappedin": {
-        "generate": "cached",
+        "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 51095,
-        "gen_seconds": 0
+        "gen_seconds": 2
       },
       "MicroblinkPlatform": {
-        "generate": "cached",
+        "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 3593,
-        "gen_seconds": 0
+        "gen_seconds": 1
       },
       "Mixpanel": {
-        "generate": "cached",
+        "generate": "fail",
         "compile": "fail",
         "errors": 1,
         "lines": 7150,
-        "gen_seconds": 0
+        "gen_seconds": 2
       },
       "Nuke": {
-        "generate": "cached",
+        "generate": "ok",
         "compile": "ok",
         "errors": 0,
-        "lines": 22637,
-        "gen_seconds": 0
+        "lines": 22620,
+        "gen_seconds": 2
       },
       "RxSwift": {
-        "generate": "cached",
+        "generate": "fail",
         "compile": "ok",
         "errors": 0,
-        "lines": 11727,
-        "gen_seconds": 0
+        "lines": 11749,
+        "gen_seconds": 2
       },
       "SkeletonView": {
-        "generate": "cached",
+        "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 13247,
-        "gen_seconds": 0
+        "gen_seconds": 1
       },
       "SmartCardIO": {
-        "generate": "cached",
+        "generate": "ok",
         "compile": "ok",
         "errors": 0,
-        "lines": 4610,
-        "gen_seconds": 0
+        "lines": 4609,
+        "gen_seconds": 1
       },
       "SnapKit": {
-        "generate": "cached",
+        "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 10540,
-        "gen_seconds": 0
+        "gen_seconds": 2
       },
       "Starscream": {
-        "generate": "cached",
+        "generate": "ok",
         "compile": "ok",
         "errors": 0,
-        "lines": 15855,
-        "gen_seconds": 0
+        "lines": 15861,
+        "gen_seconds": 2
       },
       "Stripe": {
-        "generate": "cached",
+        "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 493,
-        "gen_seconds": 0
+        "gen_seconds": 2
       },
       "StripeApplePay": {
-        "generate": "cached",
+        "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 2872,
-        "gen_seconds": 0
+        "gen_seconds": 2
       },
       "StripeCameraCore": {
-        "generate": "cached",
+        "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 3657,
-        "gen_seconds": 0
+        "gen_seconds": 1
       },
       "StripeCardScan": {
-        "generate": "cached",
+        "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 2595,
-        "gen_seconds": 0
+        "gen_seconds": 2
       },
       "StripeConnect": {
-        "generate": "cached",
+        "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 12207,
-        "gen_seconds": 0
+        "gen_seconds": 1
       },
       "StripeCore": {
-        "generate": "cached",
+        "generate": "fail",
         "compile": "ok",
         "errors": 0,
-        "lines": 34161,
-        "gen_seconds": 0
+        "lines": 34134,
+        "gen_seconds": 2
       },
       "StripeCryptoOnramp": {
-        "generate": "cached",
+        "generate": "fail",
         "compile": "ok",
         "errors": 0,
-        "lines": 6888,
-        "gen_seconds": 0
+        "lines": 6820,
+        "gen_seconds": 2
       },
       "StripeFinancialConnections": {
-        "generate": "cached",
+        "generate": "fail",
         "compile": "ok",
         "errors": 0,
-        "lines": 2662,
-        "gen_seconds": 0
+        "lines": 2654,
+        "gen_seconds": 1
       },
       "StripeIdentity": {
-        "generate": "cached",
+        "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 1690,
-        "gen_seconds": 0
+        "gen_seconds": 2
       },
       "StripeIssuing": {
-        "generate": "cached",
+        "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 1498,
-        "gen_seconds": 0
+        "gen_seconds": 1
       },
       "StripePayments": {
-        "generate": "cached",
+        "generate": "fail",
         "compile": "ok",
         "errors": 0,
-        "lines": 94504,
-        "gen_seconds": 0
+        "lines": 94394,
+        "gen_seconds": 3
       },
       "StripePaymentSheet": {
-        "generate": "cached",
+        "generate": "fail",
         "compile": "ok",
         "errors": 0,
-        "lines": 49271,
-        "gen_seconds": 0
+        "lines": 49085,
+        "gen_seconds": 2
       },
       "StripePaymentsUI": {
-        "generate": "cached",
+        "generate": "fail",
         "compile": "ok",
         "errors": 0,
-        "lines": 13613,
-        "gen_seconds": 0
+        "lines": 13614,
+        "gen_seconds": 2
       },
       "StripeUICore": {
-        "generate": "cached",
+        "generate": "fail",
         "compile": "ok",
         "errors": 0,
-        "lines": 32363,
-        "gen_seconds": 0
+        "lines": 32364,
+        "gen_seconds": 2
       }
     }
   }

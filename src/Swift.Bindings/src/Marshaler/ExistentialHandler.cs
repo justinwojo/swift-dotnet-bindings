@@ -11,6 +11,7 @@ namespace BindingsGeneration;
 public class ExistentialHandler
 {
     private readonly ITypeDatabase _typeDatabase;
+    private SortedDictionary<string, List<string>>? _compositionCollector;
 
     /// <summary>
     /// Maximum number of protocol witness tables supported.
@@ -18,9 +19,24 @@ public class ExistentialHandler
     /// </summary>
     public const int MaxSupportedWitnessTables = 8;
 
-    public ExistentialHandler(ITypeDatabase typeDatabase)
+    public ExistentialHandler(ITypeDatabase typeDatabase, SortedDictionary<string, List<string>>? compositionCollector = null)
     {
         _typeDatabase = typeDatabase;
+        _compositionCollector = compositionCollector;
+    }
+
+    /// <summary>
+    /// Sets the composition collector on this handler for late injection.
+    /// </summary>
+    /// <remarks>
+    /// IHandler.Marshal() creates environments (and their ExistentialHandler) before TypeHandlerContext
+    /// is available, so the collector is null at construction. IHandler.Emit() receives the context and
+    /// injects the collector here. We mutate the existing handler rather than recreating the environment
+    /// because downstream code (SignatureHandler, WrapperEmitter) already holds references to this instance.
+    /// </remarks>
+    public void SetCompositionCollector(SortedDictionary<string, List<string>> collector)
+    {
+        _compositionCollector = collector;
     }
 
     /// <summary>
@@ -439,7 +455,7 @@ public class ExistentialHandler
 
         // Collect for later emission via the per-conductor scoped collector
         var parentInterfaces = protocols.Select(p => NameProvider.GetInterfaceName(p.NameWithoutModule, moduleName: p.Module)).ToList();
-        Conductor.CollectCompositionInterface(compositionName, parentInterfaces);
+        _compositionCollector?.TryAdd(compositionName, parentInterfaces);
 
         return compositionName;
     }

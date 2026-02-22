@@ -74,7 +74,7 @@ namespace BindingsGeneration
     /// <param name="typeDatabase">The type database instance.</param>
     /// <param name="siblingPropertyNames">Optional set of property names in the same type, used for collision detection.</param>
     /// <param name="pinvokeHelperContext">Optional P/Invoke helper context for generic types (to avoid CS7042).</param>
-    public class MethodEnvironment(MethodDecl methodDecl, ITypeDatabase typeDatabase, IReadOnlySet<string>? siblingPropertyNames = null, PInvokeHelperContext? pinvokeHelperContext = null) : IEnvironment
+    public class MethodEnvironment(MethodDecl methodDecl, ITypeDatabase typeDatabase, IReadOnlySet<string>? siblingPropertyNames = null, PInvokeHelperContext? pinvokeHelperContext = null, SortedDictionary<string, List<string>>? compositionCollector = null) : IEnvironment
     {
         /// <summary>
         /// Gets the method declaration.
@@ -119,7 +119,7 @@ namespace BindingsGeneration
         /// <summary>
         /// Existential handler instance for handling protocol existential types.
         /// </summary>
-        public ExistentialHandler ExistentialHandler { get; } = new ExistentialHandler(typeDatabase);
+        public ExistentialHandler ExistentialHandler { get; } = new ExistentialHandler(typeDatabase, compositionCollector);
 
         /// <summary>
         /// Gets the set of property names in the same parent type.
@@ -147,6 +147,12 @@ namespace BindingsGeneration
         public bool IsContainingTypeGeneric => PInvokeHelperContext != null;
 
         /// <summary>
+        /// Composition collector for multi-protocol existential interfaces.
+        /// Threaded from TypeHandlerContext to ExistentialHandler during emission.
+        /// </summary>
+        public SortedDictionary<string, List<string>>? CompositionCollector { get; } = compositionCollector;
+
+        /// <summary>
         /// Shared set of projected C# method signatures already emitted, used to deduplicate
         /// default parameter overloads against the main emission pass. (C6/C7)
         /// Set by HandleBaseDecl before method emission; null if not available.
@@ -163,7 +169,7 @@ namespace BindingsGeneration
     /// <param name="propertyDecl">The property declaration.</param>
     /// <param name="typeDatabase">The type database instance.</param>
     /// <param name="siblingNestedTypeNames">Optional set of nested type names in the same parent type, used for collision detection.</param>
-    public class PropertyEnvironment(PropertyDecl propertyDecl, ITypeDatabase typeDatabase, IReadOnlySet<string>? siblingNestedTypeNames = null) : IEnvironment
+    public class PropertyEnvironment(PropertyDecl propertyDecl, ITypeDatabase typeDatabase, IReadOnlySet<string>? siblingNestedTypeNames = null, SortedDictionary<string, List<string>>? compositionCollector = null) : IEnvironment
     {
         /// <summary>
         /// Gets the property declaration.
@@ -198,7 +204,12 @@ namespace BindingsGeneration
         /// <summary>
         /// Existential handler instance for handling protocol existential types.
         /// </summary>
-        public ExistentialHandler ExistentialHandler { get; } = new ExistentialHandler(typeDatabase);
+        public ExistentialHandler ExistentialHandler { get; } = new ExistentialHandler(typeDatabase, compositionCollector);
+
+        /// <summary>
+        /// Composition collector for multi-protocol existential interfaces.
+        /// </summary>
+        public SortedDictionary<string, List<string>>? CompositionCollector { get; } = compositionCollector;
 
         /// <summary>
         /// Closure handler instance for handling closure (function) types.

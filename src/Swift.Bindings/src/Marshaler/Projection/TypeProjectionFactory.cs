@@ -25,6 +25,10 @@ public record ProjectionContext
 
     /// <summary>Optional generic context for resolving τ_0_0 → T0 mappings in bound generic types.</summary>
     public GenericContext? GenericContext { get; init; }
+
+    /// <summary>Optional composition collector for multi-protocol existential interfaces.
+    /// When non-null, ExistentialHandler instances will collect composition interface names during projection.</summary>
+    public SortedDictionary<string, List<string>>? CompositionCollector { get; init; }
 }
 
 /// <summary>
@@ -103,7 +107,7 @@ public class TypeProjectionFactory
         // Route NamedTypeSpec.IsAny to existential
         if (namedType.IsAny)
         {
-            var handler = new ExistentialHandler(context.TypeDatabase);
+            var handler = new ExistentialHandler(context.TypeDatabase, context.CompositionCollector);
             var protocolList = handler.ToProtocolListTypeSpec(namedType);
             if (protocolList != null)
                 return ProjectExistential(protocolList, context);
@@ -273,7 +277,7 @@ public class TypeProjectionFactory
 
     private ITypeProjection? ProjectExistential(ProtocolListTypeSpec protocolList, ProjectionContext context)
     {
-        var handler = new ExistentialHandler(context.TypeDatabase);
+        var handler = new ExistentialHandler(context.TypeDatabase, context.CompositionCollector);
         var containerType = handler.GetCSharpExistentialType(protocolList);
         var publicType = handler.GetPublicExistentialType(protocolList);
 
