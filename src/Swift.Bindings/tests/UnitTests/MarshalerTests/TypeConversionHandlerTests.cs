@@ -203,44 +203,6 @@ public class TypeConversionHandlerTests
 
     #endregion
 
-    #region GetParameterConversion Tests
-
-    [Fact]
-    public void GetParameterConversion_SwiftString_ReturnsNewSwiftString()
-    {
-        var typeSpec = new NamedTypeSpec("Swift.String");
-        var result = _handler.GetParameterConversion("name", typeSpec);
-        Assert.Equal("new SwiftString(name)", result);
-    }
-
-    [Fact]
-    public void GetParameterConversion_SwiftArray_ReturnsFromEnumerable()
-    {
-        var typeSpec = new NamedTypeSpec("Swift.Array");
-        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
-        var result = _handler.GetParameterConversion("items", typeSpec, _ => "long");
-        Assert.Equal("SwiftArray<long>.FromEnumerable(items)", result);
-    }
-
-    [Fact]
-    public void GetParameterConversion_SwiftOptional_ReturnsPatternMatch()
-    {
-        var typeSpec = new NamedTypeSpec("Swift.Optional");
-        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
-        var result = _handler.GetParameterConversion("value", typeSpec, _ => "long");
-        Assert.Equal("(value is {} valueVal ? SwiftOptional<long>.NewSome(valueVal) : SwiftOptional<long>.NewNone())", result);
-    }
-
-    [Fact]
-    public void GetParameterConversion_NonConvertibleType_ReturnsNull()
-    {
-        var typeSpec = new NamedTypeSpec("Swift.Int");
-        var result = _handler.GetParameterConversion("value", typeSpec);
-        Assert.Null(result);
-    }
-
-    #endregion
-
     #region GetReturnConversion Tests
 
     [Fact]
@@ -381,35 +343,6 @@ public class TypeConversionHandlerTests
     #endregion
 
     #region TypeTranslator Regression Tests (Property Getter/Setter Conversion)
-
-    [Fact]
-    public void GetParameterConversion_SwiftArray_WithTranslator_UsesTranslatedElementType()
-    {
-        // Regression test: PropertyHandler.EmitSetter must pass a typeTranslator to
-        // GetParameterConversion so that element types are correctly resolved.
-        // Without the translator, unregistered element types fall back to AnyType.
-        var typeSpec = new NamedTypeSpec("Swift.Array");
-        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.UInt8"));
-
-        // With translator: element type resolves to "System.Byte"
-        var result = _handler.GetParameterConversion("value", typeSpec, _ => "byte");
-        Assert.Equal("SwiftArray<byte>.FromEnumerable(value)", result);
-    }
-
-    [Fact]
-    public void GetParameterConversion_SwiftArray_WithoutTranslator_FallsBackToDbLookup()
-    {
-        // Without a translator, the element type is looked up in the TypeDatabase.
-        // For unregistered types (Swift.UInt8 is not in the mock), this falls back to AnyType.
-        var typeSpec = new NamedTypeSpec("Swift.Array");
-        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.UInt8"));
-
-        var result = _handler.GetParameterConversion("value", typeSpec);
-        // AnyType fallback produces a different (incorrect) element type
-        Assert.NotNull(result);
-        Assert.DoesNotContain("byte", result);
-    }
-
     [Fact]
     public void GetSwiftWrapperType_SwiftArray_WithTranslator_UsesTranslatedElementType()
     {
@@ -445,20 +378,6 @@ public class TypeConversionHandlerTests
         var result = _handler.GetIdiomaticCSharpType(typeSpec, isParameter: false, _ => "byte");
         Assert.Equal("IReadOnlyList<byte>", result);
     }
-
-    [Fact]
-    public void GetParameterConversion_SwiftArray_TranslatorOverridesDbLookup()
-    {
-        // Even when the element type IS registered in the DB, the translator takes precedence.
-        // This ensures consistency between property type declarations and getter/setter conversions.
-        var typeSpec = new NamedTypeSpec("Swift.Array");
-        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
-
-        // DB has Swift.Int → System.Int64, but translator returns "nint" (hypothetical override)
-        var result = _handler.GetParameterConversion("items", typeSpec, _ => "nint");
-        Assert.Equal("SwiftArray<nint>.FromEnumerable(items)", result);
-    }
-
     #endregion
 
     #region Array Element Type Conversion Tests (WU2)
@@ -529,64 +448,6 @@ public class TypeConversionHandlerTests
 
     #endregion
 
-    #region Optional<Array<T>> Parameter Conversion Regression
-
-    [Fact]
-    public void GetParameterConversion_OptionalSwiftArray_WrapsWithFromEnumerable()
-    {
-        // Regression: Optional<Array<UInt8>> parameter must convert inner IReadOnlyList<byte>
-        // to SwiftArray<byte> via FromEnumerable before wrapping in SwiftOptional.NewSome.
-        // Without this, C# passes IReadOnlyList<byte> where SwiftArray<byte> is expected → CS1503.
-        var innerArray = new NamedTypeSpec("Swift.Array");
-        innerArray.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
-        var typeSpec = new NamedTypeSpec("Swift.Optional");
-        typeSpec.GenericParameters.Add(innerArray);
-
-        var result = _handler.GetParameterConversion("data", typeSpec, _ => "long");
-        Assert.NotNull(result);
-        Assert.Contains("SwiftArray<long>.FromEnumerable", result);
-        Assert.Contains("SwiftOptional<", result);
-    }
-
-    [Fact]
-    public void GetParameterConversion_OptionalSwiftArraySwiftString_ConvertsElements()
-    {
-        // Regression: Optional<Array<String>> must create SwiftString elements via constructor
-        var innerArray = new NamedTypeSpec("Swift.Array");
-        innerArray.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
-        var typeSpec = new NamedTypeSpec("Swift.Optional");
-        typeSpec.GenericParameters.Add(innerArray);
-
-        var result = _handler.GetParameterConversion("names", typeSpec);
-        Assert.NotNull(result);
-        Assert.Contains("SwiftArray<", result);
-        Assert.Contains("FromEnumerable", result);
-        Assert.Contains("new SwiftString", result);
-    }
-
-    #endregion
-
-    #region Nested Array Parameter Conversion Regression
-
-    [Fact]
-    public void GetParameterConversion_NestedSwiftArray_ConvertsInnerArray()
-    {
-        // Regression: SwiftArray<SwiftArray<UInt8>> parameter must convert inner IReadOnlyList<byte>
-        // elements to SwiftArray<byte> via .Select(inner => SwiftArray<byte>.FromEnumerable(inner)).
-        // Without this, C# passes IReadOnlyList<IReadOnlyList<byte>> where SwiftArray<SwiftArray<byte>> is expected → CS1503.
-        var innerArray = new NamedTypeSpec("Swift.Array");
-        innerArray.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
-        var outerArray = new NamedTypeSpec("Swift.Array");
-        outerArray.GenericParameters.Add(innerArray);
-
-        var result = _handler.GetParameterConversion("blocks", outerArray, _ => "long");
-        Assert.NotNull(result);
-        Assert.Contains(".Select(", result);
-        Assert.Contains("SwiftArray<long>.FromEnumerable", result);
-    }
-
-    #endregion
-
     #region GetRawArrayElementType Tests
 
     [Fact]
@@ -633,31 +494,6 @@ public class TypeConversionHandlerTests
         Assert.Equal("SwiftOptional<Swift.SwiftString>", result);
         Assert.DoesNotContain("SwiftOptional<string>", result);
     }
-
-    [Fact]
-    public void GetParameterConversion_SwiftArray_SwiftString_UsesSwiftStringWrapper()
-    {
-        // The parameter conversion must produce SwiftArray<SwiftString> not SwiftArray<string>
-        var typeSpec = new NamedTypeSpec("Swift.Array");
-        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
-        var result = _handler.GetParameterConversion("names", typeSpec);
-        Assert.NotNull(result);
-        Assert.Contains("SwiftArray<Swift.SwiftString>", result);
-        Assert.DoesNotContain("SwiftArray<string>", result);
-    }
-
-    [Fact]
-    public void GetParameterConversion_SwiftOptional_SwiftString_UsesSwiftStringWrapper()
-    {
-        // The parameter conversion must produce SwiftOptional<SwiftString> not SwiftOptional<string>
-        var typeSpec = new NamedTypeSpec("Swift.Optional");
-        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
-        var result = _handler.GetParameterConversion("name", typeSpec);
-        Assert.NotNull(result);
-        Assert.Contains("SwiftOptional<Swift.SwiftString>", result);
-        Assert.DoesNotContain("SwiftOptional<string>", result);
-    }
-
     #endregion
 
     #region Optional<Closure> and Optional<Existential> Null Guard Paths (TC1)

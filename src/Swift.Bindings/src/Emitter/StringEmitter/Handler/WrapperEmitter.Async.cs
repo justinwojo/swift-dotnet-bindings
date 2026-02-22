@@ -183,22 +183,14 @@ namespace BindingsGeneration
 
             // Pre-cancel check: if token is already cancelled, clean up and return immediately
             var tcsTypeParam = isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>";
+            var preCancelCleanup = BuildHolderCleanupCode("_asyncCallHolder", "    ", includeCancellationReg: false);
             csWriter.WriteLines($$"""
             if (cancellationToken.IsCancellationRequested)
             {
                 // Clean up resources that were allocated for the async call
-                for (int i = 1; i < _asyncCallHolder.Length; i++)
-                {
-                    if (_asyncCallHolder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        Arc.Release(retained.Ptr);
-                    else if (_asyncCallHolder[i] is DeferredSafeHandleRelease deferred)
-                        deferred.Handle.DangerousRelease();
-                    else if (_asyncCallHolder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
-                    {
-                        copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
-                        NativeMemory.Free((void*)copyBuffer.Buffer);
-                    }
-                }
+            """);
+            csWriter.WriteLines(preCancelCleanup);
+            csWriter.WriteLines($$"""
                 handle.Free();
                 return Task.FromCanceled{{tcsTypeParam}}(cancellationToken);
             }
@@ -369,55 +361,8 @@ namespace BindingsGeneration
                 : "errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int32, Int64) -> Void";
 
             // Pre-compute the Swift catch block body for typed vs untyped throws.
-            // Used in all 6 Swift wrapper emission sites below.
-            // Note: indentation within the catch block is handled at each emission site.
-            string swiftCatchBody;
-            if (useTypedErrorCallback)
-            {
-                swiftCatchBody =
-                    $"let _isCancelled: Int32 = (error is CancellationError) ? 1 : 0\n" +
-                    $"                        let _errSize = MemoryLayout<{typedThrowsSwiftErrorType}>.size\n" +
-                    $"                        let _errPtr = UnsafeMutableRawPointer.allocate(\n" +
-                    $"                            byteCount: _errSize, alignment: MemoryLayout<{typedThrowsSwiftErrorType}>.alignment)\n" +
-                    $"                        withUnsafePointer(to: error) {{ _src in\n" +
-                    $"                            _errPtr.copyMemory(from: UnsafeRawPointer(_src), byteCount: _errSize)\n" +
-                    $"                        }}\n" +
-                    $"                        let errorMessage = String(describing: error)\n" +
-                    $"                        errorMessage.withCString {{ _msgPtr in\n" +
-                    $"                            errorCallback(UnsafeRawPointer(_errPtr), Int(Int64(_errSize)), _msgPtr, _isCancelled, task)\n" +
-                    $"                        }}";
-            }
-            else
-            {
-                swiftCatchBody =
-                    $"let _isCancelled: Int32 = (error is CancellationError) ? 1 : 0\n" +
-                    $"                        let errorMessage = String(describing: error)\n" +
-                    $"                        errorMessage.withCString {{ errorCallback($0, _isCancelled, task) }}";
-            }
-            // Extension-indented variant (4 more spaces for code inside extension { } blocks)
-            string swiftCatchBodyExt;
-            if (useTypedErrorCallback)
-            {
-                swiftCatchBodyExt =
-                    $"let _isCancelled: Int32 = (error is CancellationError) ? 1 : 0\n" +
-                    $"                            let _errSize = MemoryLayout<{typedThrowsSwiftErrorType}>.size\n" +
-                    $"                            let _errPtr = UnsafeMutableRawPointer.allocate(\n" +
-                    $"                                byteCount: _errSize, alignment: MemoryLayout<{typedThrowsSwiftErrorType}>.alignment)\n" +
-                    $"                            withUnsafePointer(to: error) {{ _src in\n" +
-                    $"                                _errPtr.copyMemory(from: UnsafeRawPointer(_src), byteCount: _errSize)\n" +
-                    $"                            }}\n" +
-                    $"                            let errorMessage = String(describing: error)\n" +
-                    $"                            errorMessage.withCString {{ _msgPtr in\n" +
-                    $"                                errorCallback(UnsafeRawPointer(_errPtr), Int(Int64(_errSize)), _msgPtr, _isCancelled, task)\n" +
-                    $"                            }}";
-            }
-            else
-            {
-                swiftCatchBodyExt =
-                    $"let _isCancelled: Int32 = (error is CancellationError) ? 1 : 0\n" +
-                    $"                            let errorMessage = String(describing: error)\n" +
-                    $"                            errorMessage.withCString {{ errorCallback($0, _isCancelled, task) }}";
-            }
+            string swiftCatchBody = BuildSwiftCatchBody("                        ");
+            string swiftCatchBodyExt = BuildSwiftCatchBody("                            ");
 
             var baseParams = new[]
             {
@@ -619,212 +564,29 @@ namespace BindingsGeneration
                 methodCallPrefix = "self.";
             }
 
-            // Generate the Swift wrapper
-            // For async instance methods, we use a free function to avoid SwiftSelf binding issues
-            // For all other methods, we use extension methods
-            if (isAsyncInstanceMethod)
-            {
-                // Free function for async instance methods (marked public to ensure export)
-                if (hasReadCode)
-                {
-                    swiftWriter.WriteLine($$"""
-            @_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
-            public func {{NameProvider.GetPInvokeName(_env.MethodDecl)}}{{genericParams}}({{parameters}}){{whereClause}}{
-                // Read non-frozen parameters via .pointee (bitwise copy)
-                // C# created copies using InitializeWithCopy (owns a proper reference)
-                {{readCode}}
-                {{selfConversion}}
-                {{selfComment}}
+            // Generate the Swift wrapper — 3 scope variants (free function, extension, top-level free function)
+            // collapsed into a single parameterized template.
+            bool isExtension = !isAsyncInstanceMethod && parentTypeName != null;
+            var staticModifier = isExtension && (_env.MethodDecl.MethodType == MethodType.Static || isAsyncConstructor) ? "static " : "";
+            var catchBody = isExtension ? swiftCatchBodyExt : swiftCatchBody;
 
-                let _entry = _SBWTaskEntry()
-                _sbwTaskLock.lock()
-                _sbwActiveTasks[task] = _entry
-                _sbwTaskLock.unlock()
-                _entry.task = Task {
-                    defer {
-                        _sbwTaskLock.lock()
-                        _sbwActiveTasks.removeValue(forKey: task)
-                        _sbwTaskLock.unlock()
-                    }
-                    do {
-                        {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
-                            {{methodCallArgs}}
-                        )
-                        {{stringMarshalCode}}
-                        callback({{callbackResultArgs}}task)
-                    } catch {
-                        {{swiftCatchBody}}
-                    }
-                }
-            }
-            """);
-                }
-                else
-                {
-                    swiftWriter.WriteLine($$"""
-            @_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
-            public func {{NameProvider.GetPInvokeName(_env.MethodDecl)}}{{genericParams}}({{parameters}}){{whereClause}}{
-                {{selfConversion}}
-                {{selfComment}}
-                let _entry = _SBWTaskEntry()
-                _sbwTaskLock.lock()
-                _sbwActiveTasks[task] = _entry
-                _sbwTaskLock.unlock()
-                _entry.task = Task {
-                    defer {
-                        _sbwTaskLock.lock()
-                        _sbwActiveTasks.removeValue(forKey: task)
-                        _sbwTaskLock.unlock()
-                    }
-                    do {
-                        {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
-                            {{methodCallArgs}}
-                        )
-                        {{stringMarshalCode}}
-                        callback({{callbackResultArgs}}task)
-                    } catch {
-                        {{swiftCatchBody}}
-                    }
-                }
-            }
-            """);
-                }
-            }
-            else if (parentTypeName != null)
-            {
-                // Extension method for static methods, async constructors, and non-async methods on types
-                var staticModifier = (_env.MethodDecl.MethodType == MethodType.Static || isAsyncConstructor) ? "static " : "";
-                if (hasReadCode)
-                {
-                    swiftWriter.WriteLine($$"""
-            extension {{parentTypeName.ModuleQualifiedName}} {
-                @_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
-                public {{staticModifier}}func {{NameProvider.GetPInvokeName(_env.MethodDecl)}}{{genericParams}}({{parameters}}){{whereClause}}{
-                    // Read non-frozen parameters via .pointee (bitwise copy)
-                    // C# created copies using InitializeWithCopy (owns a proper reference)
-                    {{readCode}}
-                    {{selfComment}}
-
-                    let _entry = _SBWTaskEntry()
-                    _sbwTaskLock.lock()
-                    _sbwActiveTasks[task] = _entry
-                    _sbwTaskLock.unlock()
-                    _entry.task = Task {
-                        defer {
-                            _sbwTaskLock.lock()
-                            _sbwActiveTasks.removeValue(forKey: task)
-                            _sbwTaskLock.unlock()
-                        }
-                        do {
-                            {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
-                                {{methodCallArgs}}
-                            )
-                            {{stringMarshalCode}}
-                            callback({{callbackResultArgs}}task)
-                        } catch {
-                            {{swiftCatchBodyExt}}
-                        }
-                    }
-                }
-            }
-            """);
-                }
-                else
-                {
-                    swiftWriter.WriteLine($$"""
-            extension {{parentTypeName.ModuleQualifiedName}} {
-                @_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
-                public {{staticModifier}}func {{NameProvider.GetPInvokeName(_env.MethodDecl)}}{{genericParams}}({{parameters}}){{whereClause}}{
-                    {{selfComment}}
-                    let _entry = _SBWTaskEntry()
-                    _sbwTaskLock.lock()
-                    _sbwActiveTasks[task] = _entry
-                    _sbwTaskLock.unlock()
-                    _entry.task = Task {
-                        defer {
-                            _sbwTaskLock.lock()
-                            _sbwActiveTasks.removeValue(forKey: task)
-                            _sbwTaskLock.unlock()
-                        }
-                        do {
-                            {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
-                                {{methodCallArgs}}
-                            )
-                            {{stringMarshalCode}}
-                            callback({{callbackResultArgs}}task)
-                        } catch {
-                            {{swiftCatchBodyExt}}
-                        }
-                    }
-                }
-            }
-            """);
-                }
-            }
-            else
-            {
-                // Free function for top-level async functions (no parent type to extend)
-                if (hasReadCode)
-                {
-                    swiftWriter.WriteLine($$"""
-            @_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
-            public func {{NameProvider.GetPInvokeName(_env.MethodDecl)}}{{genericParams}}({{parameters}}){{whereClause}}{
-                // Read non-frozen parameters via .pointee (bitwise copy)
-                // C# created copies using InitializeWithCopy (owns a proper reference)
-                {{readCode}}
-
-                let _entry = _SBWTaskEntry()
-                _sbwTaskLock.lock()
-                _sbwActiveTasks[task] = _entry
-                _sbwTaskLock.unlock()
-                _entry.task = Task {
-                    defer {
-                        _sbwTaskLock.lock()
-                        _sbwActiveTasks.removeValue(forKey: task)
-                        _sbwTaskLock.unlock()
-                    }
-                    do {
-                        {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
-                            {{methodCallArgs}}
-                        )
-                        {{stringMarshalCode}}
-                        callback({{callbackResultArgs}}task)
-                    } catch {
-                        {{swiftCatchBody}}
-                    }
-                }
-            }
-            """);
-                }
-                else
-                {
-                    swiftWriter.WriteLine($$"""
-            @_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
-            public func {{NameProvider.GetPInvokeName(_env.MethodDecl)}}{{genericParams}}({{parameters}}){{whereClause}}{
-                let _entry = _SBWTaskEntry()
-                _sbwTaskLock.lock()
-                _sbwActiveTasks[task] = _entry
-                _sbwTaskLock.unlock()
-                _entry.task = Task {
-                    defer {
-                        _sbwTaskLock.lock()
-                        _sbwActiveTasks.removeValue(forKey: task)
-                        _sbwTaskLock.unlock()
-                    }
-                    do {
-                        {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
-                            {{methodCallArgs}}
-                        )
-                        {{stringMarshalCode}}
-                        callback({{callbackResultArgs}}task)
-                    } catch {
-                        {{swiftCatchBody}}
-                    }
-                }
-            }
-            """);
-                }
-            }
+            swiftWriter.WriteLine(BuildSwiftAsyncWrapperCode(
+                isExtension: isExtension,
+                parentTypeName: parentTypeName,
+                staticModifier: staticModifier,
+                genericParams: genericParams,
+                parameters: parameters,
+                whereClause: whereClause,
+                hasReadCode: hasReadCode,
+                readCode: readCode,
+                selfConversion: selfConversion,
+                selfComment: selfComment,
+                isEmptyTuple: isEmptyTuple,
+                methodCallArgs: methodCallArgs,
+                methodCallPrefix: methodCallPrefix,
+                stringMarshalCode: stringMarshalCode,
+                callbackResultArgs: callbackResultArgs,
+                catchBody: catchBody));
         }
 
         /// <summary>
@@ -942,28 +704,7 @@ namespace BindingsGeneration
                                 if (handle.Target is object[] holder && holder[0] is TaskCompletionSource{{(voidReturn ? "" : $"<{_wrapperSignature.ReturnType}>")}} holderTcs)
                                 {
                                     // Free copy buffer memory for non-frozen params and release retained self
-                                    // Note: Original params in holder keep internal storage alive
-                                    for (int i = 1; i < holder.Length; i++)
-                                    {
-                                        if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                                        {
-                                            // Release the extra retain added for async safety
-                                            Arc.Release(retained.Ptr);
-                                        }
-                                        else if (holder[i] is DeferredSafeHandleRelease deferred)
-                                        {
-                                            // Release the SafeHandle that was kept alive for async safety
-                                            deferred.Handle.DangerousRelease();
-                                        }
-                                        else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
-                                        {
-                                            // Call Destroy to release Swift references, then free buffer
-                                            copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
-                                            NativeMemory.Free((void*)copyBuffer.Buffer);
-                                        }
-                                        else if (holder[i] is CancellationRegistrationHolder cancelReg)
-                                            cancelReg.Registration.Dispose();
-                                    }
+                {{BuildHolderCleanupCode("holder", "                    ")}}
                                     holderTcs.TrySetResult({{(voidReturn ? "" : "result")}});
                                 }
                                 else if (handle.Target is TaskCompletionSource{{(voidReturn ? "" : $"<{_wrapperSignature.ReturnType}>")}} directTcs)
@@ -1046,26 +787,7 @@ namespace BindingsGeneration
                                 if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> holderTcs)
                                 {
                                     // Free copy buffer memory for non-frozen params and release retained self
-                                    for (int i = 1; i < holder.Length; i++)
-                                    {
-                                        if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                                        {
-                                            Arc.Release(retained.Ptr);
-                                        }
-                                        else if (holder[i] is DeferredSafeHandleRelease deferred)
-                                        {
-                                            // Release the SafeHandle that was kept alive for async safety
-                                            deferred.Handle.DangerousRelease();
-                                        }
-                                        else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
-                                        {
-                                            // Call Destroy to release Swift references, then free buffer
-                                            copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
-                                            NativeMemory.Free((void*)copyBuffer.Buffer);
-                                        }
-                                        else if (holder[i] is CancellationRegistrationHolder cancelReg)
-                                            cancelReg.Registration.Dispose();
-                                    }
+                {{BuildHolderCleanupCode("holder", "                    ")}}
                                     holderTcs.TrySetResult(result);
                                 }
                                 else if (handle.Target is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> directTcs)
@@ -1091,34 +813,7 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitAsyncWrapperForString(CSharpWriter csWriter, string callbackFieldName, string callbackMethodName, string errorCallbackFieldName, string errorCallbackMethodName)
         {
-            // Determine the wrapper library path - SBW_Free is emitted in the Swift wrapper library
-            var moduleDecl = _env.MethodDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(_env.MethodDecl.ModuleDecl));
-            var moduleLibPath = _env.TypeDatabase.GetLibraryPath(moduleDecl.Name);
-            var wrapperLibPath = _env.TypeDatabase.AsyncLibraryName ?? moduleLibPath;
-
-            // Get the module-specific symbol name for SBW_Free
-            var freeSymbolName = Utf8SliceEmitter.GetFreeSymbolName(moduleDecl.Name);
-
-            // Determine fully-qualified C# type key for deduplication (types with multiple async
-            // string methods should only emit SBW_Free P/Invoke once). Use ModuleQualifiedName
-            // to avoid collisions between nested types with the same simple name in different
-            // containing types (e.g., OuterA.ErrorType vs OuterB.ErrorType).
-            var typeKey = (_env.ParentDecl as TypeDecl)?.SwiftTypeName.ModuleQualifiedName ?? moduleDecl.Name;
-            var needsFreePInvoke = !Utf8SliceEmitter.HasFreePInvokeForType(typeKey);
-            if (needsFreePInvoke)
-            {
-                Utf8SliceEmitter.MarkFreePInvokeEmittedForType(typeKey);
-            }
-
-            // For string returns, the callback receives (ptr, len) directly - custom structs not allowed in @convention(c)
-            // We unmarshal to string and then call SBW_Free in finally block
-            var freePInvokeDecl = needsFreePInvoke
-                ? $"""
-                        [System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{freeSymbolName}")]
-                        private static partial void SBW_Free(IntPtr ptr);
-
-                """
-                : "";
+            var freePInvokeDecl = GetFreePInvokeDeclIfNeeded();
 
             var text = $$"""
                         {{freePInvokeDecl}}private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> {{callbackFieldName}} = &{{callbackMethodName}};
@@ -1143,24 +838,7 @@ namespace BindingsGeneration
                                 if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> holderTcs)
                                 {
                                     // Free copy buffer memory for non-frozen params and release retained self
-                                    for (int i = 1; i < holder.Length; i++)
-                                    {
-                                        if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                                        {
-                                            Arc.Release(retained.Ptr);
-                                        }
-                                        else if (holder[i] is DeferredSafeHandleRelease deferred)
-                                        {
-                                            deferred.Handle.DangerousRelease();
-                                        }
-                                        else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
-                                        {
-                                            copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
-                                            NativeMemory.Free((void*)copyBuffer.Buffer);
-                                        }
-                                        else if (holder[i] is CancellationRegistrationHolder cancelReg)
-                                            cancelReg.Registration.Dispose();
-                                    }
+                {{BuildHolderCleanupCode("holder", "                    ")}}
                                     holderTcs.TrySetResult(result);
                                 }
                                 else if (handle.Target is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> directTcs)
@@ -1188,29 +866,7 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitAsyncWrapperForArrayString(CSharpWriter csWriter, string callbackFieldName, string callbackMethodName, string errorCallbackFieldName, string errorCallbackMethodName)
         {
-            // Determine the wrapper library path - SBW_Free is emitted in the Swift wrapper library
-            var moduleDecl = _env.MethodDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(_env.MethodDecl.ModuleDecl));
-            var moduleLibPath = _env.TypeDatabase.GetLibraryPath(moduleDecl.Name);
-            var wrapperLibPath = _env.TypeDatabase.AsyncLibraryName ?? moduleLibPath;
-
-            // Get the module-specific symbol name for SBW_Free
-            var freeSymbolName = Utf8SliceEmitter.GetFreeSymbolName(moduleDecl.Name);
-
-            // Determine fully-qualified C# type key for deduplication
-            var typeKey = (_env.ParentDecl as TypeDecl)?.SwiftTypeName.ModuleQualifiedName ?? moduleDecl.Name;
-            var needsFreePInvoke = !Utf8SliceEmitter.HasFreePInvokeForType(typeKey);
-            if (needsFreePInvoke)
-            {
-                Utf8SliceEmitter.MarkFreePInvokeEmittedForType(typeKey);
-            }
-
-            var freePInvokeDecl = needsFreePInvoke
-                ? $"""
-                        [System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{freeSymbolName}")]
-                        private static partial void SBW_Free(IntPtr ptr);
-
-                """
-                : "";
+            var freePInvokeDecl = GetFreePInvokeDeclIfNeeded();
 
             // The wrapper return type is IReadOnlyList<string> (matches non-async Array<String> return type with WU2 element conversion)
             var text = $$"""
@@ -1292,24 +948,7 @@ namespace BindingsGeneration
                                 if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> holderTcs)
                                 {
                                     // Free copy buffer memory for non-frozen params and release retained self
-                                    for (int i = 1; i < holder.Length; i++)
-                                    {
-                                        if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                                        {
-                                            Arc.Release(retained.Ptr);
-                                        }
-                                        else if (holder[i] is DeferredSafeHandleRelease deferred)
-                                        {
-                                            deferred.Handle.DangerousRelease();
-                                        }
-                                        else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
-                                        {
-                                            copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
-                                            NativeMemory.Free((void*)copyBuffer.Buffer);
-                                        }
-                                        else if (holder[i] is CancellationRegistrationHolder cancelReg)
-                                            cancelReg.Registration.Dispose();
-                                    }
+                {{BuildHolderCleanupCode("holder", "                    ")}}
                                     if (deserializationError != null)
                                         holderTcs.TrySetException(deserializationError);
                                     else
@@ -1344,29 +983,7 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitAsyncWrapperForComplexType(CSharpWriter csWriter, string callbackFieldName, string callbackMethodName, string errorCallbackFieldName, string errorCallbackMethodName, bool isClassType, bool isObjCBridged = false)
         {
-            // Determine the wrapper library path - SBW_Free is emitted in the Swift wrapper library
-            var moduleDecl = _env.MethodDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(_env.MethodDecl.ModuleDecl));
-            var moduleLibPath = _env.TypeDatabase.GetLibraryPath(moduleDecl.Name);
-            var wrapperLibPath = _env.TypeDatabase.AsyncLibraryName ?? moduleLibPath;
-
-            // Get the module-specific symbol name for SBW_Free
-            var freeSymbolName = Utf8SliceEmitter.GetFreeSymbolName(moduleDecl.Name);
-
-            // Determine fully-qualified C# type key for deduplication
-            var typeKey = (_env.ParentDecl as TypeDecl)?.SwiftTypeName.ModuleQualifiedName ?? moduleDecl.Name;
-            var needsFreePInvoke = !Utf8SliceEmitter.HasFreePInvokeForType(typeKey);
-            if (needsFreePInvoke)
-            {
-                Utf8SliceEmitter.MarkFreePInvokeEmittedForType(typeKey);
-            }
-
-            var freePInvokeDecl = needsFreePInvoke
-                ? $"""
-                        [System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{freeSymbolName}")]
-                        private static partial void SBW_Free(IntPtr ptr);
-
-                """
-                : "";
+            var freePInvokeDecl = GetFreePInvokeDeclIfNeeded();
 
             // For class types, Swift retained the object before passing through callback.
             // We must read the object pointer from the buffer (resultPtr points to buffer containing the pointer)
@@ -1402,24 +1019,7 @@ namespace BindingsGeneration
                                 if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> holderTcs)
                                 {
                                     // Free copy buffer memory for non-frozen params and release retained self
-                                    for (int i = 1; i < holder.Length; i++)
-                                    {
-                                        if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                                        {
-                                            Arc.Release(retained.Ptr);
-                                        }
-                                        else if (holder[i] is DeferredSafeHandleRelease deferred)
-                                        {
-                                            deferred.Handle.DangerousRelease();
-                                        }
-                                        else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
-                                        {
-                                            copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
-                                            NativeMemory.Free((void*)copyBuffer.Buffer);
-                                        }
-                                        else if (holder[i] is CancellationRegistrationHolder cancelReg)
-                                            cancelReg.Registration.Dispose();
-                                    }
+                {{BuildHolderCleanupCode("holder", "                    ")}}
                                     holderTcs.TrySetResult(result);
                                 }
                                 else if (handle.Target is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> directTcs)
@@ -1483,42 +1083,15 @@ namespace BindingsGeneration
                                     }
                 """;
 
-            // tcsType is "" for void, "<ReturnType>" for non-void
+            // Build the error creation and TCS dispatch code.
+            // Typed throws: unmarshal typed error from Swift memory, free error buffer, create SwiftException<T>.
+            // Untyped throws: parse error message string, create SwiftException.
+            string holderErrorBody;
+            string directErrorBody;
+
             if (useTypedErrorCallback)
             {
-                // SBW_Free P/Invoke declaration — needed to free the error buffer allocated by Swift
-                var moduleDecl = _env.MethodDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(_env.MethodDecl.ModuleDecl));
-                var moduleLibPath = _env.TypeDatabase.GetLibraryPath(moduleDecl.Name);
-                var wrapperLibPath = _env.TypeDatabase.AsyncLibraryName ?? moduleLibPath;
-                var freeSymbolName = Utf8SliceEmitter.GetFreeSymbolName(moduleDecl.Name);
-                var typeKey = (_env.ParentDecl as TypeDecl)?.SwiftTypeName.ModuleQualifiedName ?? moduleDecl.Name;
-                var needsFreePInvoke = !Utf8SliceEmitter.HasFreePInvokeForType(typeKey);
-                if (needsFreePInvoke)
-                {
-                    Utf8SliceEmitter.MarkFreePInvokeEmittedForType(typeKey);
-                }
-                var freePInvokeDecl = needsFreePInvoke
-                    ? $"""
-                        [System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{freeSymbolName}")]
-                        private static partial void SBW_Free(IntPtr ptr);
-
-                """
-                    : "";
-
-                return $$"""
-                        {{freePInvokeDecl}}private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, int, IntPtr, void> {{errorCallbackFieldName}} = &{{errorCallbackMethodName}};
-                        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-                        private static unsafe void {{errorCallbackMethodName}}(IntPtr errorPtr, nint errorSize, IntPtr errorMessagePtr, int isCancellation, IntPtr task)
-                        {
-                            GCHandle handle = GCHandle.FromIntPtr(task);
-                            try
-                            {
-                                // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
-                                if (handle.Target is object[] holder && holder[0] is TaskCompletionSource{{tcsType}} holderTcs)
-                                {
-                {{cancellationBlock}}
-                                    else
-                                    {
+                holderErrorBody = $$"""
                                         var errorMessage = Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
                                         {{typedThrowsCSharpErrorType}} typedError;
                                         try
@@ -1531,25 +1104,10 @@ namespace BindingsGeneration
                                         }
                                         var exception = new SwiftException<{{typedThrowsCSharpErrorType}}>(typedError, errorMessage);
                                         // Free copy buffer memory for non-frozen params and release retained self
-                                        for (int i = 1; i < holder.Length; i++)
-                                        {
-                                            if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                                                Arc.Release(retained.Ptr);
-                                            else if (holder[i] is DeferredSafeHandleRelease deferred)
-                                                deferred.Handle.DangerousRelease();
-                                            else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
-                                            {
-                                                copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
-                                                NativeMemory.Free((void*)copyBuffer.Buffer);
-                                            }
-                                            else if (holder[i] is CancellationRegistrationHolder cancelReg2)
-                                                cancelReg2.Registration.Dispose();
-                                        }
+                {{BuildHolderCleanupCode("holder", "                        ", cancelRegVarName: "cancelReg2")}}
                                         holderTcs.TrySetException(exception);
-                                    }
-                                }
-                                else if (handle.Target is TaskCompletionSource{{tcsType}} directTcs)
-                                {
+                """;
+                directErrorBody = $$"""
                                     var errorMessage = Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
                                     {{typedThrowsCSharpErrorType}} typedError;
                                     try
@@ -1561,21 +1119,36 @@ namespace BindingsGeneration
                                         SBW_Free(errorPtr);
                                     }
                                     directTcs.TrySetException(new SwiftException<{{typedThrowsCSharpErrorType}}>(typedError, errorMessage));
-                                }
-                            }
-                            finally
-                            {
-                                handle.Free();
-                            }
-                        }
                 """;
             }
             else
             {
-                return $$"""
-                        private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> {{errorCallbackFieldName}} = &{{errorCallbackMethodName}};
+                holderErrorBody = $$"""
+                                        var errorMessage = Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
+                                        var exception = new SwiftException(errorMessage);
+                                        // Free copy buffer memory for non-frozen params and release retained self
+                {{BuildHolderCleanupCode("holder", "                        ", cancelRegVarName: "cancelReg2")}}
+                                        holderTcs.TrySetException(exception);
+                """;
+                directErrorBody = $$"""
+                                    var errorMessage = Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
+                                    directTcs.TrySetException(new SwiftException(errorMessage));
+                """;
+            }
+
+            // Build delegate and method signatures based on typed vs untyped throws
+            var freePInvokeDecl = useTypedErrorCallback ? GetFreePInvokeDeclIfNeeded() : "";
+            var delegateParams = useTypedErrorCallback
+                ? "IntPtr, nint, IntPtr, int, IntPtr, void"
+                : "IntPtr, int, IntPtr, void";
+            var methodParams = useTypedErrorCallback
+                ? "IntPtr errorPtr, nint errorSize, IntPtr errorMessagePtr, int isCancellation, IntPtr task"
+                : "IntPtr errorMessagePtr, int isCancellation, IntPtr task";
+
+            return $$"""
+                        {{freePInvokeDecl}}private static unsafe delegate* unmanaged[Cdecl]<{{delegateParams}}> {{errorCallbackFieldName}} = &{{errorCallbackMethodName}};
                         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-                        private static unsafe void {{errorCallbackMethodName}}(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
+                        private static unsafe void {{errorCallbackMethodName}}({{methodParams}})
                         {
                             GCHandle handle = GCHandle.FromIntPtr(task);
                             try
@@ -1586,30 +1159,12 @@ namespace BindingsGeneration
                 {{cancellationBlock}}
                                     else
                                     {
-                                        var errorMessage = Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
-                                        var exception = new SwiftException(errorMessage);
-                                        // Free copy buffer memory for non-frozen params and release retained self
-                                        for (int i = 1; i < holder.Length; i++)
-                                        {
-                                            if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                                                Arc.Release(retained.Ptr);
-                                            else if (holder[i] is DeferredSafeHandleRelease deferred)
-                                                deferred.Handle.DangerousRelease();
-                                            else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
-                                            {
-                                                copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
-                                                NativeMemory.Free((void*)copyBuffer.Buffer);
-                                            }
-                                            else if (holder[i] is CancellationRegistrationHolder cancelReg2)
-                                                cancelReg2.Registration.Dispose();
-                                        }
-                                        holderTcs.TrySetException(exception);
+                {{holderErrorBody}}
                                     }
                                 }
                                 else if (handle.Target is TaskCompletionSource{{tcsType}} directTcs)
                                 {
-                                    var errorMessage = Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
-                                    directTcs.TrySetException(new SwiftException(errorMessage));
+                {{directErrorBody}}
                                 }
                             }
                             finally
@@ -1618,7 +1173,172 @@ namespace BindingsGeneration
                             }
                         }
                 """;
+        }
+
+        /// <summary>
+        /// Gets the SBW_Free P/Invoke declaration string if not already emitted for the current type.
+        /// Handles deduplication — types with multiple async string/complex methods only emit once.
+        /// </summary>
+        private string GetFreePInvokeDeclIfNeeded()
+        {
+            var moduleDecl = _env.MethodDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(_env.MethodDecl.ModuleDecl));
+            var moduleLibPath = _env.TypeDatabase.GetLibraryPath(moduleDecl.Name);
+            var wrapperLibPath = _env.TypeDatabase.AsyncLibraryName ?? moduleLibPath;
+            var freeSymbolName = Utf8SliceEmitter.GetFreeSymbolName(moduleDecl.Name);
+            var typeKey = (_env.ParentDecl as TypeDecl)?.SwiftTypeName.ModuleQualifiedName ?? moduleDecl.Name;
+            var needsFreePInvoke = !Utf8SliceEmitter.HasFreePInvokeForType(typeKey);
+            if (needsFreePInvoke)
+            {
+                Utf8SliceEmitter.MarkFreePInvokeEmittedForType(typeKey);
             }
+            return needsFreePInvoke
+                ? $"""
+                        [System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{freeSymbolName}")]
+                        private static partial void SBW_Free(IntPtr ptr);
+
+                """
+                : "";
+        }
+
+        /// <summary>
+        /// Builds the Swift catch block body for typed vs untyped throws, parameterized by indent.
+        /// </summary>
+        private string BuildSwiftCatchBody(string indent)
+        {
+            if (useTypedErrorCallback)
+            {
+                return
+                    $"let _isCancelled: Int32 = (error is CancellationError) ? 1 : 0\n" +
+                    $"{indent}let _errSize = MemoryLayout<{typedThrowsSwiftErrorType}>.size\n" +
+                    $"{indent}let _errPtr = UnsafeMutableRawPointer.allocate(\n" +
+                    $"{indent}    byteCount: _errSize, alignment: MemoryLayout<{typedThrowsSwiftErrorType}>.alignment)\n" +
+                    $"{indent}withUnsafePointer(to: error) {{ _src in\n" +
+                    $"{indent}    _errPtr.copyMemory(from: UnsafeRawPointer(_src), byteCount: _errSize)\n" +
+                    $"{indent}}}\n" +
+                    $"{indent}let errorMessage = String(describing: error)\n" +
+                    $"{indent}errorMessage.withCString {{ _msgPtr in\n" +
+                    $"{indent}    errorCallback(UnsafeRawPointer(_errPtr), Int(Int64(_errSize)), _msgPtr, _isCancelled, task)\n" +
+                    $"{indent}}}";
+            }
+            else
+            {
+                return
+                    $"let _isCancelled: Int32 = (error is CancellationError) ? 1 : 0\n" +
+                    $"{indent}let errorMessage = String(describing: error)\n" +
+                    $"{indent}errorMessage.withCString {{ errorCallback($0, _isCancelled, task) }}";
+            }
+        }
+
+        /// <summary>
+        /// Builds the Swift async wrapper code for all 3 scope variants (free function, extension, top-level).
+        /// Parameterized by isExtension and hasReadCode to collapse 6 templates into 1.
+        /// </summary>
+        private string BuildSwiftAsyncWrapperCode(
+            bool isExtension,
+            SwiftTypeName? parentTypeName,
+            string staticModifier,
+            string genericParams,
+            string parameters,
+            string whereClause,
+            bool hasReadCode,
+            string readCode,
+            string selfConversion,
+            string selfComment,
+            bool isEmptyTuple,
+            string methodCallArgs,
+            string methodCallPrefix,
+            string stringMarshalCode,
+            string callbackResultArgs,
+            string catchBody)
+        {
+            var mangledName = NameProvider.GetMangledName(_env.MethodDecl);
+            var pInvokeName = NameProvider.GetPInvokeName(_env.MethodDecl);
+            var resultAssign = isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ";
+
+            // Extension adds 4-space indent to everything inside the extension { } block
+            var i = isExtension ? "    " : "";
+
+            // Build the function body lines
+            var readCodeBlock = hasReadCode
+                ? $"""
+                {i}    // Read non-frozen parameters via .pointee (bitwise copy)
+                {i}    // C# created copies using InitializeWithCopy (owns a proper reference)
+                {i}    {readCode}
+                {i}    {selfConversion}
+                {i}    {selfComment}
+
+                """
+                : (selfConversion != "" || selfComment != ""
+                    ? $"""
+                {i}    {selfConversion}
+                {i}    {selfComment}
+                """
+                    : "");
+
+            var funcBody = $$"""
+            {{i}}@_silgen_name("{{mangledName}}")
+            {{i}}public {{staticModifier}}func {{pInvokeName}}{{genericParams}}({{parameters}}){{whereClause}}{
+            {{readCodeBlock}}{{i}}    let _entry = _SBWTaskEntry()
+            {{i}}    _sbwTaskLock.lock()
+            {{i}}    _sbwActiveTasks[task] = _entry
+            {{i}}    _sbwTaskLock.unlock()
+            {{i}}    _entry.task = Task {
+            {{i}}        defer {
+            {{i}}            _sbwTaskLock.lock()
+            {{i}}            _sbwActiveTasks.removeValue(forKey: task)
+            {{i}}            _sbwTaskLock.unlock()
+            {{i}}        }
+            {{i}}        do {
+            {{i}}            {{resultAssign}}try await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
+            {{i}}                {{methodCallArgs}}
+            {{i}}            )
+            {{i}}            {{stringMarshalCode}}
+            {{i}}            callback({{callbackResultArgs}}task)
+            {{i}}        } catch {
+            {{i}}            {{catchBody}}
+            {{i}}        }
+            {{i}}    }
+            {{i}}}
+            """;
+
+            if (isExtension)
+            {
+                return $$"""
+            extension {{parentTypeName!.ModuleQualifiedName}} {
+            {{funcBody}}
+            }
+            """;
+            }
+            return funcBody;
+        }
+
+        /// <summary>
+        /// Builds the holder cleanup loop code for freeing async call resources.
+        /// Handles RetainedSelfPtr, DeferredSafeHandleRelease, CopyBufferWithType, and CancellationRegistrationHolder.
+        /// </summary>
+        /// <param name="holderVar">The variable name for the holder array (e.g., "holder" or "_asyncCallHolder").</param>
+        /// <param name="indent">The whitespace indent prefix for each line.</param>
+        /// <param name="includeCancellationReg">Whether to include CancellationRegistrationHolder cleanup.</param>
+        /// <param name="cancelRegVarName">Variable name for the CancellationRegistrationHolder (to avoid shadowing).</param>
+        private static string BuildHolderCleanupCode(string holderVar, string indent, bool includeCancellationReg = true, string cancelRegVarName = "cancelReg")
+        {
+            var cancelRegLine = includeCancellationReg
+                ? $"\n{indent}    else if ({holderVar}[i] is CancellationRegistrationHolder {cancelRegVarName})\n{indent}        {cancelRegVarName}.Registration.Dispose();"
+                : "";
+            return $$"""
+                {{indent}}for (int i = 1; i < {{holderVar}}.Length; i++)
+                {{indent}}{
+                {{indent}}    if ({{holderVar}}[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
+                {{indent}}        Arc.Release(retained.Ptr);
+                {{indent}}    else if ({{holderVar}}[i] is DeferredSafeHandleRelease deferred)
+                {{indent}}        deferred.Handle.DangerousRelease();
+                {{indent}}    else if ({{holderVar}}[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
+                {{indent}}    {
+                {{indent}}        copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
+                {{indent}}        NativeMemory.Free((void*)copyBuffer.Buffer);
+                {{indent}}    }{{cancelRegLine}}
+                {{indent}}}
+                """;
         }
 
         /// <summary>

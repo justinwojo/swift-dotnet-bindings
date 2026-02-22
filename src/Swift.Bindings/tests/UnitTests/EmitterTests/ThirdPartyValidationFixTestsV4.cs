@@ -1078,32 +1078,6 @@ public class ThirdPartyValidationFixTestsV4
     #region C12 — Optional<Array<T>> generic arg in proxy + closure return guard
 
     [Fact]
-    public void GetParameterConversion_OptionalArrayString_HasCorrectGenericArgs()
-    {
-        // StripePaymentSheet: SwiftOptional<SwiftArray> missing generic arg in proxy getter.
-        // Fix: when typeTranslator is null, build fullArrayType from innerType + rawArrayElementType.
-        var typeDatabase = CreateTypeDatabaseWithArrayAndOptional();
-
-        var typeConversionHandler = new TypeConversionHandler(typeDatabase);
-
-        // Optional<Array<String>>
-        var arraySpec = new NamedTypeSpec("Swift.Array");
-        arraySpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
-        var optionalArraySpec = new NamedTypeSpec("Swift.Optional");
-        optionalArraySpec.GenericParameters.Add(arraySpec);
-
-        // Without typeTranslator (proxy receiver path)
-        var conversion = typeConversionHandler.GetParameterConversion("result", optionalArraySpec);
-        Assert.NotNull(conversion);
-
-        // The conversion should have SwiftOptional with full generic: SwiftArray<SwiftString>
-        // NOT bare SwiftOptional<SwiftArray> (missing element type)
-        Assert.DoesNotContain("SwiftOptional<Swift.SwiftArray>.", conversion);
-        // Should contain the full type
-        Assert.Contains("SwiftArray<Swift.SwiftString>", conversion);
-    }
-
-    [Fact]
     public void CanEmitProperty_ClosureReturningNonPrimitiveType_IsSkipped()
     {
         // StripePaymentSheet: Closure property () -> Optional<AddressDetails> produces

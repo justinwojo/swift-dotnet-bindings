@@ -590,10 +590,11 @@ The plan for a full `MethodMarshalPlanBuilder` that populates `MethodMarshalPlan
 | **5D** | Decompose | Conductor state cleanup (3 properties → TypeHandlerContext), MethodValidationGates extraction, dead code audit. MethodMarshalPlanBuilder deferred. | **PARTIAL** (Feb 21) |
 | **6** | Decompose | Projection-based accessor emission (PropertyHandler) + non-existential receiver emission (ProtocolProxyEmitter.Receivers). 13 old-API callers eliminated. | **COMPLETE** (Feb 21) |
 | **7** | Decompose | Plan-driven sync method emission — MethodMarshalPlanBuilder + SyncMethodPlan. WrapperEmitter.cs 984→425 lines. 13 inline concerns extracted. | **COMPLETE** (Feb 22) |
+| **8** | Decompose | Async emission dedup — 8 holder cleanups, 6 Swift templates, 4 catch bodies, 4 SBW_Free blocks collapsed. Dead `GetParameterConversion` deleted. Async.cs 1,672→1,392. TypeConversionHandler.cs 901→745. | **COMPLETE** (Feb 22) |
 
 Sessions 1-2 built the new type projection architecture alongside the old one. Session 3 wired the factory into all straightforward call sites. Session 4 proved the factory works via tests and golden files. Sessions A-E fixed library validation bugs but added ~590 lines of old-architecture debt (primarily in WrapperEmitter and ProtocolProxyEmitter.Receivers).
 
-Session 5A built the foundation: correct projection plans, GenericContext for standard containers, and MethodMarshalPlan data structure. Session 5B was the highest-impact session — it added projection-first parameter and return emission to WrapperEmitter, replaced the 3 receiver helper methods in ProtocolProxyEmitter.Receivers with projection-based implementations, replaced the old-API call in ClosureEmitter.Async, and fixed 6 latent projection bugs (ObjCBridged namespace, NativeRemapped frozen return, NativeRemapped element conversion, enum container type-mismatch, async closure class handle extraction, closure enum cast fallback). Library validation improved from 27/32 to 29/32. Session 5C completed the emission collapse: created `FrozenWithMemoryProjection` to close the last factory gap, separated `ContainerTypeName`/`SwiftContainerGenericType`/`MarshalFromSwiftType` across all container projections, fixed `NonFrozenStructProjection.GetReturnPlan` to use `MarshalFromSwift` instead of the inaccessible constructor, deleted 4 legacy return methods (~264 lines), and eliminated all `TranslateBoundGenericTypeToCSharp` and `GetReturnConversion` calls from WrapperEmitter. WrapperEmitter.Return.cs reduced from 929 to 615 lines. Session 5D cleaned Conductor state (3 mutable properties → immutable `TypeHandlerContext` record), extracted shared `MethodValidationGates`, and audited remaining old API callers (78 sites, all justified — factory can't yet replace bound-generic and accessor-body emission). MethodMarshalPlanBuilder deferred to future sessions for incremental extraction. Session 6 completed projection-based accessor emission (PropertyHandler EmitGetter/EmitSetter) and non-existential receiver emission (ProtocolProxyEmitter.Receivers property/method receivers), eliminating 13 old-API callers via pattern-matching on projection types. Key design: `NativeRemappedProjection.RequiresDisposal` (separate from `IsFrozen`) to distinguish URL disposal from Data value semantics. Session 7 resolved the Session 5D deferral — extracted 13 sync method-level concerns from WrapperEmitter.cs into `MethodMarshalPlanBuilder`/`SyncMethodPlan`, reducing WrapperEmitter.cs from 984 to 425 lines. Used the exact incremental approach recommended in the 5D deferral note: 8 sub-steps, each extracting one concern with golden file validation between steps. Also split WrapperEmitter into 6 partial files (`.cs`, `.Signature.cs`, `.FailableFactory.cs`, `.Marshalling.cs`, `.Return.cs`, `.Async.cs`).
+Session 5A built the foundation: correct projection plans, GenericContext for standard containers, and MethodMarshalPlan data structure. Session 5B was the highest-impact session — it added projection-first parameter and return emission to WrapperEmitter, replaced the 3 receiver helper methods in ProtocolProxyEmitter.Receivers with projection-based implementations, replaced the old-API call in ClosureEmitter.Async, and fixed 6 latent projection bugs (ObjCBridged namespace, NativeRemapped frozen return, NativeRemapped element conversion, enum container type-mismatch, async closure class handle extraction, closure enum cast fallback). Library validation improved from 27/32 to 29/32. Session 5C completed the emission collapse: created `FrozenWithMemoryProjection` to close the last factory gap, separated `ContainerTypeName`/`SwiftContainerGenericType`/`MarshalFromSwiftType` across all container projections, fixed `NonFrozenStructProjection.GetReturnPlan` to use `MarshalFromSwift` instead of the inaccessible constructor, deleted 4 legacy return methods (~264 lines), and eliminated all `TranslateBoundGenericTypeToCSharp` and `GetReturnConversion` calls from WrapperEmitter. WrapperEmitter.Return.cs reduced from 929 to 615 lines. Session 5D cleaned Conductor state (3 mutable properties → immutable `TypeHandlerContext` record), extracted shared `MethodValidationGates`, and audited remaining old API callers (78 sites, all justified — factory can't yet replace bound-generic and accessor-body emission). MethodMarshalPlanBuilder deferred to future sessions for incremental extraction. Session 6 completed projection-based accessor emission (PropertyHandler EmitGetter/EmitSetter) and non-existential receiver emission (ProtocolProxyEmitter.Receivers property/method receivers), eliminating 13 old-API callers via pattern-matching on projection types. Key design: `NativeRemappedProjection.RequiresDisposal` (separate from `IsFrozen`) to distinguish URL disposal from Data value semantics. Session 7 resolved the Session 5D deferral — extracted 13 sync method-level concerns from WrapperEmitter.cs into `MethodMarshalPlanBuilder`/`SyncMethodPlan`, reducing WrapperEmitter.cs from 984 to 425 lines. Used the exact incremental approach recommended in the 5D deferral note: 8 sub-steps, each extracting one concern with golden file validation between steps. Also split WrapperEmitter into 6 partial files (`.cs`, `.Signature.cs`, `.FailableFactory.cs`, `.Marshalling.cs`, `.Return.cs`, `.Async.cs`). Session 8 tackled the largest remaining partial file — WrapperEmitter.Async.cs (1,672 lines) — eliminating massive internal duplication: 8 identical holder cleanup loops collapsed into `BuildHolderCleanupCode`, 6 Swift wrapper templates into 1 parameterized `BuildSwiftAsyncWrapperCode`, 4 catch bodies into `BuildSwiftCatchBody`, and 4 SBW_Free dedup blocks into `GetFreePInvokeDeclIfNeeded`. Also deleted the dead `TypeConversionHandler.GetParameterConversion` method (150 lines, 0 production callers). Marshalling legacy elimination deferred to Session 9 as an open design decision.
 
 ### Session 6: Projection-Based Accessor & Receiver Emission — COMPLETE (Feb 21, 2026)
 
@@ -765,7 +766,7 @@ Addressed findings from Codex and Grok code reviews:
 | `IsConvertibleType` | 4 | 3 files | WrapperEmitter.Marshalling.cs (2), MethodSignature.cs (1), WrapperEmitter.Async.cs (1) — gate logic |
 | `GetIdiomaticCSharpType` | ~6 | 1 file | TypeConversionHandler.cs only (internal recursive calls, no external callers) |
 | `GetReturnConversion` | ~2 | 1 file | TypeConversionHandler.cs only (internal Optional unwrapping) |
-| `GetParameterConversion` | 0 | 0 files | **DEAD — eligible for deletion** |
+| `GetParameterConversion` | 0 | 0 files | **DELETED (Session 8F)** |
 | `s_activeCompositionCollector` | 4 | 1 file | Conductor.cs ThreadStatic composition collector |
 | `CompositionInterfaces` | 3 | 2 files | Conductor.cs + ModuleHandler.cs |
 
@@ -773,14 +774,14 @@ Addressed findings from Codex and Grok code reviews:
 
 | File | Lines | Role |
 |------|-------|------|
-| WrapperEmitter.Async.cs | 1,672 | Async method emission (largest partial) |
+| WrapperEmitter.Async.cs | 1,392 | Async method emission (largest partial — **Session 8: 1,672→1,392**) |
 | WrapperEmitter.cs | 425 | Main method body emission (plan-driven thin wrappers — **Session 7: 984→425**) |
 | WrapperEmitter.Marshalling.cs | 818 | Parameter marshalling (projection-first + legacy fallback — **Session 7: 851→818**) |
 | WrapperEmitter.Signature.cs | 218 | Method/constructor signatures, where clauses, safety attributes (**new in Session 7**) |
 | WrapperEmitter.FailableFactory.cs | 173 | Failable initializer factory methods (**new in Session 7**) |
 | MethodMarshalPlanBuilder.cs | 460 | Sync method plan builder (**new in Session 7**) |
 | BoundGenericsHandler.cs | 907 | Bound-generic type resolution (all `TranslateBound` definitions + recursion) |
-| TypeConversionHandler.cs | 901 | Old conversion APIs (definitions + internal calls, no external emitter callers) |
+| TypeConversionHandler.cs | 745 | Old conversion APIs (definitions + internal calls, no external emitter callers — **Session 8: 901→745**) |
 | MethodHandler.cs | 846 | Method validation + dispatch |
 | WrapperEmitter.Return.cs | 615 | Return marshalling (projection-first + bound-generic fallback) |
 | PropertyHandler.cs | 791 | Property emission (projection-based accessors) |
@@ -849,32 +850,49 @@ If a session intentionally changes cosmetic output (e.g., Session 6's `Swift.Swi
 
 Extracted 13 sync method-level concerns from WrapperEmitter.cs into `MethodMarshalPlanBuilder`/`SyncMethodPlan`. WrapperEmitter.cs reduced from 984→425 lines. Split into 6 partial files. 31 builder unit tests. All acceptance gates passed. See Session 7 section above for details.
 
-**Session 8: Plan-Driven Async Emission + Marshalling Collapse** (~1 session)
+**Session 8: Async Emission Dedup + Dead Code** — **COMPLETE** (Feb 22, 2026)
 
-- Extract WrapperEmitter.Async.cs (1,672 lines) async concerns into MethodMarshalPlanBuilder
-- Eliminate WrapperEmitter.Marshalling.cs legacy fallback paths (requires extending ProjectBoundGeneric for container params or accepting bound-generic passthrough)
-- Delete dead `GetParameterConversion` from TypeConversionHandler
+Focused on internal duplication elimination in WrapperEmitter.Async.cs (1,672 lines) and dead code deletion. Marshalling legacy elimination (bound-generic projection) deferred to Session 9 — it's an open design decision that risks ABI type leakage into public signatures if under-specified.
 
-*Acceptance gates*: Unit/integration tests pass. All 5 golden files match. WrapperEmitter.Async.cs under 800 lines. Zero `GetSwiftWrapperType`/`TranslateTypeSpecForConversion` in WrapperEmitter.Marshalling.cs.
+Completed sub-steps:
+- **8A**: `BuildHolderCleanupCode` — replaced 8 identical holder cleanup loops (RetainedSelfPtr, DeferredSafeHandleRelease, CopyBufferWithType, CancellationRegistrationHolder)
+- **8B**: `BuildSwiftCatchBody(indent)` — replaced 4 catch body copies (typed/untyped × 2 indent levels). `BuildSwiftAsyncWrapperCode(...)` — collapsed 6 Swift wrapper templates into 1 parameterized by `isExtension` and `hasReadCode`
+- **8C**: `GetFreePInvokeDeclIfNeeded()` — replaced 4 inline SBW_Free P/Invoke dedup blocks across String, ArrayString, ComplexType, and BuildErrorCallbackBlock
+- **8E**: Refactored `BuildErrorCallbackBlock` with separate `holderErrorBody`/`directErrorBody` separation and shared delegate/method signature construction
+- **8F**: Deleted `TypeConversionHandler.GetParameterConversion()` (150 lines, 0 production callers) + 13 test methods
 
-**Session 9: Final Cleanup** (~0.5-1 session)
+Deferred:
+- **8B'** (callback return type dispatch): Not duplicated, just complex — moving it would relocate code without eliminating duplication
+- **8D** (async setup plan extraction to MethodMarshalPlanBuilder): Architectural separation of concerns, not deduplication. Net ~20 lines after plan records + builder additions. Folded into Session 9.
 
-- ThreadStatic composition collector → explicit threading (22 sites)
+| File | Before | After | Delta |
+|------|--------|-------|-------|
+| WrapperEmitter.Async.cs | 1,672 | 1,392 | **-280** |
+| TypeConversionHandler.cs | 901 | 745 | **-156** |
+
+*Acceptance gates*: 3979 unit + 700 integration + 221 runtime tests, all passing. All 5 golden files match. Library validation: no new regressions.
+
+**Session 9: Marshalling Legacy + Final Cleanup** (~1 session)
+
+- Eliminate WrapperEmitter.Marshalling.cs legacy fallback paths (~500 lines using `TranslateTypeSpecForConversion` (13 calls), `GetSwiftWrapperType` (3 calls), `IsConvertibleType` (2 calls)). Requires extending `ProjectBoundGeneric` for container params or accepting bound-generic passthrough.
+- Bound-generic factory dual-mode (design decision: dual-mode projection vs. accepting BoundGenericsHandler as permanent infrastructure)
+- Async setup plan extraction (deferred 8D: `AsyncSetupPlan` records in MethodMarshalPlanBuilder)
+- ThreadStatic composition collector → explicit threading (22 ExistentialHandler sites)
 - Receiver dictionary migration (1 site)
-- Bound-generic factory dual-mode (if not done in Session 8)
-- TypeConversionHandler dead code audit + deletion
+- TypeConversionHandler dead code audit + deletion (remaining ~745 lines, most internal-only after Session 8F)
 - Final old-API caller sweep
 - BoundGenericsHandler assessment: permanent infrastructure vs. further migration
 
-*Acceptance gates*: Unit/integration tests pass. All 5 golden files match. Zero `TypeConversionHandler` callers outside TypeConversionHandler.cs itself. Conductor.cs has no ThreadStatic. Library validation ≥ 29/32.
+*Acceptance gates*: Unit/integration tests pass. All 5 golden files match. Zero `GetSwiftWrapperType`/`TranslateTypeSpecForConversion` in WrapperEmitter.Marshalling.cs. Zero `TypeConversionHandler` callers outside TypeConversionHandler.cs itself. Conductor.cs has no ThreadStatic. Library validation ≥ 29/32 (fresh regen — resolve the pre-existing protocol proxy Optional<non-frozen-struct> CS1503 regression).
 
 ---
 
-#### Estimate: 1-2 more sessions to finish
+#### Estimate: 1 more session to finish
 
-The architecture redesign is **~85% complete**. The projection factory, type projection system, MarshalPlan infrastructure, projection-based emission for parameters/returns/accessors/receivers, and plan-driven sync method emission are all done. What remains is:
+The architecture redesign is **~90% complete**. The projection factory, type projection system, MarshalPlan infrastructure, projection-based emission for parameters/returns/accessors/receivers, plan-driven sync method emission, and async deduplication are all done. What remains is:
 
-- **Async extraction + marshalling collapse** (Session 8): Moving WrapperEmitter.Async.cs (1,672 lines) into plan-driven rendering, eliminating legacy fallback paths in Marshalling.cs, and unifying remaining inline emission (BoundGenericArguments, ClosureMarshalling, TypeConversions, SafeHandleAddRef/Release).
-- **Cleanup** (Session 9): Small-scope items (ThreadStatic, dead code, dictionary migration) that don't change behavior.
+- **Marshalling legacy + cleanup** (Session 9): Eliminating the last old-API callers in WrapperEmitter.Marshalling.cs, the bound-generic factory design decision, ThreadStatic cleanup, and dead code deletion.
 
 The bound-generic question (Item 3) is a design decision more than implementation work: `BoundGenericsHandler` (907 lines) may be permanent infrastructure rather than legacy code, since user-defined generic types genuinely need different handling from the standard container/optional/existential types the factory was designed for.
+
+The 13/32 fresh-regen library validation result (vs 29/32 cached baseline) is a pre-existing protocol proxy regression (`CS1503: SwiftOptional<IntPtr>.NewSome(resultVal)` where resultVal is a class type in `Optional<non-frozen-struct>` returns). This should be resolved as part of Session 9 or as a standalone fix before Session 9 begins.

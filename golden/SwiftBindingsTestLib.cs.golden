@@ -14627,22 +14627,14 @@ public partial class TypedThrowingParser : ISwiftObject, IDisposable
                 if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<int> holderTcs)
                 {
                     // Free copy buffer memory for non-frozen params and release retained self
-                    // Note: Original params in holder keep internal storage alive
                     for (int i = 1; i < holder.Length; i++)
                     {
                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        {
-                            // Release the extra retain added for async safety
                             Arc.Release(retained.Ptr);
-                        }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
-                        {
-                            // Release the SafeHandle that was kept alive for async safety
                             deferred.Handle.DangerousRelease();
-                        }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
-                            // Call Destroy to release Swift references, then free buffer
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
                             NativeMemory.Free((void*)copyBuffer.Buffer);
                         }
@@ -16591,22 +16583,14 @@ public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
                 if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<int> holderTcs)
                 {
                     // Free copy buffer memory for non-frozen params and release retained self
-                    // Note: Original params in holder keep internal storage alive
                     for (int i = 1; i < holder.Length; i++)
                     {
                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        {
-                            // Release the extra retain added for async safety
                             Arc.Release(retained.Ptr);
-                        }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
-                        {
-                            // Release the SafeHandle that was kept alive for async safety
                             deferred.Handle.DangerousRelease();
-                        }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
-                            // Call Destroy to release Swift references, then free buffer
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
                             NativeMemory.Free((void*)copyBuffer.Buffer);
                         }
@@ -16772,22 +16756,14 @@ public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
                 if (handle.Target is object[] holder && holder[0] is TaskCompletionSource holderTcs)
                 {
                     // Free copy buffer memory for non-frozen params and release retained self
-                    // Note: Original params in holder keep internal storage alive
                     for (int i = 1; i < holder.Length; i++)
                     {
                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        {
-                            // Release the extra retain added for async safety
                             Arc.Release(retained.Ptr);
-                        }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
-                        {
-                            // Release the SafeHandle that was kept alive for async safety
                             deferred.Handle.DangerousRelease();
-                        }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
-                            // Call Destroy to release Swift references, then free buffer
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
                             NativeMemory.Free((void*)copyBuffer.Buffer);
                         }
@@ -16964,13 +16940,9 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     for (int i = 1; i < holder.Length; i++)
                     {
                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        {
                             Arc.Release(retained.Ptr);
-                        }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
-                        {
                             deferred.Handle.DangerousRelease();
-                        }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
@@ -18134,13 +18106,9 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     for (int i = 1; i < holder.Length; i++)
                     {
                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        {
                             Arc.Release(retained.Ptr);
-                        }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
-                        {
                             deferred.Handle.DangerousRelease();
-                        }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
@@ -18319,13 +18287,9 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     for (int i = 1; i < holder.Length; i++)
                     {
                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        {
                             Arc.Release(retained.Ptr);
-                        }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
-                        {
                             deferred.Handle.DangerousRelease();
-                        }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
@@ -18504,13 +18468,9 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     for (int i = 1; i < holder.Length; i++)
                     {
                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        {
                             Arc.Release(retained.Ptr);
-                        }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
-                        {
                             deferred.Handle.DangerousRelease();
-                        }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
@@ -18689,13 +18649,9 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     for (int i = 1; i < holder.Length; i++)
                     {
                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        {
                             Arc.Release(retained.Ptr);
-                        }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
-                        {
                             deferred.Handle.DangerousRelease();
-                        }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
@@ -18874,13 +18830,9 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     for (int i = 1; i < holder.Length; i++)
                     {
                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        {
                             Arc.Release(retained.Ptr);
-                        }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
-                        {
                             deferred.Handle.DangerousRelease();
-                        }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
@@ -19264,13 +19216,9 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     for (int i = 1; i < holder.Length; i++)
                     {
                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        {
                             Arc.Release(retained.Ptr);
-                        }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
-                        {
                             deferred.Handle.DangerousRelease();
-                        }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
@@ -19511,13 +19459,9 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     for (int i = 1; i < holder.Length; i++)
                     {
                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        {
                             Arc.Release(retained.Ptr);
-                        }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
-                        {
                             deferred.Handle.DangerousRelease();
-                        }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
@@ -19758,13 +19702,9 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     for (int i = 1; i < holder.Length; i++)
                     {
                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        {
                             Arc.Release(retained.Ptr);
-                        }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
-                        {
                             deferred.Handle.DangerousRelease();
-                        }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
@@ -20005,13 +19945,9 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     for (int i = 1; i < holder.Length; i++)
                     {
                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        {
                             Arc.Release(retained.Ptr);
-                        }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
-                        {
                             deferred.Handle.DangerousRelease();
-                        }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
@@ -20188,13 +20124,9 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     for (int i = 1; i < holder.Length; i++)
                     {
                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        {
                             Arc.Release(retained.Ptr);
-                        }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
-                        {
                             deferred.Handle.DangerousRelease();
-                        }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
@@ -20429,13 +20361,9 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     for (int i = 1; i < holder.Length; i++)
                     {
                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        {
                             Arc.Release(retained.Ptr);
-                        }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
-                        {
                             deferred.Handle.DangerousRelease();
-                        }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
@@ -20761,13 +20689,9 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                     for (int i = 1; i < holder.Length; i++)
                     {
                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        {
                             Arc.Release(retained.Ptr);
-                        }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
-                        {
                             deferred.Handle.DangerousRelease();
-                        }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
@@ -20938,13 +20862,9 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                     for (int i = 1; i < holder.Length; i++)
                     {
                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        {
                             Arc.Release(retained.Ptr);
-                        }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
-                        {
                             deferred.Handle.DangerousRelease();
-                        }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
@@ -21115,13 +21035,9 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                     for (int i = 1; i < holder.Length; i++)
                     {
                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        {
                             Arc.Release(retained.Ptr);
-                        }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
-                        {
                             deferred.Handle.DangerousRelease();
-                        }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
@@ -21294,13 +21210,9 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                     for (int i = 1; i < holder.Length; i++)
                     {
                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        {
                             Arc.Release(retained.Ptr);
-                        }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
-                        {
                             deferred.Handle.DangerousRelease();
-                        }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
@@ -21473,13 +21385,9 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                     for (int i = 1; i < holder.Length; i++)
                     {
                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        {
                             Arc.Release(retained.Ptr);
-                        }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
-                        {
                             deferred.Handle.DangerousRelease();
-                        }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
@@ -21650,13 +21558,9 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                     for (int i = 1; i < holder.Length; i++)
                     {
                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        {
                             Arc.Release(retained.Ptr);
-                        }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
-                        {
                             deferred.Handle.DangerousRelease();
-                        }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
@@ -21827,13 +21731,9 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                     for (int i = 1; i < holder.Length; i++)
                     {
                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        {
                             Arc.Release(retained.Ptr);
-                        }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
-                        {
                             deferred.Handle.DangerousRelease();
-                        }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
@@ -22004,13 +21904,9 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                     for (int i = 1; i < holder.Length; i++)
                     {
                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        {
                             Arc.Release(retained.Ptr);
-                        }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
-                        {
                             deferred.Handle.DangerousRelease();
-                        }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
@@ -22511,13 +22407,9 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_r
                     for (int i = 1; i < holder.Length; i++)
                     {
                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        {
                             Arc.Release(retained.Ptr);
-                        }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
-                        {
                             deferred.Handle.DangerousRelease();
-                        }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
@@ -23084,22 +22976,14 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
                 if (handle.Target is object[] holder && holder[0] is TaskCompletionSource holderTcs)
                 {
                     // Free copy buffer memory for non-frozen params and release retained self
-                    // Note: Original params in holder keep internal storage alive
                     for (int i = 1; i < holder.Length; i++)
                     {
                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        {
-                            // Release the extra retain added for async safety
                             Arc.Release(retained.Ptr);
-                        }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
-                        {
-                            // Release the SafeHandle that was kept alive for async safety
                             deferred.Handle.DangerousRelease();
-                        }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
-                            // Call Destroy to release Swift references, then free buffer
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
                             NativeMemory.Free((void*)copyBuffer.Buffer);
                         }
@@ -23265,22 +23149,14 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
                 if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<int> holderTcs)
                 {
                     // Free copy buffer memory for non-frozen params and release retained self
-                    // Note: Original params in holder keep internal storage alive
                     for (int i = 1; i < holder.Length; i++)
                     {
                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        {
-                            // Release the extra retain added for async safety
                             Arc.Release(retained.Ptr);
-                        }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
-                        {
-                            // Release the SafeHandle that was kept alive for async safety
                             deferred.Handle.DangerousRelease();
-                        }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
-                            // Call Destroy to release Swift references, then free buffer
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
                             NativeMemory.Free((void*)copyBuffer.Buffer);
                         }
@@ -23457,13 +23333,9 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     for (int i = 1; i < holder.Length; i++)
                     {
                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        {
                             Arc.Release(retained.Ptr);
-                        }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
-                        {
                             deferred.Handle.DangerousRelease();
-                        }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
@@ -23633,22 +23505,14 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 if (handle.Target is object[] holder && holder[0] is TaskCompletionSource holderTcs)
                 {
                     // Free copy buffer memory for non-frozen params and release retained self
-                    // Note: Original params in holder keep internal storage alive
                     for (int i = 1; i < holder.Length; i++)
                     {
                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        {
-                            // Release the extra retain added for async safety
                             Arc.Release(retained.Ptr);
-                        }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
-                        {
-                            // Release the SafeHandle that was kept alive for async safety
                             deferred.Handle.DangerousRelease();
-                        }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
-                            // Call Destroy to release Swift references, then free buffer
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
                             NativeMemory.Free((void*)copyBuffer.Buffer);
                         }
@@ -23812,22 +23676,14 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<int> holderTcs)
                 {
                     // Free copy buffer memory for non-frozen params and release retained self
-                    // Note: Original params in holder keep internal storage alive
                     for (int i = 1; i < holder.Length; i++)
                     {
                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        {
-                            // Release the extra retain added for async safety
                             Arc.Release(retained.Ptr);
-                        }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
-                        {
-                            // Release the SafeHandle that was kept alive for async safety
                             deferred.Handle.DangerousRelease();
-                        }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
-                            // Call Destroy to release Swift references, then free buffer
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
                             NativeMemory.Free((void*)copyBuffer.Buffer);
                         }
@@ -23991,22 +23847,14 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<int> holderTcs)
                 {
                     // Free copy buffer memory for non-frozen params and release retained self
-                    // Note: Original params in holder keep internal storage alive
                     for (int i = 1; i < holder.Length; i++)
                     {
                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        {
-                            // Release the extra retain added for async safety
                             Arc.Release(retained.Ptr);
-                        }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
-                        {
-                            // Release the SafeHandle that was kept alive for async safety
                             deferred.Handle.DangerousRelease();
-                        }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
-                            // Call Destroy to release Swift references, then free buffer
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
                             NativeMemory.Free((void*)copyBuffer.Buffer);
                         }
@@ -24630,13 +24478,9 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_p
                     for (int i = 1; i < holder.Length; i++)
                     {
                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        {
                             Arc.Release(retained.Ptr);
-                        }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
-                        {
                             deferred.Handle.DangerousRelease();
-                        }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
@@ -24844,22 +24688,14 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_p
                 if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<int> holderTcs)
                 {
                     // Free copy buffer memory for non-frozen params and release retained self
-                    // Note: Original params in holder keep internal storage alive
                     for (int i = 1; i < holder.Length; i++)
                     {
                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        {
-                            // Release the extra retain added for async safety
                             Arc.Release(retained.Ptr);
-                        }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
-                        {
-                            // Release the SafeHandle that was kept alive for async safety
                             deferred.Handle.DangerousRelease();
-                        }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
-                            // Call Destroy to release Swift references, then free buffer
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
                             NativeMemory.Free((void*)copyBuffer.Buffer);
                         }
@@ -41320,13 +41156,9 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                     for (int i = 1; i < holder.Length; i++)
                     {
                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        {
                             Arc.Release(retained.Ptr);
-                        }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
-                        {
                             deferred.Handle.DangerousRelease();
-                        }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
