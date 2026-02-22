@@ -250,7 +250,7 @@ namespace BindingsGeneration
         /// Uses the public method name and projected C# parameter types,
         /// so different Swift overloads that produce identical C# signatures are deduplicated.
         /// </summary>
-        private static string GetProjectedCSharpMethodKey(MethodDecl methodDecl, ITypeDatabase typeDatabase, ILogger? logger = null)
+        protected static string GetProjectedCSharpMethodKey(MethodDecl methodDecl, ITypeDatabase typeDatabase, ILogger? logger = null)
         {
             var returnTypeSpec = methodDecl.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
             bool hasReturnValue = returnTypeSpec != null && !returnTypeSpec.IsEmptyTuple;
@@ -315,7 +315,7 @@ namespace BindingsGeneration
         /// <summary>
         /// Creates a unique signature key for a method based on name, constructor status, and parameter types.
         /// </summary>
-        private static string GetMethodSignatureKey(MethodDecl methodDecl, ITypeDatabase typeDatabase, ILogger? logger = null)
+        protected static string GetMethodSignatureKey(MethodDecl methodDecl, ITypeDatabase typeDatabase, ILogger? logger = null)
         {
             var paramTypes = new List<string>();
             // Skip first element (return type) in CSSignature

@@ -68,6 +68,6 @@ public class ExistentialProjection : ITypeProjection
         _proxyClassName != null
             ? $"new {_proxyClassName}({elementVar})"
             : _publicType == "object"
-                ? elementVar
+                ? $"(object){elementVar}"
                 : $"new {_publicType}({elementVar})";
 }

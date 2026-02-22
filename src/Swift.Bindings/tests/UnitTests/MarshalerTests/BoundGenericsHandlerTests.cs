@@ -315,6 +315,150 @@ public class BoundGenericsHandlerTests
         Assert.Contains("Swift.Array<Swift.Double>", details);
     }
 
+    [Fact]
+    public void TryGetFirstUnsatisfiedConstraint_InheritedProtocolConstraint_ReturnsFalse()
+    {
+        // Setup: Wrapper<U> where U: ChildProtocol, Container<T> where T: ParentProtocol
+        // ChildProtocol inherits from ParentProtocol.
+        // Container<U> should be valid since ChildProtocol satisfies ParentProtocol.
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        // Create ParentProtocol
+        var parentProtocol = new ProtocolDecl
+        {
+            Name = "ParentProtocol",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ParentProtocol"),
+            MangledName = "$s10TestModule14ParentProtocolMp",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(parentProtocol);
+
+        // Create ChildProtocol : ParentProtocol
+        var childProtocol = new ProtocolDecl
+        {
+            Name = "ChildProtocol",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ChildProtocol"),
+            MangledName = "$s10TestModule13ChildProtocolMp",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec> { new NamedTypeSpec("TestModule.ParentProtocol") },
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(childProtocol);
+
+        // Container<T> where T: ParentProtocol
+        CreateGenericStructDecl("Container", moduleDecl, "T", "TestModule.ParentProtocol");
+
+        // Wrapper<U> where U: ChildProtocol (the parent type)
+        var wrapperDecl = CreateGenericStructDecl("Wrapper", moduleDecl, "U", "TestModule.ChildProtocol");
+
+        // Context: a property on Wrapper<U> with type Container<U>
+        var boundGeneric = new NamedTypeSpec("TestModule.Container", new NamedTypeSpec("τ_0_0"));
+        var contextDecl = new PropertyDecl
+        {
+            Name = "storage",
+            SwiftTypeSpec = boundGeneric,
+            ParentDecl = wrapperDecl, // Parent is Wrapper<U>
+            ModuleDecl = moduleDecl,
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = Array.Empty<AccessorDecl>()
+        };
+
+        var found = _handler.TryGetFirstUnsatisfiedConstraint(boundGeneric, contextDecl, out var details);
+
+        // Should pass: U is constrained to ChildProtocol which inherits ParentProtocol
+        Assert.False(found);
+        Assert.Equal(string.Empty, details);
+    }
+
+    [Fact]
+    public void TryGetFirstUnsatisfiedConstraint_UnrelatedProtocolConstraint_ReturnsTrue()
+    {
+        // Setup: Wrapper<U> where U: UnrelatedProtocol, Container<T> where T: RequiredProtocol
+        // UnrelatedProtocol does NOT inherit from RequiredProtocol.
+        // Container<U> should fail since UnrelatedProtocol doesn't satisfy RequiredProtocol.
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        // Create RequiredProtocol (no parent)
+        var requiredProtocol = new ProtocolDecl
+        {
+            Name = "RequiredProtocol",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.RequiredProtocol"),
+            MangledName = "$s10TestModule16RequiredProtocolMp",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(requiredProtocol);
+
+        // Create UnrelatedProtocol (does NOT inherit RequiredProtocol)
+        var unrelatedProtocol = new ProtocolDecl
+        {
+            Name = "UnrelatedProtocol",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.UnrelatedProtocol"),
+            MangledName = "$s10TestModule17UnrelatedProtocolMp",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(unrelatedProtocol);
+
+        // Container<T> where T: RequiredProtocol
+        CreateGenericStructDecl("Container", moduleDecl, "T", "TestModule.RequiredProtocol");
+
+        // Wrapper<U> where U: UnrelatedProtocol
+        var wrapperDecl = CreateGenericStructDecl("Wrapper", moduleDecl, "U", "TestModule.UnrelatedProtocol");
+
+        // Context: property on Wrapper<U> with type Container<U>
+        var boundGeneric = new NamedTypeSpec("TestModule.Container", new NamedTypeSpec("τ_0_0"));
+        var contextDecl = new PropertyDecl
+        {
+            Name = "storage",
+            SwiftTypeSpec = boundGeneric,
+            ParentDecl = wrapperDecl,
+            ModuleDecl = moduleDecl,
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = Array.Empty<AccessorDecl>()
+        };
+
+        var found = _handler.TryGetFirstUnsatisfiedConstraint(boundGeneric, contextDecl, out var details);
+
+        // Should fail: UnrelatedProtocol doesn't satisfy RequiredProtocol
+        Assert.True(found);
+        Assert.Contains("does not satisfy constraint", details);
+    }
+
     #endregion
 
     #region Mixed Generic Parameter Tests
@@ -501,6 +645,48 @@ public class BoundGenericsHandlerTests
         outer.GenericParameters.Add(inner);
 
         Assert.True(_handler.HasNonSwiftObjectGenericArg(outer));
+    }
+
+    [Fact]
+    public void HasNonSwiftObjectGenericArg_WithNamedVoidInNonOptional_ReturnsTrue()
+    {
+        // Result<Swift.Void, Error> — SwiftVoid doesn't implement ISwiftObject
+        var generic = new NamedTypeSpec("TestModule.Result");
+        generic.GenericParameters.Add(new NamedTypeSpec("Swift.Void"));
+        generic.GenericParameters.Add(new NamedTypeSpec("Swift.Error"));
+
+        Assert.True(_handler.HasNonSwiftObjectGenericArg(generic));
+    }
+
+    [Fact]
+    public void HasNonSwiftObjectGenericArg_WithEmptyTupleInNonOptional_ReturnsTrue()
+    {
+        // Result<(), Error> — empty tuple maps to SwiftVoid, doesn't implement ISwiftObject
+        var generic = new NamedTypeSpec("TestModule.Result");
+        generic.GenericParameters.Add(TupleTypeSpec.Empty);
+        generic.GenericParameters.Add(new NamedTypeSpec("Swift.Error"));
+
+        Assert.True(_handler.HasNonSwiftObjectGenericArg(generic));
+    }
+
+    [Fact]
+    public void HasNonSwiftObjectGenericArg_WithNamedVoidInOptional_ReturnsFalse()
+    {
+        // Optional<Swift.Void> — SwiftOptional has no ISwiftObject constraint
+        var optional = new NamedTypeSpec("Swift.Optional");
+        optional.GenericParameters.Add(new NamedTypeSpec("Swift.Void"));
+
+        Assert.False(_handler.HasNonSwiftObjectGenericArg(optional));
+    }
+
+    [Fact]
+    public void HasNonSwiftObjectGenericArg_WithEmptyTupleInOptional_ReturnsFalse()
+    {
+        // Optional<()> — SwiftOptional has no ISwiftObject constraint
+        var optional = new NamedTypeSpec("Swift.Optional");
+        optional.GenericParameters.Add(TupleTypeSpec.Empty);
+
+        Assert.False(_handler.HasNonSwiftObjectGenericArg(optional));
     }
 
     [Fact]

@@ -45,7 +45,7 @@ namespace BindingsGeneration
 
             if (_requiresSwiftAsync)
             {
-                csWriter.WriteLine("return task.Task;");
+                csWriter.WriteLine("return _tcs.Task;");
                 return;
             }
 

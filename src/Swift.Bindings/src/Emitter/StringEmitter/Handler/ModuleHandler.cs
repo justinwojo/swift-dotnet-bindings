@@ -142,11 +142,37 @@ namespace BindingsGeneration
                     csWriter.WriteLine("{");
                     csWriter.Indent++;
                     csWriter.WriteLine();
+                    // Track emitted signatures to avoid duplicate free function overloads
+                    // (e.g., Swift count(_:) vs count(distinct:) which both project to GetCount<T0>(T0))
+                    var emittedMethodSignatures = new HashSet<string>();
+                    var emittedProjectedSignatures = new HashSet<string>(StringComparer.Ordinal);
                     foreach (MethodDecl methodDecl in moduleDecl.Methods)
                     {
+                        // Primary dedup: Swift-level signature
+                        var signatureKey = GetMethodSignatureKey(methodDecl, env.TypeDatabase, _logger);
+                        if (emittedMethodSignatures.Contains(signatureKey))
+                        {
+                            _logger.LogDebug($"Skipping duplicate free function '{methodDecl.Name}' with signature: {signatureKey}");
+                            ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, moduleDecl, SkipReason.DuplicateSignature, signatureKey);
+                            csWriter.WriteLine();
+                            continue;
+                        }
+                        emittedMethodSignatures.Add(signatureKey);
+
+                        // Secondary dedup: projected C# public signature
+                        var projectedKey = GetProjectedCSharpMethodKey(methodDecl, env.TypeDatabase, _logger);
+                        if (!emittedProjectedSignatures.Add(projectedKey))
+                        {
+                            _logger.LogDebug($"Skipping free function '{methodDecl.Name}' - projected C# signature collides: {projectedKey}");
+                            ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, moduleDecl, SkipReason.DuplicateSignature, $"Projected C# method signature collides: {projectedKey}");
+                            csWriter.WriteLine();
+                            continue;
+                        }
+
                         if (conductor.TryGetMethodHandler(methodDecl, out var methodHandler))
                         {
                             var methodEnv = new MethodEnvironment(methodDecl, env.TypeDatabase, compositionCollector: context.CompositionCollector);
+                            methodEnv.EmittedProjectedSignatures = emittedProjectedSignatures;
                             methodHandler.Emit(csWriter, swiftWriter, methodEnv, conductor, context);
                         }
                         else

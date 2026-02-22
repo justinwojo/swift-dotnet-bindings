@@ -34,7 +34,7 @@ public class MethodHandlerOutputTests
 
         Assert.Contains("[LibraryImport(\"/tmp/AsyncWrapper.dylib\"", csOutput);
         Assert.Contains("public Task<long> FetchAsync(System.Threading.CancellationToken cancellationToken = default)", csOutput);
-        Assert.Contains("return task.Task;", csOutput);
+        Assert.Contains("return _tcs.Task;", csOutput);
     }
 
     [Fact]

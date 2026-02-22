@@ -552,6 +552,77 @@ public class TypeDatabaseExtensionsTests
         Assert.Equal("Type is missing from the type database", fallbackInfo.Value.Reason);
     }
 
+    // --- Foundation remapped value types (Session 10 additions) ---
+
+    [Theory]
+    [InlineData("Foundation.URLSession.ResponseDisposition", "Foundation", "NSUrlSessionResponseDisposition")]
+    [InlineData("Foundation.URLSession.AuthChallengeDisposition", "Foundation", "NSUrlSessionAuthChallengeDisposition")]
+    [InlineData("Foundation.RunLoop.Mode", "Foundation", "NSRunLoopMode")]
+    [InlineData("Foundation.FileAttributeKey", "Foundation", "NSString")]
+    [InlineData("Foundation.NSData.WritingOptions", "Foundation", "NSDataWritingOptions")]
+    [InlineData("UIKit.UIImage.RenderingMode", "UIKit", "UIImageRenderingMode")]
+    [InlineData("UIKit.UIView.AnimationOptions", "UIKit", "UIViewAnimationOptions")]
+    [InlineData("Photos.PHImageContentMode", "Photos", "PHImageContentMode")]
+    public void GetTypeRecordOrAnyType_FoundationRemappedValueType_ReturnsCorrectName(string swiftType, string expectedNamespace, string expectedName)
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec(swiftType));
+
+        Assert.NotEqual(TypeDatabaseExtensions.AnyType, record);
+        Assert.Equal($"{expectedNamespace}.{expectedName}", record.CSharpTypeName.FullyQualifiedName);
+        Assert.Equal(TypeRecordFlags.Frozen, record.Flags);
+        Assert.Equal(TypeRecordKind.Struct, record.Kind);
+        Assert.False((record.Flags & TypeRecordFlags.ObjCBridged) != 0);
+    }
+
+    [Theory]
+    [InlineData("Foundation.URLSession.ResponseDisposition")]
+    [InlineData("Foundation.URLSession.AuthChallengeDisposition")]
+    [InlineData("Foundation.RunLoop.Mode")]
+    [InlineData("Foundation.FileAttributeKey")]
+    public void IsObjCModuleType_FoundationValueType_ReturnsFalse(string swiftType)
+    {
+        var result = TypeDatabaseExtensions.IsObjCModuleType(new NamedTypeSpec(swiftType));
+
+        Assert.False(result);
+    }
+
+    // --- Nested Apple enum value types excluded from ObjC bridging ---
+
+    [Fact]
+    public void GetTypeRecordOrAnyType_NSRegularExpressionOptions_ReturnsRemappedRecord()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec("Foundation.NSRegularExpression.Options"));
+
+        Assert.NotEqual(TypeDatabaseExtensions.AnyType, record);
+        Assert.Equal("Foundation.NSRegularExpressionOptions", record.CSharpTypeName.FullyQualifiedName);
+        Assert.Equal(TypeRecordFlags.Frozen, record.Flags);
+        Assert.Equal(TypeRecordKind.Struct, record.Kind);
+    }
+
+    [Fact]
+    public void IsObjCModuleType_NSRegularExpressionOptions_ReturnsFalse()
+    {
+        var result = TypeDatabaseExtensions.IsObjCModuleType(new NamedTypeSpec("Foundation.NSRegularExpression.Options"));
+
+        Assert.False(result);
+    }
+
+    [Theory]
+    [InlineData("UIKit.UIImage.RenderingMode")]
+    [InlineData("UIKit.UIView.AnimationOptions")]
+    [InlineData("Foundation.NSData.WritingOptions")]
+    [InlineData("Photos.PHImageContentMode")]
+    public void IsObjCModuleType_NestedAppleEnumValueType_ReturnsFalse(string swiftType)
+    {
+        var result = TypeDatabaseExtensions.IsObjCModuleType(new NamedTypeSpec(swiftType));
+
+        Assert.False(result);
+    }
+
     // --- UIKeyboardType is a simple enum in UIKitDatabase.xml, NOT an ObjC class ---
     // UIKeyboardType is a C enum (NS_ENUM) in UIKit, not an NSObject subclass.
     // Registered in UIKitDatabase.xml with simpleEnum="true" and in AppleFrameworkValueTypes

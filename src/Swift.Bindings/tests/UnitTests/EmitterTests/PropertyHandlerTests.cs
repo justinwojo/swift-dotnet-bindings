@@ -1433,6 +1433,107 @@ public class PropertyHandlerTests
 
     #endregion
 
+    #region Explicit Interface Accessor Shape Tests
+
+    [Fact]
+    public void Emit_ExplicitInterfaceImpl_UsesProtocolAccessorShape_NotConcreteType()
+    {
+        // Regression test for Finding 1: When a protocol declares a property as { get }
+        // but the concrete type has { get; set; }, the explicit interface implementation
+        // must use the protocol's accessor shape (get-only), not the concrete type's.
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+
+        // Class named "Displayable" — a property named "displayable" triggers CS0542 rename
+        var classDecl = CreateClassDeclForEmission("Displayable", moduleDecl);
+
+        // Protocol "Displayable" declares the property as get-only
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Displayable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Displayable"),
+            MangledName = "$s10TestModule11DisplayablePPN",
+            Properties = new List<PropertyDecl>
+            {
+                CreatePropertyDecl("displayable", hasGetter: true, hasSetter: false)
+            },
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        // Concrete type conforms to the protocol
+        classDecl.Conformances.Add(new TypeConformance(
+            ConformingType: classDecl.SwiftTypeName,
+            Protocol: protocolDecl.SwiftTypeName,
+            ProtocolConformanceDescriptor: "$s10TestModule11DisplayableCAA0C0AAWP"));
+
+        // Concrete property has BOTH getter and setter
+        var property = CreateEmittablePropertyDecl(classDecl, moduleDecl, "displayable", "Swift.Int",
+            hasGetter: true, hasSetter: true);
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        // The main property should be renamed to DisplayableValue (CS0542 avoidance)
+        Assert.Contains("public long DisplayableValue", csOutput);
+        // Explicit interface implementation should exist
+        Assert.Contains("IDisplayable.Displayable", csOutput);
+        // The explicit interface impl should have ONLY a getter (matching protocol shape)
+        Assert.Contains("get => DisplayableValue;", csOutput);
+        // Should NOT have a setter in the explicit interface implementation
+        Assert.DoesNotContain("set => DisplayableValue", csOutput);
+    }
+
+    [Fact]
+    public void Emit_ExplicitInterfaceImpl_WithProtocolGetSet_EmitsBothAccessors()
+    {
+        // Counter-case: when the protocol declares { get; set; }, both should be emitted.
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("Displayable", moduleDecl);
+
+        // Protocol declares { get; set; }
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Displayable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Displayable"),
+            MangledName = "$s10TestModule11DisplayablePPN",
+            Properties = new List<PropertyDecl>
+            {
+                CreatePropertyDecl("displayable", hasGetter: true, hasSetter: true)
+            },
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        classDecl.Conformances.Add(new TypeConformance(
+            ConformingType: classDecl.SwiftTypeName,
+            Protocol: protocolDecl.SwiftTypeName,
+            ProtocolConformanceDescriptor: "$s10TestModule11DisplayableCAA0C0AAWP"));
+
+        var property = CreateEmittablePropertyDecl(classDecl, moduleDecl, "displayable", "Swift.Int",
+            hasGetter: true, hasSetter: true);
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        Assert.Contains("IDisplayable.Displayable", csOutput);
+        Assert.Contains("get => DisplayableValue;", csOutput);
+        Assert.Contains("set => DisplayableValue = value;", csOutput);
+    }
+
+    #endregion
+
     private class MockPropertyTypeDatabase : ITypeDatabase
     {
         public string AsyncLibraryName => null!;

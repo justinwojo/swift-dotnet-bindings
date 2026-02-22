@@ -148,6 +148,18 @@ namespace BindingsGeneration
                     continue;
                 }
 
+                // Skip properties whose type is a bound generic with non-ISwiftObject args
+                // (e.g., Delegate<T, SwiftVoid> — SwiftVoid doesn't implement ISwiftObject).
+                if (propertyDecl.SwiftTypeSpec is NamedTypeSpec propNamedType &&
+                    propNamedType.ContainsGenericParameters &&
+                    boundGenericsHandler.HasNonSwiftObjectGenericArg(propertyDecl.SwiftTypeSpec))
+                {
+                    skippedPropertyNames.Add(propertyDecl.Name);
+                    _logger.LogDebug($"Skipping property '{propertyDecl.Name}' in interface {protocolDecl.Name} - bound generic argument cannot satisfy ISwiftObject.");
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, protocolDecl, SkipReason.UnsatisfiedGenericConstraint, "Bound generic contains type argument that cannot satisfy C# ISwiftObject constraint.");
+                    continue;
+                }
+
                 // Skip ALL closure-typed properties — protocol proxy receivers use
                 // MarshalFromSwift<T> which can't handle closures (falls through to AnyType).
                 // See method skip gate below for detailed rationale and future-work note.

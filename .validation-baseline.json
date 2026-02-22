@@ -1,11 +1,11 @@
 {
-  "timestamp": "2026-02-22T05:57:40Z",
-  "git_sha": "b571abe",
+  "timestamp": "2026-02-22T14:47:29Z",
+  "git_sha": "6107c1d",
   "runtime_version": "0.1.0-preview.5",
   "compile_gate": {
     "total": 32,
-    "passed": 27,
-    "failed": 5,
+    "passed": 29,
+    "failed": 3,
     "libraries": {
       "Alamofire": {
         "generate": "fail",
@@ -16,9 +16,9 @@
       },
       "BlinkID": {
         "generate": "fail",
-        "compile": "fail",
-        "errors": 2,
-        "lines": 51981,
+        "compile": "ok",
+        "errors": 0,
+        "lines": 51904,
         "gen_seconds": 2
       },
       "BlinkIDUX": {
@@ -26,7 +26,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 9030,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "BRLMPrinterKit": {
         "generate": "ok",
@@ -39,15 +39,15 @@
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
-        "lines": 32082,
+        "lines": 32044,
         "gen_seconds": 2
       },
       "GRDB": {
         "generate": "fail",
         "compile": "fail",
-        "errors": 8,
-        "lines": 80007,
-        "gen_seconds": 4
+        "errors": 27,
+        "lines": 79743,
+        "gen_seconds": 3
       },
       "KeychainAccess": {
         "generate": "ok",
@@ -59,15 +59,15 @@
       "Kingfisher": {
         "generate": "fail",
         "compile": "fail",
-        "errors": 30,
-        "lines": 47583,
-        "gen_seconds": 3
+        "errors": 3,
+        "lines": 47323,
+        "gen_seconds": 4
       },
       "Lottie": {
         "generate": "ok",
-        "compile": "fail",
-        "errors": 1,
-        "lines": 34485,
+        "compile": "ok",
+        "errors": 0,
+        "lines": 34487,
         "gen_seconds": 3
       },
       "Mappedin": {
@@ -89,7 +89,7 @@
         "compile": "fail",
         "errors": 1,
         "lines": 7150,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "Nuke": {
         "generate": "ok",
@@ -110,56 +110,56 @@
         "compile": "ok",
         "errors": 0,
         "lines": 13247,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "SmartCardIO": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 4609,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "SnapKit": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 10540,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "Starscream": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 15861,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "Stripe": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 493,
-        "gen_seconds": 2
+        "gen_seconds": 3
       },
       "StripeApplePay": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 2872,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "StripeCameraCore": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 3657,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "StripeCardScan": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 2595,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "StripeConnect": {
         "generate": "fail",
@@ -180,7 +180,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 6820,
-        "gen_seconds": 2
+        "gen_seconds": 3
       },
       "StripeFinancialConnections": {
         "generate": "fail",
@@ -194,21 +194,21 @@
         "compile": "ok",
         "errors": 0,
         "lines": 1690,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "StripeIssuing": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 1498,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "StripePayments": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 94394,
-        "gen_seconds": 3
+        "gen_seconds": 2
       },
       "StripePaymentSheet": {
         "generate": "fail",

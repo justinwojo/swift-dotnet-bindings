@@ -579,6 +579,22 @@ public static class TypeDatabaseExtensions
         "Foundation.Stream.Event",
         // Foundation nested ObjC enum: Operation.QueuePriority → NSOperationQueuePriority
         "Foundation.Operation.QueuePriority",
+        // Foundation nested ObjC enums from URLSession delegate protocols
+        "Foundation.URLSession.ResponseDisposition",
+        "Foundation.URLSession.AuthChallengeDisposition",
+        // Foundation nested struct: RunLoop.Mode → NSRunLoopMode
+        "Foundation.RunLoop.Mode",
+        // Foundation ObjC typedef (NSString-based key type — NSFileAttributeKey not bound in .NET iOS)
+        "Foundation.FileAttributeKey",
+        // Foundation nested ObjC NS_OPTIONS: NSData.WritingOptions → NSDataWritingOptions
+        "Foundation.NSData.WritingOptions",
+        // UIKit nested ObjC enums (value types, not NSObject subclasses)
+        "UIKit.UIImage.RenderingMode",
+        "UIKit.UIView.AnimationOptions",
+        // Photos ObjC enum (value type)
+        "Photos.PHImageContentMode",
+        // Foundation NS_OPTIONS imported via NSRegularExpression.Options
+        "Foundation.NSRegularExpression.Options",
     };
 
     /// <summary>
@@ -602,6 +618,23 @@ public static class TypeDatabaseExtensions
         ["Foundation.Stream.Event"] = ("Foundation", "NSStreamEvent"),
         // Foundation nested ObjC enum: Swift nested form → .NET NS-prefix form
         ["Foundation.Operation.QueuePriority"] = ("Foundation", "NSOperationQueuePriority"),
+        // Foundation URLSession delegate enums: Swift nested form → .NET NS-prefix form
+        ["Foundation.URLSession.ResponseDisposition"] = ("Foundation", "NSUrlSessionResponseDisposition"),
+        ["Foundation.URLSession.AuthChallengeDisposition"] = ("Foundation", "NSUrlSessionAuthChallengeDisposition"),
+        // Foundation RunLoop.Mode → NSRunLoopMode
+        ["Foundation.RunLoop.Mode"] = ("Foundation", "NSRunLoopMode"),
+        // Foundation FileAttributeKey → NSString (ObjC typedef NSString *NSFileAttributeKey;
+        // NSFileAttributeKey is not bound as a separate type in .NET iOS SDK)
+        ["Foundation.FileAttributeKey"] = ("Foundation", "NSString"),
+        // Foundation NS_OPTIONS: NSRegularExpression.Options → NSRegularExpressionOptions
+        ["Foundation.NSRegularExpression.Options"] = ("Foundation", "NSRegularExpressionOptions"),
+        // Foundation NS_OPTIONS: NSData.WritingOptions → NSDataWritingOptions
+        ["Foundation.NSData.WritingOptions"] = ("Foundation", "NSDataWritingOptions"),
+        // UIKit nested enums: Swift nested form → .NET flattened form
+        ["UIKit.UIImage.RenderingMode"] = ("UIKit", "UIImageRenderingMode"),
+        ["UIKit.UIView.AnimationOptions"] = ("UIKit", "UIViewAnimationOptions"),
+        // Photos enum (already flat in .NET)
+        ["Photos.PHImageContentMode"] = ("Photos", "PHImageContentMode"),
     };
 
     /// <summary>

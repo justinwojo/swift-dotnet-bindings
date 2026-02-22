@@ -343,6 +343,34 @@ public class ProtocolSignatureHelperTests
         Assert.Equal("long", result);
     }
 
+    [Fact]
+    public void NormalizeParamType_OptionalString_StripsNullable()
+    {
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var optionalType = new NamedTypeSpec("Swift.Optional");
+        optionalType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        var result = ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity(
+            "string?", optionalType, typeDatabase);
+
+        // String projects to 'string' (reference type in C#) — nullable annotation stripped
+        Assert.Equal("string", result);
+    }
+
+    [Fact]
+    public void NormalizeParamType_OptionalObject_StripsNullable()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var optionalType = new NamedTypeSpec("Swift.Optional");
+        optionalType.GenericParameters.Add(new NamedTypeSpec("UnknownModule.SomeType"));
+
+        var result = ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity(
+            "object?", optionalType, typeDatabase);
+
+        // 'object' is a reference type in C# — nullable annotation stripped
+        Assert.Equal("object", result);
+    }
+
     #endregion
 
     #region Helper Methods

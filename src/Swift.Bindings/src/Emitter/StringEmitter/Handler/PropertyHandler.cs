@@ -441,8 +441,77 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
 
         csWriter.Indent--;
         csWriter.WriteLine("}");
+
+        // CS0535 fix: When a property was CS0542-renamed (e.g., DatabaseValue → DatabaseValueValue),
+        // any conformance interface that declares the original name (DatabaseValue) won't be satisfied.
+        // Emit explicit interface implementations to bridge the gap.
+        var originalName = NameProvider.GetPropertyName(propertyDecl.Name);
+        if (propertyName != originalName && !propertyDecl.IsStatic)
+        {
+            EmitExplicitInterfaceImplementations(csWriter, propertyDecl, originalName, propertyName, csTypeName);
+        }
+
         csWriter.WriteLine();
         ReportCollector.RecordMemberEmitted(BindingItemKind.Property, propertyDecl.Name, propertyDecl.ParentDecl);
+    }
+
+    /// <summary>
+    /// Emits explicit interface implementations when a property was CS0542-renamed.
+    /// Searches the parent type's conformances for protocols that declare a property with
+    /// the original Swift name, and emits forwarding properties like:
+    ///   Type IInterface.OriginalName => RenamedName;
+    /// </summary>
+    private void EmitExplicitInterfaceImplementations(CSharpWriter csWriter, PropertyDecl propertyDecl,
+        string originalName, string renamedName, string csTypeName)
+    {
+        // Get conformances from parent type
+        var parentTypeDecl = propertyDecl.ParentDecl as TypeDecl;
+        if (parentTypeDecl == null)
+            return;
+
+        var conformances = parentTypeDecl switch
+        {
+            StructDecl s => s.Conformances,
+            ClassDecl c => c.Conformances,
+            EnumDecl e => e.Conformances,
+            _ => null
+        };
+        if (conformances == null || conformances.Count == 0)
+            return;
+
+        var moduleDecl = propertyDecl.ModuleDecl;
+        if (moduleDecl == null)
+            return;
+
+        // For each conformance, check if the protocol declares a property with the original Swift name
+        foreach (var conformance in conformances)
+        {
+            var protocolDecl = moduleDecl.Protocols
+                .FirstOrDefault(p => p.SwiftTypeName.Module == conformance.Protocol.Module
+                    && p.SwiftTypeName.Name == conformance.Protocol.Name);
+            if (protocolDecl == null)
+                continue;
+
+            // Check if this protocol declares a property with the same Swift name
+            var protocolProperty = protocolDecl.Properties.FirstOrDefault(p => p.Name == propertyDecl.Name);
+            if (protocolProperty == null)
+                continue;
+
+            var interfaceName = NameProvider.GetInterfaceName(protocolDecl.Name, moduleName: protocolDecl.ModuleDecl?.Name ?? "");
+            // Use the protocol property's accessor shape, not the concrete type's.
+            // A protocol may declare { get } while the concrete type exposes { get; set; }.
+            var hasSetter = protocolProperty.Accessors.OfType<SetAccessorDecl>().Any();
+
+            csWriter.WriteLine();
+            csWriter.WriteLine($"{csTypeName} {interfaceName}.{originalName}");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine($"get => {renamedName};");
+            if (hasSetter)
+                csWriter.WriteLine($"set => {renamedName} = value;");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+        }
     }
 
     private static readonly TypeProjectionFactory s_projectionFactory = new();

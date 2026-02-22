@@ -136,9 +136,18 @@ namespace BindingsGeneration
         {
             foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1).Where(_env.BoundGenericsHandler.IsBoundGeneric))
             {
-                // Skip if this argument uses type conversion (already handled in EmitTypeConversions)
+                // Skip if this argument uses type conversion (already handled in EmitTypeConversions),
+                // but only if the projection factory can actually handle it. For cases like
+                // Array<BoundGeneric> where the inner type has generic parameters, the factory
+                // returns null and EmitTypeConversions won't emit the buffer variable — so we
+                // must handle it here via the bound generic buffer extraction path.
                 if (!_env.MethodDecl.IsAccessor && MarshallingHelpers.IsConvertibleType(argumentDecl.SwiftTypeSpec))
-                    continue;
+                {
+                    var projection = s_projectionFactory.Project(argumentDecl.SwiftTypeSpec,
+                        new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = true, GenericContext = _genericContext });
+                    if (projection != null)
+                        continue;
+                }
 
                 // Skip Optional<existential> — handled by dedicated existential marshalling path
                 if (_env.ExistentialHandler.IsOptionalExistential(argumentDecl.SwiftTypeSpec))

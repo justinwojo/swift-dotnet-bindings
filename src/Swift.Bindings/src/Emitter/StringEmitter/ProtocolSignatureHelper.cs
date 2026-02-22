@@ -186,10 +186,23 @@ internal static class ProtocolSignatureHelper
                 innerRecord.Kind == TypeRecordKind.Existential ||
                 (innerRecord.Kind == TypeRecordKind.Enum && !innerRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum)))
                 return projectedType.TrimEnd('?');
+
+            // Swift value types that project to C# reference types (e.g., Swift.String → string).
+            // In C#, Optional<String> and String both map to 'string' / 'string?' which are the
+            // same CLR type (nullability is annotation-only for reference types).
+            if (projectedType.EndsWith("?") && IsCSharpReferenceTypeProjection(projectedType.TrimEnd('?')))
+                return projectedType.TrimEnd('?');
         }
 
         return projectedType;
     }
+
+    /// <summary>
+    /// Checks if a projected C# type name is a reference type in the CLR,
+    /// where nullability is annotation-only and doesn't affect overload resolution.
+    /// </summary>
+    private static bool IsCSharpReferenceTypeProjection(string projectedType) =>
+        projectedType is "string" or "object";
 
     /// <summary>
     /// Maps an associated type reference to a C# generic parameter name.

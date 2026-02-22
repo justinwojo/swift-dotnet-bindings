@@ -14748,8 +14748,8 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, int, IntP
     {
         unsafe
         {
-            TaskCompletionSource<int> task = new TaskCompletionSource<int>();
-            object[] _asyncCallHolder = new object[] { task, new DeferredSafeHandleRelease(_payload), (object)this, null! };
+            TaskCompletionSource<int> _tcs = new TaskCompletionSource<int>();
+            object[] _asyncCallHolder = new object[] { _tcs, new DeferredSafeHandleRelease(_payload), (object)this, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             if (cancellationToken.IsCancellationRequested)
             {
@@ -14779,7 +14779,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, int, IntP
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (task, cancellationToken, taskId));
+                    (_tcs, cancellationToken, taskId));
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             var success = false;
@@ -14792,7 +14792,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, int, IntP
                 
                 PInvoke_asyncParse_028ADCF1(s_asyncParseCallback_028ADCF1, s_asyncParseErrorCallback_028ADCF1, GCHandle.ToIntPtr(handle), inputDisposable.Buffer, _payload.DangerousGetHandle());
                 
-                return task.Task;
+                return _tcs.Task;
             }
             
             finally
@@ -16683,8 +16683,8 @@ public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
     {
         unsafe
         {
-            TaskCompletionSource<int> task = new TaskCompletionSource<int>();
-            object[] _asyncCallHolder = new object[] { task, new DeferredSafeHandleRelease(_payload), (object)this, null! };
+            TaskCompletionSource<int> _tcs = new TaskCompletionSource<int>();
+            object[] _asyncCallHolder = new object[] { _tcs, new DeferredSafeHandleRelease(_payload), (object)this, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             if (cancellationToken.IsCancellationRequested)
             {
@@ -16714,7 +16714,7 @@ public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (task, cancellationToken, taskId));
+                    (_tcs, cancellationToken, taskId));
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             var success = false;
@@ -16725,7 +16725,7 @@ public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
                 
                 PInvoke_asyncThrowingMethod_AEC9A748(s_asyncThrowingMethodCallback_AEC9A748, s_asyncThrowingMethodErrorCallback_AEC9A748, GCHandle.ToIntPtr(handle), shouldThrow, _payload.DangerousGetHandle());
                 
-                return task.Task;
+                return _tcs.Task;
             }
             
             finally
@@ -16856,8 +16856,8 @@ public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
     {
         unsafe
         {
-            TaskCompletionSource task = new TaskCompletionSource();
-            object[] _asyncCallHolder = new object[] { task, new DeferredSafeHandleRelease(_payload), (object)this, null! };
+            TaskCompletionSource _tcs = new TaskCompletionSource();
+            object[] _asyncCallHolder = new object[] { _tcs, new DeferredSafeHandleRelease(_payload), (object)this, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             if (cancellationToken.IsCancellationRequested)
             {
@@ -16887,7 +16887,7 @@ public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (task, cancellationToken, taskId));
+                    (_tcs, cancellationToken, taskId));
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             var success = false;
@@ -16898,7 +16898,7 @@ public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
                 
                 PInvoke_asyncThrowingVoid_22F39542(s_asyncThrowingVoidCallback_22F39542, s_asyncThrowingVoidErrorCallback_22F39542, GCHandle.ToIntPtr(handle), shouldThrow, _payload.DangerousGetHandle());
                 
-                return task.Task;
+                return _tcs.Task;
             }
             
             finally
@@ -17039,8 +17039,8 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     {
         unsafe
         {
-            TaskCompletionSource<string> task = new TaskCompletionSource<string>();
-            object[] _asyncCallHolder = new object[] { task, null! };
+            TaskCompletionSource<string> _tcs = new TaskCompletionSource<string>();
+            object[] _asyncCallHolder = new object[] { _tcs, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             if (cancellationToken.IsCancellationRequested)
             {
@@ -17070,7 +17070,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (task, cancellationToken, taskId));
+                    (_tcs, cancellationToken, taskId));
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             try
@@ -17079,7 +17079,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 
                 PInvoke_asyncStaticThrowing_A3C9A920(s_asyncStaticThrowingCallback_A3C9A920, s_asyncStaticThrowingErrorCallback_A3C9A920, GCHandle.ToIntPtr(handle), shouldThrow);
                 
-                return task.Task;
+                return _tcs.Task;
             }
             
             finally
@@ -18205,8 +18205,8 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     {
         unsafe
         {
-            TaskCompletionSource<string> task = new TaskCompletionSource<string>();
-            object[] _asyncCallHolder = new object[] { task, new DeferredSafeHandleRelease(_payload), (object)this, null! };
+            TaskCompletionSource<string> _tcs = new TaskCompletionSource<string>();
+            object[] _asyncCallHolder = new object[] { _tcs, new DeferredSafeHandleRelease(_payload), (object)this, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             if (cancellationToken.IsCancellationRequested)
             {
@@ -18236,7 +18236,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (task, cancellationToken, taskId));
+                    (_tcs, cancellationToken, taskId));
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             var success = false;
@@ -18247,7 +18247,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 
                 PInvoke_asyncGetString_1497F5DC(s_asyncGetStringCallback_1497F5DC, s_asyncGetStringErrorCallback_1497F5DC, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
                 
-                return task.Task;
+                return _tcs.Task;
             }
             
             finally
@@ -18386,8 +18386,8 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     {
         unsafe
         {
-            TaskCompletionSource<string> task = new TaskCompletionSource<string>();
-            object[] _asyncCallHolder = new object[] { task, new DeferredSafeHandleRelease(_payload), (object)this, null! };
+            TaskCompletionSource<string> _tcs = new TaskCompletionSource<string>();
+            object[] _asyncCallHolder = new object[] { _tcs, new DeferredSafeHandleRelease(_payload), (object)this, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             if (cancellationToken.IsCancellationRequested)
             {
@@ -18417,7 +18417,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (task, cancellationToken, taskId));
+                    (_tcs, cancellationToken, taskId));
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             var success = false;
@@ -18428,7 +18428,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 
                 PInvoke_asyncGetUnicodeString_8523C4C9(s_asyncGetUnicodeStringCallback_8523C4C9, s_asyncGetUnicodeStringErrorCallback_8523C4C9, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
                 
-                return task.Task;
+                return _tcs.Task;
             }
             
             finally
@@ -18567,8 +18567,8 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     {
         unsafe
         {
-            TaskCompletionSource<string> task = new TaskCompletionSource<string>();
-            object[] _asyncCallHolder = new object[] { task, new DeferredSafeHandleRelease(_payload), (object)this, null! };
+            TaskCompletionSource<string> _tcs = new TaskCompletionSource<string>();
+            object[] _asyncCallHolder = new object[] { _tcs, new DeferredSafeHandleRelease(_payload), (object)this, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             if (cancellationToken.IsCancellationRequested)
             {
@@ -18598,7 +18598,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (task, cancellationToken, taskId));
+                    (_tcs, cancellationToken, taskId));
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             var success = false;
@@ -18609,7 +18609,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 
                 PInvoke_asyncGetEmptyString_C08CF909(s_asyncGetEmptyStringCallback_C08CF909, s_asyncGetEmptyStringErrorCallback_C08CF909, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
                 
-                return task.Task;
+                return _tcs.Task;
             }
             
             finally
@@ -18748,8 +18748,8 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     {
         unsafe
         {
-            TaskCompletionSource<string> task = new TaskCompletionSource<string>();
-            object[] _asyncCallHolder = new object[] { task, new DeferredSafeHandleRelease(_payload), (object)this, null! };
+            TaskCompletionSource<string> _tcs = new TaskCompletionSource<string>();
+            object[] _asyncCallHolder = new object[] { _tcs, new DeferredSafeHandleRelease(_payload), (object)this, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             if (cancellationToken.IsCancellationRequested)
             {
@@ -18779,7 +18779,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (task, cancellationToken, taskId));
+                    (_tcs, cancellationToken, taskId));
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             var success = false;
@@ -18790,7 +18790,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 
                 PInvoke_asyncGetLongString_43601BF3(s_asyncGetLongStringCallback_43601BF3, s_asyncGetLongStringErrorCallback_43601BF3, GCHandle.ToIntPtr(handle), length, _payload.DangerousGetHandle());
                 
-                return task.Task;
+                return _tcs.Task;
             }
             
             finally
@@ -18929,8 +18929,8 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     {
         unsafe
         {
-            TaskCompletionSource<string> task = new TaskCompletionSource<string>();
-            object[] _asyncCallHolder = new object[] { task, null! };
+            TaskCompletionSource<string> _tcs = new TaskCompletionSource<string>();
+            object[] _asyncCallHolder = new object[] { _tcs, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             if (cancellationToken.IsCancellationRequested)
             {
@@ -18960,7 +18960,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (task, cancellationToken, taskId));
+                    (_tcs, cancellationToken, taskId));
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             try
@@ -18969,7 +18969,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 
                 PInvoke_asyncStaticString_0725C2FA(s_asyncStaticStringCallback_0725C2FA, s_asyncStaticStringErrorCallback_0725C2FA, GCHandle.ToIntPtr(handle));
                 
-                return task.Task;
+                return _tcs.Task;
             }
             
             finally
@@ -19321,8 +19321,8 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     {
         unsafe
         {
-            TaskCompletionSource<IReadOnlyList<string>> task = new TaskCompletionSource<IReadOnlyList<string>>();
-            object[] _asyncCallHolder = new object[] { task, new DeferredSafeHandleRelease(_payload), (object)this, null! };
+            TaskCompletionSource<IReadOnlyList<string>> _tcs = new TaskCompletionSource<IReadOnlyList<string>>();
+            object[] _asyncCallHolder = new object[] { _tcs, new DeferredSafeHandleRelease(_payload), (object)this, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             if (cancellationToken.IsCancellationRequested)
             {
@@ -19352,7 +19352,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (task, cancellationToken, taskId));
+                    (_tcs, cancellationToken, taskId));
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             var success = false;
@@ -19363,7 +19363,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 
                 PInvoke_asyncGetStringArray_8AD55D95(s_asyncGetStringArrayCallback_8AD55D95, s_asyncGetStringArrayErrorCallback_8AD55D95, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
                 
-                return task.Task;
+                return _tcs.Task;
             }
             
             finally
@@ -19564,8 +19564,8 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     {
         unsafe
         {
-            TaskCompletionSource<IReadOnlyList<string>> task = new TaskCompletionSource<IReadOnlyList<string>>();
-            object[] _asyncCallHolder = new object[] { task, new DeferredSafeHandleRelease(_payload), (object)this, null! };
+            TaskCompletionSource<IReadOnlyList<string>> _tcs = new TaskCompletionSource<IReadOnlyList<string>>();
+            object[] _asyncCallHolder = new object[] { _tcs, new DeferredSafeHandleRelease(_payload), (object)this, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             if (cancellationToken.IsCancellationRequested)
             {
@@ -19595,7 +19595,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (task, cancellationToken, taskId));
+                    (_tcs, cancellationToken, taskId));
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             var success = false;
@@ -19606,7 +19606,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 
                 PInvoke_asyncGetEmptyArray_134E4E7C(s_asyncGetEmptyArrayCallback_134E4E7C, s_asyncGetEmptyArrayErrorCallback_134E4E7C, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
                 
-                return task.Task;
+                return _tcs.Task;
             }
             
             finally
@@ -19807,8 +19807,8 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     {
         unsafe
         {
-            TaskCompletionSource<IReadOnlyList<string>> task = new TaskCompletionSource<IReadOnlyList<string>>();
-            object[] _asyncCallHolder = new object[] { task, new DeferredSafeHandleRelease(_payload), (object)this, null! };
+            TaskCompletionSource<IReadOnlyList<string>> _tcs = new TaskCompletionSource<IReadOnlyList<string>>();
+            object[] _asyncCallHolder = new object[] { _tcs, new DeferredSafeHandleRelease(_payload), (object)this, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             if (cancellationToken.IsCancellationRequested)
             {
@@ -19838,7 +19838,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (task, cancellationToken, taskId));
+                    (_tcs, cancellationToken, taskId));
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             var success = false;
@@ -19849,7 +19849,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 
                 PInvoke_asyncGetSingleElementArray_29FA69F2(s_asyncGetSingleElementArrayCallback_29FA69F2, s_asyncGetSingleElementArrayErrorCallback_29FA69F2, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
                 
-                return task.Task;
+                return _tcs.Task;
             }
             
             finally
@@ -20050,8 +20050,8 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     {
         unsafe
         {
-            TaskCompletionSource<IReadOnlyList<string>> task = new TaskCompletionSource<IReadOnlyList<string>>();
-            object[] _asyncCallHolder = new object[] { task, new DeferredSafeHandleRelease(_payload), (object)this, null! };
+            TaskCompletionSource<IReadOnlyList<string>> _tcs = new TaskCompletionSource<IReadOnlyList<string>>();
+            object[] _asyncCallHolder = new object[] { _tcs, new DeferredSafeHandleRelease(_payload), (object)this, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             if (cancellationToken.IsCancellationRequested)
             {
@@ -20081,7 +20081,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (task, cancellationToken, taskId));
+                    (_tcs, cancellationToken, taskId));
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             var success = false;
@@ -20092,7 +20092,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 
                 PInvoke_asyncGetUnicodeArray_426ACCF0(s_asyncGetUnicodeArrayCallback_426ACCF0, s_asyncGetUnicodeArrayErrorCallback_426ACCF0, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
                 
-                return task.Task;
+                return _tcs.Task;
             }
             
             finally
@@ -20223,8 +20223,8 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     {
         unsafe
         {
-            TaskCompletionSource<IReadOnlyList<int>> task = new TaskCompletionSource<IReadOnlyList<int>>();
-            object[] _asyncCallHolder = new object[] { task, new DeferredSafeHandleRelease(_payload), (object)this, null! };
+            TaskCompletionSource<IReadOnlyList<int>> _tcs = new TaskCompletionSource<IReadOnlyList<int>>();
+            object[] _asyncCallHolder = new object[] { _tcs, new DeferredSafeHandleRelease(_payload), (object)this, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             if (cancellationToken.IsCancellationRequested)
             {
@@ -20254,7 +20254,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (task, cancellationToken, taskId));
+                    (_tcs, cancellationToken, taskId));
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             var success = false;
@@ -20265,7 +20265,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 
                 PInvoke_asyncGetIntArray_154D9F8E(s_asyncGetIntArrayCallback_154D9F8E, s_asyncGetIntArrayErrorCallback_154D9F8E, GCHandle.ToIntPtr(handle), count, _payload.DangerousGetHandle());
                 
-                return task.Task;
+                return _tcs.Task;
             }
             
             finally
@@ -20466,8 +20466,8 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     {
         unsafe
         {
-            TaskCompletionSource<IReadOnlyList<string>> task = new TaskCompletionSource<IReadOnlyList<string>>();
-            object[] _asyncCallHolder = new object[] { task, null! };
+            TaskCompletionSource<IReadOnlyList<string>> _tcs = new TaskCompletionSource<IReadOnlyList<string>>();
+            object[] _asyncCallHolder = new object[] { _tcs, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             if (cancellationToken.IsCancellationRequested)
             {
@@ -20497,7 +20497,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (task, cancellationToken, taskId));
+                    (_tcs, cancellationToken, taskId));
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             try
@@ -20506,7 +20506,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 
                 PInvoke_asyncStaticArray_C78D6541(s_asyncStaticArrayCallback_C78D6541, s_asyncStaticArrayErrorCallback_C78D6541, GCHandle.ToIntPtr(handle));
                 
-                return task.Task;
+                return _tcs.Task;
             }
             
             finally
@@ -20788,8 +20788,8 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
     {
         unsafe
         {
-            TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult> task = new TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult>();
-            object[] _asyncCallHolder = new object[] { task, new DeferredSafeHandleRelease(_payload), (object)this, null! };
+            TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult> _tcs = new TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult>();
+            object[] _asyncCallHolder = new object[] { _tcs, new DeferredSafeHandleRelease(_payload), (object)this, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             if (cancellationToken.IsCancellationRequested)
             {
@@ -20819,7 +20819,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (task, cancellationToken, taskId));
+                    (_tcs, cancellationToken, taskId));
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             var success = false;
@@ -20830,7 +20830,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                 
                 PInvoke_asyncGetResult_AC5EE419(s_asyncGetResultCallback_AC5EE419, s_asyncGetResultErrorCallback_AC5EE419, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
                 
-                return task.Task;
+                return _tcs.Task;
             }
             
             finally
@@ -20961,8 +20961,8 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
     {
         unsafe
         {
-            TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncStatus> task = new TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncStatus>();
-            object[] _asyncCallHolder = new object[] { task, new DeferredSafeHandleRelease(_payload), (object)this, null! };
+            TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncStatus> _tcs = new TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncStatus>();
+            object[] _asyncCallHolder = new object[] { _tcs, new DeferredSafeHandleRelease(_payload), (object)this, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             if (cancellationToken.IsCancellationRequested)
             {
@@ -20992,7 +20992,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (task, cancellationToken, taskId));
+                    (_tcs, cancellationToken, taskId));
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             var success = false;
@@ -21003,7 +21003,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                 
                 PInvoke_asyncGetStatus_F45F0D8B(s_asyncGetStatusCallback_F45F0D8B, s_asyncGetStatusErrorCallback_F45F0D8B, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
                 
-                return task.Task;
+                return _tcs.Task;
             }
             
             finally
@@ -21134,8 +21134,8 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
     {
         unsafe
         {
-            TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncStatus> task = new TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncStatus>();
-            object[] _asyncCallHolder = new object[] { task, new DeferredSafeHandleRelease(_payload), (object)this, null! };
+            TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncStatus> _tcs = new TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncStatus>();
+            object[] _asyncCallHolder = new object[] { _tcs, new DeferredSafeHandleRelease(_payload), (object)this, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             if (cancellationToken.IsCancellationRequested)
             {
@@ -21165,7 +21165,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (task, cancellationToken, taskId));
+                    (_tcs, cancellationToken, taskId));
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             var success = false;
@@ -21176,7 +21176,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                 
                 PInvoke_asyncGetPendingStatus_D28658D9(s_asyncGetPendingStatusCallback_D28658D9, s_asyncGetPendingStatusErrorCallback_D28658D9, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
                 
-                return task.Task;
+                return _tcs.Task;
             }
             
             finally
@@ -21311,8 +21311,8 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
     {
         unsafe
         {
-            TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncTask> task = new TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncTask>();
-            object[] _asyncCallHolder = new object[] { task, new DeferredSafeHandleRelease(_payload), (object)this, null! };
+            TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncTask> _tcs = new TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncTask>();
+            object[] _asyncCallHolder = new object[] { _tcs, new DeferredSafeHandleRelease(_payload), (object)this, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             if (cancellationToken.IsCancellationRequested)
             {
@@ -21342,7 +21342,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (task, cancellationToken, taskId));
+                    (_tcs, cancellationToken, taskId));
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             var success = false;
@@ -21353,7 +21353,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                 
                 PInvoke_asyncGetTask_BB5A1FD0(s_asyncGetTaskCallback_BB5A1FD0, s_asyncGetTaskErrorCallback_BB5A1FD0, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
                 
-                return task.Task;
+                return _tcs.Task;
             }
             
             finally
@@ -21484,8 +21484,8 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
     {
         unsafe
         {
-            TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult?> task = new TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult?>();
-            object[] _asyncCallHolder = new object[] { task, new DeferredSafeHandleRelease(_payload), (object)this, null! };
+            TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult?> _tcs = new TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult?>();
+            object[] _asyncCallHolder = new object[] { _tcs, new DeferredSafeHandleRelease(_payload), (object)this, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             if (cancellationToken.IsCancellationRequested)
             {
@@ -21515,7 +21515,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (task, cancellationToken, taskId));
+                    (_tcs, cancellationToken, taskId));
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             var success = false;
@@ -21526,7 +21526,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                 
                 PInvoke_asyncGetOptionalResult_A844815B(s_asyncGetOptionalResultCallback_A844815B, s_asyncGetOptionalResultErrorCallback_A844815B, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
                 
-                return task.Task;
+                return _tcs.Task;
             }
             
             finally
@@ -21657,8 +21657,8 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
     {
         unsafe
         {
-            TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult?> task = new TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult?>();
-            object[] _asyncCallHolder = new object[] { task, new DeferredSafeHandleRelease(_payload), (object)this, null! };
+            TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult?> _tcs = new TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult?>();
+            object[] _asyncCallHolder = new object[] { _tcs, new DeferredSafeHandleRelease(_payload), (object)this, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             if (cancellationToken.IsCancellationRequested)
             {
@@ -21688,7 +21688,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (task, cancellationToken, taskId));
+                    (_tcs, cancellationToken, taskId));
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             var success = false;
@@ -21699,7 +21699,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                 
                 PInvoke_asyncGetNilResult_BED30DB0(s_asyncGetNilResultCallback_BED30DB0, s_asyncGetNilResultErrorCallback_BED30DB0, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
                 
-                return task.Task;
+                return _tcs.Task;
             }
             
             finally
@@ -21830,8 +21830,8 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
     {
         unsafe
         {
-            TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult> task = new TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult>();
-            object[] _asyncCallHolder = new object[] { task, null! };
+            TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult> _tcs = new TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult>();
+            object[] _asyncCallHolder = new object[] { _tcs, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             if (cancellationToken.IsCancellationRequested)
             {
@@ -21861,7 +21861,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (task, cancellationToken, taskId));
+                    (_tcs, cancellationToken, taskId));
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             try
@@ -21870,7 +21870,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                 
                 PInvoke_asyncStaticResult_9BB9DDF4(s_asyncStaticResultCallback_9BB9DDF4, s_asyncStaticResultErrorCallback_9BB9DDF4, GCHandle.ToIntPtr(handle));
                 
-                return task.Task;
+                return _tcs.Task;
             }
             
             finally
@@ -22005,8 +22005,8 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
     {
         unsafe
         {
-            TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncTask> task = new TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncTask>();
-            object[] _asyncCallHolder = new object[] { task, null! };
+            TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncTask> _tcs = new TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncTask>();
+            object[] _asyncCallHolder = new object[] { _tcs, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             if (cancellationToken.IsCancellationRequested)
             {
@@ -22036,7 +22036,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (task, cancellationToken, taskId));
+                    (_tcs, cancellationToken, taskId));
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             try
@@ -22045,7 +22045,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                 
                 PInvoke_asyncStaticTask_923F9A3F(s_asyncStaticTaskCallback_923F9A3F, s_asyncStaticTaskErrorCallback_923F9A3F, GCHandle.ToIntPtr(handle));
                 
-                return task.Task;
+                return _tcs.Task;
             }
             
             finally
@@ -22506,10 +22506,10 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_r
     {
         unsafe
         {
-            TaskCompletionSource<string> task = new TaskCompletionSource<string>();
+            TaskCompletionSource<string> _tcs = new TaskCompletionSource<string>();
             IntPtr _selfPtr = *(IntPtr*)_payload.DangerousGetHandle();
             Arc.Retain(_selfPtr);
-            object[] _asyncCallHolder = new object[] { task, new RetainedSelfPtr(_selfPtr), (object)this, null! };
+            object[] _asyncCallHolder = new object[] { _tcs, new RetainedSelfPtr(_selfPtr), (object)this, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             if (cancellationToken.IsCancellationRequested)
             {
@@ -22539,7 +22539,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_r
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (task, cancellationToken, taskId));
+                    (_tcs, cancellationToken, taskId));
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             var success = false;
@@ -22550,7 +22550,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_r
                 
                 PInvoke_refreshTitle_BD57AD67(s_refreshTitleCallback_BD57AD67, s_refreshTitleErrorCallback_BD57AD67, GCHandle.ToIntPtr(handle), *(IntPtr*)_payload.DangerousGetHandle());
                 
-                return task.Task;
+                return _tcs.Task;
             }
             
             finally
@@ -23076,8 +23076,8 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
     {
         unsafe
         {
-            TaskCompletionSource task = new TaskCompletionSource();
-            object[] _asyncCallHolder = new object[] { task, new DeferredSafeHandleRelease(_payload), (object)this, null! };
+            TaskCompletionSource _tcs = new TaskCompletionSource();
+            object[] _asyncCallHolder = new object[] { _tcs, new DeferredSafeHandleRelease(_payload), (object)this, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             if (cancellationToken.IsCancellationRequested)
             {
@@ -23107,7 +23107,7 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (task, cancellationToken, taskId));
+                    (_tcs, cancellationToken, taskId));
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             var success = false;
@@ -23118,7 +23118,7 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
                 
                 PInvoke_asyncVoidMethod_F6A56DB1(s_asyncVoidMethodCallback_F6A56DB1, s_asyncVoidMethodErrorCallback_F6A56DB1, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
                 
-                return task.Task;
+                return _tcs.Task;
             }
             
             finally
@@ -23249,8 +23249,8 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
     {
         unsafe
         {
-            TaskCompletionSource<int> task = new TaskCompletionSource<int>();
-            object[] _asyncCallHolder = new object[] { task, new DeferredSafeHandleRelease(_payload), (object)this, null! };
+            TaskCompletionSource<int> _tcs = new TaskCompletionSource<int>();
+            object[] _asyncCallHolder = new object[] { _tcs, new DeferredSafeHandleRelease(_payload), (object)this, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             if (cancellationToken.IsCancellationRequested)
             {
@@ -23280,7 +23280,7 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (task, cancellationToken, taskId));
+                    (_tcs, cancellationToken, taskId));
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             var success = false;
@@ -23291,7 +23291,7 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
                 
                 PInvoke_asyncReturnMethod_0900569C(s_asyncReturnMethodCallback_0900569C, s_asyncReturnMethodErrorCallback_0900569C, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
                 
-                return task.Task;
+                return _tcs.Task;
             }
             
             finally
@@ -23432,8 +23432,8 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     {
         unsafe
         {
-            TaskCompletionSource<string> task = new TaskCompletionSource<string>();
-            object[] _asyncCallHolder = new object[] { task, new DeferredSafeHandleRelease(_payload), (object)this, null! };
+            TaskCompletionSource<string> _tcs = new TaskCompletionSource<string>();
+            object[] _asyncCallHolder = new object[] { _tcs, new DeferredSafeHandleRelease(_payload), (object)this, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             if (cancellationToken.IsCancellationRequested)
             {
@@ -23463,7 +23463,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (task, cancellationToken, taskId));
+                    (_tcs, cancellationToken, taskId));
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             var success = false;
@@ -23474,7 +23474,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 
                 PInvoke_asyncStringMethod_DC250ED7(s_asyncStringMethodCallback_DC250ED7, s_asyncStringMethodErrorCallback_DC250ED7, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
                 
-                return task.Task;
+                return _tcs.Task;
             }
             
             finally
@@ -23605,8 +23605,8 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     {
         unsafe
         {
-            TaskCompletionSource task = new TaskCompletionSource();
-            object[] _asyncCallHolder = new object[] { task, null! };
+            TaskCompletionSource _tcs = new TaskCompletionSource();
+            object[] _asyncCallHolder = new object[] { _tcs, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             if (cancellationToken.IsCancellationRequested)
             {
@@ -23636,7 +23636,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (task, cancellationToken, taskId));
+                    (_tcs, cancellationToken, taskId));
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             try
@@ -23645,7 +23645,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 
                 PInvoke_asyncStaticVoid_59A47842(s_asyncStaticVoidCallback_59A47842, s_asyncStaticVoidErrorCallback_59A47842, GCHandle.ToIntPtr(handle));
                 
-                return task.Task;
+                return _tcs.Task;
             }
             
             finally
@@ -23776,8 +23776,8 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     {
         unsafe
         {
-            TaskCompletionSource<int> task = new TaskCompletionSource<int>();
-            object[] _asyncCallHolder = new object[] { task, null! };
+            TaskCompletionSource<int> _tcs = new TaskCompletionSource<int>();
+            object[] _asyncCallHolder = new object[] { _tcs, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             if (cancellationToken.IsCancellationRequested)
             {
@@ -23807,7 +23807,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (task, cancellationToken, taskId));
+                    (_tcs, cancellationToken, taskId));
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             try
@@ -23816,7 +23816,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 
                 PInvoke_asyncStaticReturn_6EE39ED7(s_asyncStaticReturnCallback_6EE39ED7, s_asyncStaticReturnErrorCallback_6EE39ED7, GCHandle.ToIntPtr(handle));
                 
-                return task.Task;
+                return _tcs.Task;
             }
             
             finally
@@ -23947,8 +23947,8 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     {
         unsafe
         {
-            TaskCompletionSource<int> task = new TaskCompletionSource<int>();
-            object[] _asyncCallHolder = new object[] { task, new DeferredSafeHandleRelease(_payload), (object)this, null! };
+            TaskCompletionSource<int> _tcs = new TaskCompletionSource<int>();
+            object[] _asyncCallHolder = new object[] { _tcs, new DeferredSafeHandleRelease(_payload), (object)this, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             if (cancellationToken.IsCancellationRequested)
             {
@@ -23978,7 +23978,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (task, cancellationToken, taskId));
+                    (_tcs, cancellationToken, taskId));
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             var success = false;
@@ -23989,7 +23989,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 
                 PInvoke_asyncAdd_9D8CEDEF(s_asyncAddCallback_9D8CEDEF, s_asyncAddErrorCallback_9D8CEDEF, GCHandle.ToIntPtr(handle), a, b, _payload.DangerousGetHandle());
                 
-                return task.Task;
+                return _tcs.Task;
             }
             
             finally
@@ -24577,10 +24577,10 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_p
     {
         unsafe
         {
-            TaskCompletionSource<string> task = new TaskCompletionSource<string>();
+            TaskCompletionSource<string> _tcs = new TaskCompletionSource<string>();
             IntPtr _selfPtr = *(IntPtr*)_payload.DangerousGetHandle();
             Arc.Retain(_selfPtr);
-            object[] _asyncCallHolder = new object[] { task, new RetainedSelfPtr(_selfPtr), (object)this, null! };
+            object[] _asyncCallHolder = new object[] { _tcs, new RetainedSelfPtr(_selfPtr), (object)this, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             if (cancellationToken.IsCancellationRequested)
             {
@@ -24610,7 +24610,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_p
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (task, cancellationToken, taskId));
+                    (_tcs, cancellationToken, taskId));
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             var success = false;
@@ -24623,7 +24623,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_p
                 
                 PInvoke_process_6566B5F0(s_processCallback_6566B5F0, s_processErrorCallback_6566B5F0, GCHandle.ToIntPtr(handle), inputDisposable.Buffer, *(IntPtr*)_payload.DangerousGetHandle());
                 
-                return task.Task;
+                return _tcs.Task;
             }
             
             finally
@@ -24788,10 +24788,10 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_p
     {
         unsafe
         {
-            TaskCompletionSource<int> task = new TaskCompletionSource<int>();
+            TaskCompletionSource<int> _tcs = new TaskCompletionSource<int>();
             IntPtr _selfPtr = *(IntPtr*)_payload.DangerousGetHandle();
             Arc.Retain(_selfPtr);
-            object[] _asyncCallHolder = new object[] { task, new RetainedSelfPtr(_selfPtr), (object)this, null! };
+            object[] _asyncCallHolder = new object[] { _tcs, new RetainedSelfPtr(_selfPtr), (object)this, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             if (cancellationToken.IsCancellationRequested)
             {
@@ -24821,7 +24821,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_p
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (task, cancellationToken, taskId));
+                    (_tcs, cancellationToken, taskId));
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             var success = false;
@@ -24834,7 +24834,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_p
                 
                 PInvoke_computeHash_02F27608(s_computeHashCallback_02F27608, s_computeHashErrorCallback_02F27608, GCHandle.ToIntPtr(handle), inputDisposable.Buffer, *(IntPtr*)_payload.DangerousGetHandle());
                 
-                return task.Task;
+                return _tcs.Task;
             }
             
             finally
@@ -41254,8 +41254,8 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
     {
         unsafe
         {
-            TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncService> task = new TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncService>();
-            object[] _asyncCallHolder = new object[] { task, null! };
+            TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncService> _tcs = new TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncService>();
+            object[] _asyncCallHolder = new object[] { _tcs, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             if (cancellationToken.IsCancellationRequested)
             {
@@ -41285,7 +41285,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (task, cancellationToken, taskId));
+                    (_tcs, cancellationToken, taskId));
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             try
@@ -41296,7 +41296,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 
                 PInvoke_init_80118581(s_initCallback_80118581, s_initErrorCallback_80118581, GCHandle.ToIntPtr(handle), keyDisposable.Buffer);
                 
-                return task.Task;
+                return _tcs.Task;
             }
             
             finally

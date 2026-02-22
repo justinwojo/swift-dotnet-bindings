@@ -86,11 +86,11 @@ public class ComplexProjectionTests
     }
 
     [Fact]
-    public void Existential_ElementConversion_Object_ReturnPassthrough()
+    public void Existential_ElementConversion_Object_ReturnCastsToObject()
     {
         var proj = new ExistentialProjection("Swift.Runtime.ExistentialContainer0", "object", proxyClassName: null);
         var retConv = proj.GetReturnElementConversion("e");
-        Assert.Equal("e", retConv);
+        Assert.Equal("(object)e", retConv);
     }
 
     [Fact]

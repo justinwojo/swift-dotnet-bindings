@@ -291,7 +291,16 @@ public class BoundGenericsHandler
         if (moduleDecl == null)
             return false;
 
-        return TryGetFirstUnsatisfiedConstraint(typeSpec, moduleDecl, out details);
+        // Collect the parent type's generic parameters — these represent the constraints
+        // actually emitted in C#. Methods from conditional extensions have additional
+        // constraints in their genericSig that are NOT on the parent type, so a generic
+        // type parameter (e.g., T0) only satisfies a bound generic constraint if the
+        // parent type declares that constraint.
+        var parentTypeGenericParams = contextDecl?.ParentDecl is TypeDecl parentType
+            ? parentType.GenericParameters
+            : null;
+
+        return TryGetFirstUnsatisfiedConstraint(typeSpec, moduleDecl, parentTypeGenericParams, out details);
     }
 
     /// <summary>
@@ -396,7 +405,12 @@ public class BoundGenericsHandler
 
         foreach (var genericParam in namedTypeSpec.GenericParameters)
         {
-            if (!outerIsOptional && genericParam is TupleTypeSpec tuple && !tuple.IsEmptyTuple)
+            // Swift.Void (named) maps to SwiftVoid, which doesn't implement ISwiftObject
+            if (!outerIsOptional && genericParam is NamedTypeSpec { Name: "Swift.Void" })
+                return true;
+
+            // All tuples (including empty tuple = Void) don't implement ISwiftObject
+            if (!outerIsOptional && genericParam is TupleTypeSpec)
                 return true;
 
             // B5: Optional tuple with existential element — check tuple elements for unresolvable existentials
@@ -642,7 +656,8 @@ public class BoundGenericsHandler
         return "IntPtr";
     }
 
-    private bool TryGetFirstUnsatisfiedConstraint(TypeSpec typeSpec, ModuleDecl moduleDecl, out string details)
+    private bool TryGetFirstUnsatisfiedConstraint(TypeSpec typeSpec, ModuleDecl moduleDecl,
+        IReadOnlyList<GenericArgumentDecl>? parentTypeGenericParams, out string details)
     {
         details = string.Empty;
 
@@ -650,14 +665,14 @@ public class BoundGenericsHandler
         {
             case NamedTypeSpec namedTypeSpec:
                 if (namedTypeSpec.ContainsGenericParameters &&
-                    TryValidateGenericTypeConstraints(namedTypeSpec, moduleDecl, out details))
+                    TryValidateGenericTypeConstraints(namedTypeSpec, moduleDecl, parentTypeGenericParams, out details))
                 {
                     return true;
                 }
 
                 foreach (var genericParameter in namedTypeSpec.GenericParameters)
                 {
-                    if (TryGetFirstUnsatisfiedConstraint(genericParameter, moduleDecl, out details))
+                    if (TryGetFirstUnsatisfiedConstraint(genericParameter, moduleDecl, parentTypeGenericParams, out details))
                         return true;
                 }
                 return false;
@@ -665,22 +680,23 @@ public class BoundGenericsHandler
             case TupleTypeSpec tupleTypeSpec:
                 foreach (var element in tupleTypeSpec.Elements)
                 {
-                    if (TryGetFirstUnsatisfiedConstraint(element, moduleDecl, out details))
+                    if (TryGetFirstUnsatisfiedConstraint(element, moduleDecl, parentTypeGenericParams, out details))
                         return true;
                 }
                 return false;
 
             case ClosureTypeSpec closureTypeSpec:
-                if (TryGetFirstUnsatisfiedConstraint(closureTypeSpec.Arguments, moduleDecl, out details))
+                if (TryGetFirstUnsatisfiedConstraint(closureTypeSpec.Arguments, moduleDecl, parentTypeGenericParams, out details))
                     return true;
-                return TryGetFirstUnsatisfiedConstraint(closureTypeSpec.ReturnType, moduleDecl, out details);
+                return TryGetFirstUnsatisfiedConstraint(closureTypeSpec.ReturnType, moduleDecl, parentTypeGenericParams, out details);
 
             default:
                 return false;
         }
     }
 
-    private bool TryValidateGenericTypeConstraints(NamedTypeSpec boundGenericType, ModuleDecl moduleDecl, out string details)
+    private bool TryValidateGenericTypeConstraints(NamedTypeSpec boundGenericType, ModuleDecl moduleDecl,
+        IReadOnlyList<GenericArgumentDecl>? parentTypeGenericParams, out string details)
     {
         details = string.Empty;
 
@@ -706,7 +722,7 @@ public class BoundGenericsHandler
                 if (ShouldSkipConstraint(conformance.ConformanceTarget))
                     continue;
 
-                if (SatisfiesConstraint(typeArgument, conformance.ConformanceTarget, moduleDecl))
+                if (SatisfiesConstraint(typeArgument, conformance.ConformanceTarget, moduleDecl, parentTypeGenericParams))
                     continue;
 
                 details = $"Type argument '{typeArgument}' does not satisfy constraint '{conformance.ConformanceTarget.ModuleQualifiedName}' on '{boundGenericType.NameWithoutModule}'.";
@@ -735,10 +751,19 @@ public class BoundGenericsHandler
         return false;
     }
 
-    private bool SatisfiesConstraint(TypeSpec typeArgument, SwiftTypeName protocolConstraint, ModuleDecl moduleDecl)
+    private bool SatisfiesConstraint(TypeSpec typeArgument, SwiftTypeName protocolConstraint, ModuleDecl moduleDecl,
+        IReadOnlyList<GenericArgumentDecl>? parentTypeGenericParams)
     {
         if (TypeSpecHelpers.IsGenericTypeParameter(typeArgument))
-            return true;
+        {
+            // A generic type parameter (e.g., τ_0_0 / T0) only satisfies a constraint
+            // if the parent type's generic declaration includes that constraint.
+            // Swift conditional extensions add constraints in the method's genericSig
+            // (e.g., Table<T> where T: FetchableRecord), but these are NOT reflected
+            // on the C# type declaration (Table<T0> where T0 : ISwiftObject).
+            // Without the constraint on the parent type, C# rejects the usage (CS0314).
+            return GenericTypeParamSatisfiesConstraint(typeArgument, protocolConstraint, parentTypeGenericParams, moduleDecl);
+        }
 
         if (typeArgument is not NamedTypeSpec namedTypeArgument || !namedTypeArgument.HasModule())
             return false;
@@ -766,6 +791,89 @@ public class BoundGenericsHandler
             return HasConformance(typeArgumentDecl, protocolConstraint);
 
         // General protocol conformance emission is handled in a later task.
+        return false;
+    }
+
+    /// <summary>
+    /// Checks whether a generic type parameter satisfies a protocol constraint based on
+    /// the parent type's generic declarations. When no parent type generic parameters are
+    /// available (e.g., free functions), the check is permissive and returns true.
+    /// </summary>
+    private static bool GenericTypeParamSatisfiesConstraint(
+        TypeSpec typeArgument, SwiftTypeName protocolConstraint,
+        IReadOnlyList<GenericArgumentDecl>? parentTypeGenericParams,
+        ModuleDecl? moduleDecl = null)
+    {
+        // If no parent type generic parameters are available (e.g., free functions,
+        // non-generic parent types), be permissive — the constraint can't be
+        // validated against a parent type and may be satisfied at the call site.
+        if (parentTypeGenericParams == null || parentTypeGenericParams.Count == 0)
+            return true;
+
+        var paramName = typeArgument is NamedTypeSpec namedArg ? namedArg.Name : typeArgument.ToString();
+
+        // Find the matching generic parameter in the parent type's declarations
+        var matchingParam = parentTypeGenericParams.FirstOrDefault(p => p.TypeName == paramName);
+        if (matchingParam == null)
+        {
+            // The type parameter doesn't belong to the parent type (e.g., a method-level
+            // type parameter). Be permissive — method-level constraints are emitted on the
+            // method itself.
+            return true;
+        }
+
+        // Check if the parent type's constraints on this parameter include the required protocol
+        // (either directly or via protocol inheritance)
+        foreach (var conformance in matchingParam.GenericConformances)
+        {
+            if (conformance.Kind != ConformanceKind.Protocol)
+                continue;
+
+            // Direct match
+            if (conformance.ConformanceTarget == protocolConstraint)
+                return true;
+
+            // Inherited match: check if the conformance target protocol inherits
+            // from the required protocol (e.g., T: ChildProtocol satisfies T: ParentProtocol)
+            if (moduleDecl != null && ProtocolInheritsFrom(conformance.ConformanceTarget, protocolConstraint, moduleDecl))
+                return true;
+        }
+
+        // The parent type does not constrain this parameter to conform to the required protocol.
+        // This is a conditional extension constraint that cannot be expressed in C#.
+        return false;
+    }
+
+    /// <summary>
+    /// Checks whether a protocol transitively inherits from a target protocol.
+    /// Uses the module's protocol declarations to resolve the inheritance chain.
+    /// </summary>
+    private static bool ProtocolInheritsFrom(SwiftTypeName childProtocol, SwiftTypeName targetProtocol, ModuleDecl moduleDecl)
+    {
+        var visited = new HashSet<string>();
+        return ProtocolInheritsFromRecursive(childProtocol, targetProtocol, moduleDecl, visited);
+    }
+
+    private static bool ProtocolInheritsFromRecursive(SwiftTypeName current, SwiftTypeName target, ModuleDecl moduleDecl, HashSet<string> visited)
+    {
+        var key = current.ModuleQualifiedName;
+        if (!visited.Add(key))
+            return false;
+
+        var protocolDecl = moduleDecl.Protocols
+            .FirstOrDefault(p => p.SwiftTypeName.Module == current.Module && p.SwiftTypeName.Name == current.Name);
+        if (protocolDecl == null)
+            return false;
+
+        foreach (var inherited in protocolDecl.InheritedProtocols)
+        {
+            var inheritedName = SwiftTypeName.FromTypeSpec(inherited);
+            if (inheritedName == target)
+                return true;
+            if (ProtocolInheritsFromRecursive(inheritedName, target, moduleDecl, visited))
+                return true;
+        }
+
         return false;
     }
 

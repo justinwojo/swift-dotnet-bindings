@@ -141,8 +141,8 @@ namespace BindingsGeneration
                 }
 
                 csWriter.WriteLines($$"""
-            TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}} task = new TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}}();
-            object[] _asyncCallHolder = new object[] { task, {{copyBufferList}}, {{originalParamList}}{{selfInHolder}}, null! };
+            TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}} _tcs = new TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}}();
+            object[] _asyncCallHolder = new object[] { _tcs, {{copyBufferList}}, {{originalParamList}}{{selfInHolder}}, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             """);
             }
@@ -154,10 +154,10 @@ namespace BindingsGeneration
                 {
                     // The payload buffer contains a pointer to the class instance - we need to dereference it
                     csWriter.WriteLines($$"""
-            TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}} task = new TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}}();
+            TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}} _tcs = new TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}}();
             IntPtr _selfPtr = *(IntPtr*)_payload.DangerousGetHandle();
             Arc.Retain(_selfPtr);
-            object[] _asyncCallHolder = new object[] { task, new RetainedSelfPtr(_selfPtr), (object)this, null! };
+            object[] _asyncCallHolder = new object[] { _tcs, new RetainedSelfPtr(_selfPtr), (object)this, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             """);
                 }
@@ -165,8 +165,8 @@ namespace BindingsGeneration
                 {
                     // For structs, keep 'this' alive and defer SafeHandle release until callback
                     csWriter.WriteLines($$"""
-            TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}} task = new TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}}();
-            object[] _asyncCallHolder = new object[] { task, new DeferredSafeHandleRelease(_payload), (object)this, null! };
+            TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}} _tcs = new TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}}();
+            object[] _asyncCallHolder = new object[] { _tcs, new DeferredSafeHandleRelease(_payload), (object)this, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             """);
                 }
@@ -175,8 +175,8 @@ namespace BindingsGeneration
             {
                 // Static method with no non-frozen parameters
                 csWriter.WriteLines($$"""
-            TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}} task = new TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}}();
-            object[] _asyncCallHolder = new object[] { task, null! };
+            TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}} _tcs = new TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}}();
+            object[] _asyncCallHolder = new object[] { _tcs, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             """);
             }
@@ -204,7 +204,7 @@ namespace BindingsGeneration
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (task, cancellationToken, taskId));
+                    (_tcs, cancellationToken, taskId));
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             """);
