@@ -107,7 +107,7 @@ The `Emitter` generates both C# and Swift code. It's organized by concern:
 
 - **TypeEmitter** — class/struct/enum declarations
 - **MethodHandler** — method bodies with P/Invoke calls
-- **PInvokeEmitter** — `[DllImport]` declarations with correct entry points and calling conventions
+- **PInvokeEmitter** — `[LibraryImport]` declarations with correct entry points and calling conventions
 - **ClosureEmitter** — closure callback + return marshalling
 - **ProtocolProxyEmitter** — proxy classes for C#→Swift protocol conformance
 - **WitnessDispatchEmitter** — protocol property/method dispatch through witness tables

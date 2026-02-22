@@ -1,8 +1,8 @@
 # Architecture Improvement Roadmap
 
 **Created**: February 2026
-**Status**: Active
-**Source**: [architecture-retrospective-findings.md](Future/architecture-retrospective-findings.md) and [supplement](Future/architecture-retrospective-supplement.md)
+**Status**: Complete
+**Source**: [architecture-retrospective-findings.md](architecture-retrospective-findings.md) and [supplement](architecture-retrospective-supplement.md)
 
 ---
 

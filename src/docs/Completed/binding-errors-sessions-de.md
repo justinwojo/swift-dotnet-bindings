@@ -2,7 +2,7 @@
 
 Last updated: 2026-02-20 | Baseline: 24/32 passed, 8 failed, 55 errors
 
-Previous: [Sessions A-C (binding-errors.md)](Completed/binding-errors.md) — fixed 8 categories, 13→21 pass
+Previous: [Sessions A-C (binding-errors-sessions-ac.md)](binding-errors-sessions-ac.md) — fixed 8 categories, 13→21 pass
 Session D: fixed 4 categories, 21→24 pass (Alamofire, BlinkIDUX, RxSwift flipped)
 
 ---
