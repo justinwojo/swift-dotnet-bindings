@@ -586,16 +586,97 @@ The plan for a full `MethodMarshalPlanBuilder` that populates `MethodMarshalPlan
 | **5B** | Decompose | Collapse WrapperEmitter + ProtocolProxyEmitter.Receivers into MarshalPlan rendering; projection bug fixes | **COMPLETE** (Feb 21) |
 | **5C** | Decompose | Finish emission collapse — FrozenWithMemoryProjection, type property separation, 4 legacy methods deleted, NonFrozenStruct fix | **COMPLETE** (Feb 21) |
 | **5D** | Decompose | Conductor state cleanup (3 properties → TypeHandlerContext), MethodValidationGates extraction, dead code audit. MethodMarshalPlanBuilder deferred. | **PARTIAL** (Feb 21) |
+| **6** | Decompose | Projection-based accessor emission (PropertyHandler) + non-existential receiver emission (ProtocolProxyEmitter.Receivers). 13 old-API callers eliminated. | **COMPLETE** (Feb 21) |
 
 Sessions 1-2 built the new type projection architecture alongside the old one. Session 3 wired the factory into all straightforward call sites. Session 4 proved the factory works via tests and golden files. Sessions A-E fixed library validation bugs but added ~590 lines of old-architecture debt (primarily in WrapperEmitter and ProtocolProxyEmitter.Receivers).
 
-Session 5A built the foundation: correct projection plans, GenericContext for standard containers, and MethodMarshalPlan data structure. Session 5B was the highest-impact session — it added projection-first parameter and return emission to WrapperEmitter, replaced the 3 receiver helper methods in ProtocolProxyEmitter.Receivers with projection-based implementations, replaced the old-API call in ClosureEmitter.Async, and fixed 6 latent projection bugs (ObjCBridged namespace, NativeRemapped frozen return, NativeRemapped element conversion, enum container type-mismatch, async closure class handle extraction, closure enum cast fallback). Library validation improved from 27/32 to 29/32. Session 5C completed the emission collapse: created `FrozenWithMemoryProjection` to close the last factory gap, separated `ContainerTypeName`/`SwiftContainerGenericType`/`MarshalFromSwiftType` across all container projections, fixed `NonFrozenStructProjection.GetReturnPlan` to use `MarshalFromSwift` instead of the inaccessible constructor, deleted 4 legacy return methods (~264 lines), and eliminated all `TranslateBoundGenericTypeToCSharp` and `GetReturnConversion` calls from WrapperEmitter. WrapperEmitter.Return.cs reduced from 929 to 615 lines. Session 5D cleaned Conductor state (3 mutable properties → immutable `TypeHandlerContext` record), extracted shared `MethodValidationGates`, and audited remaining old API callers (78 sites, all justified — factory can't yet replace bound-generic and accessor-body emission). MethodMarshalPlanBuilder deferred to future sessions for incremental extraction.
+Session 5A built the foundation: correct projection plans, GenericContext for standard containers, and MethodMarshalPlan data structure. Session 5B was the highest-impact session — it added projection-first parameter and return emission to WrapperEmitter, replaced the 3 receiver helper methods in ProtocolProxyEmitter.Receivers with projection-based implementations, replaced the old-API call in ClosureEmitter.Async, and fixed 6 latent projection bugs (ObjCBridged namespace, NativeRemapped frozen return, NativeRemapped element conversion, enum container type-mismatch, async closure class handle extraction, closure enum cast fallback). Library validation improved from 27/32 to 29/32. Session 5C completed the emission collapse: created `FrozenWithMemoryProjection` to close the last factory gap, separated `ContainerTypeName`/`SwiftContainerGenericType`/`MarshalFromSwiftType` across all container projections, fixed `NonFrozenStructProjection.GetReturnPlan` to use `MarshalFromSwift` instead of the inaccessible constructor, deleted 4 legacy return methods (~264 lines), and eliminated all `TranslateBoundGenericTypeToCSharp` and `GetReturnConversion` calls from WrapperEmitter. WrapperEmitter.Return.cs reduced from 929 to 615 lines. Session 5D cleaned Conductor state (3 mutable properties → immutable `TypeHandlerContext` record), extracted shared `MethodValidationGates`, and audited remaining old API callers (78 sites, all justified — factory can't yet replace bound-generic and accessor-body emission). MethodMarshalPlanBuilder deferred to future sessions for incremental extraction. Session 6 completed projection-based accessor emission (PropertyHandler EmitGetter/EmitSetter) and non-existential receiver emission (ProtocolProxyEmitter.Receivers property/method receivers), eliminating 13 old-API callers via pattern-matching on projection types. Key design: `NativeRemappedProjection.RequiresDisposal` (separate from `IsFrozen`) to distinguish URL disposal from Data value semantics.
+
+### Session 6: Projection-Based Accessor & Receiver Emission — COMPLETE (Feb 21, 2026)
+
+**Goal**: Eliminate all old-API calls (`GetReturnConversion`, `GetParameterConversion`, `RequiresGetterDisposal`, `RequiresSetterDisposal`) from PropertyHandler.cs and non-existential old-API calls from ProtocolProxyEmitter.Receivers.cs.
+
+**Priority justification**: Roadmap listed MethodMarshalPlanBuilder as priority #1, but it was explicitly deferred in 5D as too large for one session. Accessor/receiver emission (priorities #2/#3) are self-contained, tightly related, and eliminate 13 old-API callers total.
+
+#### 6.1. NativeRemappedProjection Field Exposure — COMPLETE
+
+Exposed 4 existing private fields as public read-only properties: `ToConversionMethod`, `FromFactoryMethod`, `SwiftWrapperType`, `IsFrozen`. Added `RequiresDisposal` property backed by new `_requiresDisposal` field (passed from factory via `MarshallingHelpers.RequiresMemoryManagement(typeRecord)`). This distinguishes URL (frozen + requires disposal) from Data (frozen + no disposal) — `IsFrozen` alone can't differentiate them.
+
+#### 6.2. PropertyHandler — Projection-Based Accessor Emission — COMPLETE
+
+Replaced EmitGetter (~55 lines) and EmitSetter (~50 lines) with projection-based dispatch using ~12 helper methods. Pattern-match on projection types to produce accessor-appropriate whole-value conversion expressions:
+
+```
+GetAccessorGetterConversion(projection, resultExpr) → (conversion?, requiresDisposal)
+GetAccessorSetterConversion(projection, valueExpr) → (conversion?, requiresDisposal)
+```
+
+Handles: String (`ToString()`/`new SwiftString()`), NativeRemapped (`ToNSUrl()`/`FromNSUrl()`), Array (`.AsProjected()` for element conversion, `FromEnumerable()` for setter), Dictionary (parallel to Array), Optional (discriminant check for containers, cast for simple types, pattern-match for element conversion), Closure (passthrough — accessor methods handle their own marshalling), and all blittable/simple types (passthrough).
+
+**Key design decisions**:
+- Getters with disposal use `using var __ret = Method(); return conversion(__ret);` pattern
+- Setters with disposal use `using var __val = conversion(value); Method(__val);` pattern
+- Optional container getters skip identity `.AsProjected(e => e)` when inner elements don't need conversion (SwiftArray\<int\> IS IReadOnlyList\<int\>)
+- Optional closure properties return `(null, false)` — closure accessor methods handle their own marshalling
+- `RequiresDisposal` on NativeRemappedProjection (not `!IsFrozen`) determines using-block emission
+
+Replaced `new TypeProjectionFactory()` instance with shared `s_projectionFactory` static field.
+
+#### 6.3. ProtocolProxyEmitter.Receivers — Projection-Based Non-Existential Conversion — COMPLETE
+
+Replaced 3 non-existential old-API calls with projection-based dispatch via two helper methods (~120 lines):
+
+```
+GetReceiverGetterConversion(varName, typeSpec) → string?  // C# idiomatic → Swift ABI
+GetReceiverSetterConversion(varName, typeSpec) → string?  // Swift ABI → C# idiomatic
+```
+
+**Replacement points**:
+- Property getter receiver (was `GetParameterConversion`) → `GetReceiverGetterConversion`
+- Property setter receiver (was `GetReturnConversion`) → `GetReceiverSetterConversion`
+- Method parameter receiver (was `GetReturnConversion`) → `GetReceiverSetterConversion`
+
+Each helper checks existential first (via existing `GetReceiverExistentialGetterConversion`/`GetReceiverExistentialSetterConversion`), then dispatches on projection type. `TypeConversionHandler` still instantiated in method receiver for `GetReceiverDictionaryConversion` (needs `.ToDictionary()` for `IDictionary<K,V>` — intentionally kept).
+
+#### 6.4. Dead Code Removal — COMPLETE
+
+Removed `typeTranslator` lambda construction and unused `TypeConversionHandler` references from EmitGetter/EmitSetter. Replaced per-call `new TypeProjectionFactory()` with `s_projectionFactory`.
+
+#### 6.5. Cosmetic Namespace Change
+
+`SwiftContainerGenericType` produces unqualified names (e.g., `SwiftString`) while the old `typeTranslator` path produced module-qualified names (e.g., `Swift.SwiftString`). Both compile identically. Golden files regenerated to reflect this change.
+
+#### 6.6. Post-Review Fixes — COMPLETE
+
+Two bugs found via external code review (Codex, Grok):
+
+**Optional\<blittable\> receiver getter regression**: `GetReceiverOptionalGetterConversion` returned null for `Optional<Int>`, `Optional<Bool>`, `Optional<SimpleEnum>` via `_ => null` catch-all. This caused `MarshalToSwiftBuffer` to write raw `Nullable<T>` bytes instead of properly allocated `SwiftOptional<T>` (a class with SafeHandle — NOT layout-compatible with C# `Nullable<T>`). Fixed by producing `SwiftOptional<T>.NewSome(val)` / `.NewNone()` in the catch-all. 3 regression tests added.
+
+**Optional\<Closure\> receiver passthrough**: `GetReceiverOptionalGetterConversion` and `GetReceiverOptionalSetterConversion` lacked explicit `ClosureProjection` handling. Closures have their own ABI (SwiftClosureData/function pointers) and can't be wrapped in `SwiftOptional<T>.NewSome()`. Added `ClosureProjection => null` (passthrough) to both, matching PropertyHandler's existing pattern.
+
+#### Acceptance Gate Status
+
+| Gate | Target | Actual | Status |
+|------|--------|--------|--------|
+| `GetReturnConversion` in PropertyHandler.cs | Zero results | **0** | **PASS** |
+| `GetParameterConversion` in PropertyHandler.cs | Zero results | **0** | **PASS** |
+| `RequiresGetterDisposal` in PropertyHandler.cs | Zero results | **0** | **PASS** |
+| `RequiresSetterDisposal` in PropertyHandler.cs | Zero results | **0** | **PASS** |
+| Non-existential old-API in Receivers.cs | Zero results | **0** (1 comment only) | **PASS** |
+| Unit tests | All pass | **3961 passing, 0 failures** | **PASS** |
+| Integration tests | All pass | **700 passing, 0 failures** | **PASS** |
+| Golden files | Match | **All 5 match** | **PASS** |
+| Library validation | 0 regressions | **29/32 (maintained)** | **PASS** |
+
+**Files modified**: NativeRemappedProjection.cs, TypeProjectionFactory.cs, PropertyHandler.cs, ProtocolProxyEmitter.Receivers.cs, ProtocolProxyEmitterTests.cs
+**Net effect**: 13 old-API callers eliminated (10 in PropertyHandler, 3 in Receivers)
+
+---
 
 ### Remaining Work
 
 **Next session priorities** (in order of impact):
 1. **MethodMarshalPlanBuilder (incremental)** — Extract one WrapperEmitter concern at a time into plan-driven emission. Start with SwiftSelf/SwiftError (simplest, self-contained), then IndirectResult, then GenericMetadata. Each extraction should pass golden files before proceeding.
-2. **Projection-based accessor emission** — Replace `GetReturnConversion`/`GetParameterConversion` in PropertyHandler getter/setter bodies with projection plans. This eliminates 4 old API callers.
-3. **Projection-based non-existential receiver emission** — Replace `GetParameterConversion`/`GetReturnConversion` in ProtocolProxyEmitter.Receivers for non-existential property receivers (3 old API callers).
-4. **Bound-generic factory coverage** — Extend `ProjectBoundGeneric` to produce both public and raw ABI type names, eliminating `TranslateBoundGenericTypeToCSharp` fallbacks (~16 sites).
-5. **ThreadStatic composition collector** — Replace `s_activeCompositionCollector` with explicit collector threaded through handler calls (22 ExistentialHandler sites).
+2. **Bound-generic factory coverage** — Extend `ProjectBoundGeneric` to produce both public and raw ABI type names, eliminating `TranslateBoundGenericTypeToCSharp` fallbacks (~16 sites).
+3. **ThreadStatic composition collector** — Replace `s_activeCompositionCollector` with explicit collector threaded through handler calls (22 ExistentialHandler sites).
+4. **Receiver dictionary migration** — Replace `GetReceiverDictionaryConversion` (last `TypeConversionHandler` usage in Receivers) with projection-based dictionary detection.

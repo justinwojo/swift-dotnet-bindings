@@ -91,11 +91,8 @@ public partial class ProtocolProxyEmitter
             {
                 // The interface property uses idiomatic C# types (e.g., string, string?, IReadOnlyList<string>)
                 // but MarshalToSwiftBuffer expects Swift ABI types (SwiftString, SwiftOptional<SwiftString>, etc.).
-                // Check existential conversions first — they're more specific than GetParameterConversion
-                // which would incorrectly use AnyType for Optional<any Protocol> instead of the container type.
-                var existentialGetterConv = GetReceiverExistentialGetterConversion("result", property.SwiftTypeSpec);
-                var typeConversionHandler = new TypeConversionHandler(_typeDatabase);
-                var getterConversion = existentialGetterConv ?? typeConversionHandler.GetParameterConversion("result", property.SwiftTypeSpec);
+                // Projection-based conversion handles existentials, strings, arrays, dicts, and optionals.
+                var getterConversion = GetReceiverGetterConversion("result", property.SwiftTypeSpec);
 
                 writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]");
                 writer.WriteLine($"private static IntPtr {receiverName}(IntPtr vtHandle, IntPtr selfContainer)");
@@ -126,11 +123,8 @@ public partial class ProtocolProxyEmitter
             {
                 // Check if the property type needs conversion (e.g., SwiftOptional<SwiftString> → string?)
                 // The receiver marshals the Swift ABI type, but the interface uses the idiomatic C# type.
-                // Check existential conversions first — they're more specific than GetReturnConversion
-                // which would incorrectly use AnyType for Optional<any Protocol> instead of the container type.
-                var existentialSetterConv = GetReceiverExistentialSetterConversion("value", property.SwiftTypeSpec);
-                var typeConversionHandler = new TypeConversionHandler(_typeDatabase);
-                var returnConversion = existentialSetterConv ?? typeConversionHandler.GetReturnConversion("value", property.SwiftTypeSpec);
+                // Projection-based conversion handles existentials, strings, arrays, dicts, and optionals.
+                var returnConversion = GetReceiverSetterConversion("value", property.SwiftTypeSpec);
                 var assignmentExpr = returnConversion ?? "value";
 
                 writer.WriteLines($$"""
@@ -321,7 +315,7 @@ public partial class ProtocolProxyEmitter
             var argName = $"param{argIndex}";
 
             // Dictionaries need special handling in receiver context: the interface declares
-            // IDictionary<K,V> (parameter form), but GetReturnConversion produces .AsProjected()
+            // IDictionary<K,V> (parameter form), but projection produces .AsProjected()
             // which returns IReadOnlyDictionary<K,V> (return form). IReadOnlyDictionary doesn't
             // implement IDictionary, so we must use .ToDictionary() for eager materialization.
             var receiverDictConversion = GetReceiverDictionaryConversion(rawArgName, param.SwiftTypeSpec, typeConversionHandler);
@@ -332,25 +326,16 @@ public partial class ProtocolProxyEmitter
             }
             else
             {
-            var returnConversion = typeConversionHandler.GetReturnConversion(rawArgName, param.SwiftTypeSpec);
-            if (returnConversion != null)
-            {
-                writer.WriteLine($"var {rawArgName} = MarshalFromSwift<{paramTypeName}>(rawArg{argIndex});");
-                writer.WriteLine($"var {argName} = {returnConversion};");
-            }
-            else
-            {
-                var existentialParamConv = GetReceiverExistentialSetterConversion(rawArgName, param.SwiftTypeSpec);
-                if (existentialParamConv != null)
+                var setterConversion = GetReceiverSetterConversion(rawArgName, param.SwiftTypeSpec);
+                if (setterConversion != null)
                 {
                     writer.WriteLine($"var {rawArgName} = MarshalFromSwift<{paramTypeName}>(rawArg{argIndex});");
-                    writer.WriteLine($"var {argName} = {existentialParamConv};");
+                    writer.WriteLine($"var {argName} = {setterConversion};");
                 }
                 else
                 {
-                writer.WriteLine($"var {argName} = MarshalFromSwift<{paramTypeName}>(rawArg{argIndex});");
+                    writer.WriteLine($"var {argName} = MarshalFromSwift<{paramTypeName}>(rawArg{argIndex});");
                 }
-            }
             }
             argNames.Add(argName);
             argIndex++;
@@ -466,6 +451,160 @@ public partial class ProtocolProxyEmitter
             valueExpr = "kvp.Value";
 
         return $"{rawArgName}.ToDictionary(kvp => {keyExpr}, kvp => {valueExpr})";
+    }
+
+    /// <summary>
+    /// Converts C# idiomatic value to Swift ABI for MarshalToSwiftBuffer in getter receivers.
+    /// Dispatches on projection type for whole-value conversion.
+    /// Returns null if no conversion needed (passthrough).
+    /// </summary>
+    private string? GetReceiverGetterConversion(string varName, TypeSpec? typeSpec)
+    {
+        if (typeSpec == null) return null;
+
+        // Check existential first — they're more specific
+        var existentialConv = GetReceiverExistentialGetterConversion(varName, typeSpec);
+        if (existentialConv != null) return existentialConv;
+
+        var projection = s_projectionFactory.Project(typeSpec,
+            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true });
+        if (projection == null) return null;
+
+        return projection switch
+        {
+            StringProjection => $"new SwiftString({varName})",
+            NativeRemappedProjection nrp => nrp.FromFactoryMethod != null
+                ? $"{nrp.SwiftWrapperType}.{nrp.FromFactoryMethod}({varName})"
+                : $"new {nrp.SwiftWrapperType}({varName})",
+            ArrayProjection arr => GetReceiverArrayGetterConversion(arr, varName),
+            DictionaryProjection dict => GetReceiverDictGetterConversion(dict, varName),
+            OptionalProjection opt => GetReceiverOptionalGetterConversion(opt, varName),
+            _ => null
+        };
+    }
+
+    private string? GetReceiverArrayGetterConversion(ArrayProjection arr, string varName)
+    {
+        var rawElem = arr.ElementProjection.SwiftContainerGenericType;
+        var elemConv = arr.ElementProjection.GetParameterElementConversion("e");
+        if (elemConv != null)
+            return $"SwiftArray<{rawElem}>.FromEnumerable({varName}.Select(e => {elemConv}))";
+        return $"SwiftArray<{rawElem}>.FromEnumerable({varName})";
+    }
+
+    private string? GetReceiverDictGetterConversion(DictionaryProjection dict, string varName)
+    {
+        var rawK = dict.KeyProjection.SwiftContainerGenericType;
+        var rawV = dict.ValueProjection.SwiftContainerGenericType;
+        var keyConv = dict.KeyProjection.GetParameterElementConversion("kvp.Key");
+        var valConv = dict.ValueProjection.GetParameterElementConversion("kvp.Value");
+        if (keyConv != null || valConv != null)
+        {
+            var keyExpr = keyConv ?? "kvp.Key";
+            var valExpr = valConv ?? "kvp.Value";
+            return $"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({varName}.Select(kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr})))";
+        }
+        return $"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({varName})";
+    }
+
+    private string? GetReceiverOptionalGetterConversion(OptionalProjection opt, string varName)
+    {
+        var inner = opt.InnerProjection;
+        var optType = inner.SwiftContainerGenericType;
+        return inner switch
+        {
+            StringProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome(new SwiftString({varName}Val)) : SwiftOptional<{optType}>.NewNone())",
+            NativeRemappedProjection nrp => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome({(nrp.FromFactoryMethod != null ? $"{nrp.SwiftWrapperType}.{nrp.FromFactoryMethod}({varName}Val)" : $"new {nrp.SwiftWrapperType}({varName}Val)")}) : SwiftOptional<{optType}>.NewNone())",
+            ArrayProjection arr => BuildOptionalContainerGetterConversion(arr, varName, optType,
+                GetReceiverArrayGetterConversion(arr, $"{varName}Val")),
+            DictionaryProjection dict => BuildOptionalContainerGetterConversion(dict, varName, optType,
+                GetReceiverDictGetterConversion(dict, $"{varName}Val")),
+            // Closures have their own ABI (SwiftClosureData/function pointers) — can't wrap in SwiftOptional.
+            // Passthrough; accessor methods handle closure marshalling.
+            ClosureProjection => null,
+            // Blittable, SimpleEnum, etc. — MarshalToSwiftBuffer writes raw bytes via Unsafe.Write<T>,
+            // so C# int? (Nullable<int>) is NOT layout-compatible with SwiftOptional<int> (a class).
+            // Must explicitly wrap in SwiftOptional<T>.NewSome/NewNone.
+            _ => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome({varName}Val) : SwiftOptional<{optType}>.NewNone())"
+        };
+    }
+
+    private static string? BuildOptionalContainerGetterConversion(ITypeProjection inner, string varName, string optType, string? innerConv)
+    {
+        if (innerConv == null) return null;
+        return $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome({innerConv}) : SwiftOptional<{optType}>.NewNone())";
+    }
+
+    /// <summary>
+    /// Converts Swift ABI value to C# idiomatic for interface assignment in setter receivers.
+    /// Dispatches on projection type for whole-value conversion.
+    /// Returns null if no conversion needed (passthrough).
+    /// </summary>
+    private string? GetReceiverSetterConversion(string varName, TypeSpec? typeSpec)
+    {
+        if (typeSpec == null) return null;
+
+        // Check existential first
+        var existentialConv = GetReceiverExistentialSetterConversion(varName, typeSpec);
+        if (existentialConv != null) return existentialConv;
+
+        var projection = s_projectionFactory.Project(typeSpec,
+            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = false });
+        if (projection == null) return null;
+
+        return projection switch
+        {
+            StringProjection => $"{varName}.ToString()",
+            NativeRemappedProjection nrp => $"{varName}.{nrp.ToConversionMethod}()",
+            ArrayProjection arr => GetReceiverArraySetterConversion(arr, varName),
+            DictionaryProjection dict => GetReceiverDictSetterConversion(dict, varName),
+            OptionalProjection opt => GetReceiverOptionalSetterConversion(opt, varName),
+            _ => null
+        };
+    }
+
+    private string? GetReceiverArraySetterConversion(ArrayProjection arr, string varName)
+    {
+        var elemConv = arr.ElementProjection.GetReturnElementConversion("e");
+        if (elemConv != null)
+            return $"{varName}.AsProjected(e => {elemConv})";
+        return null;  // SwiftArray<T> IS IReadOnlyList<T> — no conversion needed
+    }
+
+    private string? GetReceiverDictSetterConversion(DictionaryProjection dict, string varName)
+    {
+        var keyConv = dict.KeyProjection.GetReturnElementConversion("k");
+        var valConv = dict.ValueProjection.GetReturnElementConversion("v");
+        if (keyConv == null && valConv == null) return null;
+        if (keyConv != null)
+        {
+            var reverseKeyConv = dict.KeyProjection.GetParameterElementConversion("k") ?? "k";
+            var valSelector = valConv != null ? $"v => {valConv}" : "v => v";
+            return $"{varName}.AsProjected(k => {keyConv}, k => {reverseKeyConv}, {valSelector})";
+        }
+        return $"{varName}.AsProjected(v => {valConv})";
+    }
+
+    private string? GetReceiverOptionalSetterConversion(OptionalProjection opt, string varName)
+    {
+        var inner = opt.InnerProjection;
+        return inner switch
+        {
+            StringProjection => $"((SwiftString?){varName})?.ToString()",
+            NativeRemappedProjection nrp => $"(({nrp.SwiftWrapperType}?){varName})?.{nrp.ToConversionMethod}()",
+            ArrayProjection arr => GetReceiverOptionalContainerSetterConversion(arr, varName, arr.PublicType),
+            DictionaryProjection dict => GetReceiverOptionalContainerSetterConversion(dict, varName, dict.PublicType),
+            // Closures have their own ABI — passthrough, accessor methods handle marshalling.
+            ClosureProjection => null,
+            _ => $"(({inner.PublicType}?){varName})"
+        };
+    }
+
+    private string? GetReceiverOptionalContainerSetterConversion(ITypeProjection innerContainer, string varName, string idiomaticType)
+    {
+        var containerConv = innerContainer.GetReturnContainerConversion($"{varName}.Some");
+        var someExpr = containerConv ?? $"{varName}.Some";
+        return $"({varName}.Case == Swift.SwiftOptionalCases.None ? ({idiomaticType}?)null : {someExpr})";
     }
 
     /// <summary>

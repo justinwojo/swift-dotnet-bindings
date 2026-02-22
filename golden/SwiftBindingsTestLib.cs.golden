@@ -11771,7 +11771,7 @@ private static partial void PInvoke_tags_Set_EF7E2816( IntPtr valueBuffer,  Swif
 public IReadOnlyList<int>? Tags
 {
     get { using var __ret = Tags_Get(); return (__ret.Case == Swift.SwiftOptionalCases.None ? (IReadOnlyList<int>?)null : __ret.Some); }
-    set { using var __val = (value is {} valueVal ? SwiftOptional<Swift.SwiftArray<int>>.NewSome(SwiftArray<int>.FromEnumerable(valueVal)) : SwiftOptional<Swift.SwiftArray<int>>.NewNone()); Tags_Set(__val); }
+    set { using var __val = (value is {} valueVal ? SwiftOptional<SwiftArray<int>>.NewSome(SwiftArray<int>.FromEnumerable(valueVal)) : SwiftOptional<SwiftArray<int>>.NewNone()); Tags_Set(__val); }
 }
 
 
@@ -31215,7 +31215,7 @@ private static partial void PInvoke_label_Set_E3576B21( IntPtr valueBuffer,  Int
 public string? Label
 {
     get { using var __ret = Label_Get(); return ((SwiftString?)__ret)?.ToString(); }
-    set { using var __val = (value is {} valueVal ? SwiftOptional<Swift.SwiftString>.NewSome(new SwiftString(valueVal)) : SwiftOptional<Swift.SwiftString>.NewNone()); Label_Set(__val); }
+    set { using var __val = (value is {} valueVal ? SwiftOptional<SwiftString>.NewSome(new SwiftString(valueVal)) : SwiftOptional<SwiftString>.NewNone()); Label_Set(__val); }
 }
 
 private Swift.SwiftOptional<int> Count_Get()

@@ -248,6 +248,72 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
+    public void EmitProxyClass_GetterReceiver_OptionalInt_WrapsInSwiftOptional()
+    {
+        // Regression (Session 6): Optional<Int32> getter must wrap int? → SwiftOptional<int>.NewSome/NewNone.
+        // MarshalToSwiftBuffer uses Unsafe.Write<T> — Nullable<int> is NOT layout-compatible with
+        // SwiftOptional<int> (a class with SafeHandle). Without explicit wrapping, raw Nullable<int>
+        // bytes are written instead of a proper SwiftOptional allocation.
+        RegisterSwiftInt32();
+        var optionalInt = new NamedTypeSpec("Swift.Optional");
+        optionalInt.GenericParameters.Add(new NamedTypeSpec("Swift.Int32"));
+        var protocolDecl = CreateProtocolWithProperty("OptIntProto", "count", hasGetter: true, hasSetter: false, optionalInt);
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("Receive_count_get", output);
+        Assert.Contains("SwiftOptional<", output);
+        Assert.Contains(".NewSome(", output);
+        Assert.Contains(".NewNone()", output);
+        Assert.Contains("MarshalToSwiftBuffer(swiftResult)", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_GetterReceiver_OptionalBool_WrapsInSwiftOptional()
+    {
+        // Regression (Session 6): Same as Optional<Int> — bool? must be wrapped in SwiftOptional<bool>.
+        var optionalBool = new NamedTypeSpec("Swift.Optional");
+        optionalBool.GenericParameters.Add(new NamedTypeSpec("Swift.Bool"));
+        var protocolDecl = CreateProtocolWithProperty("OptBoolProto", "flag", hasGetter: true, hasSetter: false, optionalBool);
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("Receive_flag_get", output);
+        Assert.Contains("SwiftOptional<", output);
+        Assert.Contains(".NewSome(", output);
+        Assert.Contains(".NewNone()", output);
+        Assert.Contains("MarshalToSwiftBuffer(swiftResult)", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_GetterReceiver_OptionalSimpleEnum_WrapsInSwiftOptional()
+    {
+        // Regression (Session 6): Optional<SimpleEnum> getter must wrap in SwiftOptional.
+        // Register a simple enum type so the factory resolves it.
+        _typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("TestModule.MyStatus"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "MyStatus"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyStatus"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
+                Kind = TypeRecordKind.Enum,
+                RawValueTypeName = "Swift.Int"
+            })
+        });
+
+        var optionalEnum = new NamedTypeSpec("Swift.Optional");
+        optionalEnum.GenericParameters.Add(new NamedTypeSpec("TestModule.MyStatus"));
+        var protocolDecl = CreateProtocolWithProperty("OptEnumProto", "status", hasGetter: true, hasSetter: false, optionalEnum);
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("Receive_status_get", output);
+        Assert.Contains("SwiftOptional<", output);
+        Assert.Contains(".NewSome(", output);
+        Assert.Contains(".NewNone()", output);
+        Assert.Contains("MarshalToSwiftBuffer(swiftResult)", output);
+    }
+
+    [Fact]
     public void EmitProxyClass_ReceiverUsesSwiftObjectRegistry()
     {
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);

@@ -277,8 +277,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         // ABI name contains AnyType (e.g., Optional<τ_0_0> → T0? when GenericContext resolves τ_0_0).
         if (!isExistential && !isOptionalExistential)
         {
-            var factory = new TypeProjectionFactory();
-            var projection = factory.Project(propertyDecl.SwiftTypeSpec, new ProjectionContext
+            var projection = s_projectionFactory.Project(propertyDecl.SwiftTypeSpec, new ProjectionContext
             {
                 TypeDatabase = propertyEnv.TypeDatabase,
                 IsParameter = false,
@@ -436,15 +435,16 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         ReportCollector.RecordMemberEmitted(BindingItemKind.Property, propertyDecl.Name, propertyDecl.ParentDecl);
     }
 
+    private static readonly TypeProjectionFactory s_projectionFactory = new();
+
     /// <summary>
     /// Emits the getter implementation for a property.
+    /// Uses TypeProjectionFactory to determine if the property type needs conversion
+    /// from Swift ABI to idiomatic C# (e.g., SwiftString → string, SwiftArray → IReadOnlyList).
     /// </summary>
-    /// <param name="csWriter">The C# code writer to emit to</param>
-    /// <param name="getter">The getter accessor declaration</param>
     private void EmitGetter(CSharpWriter csWriter, GetAccessorDecl getter, PropertyEnvironment propertyEnv, PropertyDecl propertyDecl,
         bool isExistential = false, bool isOptionalExistential = false, GenericContext? genericContext = null)
     {
-        // Use PascalCase method name to match how MethodHandler emits the accessor method
         var methodName = NameProvider.GetMethodName(getter.Method.Name, null);
 
         // Existential/optional-existential properties: accessor methods already handle
@@ -455,56 +455,36 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             return;
         }
 
-        // Apply return type conversion if the property type was converted to an idiomatic type
-        Func<TypeSpec, string> typeTranslator = ts => TranslateTypeSpecWithGenerics(ts, propertyEnv.TypeDatabase, genericContext);
-        var returnConversion = propertyEnv.TypeConversionHandler.GetReturnConversion($"{methodName}()", propertyDecl.SwiftTypeSpec, typeTranslator);
-        if (returnConversion != null)
+        var projection = s_projectionFactory.Project(propertyDecl.SwiftTypeSpec,
+            new ProjectionContext { TypeDatabase = propertyEnv.TypeDatabase, IsParameter = false, GenericContext = genericContext });
+        if (projection != null)
         {
-            // Emit with using disposal if the getter returns an IDisposable wrapper
-            if (propertyEnv.TypeConversionHandler.RequiresGetterDisposal(propertyDecl.SwiftTypeSpec))
+            var (conv, requiresDisposal) = GetAccessorGetterConversion(projection, $"{methodName}()");
+            if (conv != null)
             {
-                var usingReturnConversion = propertyEnv.TypeConversionHandler.GetReturnConversion("__ret", propertyDecl.SwiftTypeSpec, typeTranslator);
-                csWriter.WriteLine($"get {{ using var __ret = {methodName}(); return {usingReturnConversion}; }}");
-            }
-            else
-            {
-                csWriter.WriteLine($"get => {returnConversion};");
-            }
-        }
-        else
-        {
-            // Fallback: check for native type remapping (URL → NSUrl, Data → NSData)
-            var nativeReturnConversion = propertyEnv.TypeConversionHandler.GetNativeReturnConversion($"{methodName}()", propertyDecl.SwiftTypeSpec);
-            if (nativeReturnConversion != null)
-            {
-                if (propertyEnv.TypeConversionHandler.RequiresGetterDisposal(propertyDecl.SwiftTypeSpec))
+                if (requiresDisposal)
                 {
-                    var usingNativeConversion = propertyEnv.TypeConversionHandler.GetNativeReturnConversion("__ret", propertyDecl.SwiftTypeSpec);
-                    csWriter.WriteLine($"get {{ using var __ret = {methodName}(); return {usingNativeConversion}; }}");
+                    var (usingConv, _) = GetAccessorGetterConversion(projection, "__ret");
+                    csWriter.WriteLine($"get {{ using var __ret = {methodName}(); return {usingConv}; }}");
                 }
                 else
                 {
-                    csWriter.WriteLine($"get => {nativeReturnConversion};");
+                    csWriter.WriteLine($"get => {conv};");
                 }
-            }
-            else
-            {
-                csWriter.WriteLine($"get => {methodName}();");
+                return;
             }
         }
+        csWriter.WriteLine($"get => {methodName}();");
     }
 
     /// <summary>
     /// Emits the setter implementation for a property.
+    /// Uses TypeProjectionFactory to determine if the property type needs conversion
+    /// from idiomatic C# to Swift ABI (e.g., string → SwiftString, IEnumerable → SwiftArray).
     /// </summary>
-    /// <param name="csWriter">The C# code writer to emit to</param>
-    /// <param name="setter">The setter accessor declaration</param>
-    /// <param name="propertyEnv">The property environment</param>
-    /// <param name="propertyDecl">The property declaration</param>
     private void EmitSetter(CSharpWriter csWriter, SetAccessorDecl setter, PropertyEnvironment propertyEnv, PropertyDecl propertyDecl,
         bool isExistential = false, bool isOptionalExistential = false, GenericContext? genericContext = null)
     {
-        // Use PascalCase method name to match how MethodHandler emits the accessor method
         var methodName = NameProvider.GetMethodName(setter.Method.Name, null);
 
         // Existential/optional-existential properties: accessor methods already handle
@@ -515,41 +495,200 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             return;
         }
 
-        // Apply parameter type conversion if the property type was converted to an idiomatic type
-        Func<TypeSpec, string> typeTranslator = ts => TranslateTypeSpecWithGenerics(ts, propertyEnv.TypeDatabase, genericContext);
-        var paramConversion = propertyEnv.TypeConversionHandler.GetParameterConversion("value", propertyDecl.SwiftTypeSpec, typeTranslator);
-        if (paramConversion != null)
+        var projection = s_projectionFactory.Project(propertyDecl.SwiftTypeSpec,
+            new ProjectionContext { TypeDatabase = propertyEnv.TypeDatabase, IsParameter = true, GenericContext = genericContext });
+        if (projection != null)
         {
-            // Emit with using disposal if the setter creates an IDisposable wrapper
-            if (propertyEnv.TypeConversionHandler.RequiresSetterDisposal(propertyDecl.SwiftTypeSpec))
+            var (conv, requiresDisposal) = GetAccessorSetterConversion(projection, "value");
+            if (conv != null)
             {
-                csWriter.WriteLine($"set {{ using var __val = {paramConversion}; {methodName}(__val); }}");
-            }
-            else
-            {
-                csWriter.WriteLine($"set => {methodName}({paramConversion});");
-            }
-        }
-        else
-        {
-            // Fallback: check for native type remapping (NSUrl → URL, NSData → Data)
-            var nativeParamConversion = propertyEnv.TypeConversionHandler.GetNativeParameterConversion("value", propertyDecl.SwiftTypeSpec);
-            if (nativeParamConversion != null)
-            {
-                if (propertyEnv.TypeConversionHandler.RequiresSetterDisposal(propertyDecl.SwiftTypeSpec))
+                if (requiresDisposal)
                 {
-                    csWriter.WriteLine($"set {{ using var __val = {nativeParamConversion}; {methodName}(__val); }}");
+                    csWriter.WriteLine($"set {{ using var __val = {conv}; {methodName}(__val); }}");
                 }
                 else
                 {
-                    csWriter.WriteLine($"set => {methodName}({nativeParamConversion});");
+                    csWriter.WriteLine($"set => {methodName}({conv});");
                 }
-            }
-            else
-            {
-                csWriter.WriteLine($"set => {methodName}(value);");
+                return;
             }
         }
+        csWriter.WriteLine($"set => {methodName}(value);");
+    }
+
+    /// <summary>
+    /// Gets a getter conversion expression by dispatching on projection type.
+    /// Returns (conversion_expression, requires_disposal). Null conversion means passthrough.
+    /// </summary>
+    private static (string? conversion, bool requiresDisposal) GetAccessorGetterConversion(
+        ITypeProjection projection, string resultExpr)
+    {
+        return projection switch
+        {
+            StringProjection => ($"{resultExpr}.ToString()", true),
+            NativeRemappedProjection nrp => ($"{resultExpr}.{nrp.ToConversionMethod}()", nrp.RequiresDisposal),
+            OptionalProjection opt => GetOptionalAccessorGetterConversion(opt, resultExpr),
+            ArrayProjection arr => GetArrayAccessorGetterConversion(arr, resultExpr),
+            DictionaryProjection dict => GetDictAccessorGetterConversion(dict, resultExpr),
+            _ => (null, false)
+        };
+    }
+
+    private static (string? conversion, bool requiresDisposal) GetArrayAccessorGetterConversion(
+        ArrayProjection arr, string resultExpr)
+    {
+        var elemConv = arr.ElementProjection.GetReturnElementConversion("e");
+        if (elemConv != null)
+            return ($"{resultExpr}.AsProjected(e => {elemConv})", false);
+        // SwiftArray<T> IS IReadOnlyList<T> — no conversion needed, but still returned as-is
+        return (null, false);
+    }
+
+    private static (string? conversion, bool requiresDisposal) GetDictAccessorGetterConversion(
+        DictionaryProjection dict, string resultExpr)
+    {
+        var keyConv = dict.KeyProjection.GetReturnElementConversion("k");
+        var valConv = dict.ValueProjection.GetReturnElementConversion("v");
+        if (keyConv == null && valConv == null)
+            return (null, false);
+
+        // Build .AsProjected() with key/value lambdas
+        string asProjected;
+        if (keyConv != null)
+        {
+            var reverseKeyConv = dict.KeyProjection.GetParameterElementConversion("k") ?? "k";
+            var valSelector = valConv != null ? $"v => {valConv}" : "v => v";
+            asProjected = $"{resultExpr}.AsProjected(k => {keyConv}, k => {reverseKeyConv}, {valSelector})";
+        }
+        else
+        {
+            asProjected = $"{resultExpr}.AsProjected(v => {valConv})";
+        }
+        return (asProjected, false);
+    }
+
+    private static (string? conversion, bool requiresDisposal) GetOptionalAccessorGetterConversion(
+        OptionalProjection opt, string resultExpr)
+    {
+        var inner = opt.InnerProjection;
+        return inner switch
+        {
+            // Optional<String>: ((SwiftString?)result)?.ToString()
+            StringProjection => ($"((SwiftString?){resultExpr})?.ToString()", true),
+            // Optional<Array<T>>: discriminant check + inner array conversion or .Some passthrough
+            ArrayProjection arr =>
+                GetOptionalContainerGetterConversion(arr, resultExpr),
+            // Optional<Dictionary<K,V>>: discriminant check + inner dict conversion
+            DictionaryProjection dict =>
+                GetOptionalContainerGetterConversion(dict, resultExpr),
+            // Optional<NativeRemapped>: ((SwiftType?)result)?.ToConversion()
+            NativeRemappedProjection nrp => ($"(({nrp.SwiftWrapperType}?){resultExpr})?.{nrp.ToConversionMethod}()", true),
+            // Optional<Closure>: passthrough — closure accessor methods handle their own marshalling
+            ClosureProjection => (null, false),
+            // Optional<T> (blittable, enum, etc.): (({PublicType}?)result)
+            _ => ($"(({inner.PublicType}?){resultExpr})", true)
+        };
+    }
+
+    private static (string? conversion, bool requiresDisposal) GetOptionalContainerGetterConversion(
+        ITypeProjection innerContainer, string resultExpr)
+    {
+        // Only apply container conversion if inner elements actually need conversion.
+        // ArrayProjection.GetReturnContainerConversion always returns .AsProjected(e => e) even for
+        // identity, but for property accessors we skip identity conversions since the container type
+        // already implements the correct interface (SwiftArray<int> IS IReadOnlyList<int>).
+        var innerHasConversion = innerContainer switch
+        {
+            ArrayProjection arr => arr.ElementProjection.GetReturnElementConversion("e") != null,
+            DictionaryProjection dict => dict.KeyProjection.GetReturnElementConversion("k") != null
+                || dict.ValueProjection.GetReturnElementConversion("v") != null,
+            _ => false
+        };
+        var idiomaticType = innerContainer.PublicType;
+        var someExpr = innerHasConversion
+            ? innerContainer.GetReturnContainerConversion($"{resultExpr}.Some") ?? $"{resultExpr}.Some"
+            : $"{resultExpr}.Some";
+        return ($"({resultExpr}.Case == Swift.SwiftOptionalCases.None ? ({idiomaticType}?)null : {someExpr})", true);
+    }
+
+    /// <summary>
+    /// Gets a setter conversion expression by dispatching on projection type.
+    /// Returns (conversion_expression, requires_disposal). Null conversion means passthrough.
+    /// </summary>
+    private static (string? conversion, bool requiresDisposal) GetAccessorSetterConversion(
+        ITypeProjection projection, string valueExpr)
+    {
+        return projection switch
+        {
+            StringProjection => ($"new SwiftString({valueExpr})", true),
+            NativeRemappedProjection nrp => (
+                nrp.FromFactoryMethod != null
+                    ? $"{nrp.SwiftWrapperType}.{nrp.FromFactoryMethod}({valueExpr})"
+                    : $"new {nrp.SwiftWrapperType}({valueExpr})",
+                nrp.RequiresDisposal),
+            ArrayProjection arr => GetArrayAccessorSetterConversion(arr, valueExpr),
+            DictionaryProjection dict => GetDictAccessorSetterConversion(dict, valueExpr),
+            OptionalProjection opt => GetOptionalAccessorSetterConversion(opt, valueExpr),
+            _ => (null, false)
+        };
+    }
+
+    private static (string? conversion, bool requiresDisposal) GetArrayAccessorSetterConversion(
+        ArrayProjection arr, string valueExpr)
+    {
+        var rawElem = arr.ElementProjection.SwiftContainerGenericType;
+        var elemConv = arr.ElementProjection.GetParameterElementConversion("e");
+        if (elemConv != null)
+            return ($"SwiftArray<{rawElem}>.FromEnumerable({valueExpr}.Select(e => {elemConv}))", true);
+        return ($"SwiftArray<{rawElem}>.FromEnumerable({valueExpr})", true);
+    }
+
+    private static (string? conversion, bool requiresDisposal) GetDictAccessorSetterConversion(
+        DictionaryProjection dict, string valueExpr)
+    {
+        var rawK = dict.KeyProjection.SwiftContainerGenericType;
+        var rawV = dict.ValueProjection.SwiftContainerGenericType;
+        var keyConv = dict.KeyProjection.GetParameterElementConversion("kvp.Key");
+        var valConv = dict.ValueProjection.GetParameterElementConversion("kvp.Value");
+        if (keyConv != null || valConv != null)
+        {
+            var keyExpr = keyConv ?? "kvp.Key";
+            var valExpr = valConv ?? "kvp.Value";
+            return ($"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({valueExpr}.Select(kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr})))", true);
+        }
+        return ($"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({valueExpr})", true);
+    }
+
+    private static (string? conversion, bool requiresDisposal) GetOptionalAccessorSetterConversion(
+        OptionalProjection opt, string valueExpr)
+    {
+        var inner = opt.InnerProjection;
+
+        // Closure inner — passthrough, accessor methods handle their own marshalling
+        if (inner is ClosureProjection)
+            return (null, false);
+
+        var optType = inner.SwiftContainerGenericType;
+
+        // Container inner (Array, Dictionary) — must wrap with full container creation, not element conversion
+        if (inner is ArrayProjection arr)
+        {
+            var (arrConv, _) = GetArrayAccessorSetterConversion(arr, $"{valueExpr}Val");
+            return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({arrConv}) : SwiftOptional<{optType}>.NewNone())", true);
+        }
+        if (inner is DictionaryProjection dict)
+        {
+            var (dictConv, _) = GetDictAccessorSetterConversion(dict, $"{valueExpr}Val");
+            return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({dictConv}) : SwiftOptional<{optType}>.NewNone())", true);
+        }
+
+        // Element conversion (String, NativeRemapped, etc.)
+        var innerConv = inner.GetParameterElementConversion($"{valueExpr}Val");
+        if (innerConv != null)
+            return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({innerConv}) : SwiftOptional<{optType}>.NewNone())", true);
+
+        // Simple inner type (blittable, enum)
+        return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({valueExpr}Val) : SwiftOptional<{optType}>.NewNone())", true);
     }
 
     /// <summary>

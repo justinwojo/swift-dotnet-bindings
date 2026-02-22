@@ -191,6 +191,7 @@ public class TypeProjectionFactory
         if (typeRecord.NativeTypeName != null)
         {
             var isFrozen = MarshallingHelpers.IsTypeFrozen(typeRecord);
+            var requiresDisposal = MarshallingHelpers.RequiresMemoryManagement(typeRecord);
             var nativeName = typeRecord.NativeTypeName.FullyQualifiedName;
             var swiftName = typeRecord.CSharpTypeName.FullyQualifiedName;
             // Derive factory methods from the native type name suffix (NSUrl → FromNSUrl/ToNSUrl)
@@ -200,7 +201,8 @@ public class TypeProjectionFactory
                 swiftName,
                 isFrozen,
                 toConversionMethod: $"To{nativeShortName}",
-                fromFactoryMethod: $"From{nativeShortName}");
+                fromFactoryMethod: $"From{nativeShortName}",
+                requiresDisposal: requiresDisposal);
         }
 
         // Complex enums (non-simple) are C# classes with SafeHandle — not blittable.

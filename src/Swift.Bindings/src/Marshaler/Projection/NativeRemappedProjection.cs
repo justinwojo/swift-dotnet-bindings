@@ -12,6 +12,7 @@ public class NativeRemappedProjection : ITypeProjection
     private readonly string _publicType;
     private readonly string _swiftWrapperType;
     private readonly bool _isFrozen;
+    private readonly bool _requiresDisposal;
     private readonly string? _fromFactoryMethod;
     private readonly string _toConversionMethod;
 
@@ -21,14 +22,16 @@ public class NativeRemappedProjection : ITypeProjection
     /// <param name="publicType">The .NET type name (e.g., "NSUrl", "NSData").</param>
     /// <param name="swiftWrapperType">The Swift wrapper type (e.g., "Swift.URL", "Swift.Data").</param>
     /// <param name="isFrozen">Whether the Swift type is frozen (affects SafeHandle vs value semantics).</param>
-    /// <param name="fromFactoryMethod">Factory method for parameter conversion (e.g., "FromNSUrl"). If null, uses constructor.</param>
     /// <param name="toConversionMethod">Method for return conversion (e.g., "ToNSUrl"). Required — caller must derive from the native type name.</param>
+    /// <param name="fromFactoryMethod">Factory method for parameter conversion (e.g., "FromNSUrl"). If null, uses constructor.</param>
+    /// <param name="requiresDisposal">Whether the wrapper type is IDisposable (true for URL with RequiresMemoryManagement, false for Data without it).</param>
     public NativeRemappedProjection(string publicType, string swiftWrapperType, bool isFrozen,
-        string toConversionMethod, string? fromFactoryMethod = null)
+        string toConversionMethod, string? fromFactoryMethod = null, bool requiresDisposal = false)
     {
         _publicType = publicType;
         _swiftWrapperType = swiftWrapperType;
         _isFrozen = isFrozen;
+        _requiresDisposal = requiresDisposal;
         _fromFactoryMethod = fromFactoryMethod;
         _toConversionMethod = toConversionMethod;
     }
@@ -36,6 +39,21 @@ public class NativeRemappedProjection : ITypeProjection
     public string PublicType => _publicType;
     public string PInvokeType => _isFrozen ? _swiftWrapperType : "SafeHandle";
     public string? PInvokeAttribute => null;
+
+    /// <summary>Method name for converting Swift wrapper → native .NET type (e.g., "ToNSUrl").</summary>
+    public string ToConversionMethod => _toConversionMethod;
+
+    /// <summary>Factory method for converting native .NET → Swift wrapper (e.g., "FromNSUrl"), or null if constructor is used.</summary>
+    public string? FromFactoryMethod => _fromFactoryMethod;
+
+    /// <summary>The Swift wrapper type name (e.g., "Swift.URL", "Swift.Data").</summary>
+    public string SwiftWrapperType => _swiftWrapperType;
+
+    /// <summary>Whether the Swift type is frozen (affects SafeHandle vs value semantics in P/Invoke).</summary>
+    public bool IsFrozen => _isFrozen;
+
+    /// <summary>Whether the wrapper type requires disposal (true for URL with ref counting, false for Data as pure value).</summary>
+    public bool RequiresDisposal => _requiresDisposal;
 
     public MarshalPlan GetParameterPlan(string paramName)
     {
