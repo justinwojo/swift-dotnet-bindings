@@ -1165,8 +1165,8 @@ public class PropertyHandlerTests
 
         var (csOutput, _) = EmitProperty(property, typeDatabase);
 
-        // Generic type parameter τ_0_0 should resolve to T0
-        Assert.Contains("public T0 Value", csOutput);
+        // Generic type parameter τ_0_0 should resolve to T (from SugaredTypeName)
+        Assert.Contains("public T Value", csOutput);
         Assert.DoesNotContain("AnyType", csOutput);
     }
 

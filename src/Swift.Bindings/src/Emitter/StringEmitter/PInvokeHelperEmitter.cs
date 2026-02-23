@@ -47,7 +47,7 @@ public class PInvokeHelperContext
             return null;
 
         var typeParams = typeDecl.GenericParameters
-            .Select((_, i) => $"T{i}")
+            .Select((p, i) => NameProvider.GetCSharpGenericParameterName(p, i))
             .ToList();
 
         // Use qualified name (e.g., "Outer_Inner") to avoid helper class name collisions

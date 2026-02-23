@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-02-22T23:06:28Z",
-  "git_sha": "d0c49e8",
+  "timestamp": "2026-02-23T00:43:44Z",
+  "git_sha": "ed88b70",
   "runtime_version": "0.1.0-preview.5",
   "compile_gate": {
     "total": 32,
@@ -75,14 +75,14 @@
         "compile": "ok",
         "errors": 0,
         "lines": 51293,
-        "gen_seconds": 2
+        "gen_seconds": 3
       },
       "MicroblinkPlatform": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 3593,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "Mixpanel": {
         "generate": "fail",
@@ -110,21 +110,21 @@
         "compile": "ok",
         "errors": 0,
         "lines": 13313,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "SmartCardIO": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 4609,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "SnapKit": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 10540,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "Starscream": {
         "generate": "ok",
@@ -138,7 +138,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 493,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "StripeApplePay": {
         "generate": "fail",
@@ -152,14 +152,14 @@
         "compile": "ok",
         "errors": 0,
         "lines": 3657,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "StripeCardScan": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 2595,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "StripeConnect": {
         "generate": "fail",
@@ -180,35 +180,35 @@
         "compile": "ok",
         "errors": 0,
         "lines": 6820,
-        "gen_seconds": 3
+        "gen_seconds": 2
       },
       "StripeFinancialConnections": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 2654,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "StripeIdentity": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 1690,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "StripeIssuing": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 1498,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "StripePayments": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 94394,
-        "gen_seconds": 2
+        "gen_seconds": 3
       },
       "StripePaymentSheet": {
         "generate": "fail",

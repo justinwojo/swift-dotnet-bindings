@@ -130,7 +130,8 @@ namespace BindingsGeneration
             for (int i = 0; i < caseDecl.AssociatedValues.Count; i++)
             {
                 var typeSpec = caseDecl.AssociatedValues[i];
-                var csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler);
+                var enumGenericParams = enumDecl.IsGeneric ? enumDecl.GenericParameters : null;
+                var csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, enumGenericParams);
 
                 // Check if type is unsupported
                 if (csharpType == TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName)
@@ -139,7 +140,7 @@ namespace BindingsGeneration
                     return;
                 }
 
-                var publicType = GetPublicCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler);
+                var publicType = GetPublicCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, enumGenericParams);
 
                 // Use type label if available, otherwise generate a name
                 var paramName = typeSpec.TypeLabel ?? $"value{i}";
@@ -218,17 +219,18 @@ namespace BindingsGeneration
             // Marshal the payload to C# type(s)
             csWriter.WriteLine("// Marshal the payload to C# type(s)");
             var typeConversionHandler = new TypeConversionHandler(typeDatabase);
+            var marshalGenericParams = enumDecl.IsGeneric ? enumDecl.GenericParameters : null;
             if (parameters.Count == 1)
             {
                 var (type, publicType, name, typeSpec) = parameters[0];
                 if (typeConversionHandler.IsSwiftString(typeSpec))
                 {
-                    EmitPayloadMarshalWithDeclaration(csWriter, typeSpec, "__value_raw", "enumCopy", typeDatabase);
+                    EmitPayloadMarshalWithDeclaration(csWriter, typeSpec, "__value_raw", "enumCopy", typeDatabase, marshalGenericParams);
                     csWriter.WriteLine("value = __value_raw.ToString();");
                 }
                 else
                 {
-                    EmitPayloadMarshal(csWriter, typeSpec, "value", "enumCopy", typeDatabase);
+                    EmitPayloadMarshal(csWriter, typeSpec, "value", "enumCopy", typeDatabase, marshalGenericParams);
                 }
             }
             else
@@ -247,19 +249,19 @@ namespace BindingsGeneration
 
                     if (typeConversionHandler.IsSwiftString(typeSpec))
                     {
-                        EmitPayloadMarshalWithDeclaration(csWriter, typeSpec, $"{valueName}_raw", "enumCopy", typeDatabase);
+                        EmitPayloadMarshalWithDeclaration(csWriter, typeSpec, $"{valueName}_raw", "enumCopy", typeDatabase, marshalGenericParams);
                         csWriter.WriteLine($"var {valueName} = {valueName}_raw.ToString();");
                     }
                     else if (i == 0)
                     {
-                        EmitPayloadMarshalWithDeclaration(csWriter, typeSpec, valueName, "enumCopy", typeDatabase);
+                        EmitPayloadMarshalWithDeclaration(csWriter, typeSpec, valueName, "enumCopy", typeDatabase, marshalGenericParams);
                     }
                     else
                     {
                         // For subsequent elements, we need to calculate offset based on type sizes
                         // This is a simplification - in practice, we'd need alignment handling
                         csWriter.WriteLine($"// TODO: Proper offset calculation for element {i}");
-                        EmitPayloadMarshalWithDeclaration(csWriter, typeSpec, valueName, "enumCopy", typeDatabase);
+                        EmitPayloadMarshalWithDeclaration(csWriter, typeSpec, valueName, "enumCopy", typeDatabase, marshalGenericParams);
                     }
                 }
 
@@ -309,7 +311,8 @@ namespace BindingsGeneration
                     return;
                 }
 
-                var csharpType = GetCSharpTypeNameForEnumCase(element, typeDatabase, boundGenericsHandler);
+                var enumGenericParams2 = enumDecl.IsGeneric ? enumDecl.GenericParameters : null;
+                var csharpType = GetCSharpTypeNameForEnumCase(element, typeDatabase, boundGenericsHandler, enumGenericParams2);
 
                 // Check if type is unsupported
                 if (csharpType == TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName)
@@ -318,7 +321,7 @@ namespace BindingsGeneration
                     return;
                 }
 
-                var publicType = GetPublicCSharpTypeNameForEnumCase(element, typeDatabase, boundGenericsHandler);
+                var publicType = GetPublicCSharpTypeNameForEnumCase(element, typeDatabase, boundGenericsHandler, enumGenericParams2);
 
                 // Use element label if available, otherwise generate a name
                 var paramName = element.TypeLabel ?? $"value{i}";
@@ -400,7 +403,8 @@ namespace BindingsGeneration
             {
                 var (_, _, name, typeSpec) = parameters[i];
                 csWriter.WriteLine($"var offset{i} = tupleMetadata->GetElementOffset({i});");
-                EmitPayloadMarshalWithOffset(csWriter, typeSpec, name, "enumCopy", $"offset{i}", typeDatabase);
+                var tupleGenericParams = enumDecl.IsGeneric ? enumDecl.GenericParameters : null;
+                EmitPayloadMarshalWithOffset(csWriter, typeSpec, name, "enumCopy", $"offset{i}", typeDatabase, tupleGenericParams);
             }
             csWriter.WriteLine();
 
@@ -412,7 +416,8 @@ namespace BindingsGeneration
             csWriter.WriteLine();
 
             // Emit the tuple metadata accessor helper
-            EmitTupleMetadataAccessor(csWriter, capitalizedName, parameters, typeDatabase);
+            var metadataGenericParams = enumDecl.IsGeneric ? enumDecl.GenericParameters : null;
+            EmitTupleMetadataAccessor(csWriter, capitalizedName, parameters, typeDatabase, metadataGenericParams);
         }
     }
 }

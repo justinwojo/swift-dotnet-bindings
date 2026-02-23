@@ -71,7 +71,7 @@ public class PInvokeHelperEmitterTests
         Assert.NotNull(result);
         Assert.Equal("Container_PInvoke", result.HelperClassName);
         Assert.Single(result.GenericTypeParameters);
-        Assert.Equal("T0", result.GenericTypeParameters[0]);
+        Assert.Equal("T", result.GenericTypeParameters[0]);
     }
 
     [Fact]
@@ -104,8 +104,8 @@ public class PInvokeHelperEmitterTests
 
         Assert.NotNull(result);
         Assert.Equal(2, result.GenericTypeParameters.Count);
-        Assert.Equal("T0", result.GenericTypeParameters[0]);
-        Assert.Equal("T1", result.GenericTypeParameters[1]);
+        Assert.Equal("A", result.GenericTypeParameters[0]);
+        Assert.Equal("B", result.GenericTypeParameters[1]);
     }
 
     #endregion

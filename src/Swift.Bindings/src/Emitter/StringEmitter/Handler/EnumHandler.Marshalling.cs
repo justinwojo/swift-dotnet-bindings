@@ -12,7 +12,7 @@ namespace BindingsGeneration
         /// Emits a cached tuple metadata accessor for a specific enum case.
         /// This generates the tuple type metadata once and caches it for efficiency.
         /// </summary>
-        private void EmitTupleMetadataAccessor(CSharpWriter csWriter, string capitalizedCaseName, List<(string type, string publicType, string name, TypeSpec typeSpec)> parameters, ITypeDatabase typeDatabase)
+        private void EmitTupleMetadataAccessor(CSharpWriter csWriter, string capitalizedCaseName, List<(string type, string publicType, string name, TypeSpec typeSpec)> parameters, ITypeDatabase typeDatabase, IReadOnlyList<GenericArgumentDecl>? genericParams = null)
         {
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
 
@@ -38,7 +38,7 @@ namespace BindingsGeneration
             for (int i = 0; i < parameters.Count; i++)
             {
                 var (_, _, _, typeSpec) = parameters[i];
-                EmitGetTypeMetadataForElement(csWriter, typeSpec, i, typeDatabase);
+                EmitGetTypeMetadataForElement(csWriter, typeSpec, i, typeDatabase, genericParams);
             }
             csWriter.WriteLine();
 
@@ -59,7 +59,7 @@ namespace BindingsGeneration
         /// Emits code to get the TypeMetadata for a tuple element type.
         /// Stores the result in elementMetadataArray[index].
         /// </summary>
-        private void EmitGetTypeMetadataForElement(CSharpWriter csWriter, TypeSpec typeSpec, int index, ITypeDatabase typeDatabase)
+        private void EmitGetTypeMetadataForElement(CSharpWriter csWriter, TypeSpec typeSpec, int index, ITypeDatabase typeDatabase, IReadOnlyList<GenericArgumentDecl>? genericParams = null)
         {
             var existentialHandler = new ExistentialHandler(typeDatabase);
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
@@ -77,7 +77,7 @@ namespace BindingsGeneration
             }
 
             // For types that implement ISwiftObject, use their static metadata accessor
-            var csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler);
+            var csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams);
 
             // Check if it's a primitive type with known metadata
             if (IsPrimitiveTypeWithKnownMetadata(csharpType))
@@ -179,13 +179,13 @@ namespace BindingsGeneration
         /// Emits code to marshal a payload value from Swift memory at a specific offset.
         /// For existentials with known proxies, marshals to a temp container then wraps in the proxy class.
         /// </summary>
-        private void EmitPayloadMarshalWithOffset(CSharpWriter csWriter, TypeSpec typeSpec, string varName, string sourcePtr, string offsetVar, ITypeDatabase typeDatabase)
+        private void EmitPayloadMarshalWithOffset(CSharpWriter csWriter, TypeSpec typeSpec, string varName, string sourcePtr, string offsetVar, ITypeDatabase typeDatabase, IReadOnlyList<GenericArgumentDecl>? genericParams = null)
         {
             var existentialHandler = new ExistentialHandler(typeDatabase);
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
 
             // Get the C# type name
-            var csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler);
+            var csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams);
 
             // Handle existential types
             if (existentialHandler.IsExistential(typeSpec))
@@ -222,7 +222,7 @@ namespace BindingsGeneration
         /// Emits code to marshal a payload value from Swift memory to a C# variable (with assignment).
         /// For existentials with known proxies, marshals to a temp container then wraps in the proxy class.
         /// </summary>
-        private void EmitPayloadMarshal(CSharpWriter csWriter, TypeSpec typeSpec, string varName, string sourcePtr, ITypeDatabase typeDatabase)
+        private void EmitPayloadMarshal(CSharpWriter csWriter, TypeSpec typeSpec, string varName, string sourcePtr, ITypeDatabase typeDatabase, IReadOnlyList<GenericArgumentDecl>? genericParams = null)
         {
             var existentialHandler = new ExistentialHandler(typeDatabase);
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
@@ -256,7 +256,7 @@ namespace BindingsGeneration
             }
 
             // Use GetCSharpTypeNameForEnumCase to properly handle bound generics
-            var csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler);
+            var csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams);
             csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(new IntPtr({sourcePtr}));");
         }
 
@@ -264,13 +264,13 @@ namespace BindingsGeneration
         /// Emits code to marshal a payload value from Swift memory with a variable declaration.
         /// For existentials with known proxies, marshals to a temp container then wraps in the proxy class.
         /// </summary>
-        private void EmitPayloadMarshalWithDeclaration(CSharpWriter csWriter, TypeSpec typeSpec, string varName, string sourcePtr, ITypeDatabase typeDatabase)
+        private void EmitPayloadMarshalWithDeclaration(CSharpWriter csWriter, TypeSpec typeSpec, string varName, string sourcePtr, ITypeDatabase typeDatabase, IReadOnlyList<GenericArgumentDecl>? genericParams = null)
         {
             var existentialHandler = new ExistentialHandler(typeDatabase);
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
 
             // Get the C# type name for this typeSpec
-            string csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler);
+            string csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams);
 
             // Handle existential types
             if (existentialHandler.IsExistential(typeSpec))

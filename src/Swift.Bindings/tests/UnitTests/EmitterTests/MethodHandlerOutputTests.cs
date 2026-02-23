@@ -225,8 +225,8 @@ public class MethodHandlerOutputTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        Assert.Contains("public long Decode<T0>()", csOutput);
-        Assert.Contains("where T0 : ISwiftObject, ILoadable", csOutput);
+        Assert.Contains("public long Decode<T>()", csOutput);
+        Assert.Contains("where T : ISwiftObject, ILoadable", csOutput);
     }
 
     [Fact]

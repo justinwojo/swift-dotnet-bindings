@@ -22,38 +22,38 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Generic function with a where clause constraining to Summable.
         /// </summary>
-        public static T0 SumTwo<T0>( T0 a,  T0 b)
-            where T0 : ISwiftObject, ISummable
+        public static T SumTwo<T>( T a,  T b)
+            where T : ISwiftObject, ISummable
         {
             unsafe
             {
-                TypeMetadata T0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
+                TypeMetadata TMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
                 IntPtr aPayload = IntPtr.Zero;
                 IntPtr bPayload = IntPtr.Zero;
                 try
                 {
-                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
+                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
                     var payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
                     var swiftIndirectResult = new SwiftIndirectResult(payload);
                     
-                    Span<byte> aPayloadSpan = stackalloc byte[(int)T0Metadata.Size];
+                    Span<byte> aPayloadSpan = stackalloc byte[(int)TMetadata.Size];
                     aPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(aPayloadSpan));
                     SwiftMarshal.MarshalToSwift(a, ref aPayloadSpan);
-                    Span<byte> bPayloadSpan = stackalloc byte[(int)T0Metadata.Size];
+                    Span<byte> bPayloadSpan = stackalloc byte[(int)TMetadata.Size];
                     bPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(bPayloadSpan));
                     SwiftMarshal.MarshalToSwift(b, ref bPayloadSpan);
                     
-                    var T0SummablePWT = ProtocolWitnessTable.GetOrThrow<T0, ISummable>();
+                    var TSummablePWT = ProtocolWitnessTable.GetOrThrow<T, ISummable>();
                     
-                    PInvoke_sumTwo_4DF32453(swiftIndirectResult, aPayload, bPayload, T0Metadata, T0SummablePWT);
+                    PInvoke_sumTwo_4DF32453(swiftIndirectResult, aPayload, bPayload, TMetadata, TSummablePWT);
                     
-                    return SwiftMarshal.MarshalFromSwift<T0>(new IntPtr(swiftIndirectResult.Value));
+                    return SwiftMarshal.MarshalFromSwift<T>(new IntPtr(swiftIndirectResult.Value));
                 }
                 
                 finally
                 {
-                    T0Metadata.ValueWitnessTable->Destroy((void *)aPayload, T0Metadata);
-                    T0Metadata.ValueWitnessTable->Destroy((void *)bPayload, T0Metadata);
+                    TMetadata.ValueWitnessTable->Destroy((void *)aPayload, TMetadata);
+                    TMetadata.ValueWitnessTable->Destroy((void *)bPayload, TMetadata);
                 }
                 
             }
@@ -61,29 +61,29 @@ namespace Swift.SwiftBindingsTestLib
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib6sumTwoyxx_xtAA8SummableRzlF")]
-        private static partial void PInvoke_sumTwo_4DF32453( SwiftIndirectResult swiftIndirectResult,  IntPtr aPayload,  IntPtr bPayload,  TypeMetadata T0Metadata,  ProtocolWitnessTable T0SummablePWT);
+        private static partial void PInvoke_sumTwo_4DF32453( SwiftIndirectResult swiftIndirectResult,  IntPtr aPayload,  IntPtr bPayload,  TypeMetadata TMetadata,  ProtocolWitnessTable TSummablePWT);
         
         
         /// <summary>
         /// Generic function with multiple where clauses.
         /// </summary>
-        public static string GetDescribeConstrained<T0>( T0 item)
-            where T0 : ISwiftObject, IDescribable, ITestIdentifiable
+        public static string GetDescribeConstrained<T>( T item)
+            where T : ISwiftObject, IDescribable, ITestIdentifiable
         {
             unsafe
             {
-                TypeMetadata T0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
+                TypeMetadata TMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
                 IntPtr itemPayload = IntPtr.Zero;
                 try
                 {
-                    Span<byte> itemPayloadSpan = stackalloc byte[(int)T0Metadata.Size];
+                    Span<byte> itemPayloadSpan = stackalloc byte[(int)TMetadata.Size];
                     itemPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(itemPayloadSpan));
                     SwiftMarshal.MarshalToSwift(item, ref itemPayloadSpan);
                     
-                    var T0DescribablePWT = ProtocolWitnessTable.GetOrThrow<T0, IDescribable>();
-                    var T0TestIdentifiablePWT = ProtocolWitnessTable.GetOrThrow<T0, ITestIdentifiable>();
+                    var TDescribablePWT = ProtocolWitnessTable.GetOrThrow<T, IDescribable>();
+                    var TTestIdentifiablePWT = ProtocolWitnessTable.GetOrThrow<T, ITestIdentifiable>();
                     
-                    var result = PInvoke_describeConstrained_CA6FF0E0(itemPayload, T0Metadata, T0DescribablePWT, T0TestIdentifiablePWT);
+                    var result = PInvoke_describeConstrained_CA6FF0E0(itemPayload, TMetadata, TDescribablePWT, TTestIdentifiablePWT);
                     
                     var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
                     return swiftResult.ToString();
@@ -91,7 +91,7 @@ namespace Swift.SwiftBindingsTestLib
                 
                 finally
                 {
-                    T0Metadata.ValueWitnessTable->Destroy((void *)itemPayload, T0Metadata);
+                    TMetadata.ValueWitnessTable->Destroy((void *)itemPayload, TMetadata);
                 }
                 
             }
@@ -99,7 +99,7 @@ namespace Swift.SwiftBindingsTestLib
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib19describeConstrainedySSxAA11DescribableRzAA0C12IdentifiableRzlF")]
-        private static partial Swift.SwiftString.Buffer PInvoke_describeConstrained_CA6FF0E0( IntPtr itemPayload,  TypeMetadata T0Metadata,  ProtocolWitnessTable T0DescribablePWT,  ProtocolWitnessTable T0TestIdentifiablePWT);
+        private static partial Swift.SwiftString.Buffer PInvoke_describeConstrained_CA6FF0E0( IntPtr itemPayload,  TypeMetadata TMetadata,  ProtocolWitnessTable TDescribablePWT,  ProtocolWitnessTable TTestIdentifiablePWT);
         
         
         [global::Swift.UnsupportedSwiftType("Existential type fallback", "any SwiftBindingsTestLib.Describable")]
@@ -310,32 +310,32 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Unconstrained generic identity function.
         /// </summary>
-        public static T0 GetIdentity<T0>( T0 _value)
-            where T0 : ISwiftObject
+        public static T GetIdentity<T>( T _value)
+            where T : ISwiftObject
         {
             unsafe
             {
-                TypeMetadata T0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
+                TypeMetadata TMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
                 IntPtr _valuePayload = IntPtr.Zero;
                 try
                 {
-                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
+                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
                     var payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
                     var swiftIndirectResult = new SwiftIndirectResult(payload);
                     
-                    Span<byte> _valuePayloadSpan = stackalloc byte[(int)T0Metadata.Size];
+                    Span<byte> _valuePayloadSpan = stackalloc byte[(int)TMetadata.Size];
                     _valuePayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(_valuePayloadSpan));
                     SwiftMarshal.MarshalToSwift(_value, ref _valuePayloadSpan);
                     
                     
-                    PInvoke_identity_799A5111(swiftIndirectResult, _valuePayload, T0Metadata);
+                    PInvoke_identity_799A5111(swiftIndirectResult, _valuePayload, TMetadata);
                     
-                    return SwiftMarshal.MarshalFromSwift<T0>(new IntPtr(swiftIndirectResult.Value));
+                    return SwiftMarshal.MarshalFromSwift<T>(new IntPtr(swiftIndirectResult.Value));
                 }
                 
                 finally
                 {
-                    T0Metadata.ValueWitnessTable->Destroy((void *)_valuePayload, T0Metadata);
+                    TMetadata.ValueWitnessTable->Destroy((void *)_valuePayload, TMetadata);
                 }
                 
             }
@@ -343,45 +343,45 @@ namespace Swift.SwiftBindingsTestLib
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib8identityyxxlF")]
-        private static partial void PInvoke_identity_799A5111( SwiftIndirectResult swiftIndirectResult,  IntPtr _valuePayload,  TypeMetadata T0Metadata);
+        private static partial void PInvoke_identity_799A5111( SwiftIndirectResult swiftIndirectResult,  IntPtr _valuePayload,  TypeMetadata TMetadata);
         
         
         /// <summary>
         /// Generic function returning a tuple pair.
         /// </summary>
-        public static (T0, T1) GetPair<T0, T1>( T0 first,  T1 second)
-            where T0 : ISwiftObject
-            where T1 : ISwiftObject
+        public static (T, U) GetPair<T, U>( T first,  U second)
+            where T : ISwiftObject
+            where U : ISwiftObject
         {
             unsafe
             {
-                TypeMetadata T0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
-                TypeMetadata T1Metadata = TypeMetadata.GetTypeMetadataOrThrow<T1>();
+                TypeMetadata TMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
+                TypeMetadata UMetadata = TypeMetadata.GetTypeMetadataOrThrow<U>();
                 IntPtr firstPayload = IntPtr.Zero;
                 IntPtr secondPayload = IntPtr.Zero;
                 try
                 {
-                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<(T0, T1)>();
+                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<(T, U)>();
                     var payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
                     var swiftIndirectResult = new SwiftIndirectResult(payload);
                     
-                    Span<byte> firstPayloadSpan = stackalloc byte[(int)T0Metadata.Size];
+                    Span<byte> firstPayloadSpan = stackalloc byte[(int)TMetadata.Size];
                     firstPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(firstPayloadSpan));
                     SwiftMarshal.MarshalToSwift(first, ref firstPayloadSpan);
-                    Span<byte> secondPayloadSpan = stackalloc byte[(int)T1Metadata.Size];
+                    Span<byte> secondPayloadSpan = stackalloc byte[(int)UMetadata.Size];
                     secondPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(secondPayloadSpan));
                     SwiftMarshal.MarshalToSwift(second, ref secondPayloadSpan);
                     
                     
-                    PInvoke_pair_E29B6888(swiftIndirectResult, firstPayload, secondPayload, T0Metadata, T1Metadata);
+                    PInvoke_pair_E29B6888(swiftIndirectResult, firstPayload, secondPayload, TMetadata, UMetadata);
                     
-                    return SwiftMarshal.MarshalFromSwift<(T0, T1)>(new IntPtr(swiftIndirectResult.Value));
+                    return SwiftMarshal.MarshalFromSwift<(T, U)>(new IntPtr(swiftIndirectResult.Value));
                 }
                 
                 finally
                 {
-                    T0Metadata.ValueWitnessTable->Destroy((void *)firstPayload, T0Metadata);
-                    T1Metadata.ValueWitnessTable->Destroy((void *)secondPayload, T1Metadata);
+                    TMetadata.ValueWitnessTable->Destroy((void *)firstPayload, TMetadata);
+                    UMetadata.ValueWitnessTable->Destroy((void *)secondPayload, UMetadata);
                 }
                 
             }
@@ -389,28 +389,28 @@ namespace Swift.SwiftBindingsTestLib
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib4pairyx_q_tx_q_tr0_lF")]
-        private static partial void PInvoke_pair_E29B6888( SwiftIndirectResult swiftIndirectResult,  IntPtr firstPayload,  IntPtr secondPayload,  TypeMetadata T0Metadata,  TypeMetadata T1Metadata);
+        private static partial void PInvoke_pair_E29B6888( SwiftIndirectResult swiftIndirectResult,  IntPtr firstPayload,  IntPtr secondPayload,  TypeMetadata TMetadata,  TypeMetadata UMetadata);
         
         
         /// <summary>
         /// Generic function with a single protocol constraint.
         /// </summary>
-        public static string GetConstrained<T0>( T0 item)
-            where T0 : ISwiftObject, IDescribable
+        public static string GetConstrained<T>( T item)
+            where T : ISwiftObject, IDescribable
         {
             unsafe
             {
-                TypeMetadata T0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
+                TypeMetadata TMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
                 IntPtr itemPayload = IntPtr.Zero;
                 try
                 {
-                    Span<byte> itemPayloadSpan = stackalloc byte[(int)T0Metadata.Size];
+                    Span<byte> itemPayloadSpan = stackalloc byte[(int)TMetadata.Size];
                     itemPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(itemPayloadSpan));
                     SwiftMarshal.MarshalToSwift(item, ref itemPayloadSpan);
                     
-                    var T0DescribablePWT = ProtocolWitnessTable.GetOrThrow<T0, IDescribable>();
+                    var TDescribablePWT = ProtocolWitnessTable.GetOrThrow<T, IDescribable>();
                     
-                    var result = PInvoke_constrained_BBA98441(itemPayload, T0Metadata, T0DescribablePWT);
+                    var result = PInvoke_constrained_BBA98441(itemPayload, TMetadata, TDescribablePWT);
                     
                     var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
                     return swiftResult.ToString();
@@ -418,7 +418,7 @@ namespace Swift.SwiftBindingsTestLib
                 
                 finally
                 {
-                    T0Metadata.ValueWitnessTable->Destroy((void *)itemPayload, T0Metadata);
+                    TMetadata.ValueWitnessTable->Destroy((void *)itemPayload, TMetadata);
                 }
                 
             }
@@ -426,29 +426,29 @@ namespace Swift.SwiftBindingsTestLib
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11constrainedySSxAA11DescribableRzlF")]
-        private static partial Swift.SwiftString.Buffer PInvoke_constrained_BBA98441( IntPtr itemPayload,  TypeMetadata T0Metadata,  ProtocolWitnessTable T0DescribablePWT);
+        private static partial Swift.SwiftString.Buffer PInvoke_constrained_BBA98441( IntPtr itemPayload,  TypeMetadata TMetadata,  ProtocolWitnessTable TDescribablePWT);
         
         
         /// <summary>
         /// Generic function with multiple protocol constraints.
         /// </summary>
-        public static string GetMultiConstrained<T0>( T0 item)
-            where T0 : ISwiftObject, IDescribable, ITestIdentifiable
+        public static string GetMultiConstrained<T>( T item)
+            where T : ISwiftObject, IDescribable, ITestIdentifiable
         {
             unsafe
             {
-                TypeMetadata T0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
+                TypeMetadata TMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
                 IntPtr itemPayload = IntPtr.Zero;
                 try
                 {
-                    Span<byte> itemPayloadSpan = stackalloc byte[(int)T0Metadata.Size];
+                    Span<byte> itemPayloadSpan = stackalloc byte[(int)TMetadata.Size];
                     itemPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(itemPayloadSpan));
                     SwiftMarshal.MarshalToSwift(item, ref itemPayloadSpan);
                     
-                    var T0DescribablePWT = ProtocolWitnessTable.GetOrThrow<T0, IDescribable>();
-                    var T0TestIdentifiablePWT = ProtocolWitnessTable.GetOrThrow<T0, ITestIdentifiable>();
+                    var TDescribablePWT = ProtocolWitnessTable.GetOrThrow<T, IDescribable>();
+                    var TTestIdentifiablePWT = ProtocolWitnessTable.GetOrThrow<T, ITestIdentifiable>();
                     
-                    var result = PInvoke_multiConstrained_09235B5F(itemPayload, T0Metadata, T0DescribablePWT, T0TestIdentifiablePWT);
+                    var result = PInvoke_multiConstrained_09235B5F(itemPayload, TMetadata, TDescribablePWT, TTestIdentifiablePWT);
                     
                     var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
                     return swiftResult.ToString();
@@ -456,7 +456,7 @@ namespace Swift.SwiftBindingsTestLib
                 
                 finally
                 {
-                    T0Metadata.ValueWitnessTable->Destroy((void *)itemPayload, T0Metadata);
+                    TMetadata.ValueWitnessTable->Destroy((void *)itemPayload, TMetadata);
                 }
                 
             }
@@ -464,44 +464,44 @@ namespace Swift.SwiftBindingsTestLib
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib16multiConstrainedySSxAA11DescribableRzAA0C12IdentifiableRzlF")]
-        private static partial Swift.SwiftString.Buffer PInvoke_multiConstrained_09235B5F( IntPtr itemPayload,  TypeMetadata T0Metadata,  ProtocolWitnessTable T0DescribablePWT,  ProtocolWitnessTable T0TestIdentifiablePWT);
+        private static partial Swift.SwiftString.Buffer PInvoke_multiConstrained_09235B5F( IntPtr itemPayload,  TypeMetadata TMetadata,  ProtocolWitnessTable TDescribablePWT,  ProtocolWitnessTable TTestIdentifiablePWT);
         
         
         /// <summary>
         /// Generic function with where clause.
         /// </summary>
-        public static bool CompareIdentifiables<T0, T1>( T0 a,  T1 b)
-            where T0 : ISwiftObject, IDescribable, ITestIdentifiable
-            where T1 : ISwiftObject, ITestIdentifiable
+        public static bool CompareIdentifiables<T, U>( T a,  U b)
+            where T : ISwiftObject, IDescribable, ITestIdentifiable
+            where U : ISwiftObject, ITestIdentifiable
         {
             unsafe
             {
-                TypeMetadata T0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
-                TypeMetadata T1Metadata = TypeMetadata.GetTypeMetadataOrThrow<T1>();
+                TypeMetadata TMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
+                TypeMetadata UMetadata = TypeMetadata.GetTypeMetadataOrThrow<U>();
                 IntPtr aPayload = IntPtr.Zero;
                 IntPtr bPayload = IntPtr.Zero;
                 try
                 {
-                    Span<byte> aPayloadSpan = stackalloc byte[(int)T0Metadata.Size];
+                    Span<byte> aPayloadSpan = stackalloc byte[(int)TMetadata.Size];
                     aPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(aPayloadSpan));
                     SwiftMarshal.MarshalToSwift(a, ref aPayloadSpan);
-                    Span<byte> bPayloadSpan = stackalloc byte[(int)T1Metadata.Size];
+                    Span<byte> bPayloadSpan = stackalloc byte[(int)UMetadata.Size];
                     bPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(bPayloadSpan));
                     SwiftMarshal.MarshalToSwift(b, ref bPayloadSpan);
                     
-                    var T0DescribablePWT = ProtocolWitnessTable.GetOrThrow<T0, IDescribable>();
-                    var T0TestIdentifiablePWT = ProtocolWitnessTable.GetOrThrow<T0, ITestIdentifiable>();
-                    var T1TestIdentifiablePWT = ProtocolWitnessTable.GetOrThrow<T1, ITestIdentifiable>();
+                    var TDescribablePWT = ProtocolWitnessTable.GetOrThrow<T, IDescribable>();
+                    var TTestIdentifiablePWT = ProtocolWitnessTable.GetOrThrow<T, ITestIdentifiable>();
+                    var UTestIdentifiablePWT = ProtocolWitnessTable.GetOrThrow<U, ITestIdentifiable>();
                     
-                    var result = PInvoke_compareIdentifiables_105E4FE7(aPayload, bPayload, T0Metadata, T1Metadata, T0DescribablePWT, T0TestIdentifiablePWT, T1TestIdentifiablePWT);
+                    var result = PInvoke_compareIdentifiables_105E4FE7(aPayload, bPayload, TMetadata, UMetadata, TDescribablePWT, TTestIdentifiablePWT, UTestIdentifiablePWT);
                     
                     return result;
                 }
                 
                 finally
                 {
-                    T0Metadata.ValueWitnessTable->Destroy((void *)aPayload, T0Metadata);
-                    T1Metadata.ValueWitnessTable->Destroy((void *)bPayload, T1Metadata);
+                    TMetadata.ValueWitnessTable->Destroy((void *)aPayload, TMetadata);
+                    UMetadata.ValueWitnessTable->Destroy((void *)bPayload, UMetadata);
                 }
                 
             }
@@ -510,7 +510,7 @@ namespace Swift.SwiftBindingsTestLib
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib20compareIdentifiablesySbx_q_tAA11DescribableRzAA0C12IdentifiableRzAaDR_r0_lF")]
         [return: MarshalAs(UnmanagedType.U1)]
-        private static partial bool PInvoke_compareIdentifiables_105E4FE7( IntPtr aPayload,  IntPtr bPayload,  TypeMetadata T0Metadata,  TypeMetadata T1Metadata,  ProtocolWitnessTable T0DescribablePWT,  ProtocolWitnessTable T0TestIdentifiablePWT,  ProtocolWitnessTable T1TestIdentifiablePWT);
+        private static partial bool PInvoke_compareIdentifiables_105E4FE7( IntPtr aPayload,  IntPtr bPayload,  TypeMetadata TMetadata,  TypeMetadata UMetadata,  ProtocolWitnessTable TDescribablePWT,  ProtocolWitnessTable TTestIdentifiablePWT,  ProtocolWitnessTable UTestIdentifiablePWT);
         
         
         /// <summary>
@@ -3874,31 +3874,31 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Generic function with a compound 3-protocol constraint.
         /// </summary>
-        public static int ApplyThreeProtocols<T0>( T0 val,  int a,  int b,  int c)
-            where T0 : ISwiftObject, IAddable, IMultipliable, ISubtractable
+        public static int ApplyThreeProtocols<T>( T val,  int a,  int b,  int c)
+            where T : ISwiftObject, IAddable, IMultipliable, ISubtractable
         {
             unsafe
             {
-                TypeMetadata T0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
+                TypeMetadata TMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
                 IntPtr valPayload = IntPtr.Zero;
                 try
                 {
-                    Span<byte> valPayloadSpan = stackalloc byte[(int)T0Metadata.Size];
+                    Span<byte> valPayloadSpan = stackalloc byte[(int)TMetadata.Size];
                     valPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(valPayloadSpan));
                     SwiftMarshal.MarshalToSwift(val, ref valPayloadSpan);
                     
-                    var T0AddablePWT = ProtocolWitnessTable.GetOrThrow<T0, IAddable>();
-                    var T0MultipliablePWT = ProtocolWitnessTable.GetOrThrow<T0, IMultipliable>();
-                    var T0SubtractablePWT = ProtocolWitnessTable.GetOrThrow<T0, ISubtractable>();
+                    var TAddablePWT = ProtocolWitnessTable.GetOrThrow<T, IAddable>();
+                    var TMultipliablePWT = ProtocolWitnessTable.GetOrThrow<T, IMultipliable>();
+                    var TSubtractablePWT = ProtocolWitnessTable.GetOrThrow<T, ISubtractable>();
                     
-                    var result = PInvoke_applyThreeProtocols_952D693F(valPayload, a, b, c, T0Metadata, T0AddablePWT, T0MultipliablePWT, T0SubtractablePWT);
+                    var result = PInvoke_applyThreeProtocols_952D693F(valPayload, a, b, c, TMetadata, TAddablePWT, TMultipliablePWT, TSubtractablePWT);
                     
                     return result;
                 }
                 
                 finally
                 {
-                    T0Metadata.ValueWitnessTable->Destroy((void *)valPayload, T0Metadata);
+                    TMetadata.ValueWitnessTable->Destroy((void *)valPayload, TMetadata);
                 }
                 
             }
@@ -3906,38 +3906,38 @@ namespace Swift.SwiftBindingsTestLib
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib19applyThreeProtocols_1a1b1cs5Int32Vx_A3GtAA7AddableRzAA12MultipliableRzAA12SubtractableRzlF")]
-        private static partial int PInvoke_applyThreeProtocols_952D693F( IntPtr valPayload,  int a,  int b,  int c,  TypeMetadata T0Metadata,  ProtocolWitnessTable T0AddablePWT,  ProtocolWitnessTable T0MultipliablePWT,  ProtocolWitnessTable T0SubtractablePWT);
+        private static partial int PInvoke_applyThreeProtocols_952D693F( IntPtr valPayload,  int a,  int b,  int c,  TypeMetadata TMetadata,  ProtocolWitnessTable TAddablePWT,  ProtocolWitnessTable TMultipliablePWT,  ProtocolWitnessTable TSubtractablePWT);
         
         
         /// <summary>
         /// Generic function with a compound 4-protocol constraint.
         /// </summary>
-        public static int ApplyFourProtocols<T0>( T0 val,  int a,  int b,  int c,  int d)
-            where T0 : ISwiftObject, IAddable, IDividable, IMultipliable, ISubtractable
+        public static int ApplyFourProtocols<T>( T val,  int a,  int b,  int c,  int d)
+            where T : ISwiftObject, IAddable, IDividable, IMultipliable, ISubtractable
         {
             unsafe
             {
-                TypeMetadata T0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
+                TypeMetadata TMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
                 IntPtr valPayload = IntPtr.Zero;
                 try
                 {
-                    Span<byte> valPayloadSpan = stackalloc byte[(int)T0Metadata.Size];
+                    Span<byte> valPayloadSpan = stackalloc byte[(int)TMetadata.Size];
                     valPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(valPayloadSpan));
                     SwiftMarshal.MarshalToSwift(val, ref valPayloadSpan);
                     
-                    var T0AddablePWT = ProtocolWitnessTable.GetOrThrow<T0, IAddable>();
-                    var T0DividablePWT = ProtocolWitnessTable.GetOrThrow<T0, IDividable>();
-                    var T0MultipliablePWT = ProtocolWitnessTable.GetOrThrow<T0, IMultipliable>();
-                    var T0SubtractablePWT = ProtocolWitnessTable.GetOrThrow<T0, ISubtractable>();
+                    var TAddablePWT = ProtocolWitnessTable.GetOrThrow<T, IAddable>();
+                    var TDividablePWT = ProtocolWitnessTable.GetOrThrow<T, IDividable>();
+                    var TMultipliablePWT = ProtocolWitnessTable.GetOrThrow<T, IMultipliable>();
+                    var TSubtractablePWT = ProtocolWitnessTable.GetOrThrow<T, ISubtractable>();
                     
-                    var result = PInvoke_applyFourProtocols_4675963C(valPayload, a, b, c, d, T0Metadata, T0AddablePWT, T0DividablePWT, T0MultipliablePWT, T0SubtractablePWT);
+                    var result = PInvoke_applyFourProtocols_4675963C(valPayload, a, b, c, d, TMetadata, TAddablePWT, TDividablePWT, TMultipliablePWT, TSubtractablePWT);
                     
                     return result;
                 }
                 
                 finally
                 {
-                    T0Metadata.ValueWitnessTable->Destroy((void *)valPayload, T0Metadata);
+                    TMetadata.ValueWitnessTable->Destroy((void *)valPayload, TMetadata);
                 }
                 
             }
@@ -3945,7 +3945,7 @@ namespace Swift.SwiftBindingsTestLib
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib18applyFourProtocols_1a1b1c1ds5Int32Vx_A4HtAA7AddableRzAA9DividableRzAA12MultipliableRzAA12SubtractableRzlF")]
-        private static partial int PInvoke_applyFourProtocols_4675963C( IntPtr valPayload,  int a,  int b,  int c,  int d,  TypeMetadata T0Metadata,  ProtocolWitnessTable T0AddablePWT,  ProtocolWitnessTable T0DividablePWT,  ProtocolWitnessTable T0MultipliablePWT,  ProtocolWitnessTable T0SubtractablePWT);
+        private static partial int PInvoke_applyFourProtocols_4675963C( IntPtr valPayload,  int a,  int b,  int c,  int d,  TypeMetadata TMetadata,  ProtocolWitnessTable TAddablePWT,  ProtocolWitnessTable TDividablePWT,  ProtocolWitnessTable TMultipliablePWT,  ProtocolWitnessTable TSubtractablePWT);
         
         
         /// <summary>
@@ -4746,29 +4746,29 @@ namespace Swift.SwiftBindingsTestLib
     /// <summary>
     /// A generic struct constrained by Summable. Note: not @frozen — binding generator cannot resolve generic type parameter layouts.
     /// </summary>
-    public partial class AcceptsSummable<T0> : ISwiftObject, IDisposable where T0 : ISwiftObject, ISummable
+    public partial class AcceptsSummable<T> : ISwiftObject, IDisposable where T : ISwiftObject, ISummable
     {
-        private T0 Item_Get()
+        private T Item_Get()
         {
             unsafe
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
-                TypeMetadata T0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
+                TypeMetadata TMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
                 try
                 {
                     var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
                     
-                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
+                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
                     var payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
                     var swiftIndirectResult = new SwiftIndirectResult(payload);
                     
                     
-                    var T0SummablePWT = ProtocolWitnessTable.GetOrThrow<T0, ISummable>();
+                    var TSummablePWT = ProtocolWitnessTable.GetOrThrow<T, ISummable>();
                     
-                    AcceptsSummable_PInvoke.PInvoke_item_Get_31551421(swiftIndirectResult, T0Metadata, T0SummablePWT, self, SwiftObjectHelper<T0>.GetTypeMetadata());
+                    AcceptsSummable_PInvoke.PInvoke_item_Get_31551421(swiftIndirectResult, TMetadata, TSummablePWT, self, SwiftObjectHelper<T>.GetTypeMetadata());
                     
-                    return SwiftMarshal.MarshalFromSwift<T0>(new IntPtr(swiftIndirectResult.Value));
+                    return SwiftMarshal.MarshalFromSwift<T>(new IntPtr(swiftIndirectResult.Value));
                 }
                 
                 finally
@@ -4781,18 +4781,18 @@ namespace Swift.SwiftBindingsTestLib
         }
         
         
-        public T0 Item
+        public T Item
         {
             get => Item_Get();
         }
         
         [EditorBrowsable(EditorBrowsableState.Never)]
-        static nuint _payloadSize = SwiftObjectHelper<AcceptsSummable<T0>>.GetTypeMetadata().Size;
+        static nuint _payloadSize = SwiftObjectHelper<AcceptsSummable<T>>.GetTypeMetadata().Size;
         [EditorBrowsable(EditorBrowsableState.Never)]
-        SwiftSafeHandle<AcceptsSummable<T0>> _payload = SwiftSafeHandle<AcceptsSummable<T0>>.Zero;
+        SwiftSafeHandle<AcceptsSummable<T>> _payload = SwiftSafeHandle<AcceptsSummable<T>>.Zero;
         
         [EditorBrowsable(EditorBrowsableState.Never)]
-        internal SwiftSafeHandle<AcceptsSummable<T0>> Payload => _payload;
+        internal SwiftSafeHandle<AcceptsSummable<T>> Payload => _payload;
         
         public void Dispose()
         {
@@ -4804,23 +4804,23 @@ namespace Swift.SwiftBindingsTestLib
             Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
         }
         
-        static TypeMetadata ISwiftObject.GetTypeMetadata() => AcceptsSummable_PInvoke.PInvoke_getMetadata(SwiftObjectHelper<T0>.GetTypeMetadata());
+        static TypeMetadata ISwiftObject.GetTypeMetadata() => AcceptsSummable_PInvoke.PInvoke_getMetadata(SwiftObjectHelper<T>.GetTypeMetadata());
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
         {
-            return new AcceptsSummable<T0>(handle);
+            return new AcceptsSummable<T>(handle);
         }
         
         AcceptsSummable(SwiftHandle handle)
         {
-            _payload = new SwiftSafeHandle<AcceptsSummable<T0>>(handle);
+            _payload = new SwiftSafeHandle<AcceptsSummable<T>>(handle);
         }
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
         {
-            var metadata = SwiftObjectHelper<AcceptsSummable<T0>>.GetTypeMetadata();
+            var metadata = SwiftObjectHelper<AcceptsSummable<T>>.GetTypeMetadata();
             if ((int)metadata.Size > swiftDestSpan.Length)
             {
                 throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
@@ -4865,30 +4865,30 @@ namespace Swift.SwiftBindingsTestLib
         }
         
         
-        public AcceptsSummable( T0 item)
+        public AcceptsSummable( T item)
         {
             unsafe
             {
-                TypeMetadata T0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
+                TypeMetadata TMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
                 IntPtr itemPayload = IntPtr.Zero;
                 try
                 {
-                    _payload = new SwiftSafeHandle<AcceptsSummable<T0>>((IntPtr)NativeMemory.Alloc(_payloadSize));
+                    _payload = new SwiftSafeHandle<AcceptsSummable<T>>((IntPtr)NativeMemory.Alloc(_payloadSize));
                     var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                     
-                    Span<byte> itemPayloadSpan = stackalloc byte[(int)T0Metadata.Size];
+                    Span<byte> itemPayloadSpan = stackalloc byte[(int)TMetadata.Size];
                     itemPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(itemPayloadSpan));
                     SwiftMarshal.MarshalToSwift(item, ref itemPayloadSpan);
                     
-                    var T0SummablePWT = ProtocolWitnessTable.GetOrThrow<T0, ISummable>();
+                    var TSummablePWT = ProtocolWitnessTable.GetOrThrow<T, ISummable>();
                     
-                    AcceptsSummable_PInvoke.PInvoke_init_AF9545A7(swiftIndirectResult, itemPayload, T0Metadata, T0SummablePWT, SwiftObjectHelper<T0>.GetTypeMetadata());
+                    AcceptsSummable_PInvoke.PInvoke_init_AF9545A7(swiftIndirectResult, itemPayload, TMetadata, TSummablePWT, SwiftObjectHelper<T>.GetTypeMetadata());
                     
                 }
                 
                 finally
                 {
-                    T0Metadata.ValueWitnessTable->Destroy((void *)itemPayload, T0Metadata);
+                    TMetadata.ValueWitnessTable->Destroy((void *)itemPayload, TMetadata);
                 }
                 
             }
@@ -4896,38 +4896,38 @@ namespace Swift.SwiftBindingsTestLib
         
         
         
-        public T0 AddWith( T0 other)
+        public T AddWith( T other)
         {
             unsafe
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
-                TypeMetadata T0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
+                TypeMetadata TMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
                 IntPtr otherPayload = IntPtr.Zero;
                 try
                 {
                     var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
                     
-                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
+                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
                     var payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
                     var swiftIndirectResult = new SwiftIndirectResult(payload);
                     
-                    Span<byte> otherPayloadSpan = stackalloc byte[(int)T0Metadata.Size];
+                    Span<byte> otherPayloadSpan = stackalloc byte[(int)TMetadata.Size];
                     otherPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(otherPayloadSpan));
                     SwiftMarshal.MarshalToSwift(other, ref otherPayloadSpan);
                     
-                    var T0SummablePWT = ProtocolWitnessTable.GetOrThrow<T0, ISummable>();
+                    var TSummablePWT = ProtocolWitnessTable.GetOrThrow<T, ISummable>();
                     
-                    AcceptsSummable_PInvoke.PInvoke_addWith_48AE86A4(swiftIndirectResult, otherPayload, T0Metadata, T0SummablePWT, self, SwiftObjectHelper<T0>.GetTypeMetadata());
+                    AcceptsSummable_PInvoke.PInvoke_addWith_48AE86A4(swiftIndirectResult, otherPayload, TMetadata, TSummablePWT, self, SwiftObjectHelper<T>.GetTypeMetadata());
                     
-                    return SwiftMarshal.MarshalFromSwift<T0>(new IntPtr(swiftIndirectResult.Value));
+                    return SwiftMarshal.MarshalFromSwift<T>(new IntPtr(swiftIndirectResult.Value));
                 }
                 
                 finally
                 {
                     if (success)
                        _payload.DangerousRelease();
-                    T0Metadata.ValueWitnessTable->Destroy((void *)otherPayload, T0Metadata);
+                    TMetadata.ValueWitnessTable->Destroy((void *)otherPayload, TMetadata);
                 }
                 
             }
@@ -4941,19 +4941,19 @@ namespace Swift.SwiftBindingsTestLib
     {
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib15AcceptsSummableV4itemxvg")]
-        internal static partial void PInvoke_item_Get_31551421( SwiftIndirectResult swiftIndirectResult,  TypeMetadata T0Metadata,  ProtocolWitnessTable T0SummablePWT,  SwiftSelf self, TypeMetadata t0Metadata);
+        internal static partial void PInvoke_item_Get_31551421( SwiftIndirectResult swiftIndirectResult,  TypeMetadata TMetadata,  ProtocolWitnessTable TSummablePWT,  SwiftSelf self, TypeMetadata tMetadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib15AcceptsSummableVMa")]
-        internal static partial TypeMetadata PInvoke_getMetadata(TypeMetadata t0Metadata);
+        internal static partial TypeMetadata PInvoke_getMetadata(TypeMetadata tMetadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib15AcceptsSummableV4itemACyxGx_tcfC")]
-        internal static partial void PInvoke_init_AF9545A7( SwiftIndirectResult swiftIndirectResult,  IntPtr itemPayload,  TypeMetadata T0Metadata,  ProtocolWitnessTable T0SummablePWT, TypeMetadata t0Metadata);
+        internal static partial void PInvoke_init_AF9545A7( SwiftIndirectResult swiftIndirectResult,  IntPtr itemPayload,  TypeMetadata TMetadata,  ProtocolWitnessTable TSummablePWT, TypeMetadata tMetadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib15AcceptsSummableV7addWithyxxF")]
-        internal static partial void PInvoke_addWith_48AE86A4( SwiftIndirectResult swiftIndirectResult,  IntPtr otherPayload,  TypeMetadata T0Metadata,  ProtocolWitnessTable T0SummablePWT,  SwiftSelf self, TypeMetadata t0Metadata);
+        internal static partial void PInvoke_addWith_48AE86A4( SwiftIndirectResult swiftIndirectResult,  IntPtr otherPayload,  TypeMetadata TMetadata,  ProtocolWitnessTable TSummablePWT,  SwiftSelf self, TypeMetadata tMetadata);
         
     }
     
@@ -5334,28 +5334,28 @@ namespace Swift.SwiftBindingsTestLib
     /// <summary>
     /// A generic wrapper struct. Note: not @frozen because the binding generator cannot resolve generic type parameter layouts (τ_0_0) when calculating frozen struct flags.
     /// </summary>
-    public partial class Wrapper<T0> : ISwiftObject, IDisposable where T0 : ISwiftObject
+    public partial class Wrapper<T> : ISwiftObject, IDisposable where T : ISwiftObject
     {
-        private T0 Wrapped_Get()
+        private T Wrapped_Get()
         {
             unsafe
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
-                TypeMetadata T0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
+                TypeMetadata TMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
                 try
                 {
                     var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
                     
-                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
+                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
                     var payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
                     var swiftIndirectResult = new SwiftIndirectResult(payload);
                     
                     
                     
-                    Wrapper_PInvoke.PInvoke_wrapped_Get_B4E3F785(swiftIndirectResult, T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
+                    Wrapper_PInvoke.PInvoke_wrapped_Get_B4E3F785(swiftIndirectResult, TMetadata, self, SwiftObjectHelper<T>.GetTypeMetadata());
                     
-                    return SwiftMarshal.MarshalFromSwift<T0>(new IntPtr(swiftIndirectResult.Value));
+                    return SwiftMarshal.MarshalFromSwift<T>(new IntPtr(swiftIndirectResult.Value));
                 }
                 
                 finally
@@ -5368,18 +5368,18 @@ namespace Swift.SwiftBindingsTestLib
         }
         
         
-        public T0 Wrapped
+        public T Wrapped
         {
             get => Wrapped_Get();
         }
         
         [EditorBrowsable(EditorBrowsableState.Never)]
-        static nuint _payloadSize = SwiftObjectHelper<Wrapper<T0>>.GetTypeMetadata().Size;
+        static nuint _payloadSize = SwiftObjectHelper<Wrapper<T>>.GetTypeMetadata().Size;
         [EditorBrowsable(EditorBrowsableState.Never)]
-        SwiftSafeHandle<Wrapper<T0>> _payload = SwiftSafeHandle<Wrapper<T0>>.Zero;
+        SwiftSafeHandle<Wrapper<T>> _payload = SwiftSafeHandle<Wrapper<T>>.Zero;
         
         [EditorBrowsable(EditorBrowsableState.Never)]
-        internal SwiftSafeHandle<Wrapper<T0>> Payload => _payload;
+        internal SwiftSafeHandle<Wrapper<T>> Payload => _payload;
         
         public void Dispose()
         {
@@ -5391,23 +5391,23 @@ namespace Swift.SwiftBindingsTestLib
             Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
         }
         
-        static TypeMetadata ISwiftObject.GetTypeMetadata() => Wrapper_PInvoke.PInvoke_getMetadata(SwiftObjectHelper<T0>.GetTypeMetadata());
+        static TypeMetadata ISwiftObject.GetTypeMetadata() => Wrapper_PInvoke.PInvoke_getMetadata(SwiftObjectHelper<T>.GetTypeMetadata());
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
         {
-            return new Wrapper<T0>(handle);
+            return new Wrapper<T>(handle);
         }
         
         Wrapper(SwiftHandle handle)
         {
-            _payload = new SwiftSafeHandle<Wrapper<T0>>(handle);
+            _payload = new SwiftSafeHandle<Wrapper<T>>(handle);
         }
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
         {
-            var metadata = SwiftObjectHelper<Wrapper<T0>>.GetTypeMetadata();
+            var metadata = SwiftObjectHelper<Wrapper<T>>.GetTypeMetadata();
             if ((int)metadata.Size > swiftDestSpan.Length)
             {
                 throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
@@ -5452,29 +5452,29 @@ namespace Swift.SwiftBindingsTestLib
         }
         
         
-        public Wrapper( T0 wrapped)
+        public Wrapper( T wrapped)
         {
             unsafe
             {
-                TypeMetadata T0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
+                TypeMetadata TMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
                 IntPtr wrappedPayload = IntPtr.Zero;
                 try
                 {
-                    _payload = new SwiftSafeHandle<Wrapper<T0>>((IntPtr)NativeMemory.Alloc(_payloadSize));
+                    _payload = new SwiftSafeHandle<Wrapper<T>>((IntPtr)NativeMemory.Alloc(_payloadSize));
                     var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                     
-                    Span<byte> wrappedPayloadSpan = stackalloc byte[(int)T0Metadata.Size];
+                    Span<byte> wrappedPayloadSpan = stackalloc byte[(int)TMetadata.Size];
                     wrappedPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(wrappedPayloadSpan));
                     SwiftMarshal.MarshalToSwift(wrapped, ref wrappedPayloadSpan);
                     
                     
-                    Wrapper_PInvoke.PInvoke_init_320355A5(swiftIndirectResult, wrappedPayload, T0Metadata, SwiftObjectHelper<T0>.GetTypeMetadata());
+                    Wrapper_PInvoke.PInvoke_init_320355A5(swiftIndirectResult, wrappedPayload, TMetadata, SwiftObjectHelper<T>.GetTypeMetadata());
                     
                 }
                 
                 finally
                 {
-                    T0Metadata.ValueWitnessTable->Destroy((void *)wrappedPayload, T0Metadata);
+                    TMetadata.ValueWitnessTable->Destroy((void *)wrappedPayload, TMetadata);
                 }
                 
             }
@@ -5485,26 +5485,26 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Returns the wrapped value.
         /// </summary>
-        public T0 Unwrap()
+        public T Unwrap()
         {
             unsafe
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
-                TypeMetadata T0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
+                TypeMetadata TMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
                 try
                 {
                     var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
                     
-                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
+                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
                     var payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
                     var swiftIndirectResult = new SwiftIndirectResult(payload);
                     
                     
                     
-                    Wrapper_PInvoke.PInvoke_unwrap_6D75180C(swiftIndirectResult, T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
+                    Wrapper_PInvoke.PInvoke_unwrap_6D75180C(swiftIndirectResult, TMetadata, self, SwiftObjectHelper<T>.GetTypeMetadata());
                     
-                    return SwiftMarshal.MarshalFromSwift<T0>(new IntPtr(swiftIndirectResult.Value));
+                    return SwiftMarshal.MarshalFromSwift<T>(new IntPtr(swiftIndirectResult.Value));
                 }
                 
                 finally
@@ -5524,19 +5524,19 @@ namespace Swift.SwiftBindingsTestLib
     {
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib7WrapperV7wrappedxvg")]
-        internal static partial void PInvoke_wrapped_Get_B4E3F785( SwiftIndirectResult swiftIndirectResult,  TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
+        internal static partial void PInvoke_wrapped_Get_B4E3F785( SwiftIndirectResult swiftIndirectResult,  TypeMetadata TMetadata,  SwiftSelf self, TypeMetadata tMetadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib7WrapperVMa")]
-        internal static partial TypeMetadata PInvoke_getMetadata(TypeMetadata t0Metadata);
+        internal static partial TypeMetadata PInvoke_getMetadata(TypeMetadata tMetadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib7WrapperVyACyxGxcfC")]
-        internal static partial void PInvoke_init_320355A5( SwiftIndirectResult swiftIndirectResult,  IntPtr wrappedPayload,  TypeMetadata T0Metadata, TypeMetadata t0Metadata);
+        internal static partial void PInvoke_init_320355A5( SwiftIndirectResult swiftIndirectResult,  IntPtr wrappedPayload,  TypeMetadata TMetadata, TypeMetadata tMetadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib7WrapperV6unwrapxyF")]
-        internal static partial void PInvoke_unwrap_6D75180C( SwiftIndirectResult swiftIndirectResult,  TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
+        internal static partial void PInvoke_unwrap_6D75180C( SwiftIndirectResult swiftIndirectResult,  TypeMetadata TMetadata,  SwiftSelf self, TypeMetadata tMetadata);
         
     }
     
@@ -5544,29 +5544,29 @@ namespace Swift.SwiftBindingsTestLib
     /// <summary>
     /// A generic pair struct with two type parameters. Note: not @frozen — see Wrapper&lt;T&gt; note above.
     /// </summary>
-    public partial class GenericPair<T0, T1> : ISwiftObject, IDisposable where T0 : ISwiftObject where T1 : ISwiftObject
+    public partial class GenericPair<T, U> : ISwiftObject, IDisposable where T : ISwiftObject where U : ISwiftObject
     {
-        private T0 First_Get()
+        private T First_Get()
         {
             unsafe
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
-                TypeMetadata T0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
-                TypeMetadata T1Metadata = TypeMetadata.GetTypeMetadataOrThrow<T1>();
+                TypeMetadata TMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
+                TypeMetadata UMetadata = TypeMetadata.GetTypeMetadataOrThrow<U>();
                 try
                 {
                     var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
                     
-                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
+                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
                     var payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
                     var swiftIndirectResult = new SwiftIndirectResult(payload);
                     
                     
                     
-                    GenericPair_PInvoke.PInvoke_first_Get_7D2169AD(swiftIndirectResult, T0Metadata, T1Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata(), SwiftObjectHelper<T1>.GetTypeMetadata());
+                    GenericPair_PInvoke.PInvoke_first_Get_7D2169AD(swiftIndirectResult, TMetadata, UMetadata, self, SwiftObjectHelper<T>.GetTypeMetadata(), SwiftObjectHelper<U>.GetTypeMetadata());
                     
-                    return SwiftMarshal.MarshalFromSwift<T0>(new IntPtr(swiftIndirectResult.Value));
+                    return SwiftMarshal.MarshalFromSwift<T>(new IntPtr(swiftIndirectResult.Value));
                 }
                 
                 finally
@@ -5579,32 +5579,32 @@ namespace Swift.SwiftBindingsTestLib
         }
         
         
-        public T0 First
+        public T First
         {
             get => First_Get();
         }
         
-        private T1 Second_Get()
+        private U Second_Get()
         {
             unsafe
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
-                TypeMetadata T0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
-                TypeMetadata T1Metadata = TypeMetadata.GetTypeMetadataOrThrow<T1>();
+                TypeMetadata TMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
+                TypeMetadata UMetadata = TypeMetadata.GetTypeMetadataOrThrow<U>();
                 try
                 {
                     var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
                     
-                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<T1>();
+                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<U>();
                     var payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
                     var swiftIndirectResult = new SwiftIndirectResult(payload);
                     
                     
                     
-                    GenericPair_PInvoke.PInvoke_second_Get_96D8FF46(swiftIndirectResult, T0Metadata, T1Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata(), SwiftObjectHelper<T1>.GetTypeMetadata());
+                    GenericPair_PInvoke.PInvoke_second_Get_96D8FF46(swiftIndirectResult, TMetadata, UMetadata, self, SwiftObjectHelper<T>.GetTypeMetadata(), SwiftObjectHelper<U>.GetTypeMetadata());
                     
-                    return SwiftMarshal.MarshalFromSwift<T1>(new IntPtr(swiftIndirectResult.Value));
+                    return SwiftMarshal.MarshalFromSwift<U>(new IntPtr(swiftIndirectResult.Value));
                 }
                 
                 finally
@@ -5617,18 +5617,18 @@ namespace Swift.SwiftBindingsTestLib
         }
         
         
-        public T1 Second
+        public U Second
         {
             get => Second_Get();
         }
         
         [EditorBrowsable(EditorBrowsableState.Never)]
-        static nuint _payloadSize = SwiftObjectHelper<GenericPair<T0, T1>>.GetTypeMetadata().Size;
+        static nuint _payloadSize = SwiftObjectHelper<GenericPair<T, U>>.GetTypeMetadata().Size;
         [EditorBrowsable(EditorBrowsableState.Never)]
-        SwiftSafeHandle<GenericPair<T0, T1>> _payload = SwiftSafeHandle<GenericPair<T0, T1>>.Zero;
+        SwiftSafeHandle<GenericPair<T, U>> _payload = SwiftSafeHandle<GenericPair<T, U>>.Zero;
         
         [EditorBrowsable(EditorBrowsableState.Never)]
-        internal SwiftSafeHandle<GenericPair<T0, T1>> Payload => _payload;
+        internal SwiftSafeHandle<GenericPair<T, U>> Payload => _payload;
         
         public void Dispose()
         {
@@ -5640,23 +5640,23 @@ namespace Swift.SwiftBindingsTestLib
             Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
         }
         
-        static TypeMetadata ISwiftObject.GetTypeMetadata() => GenericPair_PInvoke.PInvoke_getMetadata(SwiftObjectHelper<T0>.GetTypeMetadata(), SwiftObjectHelper<T1>.GetTypeMetadata());
+        static TypeMetadata ISwiftObject.GetTypeMetadata() => GenericPair_PInvoke.PInvoke_getMetadata(SwiftObjectHelper<T>.GetTypeMetadata(), SwiftObjectHelper<U>.GetTypeMetadata());
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
         {
-            return new GenericPair<T0, T1>(handle);
+            return new GenericPair<T, U>(handle);
         }
         
         GenericPair(SwiftHandle handle)
         {
-            _payload = new SwiftSafeHandle<GenericPair<T0, T1>>(handle);
+            _payload = new SwiftSafeHandle<GenericPair<T, U>>(handle);
         }
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
         {
-            var metadata = SwiftObjectHelper<GenericPair<T0, T1>>.GetTypeMetadata();
+            var metadata = SwiftObjectHelper<GenericPair<T, U>>.GetTypeMetadata();
             if ((int)metadata.Size > swiftDestSpan.Length)
             {
                 throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
@@ -5701,35 +5701,35 @@ namespace Swift.SwiftBindingsTestLib
         }
         
         
-        public GenericPair( T0 first,  T1 second)
+        public GenericPair( T first,  U second)
         {
             unsafe
             {
-                TypeMetadata T0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
-                TypeMetadata T1Metadata = TypeMetadata.GetTypeMetadataOrThrow<T1>();
+                TypeMetadata TMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
+                TypeMetadata UMetadata = TypeMetadata.GetTypeMetadataOrThrow<U>();
                 IntPtr firstPayload = IntPtr.Zero;
                 IntPtr secondPayload = IntPtr.Zero;
                 try
                 {
-                    _payload = new SwiftSafeHandle<GenericPair<T0, T1>>((IntPtr)NativeMemory.Alloc(_payloadSize));
+                    _payload = new SwiftSafeHandle<GenericPair<T, U>>((IntPtr)NativeMemory.Alloc(_payloadSize));
                     var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                     
-                    Span<byte> firstPayloadSpan = stackalloc byte[(int)T0Metadata.Size];
+                    Span<byte> firstPayloadSpan = stackalloc byte[(int)TMetadata.Size];
                     firstPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(firstPayloadSpan));
                     SwiftMarshal.MarshalToSwift(first, ref firstPayloadSpan);
-                    Span<byte> secondPayloadSpan = stackalloc byte[(int)T1Metadata.Size];
+                    Span<byte> secondPayloadSpan = stackalloc byte[(int)UMetadata.Size];
                     secondPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(secondPayloadSpan));
                     SwiftMarshal.MarshalToSwift(second, ref secondPayloadSpan);
                     
                     
-                    GenericPair_PInvoke.PInvoke_init_748CE291(swiftIndirectResult, firstPayload, secondPayload, T0Metadata, T1Metadata, SwiftObjectHelper<T0>.GetTypeMetadata(), SwiftObjectHelper<T1>.GetTypeMetadata());
+                    GenericPair_PInvoke.PInvoke_init_748CE291(swiftIndirectResult, firstPayload, secondPayload, TMetadata, UMetadata, SwiftObjectHelper<T>.GetTypeMetadata(), SwiftObjectHelper<U>.GetTypeMetadata());
                     
                 }
                 
                 finally
                 {
-                    T0Metadata.ValueWitnessTable->Destroy((void *)firstPayload, T0Metadata);
-                    T1Metadata.ValueWitnessTable->Destroy((void *)secondPayload, T1Metadata);
+                    TMetadata.ValueWitnessTable->Destroy((void *)firstPayload, TMetadata);
+                    UMetadata.ValueWitnessTable->Destroy((void *)secondPayload, UMetadata);
                 }
                 
             }
@@ -5743,19 +5743,19 @@ namespace Swift.SwiftBindingsTestLib
     {
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11GenericPairV5firstxvg")]
-        internal static partial void PInvoke_first_Get_7D2169AD( SwiftIndirectResult swiftIndirectResult,  TypeMetadata T0Metadata,  TypeMetadata T1Metadata,  SwiftSelf self, TypeMetadata t0Metadata, TypeMetadata t1Metadata);
+        internal static partial void PInvoke_first_Get_7D2169AD( SwiftIndirectResult swiftIndirectResult,  TypeMetadata TMetadata,  TypeMetadata UMetadata,  SwiftSelf self, TypeMetadata tMetadata, TypeMetadata uMetadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11GenericPairV6secondq_vg")]
-        internal static partial void PInvoke_second_Get_96D8FF46( SwiftIndirectResult swiftIndirectResult,  TypeMetadata T0Metadata,  TypeMetadata T1Metadata,  SwiftSelf self, TypeMetadata t0Metadata, TypeMetadata t1Metadata);
+        internal static partial void PInvoke_second_Get_96D8FF46( SwiftIndirectResult swiftIndirectResult,  TypeMetadata TMetadata,  TypeMetadata UMetadata,  SwiftSelf self, TypeMetadata tMetadata, TypeMetadata uMetadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11GenericPairVMa")]
-        internal static partial TypeMetadata PInvoke_getMetadata(TypeMetadata t0Metadata, TypeMetadata t1Metadata);
+        internal static partial TypeMetadata PInvoke_getMetadata(TypeMetadata tMetadata, TypeMetadata uMetadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11GenericPairV5first6secondACyxq_Gx_q_tcfC")]
-        internal static partial void PInvoke_init_748CE291( SwiftIndirectResult swiftIndirectResult,  IntPtr firstPayload,  IntPtr secondPayload,  TypeMetadata T0Metadata,  TypeMetadata T1Metadata, TypeMetadata t0Metadata, TypeMetadata t1Metadata);
+        internal static partial void PInvoke_init_748CE291( SwiftIndirectResult swiftIndirectResult,  IntPtr firstPayload,  IntPtr secondPayload,  TypeMetadata TMetadata,  TypeMetadata UMetadata, TypeMetadata tMetadata, TypeMetadata uMetadata);
         
     }
     
@@ -6156,28 +6156,28 @@ namespace Swift.SwiftBindingsTestLib
     /// <summary>
     /// A generic class with stored property and methods.
     /// </summary>
-    public partial class GenericClass<T0> : ISwiftObject, IDisposable where T0 : ISwiftObject
+    public partial class GenericClass<T> : ISwiftObject, IDisposable where T : ISwiftObject
     {
-        private T0 Value_Get()
+        private T Value_Get()
         {
             unsafe
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
-                TypeMetadata T0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
+                TypeMetadata TMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
                 try
                 {
                     var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                     
-                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
+                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
                     var payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
                     var swiftIndirectResult = new SwiftIndirectResult(payload);
                     
                     
                     
-                    GenericClass_PInvoke.PInvoke_value_Get_295C3846(swiftIndirectResult, T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
+                    GenericClass_PInvoke.PInvoke_value_Get_295C3846(swiftIndirectResult, TMetadata, self, SwiftObjectHelper<T>.GetTypeMetadata());
                     
-                    return SwiftMarshal.MarshalFromSwift<T0>(new IntPtr(swiftIndirectResult.Value));
+                    return SwiftMarshal.MarshalFromSwift<T>(new IntPtr(swiftIndirectResult.Value));
                 }
                 
                 finally
@@ -6190,24 +6190,24 @@ namespace Swift.SwiftBindingsTestLib
         }
         
         
-        private void Value_Set( T0 value)
+        private void Value_Set( T value)
         {
             unsafe
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
-                TypeMetadata T0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
+                TypeMetadata TMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
                 IntPtr valuePayload = IntPtr.Zero;
                 try
                 {
                     var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                     
-                    Span<byte> valuePayloadSpan = stackalloc byte[(int)T0Metadata.Size];
+                    Span<byte> valuePayloadSpan = stackalloc byte[(int)TMetadata.Size];
                     valuePayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(valuePayloadSpan));
                     SwiftMarshal.MarshalToSwift(value, ref valuePayloadSpan);
                     
                     
-                    GenericClass_PInvoke.PInvoke_value_Set_3D5C57C2(valuePayload, T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
+                    GenericClass_PInvoke.PInvoke_value_Set_3D5C57C2(valuePayload, TMetadata, self, SwiftObjectHelper<T>.GetTypeMetadata());
                     
                     return;
                 }
@@ -6216,26 +6216,26 @@ namespace Swift.SwiftBindingsTestLib
                 {
                     if (success)
                        _payload.DangerousRelease();
-                    T0Metadata.ValueWitnessTable->Destroy((void *)valuePayload, T0Metadata);
+                    TMetadata.ValueWitnessTable->Destroy((void *)valuePayload, TMetadata);
                 }
                 
             }
         }
         
         
-        public T0 Value
+        public T Value
         {
             get => Value_Get();
             set => Value_Set(value);
         }
         
         [EditorBrowsable(EditorBrowsableState.Never)]
-        static nuint _payloadSize = SwiftObjectHelper<GenericClass<T0>>.GetTypeMetadata().Size;
+        static nuint _payloadSize = SwiftObjectHelper<GenericClass<T>>.GetTypeMetadata().Size;
         [EditorBrowsable(EditorBrowsableState.Never)]
-        SwiftSafeHandle<GenericClass<T0>> _payload = SwiftSafeHandle<GenericClass<T0>>.Zero;
+        SwiftSafeHandle<GenericClass<T>> _payload = SwiftSafeHandle<GenericClass<T>>.Zero;
         
         [EditorBrowsable(EditorBrowsableState.Never)]
-        internal SwiftSafeHandle<GenericClass<T0>> Payload => _payload;
+        internal SwiftSafeHandle<GenericClass<T>> Payload => _payload;
         
         public void Dispose()
         {
@@ -6247,23 +6247,23 @@ namespace Swift.SwiftBindingsTestLib
             Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
         }
         
-        static TypeMetadata ISwiftObject.GetTypeMetadata() => GenericClass_PInvoke.PInvoke_getMetadata(SwiftObjectHelper<T0>.GetTypeMetadata());
+        static TypeMetadata ISwiftObject.GetTypeMetadata() => GenericClass_PInvoke.PInvoke_getMetadata(SwiftObjectHelper<T>.GetTypeMetadata());
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
         {
-            return new GenericClass<T0>(handle);
+            return new GenericClass<T>(handle);
         }
         
         GenericClass(SwiftHandle handle)
         {
-            _payload = new SwiftSafeHandle<GenericClass<T0>>(handle);
+            _payload = new SwiftSafeHandle<GenericClass<T>>(handle);
         }
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
         {
-            var metadata = SwiftObjectHelper<GenericClass<T0>>.GetTypeMetadata();
+            var metadata = SwiftObjectHelper<GenericClass<T>>.GetTypeMetadata();
             if ((int)metadata.Size > swiftDestSpan.Length)
             {
                 throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
@@ -6307,29 +6307,29 @@ namespace Swift.SwiftBindingsTestLib
             return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
         }
         
-        public GenericClass( T0 _value)
+        public GenericClass( T _value)
         {
             unsafe
             {
-                TypeMetadata T0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
+                TypeMetadata TMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
                 IntPtr _valuePayload = IntPtr.Zero;
                 try
                 {
-                    _payload = new SwiftSafeHandle<GenericClass<T0>>((IntPtr)NativeMemory.Alloc(_payloadSize));
+                    _payload = new SwiftSafeHandle<GenericClass<T>>((IntPtr)NativeMemory.Alloc(_payloadSize));
                     var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                     
-                    Span<byte> _valuePayloadSpan = stackalloc byte[(int)T0Metadata.Size];
+                    Span<byte> _valuePayloadSpan = stackalloc byte[(int)TMetadata.Size];
                     _valuePayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(_valuePayloadSpan));
                     SwiftMarshal.MarshalToSwift(_value, ref _valuePayloadSpan);
                     
                     
-                    GenericClass_PInvoke.PInvoke_init_65EEDA24(swiftIndirectResult, _valuePayload, T0Metadata, SwiftObjectHelper<T0>.GetTypeMetadata());
+                    GenericClass_PInvoke.PInvoke_init_65EEDA24(swiftIndirectResult, _valuePayload, TMetadata, SwiftObjectHelper<T>.GetTypeMetadata());
                     
                 }
                 
                 finally
                 {
-                    T0Metadata.ValueWitnessTable->Destroy((void *)_valuePayload, T0Metadata);
+                    TMetadata.ValueWitnessTable->Destroy((void *)_valuePayload, TMetadata);
                 }
                 
             }
@@ -6340,26 +6340,26 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Returns the stored value.
         /// </summary>
-        public T0 Get()
+        public T Get()
         {
             unsafe
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
-                TypeMetadata T0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
+                TypeMetadata TMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
                 try
                 {
                     var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                     
-                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
+                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
                     var payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
                     var swiftIndirectResult = new SwiftIndirectResult(payload);
                     
                     
                     
-                    GenericClass_PInvoke.PInvoke_get_3B34F703(swiftIndirectResult, T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
+                    GenericClass_PInvoke.PInvoke_get_3B34F703(swiftIndirectResult, TMetadata, self, SwiftObjectHelper<T>.GetTypeMetadata());
                     
-                    return SwiftMarshal.MarshalFromSwift<T0>(new IntPtr(swiftIndirectResult.Value));
+                    return SwiftMarshal.MarshalFromSwift<T>(new IntPtr(swiftIndirectResult.Value));
                 }
                 
                 finally
@@ -6376,24 +6376,24 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Replaces the stored value.
         /// </summary>
-        public void Set( T0 newValue)
+        public void Set( T newValue)
         {
             unsafe
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
-                TypeMetadata T0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
+                TypeMetadata TMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
                 IntPtr newValuePayload = IntPtr.Zero;
                 try
                 {
                     var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                     
-                    Span<byte> newValuePayloadSpan = stackalloc byte[(int)T0Metadata.Size];
+                    Span<byte> newValuePayloadSpan = stackalloc byte[(int)TMetadata.Size];
                     newValuePayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(newValuePayloadSpan));
                     SwiftMarshal.MarshalToSwift(newValue, ref newValuePayloadSpan);
                     
                     
-                    GenericClass_PInvoke.PInvoke_set_16F5297C(newValuePayload, T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
+                    GenericClass_PInvoke.PInvoke_set_16F5297C(newValuePayload, TMetadata, self, SwiftObjectHelper<T>.GetTypeMetadata());
                     
                     return;
                 }
@@ -6402,7 +6402,7 @@ namespace Swift.SwiftBindingsTestLib
                 {
                     if (success)
                        _payload.DangerousRelease();
-                    T0Metadata.ValueWitnessTable->Destroy((void *)newValuePayload, T0Metadata);
+                    TMetadata.ValueWitnessTable->Destroy((void *)newValuePayload, TMetadata);
                 }
                 
             }
@@ -6416,27 +6416,27 @@ namespace Swift.SwiftBindingsTestLib
     {
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib12GenericClassC5valuexvgTj")]
-        internal static partial void PInvoke_value_Get_295C3846( SwiftIndirectResult swiftIndirectResult,  TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
+        internal static partial void PInvoke_value_Get_295C3846( SwiftIndirectResult swiftIndirectResult,  TypeMetadata TMetadata,  SwiftSelf self, TypeMetadata tMetadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib12GenericClassC5valuexvsTj")]
-        internal static partial void PInvoke_value_Set_3D5C57C2( IntPtr valuePayload,  TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
+        internal static partial void PInvoke_value_Set_3D5C57C2( IntPtr valuePayload,  TypeMetadata TMetadata,  SwiftSelf self, TypeMetadata tMetadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib12GenericClassCMa")]
-        internal static partial TypeMetadata PInvoke_getMetadata(TypeMetadata t0Metadata);
+        internal static partial TypeMetadata PInvoke_getMetadata(TypeMetadata tMetadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib12GenericClassC5valueACyxGx_tcfC")]
-        internal static partial void PInvoke_init_65EEDA24( SwiftIndirectResult swiftIndirectResult,  IntPtr _valuePayload,  TypeMetadata T0Metadata, TypeMetadata t0Metadata);
+        internal static partial void PInvoke_init_65EEDA24( SwiftIndirectResult swiftIndirectResult,  IntPtr _valuePayload,  TypeMetadata TMetadata, TypeMetadata tMetadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib12GenericClassC3getxyFTj")]
-        internal static partial void PInvoke_get_3B34F703( SwiftIndirectResult swiftIndirectResult,  TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
+        internal static partial void PInvoke_get_3B34F703( SwiftIndirectResult swiftIndirectResult,  TypeMetadata TMetadata,  SwiftSelf self, TypeMetadata tMetadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib12GenericClassC3setyyxFTj")]
-        internal static partial void PInvoke_set_16F5297C( IntPtr newValuePayload,  TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
+        internal static partial void PInvoke_set_16F5297C( IntPtr newValuePayload,  TypeMetadata TMetadata,  SwiftSelf self, TypeMetadata tMetadata);
         
     }
     
@@ -8130,14 +8130,14 @@ namespace Swift.SwiftBindingsTestLib
     /// <summary>
     /// Generic enum testing generic enum emission.
     /// </summary>
-    public partial class GenericResult<T0> : ISwiftObject, IDisposable where T0 : ISwiftObject
+    public partial class GenericResult<T> : ISwiftObject, IDisposable where T : ISwiftObject
     {
         [EditorBrowsable(EditorBrowsableState.Never)]
-        static nuint _payloadSize = SwiftObjectHelper<GenericResult<T0>>.GetTypeMetadata().Size;
+        static nuint _payloadSize = SwiftObjectHelper<GenericResult<T>>.GetTypeMetadata().Size;
         [EditorBrowsable(EditorBrowsableState.Never)]
-        SwiftSafeHandle<GenericResult<T0>> _payload = SwiftSafeHandle<GenericResult<T0>>.Zero;
+        SwiftSafeHandle<GenericResult<T>> _payload = SwiftSafeHandle<GenericResult<T>>.Zero;
         [EditorBrowsable(EditorBrowsableState.Never)]
-        internal SwiftSafeHandle<GenericResult<T0>> Payload => _payload;
+        internal SwiftSafeHandle<GenericResult<T>> Payload => _payload;
         #pragma warning disable CS0649
         [EditorBrowsable(EditorBrowsableState.Never)]
         internal bool _isCachedSingleton;
@@ -8156,35 +8156,35 @@ namespace Swift.SwiftBindingsTestLib
         }
         
         /// <summary>
-        /// Creates the 'success' case of GenericResult<T0>.
+        /// Creates the 'success' case of GenericResult<T>.
         /// </summary>
-        public static unsafe GenericResult<T0> Success(T0 value0)
+        public static unsafe GenericResult<T> Success(T value0)
         {
-            var result = new GenericResult<T0>();
-            var metadata = GenericResult_PInvoke.PInvoke_getMetadata(SwiftObjectHelper<T0>.GetTypeMetadata());
+            var result = new GenericResult<T>();
+            var metadata = GenericResult_PInvoke.PInvoke_getMetadata(SwiftObjectHelper<T>.GetTypeMetadata());
             IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
             var indirectResult = new SwiftIndirectResult((void*)buffer);
-            var value0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
+            var value0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
             byte* value0SwiftBuffer = stackalloc byte[(int)value0Metadata.Size];
             var value0SwiftSpan = new Span<byte>(value0SwiftBuffer, (int)value0Metadata.Size);
             SwiftMarshal.MarshalToSwift(value0, ref value0SwiftSpan);
-            GenericResult_PInvoke.PInvoke_Success(indirectResult, (IntPtr)value0SwiftBuffer, SwiftObjectHelper<T0>.GetTypeMetadata());
-            result._payload = new SwiftSafeHandle<GenericResult<T0>>(buffer);
+            GenericResult_PInvoke.PInvoke_Success(indirectResult, (IntPtr)value0SwiftBuffer, SwiftObjectHelper<T>.GetTypeMetadata());
+            result._payload = new SwiftSafeHandle<GenericResult<T>>(buffer);
             return result;
         }
         
         /// <summary>
-        /// Creates the 'failure' case of GenericResult<T0>.
+        /// Creates the 'failure' case of GenericResult<T>.
         /// </summary>
-        public static unsafe GenericResult<T0> Failure(string value0)
+        public static unsafe GenericResult<T> Failure(string value0)
         {
-            var result = new GenericResult<T0>();
+            var result = new GenericResult<T>();
             using var __value0 = new SwiftString(value0);
-            var metadata = GenericResult_PInvoke.PInvoke_getMetadata(SwiftObjectHelper<T0>.GetTypeMetadata());
+            var metadata = GenericResult_PInvoke.PInvoke_getMetadata(SwiftObjectHelper<T>.GetTypeMetadata());
             IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
             var indirectResult = new SwiftIndirectResult((void*)buffer);
-            GenericResult_PInvoke.PInvoke_Failure(indirectResult, __value0.Payload.DangerousGetHandle(), SwiftObjectHelper<T0>.GetTypeMetadata());
-            result._payload = new SwiftSafeHandle<GenericResult<T0>>(buffer);
+            GenericResult_PInvoke.PInvoke_Failure(indirectResult, __value0.Payload.DangerousGetHandle(), SwiftObjectHelper<T>.GetTypeMetadata());
+            result._payload = new SwiftSafeHandle<GenericResult<T>>(buffer);
             return result;
         }
         
@@ -8211,7 +8211,7 @@ namespace Swift.SwiftBindingsTestLib
                     _payload.DangerousAddRef(ref success);
                     try
                     {
-                        var metadata = SwiftObjectHelper<GenericResult<T0>>.GetTypeMetadata();
+                        var metadata = SwiftObjectHelper<GenericResult<T>>.GetTypeMetadata();
                         byte* payload = (byte*)_payload.DangerousGetHandle();
                         return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
                     }
@@ -8229,7 +8229,7 @@ namespace Swift.SwiftBindingsTestLib
         /// </summary>
         /// <param name="value">When this method returns true, contains the associated value(s).</param>
         /// <returns>True if this enum is the 'success' case; otherwise, false.</returns>
-        public bool TryGetSuccess([MaybeNullWhen(false)] out T0 value)
+        public bool TryGetSuccess([MaybeNullWhen(false)] out T value)
         {
             unsafe
             {
@@ -8239,7 +8239,7 @@ namespace Swift.SwiftBindingsTestLib
                     return false;
                 }
                 
-                var metadata = SwiftObjectHelper<GenericResult<T0>>.GetTypeMetadata();
+                var metadata = SwiftObjectHelper<GenericResult<T>>.GetTypeMetadata();
                 
                 // Create a non-destructive copy of the enum
                 byte* enumCopy = stackalloc byte[(int)metadata.Size];
@@ -8259,7 +8259,7 @@ namespace Swift.SwiftBindingsTestLib
                 metadata.ValueWitnessTable->DestructiveProjectEnumData(enumCopy, metadata);
                 
                 // Marshal the payload to C# type(s)
-                value = SwiftMarshal.MarshalFromSwift<T0>(new IntPtr(enumCopy));
+                value = SwiftMarshal.MarshalFromSwift<T>(new IntPtr(enumCopy));
                 return true;
             }
         }
@@ -8279,7 +8279,7 @@ namespace Swift.SwiftBindingsTestLib
                     return false;
                 }
                 
-                var metadata = SwiftObjectHelper<GenericResult<T0>>.GetTypeMetadata();
+                var metadata = SwiftObjectHelper<GenericResult<T>>.GetTypeMetadata();
                 
                 // Create a non-destructive copy of the enum
                 byte* enumCopy = stackalloc byte[(int)metadata.Size];
@@ -8310,14 +8310,14 @@ namespace Swift.SwiftBindingsTestLib
         {
             unsafe
             {
-                TypeMetadata T0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
+                TypeMetadata TMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
                 try
                 {
                     var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
                     
                     
                     
-                    var result = GenericResult_PInvoke.PInvoke_isSuccess_Get_1DAEB1A3(T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
+                    var result = GenericResult_PInvoke.PInvoke_isSuccess_Get_1DAEB1A3(TMetadata, self, SwiftObjectHelper<T>.GetTypeMetadata());
                     
                     return result;
                 }
@@ -8338,12 +8338,12 @@ namespace Swift.SwiftBindingsTestLib
             get => IsSuccess_Get();
         }
         
-        static TypeMetadata ISwiftObject.GetTypeMetadata() => GenericResult_PInvoke.PInvoke_getMetadata(SwiftObjectHelper<T0>.GetTypeMetadata());
+        static TypeMetadata ISwiftObject.GetTypeMetadata() => GenericResult_PInvoke.PInvoke_getMetadata(SwiftObjectHelper<T>.GetTypeMetadata());
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
         {
-            return new GenericResult<T0>(handle);
+            return new GenericResult<T>(handle);
         }
         
         GenericResult()
@@ -8352,13 +8352,13 @@ namespace Swift.SwiftBindingsTestLib
         
         GenericResult(SwiftHandle handle)
         {
-            _payload = new SwiftSafeHandle<GenericResult<T0>>(handle);
+            _payload = new SwiftSafeHandle<GenericResult<T>>(handle);
         }
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
         {
-            var metadata = SwiftObjectHelper<GenericResult<T0>>.GetTypeMetadata();
+            var metadata = SwiftObjectHelper<GenericResult<T>>.GetTypeMetadata();
             if ((int)metadata.Size > swiftDestSpan.Length)
             {
                 throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
@@ -8408,20 +8408,20 @@ namespace Swift.SwiftBindingsTestLib
     {
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib13GenericResultO7successyACyxGxcAEmlF")]
-        internal static partial void PInvoke_Success(SwiftIndirectResult result, IntPtr value0, TypeMetadata t0Metadata);
+        internal static partial void PInvoke_Success(SwiftIndirectResult result, IntPtr value0, TypeMetadata tMetadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib13GenericResultO7failureyACyxGSScAEmlF")]
-        internal static partial void PInvoke_Failure(SwiftIndirectResult result, IntPtr value0, TypeMetadata t0Metadata);
+        internal static partial void PInvoke_Failure(SwiftIndirectResult result, IntPtr value0, TypeMetadata tMetadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib13GenericResultO9isSuccessSbvg")]
         [return: MarshalAs(UnmanagedType.U1)]
-        internal static partial bool PInvoke_isSuccess_Get_1DAEB1A3( TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
+        internal static partial bool PInvoke_isSuccess_Get_1DAEB1A3( TypeMetadata TMetadata,  SwiftSelf self, TypeMetadata tMetadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib13GenericResultOMa")]
-        internal static partial TypeMetadata PInvoke_getMetadata(TypeMetadata t0Metadata);
+        internal static partial TypeMetadata PInvoke_getMetadata(TypeMetadata tMetadata);
         
     }
     

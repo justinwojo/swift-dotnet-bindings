@@ -28,7 +28,7 @@ public static class GenericTypeEmitter
             return string.Empty;
 
         var typeParams = typeDecl.GenericParameters
-            .Select((p, i) => $"T{i}")
+            .Select((p, i) => NameProvider.GetCSharpGenericParameterName(p, i))
             .ToList();
 
         return $"<{string.Join(", ", typeParams)}>";
@@ -65,7 +65,7 @@ public static class GenericTypeEmitter
         for (int i = 0; i < typeDecl.GenericParameters.Count; i++)
         {
             var param = typeDecl.GenericParameters[i];
-            var typeParamName = $"T{i}";
+            var typeParamName = NameProvider.GetCSharpGenericParameterName(param, i);
 
             // Build list of constraints for this parameter
             var paramConstraints = new List<string> { "ISwiftObject" };
@@ -202,7 +202,7 @@ public static class GenericTypeEmitter
             return string.Empty;
 
         var typeParams = typeDecl.GenericParameters
-            .Select((p, i) => $"TypeMetadata.GetTypeMetadataOrThrow<T{i}>()")
+            .Select((p, i) => $"TypeMetadata.GetTypeMetadataOrThrow<{NameProvider.GetCSharpGenericParameterName(p, i)}>()")
             .ToList();
 
         return string.Join(", ", typeParams);

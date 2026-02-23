@@ -64,7 +64,7 @@ public sealed class GenericContext
         {
             if (!merged.ContainsKey(param.TypeName))
             {
-                merged[param.TypeName] = new GenericParameterCSName(TypeParameter: $"T{offset + methodOnlyIndex}");
+                merged[param.TypeName] = new GenericParameterCSName(TypeParameter: NameProvider.GetCSharpGenericParameterName(param, offset + methodOnlyIndex));
                 methodOnlyIndex++;
             }
         }
@@ -242,6 +242,23 @@ public static class NameProvider
     }
 
     /// <summary>
+    /// Converts a Swift sugared generic parameter name to idiomatic C#.
+    /// "T" → "T", "U" → "TU", "Key" → "TKey", "Element" → "TElement", etc.
+    /// Falls back to "T{index}" for τ_N_M names (no sugared sig available).
+    /// </summary>
+    public static string GetCSharpGenericParameterName(GenericArgumentDecl param, int index)
+    {
+        var sugared = param.SugaredTypeName;
+        if (string.IsNullOrEmpty(sugared) || sugared.StartsWith("τ_"))
+            return $"T{index}";
+        // Single uppercase letter: use as-is (T, U, V, W — standard C# convention)
+        if (sugared.Length == 1 && char.IsUpper(sugared[0]))
+            return sugared;
+        // Multi-character: prefix with T (Key → TKey, Element → TElement)
+        return $"T{sugared}";
+    }
+
+    /// <summary>
     /// Provides the mapping of generic type parameters.
     /// </summary>
     /// <param name="methodDecl">The method declaration.</param>
@@ -250,7 +267,7 @@ public static class NameProvider
         methodDecl.GenericParameters
             .Select((param, i) => (param, i))
             .ToDictionary(x => x.param.TypeName, x => new GenericParameterCSName(
-                TypeParameter: $"T{x.i}"
+                TypeParameter: GetCSharpGenericParameterName(x.param, x.i)
             ));
 
     /// <summary>
@@ -262,7 +279,7 @@ public static class NameProvider
         typeDecl.GenericParameters
             .Select((param, i) => (param, i))
             .ToDictionary(x => x.param.TypeName, x => new GenericParameterCSName(
-                TypeParameter: $"T{x.i}"
+                TypeParameter: GetCSharpGenericParameterName(x.param, x.i)
             ));
 
     /// <summary>
@@ -373,6 +390,18 @@ public static class NameProvider
         if (lastDot >= 0)
             typeName = typeName.Substring(lastDot + 1);
 
+        // Optional<T> → derive from inner type
+        if (typeName == "Optional" && namedType.GenericParameters.Count == 1)
+            return DeriveParameterNameFromType(namedType.GenericParameters[0]);
+
+        // Array<T> → "items"
+        if (typeName == "Array" && namedType.GenericParameters.Count >= 1)
+            return "items";
+
+        // Dictionary<K,V> → "dictionary"
+        if (typeName == "Dictionary" && namedType.GenericParameters.Count >= 2)
+            return "dictionary";
+
         // Primitives → generic "value"
         if (_primitiveTypeNames.Contains(typeName))
             return "value";
@@ -380,6 +409,10 @@ public static class NameProvider
         // Bool → "flag"
         if (typeName == "Bool")
             return "flag";
+
+        // Types ending in Error → "error"
+        if (typeName.EndsWith("Error") && typeName.Length > 5)
+            return "error";
 
         // Strip common Apple prefixes
         if (typeName.Length > 2 && typeName.StartsWith("UI") && char.IsUpper(typeName[2]))

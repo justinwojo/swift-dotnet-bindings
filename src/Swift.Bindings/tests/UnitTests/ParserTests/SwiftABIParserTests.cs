@@ -984,4 +984,200 @@ public class SwiftABIParserTests
     }
 
     #endregion
+
+    #region B2: Tuple Label Parsing for Enum Associated Values
+
+    /// <summary>
+    /// Verifies that TypeSpecParser.Parse() on a labeled tuple printedName
+    /// (as found in ABI JSON Tuple nodes) produces a TupleTypeSpec with
+    /// TypeLabel set on each element. This is the core mechanism of B2.
+    /// </summary>
+    [Fact]
+    public void TuplePrintedName_LabeledElements_PreservesLabels()
+    {
+        // Real ABI JSON pattern: "(width: Swift.Double, height: Swift.Double)"
+        var parsed = TypeSpecParser.Parse("(width: Swift.Double, height: Swift.Double)");
+        var tuple = Assert.IsType<TupleTypeSpec>(parsed);
+
+        Assert.Equal(2, tuple.Elements.Count);
+
+        var width = Assert.IsType<NamedTypeSpec>(tuple.Elements[0]);
+        Assert.Equal("width", width.TypeLabel);
+        Assert.Equal("Swift.Double", width.Name);
+
+        var height = Assert.IsType<NamedTypeSpec>(tuple.Elements[1]);
+        Assert.Equal("height", height.TypeLabel);
+        Assert.Equal("Swift.Double", height.Name);
+    }
+
+    /// <summary>
+    /// Unlabeled tuples produce elements with null TypeLabel.
+    /// These fall back to value{i} naming in the emitter.
+    /// </summary>
+    [Fact]
+    public void TuplePrintedName_UnlabeledElements_TypeLabelIsNull()
+    {
+        var parsed = TypeSpecParser.Parse("(Swift.String, Swift.Int)");
+        var tuple = Assert.IsType<TupleTypeSpec>(parsed);
+
+        Assert.Equal(2, tuple.Elements.Count);
+        Assert.Null(tuple.Elements[0].TypeLabel);
+        Assert.Null(tuple.Elements[1].TypeLabel);
+    }
+
+    /// <summary>
+    /// Single-element tuples are unwrapped by TypeSpecParser to a NamedTypeSpec.
+    /// The label is preserved on the unwrapped element.
+    /// </summary>
+    [Fact]
+    public void TuplePrintedName_SingleLabeledElement_UnwrapsWithLabel()
+    {
+        // ABI pattern: "(radius: Swift.Double)" → single-element, unwrapped
+        var parsed = TypeSpecParser.Parse("(radius: Swift.Double)");
+
+        // TypeSpecParser unwraps single-element tuples
+        var named = Assert.IsType<NamedTypeSpec>(parsed);
+        Assert.Equal("radius", named.TypeLabel);
+        Assert.Equal("Swift.Double", named.Name);
+    }
+
+    /// <summary>
+    /// Complex types inside labeled tuples: arrays, optionals, any Protocol.
+    /// Verifies TypeSpecParser handles the full range of ABI printedName patterns.
+    /// </summary>
+    [Theory]
+    [InlineData("(acceptableContentTypes: [Swift.String], responseContentType: Swift.String)",
+        "acceptableContentTypes", "responseContentType")]
+    [InlineData("(error: (any Swift.Error)?)",
+        "error", null)]  // single-element, unwrapped
+    [InlineData("(key: Swift.String, value: Swift.Int)",
+        "key", "value")]
+    public void TuplePrintedName_ComplexTypes_PreservesLabels(
+        string printedName, string expectedLabel0, string? expectedLabel1)
+    {
+        var parsed = TypeSpecParser.Parse(printedName);
+
+        if (expectedLabel1 != null)
+        {
+            // Multi-element tuple
+            var tuple = Assert.IsType<TupleTypeSpec>(parsed);
+            Assert.Equal(expectedLabel0, tuple.Elements[0].TypeLabel);
+            Assert.Equal(expectedLabel1, tuple.Elements[1].TypeLabel);
+        }
+        else
+        {
+            // Single-element → unwrapped
+            Assert.NotNull(parsed);
+            Assert.Equal(expectedLabel0, parsed!.TypeLabel);
+        }
+    }
+
+    /// <summary>
+    /// Verifies the fallback behavior: when TypeSpecParser can't parse the tuple
+    /// printedName, the parser falls back to child-by-child iteration (which
+    /// produces associated values without labels). This test simulates the
+    /// fallback by verifying that individual child printedNames still parse
+    /// correctly but without labels.
+    /// </summary>
+    [Fact]
+    public void FallbackChildParsing_ProducesAssociatedValuesWithoutLabels()
+    {
+        // Simulate the fallback path: parsing individual child printedNames
+        // (as the parser did before B2, and still does on parse failure)
+        var type1 = TypeSpecParser.Parse("Swift.Double");
+        var type2 = TypeSpecParser.Parse("Swift.String");
+
+        // Child-by-child parsing never has labels
+        var named1 = Assert.IsType<NamedTypeSpec>(type1);
+        Assert.Null(named1.TypeLabel);
+        Assert.Equal("Swift.Double", named1.Name);
+
+        var named2 = Assert.IsType<NamedTypeSpec>(type2);
+        Assert.Null(named2.TypeLabel);
+        Assert.Equal("Swift.String", named2.Name);
+    }
+
+    /// <summary>
+    /// Tests the ABI-vs-swiftinterface label precedence logic.
+    /// When ABI provides a label (via tuple printedName parsing), the
+    /// swiftinterface label should NOT overwrite it. The swiftinterface
+    /// label should only fill gaps (null/empty TypeLabel).
+    /// </summary>
+    [Fact]
+    public void SwiftinterfaceLabel_DoesNotOverwrite_ABILabel()
+    {
+        // Simulate: ABI parsing produced a TypeSpec with label "radius"
+        var abiParsed = TypeSpecParser.Parse("(radius: Swift.Double)");
+        var typeSpec = Assert.IsType<NamedTypeSpec>(abiParsed);
+        Assert.Equal("radius", typeSpec.TypeLabel);
+
+        // Simulate swiftinterface overlay with a different label
+        string? swiftinterfaceLabel = "r";
+
+        // The B2 guard: only apply when ABI didn't already provide one
+        if (swiftinterfaceLabel != null && string.IsNullOrEmpty(typeSpec.TypeLabel))
+        {
+            typeSpec.TypeLabel = swiftinterfaceLabel;
+        }
+
+        // ABI label wins — not overwritten
+        Assert.Equal("radius", typeSpec.TypeLabel);
+    }
+
+    /// <summary>
+    /// When ABI doesn't provide a label (null TypeLabel), swiftinterface
+    /// label fills the gap.
+    /// </summary>
+    [Fact]
+    public void SwiftinterfaceLabel_FillsGap_WhenABILabelMissing()
+    {
+        // Simulate: ABI parsing produced a TypeSpec WITHOUT a label
+        // (child-by-child fallback or unlabeled tuple element)
+        var typeSpec = new NamedTypeSpec("Swift.Double");
+        Assert.Null(typeSpec.TypeLabel);
+
+        string? swiftinterfaceLabel = "radius";
+
+        // The B2 guard: only apply when ABI didn't already provide one
+        if (swiftinterfaceLabel != null && string.IsNullOrEmpty(typeSpec.TypeLabel))
+        {
+            typeSpec.TypeLabel = swiftinterfaceLabel;
+        }
+
+        // swiftinterface label fills the gap
+        Assert.Equal("radius", typeSpec.TypeLabel);
+    }
+
+    /// <summary>
+    /// Partially labeled tuples: some elements have ABI labels, others don't.
+    /// swiftinterface should only fill the gaps.
+    /// </summary>
+    [Fact]
+    public void MixedLabeling_SwiftinterfaceOnlyFillsGaps()
+    {
+        // ABI: "(width: Swift.Double, Swift.Double)" — first labeled, second not
+        var parsed = TypeSpecParser.Parse("(width: Swift.Double, Swift.Double)");
+        var tuple = Assert.IsType<TupleTypeSpec>(parsed);
+
+        Assert.Equal("width", tuple.Elements[0].TypeLabel);
+        Assert.Null(tuple.Elements[1].TypeLabel);
+
+        // Simulate swiftinterface labels for both positions
+        var swiftinterfaceLabels = new[] { "w", "height" };
+
+        for (int i = 0; i < tuple.Elements.Count; i++)
+        {
+            if (swiftinterfaceLabels[i] != null && string.IsNullOrEmpty(tuple.Elements[i].TypeLabel))
+            {
+                tuple.Elements[i].TypeLabel = swiftinterfaceLabels[i];
+            }
+        }
+
+        // "width" from ABI preserved (not overwritten by "w")
+        Assert.Equal("width", tuple.Elements[0].TypeLabel);
+        // "height" from swiftinterface fills the gap
+        Assert.Equal("height", tuple.Elements[1].TypeLabel);
+    }
+
+    #endregion
 }

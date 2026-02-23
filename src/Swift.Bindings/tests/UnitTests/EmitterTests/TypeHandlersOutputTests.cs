@@ -185,9 +185,9 @@ public class TypeHandlersOutputTests
 
         var (csOutput, _) = EmitType(classDecl, typeDatabase, new ClassHandler(new NullLogger<ClassHandler>()));
 
-        Assert.Contains("public partial class Keyframe<T0> : ISwiftObject, IDisposable, IEquatable<Keyframe<T0>>", csOutput);
-        Assert.Contains("return new Keyframe<T0>(handle);", csOutput);
-        Assert.Contains("{typeof(IEquatable<Keyframe<T0>>)", csOutput);
+        Assert.Contains("public partial class Keyframe<T> : ISwiftObject, IDisposable, IEquatable<Keyframe<T>>", csOutput);
+        Assert.Contains("return new Keyframe<T>(handle);", csOutput);
+        Assert.Contains("{typeof(IEquatable<Keyframe<T>>)", csOutput);
     }
 
     [Fact]

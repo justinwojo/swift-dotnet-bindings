@@ -716,7 +716,7 @@ public class BoundGenericsHandlerTests
             propertyDecl,
             GenericContext.FromType(innerDecl));
 
-        Assert.Equal("Swift.TestModule.Outer.Inner<T0, T1>.Leaf<T0, T1>", result);
+        Assert.Equal("Swift.TestModule.Outer.Inner<T, U>.Leaf<T, U>", result);
     }
 
     #endregion

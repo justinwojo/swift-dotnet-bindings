@@ -262,8 +262,10 @@ namespace BindingsGeneration
                     int typeParamCount = parentTypeDecl.GenericParameters.Count;
                     for (int i = 0; i < methodOnlyParams.Count; i++)
                     {
-                        var methodParamCsName = $"T{typeParamCount + i}";
-                        var typeParamCsName = $"T{i}";
+                        var methodParamCsName = NameProvider.GetCSharpGenericParameterName(
+                            methodOnlyParams[i], typeParamCount + i);
+                        var typeParamCsName = NameProvider.GetCSharpGenericParameterName(
+                            parentTypeDecl.GenericParameters[i], i);
                         if (methodParamCsName != typeParamCsName)
                             genericRemap[methodParamCsName] = typeParamCsName;
                     }

@@ -570,15 +570,44 @@ namespace BindingsGeneration
                             var assocValuesNode = innerFuncChildren[1];
                             if (assocValuesNode.Kind == kTuple)
                             {
-                                // Parse tuple elements as associated values
-                                foreach (var tupleElement in assocValuesNode.Children)
+                                // Parse the full tuple printedName to preserve associated value labels.
+                                // e.g., "(radius: Swift.Double)" → TypeSpec with TypeLabel = "radius"
+                                // TypeSpecParser.Parse() throws on malformed input, so wrap in try/catch
+                                // with fallback to the old child-by-child approach.
+                                bool parsedFromTuplePrintedName = false;
+                                try
                                 {
-                                    if (tupleElement.Kind == kNominal)
+                                    var tuplePrintedName = assocValuesNode.PrintedName;
+                                    var parsedTuple = TypeSpecParser.Parse(tuplePrintedName);
+                                    if (parsedTuple is TupleTypeSpec tupleSpec)
                                     {
-                                        var typeSpec = TypeSpecParser.Parse(tupleElement.PrintedName);
-                                        if (typeSpec != null)
+                                        foreach (var element in tupleSpec.Elements)
+                                            enumCaseDecl.AssociatedValues.Add(element);
+                                        parsedFromTuplePrintedName = true;
+                                    }
+                                    else if (parsedTuple != null)
+                                    {
+                                        // Single-element tuple unwrapped by TypeSpecParser
+                                        enumCaseDecl.AssociatedValues.Add(parsedTuple);
+                                        parsedFromTuplePrintedName = true;
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    // TypeSpecParser throws on parse errors — fall through to child iteration
+                                    _logger.LogDebug($"Failed to parse tuple printedName '{assocValuesNode.PrintedName}' for enum case '{enumCaseDecl.Name}': {ex.Message}");
+                                }
+
+                                if (!parsedFromTuplePrintedName)
+                                {
+                                    // Fallback: parse individual children (previous behavior, no labels)
+                                    foreach (var tupleElement in assocValuesNode.Children)
+                                    {
+                                        if (tupleElement.Kind == kNominal)
                                         {
-                                            enumCaseDecl.AssociatedValues.Add(typeSpec);
+                                            var typeSpec = TypeSpecParser.Parse(tupleElement.PrintedName);
+                                            if (typeSpec != null)
+                                                enumCaseDecl.AssociatedValues.Add(typeSpec);
                                         }
                                     }
                                 }
@@ -608,7 +637,8 @@ namespace BindingsGeneration
                 {
                     for (int i = 0; i < Math.Min(labels.Count, enumCaseDecl.AssociatedValues.Count); i++)
                     {
-                        if (labels[i] != null)
+                        // Only apply swiftinterface label when ABI didn't already provide one
+                        if (labels[i] != null && string.IsNullOrEmpty(enumCaseDecl.AssociatedValues[i].TypeLabel))
                         {
                             enumCaseDecl.AssociatedValues[i].TypeLabel = labels[i];
                         }

@@ -27,7 +27,7 @@ public class GenericTypeEmitterTests
 
         var result = GenericTypeEmitter.GetGenericParameterList(typeDecl);
 
-        Assert.Equal("<T0>", result);
+        Assert.Equal("<T>", result);
     }
 
     [Fact]
@@ -37,7 +37,7 @@ public class GenericTypeEmitterTests
 
         var result = GenericTypeEmitter.GetGenericParameterList(typeDecl);
 
-        Assert.Equal("<T0, T1>", result);
+        Assert.Equal("<T, U>", result);
     }
 
     [Fact]
@@ -57,7 +57,7 @@ public class GenericTypeEmitterTests
 
         var result = GenericTypeEmitter.GetTypeNameWithGenerics(typeDecl);
 
-        Assert.Equal("Box<T0>", result);
+        Assert.Equal("Box<T>", result);
     }
 
     [Fact]
@@ -77,7 +77,7 @@ public class GenericTypeEmitterTests
 
         var result = GenericTypeEmitter.GetWhereClause(typeDecl);
 
-        Assert.Equal("where T0 : ISwiftObject", result);
+        Assert.Equal("where T : ISwiftObject", result);
     }
 
     [Fact]
@@ -87,7 +87,7 @@ public class GenericTypeEmitterTests
 
         var result = GenericTypeEmitter.GetWhereClause(typeDecl);
 
-        Assert.Equal("where T0 : ISwiftObject where T1 : ISwiftObject", result);
+        Assert.Equal("where T : ISwiftObject where U : ISwiftObject", result);
     }
 
     [Fact]
@@ -119,7 +119,7 @@ public class GenericTypeEmitterTests
 
         var result = GenericTypeEmitter.GetWhereClause(typeDecl);
 
-        Assert.Equal("where T0 : ISwiftObject", result);
+        Assert.Equal("where T : ISwiftObject", result);
         Assert.DoesNotContain("ISwiftView", result);
     }
 
@@ -153,7 +153,7 @@ public class GenericTypeEmitterTests
 
         var result = GenericTypeEmitter.GetFullTypeSignature(typeDecl);
 
-        Assert.Equal("Box<T0> where T0 : ISwiftObject", result);
+        Assert.Equal("Box<T> where T : ISwiftObject", result);
     }
 
     #region Cross-Module Constraint Stripping Tests
@@ -301,14 +301,18 @@ public class GenericTypeEmitterTests
         };
     }
 
+    // Sugared names used in tests — mirrors real Swift generic signatures
+    private static readonly string[] TestSugaredNames = { "T", "U", "V", "W" };
+
     private static StructDecl CreateGenericStruct(string name, int typeParamCount)
     {
         var genericParams = new List<GenericArgumentDecl>();
         for (int i = 0; i < typeParamCount; i++)
         {
+            var sugared = i < TestSugaredNames.Length ? TestSugaredNames[i] : $"T{i}";
             genericParams.Add(new GenericArgumentDecl(
                 $"τ_0_{i}",
-                $"T{i}",
+                sugared,
                 new List<GenericParameterConformance>(),
                 new List<GenericParameterConformance>()
             ));

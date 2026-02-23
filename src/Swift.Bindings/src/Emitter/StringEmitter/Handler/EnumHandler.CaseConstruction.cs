@@ -26,7 +26,8 @@ namespace BindingsGeneration
             for (int i = 0; i < caseDecl.AssociatedValues.Count; i++)
             {
                 var typeSpec = caseDecl.AssociatedValues[i];
-                var csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler);
+                var enumGenericParams = enumDecl.IsGeneric ? enumDecl.GenericParameters : null;
+                var csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, enumGenericParams);
 
                 // Check if type is unsupported
                 if (csharpType == TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName)
@@ -35,7 +36,7 @@ namespace BindingsGeneration
                     return false;
                 }
 
-                var publicType = GetPublicCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler);
+                var publicType = GetPublicCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, enumGenericParams);
 
                 // Use type label if available, otherwise generate a name
                 var paramName = typeSpec.TypeLabel ?? $"value{i}";
@@ -171,11 +172,12 @@ namespace BindingsGeneration
         /// <summary>
         /// Gets the C# type name for an enum case associated value type.
         /// </summary>
-        private static string GetCSharpTypeNameForEnumCase(TypeSpec typeSpec, ITypeDatabase typeDatabase, BoundGenericsHandler boundGenericsHandler)
+        private static string GetCSharpTypeNameForEnumCase(TypeSpec typeSpec, ITypeDatabase typeDatabase, BoundGenericsHandler boundGenericsHandler,
+            IReadOnlyList<GenericArgumentDecl>? genericParams = null)
         {
             if (typeSpec is NamedTypeSpec genericParamType &&
                 TypeSpecHelpers.IsGenericTypeParameter(genericParamType.Name) &&
-                TryGetGenericTypeParameterName(genericParamType.Name, out var typeParameterName))
+                TryGetGenericTypeParameterName(genericParamType.Name, out var typeParameterName, genericParams))
             {
                 return typeParameterName;
             }
@@ -212,7 +214,7 @@ namespace BindingsGeneration
                 var tupleHandler = new TupleHandler(typeDatabase);
                 // Use a recursive translator that handles bound generics for each element
                 return tupleHandler.GetCSharpTupleType(tupleType, elementTypeSpec =>
-                    GetCSharpTypeNameForEnumCase(elementTypeSpec, typeDatabase, boundGenericsHandler));
+                    GetCSharpTypeNameForEnumCase(elementTypeSpec, typeDatabase, boundGenericsHandler, genericParams));
             }
 
             // For non-generic types, use the standard lookup
@@ -226,7 +228,8 @@ namespace BindingsGeneration
         /// For tuples, recurses per element.
         /// For everything else, delegates to GetCSharpTypeNameForEnumCase.
         /// </summary>
-        private static string GetPublicCSharpTypeNameForEnumCase(TypeSpec typeSpec, ITypeDatabase typeDatabase, BoundGenericsHandler boundGenericsHandler)
+        private static string GetPublicCSharpTypeNameForEnumCase(TypeSpec typeSpec, ITypeDatabase typeDatabase, BoundGenericsHandler boundGenericsHandler,
+            IReadOnlyList<GenericArgumentDecl>? genericParams = null)
         {
             var existentialHandler = new ExistentialHandler(typeDatabase);
             var typeConversionHandler = new TypeConversionHandler(typeDatabase);
@@ -260,8 +263,8 @@ namespace BindingsGeneration
                 {
                     // SwiftString inside tuples keeps ABI type (marshalling needs SwiftString, not string)
                     if (typeConversionHandler.IsSwiftString(elementTypeSpec))
-                        return GetCSharpTypeNameForEnumCase(elementTypeSpec, typeDatabase, boundGenericsHandler);
-                    return GetPublicCSharpTypeNameForEnumCase(elementTypeSpec, typeDatabase, boundGenericsHandler);
+                        return GetCSharpTypeNameForEnumCase(elementTypeSpec, typeDatabase, boundGenericsHandler, genericParams);
+                    return GetPublicCSharpTypeNameForEnumCase(elementTypeSpec, typeDatabase, boundGenericsHandler, genericParams);
                 });
             }
 
@@ -270,7 +273,7 @@ namespace BindingsGeneration
                 return "string";
 
             // Everything else: delegate to the internal type
-            return GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler);
+            return GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams);
         }
 
         /// <summary>
@@ -439,7 +442,8 @@ namespace BindingsGeneration
             return "IntPtr";
         }
 
-        private static bool TryGetGenericTypeParameterName(string swiftTypeName, out string typeParameterName)
+        private static bool TryGetGenericTypeParameterName(string swiftTypeName, out string typeParameterName,
+            IReadOnlyList<GenericArgumentDecl>? genericParams = null)
         {
             typeParameterName = string.Empty;
             if (string.IsNullOrWhiteSpace(swiftTypeName))
@@ -450,7 +454,10 @@ namespace BindingsGeneration
                 var parts = swiftTypeName.Split('_');
                 if (parts.Length > 0 && int.TryParse(parts[^1], out var index))
                 {
-                    typeParameterName = $"T{index}";
+                    if (genericParams != null && index < genericParams.Count)
+                        typeParameterName = NameProvider.GetCSharpGenericParameterName(genericParams[index], index);
+                    else
+                        typeParameterName = $"T{index}";
                     return true;
                 }
             }

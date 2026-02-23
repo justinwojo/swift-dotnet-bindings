@@ -415,9 +415,9 @@ public class EnumHandlerOutputTests
 
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
-        Assert.Contains("public partial class ValueProviderStorage<T0> : ISwiftObject, IDisposable where T0 : ISwiftObject", csOutput);
-        Assert.Contains("public static unsafe ValueProviderStorage<T0> Boxed(T0 value0)", csOutput);
-        Assert.Contains("var value0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();", csOutput);
+        Assert.Contains("public partial class ValueProviderStorage<T> : ISwiftObject, IDisposable where T : ISwiftObject", csOutput);
+        Assert.Contains("public static unsafe ValueProviderStorage<T> Boxed(T value0)", csOutput);
+        Assert.Contains("var value0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T>();", csOutput);
         Assert.Contains("SwiftMarshal.MarshalToSwift(value0, ref value0SwiftSpan);", csOutput);
         Assert.Contains("ValueProviderStorage_PInvoke.PInvoke_Boxed(indirectResult, (IntPtr)value0SwiftBuffer", csOutput);
         Assert.Contains("internal static partial class ValueProviderStorage_PInvoke", csOutput);
