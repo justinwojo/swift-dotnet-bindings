@@ -383,12 +383,16 @@ Types emitted in ABI JSON order (source declaration order). No guarantee base cl
 
 ## Validation Checkpoints
 
-After each session, run:
+**IMPORTANT: Validation runs ONCE at the very end of each session — not after each sub-task.** A session may involve 5-10 sub-tasks (parse this, update that, write tests, etc.). Do NOT run `run-tests.sh`, `validate-libraries.sh`, or `build-and-test.sh` after each sub-task. Run them all once as the final step of the session.
+
+**Output capture**: Always pipe slow commands to a temp file so results can be re-read without re-running. Use the Read tool on the temp file (with offset/limit if needed) instead of re-running with different `tail`/`grep` arguments.
+
+### End-of-session validation (run once, at the very end):
 ```bash
-./run-tests.sh | tail -20                                    # Unit tests
-./validate-libraries.sh                                      # Compile gate (32 targets)
-cd TestFramework && ./build-and-test.sh                      # Integration + coverage
-golden/check-golden-files.sh                                 # Determinism
+./run-tests.sh 2>&1 | tee /tmp/test-results.txt                                   # Unit tests (~2 min)
+./validate-libraries.sh 2>&1 | tee /tmp/validation-results.txt                     # Compile gate (~5 min)
+cd TestFramework && ./build-and-test.sh 2>&1 | tee /tmp/testframework-results.txt  # Integration + coverage (~5 min)
+golden/check-golden-files.sh                                                       # Determinism (fast)
 ```
 
-Sessions 1-2 should produce zero emission changes (model/resolution only). Sessions 3-5 will change emission output. Session 6 is the full validation pass.
+Sessions I1-I2 should produce zero emission changes (model/resolution only). Sessions I3-I5 will change emission output. Session I6 is the full validation pass.

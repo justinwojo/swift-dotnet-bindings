@@ -20,7 +20,7 @@ Experimental Swift/.NET interop project. Generates C# bindings from compiled Swi
 
 **Always use helper scripts, not raw commands.**
 
-**IMPORTANT: `./run-tests.sh` takes ~2 minutes. When running it, ALWAYS capture enough output in a single invocation. Use `| tail -20` (not `tail -5`). NEVER run it twice to get different slices of the output.**
+**IMPORTANT: Slow commands (`./run-tests.sh` ~2 min, `./build-and-test.sh` ~5 min, `./validate-libraries.sh` ~5 min) — ALWAYS pipe to a temp file with `2>&1 | tee /tmp/<name>-results.txt`. Then use the Read tool on the temp file to inspect results. This avoids re-running slow commands just to see different slices of output. NEVER run a slow command twice.**
 
 ```bash
 ./build.sh                    # Build the project
