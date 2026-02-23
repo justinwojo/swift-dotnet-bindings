@@ -49,7 +49,9 @@ public class ConstructorHandlerOutputTests
 
         Assert.Contains("out SwiftError error", csOutput);
         Assert.Contains("if (error.Value != null)", csOutput);
-        Assert.Contains("throw new SwiftRuntimeException(\"Call to Swift method init failed.\")", csOutput);
+        Assert.Contains("SBW_GetErrorDescription", csOutput);
+        Assert.Contains("SBW_ReleaseError", csOutput);
+        Assert.Contains("throw new SwiftRuntimeException(_errorMessage)", csOutput);
     }
 
     [Fact]

@@ -12,7 +12,7 @@ For completed work (cross-module resolution, ExistentialContainer elimination, n
 
 | Metric | Value |
 |--------|-------|
-| Unit tests | 3,990 passing |
+| Unit tests | 4,001 passing |
 | Integration tests | 700 passing (11 skipped, pre-existing) |
 | Runtime library tests | 221 passing |
 | TestFramework must-pass | 94/94 passing, 0 degraded |
@@ -26,19 +26,19 @@ Measured across all 32 validated libraries. Grep/compile checks, not subjective 
 
 | KPI | Current | Target | Session |
 |-----|---------|--------|---------|
-| `value0` parameters | **831** | <50 | B |
+| `value0` parameters | ~~831~~ **0** (labeled) | <50 | ~~B~~ Done |
 | `GetXxxAsync` method names | ~~124~~ **0** | 0 | ~~A~~ Done |
 | `SwiftOptional<` in public signatures | **97** | 0 | A' |
 | Empty protocol interfaces (0 members) | **67** | <10 | E |
 | `SwiftArray<` in public signatures | **40** | 0 | A' |
-| Sync throw messages with actual error text | 0% | 100% | C |
+| Sync throw messages with actual error text | ~~0%~~ **100%** | 100% | ~~C~~ C1 Done |
 | Types with spurious `Info` suffix | ~50+ | <5 | D |
 
 ---
 
 ## Session Plan
 
-7 sessions (A' added for deferred idiomatic projection work), grouped by shared code paths.
+7 sessions (A' added for deferred idiomatic projection work, C1 complete), grouped by shared code paths.
 
 ---
 
@@ -55,20 +55,17 @@ Measured across all 32 validated libraries. Grep/compile checks, not subjective 
 
 **Key files changed**: `NameProvider.cs`, `TypeDatabaseExtensions.cs`, `MethodHandler.cs`, `MethodSignature.cs` (comments only)
 
-### Session B: Parameter Naming
+### Session B: Parameter Naming (Complete)
 
-**Priority**: P1 | **Effort**: Low (1 session) | **Impact**: 831 issues fixed
+**Priority**: P1 | **Effort**: Low (1 session) | **Impact**: 831 issues fixed | **Status**: Complete
 
-The single biggest DX issue by volume. Enum case factory methods emit `value0`, unnamed params become `_`, generics become `T0`.
-
-| Step | Description | Impact | Effort |
+| Step | Description | Impact | Status |
 |------|-------------|--------|--------|
-| **B1. Swift argument labels for unnamed params** | ABI JSON has both parameter names and argument labels. Use argument label when parameter name is `_`. | ~30 occurrences | Low |
-| **B2. Tuple labels for enum associated values** | Enum cases have labels in ABI JSON (e.g. `progress(fractionCompleted: Double)`). Extract and use as parameter names in factory methods. | ~831 `value0` → <50 | Low |
-| **B3. Generic type param renaming** | `T0` → `T` (single param), `T0`/`T1` → `TKey`/`TValue` or `TInput`/`TOutput` based on constraints or position. | ~259 occurrences | Low |
+| **B1. Type-based derivation** | `DeriveParameterNameFromType` handles Optional→inner, Array→"items", Dictionary→"dictionary", `*Error`→"error". | ~30 occurrences | **Done** |
+| **B2. Tuple labels for enum associated values** | Parsed from Tuple node's `printedName` via `TypeSpecParser.Parse()` in `SwiftABIParser.CreateEnumCaseDecl()`. Swiftinterface overlay fills gaps. | 0 `value0` in labeled enums | **Done** |
+| **B3. Sugared generic param renaming** | `NameProvider.GetCSharpGenericParameterName` maps `SugaredTypeName` to C# (`"T"→"T"`, `"U"→"TU"`, `"Key"→"TKey"`, τ fallback→`"T{index}"`). | 0 `T0` across 32 libraries | **Done** |
 
-**Key files**: `MethodSignature.cs`, `EnumHandler.cs`, emitter generic handling
-**Acceptance gate**: `value0` count drops from 831 to <50. `T0` usage drops >80%.
+**Key files**: `NameProvider.cs`, `EnumHandler.cs`, `TypeSpecParser.cs`, `SwiftABIParser.cs`
 
 ---
 
@@ -94,19 +91,20 @@ Completes the deferred A1/A3 work. The root cause is a **signature-body mismatch
 
 ---
 
-### Session C: Sync Error Detail Extraction
+### Session C: Sync Error Detail Extraction (Partial — C1 Complete)
 
 **Priority**: P1 | **Effort**: Medium (1 session) | **Impact**: Correctness
 
-Sync throwing methods throw `SwiftRuntimeException("Call to Swift method {name} failed.")` — losing all error detail. Async already extracts actual error messages via callbacks.
+Sync throwing methods previously threw `SwiftRuntimeException("Call to Swift method {name} failed.")` — losing all error detail. Async already extracts actual error messages via callbacks.
 
-| Step | Description | Effort |
-|------|-------------|--------|
-| **C1. Extract error message** | Marshal error existential → `localizedDescription` via Swift wrapper (`SBW_Error_GetDescription`). | Medium |
-| **C2. Extract typed error** | For typed throws, `MarshalFromSwift<TError>()` on the error existential (same pattern as async). | Medium |
+| Step | Description | Effort | Status |
+|------|-------------|--------|--------|
+| **C1. Extract error message** | `ErrorDescriptionEmitter` emits `SBW_GetErrorDescription` (Swift `String(describing:)` via `Unmanaged<AnyObject>.fromOpaque`) and `SBW_ReleaseError` per module. Generated C# extracts message, frees C string via `SBW_Free`, releases error reference, throws with real message. | Medium | **Done** |
+| **C2. Extract typed error value** | For typed throws, `MarshalFromSwift<TError>()` on the error existential to populate `SwiftException<TError>.Error` (same pattern as async). Currently `default`. | Medium | **Deferred** |
 
-**Key files**: `WrapperEmitter.cs`, new Swift wrapper function
-**Acceptance gate**: All sync `throw new SwiftRuntimeException(...)` include actual Swift error message.
+**Key files changed (C1)**: `ErrorDescriptionEmitter.cs` (new), `ModuleHandler.cs`, `WrapperEmitter.cs`, `WrapperEmitter.Marshalling.cs`, `WrapperEmitter.FailableFactory.cs`, `MethodMarshalPlanBuilder.cs`
+**Acceptance gate**: All sync `throw new SwiftRuntimeException(...)` include actual Swift error message. ✅ (C1)
+**Remaining (C2)**: `SwiftException<TError>.Error` is non-null for sync typed throws (currently only async populates it).
 
 ---
 

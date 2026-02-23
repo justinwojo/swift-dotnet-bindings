@@ -358,6 +358,48 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Emits P/Invoke declarations for SBW_GetErrorDescription, SBW_ReleaseError, and SBW_Free
+        /// (if not already emitted by Utf8SliceEmitter). These are class-level member declarations
+        /// emitted before the method signature, deduped per C# type.
+        /// </summary>
+        private void EmitErrorHelperPInvokes(CSharpWriter csWriter)
+        {
+            if (_syncPlan.SwiftError == null) return;
+
+            var moduleDecl = _env.MethodDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(_env.MethodDecl.ModuleDecl));
+            var typeKey = (_env.ParentDecl as TypeDecl)?.SwiftTypeName.ModuleQualifiedName ?? moduleDecl.Name;
+
+            if (ErrorDescriptionEmitter.HasErrorPInvokeForType(typeKey)) return;
+            ErrorDescriptionEmitter.MarkErrorPInvokeEmittedForType(typeKey);
+
+            var moduleLibPath = _env.TypeDatabase.GetLibraryPath(moduleDecl.Name);
+            var wrapperLibPath = _env.TypeDatabase.AsyncLibraryName ?? moduleLibPath;
+            var descSymbol = ErrorDescriptionEmitter.GetDescriptionSymbolName(moduleDecl.Name);
+            var releaseSymbol = ErrorDescriptionEmitter.GetReleaseSymbolName(moduleDecl.Name);
+            var freeSymbol = Utf8SliceEmitter.GetFreeSymbolName(moduleDecl.Name);
+
+            csWriter.WriteLines($"""
+                [System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{descSymbol}")]
+                private static partial IntPtr SBW_GetErrorDescription(IntPtr error);
+
+                [System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{releaseSymbol}")]
+                private static partial void SBW_ReleaseError(IntPtr error);
+
+                """);
+
+            // Emit SBW_Free if not already emitted by Utf8SliceEmitter for this type
+            if (!Utf8SliceEmitter.HasFreePInvokeForType(typeKey))
+            {
+                Utf8SliceEmitter.MarkFreePInvokeEmittedForType(typeKey);
+                csWriter.WriteLines($"""
+                    [System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{freeSymbol}")]
+                    private static partial void SBW_Free(IntPtr ptr);
+
+                    """);
+            }
+        }
+
+        /// <summary>
         /// Emits callback functions and pointers for escaping closures.
         /// When HasClosureCdeclWrapper is set, non-async closure callbacks use CallConvCdecl
         /// instead of CallConvSwift to avoid Mono JIT assertion crashes.

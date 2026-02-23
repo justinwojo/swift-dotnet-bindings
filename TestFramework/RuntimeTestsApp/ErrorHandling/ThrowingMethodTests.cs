@@ -55,11 +55,18 @@ public class BasicThrowingTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestDivideByZeroThrows()
     {
-        AssertThrows<SwiftRuntimeException>(() =>
+        try
         {
             SwiftBindingsTestLib.GetDivide(10, 0);
-        }, "Divide by zero should throw SwiftRuntimeException");
-        TestLogger.Info("Divide by zero correctly threw SwiftRuntimeException");
+            throw new AssertionException("Divide by zero should throw");
+        }
+        catch (SwiftRuntimeException ex)
+        {
+            // Error message should be the Swift String(describing:) output, not a hardcoded message
+            AssertTrue(ex.Message.Contains("divisionByZero"),
+                $"Error message should contain Swift error description, got: {ex.Message}");
+            TestLogger.Info($"Divide by zero threw with message: {ex.Message}");
+        }
     }
 
     #endregion
@@ -104,11 +111,17 @@ public class BasicThrowingTests : TestBase
     public void TestThrowingStructDivideByZeroThrows()
     {
         var ts = new ThrowingStruct(100);
-        AssertThrows<SwiftRuntimeException>(() =>
+        try
         {
             ts.GetDivideBy(0);
-        }, "DivideBy(0) should throw");
-        TestLogger.Info("ThrowingStruct.GetDivideBy(0) correctly threw");
+            throw new AssertionException("DivideBy(0) should throw");
+        }
+        catch (SwiftRuntimeException ex)
+        {
+            AssertTrue(ex.Message.Contains("divisionByZero"),
+                $"Error message should contain Swift error description, got: {ex.Message}");
+            TestLogger.Info($"ThrowingStruct.GetDivideBy(0) threw with message: {ex.Message}");
+        }
     }
 
     [TestTier(TestTier.Tier1)]
@@ -422,7 +435,7 @@ public class BasicThrowingTests : TestBase
     public void TestValidateRangeTypedCatchNullError()
     {
         // Sync typed throws: SwiftException<RangeError> is thrown,
-        // but .Error is null (sync path can't extract from existential box)
+        // but .Error is null (sync path can't extract from existential box — C2 deferred)
         try
         {
             SwiftBindingsTestLib.ValidateRange(100, 0, 50);
@@ -430,10 +443,11 @@ public class BasicThrowingTests : TestBase
         }
         catch (SwiftException<RangeError> ex)
         {
-            // Verify error property is null for sync path
+            // Verify error property is null for sync path (C2 will add typed error extraction)
             AssertNull(ex.Error, "Sync typed throws .Error should be null");
-            AssertTrue(ex.Message.Contains("validateRange") || ex.Message.Contains("ValidateRange"),
-                "Exception message should reference the method name");
+            // Message should be the real Swift error description (e.g. "belowMinimum(value: 100, minimum: 0)")
+            AssertTrue(ex.Message.Contains("belowMinimum") || ex.Message.Contains("Below"),
+                $"Exception message should contain Swift error description, got: {ex.Message}");
             TestLogger.Info($"ValidateRange typed catch: Error={ex.Error}, Message={ex.Message}");
         }
     }

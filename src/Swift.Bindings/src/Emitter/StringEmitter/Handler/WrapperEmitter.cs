@@ -113,7 +113,8 @@ namespace BindingsGeneration
             bool hasClosures = _env.MethodDecl.CSSignature.Skip(1).Any(_env.ClosureHandler.IsClosure);
             bool needsTryFinally = isGeneric || hasClosures;
 
-            // Emit closure callbacks before constructor body (like methods do)
+            // Emit closure callbacks and error helper P/Invokes before constructor body
+            EmitErrorHelperPInvokes(csWriter);
             if (hasClosures)
             {
                 EmitClosureCallbacks(csWriter);
@@ -174,6 +175,7 @@ namespace BindingsGeneration
         internal void EmitMethod(CSharpWriter csWriter, SwiftWriter swiftWriter)
         {
             EmitAsyncWrapper(csWriter);
+            EmitErrorHelperPInvokes(csWriter);
             EmitClosureCallbacks(csWriter);
             if (_fallbackInfo.HasValue)
             {

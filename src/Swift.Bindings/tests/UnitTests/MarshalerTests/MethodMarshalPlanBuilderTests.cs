@@ -117,8 +117,11 @@ public class MethodMarshalPlanBuilderTests
 
         Assert.NotNull(plan.SwiftError);
         Assert.False(plan.SwiftError!.IsTypedThrows);
-        Assert.Contains("SwiftRuntimeException", plan.SwiftError.ErrorCheckCode);
         Assert.Contains("error.Value != null", plan.SwiftError.ErrorCheckCode);
+        Assert.Contains("SBW_GetErrorDescription", plan.SwiftError.ErrorCheckCode);
+        Assert.Contains("SBW_ReleaseError", plan.SwiftError.ErrorCheckCode);
+        Assert.Contains("SBW_Free", plan.SwiftError.ErrorCheckCode);
+        Assert.Contains("SwiftRuntimeException", plan.SwiftError.ErrorCheckCode);
     }
 
     [Fact]
@@ -130,6 +133,9 @@ public class MethodMarshalPlanBuilderTests
 
         Assert.NotNull(plan.SwiftError);
         Assert.True(plan.SwiftError!.IsTypedThrows);
+        Assert.Contains("error.Value != null", plan.SwiftError.ErrorCheckCode);
+        Assert.Contains("SBW_GetErrorDescription", plan.SwiftError.ErrorCheckCode);
+        Assert.Contains("SBW_ReleaseError", plan.SwiftError.ErrorCheckCode);
         Assert.Contains("SwiftException<", plan.SwiftError.ErrorCheckCode);
         Assert.Equal("Swift.TestModule.ParseError", plan.SwiftError.TypedErrorTypeName);
     }

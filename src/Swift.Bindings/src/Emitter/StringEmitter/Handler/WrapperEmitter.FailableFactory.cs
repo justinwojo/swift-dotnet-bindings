@@ -36,7 +36,8 @@ namespace BindingsGeneration
                 return;
             }
 
-            // Emit closure callbacks before factory body (like methods do)
+            // Emit error helper P/Invokes and closure callbacks before factory body
+            EmitErrorHelperPInvokes(csWriter);
             bool hasClosures = _env.MethodDecl.CSSignature.Skip(1).Any(_env.ClosureHandler.IsClosure);
             if (hasClosures)
             {

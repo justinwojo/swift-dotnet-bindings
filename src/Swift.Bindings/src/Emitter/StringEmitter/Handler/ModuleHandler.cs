@@ -73,6 +73,7 @@ namespace BindingsGeneration
             // Reset per-module state for shared emitters
             EnumHandler.ResetUtf8SliceTracking();
             CancellationTaskEmitter.ResetForModule();
+            ErrorDescriptionEmitter.ResetForModule();
 
             // Emit Swift imports at the top of the Swift wrapper file
             EmitSwiftImports(swiftWriter, moduleDecl);
@@ -322,6 +323,9 @@ namespace BindingsGeneration
 
             // Emit Swift Task cancellation infrastructure (cancel function + task dictionary)
             CancellationTaskEmitter.EmitIfNeeded(swiftWriter, moduleDecl.Name);
+
+            // Emit Swift error description extraction infrastructure (for sync throwing methods)
+            ErrorDescriptionEmitter.EmitIfNeeded(swiftWriter, moduleDecl.Name);
         }
 
         /// <summary>

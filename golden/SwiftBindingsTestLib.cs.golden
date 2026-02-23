@@ -859,6 +859,12 @@ namespace Swift.SwiftBindingsTestLib
         private static partial int PInvoke_processRegistry_DBEFE550( SafeHandle registry);
         
         
+        [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_GetErrorDescription_SwiftBindingsTestLib")]
+        private static partial IntPtr SBW_GetErrorDescription(IntPtr error);
+        [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_ReleaseError_SwiftBindingsTestLib")]
+        private static partial void SBW_ReleaseError(IntPtr error);
+        [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
+        private static partial void SBW_Free(IntPtr ptr);
         /// <summary>
         /// Parses a string into an Int32, throwing a typed ParseError on failure.
         /// </summary>
@@ -876,7 +882,21 @@ namespace Swift.SwiftBindingsTestLib
                     
                     if (error.Value != null)
                     {
-                        throw new SwiftException<Swift.SwiftBindingsTestLib.ParseError>("Call to Swift method parseNumber failed.");
+                        string _errorMessage;
+                        var _errorPtr = (IntPtr)error.Value;
+                        var _descPtr = SBW_GetErrorDescription(_errorPtr);
+                        try
+                        {
+                            _errorMessage = _descPtr != IntPtr.Zero
+                                ? System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
+                                : "Unknown Swift error";
+                        }
+                        finally
+                        {
+                            if (_descPtr != IntPtr.Zero) SBW_Free(_descPtr);
+                            SBW_ReleaseError(_errorPtr);
+                        }
+                        throw new SwiftException<Swift.SwiftBindingsTestLib.ParseError>(_errorMessage);
                     }
                     
                     return result;
@@ -909,7 +929,21 @@ namespace Swift.SwiftBindingsTestLib
                     
                     if (error.Value != null)
                     {
-                        throw new SwiftException<Swift.SwiftBindingsTestLib.RangeError>("Call to Swift method validateRange failed.");
+                        string _errorMessage;
+                        var _errorPtr = (IntPtr)error.Value;
+                        var _descPtr = SBW_GetErrorDescription(_errorPtr);
+                        try
+                        {
+                            _errorMessage = _descPtr != IntPtr.Zero
+                                ? System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
+                                : "Unknown Swift error";
+                        }
+                        finally
+                        {
+                            if (_descPtr != IntPtr.Zero) SBW_Free(_descPtr);
+                            SBW_ReleaseError(_errorPtr);
+                        }
+                        throw new SwiftException<Swift.SwiftBindingsTestLib.RangeError>(_errorMessage);
                     }
                     
                     return result;
@@ -1006,7 +1040,21 @@ namespace Swift.SwiftBindingsTestLib
                     
                     if (error.Value != null)
                     {
-                        throw new SwiftRuntimeException("Call to Swift method divide failed.");
+                        string _errorMessage;
+                        var _errorPtr = (IntPtr)error.Value;
+                        var _descPtr = SBW_GetErrorDescription(_errorPtr);
+                        try
+                        {
+                            _errorMessage = _descPtr != IntPtr.Zero
+                                ? System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
+                                : "Unknown Swift error";
+                        }
+                        finally
+                        {
+                            if (_descPtr != IntPtr.Zero) SBW_Free(_descPtr);
+                            SBW_ReleaseError(_errorPtr);
+                        }
+                        throw new SwiftRuntimeException(_errorMessage);
                     }
                     
                     return result;
@@ -1041,7 +1089,21 @@ namespace Swift.SwiftBindingsTestLib
                     
                     if (error.Value != null)
                     {
-                        throw new SwiftRuntimeException("Call to Swift method validate failed.");
+                        string _errorMessage;
+                        var _errorPtr = (IntPtr)error.Value;
+                        var _descPtr = SBW_GetErrorDescription(_errorPtr);
+                        try
+                        {
+                            _errorMessage = _descPtr != IntPtr.Zero
+                                ? System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
+                                : "Unknown Swift error";
+                        }
+                        finally
+                        {
+                            if (_descPtr != IntPtr.Zero) SBW_Free(_descPtr);
+                            SBW_ReleaseError(_errorPtr);
+                        }
+                        throw new SwiftRuntimeException(_errorMessage);
                     }
                     
                     var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
@@ -1072,7 +1134,21 @@ namespace Swift.SwiftBindingsTestLib
                     
                     if (error.Value != null)
                     {
-                        throw new SwiftRuntimeException("Call to Swift method validate failed.");
+                        string _errorMessage;
+                        var _errorPtr = (IntPtr)error.Value;
+                        var _descPtr = SBW_GetErrorDescription(_errorPtr);
+                        try
+                        {
+                            _errorMessage = _descPtr != IntPtr.Zero
+                                ? System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
+                                : "Unknown Swift error";
+                        }
+                        finally
+                        {
+                            if (_descPtr != IntPtr.Zero) SBW_Free(_descPtr);
+                            SBW_ReleaseError(_errorPtr);
+                        }
+                        throw new SwiftRuntimeException(_errorMessage);
                     }
                     
                     var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
@@ -3515,7 +3591,21 @@ namespace Swift.SwiftBindingsTestLib
                     
                     if (error.Value != null)
                     {
-                        throw new SwiftRuntimeException("Call to Swift method firstOrThrow failed.");
+                        string _errorMessage;
+                        var _errorPtr = (IntPtr)error.Value;
+                        var _descPtr = SBW_GetErrorDescription(_errorPtr);
+                        try
+                        {
+                            _errorMessage = _descPtr != IntPtr.Zero
+                                ? System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
+                                : "Unknown Swift error";
+                        }
+                        finally
+                        {
+                            if (_descPtr != IntPtr.Zero) SBW_Free(_descPtr);
+                            SBW_ReleaseError(_errorPtr);
+                        }
+                        throw new SwiftRuntimeException(_errorMessage);
                     }
                     
                     return result;
@@ -14568,6 +14658,12 @@ public partial class TypedThrowingParser : ISwiftObject, IDisposable
     private static partial void PInvoke_init_99703116( SwiftIndirectResult swiftIndirectResult, [MarshalAs(UnmanagedType.U1)]  bool strict);
     
     
+    [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_GetErrorDescription_SwiftBindingsTestLib")]
+    private static partial IntPtr SBW_GetErrorDescription(IntPtr error);
+    [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_ReleaseError_SwiftBindingsTestLib")]
+    private static partial void SBW_ReleaseError(IntPtr error);
+    [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
+    private static partial void SBW_Free(IntPtr ptr);
     /// <summary>
     /// Parses input with typed throws.
     /// </summary>
@@ -14589,7 +14685,21 @@ public partial class TypedThrowingParser : ISwiftObject, IDisposable
                 
                 if (error.Value != null)
                 {
-                    throw new SwiftException<Swift.SwiftBindingsTestLib.ParseError>("Call to Swift method parse failed.");
+                    string _errorMessage;
+                    var _errorPtr = (IntPtr)error.Value;
+                    var _descPtr = SBW_GetErrorDescription(_errorPtr);
+                    try
+                    {
+                        _errorMessage = _descPtr != IntPtr.Zero
+                            ? System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
+                            : "Unknown Swift error";
+                    }
+                    finally
+                    {
+                        if (_descPtr != IntPtr.Zero) SBW_Free(_descPtr);
+                        SBW_ReleaseError(_errorPtr);
+                    }
+                    throw new SwiftException<Swift.SwiftBindingsTestLib.ParseError>(_errorMessage);
                 }
                 
                 return result;
@@ -14654,9 +14764,7 @@ public partial class TypedThrowingParser : ISwiftObject, IDisposable
             }
         }
 
-                        [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
-        private static partial void SBW_Free(IntPtr ptr);
-private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, int, IntPtr, void> s_asyncParseErrorCallback_028ADCF1 = &asyncParseOnError_028ADCF1;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, int, IntPtr, void> s_asyncParseErrorCallback_028ADCF1 = &asyncParseOnError_028ADCF1;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
         private static unsafe void asyncParseOnError_028ADCF1(IntPtr errorPtr, nint errorSize, IntPtr errorMessagePtr, int isCancellation, IntPtr task)
         {
@@ -15486,6 +15594,12 @@ public partial class ThrowingStruct : ISwiftObject, IDisposable
     private static partial void PInvoke_init_76433641( SwiftIndirectResult swiftIndirectResult,  int _value);
     
     
+    [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_GetErrorDescription_SwiftBindingsTestLib")]
+    private static partial IntPtr SBW_GetErrorDescription(IntPtr error);
+    [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_ReleaseError_SwiftBindingsTestLib")]
+    private static partial void SBW_ReleaseError(IntPtr error);
+    [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
+    private static partial void SBW_Free(IntPtr ptr);
     /// <summary>
     /// Instance throwing method.
     /// </summary>
@@ -15505,7 +15619,21 @@ public partial class ThrowingStruct : ISwiftObject, IDisposable
                 
                 if (error.Value != null)
                 {
-                    throw new SwiftRuntimeException("Call to Swift method divideBy failed.");
+                    string _errorMessage;
+                    var _errorPtr = (IntPtr)error.Value;
+                    var _descPtr = SBW_GetErrorDescription(_errorPtr);
+                    try
+                    {
+                        _errorMessage = _descPtr != IntPtr.Zero
+                            ? System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
+                            : "Unknown Swift error";
+                    }
+                    finally
+                    {
+                        if (_descPtr != IntPtr.Zero) SBW_Free(_descPtr);
+                        SBW_ReleaseError(_errorPtr);
+                    }
+                    throw new SwiftRuntimeException(_errorMessage);
                 }
                 
                 return result;
@@ -15544,7 +15672,21 @@ public partial class ThrowingStruct : ISwiftObject, IDisposable
                 
                 if (error.Value != null)
                 {
-                    throw new SwiftRuntimeException("Call to Swift method validatePositive failed.");
+                    string _errorMessage;
+                    var _errorPtr = (IntPtr)error.Value;
+                    var _descPtr = SBW_GetErrorDescription(_errorPtr);
+                    try
+                    {
+                        _errorMessage = _descPtr != IntPtr.Zero
+                            ? System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
+                            : "Unknown Swift error";
+                    }
+                    finally
+                    {
+                        if (_descPtr != IntPtr.Zero) SBW_Free(_descPtr);
+                        SBW_ReleaseError(_errorPtr);
+                    }
+                    throw new SwiftRuntimeException(_errorMessage);
                 }
                 
                 return result;
@@ -15579,7 +15721,21 @@ public partial class ThrowingStruct : ISwiftObject, IDisposable
                 
                 if (error.Value != null)
                 {
-                    throw new SwiftRuntimeException("Call to Swift method safeDivide failed.");
+                    string _errorMessage;
+                    var _errorPtr = (IntPtr)error.Value;
+                    var _descPtr = SBW_GetErrorDescription(_errorPtr);
+                    try
+                    {
+                        _errorMessage = _descPtr != IntPtr.Zero
+                            ? System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
+                            : "Unknown Swift error";
+                    }
+                    finally
+                    {
+                        if (_descPtr != IntPtr.Zero) SBW_Free(_descPtr);
+                        SBW_ReleaseError(_errorPtr);
+                    }
+                    throw new SwiftRuntimeException(_errorMessage);
                 }
                 
                 return result;

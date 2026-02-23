@@ -319,6 +319,8 @@ internal class MethodMarshalPlanBuilder
     /// <summary>
     /// Builds the SwiftError setup for throwing methods.
     /// Returns null for non-throwing methods or async methods (which handle errors internally).
+    /// Extracts the real error description from Swift via SBW_GetErrorDescription,
+    /// releases the error reference via SBW_ReleaseError, and frees the C string via SBW_Free.
     /// </summary>
     private SwiftErrorSetup? BuildSwiftErrorSetup()
     {
@@ -333,25 +335,30 @@ internal class MethodMarshalPlanBuilder
             syncTypedErrorType = syncErrorTypeRecord.CSharpTypeName.FullyQualifiedName;
         }
 
-        string errorCheckCode;
-        if (syncTypedErrorType != null)
-        {
-            errorCheckCode = $$"""
-                if (error.Value != null)
+        var throwStatement = syncTypedErrorType != null
+            ? $"throw new SwiftException<{syncTypedErrorType}>(_errorMessage);"
+            : "throw new SwiftRuntimeException(_errorMessage);";
+
+        var errorCheckCode = $$"""
+            if (error.Value != null)
+            {
+                string _errorMessage;
+                var _errorPtr = (IntPtr)error.Value;
+                var _descPtr = SBW_GetErrorDescription(_errorPtr);
+                try
                 {
-                    throw new SwiftException<{{syncTypedErrorType}}>("Call to Swift method {{_env.MethodDecl.Name}} failed.");
+                    _errorMessage = _descPtr != IntPtr.Zero
+                        ? System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
+                        : "Unknown Swift error";
                 }
-                """;
-        }
-        else
-        {
-            errorCheckCode = $$"""
-                if (error.Value != null)
+                finally
                 {
-                    throw new SwiftRuntimeException("Call to Swift method {{_env.MethodDecl.Name}} failed.");
+                    if (_descPtr != IntPtr.Zero) SBW_Free(_descPtr);
+                    SBW_ReleaseError(_errorPtr);
                 }
-                """;
-        }
+                {{throwStatement}}
+            }
+            """;
 
         return new SwiftErrorSetup
         {
