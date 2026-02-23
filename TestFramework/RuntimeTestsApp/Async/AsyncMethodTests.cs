@@ -38,7 +38,7 @@ public class AsyncMethodTests : TestBase
     public async Task TestAsyncReturnMethod()
     {
         var worker = new AsyncWorker("test-worker");
-        var result = await WithTimeout(worker.GetReturnMethodAsync(), DefaultAsyncTimeout);
+        var result = await WithTimeout(worker.ReturnMethodAsync(), DefaultAsyncTimeout);
         AssertEqual(42, result, "AsyncReturnMethod should return 42");
         TestLogger.Info($"AsyncWorker.AsyncReturnMethod() = {result}");
     }
@@ -46,7 +46,7 @@ public class AsyncMethodTests : TestBase
     public async Task TestAsyncStringMethod()
     {
         var worker = new AsyncWorker("Bob");
-        var result = await WithTimeout(worker.GetStringMethodAsync(), DefaultAsyncTimeout);
+        var result = await WithTimeout(worker.StringMethodAsync(), DefaultAsyncTimeout);
         AssertEqual("Hello from Bob", result, "AsyncStringMethod should return 'Hello from Bob'");
         TestLogger.Info($"AsyncWorker.AsyncStringMethod() = {result}");
     }
@@ -59,7 +59,7 @@ public class AsyncMethodTests : TestBase
 
     public async Task TestAsyncStaticReturn()
     {
-        var result = await WithTimeout(AsyncWorker.GetStaticReturnAsync(), DefaultAsyncTimeout);
+        var result = await WithTimeout(AsyncWorker.StaticReturnAsync(), DefaultAsyncTimeout);
         AssertEqual(99, result, "AsyncStaticReturn should return 99");
         TestLogger.Info($"AsyncWorker.GetStaticReturnAsync() = {result}");
     }
@@ -87,7 +87,7 @@ public class AsyncMethodTests : TestBase
     public async Task TestAsyncThrowingMethodSuccess()
     {
         var worker = new AsyncThrowingWorker("thrower");
-        var result = await WithTimeout(worker.GetThrowingMethodAsync(false), DefaultAsyncTimeout);
+        var result = await WithTimeout(worker.ThrowingMethodAsync(false), DefaultAsyncTimeout);
         AssertEqual(42, result, "AsyncThrowingMethod(false) should return 42");
         TestLogger.Info($"AsyncThrowingWorker.AsyncThrowingMethod(false) = {result}");
     }
@@ -97,7 +97,7 @@ public class AsyncMethodTests : TestBase
         var worker = new AsyncThrowingWorker("thrower");
         try
         {
-            await WithTimeout(worker.GetThrowingMethodAsync(true), DefaultAsyncTimeout);
+            await WithTimeout(worker.ThrowingMethodAsync(true), DefaultAsyncTimeout);
             throw new AssertionException("Expected SwiftException but no exception was thrown");
         }
         catch (SwiftException ex)
@@ -130,16 +130,16 @@ public class AsyncMethodTests : TestBase
 
     public async Task TestAsyncStaticThrowingSuccess()
     {
-        var result = await WithTimeout(AsyncThrowingWorker.GetStaticThrowingAsync(false), DefaultAsyncTimeout);
+        var result = await WithTimeout(AsyncThrowingWorker.StaticThrowingAsync(false), DefaultAsyncTimeout);
         AssertEqual("success", result, "AsyncStaticThrowing(false) should return 'success'");
-        TestLogger.Info($"AsyncThrowingWorker.GetStaticThrowingAsync(false) = {result}");
+        TestLogger.Info($"AsyncThrowingWorker.StaticThrowingAsync(false) = {result}");
     }
 
     public async Task TestAsyncStaticThrowingThrows()
     {
         try
         {
-            await WithTimeout(AsyncThrowingWorker.GetStaticThrowingAsync(true), DefaultAsyncTimeout);
+            await WithTimeout(AsyncThrowingWorker.StaticThrowingAsync(true), DefaultAsyncTimeout);
             throw new AssertionException("Expected SwiftException but no exception was thrown");
         }
         catch (SwiftException ex)

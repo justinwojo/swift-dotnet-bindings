@@ -322,8 +322,8 @@ public class BasicProtocolDispatchTests : TestBase
     public void TestTaskStatusRawValue()
     {
         var status = SwiftTaskStatus.Running;
-        AssertEqual(1, (int)status, "SwiftTaskStatus.Running raw value");
-        TestLogger.Info($"(int)SwiftTaskStatus.Running = {(int)status}");
+        AssertEqual(SwiftTaskStatus.CaseTag.Running, status.Tag, "SwiftTaskStatus.Running tag");
+        TestLogger.Info($"SwiftTaskStatus.Running.Tag = {status.Tag}");
     }
 
     #endregion

@@ -192,6 +192,7 @@ namespace BindingsGeneration
             EmitUnsafeBlockStart(csWriter);
             EmitAsync(csWriter, swiftWriter);
             EmitOpaqueReturnWrapper(swiftWriter);
+            EmitTypedErrorExtractor(swiftWriter);
             EmitSafeHandleAddRef(csWriter);
 
             EmitDeclarationsForAllocations(csWriter);
@@ -290,6 +291,18 @@ namespace BindingsGeneration
             if (_syncPlan.SwiftError == null) return;
             csWriter.WriteLines(_syncPlan.SwiftError.ErrorCheckCode);
             csWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// Emits the Swift typed error extractor function for sync typed throws.
+        /// Deduped per Swift error type name via ErrorDescriptionEmitter.
+        /// </summary>
+        internal void EmitTypedErrorExtractor(SwiftWriter swiftWriter)
+        {
+            if (_syncPlan.SwiftError?.SwiftErrorTypeName == null) return;
+            var moduleName = _env.MethodDecl.ModuleDecl?.Name ?? "";
+            ErrorDescriptionEmitter.EmitTypedErrorExtractorIfNeeded(
+                swiftWriter, moduleName, _syncPlan.SwiftError.SwiftErrorTypeName);
         }
 
         /// <summary>

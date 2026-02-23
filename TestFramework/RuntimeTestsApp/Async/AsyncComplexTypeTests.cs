@@ -36,7 +36,7 @@ public class AsyncComplexTypeTests : TestBase
 
     public async Task TestAsyncStaticResult()
     {
-        var result = await WithTimeout(AsyncComplexWorker.GetStaticResultAsync(), DefaultAsyncTimeout);
+        var result = await WithTimeout(AsyncComplexWorker.StaticResultAsync(), DefaultAsyncTimeout);
         AssertNotNull(result, "AsyncStaticResult not null");
         AssertEqual(0, result.Id, "Static AsyncResult.Id");
         AssertEqual("Static result", result.Message.ToString(), "Static AsyncResult.Message");
@@ -86,7 +86,7 @@ public class AsyncComplexTypeTests : TestBase
 
     public async Task TestAsyncStaticTask()
     {
-        var task = await WithTimeout(AsyncComplexWorker.GetStaticTaskAsync(), DefaultAsyncTimeout);
+        var task = await WithTimeout(AsyncComplexWorker.StaticTaskAsync(), DefaultAsyncTimeout);
         AssertNotNull(task, "AsyncStaticTask not null");
         AssertEqual("static-task", task.TaskId.ToString(), "Static AsyncTask.TaskId");
         AssertEqual("created", task.StatusProperty.ToString(), "Static AsyncTask.Status");

@@ -138,6 +138,13 @@ public class MethodMarshalPlanBuilderTests
         Assert.Contains("SBW_ReleaseError", plan.SwiftError.ErrorCheckCode);
         Assert.Contains("SwiftException<", plan.SwiftError.ErrorCheckCode);
         Assert.Equal("Swift.TestModule.ParseError", plan.SwiftError.TypedErrorTypeName);
+
+        // C2: New fields for typed error extraction
+        Assert.Equal("TestModule.ParseError", plan.SwiftError.SwiftErrorTypeName);
+        Assert.Equal("TestModule_ParseError", plan.SwiftError.TypedErrorSafeSuffix);
+        Assert.Contains("SBW_ExtractTypedError_TestModule_ParseError", plan.SwiftError.ErrorCheckCode);
+        Assert.Contains("MarshalFromSwift<Swift.TestModule.ParseError>", plan.SwiftError.ErrorCheckCode);
+        Assert.Contains("SBW_Free(_typedErrorPtr)", plan.SwiftError.ErrorCheckCode);
     }
 
     #endregion

@@ -288,6 +288,11 @@ namespace BindingsGeneration
             MethodHandler.CheckExportedSymbol(methodEnv);
 
             var wrapperEmitter = new WrapperEmitter(methodEnv, signatureHandler);
+
+            // C2: Emit Swift typed error extractor for ALL throwing constructors
+            // (covers both failable EmitFailableFactory and non-failable EmitConstructor paths)
+            wrapperEmitter.EmitTypedErrorExtractor(swiftWriter);
+
             if (methodEnv.MethodDecl.IsFailable)
             {
                 wrapperEmitter.EmitFailableFactory(csWriter);

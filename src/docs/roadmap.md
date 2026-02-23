@@ -12,7 +12,7 @@ For completed work (cross-module resolution, ExistentialContainer elimination, n
 
 | Metric | Value |
 |--------|-------|
-| Unit tests | 4,001 passing |
+| Unit tests | 4,004 passing |
 | Integration tests | 700 passing (11 skipped, pre-existing) |
 | Runtime library tests | 221 passing |
 | TestFramework must-pass | 94/94 passing, 0 degraded |
@@ -28,17 +28,18 @@ Measured across all 32 validated libraries. Grep/compile checks, not subjective 
 |-----|---------|--------|---------|
 | `value0` parameters | ~~831~~ **0** (labeled) | <50 | ~~B~~ Done |
 | `GetXxxAsync` method names | ~~124~~ **0** | 0 | ~~A~~ Done |
-| `SwiftOptional<` in public signatures | **97** | 0 | A' |
+| `SwiftOptional<` in public signatures | ~~97~~ **0** | 0 | ~~A'~~ Done |
 | Empty protocol interfaces (0 members) | **67** | <10 | E |
-| `SwiftArray<` in public signatures | **40** | 0 | A' |
+| `SwiftArray<` in public signatures | ~~40~~ **0** | 0 | ~~A'~~ Done |
 | Sync throw messages with actual error text | ~~0%~~ **100%** | 100% | ~~C~~ C1 Done |
+| Sync typed throws `.Error` populated | ~~0%~~ **100%** | 100% | ~~C2~~ Done |
 | Types with spurious `Info` suffix | ~50+ | <5 | D |
 
 ---
 
 ## Session Plan
 
-7 sessions (A' added for deferred idiomatic projection work, C1 complete), grouped by shared code paths.
+7 sessions (A, A', B, C complete), grouped by shared code paths.
 
 ---
 
@@ -69,42 +70,31 @@ Measured across all 32 validated libraries. Grep/compile checks, not subjective 
 
 ---
 
-### Session A': Idiomatic Type Projection in Fallback Paths
+### Session A': Idiomatic Type Projection in Fallback Paths (Complete)
 
-**Priority**: P1 | **Effort**: Medium (1 session) | **Impact**: 137 issues (97 SwiftOptional + 40 SwiftArray)
+**Priority**: P1 | **Effort**: Medium (1 session) | **Impact**: 137 issues fixed (97 SwiftOptional + 40 SwiftArray) | **Status**: Complete
 
-Completes the deferred A1/A3 work. The root cause is a **signature-body mismatch**: changing public signatures to idiomatic types (`T?`, `IReadOnlyList<T>`) breaks the marshalling body in WrapperEmitter, which emits `.Payload` property access requiring the raw `SwiftOptional<T>`/`SwiftArray<T>` types. The `TypeProjectionFactory` already handles cases where both signature and body agree (properties, regular methods). The remaining 137 issues are in fallback paths where the factory returns null.
+Completed the deferred A1/A3 work. Extended `TypeProjectionFactory` coverage to fallback paths (tuple elements, bound-generic fallbacks, enum case factory params) so both signature and body use the same projection.
 
-**Approach**: Extend `TypeProjectionFactory` coverage to the remaining contexts, so both signature and body use the same projection. Each leak point needs coordinated signature + body changes:
-
-| Leak point | Files | Types affected |
-|------------|-------|---------------|
-| Tuple element types | `MethodSignature.cs`, `WrapperEmitter.Return.cs` | Optional, Array |
-| Bound-generic fallback (return) | `MethodSignature.cs` | Optional, Array |
-| Bound-generic fallback (params) | `MethodSignature.cs` | Optional, Array |
-| Enum case factory params | `EnumHandler.CaseConstruction.cs` | Optional, Array |
-| AsyncStream element types | `AsyncStreamHandler.cs` | Array (requires `ISwiftObject` constraint workaround) |
-
-**Key constraint**: `SwiftAsyncStream<TElement>` requires `TElement : ISwiftObject`, so `IReadOnlyList<T>` and `string` cannot be used directly as element types. AsyncStream array projection may need a wrapper approach.
-
-**Acceptance gate**: `grep -r "SwiftOptional<\|SwiftArray<" --include="*.cs"` across validation output → 0.
+**Acceptance gate**: `SwiftOptional<` and `SwiftArray<` in public signatures → 0. ✅
 
 ---
 
-### Session C: Sync Error Detail Extraction (Partial — C1 Complete)
+### Session C: Sync Error Detail Extraction (Complete)
 
-**Priority**: P1 | **Effort**: Medium (1 session) | **Impact**: Correctness
+**Priority**: P1 | **Effort**: Medium (1 session) | **Impact**: Correctness | **Status**: Complete
 
 Sync throwing methods previously threw `SwiftRuntimeException("Call to Swift method {name} failed.")` — losing all error detail. Async already extracts actual error messages via callbacks.
 
 | Step | Description | Effort | Status |
 |------|-------------|--------|--------|
 | **C1. Extract error message** | `ErrorDescriptionEmitter` emits `SBW_GetErrorDescription` (Swift `String(describing:)` via `Unmanaged<AnyObject>.fromOpaque`) and `SBW_ReleaseError` per module. Generated C# extracts message, frees C string via `SBW_Free`, releases error reference, throws with real message. | Medium | **Done** |
-| **C2. Extract typed error value** | For typed throws, `MarshalFromSwift<TError>()` on the error existential to populate `SwiftException<TError>.Error` (same pattern as async). Currently `default`. | Medium | **Deferred** |
+| **C2. Extract typed error value** | Per-error-type Swift extractor (`SBW_ExtractTypedError_{suffix}`) uses `as?` cast + `MemoryLayout.copyMemory` to extract typed value from error box. C# checks nil return → falls back to message-only. Otherwise `MarshalFromSwift<TError>()` populates `SwiftException<TError>.Error`. | Medium | **Done** |
 
 **Key files changed (C1)**: `ErrorDescriptionEmitter.cs` (new), `ModuleHandler.cs`, `WrapperEmitter.cs`, `WrapperEmitter.Marshalling.cs`, `WrapperEmitter.FailableFactory.cs`, `MethodMarshalPlanBuilder.cs`
+**Key files changed (C2)**: `ErrorDescriptionEmitter.cs`, `MethodMarshalPlan.cs`, `MethodMarshalPlanBuilder.cs`, `WrapperEmitter.cs`, `WrapperEmitter.Marshalling.cs`, `MethodHandler.cs`, `SwiftException.cs`
 **Acceptance gate**: All sync `throw new SwiftRuntimeException(...)` include actual Swift error message. ✅ (C1)
-**Remaining (C2)**: `SwiftException<TError>.Error` is non-null for sync typed throws (currently only async populates it).
+**Acceptance gate**: `SwiftException<TError>.Error` is non-null for sync typed throws. ✅ (C2)
 
 ---
 
@@ -215,6 +205,7 @@ Workarounds in place. Draft bug reports: `Future/upstream-bug-reports-draft.md`.
 | Async runtime (32 tests, Tier 3) | Tests written, tagged Tier 3 | Same as above |
 | Non-primitive closure Cdecl | Fall back to CallConvSwift | Mono JIT fix OR Swift adapters |
 | SafeHandle in async P/Invoke | Singleton + IntPtr conversion | dotnet/runtime SwiftSelf async support |
+| Typed throws ABI mismatch | `throws(E)` may pack error in return (not swifterror register); `SBW_GetErrorDescription` crashes on non-AnyObject pointer. Typed throw error-path tests tagged Tier 3. | dotnet/runtime typed throws ABI support |
 
 **Tracking**: [#93631](https://github.com/dotnet/runtime/issues/93631), [#108662](https://github.com/dotnet/runtime/issues/108662), [#64215](https://github.com/dotnet/runtime/issues/64215), [#80905](https://github.com/dotnet/runtime/issues/80905)
 

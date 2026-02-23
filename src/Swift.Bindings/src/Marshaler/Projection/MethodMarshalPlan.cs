@@ -188,6 +188,19 @@ public record SwiftErrorSetup
     /// <summary>The C# error type name for typed throws, or null for untyped.</summary>
     public string? TypedErrorTypeName { get; init; }
 
+    /// <summary>
+    /// The fully-qualified Swift error type name (e.g., "SwiftBindingsTestLib.ParseError"),
+    /// used for emitting the Swift extractor function. Null for untyped throws.
+    /// </summary>
+    public string? SwiftErrorTypeName { get; init; }
+
+    /// <summary>
+    /// Sanitized suffix for the extractor P/Invoke and Swift symbol name (e.g., "SwiftBindingsTestLib_ParseError").
+    /// Dots replaced by underscores to form valid identifiers. Prevents collision when different modules
+    /// define same-named error types. Null for untyped throws.
+    /// </summary>
+    public string? TypedErrorSafeSuffix { get; init; }
+
     /// <summary>Post-call error check code.</summary>
     public required string ErrorCheckCode { get; init; }
 }

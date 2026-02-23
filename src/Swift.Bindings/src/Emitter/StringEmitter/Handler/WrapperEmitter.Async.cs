@@ -1275,6 +1275,10 @@ namespace BindingsGeneration
                 """
                     : "");
 
+            // Ensure readCodeBlock ends with a newline so _entry starts on its own line
+            if (readCodeBlock.Length > 0 && !readCodeBlock.EndsWith("\n"))
+                readCodeBlock += "\n";
+
             var funcBody = $$"""
             {{i}}@_silgen_name("{{mangledName}}")
             {{i}}public {{staticModifier}}func {{pInvokeName}}{{genericParams}}({{parameters}}){{whereClause}}{

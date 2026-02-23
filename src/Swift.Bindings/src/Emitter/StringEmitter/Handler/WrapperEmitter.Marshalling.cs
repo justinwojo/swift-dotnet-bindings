@@ -369,33 +369,56 @@ namespace BindingsGeneration
             var moduleDecl = _env.MethodDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(_env.MethodDecl.ModuleDecl));
             var typeKey = (_env.ParentDecl as TypeDecl)?.SwiftTypeName.ModuleQualifiedName ?? moduleDecl.Name;
 
-            if (ErrorDescriptionEmitter.HasErrorPInvokeForType(typeKey)) return;
-            ErrorDescriptionEmitter.MarkErrorPInvokeEmittedForType(typeKey);
-
-            var moduleLibPath = _env.TypeDatabase.GetLibraryPath(moduleDecl.Name);
-            var wrapperLibPath = _env.TypeDatabase.AsyncLibraryName ?? moduleLibPath;
-            var descSymbol = ErrorDescriptionEmitter.GetDescriptionSymbolName(moduleDecl.Name);
-            var releaseSymbol = ErrorDescriptionEmitter.GetReleaseSymbolName(moduleDecl.Name);
-            var freeSymbol = Utf8SliceEmitter.GetFreeSymbolName(moduleDecl.Name);
-
-            csWriter.WriteLines($"""
-                [System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{descSymbol}")]
-                private static partial IntPtr SBW_GetErrorDescription(IntPtr error);
-
-                [System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{releaseSymbol}")]
-                private static partial void SBW_ReleaseError(IntPtr error);
-
-                """);
-
-            // Emit SBW_Free if not already emitted by Utf8SliceEmitter for this type
-            if (!Utf8SliceEmitter.HasFreePInvokeForType(typeKey))
+            // Base error P/Invokes (GetErrorDescription, ReleaseError, Free) — one per C# type
+            if (!ErrorDescriptionEmitter.HasErrorPInvokeForType(typeKey))
             {
-                Utf8SliceEmitter.MarkFreePInvokeEmittedForType(typeKey);
+                ErrorDescriptionEmitter.MarkErrorPInvokeEmittedForType(typeKey);
+
+                var moduleLibPath = _env.TypeDatabase.GetLibraryPath(moduleDecl.Name);
+                var wrapperLibPath = _env.TypeDatabase.AsyncLibraryName ?? moduleLibPath;
+                var descSymbol = ErrorDescriptionEmitter.GetDescriptionSymbolName(moduleDecl.Name);
+                var releaseSymbol = ErrorDescriptionEmitter.GetReleaseSymbolName(moduleDecl.Name);
+                var freeSymbol = Utf8SliceEmitter.GetFreeSymbolName(moduleDecl.Name);
+
                 csWriter.WriteLines($"""
-                    [System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{freeSymbol}")]
-                    private static partial void SBW_Free(IntPtr ptr);
+                    [System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{descSymbol}")]
+                    private static partial IntPtr SBW_GetErrorDescription(IntPtr error);
+
+                    [System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{releaseSymbol}")]
+                    private static partial void SBW_ReleaseError(IntPtr error);
 
                     """);
+
+                // Emit SBW_Free if not already emitted by Utf8SliceEmitter for this type
+                if (!Utf8SliceEmitter.HasFreePInvokeForType(typeKey))
+                {
+                    Utf8SliceEmitter.MarkFreePInvokeEmittedForType(typeKey);
+                    csWriter.WriteLines($"""
+                        [System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{freeSymbol}")]
+                        private static partial void SBW_Free(IntPtr ptr);
+
+                        """);
+                }
+            }
+
+            // C2: Extractor P/Invoke — one per (C# type, Swift error type) pair.
+            // Must be outside the base P/Invoke dedup block because multiple methods in the
+            // same type can throw different error types (e.g., ParseError vs RangeError).
+            if (_syncPlan.SwiftError is { IsTypedThrows: true, SwiftErrorTypeName: not null, TypedErrorSafeSuffix: not null })
+            {
+                var extractorKey = typeKey + ":extractor:" + _syncPlan.SwiftError.SwiftErrorTypeName;
+                if (!ErrorDescriptionEmitter.HasExtractorPInvokeForType(extractorKey))
+                {
+                    ErrorDescriptionEmitter.MarkExtractorPInvokeEmittedForType(extractorKey);
+                    var wrapperLibPath = _env.TypeDatabase.AsyncLibraryName ?? _env.TypeDatabase.GetLibraryPath(moduleDecl.Name);
+                    var extractorSymbol = ErrorDescriptionEmitter.GetExtractorSymbolName(
+                        moduleDecl.Name, _syncPlan.SwiftError.SwiftErrorTypeName);
+                    csWriter.WriteLines($"""
+                        [System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{extractorSymbol}")]
+                        private static partial IntPtr SBW_ExtractTypedError_{_syncPlan.SwiftError.TypedErrorSafeSuffix}(IntPtr error);
+
+                        """);
+                }
             }
         }
 

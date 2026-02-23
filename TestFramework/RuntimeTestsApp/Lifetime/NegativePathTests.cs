@@ -20,12 +20,15 @@ public class NegativePathTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestDirectionInvalidFromRawValue()
     {
-        // Direction is now a C# enum — verify valid cases are defined
-        AssertTrue(Enum.IsDefined(Direction.North), "Direction.North is valid");
-        AssertTrue(Enum.IsDefined(Direction.South), "Direction.South is valid");
+        // Direction is a class-based enum — verify valid cases have expected tags
+        AssertEqual(Direction.CaseTag.North, Direction.North.Tag, "Direction.North is valid");
+        AssertEqual(Direction.CaseTag.South, Direction.South.Tag, "Direction.South is valid");
 
-        // Invalid int cast should not be a defined case
-        AssertFalse(Enum.IsDefined((Direction)99), "Direction(99) is not defined");
+        // All four cases should have distinct tags
+        var tags = new[] { Direction.North.Tag, Direction.South.Tag, Direction.East.Tag, Direction.West.Tag };
+        for (int i = 0; i < tags.Length; i++)
+            for (int j = i + 1; j < tags.Length; j++)
+                AssertTrue(tags[i] != tags[j], $"Direction tags {i} and {j} are distinct");
 
         TestLogger.Info("Direction valid case construction verified");
     }
@@ -33,14 +36,12 @@ public class NegativePathTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestColorInvalidRawValue()
     {
-        // Color is now a C# enum — verify invalid int casts are not defined cases
-        var invalid = (Color)999;
-        AssertFalse(Enum.IsDefined(invalid), "Color(999) is not a defined case");
+        // Color is a class-based enum — verify all cases produce valid tags
+        var red = Color.Red;
+        var green = Color.Green;
+        AssertTrue(red.Tag != green.Tag, "Red and Green have different tags");
 
-        var negative = (Color)(-1);
-        AssertFalse(Enum.IsDefined(negative), "Color(-1) is not a defined case");
-
-        TestLogger.Info("Color invalid raw values are not defined");
+        TestLogger.Info("Color enum case tags are distinct");
     }
 
     [TestTier(TestTier.Tier2)]

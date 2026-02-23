@@ -168,7 +168,7 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info($"ValidateRange(5, 1, 10) = {result}");
     }
 
-    [TestTier(TestTier.Tier1)]
+    [TestTier(TestTier.Tier3)] // Typed throws via direct P/Invoke: swifterror may not contain AnyObject box
     public void TestValidateRangeBelowMinThrows()
     {
         AssertThrows<SwiftException<RangeError>>(() =>
@@ -178,7 +178,7 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info("ValidateRange(0, 1, 10) correctly threw SwiftException<RangeError>");
     }
 
-    [TestTier(TestTier.Tier1)]
+    [TestTier(TestTier.Tier3)] // Typed throws via direct P/Invoke: swifterror may not contain AnyObject box
     public void TestValidateRangeAboveMaxThrows()
     {
         AssertThrows<SwiftException<RangeError>>(() =>
@@ -431,11 +431,11 @@ public class BasicThrowingTests : TestBase
 
     #region Typed Throws — Sync Error Property (Tier 1: blittable)
 
-    [TestTier(TestTier.Tier1)]
-    public void TestValidateRangeTypedCatchNullError()
+    [TestTier(TestTier.Tier3)] // Typed throws via direct P/Invoke: swifterror ABI mismatch on Mono
+    public void TestValidateRangeTypedCatchWithError()
     {
-        // Sync typed throws: SwiftException<RangeError> is thrown,
-        // but .Error is null (sync path can't extract from existential box — C2 deferred)
+        // Sync typed throws (C2): SwiftException<RangeError> with non-null .Error
+        // value=100, min=0, max=50 → throws aboveMaximum(value: 100, maximum: 50)
         try
         {
             SwiftBindingsTestLib.ValidateRange(100, 0, 50);
@@ -443,12 +443,14 @@ public class BasicThrowingTests : TestBase
         }
         catch (SwiftException<RangeError> ex)
         {
-            // Verify error property is null for sync path (C2 will add typed error extraction)
-            AssertNull(ex.Error, "Sync typed throws .Error should be null");
-            // Message should be the real Swift error description (e.g. "belowMinimum(value: 100, minimum: 0)")
-            AssertTrue(ex.Message.Contains("belowMinimum") || ex.Message.Contains("Below"),
+            // C2: Sync typed throws .Error should be non-null (extracted via SBW_ExtractTypedError)
+            AssertNotNull(ex.Error, "Sync typed throws .Error should be non-null (C2)");
+            AssertEqual(RangeError.CaseTag.AboveMaximum, ex.Error!.Tag,
+                "Error should be RangeError.AboveMaximum");
+            // Message should be the real Swift error description
+            AssertTrue(ex.Message.Contains("aboveMaximum") || ex.Message.Contains("Above"),
                 $"Exception message should contain Swift error description, got: {ex.Message}");
-            TestLogger.Info($"ValidateRange typed catch: Error={ex.Error}, Message={ex.Message}");
+            TestLogger.Info($"ValidateRange typed catch: Error.Tag={ex.Error.Tag}, Message={ex.Message}");
         }
     }
 

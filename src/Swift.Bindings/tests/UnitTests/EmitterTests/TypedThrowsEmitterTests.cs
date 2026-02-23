@@ -17,24 +17,37 @@ public class TypedThrowsEmitterTests
     [Fact]
     public void SyncMethod_WithTypedThrows_EmitsSwiftExceptionGeneric()
     {
-        var (csOutput, _) = GenerateThrowingMethod(
+        var (csOutput, swiftOutput) = GenerateThrowingMethod(
             isAsync: false,
             hasTypedThrows: true,
             errorTypeName: "TestModule.ParseError");
 
+        // C# side: typed error extraction with nil-check fallback
         Assert.Contains("SwiftException<Swift.TestModule.ParseError>", csOutput);
         Assert.DoesNotContain("SwiftRuntimeException", csOutput);
+        Assert.Contains("SBW_ExtractTypedError_TestModule_ParseError", csOutput);
+        Assert.Contains("MarshalFromSwift<Swift.TestModule.ParseError>", csOutput);
+        Assert.Contains("SBW_Free(_typedErrorPtr)", csOutput);
+        Assert.Contains("_typedError, _errorMessage", csOutput);
+        Assert.Contains("_typedErrorPtr != IntPtr.Zero", csOutput);
+
+        // Swift side: typed error extractor function
+        Assert.Contains("SBW_ExtractTypedError_", swiftOutput);
+        Assert.Contains("as? TestModule.ParseError", swiftOutput);
+        Assert.Contains("MemoryLayout<TestModule.ParseError>", swiftOutput);
     }
 
     [Fact]
     public void SyncMethod_WithoutTypedThrows_EmitsSwiftRuntimeException()
     {
-        var (csOutput, _) = GenerateThrowingMethod(
+        var (csOutput, swiftOutput) = GenerateThrowingMethod(
             isAsync: false,
             hasTypedThrows: false);
 
         Assert.Contains("SwiftRuntimeException", csOutput);
         Assert.DoesNotContain("SwiftException<", csOutput);
+        Assert.DoesNotContain("SBW_ExtractTypedError", csOutput);
+        Assert.DoesNotContain("SBW_ExtractTypedError", swiftOutput);
     }
 
     [Fact]
@@ -49,6 +62,55 @@ public class TypedThrowsEmitterTests
 
         Assert.Contains("SwiftRuntimeException", csOutput);
         Assert.DoesNotContain("SwiftException<", csOutput);
+    }
+
+    [Fact]
+    public void SyncMethod_WithTypedThrows_EmitsReleaseInOuterFinally()
+    {
+        var (csOutput, _) = GenerateThrowingMethod(
+            isAsync: false,
+            hasTypedThrows: true,
+            errorTypeName: "TestModule.ParseError");
+
+        // SBW_ReleaseError must be in the outermost finally (not alongside SBW_Free)
+        // for guaranteed release on all paths
+        Assert.Contains("SBW_ReleaseError(_errorPtr)", csOutput);
+        // The typed path should NOT have SBW_ReleaseError in the same finally as SBW_Free(_descPtr)
+        Assert.DoesNotContain("SBW_Free(_descPtr);\n                    SBW_ReleaseError", csOutput);
+    }
+
+    #endregion
+
+    #region Failable Constructor Typed Throws
+
+    [Fact]
+    public void FailableConstructor_WithTypedThrows_EmitsExtractor()
+    {
+        var (csOutput, swiftOutput) = GenerateThrowingFailableConstructor(
+            hasTypedThrows: true,
+            errorTypeName: "TestModule.ParseError");
+
+        // C# side: typed error extraction with nil-check fallback
+        Assert.Contains("SBW_ExtractTypedError_TestModule_ParseError", csOutput);
+        Assert.Contains("MarshalFromSwift<Swift.TestModule.ParseError>", csOutput);
+        Assert.Contains("_typedErrorPtr != IntPtr.Zero", csOutput);
+        Assert.Contains("SwiftException<Swift.TestModule.ParseError>", csOutput);
+
+        // Swift side: typed error extractor function
+        Assert.Contains("SBW_ExtractTypedError_", swiftOutput);
+        Assert.Contains("as? TestModule.ParseError", swiftOutput);
+        Assert.Contains("MemoryLayout<TestModule.ParseError>", swiftOutput);
+    }
+
+    [Fact]
+    public void FailableConstructor_WithoutTypedThrows_NoExtractor()
+    {
+        var (csOutput, swiftOutput) = GenerateThrowingFailableConstructor(
+            hasTypedThrows: false);
+
+        Assert.DoesNotContain("SBW_ExtractTypedError", csOutput);
+        Assert.DoesNotContain("SBW_ExtractTypedError", swiftOutput);
+        Assert.Contains("SwiftRuntimeException", csOutput);
     }
 
     #endregion
@@ -169,6 +231,10 @@ public class TypedThrowsEmitterTests
         bool registerErrorType = true,
         bool isFreeFunction = false)
     {
+        // Reset static emitter state — these tests need clean dedup tracking
+        ErrorDescriptionEmitter.ResetForModule();
+        Utf8SliceEmitter.ResetForModule();
+
         var moduleDecl = new ModuleDecl
         {
             Name = "TestModule",
@@ -311,6 +377,158 @@ public class TypedThrowsEmitterTests
         var handler = new MethodHandler(new NullLogger<MethodHandler>());
         var env = handler.Marshal(methodDecl, typeDatabase);
 
+        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
+
+        return (csStringWriter.ToString(), swiftStringWriter.ToString());
+    }
+
+    private static (string CsOutput, string SwiftOutput) GenerateThrowingFailableConstructor(
+        bool hasTypedThrows,
+        string errorTypeName = "TestModule.ParseError")
+    {
+        // Reset static emitter state — these tests need clean dedup tracking
+        ErrorDescriptionEmitter.ResetForModule();
+        Utf8SliceEmitter.ResetForModule();
+
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            Dependencies = new List<string>(),
+            Types = new List<TypeDecl>(),
+            Methods = new List<MethodDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var structDecl = new StructDecl
+        {
+            Name = "Parser",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Parser"),
+            IsFrozen = true,
+            MetadataAccessor = "$s10TestModule6ParserVMa",
+            MangledName = "$s10TestModule6ParserV",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Conformances = new List<TypeConformance>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Types.Add(structDecl);
+
+        // Failable constructor: init?(input:) throws(ParseError)
+        // Return type is Optional<Self> for failable
+        var optionalReturn = new NamedTypeSpec("Swift.Optional");
+        optionalReturn.GenericParameters.Add(new NamedTypeSpec("TestModule.Parser"));
+
+        var csSignature = new List<ArgumentDecl>
+        {
+            new ArgumentDecl
+            {
+                SwiftTypeSpec = optionalReturn,
+                Name = string.Empty,
+                PrivateName = string.Empty,
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = structDecl,
+                ModuleDecl = moduleDecl
+            },
+            new ArgumentDecl
+            {
+                SwiftTypeSpec = new NamedTypeSpec("Swift.Int32"),
+                Name = "value",
+                PrivateName = "value",
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = structDecl,
+                ModuleDecl = moduleDecl
+            }
+        };
+
+        var constructorDecl = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule6ParserV5valueyACSgSiKcfC",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            IsFailable = true,
+            CSSignature = csSignature,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = structDecl,
+            ModuleDecl = moduleDecl,
+            Throws = true,
+            IsAsync = false,
+            Visibility = Visibility.Public,
+            ThrownErrorType = hasTypedThrows ? TypeSpecParser.Parse(errorTypeName) : null
+        };
+        structDecl.Methods.Add(constructorDecl);
+
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftOptional"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+                MetadataAccessor = "$sSqMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int32"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int32"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int32"),
+                MetadataAccessor = "$ss5Int32VMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var module = new ModuleTypeDatabase("TestModule", "/fake/path");
+        module.RegisterType(
+            structDecl.SwiftTypeName,
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Parser"),
+                SwiftTypeName = structDecl.SwiftTypeName,
+                MetadataAccessor = "$s10TestModule6ParserVMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+
+        if (hasTypedThrows)
+        {
+            var errorSwiftName = SwiftTypeName.FromModuleQualifiedName(errorTypeName);
+            var errorSimpleName = errorTypeName.Split('.').Last();
+            module.RegisterType(
+                errorSwiftName,
+                new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", errorSimpleName),
+                    SwiftTypeName = errorSwiftName,
+                    MetadataAccessor = $"$s10TestModule{errorSimpleName}OMa",
+                    Flags = TypeRecordFlags.None,
+                    Kind = TypeRecordKind.Enum
+                });
+        }
+        typeDatabase.AddModuleDatabase(module);
+
+        var csStringWriter = new StringWriter();
+        var swiftStringWriter = new StringWriter();
+        var csWriter = new CSharpWriter(csStringWriter);
+        var swiftWriter = new SwiftWriter(swiftStringWriter);
+
+        var handler = new ConstructorHandler(new NullLogger<ConstructorHandler>(), new HashSet<string>());
+        var env = new MethodEnvironment(constructorDecl, typeDatabase);
+        var conductor = new Conductor(new NullLoggerFactory());
         handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
 
         return (csStringWriter.ToString(), swiftStringWriter.ToString());

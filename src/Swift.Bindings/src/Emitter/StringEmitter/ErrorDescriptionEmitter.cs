@@ -30,6 +30,18 @@ public static class ErrorDescriptionEmitter
     private static readonly HashSet<string> _csharpTypesWithErrorPInvoke = new();
 
     /// <summary>
+    /// Tracks which Swift error types have had the typed error extractor function emitted (per module).
+    /// Key is the Swift error type name (e.g., "SwiftBindingsTestLib.ParseError").
+    /// </summary>
+    private static readonly HashSet<string> _typedErrorExtractorsEmitted = new();
+
+    /// <summary>
+    /// Tracks which C# types have had the extractor P/Invoke emitted (to avoid duplicates).
+    /// Key is "{typeKey}:extractor:{swiftErrorTypeName}".
+    /// </summary>
+    private static readonly HashSet<string> _csharpTypesWithExtractorPInvoke = new();
+
+    /// <summary>
     /// Resets the tracking for a new module. Call at the start of each module emission.
     /// </summary>
     public static void ResetForModule()
@@ -37,6 +49,8 @@ public static class ErrorDescriptionEmitter
         _infrastructureEmitted = false;
         _currentModuleName = null;
         _csharpTypesWithErrorPInvoke.Clear();
+        _typedErrorExtractorsEmitted.Clear();
+        _csharpTypesWithExtractorPInvoke.Clear();
     }
 
     /// <summary>
@@ -149,4 +163,74 @@ public static class ErrorDescriptionEmitter
     /// Gets the current module name, if set.
     /// </summary>
     public static string? CurrentModuleName => _currentModuleName;
+
+    /// <summary>
+    /// Emits a Swift function that extracts a typed error value from an opaque error pointer.
+    /// The function uses <c>as?</c> to safely cast to the concrete type, then copies the value
+    /// bytes into a new buffer. Returns null if the cast fails (defensive fallback).
+    /// Deduped per Swift error type name within a module.
+    /// </summary>
+    /// <param name="swiftWriter">The Swift writer to emit to.</param>
+    /// <param name="moduleName">The module name for symbol namespacing.</param>
+    /// <param name="swiftErrorTypeName">The fully-qualified Swift error type (e.g., "SwiftBindingsTestLib.ParseError").</param>
+    public static void EmitTypedErrorExtractorIfNeeded(SwiftWriter swiftWriter, string moduleName, string swiftErrorTypeName)
+    {
+        if (!_typedErrorExtractorsEmitted.Add(swiftErrorTypeName))
+            return;
+
+        var safeSuffix = MakeSafeSymbolSuffix(swiftErrorTypeName);
+        var symbol = GetExtractorSymbolName(moduleName, swiftErrorTypeName);
+
+        swiftWriter.WriteLines($$"""
+            // Typed error extractor for {{swiftErrorTypeName}} (C2)
+            @_silgen_name("{{symbol}}")
+            public func SBW_ExtractTypedError_{{safeSuffix}}(_ error: UnsafeRawPointer) -> UnsafeMutableRawPointer? {
+                let errorObj = Unmanaged<AnyObject>.fromOpaque(error).takeUnretainedValue()
+                guard let typedError = errorObj as? {{swiftErrorTypeName}} else {
+                    return nil
+                }
+                let size = MemoryLayout<{{swiftErrorTypeName}}>.size
+                let alignment = MemoryLayout<{{swiftErrorTypeName}}>.alignment
+                let buf = UnsafeMutableRawPointer.allocate(byteCount: max(size, 1), alignment: alignment)
+                withUnsafePointer(to: typedError) { src in
+                    buf.copyMemory(from: UnsafeRawPointer(src), byteCount: size)
+                }
+                return buf
+            }
+
+            """);
+    }
+
+    /// <summary>
+    /// Gets the module-specific symbol name for the typed error extractor function.
+    /// </summary>
+    public static string GetExtractorSymbolName(string moduleName, string swiftErrorTypeName)
+    {
+        var safeSuffix = MakeSafeSymbolSuffix(swiftErrorTypeName);
+        return $"SBW_ExtractTypedError_{moduleName}_{safeSuffix}";
+    }
+
+    /// <summary>
+    /// Checks if the extractor P/Invoke has already been emitted for the specified key.
+    /// </summary>
+    public static bool HasExtractorPInvokeForType(string key)
+    {
+        return _csharpTypesWithExtractorPInvoke.Contains(key);
+    }
+
+    /// <summary>
+    /// Marks the extractor P/Invoke as emitted for the specified key.
+    /// </summary>
+    public static void MarkExtractorPInvokeEmittedForType(string key)
+    {
+        _csharpTypesWithExtractorPInvoke.Add(key);
+    }
+
+    /// <summary>
+    /// Replaces dots with underscores to form a valid C/Swift identifier suffix.
+    /// </summary>
+    public static string MakeSafeSymbolSuffix(string swiftErrorTypeName)
+    {
+        return swiftErrorTypeName.Replace(".", "_");
+    }
 }
