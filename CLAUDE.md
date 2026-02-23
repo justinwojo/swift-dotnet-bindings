@@ -11,7 +11,7 @@ Experimental Swift/.NET interop project. Generates C# bindings from compiled Swi
 - `src/Swift.Bindings.Templates/` — `dotnet new swift-binding` project template
 - `src/Swift.Runtime/src/Swift/` — Runtime: SwiftString, SwiftArray, SafeHandle, ARC (NuGet: `Swift.Runtime 0.1.0-preview.1`)
 - `TestFramework/` — Comprehensive test library + runtime tests (iOS Simulator)
-- `validation-libraries.json` — Library validation manifest (31 targets across 18 libraries)
+- `validation-libraries.json` — Library validation manifest (32 targets across 19 libraries)
 - `scripts/` — `fetch-libraries.sh` (build xcframeworks), `lib.sh` (shared helpers)
 - `src/docs/` — Design docs, status, known issues
 - `docs/` — High-level philosophy (`binding-overview.md`)
@@ -211,13 +211,14 @@ Coverage report shows must-pass features as passing/degraded/missing. Verify no 
 
 ## Known Runtime Issues
 
-- **Mono JIT assertion (jit-info.c:918)**: Kills process on closure P/Invoke + SwiftString.PInvoke_GetLength via CallConvSwift. Bridge tests (`@_cdecl`) unaffected.
+- **Mono JIT assertion (jit-info.c:918)**: Simulator-only. Kills process on closure P/Invoke + SwiftString.PInvoke_GetLength via CallConvSwift. Bridge tests (`@_cdecl`) unaffected. NativeAOT (device builds) is unaffected.
 - SafeHandle in async P/Invoke not preserved (workaround: singleton + IntPtr)
 - See `src/docs/known-issues-workarounds.md` for full details
 
 ## Key References
 
-- `src/docs/roadmap.md` — Forward-looking prioritized work queue
+- `src/docs/roadmap.md` — Path to production-grade (Phases 1-4: Inheritance → Quality → Readiness → Future)
+- `src/docs/class-inheritance-implementation.md` — Class inheritance implementation plan (6 sessions)
 - `src/docs/Completed/dx-msbuild-sdk-design.md` — MSBuild SDK design (Steps 1-5, all complete)
 - `src/docs/Completed/binding-errors.md` — Third-party library binding error tracking
 - `src/docs/Future/emitter-redesign-proposal.md` — Architecture direction

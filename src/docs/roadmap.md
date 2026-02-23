@@ -1,10 +1,12 @@
 # Roadmap
 
 **Updated**: February 2026
-**Status**: Active — binding quality phase
-**Target**: Raise binding quality from 6.5/10 to 8.5+/10 for .NET developer experience
+**Status**: Active — path to production-grade
+**Target**: Production-ready binding libraries that feel like native C# to consumers
 
-For completed work (cross-module resolution, ExistentialContainer elimination, native C# enums, Optional truncation fix, SwiftDictionary projection, architecture overhaul), see `Completed/roadmap-completed-feb2026.md`.
+For completed work (binding quality sessions A-D, architecture sessions 1-9, cross-module resolution, ExistentialContainer elimination, native C# enums, Optional truncation fix, SwiftDictionary projection), see `Completed/roadmap-completed-feb2026.md`.
+
+For future vision items (ObjC integration, multi-platform, emitter redesign, SwiftUI bridge corpus, performance benchmarks, etc.), see `Future/future-roadmap.md`.
 
 ---
 
@@ -20,111 +22,40 @@ For completed work (cross-module resolution, ExistentialContainer elimination, n
 
 ---
 
-## Acceptance KPIs
+## Definition of Done: Production-Grade
 
-Measured across all 32 validated libraries. Grep/compile checks, not subjective scores.
+A binding library is production-grade when a C# developer can:
 
-| KPI | Current | Target | Session |
-|-----|---------|--------|---------|
-| `value0` parameters | ~~831~~ **0** (labeled) | <50 | ~~B~~ Done |
-| `GetXxxAsync` method names | ~~124~~ **0** | 0 | ~~A~~ Done |
-| `SwiftOptional<` in public signatures | ~~97~~ **0** | 0 | ~~A'~~ Done |
-| Empty protocol interfaces (0 members) | **67** | <10 | E |
-| `SwiftArray<` in public signatures | ~~40~~ **0** | 0 | ~~A'~~ Done |
-| Sync throw messages with actual error text | ~~0%~~ **100%** | 100% | ~~C~~ C1 Done |
-| Sync typed throws `.Error` populated | ~~0%~~ **100%** | 100% | ~~C2~~ Done |
-| Types with spurious `Info` suffix | ~~50+~~ **0** | <5 | ~~D~~ Done |
+1. **Discover** — NuGet package with XML doc comments, no internal types in IntelliSense
+2. **Construct** — Create Swift objects naturally, with proper constructors and factory methods
+3. **Use** — Call methods, access properties, chain builders, iterate collections, await async
+4. **Trust** — No memory leaks from normal usage patterns (GC handles cleanup), meaningful exceptions on errors
+5. **Extend** — Implement Swift protocols from C#, pass callbacks, subscribe to events
+6. **Compose** — Base class methods available on derived types, polymorphic assignment works, protocol inheritance correct
+
+We are at 4/6 today (1-2, 4-5 are solid). Inheritance (#6) and memory safety (#3) are the remaining gaps.
 
 ---
 
-## Session Plan
+## Roadmap Phases
 
-7 sessions (A, A', B, C complete), grouped by shared code paths.
+### Phase 1: Class Inheritance (Next — 6 sessions)
 
----
+**Complete this first. Everything else in this roadmap comes after.**
 
-### Session A: Public API Type Projection (Partial — A2+A4 Complete)
+Full implementation plan, session details, acceptance gates, and validation checkpoints are in **`class-inheritance-implementation.md`**. That document is self-contained — use it as the working reference for the next 6 sessions (I1-I6). Update it as sessions complete, then return here for Phase 2.
 
-**Priority**: P1 | **Status**: Partial | **Impact**: 124 async naming issues fixed + QuartzCore bridging
-
-| Step | Description | Impact | Status |
-|------|-------------|--------|--------|
-| **A1. SwiftOptional projection** | `SwiftOptional<T>` → `T?` in tuple elements, bound-generic fallbacks, enum factory params, async stream elements. | 97 occurrences | **Deferred → A'** |
-| **A2. Async method names** | Skip `Get` prefix for async methods: `GetPresentAsync` → `PresentAsync`. Added `&& !isAsync` guard + 9 new verbs to `_verbPrefixes`. Also fixed completion handler dedup key to use `NormalizeParamTypeForOverloadIdentity`. | 124 → 0 | **Done** |
-| **A3. SwiftArray projection** | `SwiftArray<T>` → `IReadOnlyList<T>` in async stream elements, tuple elements, enum factory params, bound-generic fallbacks. | 40 occurrences | **Deferred → A'** |
-| **A4. QuartzCore auto-bridging** | Added QuartzCore to `AppleObjCFrameworkModules` with `ModuleToCSharpNamespaceOverrides` (QuartzCore → CoreAnimation). 12 value types + 4 NSString typedefs (as ObjC class remaps to Foundation.NSString). | Lottie improved | **Done** |
-
-**Key files changed**: `NameProvider.cs`, `TypeDatabaseExtensions.cs`, `MethodHandler.cs`, `MethodSignature.cs` (comments only)
-
-### Session B: Parameter Naming (Complete)
-
-**Priority**: P1 | **Effort**: Low (1 session) | **Impact**: 831 issues fixed | **Status**: Complete
-
-| Step | Description | Impact | Status |
-|------|-------------|--------|--------|
-| **B1. Type-based derivation** | `DeriveParameterNameFromType` handles Optional→inner, Array→"items", Dictionary→"dictionary", `*Error`→"error". | ~30 occurrences | **Done** |
-| **B2. Tuple labels for enum associated values** | Parsed from Tuple node's `printedName` via `TypeSpecParser.Parse()` in `SwiftABIParser.CreateEnumCaseDecl()`. Swiftinterface overlay fills gaps. | 0 `value0` in labeled enums | **Done** |
-| **B3. Sugared generic param renaming** | `NameProvider.GetCSharpGenericParameterName` maps `SugaredTypeName` to C# (`"T"→"T"`, `"U"→"TU"`, `"Key"→"TKey"`, τ fallback→`"T{index}"`). | 0 `T0` across 32 libraries | **Done** |
-
-**Key files**: `NameProvider.cs`, `EnumHandler.cs`, `TypeSpecParser.cs`, `SwiftABIParser.cs`
+**Summary**: 1,184 inherited members missing across 60 derived classes in 12 libraries. Includes SafeHandle ownership fix (use-after-free + finalizer memory leak) integrated into Session I3.
 
 ---
 
-### Session A': Idiomatic Type Projection in Fallback Paths (Complete)
+### Phase 2: Binding Quality (3 sessions, after Phase 1 is complete)
 
-**Priority**: P1 | **Effort**: Medium (1 session) | **Impact**: 137 issues fixed (97 SwiftOptional + 40 SwiftArray) | **Status**: Complete
+Sessions E and F were already planned. Session G is new from the architectural audit.
 
-Completed the deferred A1/A3 work. Extended `TypeProjectionFactory` coverage to fallback paths (tuple elements, bound-generic fallbacks, enum case factory params) so both signature and body use the same projection.
-
-**Acceptance gate**: `SwiftOptional<` and `SwiftArray<` in public signatures → 0. ✅
-
----
-
-### Session C: Sync Error Detail Extraction (Complete)
-
-**Priority**: P1 | **Effort**: Medium (1 session) | **Impact**: Correctness | **Status**: Complete
-
-Sync throwing methods previously threw `SwiftRuntimeException("Call to Swift method {name} failed.")` — losing all error detail. Async already extracts actual error messages via callbacks.
-
-| Step | Description | Effort | Status |
-|------|-------------|--------|--------|
-| **C1. Extract error message** | `ErrorDescriptionEmitter` emits `SBW_GetErrorDescription` (Swift `String(describing:)` via `Unmanaged<AnyObject>.fromOpaque`) and `SBW_ReleaseError` per module. Generated C# extracts message, frees C string via `SBW_Free`, releases error reference, throws with real message. | Medium | **Done** |
-| **C2. Extract typed error value** | Per-error-type Swift extractor (`SBW_ExtractTypedError_{suffix}`) uses `as?` cast + `MemoryLayout.copyMemory` to extract typed value from error box. C# checks nil return → falls back to message-only. Otherwise `MarshalFromSwift<TError>()` populates `SwiftException<TError>.Error`. | Medium | **Done** |
-
-**Key files changed (C1)**: `ErrorDescriptionEmitter.cs` (new), `ModuleHandler.cs`, `WrapperEmitter.cs`, `WrapperEmitter.Marshalling.cs`, `WrapperEmitter.FailableFactory.cs`, `MethodMarshalPlanBuilder.cs`
-**Key files changed (C2)**: `ErrorDescriptionEmitter.cs`, `MethodMarshalPlan.cs`, `MethodMarshalPlanBuilder.cs`, `WrapperEmitter.cs`, `WrapperEmitter.Marshalling.cs`, `MethodHandler.cs`, `SwiftException.cs`
-**Acceptance gate**: All sync `throw new SwiftRuntimeException(...)` include actual Swift error message. ✅ (C1)
-**Acceptance gate**: `SwiftException<TError>.Error` is non-null for sync typed throws. ✅ (C2)
-
-**Follow-up fixes (Session D)**:
-- **CS7042**: Error helper P/Invokes (`SBW_GetErrorDescription`, `SBW_ReleaseError`, `SBW_Free`) were emitted inline inside generic types (e.g., `Backend<T>`). Fixed by collecting into `PInvokeHelperContext` when inside generic types. `PInvokeDeclaration` gained `OmitCallingConvention` (for `@_cdecl`) and visibility control. `MethodMarshalPlanBuilder` prefixes calls with `{HelperClassName}.` in generic context.
-- **NSError crash on CoreCLR**: `String(describing:)` on NSError crashes CoreCLR. `SBW_GetErrorDescription` now uses `domain + code` for NSError, `String(describing:)` only for Swift value-type errors.
-
----
-
-### Session D: Info Suffix Removal (Complete)
-
-**Priority**: P1 | **Effort**: Medium (1 session) | **Risk**: Medium | **Impact**: ~50+ types fixed | **Status**: Complete
-
-Nested types that collided with same-name properties were renamed with `Info` suffix (e.g., `PaymentSheet.ConfigurationInfo`). Reversed: now the **property** is renamed with `Value` suffix, preserving Swift type names.
-
-| Step | Description | Effort | Status |
-|------|-------------|--------|--------|
-| **D1. Reverse rename priority** | `NameProvider.ComputePropertyRenamesForNestedTypeCollisions()` renames properties (not types). Property gets `Value` suffix. `GetFinalMemberName()` helper applies renames at all consumption sites. | Medium | **Done** |
-| **D2. Remove TypeDatabase mutation** | Property renames computed locally per-type at emission time. No TypeDatabase propagation needed — types keep original names. Deleted `UpdateDescendantTypeNames`, `PrecomputeAllNestedTypeRenames`. | Medium | **Done** |
-
-**Key files changed**: `NameProvider.cs` (core logic), `TypeHandlerContext.cs` (`NestedTypeRenames` → `PropertyRenames`), `GenericTypeEmitter.cs`, `PropertyHandler.cs`, `AsyncStreamEmitter.cs`, `EnumHandler.cs` + `.CaseConstruction.cs` + `.RawRepresentable.cs` + `.SimpleEnum.cs`, `FrozenStructHandler.cs`, `ClassHandler.cs`, `NonFrozenStructHandler.cs`, `ModuleHandler.cs`, `Program.cs`
-**Acceptance gate**: `Info`-suffixed nested types that don't genuinely end in "Info" in Swift drop to <5. ✅
-
-**Additional fix**: **CS0540** — `EmitExplicitInterfaceImplementations` in `PropertyHandler.cs` emitted explicit interface implementations for protocols the type didn't actually implement (filtered during emission). Fixed by adding `ProtocolConformanceValidator` to `GetImplementedInterfaces` check before emitting.
-
----
-
-### Session E: Protocol Quality
+#### Session E: Protocol Quality
 
 **Priority**: P2 | **Effort**: Medium (1 session) | **Impact**: 67 empty interfaces + 320 unmarked throwing members
-
-Both items touch protocol handler/proxy emitter code.
 
 | Step | Description | Impact | Effort |
 |------|-------------|--------|--------|
@@ -135,14 +66,11 @@ Both items touch protocol handler/proxy emitter code.
 
 **Key files**: `ProtocolHandler.cs`, `ProtocolProxyEmitter.cs`, `ProtocolProxyEmitter.InterfaceImpl.cs`, `MemberEmissionValidator.cs`
 **Acceptance gate**: `SB0003` count matches `NotSupportedException` count. Empty interfaces with skipped-member root cause drop to 0.
+**Note**: Phase 1 Session I5 (protocol conformance inheritance) should be completed first — it will change the empty interface count.
 
----
-
-### Session F: Swiftinterface Parsing
+#### Session F: Swiftinterface Parsing & Actor Isolation
 
 **Priority**: P2 | **Effort**: Medium (1 session)
-
-Both items extend `SwiftInterfaceAccessParser.cs` — same parsing pattern, different annotations.
 
 | Step | Description | Effort |
 |------|-------------|--------|
@@ -154,64 +82,152 @@ Both items extend `SwiftInterfaceAccessParser.cs` — same parsing pattern, diff
 **Key files**: `SwiftInterfaceAccessParser.cs`, `MemberEmissionValidator.cs`, `EveryProtocolEmitter.cs`, `SwiftWrapperCompiler.cs`
 **Acceptance gate**: Internal types suppressed for BlinkID/StripePayments. BlinkIDUX wrapper compiles with 0 actor isolation errors.
 
----
+#### Session G: Finalizer Safety & Consumer Diagnostics
 
-## P3 — Polish & Infrastructure
+**Priority**: P2 | **Effort**: Medium (1 session)
 
-### 12. Lightweight Regression Gate
+Identified in the architectural audit (February 2026). Two related issues:
 
-Fast local pre-push check: unit tests + regenerate Stripe multi-module + compile all libraries + diff API surface. Target: <5 min. Not a CI replacement.
+**G1. Finalizer memory leak documentation + mitigation.** `SwiftSafeHandle<T>` finalizer deliberately skips `ValueWitnessTable.Destroy()` (unsafe during .NET shutdown ordering). Result: any `ISwiftObject` not explicitly disposed leaks Swift-side memory permanently. C# developers expect GC to clean up. Mitigation options (pick one or combine):
+- Document loudly in README, XML doc comments, and generated code comments
+- Add `[DebuggerDisplay]` showing "LEAKED — call Dispose()" on finalized handles
+- Explore release-queue pattern: release on next P/Invoke call from same thread (deferred — complex)
 
-### 13. CI Integration
+**G2. Roslyn analyzer for undisposed Swift objects.** Existing plan: `Future/roslyn-analyzer-plan.md`. Warn at compile time when `ISwiftObject` locals are created without `using` or explicit `Dispose()`. Package as part of `Swift.Runtime` NuGet.
 
-GitHub Actions: Tier 1 on every PR, Tier 2 before merge, Tier 3 nightly, library validation on merge.
+**Key files**: `SwiftSafeHandle.cs`, new `Swift.Runtime.Analyzers/` project
+**Acceptance gate**: Analyzer warns on undisposed locals in test code. Zero false positives on properly disposed objects.
 
-### 14. Library Validation Expansion
+**Acceptance KPIs (Phase 2)**:
 
-Runtime test apps for additional libraries. Stripe end-to-end (multi-module) is the key target.
-
-### 15. Performance Benchmarks
-
-BenchmarkDotNet harness measuring interop overhead. Design: `Future/interop-performance-validation-plan.md`.
-
-### 16. SwiftUI Bridge Corpus
-
-Coverage tracking across 10+ libraries. Design: `Future/swiftui-bridge-v2-plan.md` (Phase 4).
-
----
-
-## P4 — Future Vision
-
-### Class Inheritance Hierarchy
-
-**Effort**: Very Large (5+ sessions). Emit C# class hierarchies mirroring Swift type graph. Prerequisite: ObjC binding integration.
-
-### ObjC Binding Integration
-
-**Effort**: Large (3-5 sessions). Replace Objective Sharpie via `clang -ast-dump=json`. Design: `Future/objc-binding-integration.md`.
-
-### Multi-Platform Support
-
-**Effort**: Large (3+ sessions). Extend beyond iOS to Mac Catalyst, macOS, tvOS. Design: `Future/dx-multi-framework-auto-detection.md`.
-
-### Emitter Architecture Redesign
-
-**Effort**: Very Large (5+ sessions). Three-phase: pre-processing, processing, emission. Design: `Future/emitter-redesign-proposal.md`. Current emitter works for 32 libraries; migrate incrementally.
+| KPI | Current | Target | Session |
+|-----|---------|--------|---------|
+| Empty protocol interfaces (0 members) | 67 | <10 | E |
+| Internal types visible in IntelliSense | ~50 | 0 | F |
+| Roslyn analyzer ships with Swift.Runtime | No | Yes | G |
 
 ---
 
-## Blocked on Upstream (.NET Runtime)
+### Phase 3: Production Readiness (4 items, ~2 sessions total)
 
-Workarounds in place. Draft bug reports: `Future/upstream-bug-reports-draft.md`.
+These are infrastructure and documentation items needed before the repo goes public and NuGet packages are promoted beyond preview.
 
-| Issue | Current Mitigation | Unblocked When |
-|-------|--------------------|----------------|
-| SafeHandle finalizer crashes on Mono | `Dispose()` required; Tier 3 tests | Mono JIT CallConvSwift fix |
-| Non-blittable types with CallConvSwift | Wrapper methods + `MonoJitRiskDetector` | dotnet/runtime managed type marshalling |
-| Async runtime (32 tests, Tier 3) | Tests written, tagged Tier 3 | Same as above |
-| Non-primitive closure Cdecl | Fall back to CallConvSwift | Mono JIT fix OR Swift adapters |
-| SafeHandle in async P/Invoke | Singleton + IntPtr conversion | dotnet/runtime SwiftSelf async support |
-| Typed throws ABI mismatch | `throws(E)` may pack error in return (not swifterror register); `SBW_GetErrorDescription` crashes on non-AnyObject pointer. Typed throw error-path tests tagged Tier 3. | dotnet/runtime typed throws ABI support |
+#### H. Contributor Onboarding
+
+**Effort**: 0.5 session
+
+| Item | Description |
+|------|-------------|
+| `CONTRIBUTING.md` | How to build, test, submit PRs. Code style. Commit conventions. |
+| Architecture overview | How the pipeline works: Parser → TypeDatabase → Marshaler → Emitter. Why `TypeProjectionFactory` exists. How to add a new type projection. |
+| Issue + PR templates | Structured templates for bug reports, feature requests, and PRs. |
+
+Currently the project has excellent documentation for AI agents (CLAUDE.md, memory files) but nothing for human contributors. The architecture session docs (1-9, A-D) exist only in Claude's memory — the key decisions need to be in the repo.
+
+#### J. ABI & Module Database Versioning
+
+**Effort**: 0.5 session
+
+| Item | Description |
+|------|-------------|
+| **ABI JSON robustness** | Document supported Swift version range. Graceful degradation on unknown node kinds (currently `NotImplementedException` logged, node silently skipped). Add `--swift-version` auto-detection from ABI metadata. |
+| **Module database migration** | Current format is XML version "1.0" with no migration path. Adding superclass data (Phase 1) will be the first schema change. Add version bump + clear SWIFTBIND error code for version mismatches. Backward-compatible reads where possible. |
+
+#### K. End-to-End Consumer Smoke Test
+
+**Effort**: 0.5 session
+
+CI lane that tests the full NuGet consumer workflow:
+1. `dotnet new swift-binding -n TestLib`
+2. Copy in a small xcframework
+3. `dotnet build`
+4. `dotnet pack`
+5. Reference the NuGet from a consuming app project
+6. Call a generated binding method
+
+The current CI `package-smoke` job packs but doesn't consume. Breaking changes to `Sdk.targets`, `Sdk.props`, or the template could ship undetected.
+
+#### L. Upstream Bug Reports
+
+**Effort**: Trivial (filing only) | **Blocked on**: Repo going public
+
+Three Mono runtime issues are drafted and ready to file (`Future/upstream-bug-reports-draft.md`):
+1. JIT assertion crash (`!ji->async`) — process-fatal
+2. Non-blittable CallConvSwift rejection
+3. SafeHandle lifetime in async
+
+Plus the NativeAOT simulator request (`Future/upstream-nativeaot-simulator-issue.md`).
+
+**Action**: File as soon as repo is public. Zero code effort, starts the clock on runtime team engagement.
+
+---
+
+### Phase 4: Future Vision
+
+Substantial capability expansions. See `Future/future-roadmap.md` for detailed analysis and prioritization.
+
+| Item | Effort | Notes |
+|------|--------|-------|
+| **ObjC Binding Integration** | Large (3-5 sessions) | Replace Objective Sharpie. Prerequisite for NSObject hierarchy in generated bindings. Design: `Future/objc-binding-integration.md`. |
+| **Multi-Platform Support** | Large (3+ sessions) | Mac Catalyst, macOS, tvOS. Design: `Future/dx-multi-framework-auto-detection.md`. |
+| **Performance Benchmarks** | Medium | BenchmarkDotNet harness. Design: `Future/interop-performance-validation-plan.md`. |
+| **API Snapshot Tooling** | Medium | Detect accidental API surface changes. Design: `Future/api-snapshot-tooling.md`. |
+| **SwiftUI Bridge Corpus** | Medium | Coverage tracking across 10+ libraries. Design: `Future/swiftui-bridge-v2-plan.md`. |
+
+---
+
+## Sequencing Summary
+
+```
+NOW                        Phase 1: Class Inheritance (I1-I6)
+                           |  Memory ownership fix built into I3
+                           |
+AFTER INHERITANCE          Phase 2: Binding Quality (E, F, G)
+                           |  E after I5 (protocol conformance changes count)
+                           |  F and G can run in parallel with E
+                           |
+BEFORE PUBLIC LAUNCH       Phase 3: Production Readiness (H, J, K, L)
+                           |  H (contributor docs) gates external contributions
+                           |  J (versioning) gates module database schema changes
+                           |  K (consumer smoke test) gates NuGet promotion
+                           |  L (upstream bugs) gates going public
+                           |
+POST-LAUNCH                Phase 4: Future Vision
+                           |  ObjC integration, multi-platform, benchmarks
+```
+
+**Estimated total**: ~12 sessions from current state to production-grade (Phases 1-3). Phase 4 is ongoing capability expansion with no fixed timeline.
+
+---
+
+## Explicitly Out of Scope
+
+Items evaluated during the February 2026 architectural audit and deliberately excluded:
+
+| Item | Reason |
+|------|--------|
+| Full Swift type graph infrastructure | Over-engineered. Inheritance Session I2 topological sort + existing ModuleProcessor + cross-module database cover 90% of needs. Build more when a specific ordering bug is found. |
+| Deep generic signature / associated type constraint emission | C# generics can't express Swift's full type system (`where Element.SubSequence == Slice<Self>`). Better protocol proxy emission (Session E) is the practical fix. |
+| Result builder (`@resultBuilder`) projection | Compile-time Swift feature with no ABI JSON representation. Builder methods appear as regular methods, which is correct. |
+| `@dynamicMemberLookup` / KeyPath projection | Affects <5 types across 32 validation libraries. Nice-to-have, not foundational. |
+| Centralized `ISwiftRuntime` abstraction layer | Current separation of concerns (Arc.cs, TypeMetadata, ErrorDescriptionEmitter, etc.) is appropriate. Adding a facade would be abstraction without a concrete problem. |
+| Incremental regeneration | Full regen is fast. Premature optimization. |
+| Ownership semantics (`consume`/`borrow`) | Swift 6 feature with unclear ABI impact. Wait for stabilization. |
+
+---
+
+## Upstream .NET Runtime Notes
+
+NativeAOT resolves most Mono JIT issues (SafeHandle crashes, non-blittable CallConvSwift, closure Cdecl limitations). The Mono JIT bugs only affect the iOS Simulator; device builds using NativeAOT are unaffected. Workarounds remain in place for simulator testing. Draft bug reports: `Future/upstream-bug-reports-draft.md`.
+
+| Issue | Affects | Notes |
+|-------|---------|-------|
+| SafeHandle finalizer crashes | Simulator (Mono) | `Dispose()` required; works on NativeAOT |
+| Non-blittable types with CallConvSwift | Simulator (Mono) | Wrapper methods + `MonoJitRiskDetector`; works on NativeAOT |
+| Async runtime (32 tests, Tier 3) | Simulator (Mono) | Tests written, tagged Tier 3; works on NativeAOT |
+| Non-primitive closure Cdecl | Simulator (Mono) | Fall back to CallConvSwift; works on NativeAOT |
+| SafeHandle in async P/Invoke | All runtimes | Singleton + IntPtr conversion; needs dotnet/runtime SwiftSelf async support |
+| Typed throws ABI mismatch | All runtimes | `throws(E)` may pack error in return (not swifterror register); needs dotnet/runtime typed throws ABI support |
 
 **Tracking**: [#93631](https://github.com/dotnet/runtime/issues/93631), [#108662](https://github.com/dotnet/runtime/issues/108662), [#64215](https://github.com/dotnet/runtime/issues/64215), [#80905](https://github.com/dotnet/runtime/issues/80905)
 
