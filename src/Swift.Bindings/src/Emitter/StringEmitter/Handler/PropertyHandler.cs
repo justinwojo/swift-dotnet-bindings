@@ -94,7 +94,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                     "AsyncStream property requires [UnmanagedCallersOnly] callback inside generic type.");
                 return;
             }
-            EmitAsyncStreamProperty(csWriter, swiftWriter, propertyEnv, propertyDecl);
+            EmitAsyncStreamProperty(csWriter, swiftWriter, propertyEnv, propertyDecl, context.PropertyRenames);
             ReportCollector.RecordMemberEmitted(BindingItemKind.Property, propertyDecl.Name, propertyDecl.ParentDecl);
             return;
         }
@@ -311,11 +311,12 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             return;
         }
 
-        // Get the C# property name, handling reserved keywords, special cases, and type collisions
-        // Note: nested type collisions are handled by renaming the nested type (not the property)
-        // in the parent type handler via ComputeAndApplyNestedTypeRenames.
+        // Get the C# property name, handling reserved keywords, special cases, and type collisions.
+        // Property/nested-type collisions are resolved by renaming the property (not the type),
+        // computed by ComputePropertyRenames in the parent type handler.
         string? containingTypeName = (propertyDecl.ParentDecl as TypeDecl)?.Name;
-        var propertyName = NameProvider.GetPropertyName(propertyDecl.Name, containingTypeName);
+        var baseName = NameProvider.GetPropertyName(propertyDecl.Name, containingTypeName);
+        var propertyName = NameProvider.GetFinalMemberName(baseName, context.PropertyRenames);
 
         // Check if all accessor methods can be emitted before actually emitting them.
         // If any accessor would be skipped (due to unsupported types like AnyType),
@@ -448,7 +449,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         var originalName = NameProvider.GetPropertyName(propertyDecl.Name);
         if (propertyName != originalName && !propertyDecl.IsStatic)
         {
-            EmitExplicitInterfaceImplementations(csWriter, propertyDecl, originalName, propertyName, csTypeName);
+            EmitExplicitInterfaceImplementations(csWriter, propertyDecl, originalName, propertyName, csTypeName, propertyEnv.TypeDatabase);
         }
 
         csWriter.WriteLine();
@@ -460,9 +461,10 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
     /// Searches the parent type's conformances for protocols that declare a property with
     /// the original Swift name, and emits forwarding properties like:
     ///   Type IInterface.OriginalName => RenamedName;
+    /// Only emits for interfaces that the type actually implements (validated by GetImplementedInterfaces).
     /// </summary>
     private void EmitExplicitInterfaceImplementations(CSharpWriter csWriter, PropertyDecl propertyDecl,
-        string originalName, string renamedName, string csTypeName)
+        string originalName, string renamedName, string csTypeName, ITypeDatabase typeDatabase)
     {
         // Get conformances from parent type
         var parentTypeDecl = propertyDecl.ParentDecl as TypeDecl;
@@ -483,6 +485,14 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         if (moduleDecl == null)
             return;
 
+        // Build the actual list of interfaces this type implements (after all validation gates).
+        // Must use a ProtocolConformanceValidator to match the same gates used in the type handler
+        // (ShouldEmitConformance + CanFullyImplementProtocol). Without this, we'd emit CS0540
+        // for protocols the type conforms to in Swift but that were filtered out during C# emission.
+        var conformanceValidator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var implementedInterfaces = new HashSet<string>(
+            ProtocolConformanceHelper.GetImplementedInterfaces(parentTypeDecl, parentTypeDecl.Name, moduleDecl.Name, typeDatabase, conformanceValidator));
+
         // For each conformance, check if the protocol declares a property with the original Swift name
         foreach (var conformance in conformances)
         {
@@ -498,6 +508,13 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 continue;
 
             var interfaceName = NameProvider.GetInterfaceName(protocolDecl.Name, moduleName: protocolDecl.ModuleDecl?.Name ?? "");
+
+            // Only emit explicit implementation if the type actually implements this interface.
+            // This prevents CS0540 when a conformance exists in Swift but the interface was
+            // filtered out during C# emission (e.g., protocol not in TypeDatabase).
+            if (!implementedInterfaces.Contains(interfaceName))
+                continue;
+
             // Use the protocol property's accessor shape, not the concrete type's.
             // A protocol may declare { get } while the concrete type exposes { get; set; }.
             var hasSetter = protocolProperty.Accessors.OfType<SetAccessorDecl>().Any();
@@ -802,7 +819,8 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         CSharpWriter csWriter,
         SwiftWriter swiftWriter,
         PropertyEnvironment propertyEnv,
-        PropertyDecl propertyDecl)
+        PropertyDecl propertyDecl,
+        Dictionary<string, string>? propertyRenames = null)
     {
         var asyncStreamHandler = propertyEnv.AsyncStreamHandler;
         var elementType = asyncStreamHandler.GetCSharpElementType(propertyDecl.SwiftTypeSpec);
@@ -830,8 +848,8 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         AsyncStreamEmitter.EmitPInvokeDeclaration(csWriter, swiftWrapperName, libraryPath, propertyDecl.IsStatic);
         csWriter.WriteLine();
 
-        // Emit property with collision detection for containing type (CS0542)
-        AsyncStreamEmitter.EmitPropertyGetter(csWriter, propertyDecl, asyncStreamHandler, swiftWrapperName, callbackName, asyncContainingTypeName);
+        // Emit property with collision detection for containing type (CS0542) and nested-type renames
+        AsyncStreamEmitter.EmitPropertyGetter(csWriter, propertyDecl, asyncStreamHandler, swiftWrapperName, callbackName, asyncContainingTypeName, propertyRenames);
         csWriter.WriteLine();
 
         // Emit Swift wrapper

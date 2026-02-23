@@ -179,12 +179,25 @@ public class PInvokeDeclaration
     public IReadOnlyList<string>? MetadataParameters { get; init; }
 
     /// <summary>
+    /// When true, omits the CallConvSwift calling convention attribute.
+    /// Used for helper P/Invokes (SBW_GetErrorDescription, SBW_ReleaseError, SBW_Free)
+    /// that use the default C calling convention via @_cdecl.
+    /// </summary>
+    public bool OmitCallingConvention { get; init; }
+
+    /// <summary>
+    /// When set, uses <c>private</c> instead of <c>internal</c> visibility.
+    /// </summary>
+    public bool UsePrivateVisibility { get; init; }
+
+    /// <summary>
     /// Emits the P/Invoke declaration.
     /// </summary>
     /// <param name="csWriter">The C# code writer.</param>
     public void Emit(CSharpWriter csWriter)
     {
-        csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
+        if (!OmitCallingConvention)
+            csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
         csWriter.WriteLine($"[LibraryImport(\"{LibraryPath}\", EntryPoint = \"{EntryPoint}\")]");
 
         var returnTypeStr = IsAsync ? "void" : ReturnType;
@@ -202,6 +215,7 @@ public class PInvokeDeclaration
                 paramsStr = metadataParams;
         }
 
-        csWriter.WriteLine($"internal static partial {returnTypeStr} {MethodName}({paramsStr});");
+        var visibility = UsePrivateVisibility ? "private" : "internal";
+        csWriter.WriteLine($"{visibility} static partial {returnTypeStr} {MethodName}({paramsStr});");
     }
 }

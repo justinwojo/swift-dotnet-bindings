@@ -12,7 +12,7 @@ For completed work (cross-module resolution, ExistentialContainer elimination, n
 
 | Metric | Value |
 |--------|-------|
-| Unit tests | 4,004 passing |
+| Unit tests | 4,005 passing |
 | Integration tests | 700 passing (11 skipped, pre-existing) |
 | Runtime library tests | 221 passing |
 | TestFramework must-pass | 94/94 passing, 0 degraded |
@@ -33,7 +33,7 @@ Measured across all 32 validated libraries. Grep/compile checks, not subjective 
 | `SwiftArray<` in public signatures | ~~40~~ **0** | 0 | ~~A'~~ Done |
 | Sync throw messages with actual error text | ~~0%~~ **100%** | 100% | ~~C~~ C1 Done |
 | Sync typed throws `.Error` populated | ~~0%~~ **100%** | 100% | ~~C2~~ Done |
-| Types with spurious `Info` suffix | ~50+ | <5 | D |
+| Types with spurious `Info` suffix | ~~50+~~ **0** | <5 | ~~D~~ Done |
 
 ---
 
@@ -96,21 +96,27 @@ Sync throwing methods previously threw `SwiftRuntimeException("Call to Swift met
 **Acceptance gate**: All sync `throw new SwiftRuntimeException(...)` include actual Swift error message. ✅ (C1)
 **Acceptance gate**: `SwiftException<TError>.Error` is non-null for sync typed throws. ✅ (C2)
 
+**Follow-up fixes (Session D)**:
+- **CS7042**: Error helper P/Invokes (`SBW_GetErrorDescription`, `SBW_ReleaseError`, `SBW_Free`) were emitted inline inside generic types (e.g., `Backend<T>`). Fixed by collecting into `PInvokeHelperContext` when inside generic types. `PInvokeDeclaration` gained `OmitCallingConvention` (for `@_cdecl`) and visibility control. `MethodMarshalPlanBuilder` prefixes calls with `{HelperClassName}.` in generic context.
+- **NSError crash on CoreCLR**: `String(describing:)` on NSError crashes CoreCLR. `SBW_GetErrorDescription` now uses `domain + code` for NSError, `String(describing:)` only for Swift value-type errors.
+
 ---
 
-### Session D: Info Suffix Removal
+### Session D: Info Suffix Removal (Complete)
 
-**Priority**: P1 | **Effort**: Medium (1 session) | **Risk**: Medium | **Impact**: ~50+ types
+**Priority**: P1 | **Effort**: Medium (1 session) | **Risk**: Medium | **Impact**: ~50+ types fixed | **Status**: Complete
 
-`PaymentSheet.ConfigurationInfo` instead of `PaymentSheet.Configuration`. The suffix avoids CS0542 (property/type name collision) by renaming the type — should rename the *property* instead.
+Nested types that collided with same-name properties were renamed with `Info` suffix (e.g., `PaymentSheet.ConfigurationInfo`). Reversed: now the **property** is renamed with `Value` suffix, preserving Swift type names.
 
-| Step | Description | Effort |
-|------|-------------|--------|
-| **D1. Reverse rename priority** | In `NameProvider.ComputeNestedTypeRenames()`, rename the property (not the type). Property gets a suffix (`Value`, `Instance`, or context-derived). | Medium |
-| **D2. Verify descendant propagation** | Property renames need TypeDatabase propagation like type renames currently do. | Medium |
+| Step | Description | Effort | Status |
+|------|-------------|--------|--------|
+| **D1. Reverse rename priority** | `NameProvider.ComputePropertyRenamesForNestedTypeCollisions()` renames properties (not types). Property gets `Value` suffix. `GetFinalMemberName()` helper applies renames at all consumption sites. | Medium | **Done** |
+| **D2. Remove TypeDatabase mutation** | Property renames computed locally per-type at emission time. No TypeDatabase propagation needed — types keep original names. Deleted `UpdateDescendantTypeNames`, `PrecomputeAllNestedTypeRenames`. | Medium | **Done** |
 
-**Key files**: `NameProvider.cs`, `PropertyHandler.cs`
-**Acceptance gate**: `Info`-suffixed nested types that don't genuinely end in "Info" in Swift drop to <5.
+**Key files changed**: `NameProvider.cs` (core logic), `TypeHandlerContext.cs` (`NestedTypeRenames` → `PropertyRenames`), `GenericTypeEmitter.cs`, `PropertyHandler.cs`, `AsyncStreamEmitter.cs`, `EnumHandler.cs` + `.CaseConstruction.cs` + `.RawRepresentable.cs` + `.SimpleEnum.cs`, `FrozenStructHandler.cs`, `ClassHandler.cs`, `NonFrozenStructHandler.cs`, `ModuleHandler.cs`, `Program.cs`
+**Acceptance gate**: `Info`-suffixed nested types that don't genuinely end in "Info" in Swift drop to <5. ✅
+
+**Additional fix**: **CS0540** — `EmitExplicitInterfaceImplementations` in `PropertyHandler.cs` emitted explicit interface implementations for protocols the type didn't actually implement (filtered during emission). Fixed by adding `ProtocolConformanceValidator` to `GetImplementedInterfaces` check before emitting.
 
 ---
 

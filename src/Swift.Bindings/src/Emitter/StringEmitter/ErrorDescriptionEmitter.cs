@@ -72,17 +72,33 @@ public static class ErrorDescriptionEmitter
         var releaseSymbol = GetReleaseSymbolName(moduleName);
 
         // P0: Allocate with Swift's allocator (not C strdup/malloc) so SBW_Free (deallocate) is correct.
-        // P1: Use as? Error with fallback to avoid force-cast trap on unexpected pointer representations.
+        // P1: Use @_cdecl (not @_silgen_name) for C calling convention compatibility.
+        // P2: NSError path uses domain+code directly (String(describing:) on NSError crashes CoreCLR).
         swiftWriter.WriteLines($$"""
-            // Error description extraction for sync throwing methods
-            @_silgen_name("{{descSymbol}}")
+            // Error description extraction for sync throwing methods.
+            // SwiftError.Value from .NET CallConvSwift is the raw value from the Swift error register.
+            //
+            // Uses Unmanaged<AnyObject>.fromOpaque to recover the error object, then dispatches:
+            //   - NSError: access domain+code directly (String(describing:) and localizedDescription
+            //     crash on CoreCLR due to ObjC runtime operations in .NET interop contexts)
+            //   - Swift Error (enums, structs): String(describing:) is safe
+            //   - Fallback: type(of:) for anything else
+            @_cdecl("{{descSymbol}}")
             public func SBW_GetErrorDescription(_ error: UnsafeRawPointer) -> UnsafeMutablePointer<CChar>? {
                 let errorObj = Unmanaged<AnyObject>.fromOpaque(error).takeUnretainedValue()
                 let desc: String
-                if let errorValue = errorObj as? Error {
+                if let nsError = errorObj as? NSError {
+                    // NSError path: access domain + code directly.
+                    // String(describing:) and localizedDescription on NSError crash on CoreCLR
+                    // because they trigger ObjC runtime operations (e.g. NSLocalizedDescriptionKey
+                    // lookup in userInfo) that fail in .NET interop contexts.
+                    let domain = nsError.domain.isEmpty ? "unknown" : nsError.domain
+                    desc = "\(domain) (code \(nsError.code))"
+                } else if let errorValue = errorObj as? Error {
+                    // Swift value-type errors (enums, structs): String(describing:) is safe
                     desc = String(describing: errorValue)
                 } else {
-                    desc = String(describing: errorObj)
+                    desc = "\(type(of: errorObj))"
                 }
                 return desc.withCString { cStr in
                     let len = strlen(cStr) + 1
@@ -92,11 +108,8 @@ public static class ErrorDescriptionEmitter
                 }
             }
 
-            // ABI assumption: SwiftError.Value from .NET CallConvSwift is a retained pointer
-            // to a heap-allocated, ARC-managed Swift error box. The caller owns one reference.
-            // Validated by Tier 1 runtime tests: TestDivideByZeroThrows,
-            // TestThrowingStructDivideByZeroThrows, TestValidateRangeTypedCatchNullError.
-            @_silgen_name("{{releaseSymbol}}")
+            // Release the error box's ARC reference. SwiftError.Value is a retained pointer.
+            @_cdecl("{{releaseSymbol}}")
             public func SBW_ReleaseError(_ error: UnsafeRawPointer) {
                 Unmanaged<AnyObject>.fromOpaque(error).release()
             }
@@ -183,7 +196,7 @@ public static class ErrorDescriptionEmitter
 
         swiftWriter.WriteLines($$"""
             // Typed error extractor for {{swiftErrorTypeName}} (C2)
-            @_silgen_name("{{symbol}}")
+            @_cdecl("{{symbol}}")
             public func SBW_ExtractTypedError_{{safeSuffix}}(_ error: UnsafeRawPointer) -> UnsafeMutableRawPointer? {
                 let errorObj = Unmanaged<AnyObject>.fromOpaque(error).takeUnretainedValue()
                 guard let typedError = errorObj as? {{swiftErrorTypeName}} else {

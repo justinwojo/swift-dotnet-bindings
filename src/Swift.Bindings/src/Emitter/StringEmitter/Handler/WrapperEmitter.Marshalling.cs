@@ -368,6 +368,7 @@ namespace BindingsGeneration
 
             var moduleDecl = _env.MethodDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(_env.MethodDecl.ModuleDecl));
             var typeKey = (_env.ParentDecl as TypeDecl)?.SwiftTypeName.ModuleQualifiedName ?? moduleDecl.Name;
+            var isGenericType = _env.PInvokeHelperContext != null;
 
             // Base error P/Invokes (GetErrorDescription, ReleaseError, Free) — one per C# type
             if (!ErrorDescriptionEmitter.HasErrorPInvokeForType(typeKey))
@@ -380,24 +381,67 @@ namespace BindingsGeneration
                 var releaseSymbol = ErrorDescriptionEmitter.GetReleaseSymbolName(moduleDecl.Name);
                 var freeSymbol = Utf8SliceEmitter.GetFreeSymbolName(moduleDecl.Name);
 
-                csWriter.WriteLines($"""
-                    [System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{descSymbol}")]
-                    private static partial IntPtr SBW_GetErrorDescription(IntPtr error);
-
-                    [System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{releaseSymbol}")]
-                    private static partial void SBW_ReleaseError(IntPtr error);
-
-                    """);
-
-                // Emit SBW_Free if not already emitted by Utf8SliceEmitter for this type
-                if (!Utf8SliceEmitter.HasFreePInvokeForType(typeKey))
+                if (isGenericType)
                 {
-                    Utf8SliceEmitter.MarkFreePInvokeEmittedForType(typeKey);
+                    // CS7042: DllImport/LibraryImport cannot appear inside generic types.
+                    // Collect into PInvokeHelperContext for emission in non-generic helper class.
+                    _env.PInvokeHelperContext!.AddDeclaration(new PInvokeDeclaration
+                    {
+                        LibraryPath = wrapperLibPath,
+                        EntryPoint = descSymbol,
+                        MethodName = "SBW_GetErrorDescription",
+                        ReturnType = "IntPtr",
+                        ParametersString = "IntPtr error",
+                        OmitCallingConvention = true,
+                        UsePrivateVisibility = false,
+                    });
+                    _env.PInvokeHelperContext!.AddDeclaration(new PInvokeDeclaration
+                    {
+                        LibraryPath = wrapperLibPath,
+                        EntryPoint = releaseSymbol,
+                        MethodName = "SBW_ReleaseError",
+                        ReturnType = "void",
+                        ParametersString = "IntPtr error",
+                        OmitCallingConvention = true,
+                        UsePrivateVisibility = false,
+                    });
+
+                    if (!Utf8SliceEmitter.HasFreePInvokeForType(typeKey))
+                    {
+                        Utf8SliceEmitter.MarkFreePInvokeEmittedForType(typeKey);
+                        _env.PInvokeHelperContext!.AddDeclaration(new PInvokeDeclaration
+                        {
+                            LibraryPath = wrapperLibPath,
+                            EntryPoint = freeSymbol,
+                            MethodName = "SBW_Free",
+                            ReturnType = "void",
+                            ParametersString = "IntPtr ptr",
+                            OmitCallingConvention = true,
+                            UsePrivateVisibility = false,
+                        });
+                    }
+                }
+                else
+                {
                     csWriter.WriteLines($"""
-                        [System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{freeSymbol}")]
-                        private static partial void SBW_Free(IntPtr ptr);
+                        [System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{descSymbol}")]
+                        private static partial IntPtr SBW_GetErrorDescription(IntPtr error);
+
+                        [System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{releaseSymbol}")]
+                        private static partial void SBW_ReleaseError(IntPtr error);
 
                         """);
+
+                    // Emit SBW_Free if not already emitted by Utf8SliceEmitter for this type
+                    if (!Utf8SliceEmitter.HasFreePInvokeForType(typeKey))
+                    {
+                        Utf8SliceEmitter.MarkFreePInvokeEmittedForType(typeKey);
+                        csWriter.WriteLines($"""
+                            [System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{freeSymbol}")]
+                            private static partial void SBW_Free(IntPtr ptr);
+
+                            """);
+                    }
                 }
             }
 
@@ -413,11 +457,28 @@ namespace BindingsGeneration
                     var wrapperLibPath = _env.TypeDatabase.AsyncLibraryName ?? _env.TypeDatabase.GetLibraryPath(moduleDecl.Name);
                     var extractorSymbol = ErrorDescriptionEmitter.GetExtractorSymbolName(
                         moduleDecl.Name, _syncPlan.SwiftError.SwiftErrorTypeName);
-                    csWriter.WriteLines($"""
-                        [System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{extractorSymbol}")]
-                        private static partial IntPtr SBW_ExtractTypedError_{_syncPlan.SwiftError.TypedErrorSafeSuffix}(IntPtr error);
 
-                        """);
+                    if (isGenericType)
+                    {
+                        _env.PInvokeHelperContext!.AddDeclaration(new PInvokeDeclaration
+                        {
+                            LibraryPath = wrapperLibPath,
+                            EntryPoint = extractorSymbol,
+                            MethodName = $"SBW_ExtractTypedError_{_syncPlan.SwiftError.TypedErrorSafeSuffix}",
+                            ReturnType = "IntPtr",
+                            ParametersString = "IntPtr error",
+                            OmitCallingConvention = true,
+                            UsePrivateVisibility = false,
+                        });
+                    }
+                    else
+                    {
+                        csWriter.WriteLines($"""
+                            [System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{extractorSymbol}")]
+                            private static partial IntPtr SBW_ExtractTypedError_{_syncPlan.SwiftError.TypedErrorSafeSuffix}(IntPtr error);
+
+                            """);
+                    }
                 }
             }
         }

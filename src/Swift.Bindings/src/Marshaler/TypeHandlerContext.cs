@@ -8,7 +8,7 @@ namespace BindingsGeneration
     /// Replaces mutable save/set/restore patterns on Conductor for:
     /// - P/Invoke helper context (generic types → CS7042 avoidance)
     /// - Deferred P/Invoke helper contexts (nested generic types)
-    /// - Nested type renames (property/type name collision resolution)
+    /// - Property renames (property/nested-type name collision resolution)
     /// </summary>
     /// <remarks>
     /// <para>
@@ -24,7 +24,7 @@ namespace BindingsGeneration
     public record TypeHandlerContext(
         PInvokeHelperContext? PInvokeHelperContext,
         List<PInvokeHelperContext> DeferredPInvokeHelperContexts,
-        Dictionary<string, string>? NestedTypeRenames,
+        Dictionary<string, string>? PropertyRenames,
         SortedDictionary<string, List<string>>? CompositionCollector = null)
     {
         public static TypeHandlerContext Empty => new(null, new(), null);

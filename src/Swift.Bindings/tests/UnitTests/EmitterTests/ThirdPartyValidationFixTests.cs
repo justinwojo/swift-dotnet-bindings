@@ -416,9 +416,10 @@ public class ThirdPartyValidationFixTests
     #region B7b — Enum case / nested type name collision
 
     [Fact]
-    public void ComputeNestedTypeRenames_EnumCaseCollidesWithNestedType_Renames()
+    public void ComputePropertyRenames_EnumCaseCollidesWithNestedType_RenamesCase()
     {
         // Enum PingResponse has case "pong" (PascalCase: "Pong") and nested type "Pong"
+        // The case name "Pong" should be renamed to "PongValue", not the type.
         var typeDatabase = new TypeDatabase();
         var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
 
@@ -488,18 +489,19 @@ public class ThirdPartyValidationFixTests
         };
         nestedPong.ParentDecl = enumDecl;
 
-        var renames = NameProvider.ComputeAndApplyNestedTypeRenames(enumDecl, typeDatabase);
+        var renames = NameProvider.ComputePropertyRenames(enumDecl, typeDatabase);
 
+        // Case "Pong" should be renamed to "PongValue"
         Assert.Single(renames);
-        Assert.Equal("PongInfo", renames["Pong"]);
+        Assert.Equal("PongValue", renames["Pong"]);
 
-        // Verify TypeDatabase was updated
+        // TypeDatabase should NOT be modified
         Assert.True(typeDatabase.TryGetTypeRecord(pongSwiftName, out var record));
-        Assert.Equal("PingResponse.PongInfo", record!.CSharpTypeName.Name);
+        Assert.Equal("PingResponse.Pong", record!.CSharpTypeName.Name);
     }
 
     [Fact]
-    public void ComputeNestedTypeRenames_EnumCaseNoCollision_NoRename()
+    public void ComputePropertyRenames_EnumCaseNoCollision_NoRename()
     {
         // Enum with case "foo" and nested type "Bar" — no collision
         var typeDatabase = new TypeDatabase();
@@ -570,7 +572,7 @@ public class ThirdPartyValidationFixTests
         };
         nestedBar.ParentDecl = enumDecl;
 
-        var renames = NameProvider.ComputeAndApplyNestedTypeRenames(enumDecl, typeDatabase);
+        var renames = NameProvider.ComputePropertyRenames(enumDecl, typeDatabase);
 
         Assert.Empty(renames);
     }

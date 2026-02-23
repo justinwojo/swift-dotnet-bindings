@@ -97,7 +97,7 @@ namespace BindingsGeneration
             SwiftTypeInfo? swiftTypeInfo = typeRecord?.SwiftTypeInfo;
 
             // Get generic type parts if this is a generic type
-            var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(structDecl, context.NestedTypeRenames);
+            var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(structDecl);
             var whereClause = GenericTypeEmitter.GetWhereClause(structDecl, env.TypeDatabase);
 
             var ISwiftObjectMethodWriter = new ISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, structDecl, typeNameWithGenerics);
@@ -105,13 +105,13 @@ namespace BindingsGeneration
             var ownPInvokeContext = PInvokeHelperContext.CreateIfGeneric(structDecl);
             var pinvokeHelperContext = ownPInvokeContext ?? context.PInvokeHelperContext;
 
-            // Compute nested type renames to resolve property/nested-type name collisions
-            var nestedTypeRenames = NameProvider.ComputeAndApplyNestedTypeRenames(structDecl, env.TypeDatabase);
+            // Compute property renames to resolve property/nested-type name collisions
+            var propertyRenames = NameProvider.ComputePropertyRenames(structDecl, env.TypeDatabase);
 
             // Build child context for nested handlers
             var childContext = context with {
                 PInvokeHelperContext = pinvokeHelperContext,
-                NestedTypeRenames = nestedTypeRenames
+                PropertyRenames = propertyRenames
             };
 
             {
@@ -219,7 +219,9 @@ namespace BindingsGeneration
                 var emittedPropertyNames = new HashSet<string>();
                 foreach (PropertyDecl propertyDecl in structDecl.Properties)
                 {
-                    var csPropertyName = NameProvider.GetPropertyName(propertyDecl.Name, structDecl.Name);
+                    // Use post-rename name for consistency with the propertyNames collision set below.
+                    var csPropertyName = NameProvider.GetFinalMemberName(
+                        NameProvider.GetPropertyName(propertyDecl.Name, structDecl.Name), propertyRenames);
                     if (!emittedPropertyNames.Add(csPropertyName))
                     {
                         _logger.LogInformation($"Skipping duplicate property '{structDecl.Name}.{csPropertyName}'.");
@@ -275,9 +277,10 @@ namespace BindingsGeneration
                 SwiftEquatableMethodWriter.WriteSwiftEquatableImplementation();
                 ISwiftObjectMethodWriter.WriteFrozenStructImplementation(pinvokeHelperContext, isProjectedAsClass);
 
-                // Collect property names for method/property collision detection
+                // Collect property names (post-rename) for method/property collision detection
                 var propertyNames = new HashSet<string>(structDecl.Properties.Select(p =>
-                    NameProvider.GetPropertyName(p.Name, structDecl.Name)));
+                    NameProvider.GetFinalMemberName(
+                        NameProvider.GetPropertyName(p.Name, structDecl.Name), propertyRenames)));
 
                 base.HandleBaseDecl(csWriter, swiftWriter, structDecl.Types, conductor, env.TypeDatabase, childContext);
                 base.HandleBaseDecl(csWriter, swiftWriter, structDecl.Methods, conductor, env.TypeDatabase, childContext, propertyNames);
@@ -304,6 +307,6 @@ namespace BindingsGeneration
             }
         }
 
-        // ComputeAndApplyNestedTypeRenames is now centralized in NameProvider.
+        // ComputePropertyRenames is now centralized in NameProvider.
     }
 }

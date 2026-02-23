@@ -745,8 +745,6 @@ namespace BindingsGeneration
                 ProtocolHandler.FixupProtocolInheritedRequirements(decl, typeDatabase);
 
                 // Emit module database XML for cross-module resolution by downstream modules
-                // This must happen AFTER EmitModule() because NameProvider.PrecomputeAllNestedTypeRenames()
-                // updates TypeDatabase records with renamed C# type names during emission.
                 ModuleDatabaseEmitter.Emit(moduleDatabase, outputDirectory, logger);
 
                 logger.LogInformation("Bindings generation completed for {SwiftAbiPath}.", swiftAbiPath);

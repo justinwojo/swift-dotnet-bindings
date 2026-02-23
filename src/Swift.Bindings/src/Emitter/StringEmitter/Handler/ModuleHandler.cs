@@ -103,12 +103,6 @@ namespace BindingsGeneration
             csWriter.WriteLine("{");
             csWriter.Indent++;
 
-            // Pre-compute all nested type renames before emitting any types.
-            // This ensures cross-type references to renamed nested types resolve correctly
-            // regardless of emission order (e.g., type B referencing A.Cache which was
-            // renamed to A.CacheInfo won't fail if B is emitted before A).
-            NameProvider.PrecomputeAllNestedTypeRenames(moduleDecl.Types, env.TypeDatabase);
-
             // Scope composition interface collection across BOTH top-level methods and types.
             // Free functions can reference composition existentials (e.g., any Describable & TestIdentifiable),
             // so the collector must be active before emitting top-level methods.

@@ -55,9 +55,9 @@ namespace BindingsGeneration
         private void EmitSimpleEnum(CSharpWriter csWriter, SwiftWriter swiftWriter,
             EnumDecl enumDecl, ModuleDecl moduleDecl, ITypeDatabase typeDatabase, Conductor conductor, TypeHandlerContext context)
         {
-            var enumName = context.NestedTypeRenames != null &&
-                context.NestedTypeRenames.TryGetValue(enumDecl.Name, out var renamedName)
-                ? renamedName : enumDecl.Name;
+            // Simple enums emit as C# enum value types (cases become enum members, not properties),
+            // so they bypass ComputePropertyRenames — no CS0542 risk from nested-type collisions.
+            var enumName = enumDecl.Name;
             var csUnderlyingType = GetCSharpEnumUnderlyingType(enumDecl.RawValueTypeName);
 
             // Emit the C# enum declaration

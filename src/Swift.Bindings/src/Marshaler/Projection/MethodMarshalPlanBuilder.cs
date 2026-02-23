@@ -341,6 +341,10 @@ internal class MethodMarshalPlanBuilder
             typedErrorSafeSuffix = ErrorDescriptionEmitter.MakeSafeSymbolSuffix(swiftErrorTypeName);
         }
 
+        // When inside a generic type, error helper P/Invokes are in the PInvoke helper class.
+        // Prefix all calls with the helper class name.
+        var hp = _env.PInvokeHelperContext != null ? $"{_env.PInvokeHelperContext.HelperClassName}." : "";
+
         string errorCheckCode;
         if (syncTypedErrorType != null)
         {
@@ -353,7 +357,7 @@ internal class MethodMarshalPlanBuilder
                     var _errorPtr = (IntPtr)error.Value;
                     try
                     {
-                        var _descPtr = SBW_GetErrorDescription(_errorPtr);
+                        var _descPtr = {{hp}}SBW_GetErrorDescription(_errorPtr);
                         try
                         {
                             _errorMessage = _descPtr != IntPtr.Zero
@@ -362,9 +366,9 @@ internal class MethodMarshalPlanBuilder
                         }
                         finally
                         {
-                            if (_descPtr != IntPtr.Zero) SBW_Free(_descPtr);
+                            if (_descPtr != IntPtr.Zero) {{hp}}SBW_Free(_descPtr);
                         }
-                        var _typedErrorPtr = SBW_ExtractTypedError_{{typedErrorSafeSuffix}}(_errorPtr);
+                        var _typedErrorPtr = {{hp}}SBW_ExtractTypedError_{{typedErrorSafeSuffix}}(_errorPtr);
                         if (_typedErrorPtr != IntPtr.Zero)
                         {
                             try
@@ -374,27 +378,27 @@ internal class MethodMarshalPlanBuilder
                             }
                             finally
                             {
-                                SBW_Free(_typedErrorPtr);
+                                {{hp}}SBW_Free(_typedErrorPtr);
                             }
                         }
                         throw new SwiftException<{{syncTypedErrorType}}>(_errorMessage);
                     }
                     finally
                     {
-                        SBW_ReleaseError(_errorPtr);
+                        {{hp}}SBW_ReleaseError(_errorPtr);
                     }
                 }
                 """;
         }
         else
         {
-            // Untyped throws — extract message only
+            // Untyped throws — extract message via SBW_GetErrorDescription, release via SBW_ReleaseError
             errorCheckCode = $$"""
                 if (error.Value != null)
                 {
                     string _errorMessage;
                     var _errorPtr = (IntPtr)error.Value;
-                    var _descPtr = SBW_GetErrorDescription(_errorPtr);
+                    var _descPtr = {{hp}}SBW_GetErrorDescription(_errorPtr);
                     try
                     {
                         _errorMessage = _descPtr != IntPtr.Zero
@@ -403,8 +407,8 @@ internal class MethodMarshalPlanBuilder
                     }
                     finally
                     {
-                        if (_descPtr != IntPtr.Zero) SBW_Free(_descPtr);
-                        SBW_ReleaseError(_errorPtr);
+                        if (_descPtr != IntPtr.Zero) {{hp}}SBW_Free(_descPtr);
+                        {{hp}}SBW_ReleaseError(_errorPtr);
                     }
                     throw new SwiftRuntimeException(_errorMessage);
                 }

@@ -12,10 +12,11 @@ namespace BindingsGeneration
         /// <summary>
         /// Emits a static method for an enum case with associated values.
         /// </summary>
-        private bool EmitEnumCaseWithAssociatedValues(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, ModuleDecl moduleDecl, ITypeDatabase typeDatabase, string enumTypeName, PInvokeHelperContext? pinvokeHelperContext)
+        private bool EmitEnumCaseWithAssociatedValues(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, ModuleDecl moduleDecl, ITypeDatabase typeDatabase, string enumTypeName, PInvokeHelperContext? pinvokeHelperContext, Dictionary<string, string>? propertyRenames = null)
         {
             var caseName = caseDecl.Name;
-            var capitalizedName = NameProvider.ToPascalCase(caseName);
+            var capitalizedName = NameProvider.GetFinalMemberName(
+                NameProvider.ToPascalCase(caseName), propertyRenames);
             var pInvokeName = $"PInvoke_{capitalizedName}";
             var libPath = typeDatabase.GetLibraryPath(moduleDecl.Name);
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);

@@ -84,21 +84,20 @@ namespace BindingsGeneration
             ReportCollector.RecordTypeEmitted(classDecl);
 
             // Get generic type parts if this is a generic type
-            // Pass context renames so nested types that were renamed by their parent appear with the correct name
-            var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(classDecl, context.NestedTypeRenames);
+            var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(classDecl);
             var whereClause = GenericTypeEmitter.GetWhereClause(classDecl, env.TypeDatabase);
 
             // Create P/Invoke helper context for generic types (to avoid CS7042)
             var ownPInvokeContext = PInvokeHelperContext.CreateIfGeneric(classDecl);
             var pinvokeHelperContext = ownPInvokeContext ?? context.PInvokeHelperContext;
 
-            // Compute nested type renames to resolve property/nested-type name collisions
-            var nestedTypeRenames = NameProvider.ComputeAndApplyNestedTypeRenames(classDecl, env.TypeDatabase);
+            // Compute property renames to resolve property/nested-type name collisions
+            var propertyRenames = NameProvider.ComputePropertyRenames(classDecl, env.TypeDatabase);
 
             // Build child context for nested handlers
             var childContext = context with {
                 PInvokeHelperContext = pinvokeHelperContext,
-                NestedTypeRenames = nestedTypeRenames
+                PropertyRenames = propertyRenames
             };
 
             {
@@ -136,7 +135,9 @@ namespace BindingsGeneration
                     }
 
                     // Bug #9: Skip duplicate property names (static + instance with same C# name)
-                    var csPropertyName = NameProvider.GetPropertyName(propertyDecl.Name, classDecl.Name);
+                    // Use post-rename name for consistency with the propertyNames collision set below.
+                    var csPropertyName = NameProvider.GetFinalMemberName(
+                        NameProvider.GetPropertyName(propertyDecl.Name, classDecl.Name), propertyRenames);
                     if (!emittedPropertyNames.Add(csPropertyName))
                     {
                         _logger.LogInformation($"Skipping duplicate property '{classDecl.Name}.{csPropertyName}' (static/instance collision).");
@@ -197,9 +198,10 @@ namespace BindingsGeneration
                 equatableWriter.WriteSwiftEquatableImplementation();
                 iSwiftObjectWriter.WriteClassImplementation();
 
-                // Collect property names for method/property collision detection
+                // Collect property names (post-rename) for method/property collision detection
                 var propertyNames = new HashSet<string>(classDecl.Properties.Select(p =>
-                    NameProvider.GetPropertyName(p.Name, classDecl.Name)));
+                    NameProvider.GetFinalMemberName(
+                        NameProvider.GetPropertyName(p.Name, classDecl.Name), propertyRenames)));
 
                 base.HandleBaseDecl(csWriter, swiftWriter, classDecl.Types, conductor, env.TypeDatabase, childContext);
                 base.HandleBaseDecl(csWriter, swiftWriter, classDecl.Methods, conductor, env.TypeDatabase, childContext, propertyNames);
@@ -226,7 +228,7 @@ namespace BindingsGeneration
             }
         }
 
-        // ComputeAndApplyNestedTypeRenames is now centralized in NameProvider.
+        // ComputePropertyRenames is now centralized in NameProvider.
 
         /// <summary>
         /// Writes the private fields for the class.

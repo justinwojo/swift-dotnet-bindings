@@ -232,12 +232,12 @@ public class TypeHandlersOutputTests
     }
 
     [Fact]
-    public void Emit_FrozenStructHandler_WithPropertyNestedTypeCollision_RenamesNestedType()
+    public void Emit_FrozenStructHandler_WithPropertyNestedTypeCollision_RenamesProperty()
     {
         // Parent struct "NetworkConfig" has:
         // - property "configuration" → PascalCase "Configuration"
         // - nested frozen struct "Configuration"
-        // Expected: nested type renamed to "ConfigurationInfo" (not property to "ConfigurationValue")
+        // Expected: property renamed to "ConfigurationValue" (type keeps original name)
         var typeDatabase = new TypeDatabase();
         var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
 
@@ -340,13 +340,12 @@ public class TypeHandlersOutputTests
 
         var output = csOutput.ToString();
 
-        // Nested type should be renamed to "ConfigurationInfo"
-        Assert.Contains("ConfigurationInfo", output);
-        // TypeDatabase should reflect the rename
+        // Nested type should keep original name "Configuration" (no Info suffix)
+        Assert.Contains("partial struct Configuration", output);
+        Assert.DoesNotContain("ConfigurationInfo", output);
+        // TypeDatabase should NOT be modified
         Assert.True(typeDatabase.TryGetTypeRecord(nestedSwiftName, out var updatedRecord));
-        Assert.Contains("ConfigurationInfo", updatedRecord!.CSharpTypeName.Name);
-        // Property should keep its natural PascalCase name (no Value suffix)
-        Assert.DoesNotContain("ConfigurationValue", output);
+        Assert.Equal("NetworkConfig.Configuration", updatedRecord!.CSharpTypeName.Name);
     }
 
     [Fact]

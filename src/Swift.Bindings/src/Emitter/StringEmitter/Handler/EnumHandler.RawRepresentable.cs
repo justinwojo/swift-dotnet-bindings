@@ -27,7 +27,7 @@ namespace BindingsGeneration
         /// Emits RawRepresentable support for enums with simple cases.
         /// This includes a FromRawValue method and static properties for each case.
         /// </summary>
-        private void EmitRawRepresentableSupport(CSharpWriter csWriter, SwiftWriter swiftWriter, EnumDecl enumDecl, List<EnumCaseDecl> simpleCases, ModuleDecl moduleDecl, ITypeDatabase typeDatabase, string enumTypeName, PInvokeHelperContext? pinvokeHelperContext, bool canCacheCases = false)
+        private void EmitRawRepresentableSupport(CSharpWriter csWriter, SwiftWriter swiftWriter, EnumDecl enumDecl, List<EnumCaseDecl> simpleCases, ModuleDecl moduleDecl, ITypeDatabase typeDatabase, string enumTypeName, PInvokeHelperContext? pinvokeHelperContext, bool canCacheCases = false, Dictionary<string, string>? propertyRenames = null)
         {
             var rawTypeName = enumDecl.RawValueTypeName!;
             var libPath = typeDatabase.GetLibraryPath(moduleDecl.Name);
@@ -326,7 +326,8 @@ namespace BindingsGeneration
             {
                 var caseDecl = simpleCases[i];
                 var caseName = caseDecl.Name;
-                var capitalizedName = NameProvider.ToPascalCase(caseName);
+                var capitalizedName = NameProvider.GetFinalMemberName(
+                    NameProvider.ToPascalCase(caseName), propertyRenames);
                 var fieldName = caseName;
 
                 // Determine the raw value - for Int-based enums, Swift uses sequential values starting at 0

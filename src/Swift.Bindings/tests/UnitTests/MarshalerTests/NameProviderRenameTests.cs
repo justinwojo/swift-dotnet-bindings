@@ -6,88 +6,88 @@ using Xunit;
 namespace BindingsGeneration.Tests;
 
 /// <summary>
-/// Regression tests for NameProvider nested type rename propagation.
-/// Validates that ComputeAndApplyNestedTypeRenames correctly updates
-/// both renamed types and their descendant types in the TypeDatabase.
+/// Regression tests for NameProvider property rename logic.
+/// Validates that ComputePropertyRenames correctly computes member renames
+/// without modifying TypeDatabase records.
 /// </summary>
 public class NameProviderRenameTests
 {
-    #region ComputeNestedTypeRenames Tests
+    #region ComputePropertyRenamesForNestedTypeCollisions Tests
 
     [Fact]
-    public void ComputeNestedTypeRenames_CollidingName_ReturnsInfoSuffix()
+    public void ComputePropertyRenamesForNestedTypeCollisions_CollidingName_ReturnsValueSuffix()
     {
-        var propertyNames = new[] { "Cache", "Name" };
+        var memberNames = new[] { "Cache", "Name" };
         var nestedTypeNames = new[] { "Cache", "Settings" };
 
-        var renames = NameProvider.ComputeNestedTypeRenames(propertyNames, nestedTypeNames);
+        var renames = NameProvider.ComputePropertyRenamesForNestedTypeCollisions(memberNames, nestedTypeNames);
 
         Assert.Single(renames);
-        Assert.Equal("CacheInfo", renames["Cache"]);
+        Assert.Equal("CacheValue", renames["Cache"]);
     }
 
     [Fact]
-    public void ComputeNestedTypeRenames_NoCollision_ReturnsEmpty()
+    public void ComputePropertyRenamesForNestedTypeCollisions_NoCollision_ReturnsEmpty()
     {
-        var propertyNames = new[] { "Name", "Value" };
+        var memberNames = new[] { "Name", "Value" };
         var nestedTypeNames = new[] { "Settings", "Options" };
 
-        var renames = NameProvider.ComputeNestedTypeRenames(propertyNames, nestedTypeNames);
+        var renames = NameProvider.ComputePropertyRenamesForNestedTypeCollisions(memberNames, nestedTypeNames);
 
         Assert.Empty(renames);
     }
 
     [Fact]
-    public void ComputeNestedTypeRenames_InfoSuffixAlreadyExists_UsesIncrementingSuffix()
+    public void ComputePropertyRenamesForNestedTypeCollisions_ValueSuffixAlreadyExists_UsesIncrementingSuffix()
     {
-        // Type "Cache" collides with property "Cache", but "CacheInfo" already exists as a nested type.
-        // The rename should fall back to "CacheInfo2" to avoid a duplicate.
-        var propertyNames = new[] { "Cache" };
-        var nestedTypeNames = new[] { "Cache", "CacheInfo" };
+        // Member "Cache" collides with nested type "Cache", but "CacheValue" already exists as a member.
+        // The rename should fall back to "CacheValue2" to avoid a duplicate.
+        var memberNames = new[] { "Cache", "CacheValue" };
+        var nestedTypeNames = new[] { "Cache" };
 
-        var renames = NameProvider.ComputeNestedTypeRenames(propertyNames, nestedTypeNames);
+        var renames = NameProvider.ComputePropertyRenamesForNestedTypeCollisions(memberNames, nestedTypeNames);
 
         Assert.Single(renames);
-        Assert.Equal("CacheInfo2", renames["Cache"]);
+        Assert.Equal("CacheValue2", renames["Cache"]);
     }
 
     [Fact]
-    public void ComputeNestedTypeRenames_MultipleInfoSuffixCollisions_IncrementsCorrectly()
+    public void ComputePropertyRenamesForNestedTypeCollisions_ValueSuffixIsNestedType_UsesIncrementingSuffix()
     {
-        // Both "CacheInfo" and "CacheInfo2" exist as nested types.
-        var propertyNames = new[] { "Cache" };
-        var nestedTypeNames = new[] { "Cache", "CacheInfo", "CacheInfo2" };
+        // Member "Foo" collides with nested type "Foo", and "FooValue" also exists as a nested type.
+        var memberNames = new[] { "Foo" };
+        var nestedTypeNames = new[] { "Foo", "FooValue" };
 
-        var renames = NameProvider.ComputeNestedTypeRenames(propertyNames, nestedTypeNames);
+        var renames = NameProvider.ComputePropertyRenamesForNestedTypeCollisions(memberNames, nestedTypeNames);
 
         Assert.Single(renames);
-        Assert.Equal("CacheInfo3", renames["Cache"]);
+        Assert.Equal("FooValue2", renames["Foo"]);
     }
 
     [Fact]
-    public void ComputeNestedTypeRenames_TwoCollisionsOneInfoExists_HandlesCorrectly()
+    public void ComputePropertyRenamesForNestedTypeCollisions_TwoCollisions_RenamesBothIndependently()
     {
-        // Two types collide with properties, and the "Info" suffix of the first already exists.
-        var propertyNames = new[] { "Cache", "Name" };
-        var nestedTypeNames = new[] { "Cache", "CacheInfo", "Name" };
+        var memberNames = new[] { "Cache", "Name" };
+        var nestedTypeNames = new[] { "Cache", "Name" };
 
-        var renames = NameProvider.ComputeNestedTypeRenames(propertyNames, nestedTypeNames);
+        var renames = NameProvider.ComputePropertyRenamesForNestedTypeCollisions(memberNames, nestedTypeNames);
 
         Assert.Equal(2, renames.Count);
-        Assert.Equal("CacheInfo2", renames["Cache"]);
-        Assert.Equal("NameInfo", renames["Name"]);
+        Assert.Equal("CacheValue", renames["Cache"]);
+        Assert.Equal("NameValue", renames["Name"]);
     }
 
     #endregion
 
-    #region Descendant Rename Propagation Tests
+    #region ComputePropertyRenames Tests
 
     [Fact]
-    public void ComputeAndApplyNestedTypeRenames_UpdatesDescendantTypes()
+    public void ComputePropertyRenames_CollidingProperty_ReturnsRename_DoesNotModifyTypeDatabase()
     {
         // Scenario: ImagePipeline has property "cache" (PascalCase: "Cache")
         // and nested type "Cache" which itself has nested type "Entry".
-        // After rename: Cache → CacheInfo, Cache.Entry → CacheInfo.Entry
+        // Property "Cache" should be renamed to "CacheValue".
+        // TypeDatabase should NOT be modified.
         var typeDatabase = new TypeDatabase();
         var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
 
@@ -136,24 +136,7 @@ public class NameProviderRenameTests
         };
 
         // Build type hierarchy: ImagePipeline → Cache → Entry
-        var entryDecl = new StructDecl
-        {
-            Name = "Entry",
-            SwiftTypeName = entrySwiftName,
-            MangledName = "$s10TestModule13ImagePipelineV5CacheV5EntryVN",
-            Properties = new List<PropertyDecl>(),
-            Methods = new List<MethodDecl>(),
-            Types = new List<TypeDecl>(),
-            Operators = new List<OperatorDecl>(),
-            Subscripts = new List<SubscriptDecl>(),
-            GenericParameters = new List<GenericArgumentDecl>(),
-            Conformances = new List<TypeConformance>(),
-            ParentDecl = null,
-            ModuleDecl = moduleDecl,
-            IsFrozen = true,
-            MetadataAccessor = "$s10TestModule13ImagePipelineV5CacheV5EntryVMa"
-        };
-
+        var entryDecl = CreateStructDecl("Entry", entrySwiftName, moduleDecl);
         var cacheDecl = new StructDecl
         {
             Name = "Cache",
@@ -205,142 +188,24 @@ public class NameProviderRenameTests
         cacheDecl.ParentDecl = parentDecl;
 
         // Act
-        var renames = NameProvider.ComputeAndApplyNestedTypeRenames(parentDecl, typeDatabase);
+        var renames = NameProvider.ComputePropertyRenames(parentDecl, typeDatabase);
 
-        // Assert — Cache should be renamed to CacheInfo
+        // Assert — property "Cache" should be renamed to "CacheValue"
         Assert.Single(renames);
-        Assert.Equal("CacheInfo", renames["Cache"]);
+        Assert.Equal("CacheValue", renames["Cache"]);
 
+        // Assert — TypeDatabase should NOT be modified
         Assert.True(typeDatabase.TryGetTypeRecord(cacheSwiftName, out var cacheRecord));
-        Assert.Equal("ImagePipeline.CacheInfo", cacheRecord!.CSharpTypeName.Name);
+        Assert.Equal("ImagePipeline.Cache", cacheRecord!.CSharpTypeName.Name);
 
-        // Assert — descendant Entry should be updated from Cache.Entry to CacheInfo.Entry
         Assert.True(typeDatabase.TryGetTypeRecord(entrySwiftName, out var entryRecord));
-        Assert.Equal("ImagePipeline.CacheInfo.Entry", entryRecord!.CSharpTypeName.Name);
+        Assert.Equal("ImagePipeline.Cache.Entry", entryRecord!.CSharpTypeName.Name);
     }
 
     [Fact]
-    public void ComputeAndApplyNestedTypeRenames_DeeplyNested_UpdatesAllDescendants()
+    public void ComputePropertyRenames_NoCollision_ReturnsEmpty_LeavesTypesDatabaseUnchanged()
     {
-        // Scenario: 3-level nesting. Parent has property colliding with nested type,
-        // and the nested type has a child which has a grandchild.
-        // All descendants must update their C# name prefix.
-        var typeDatabase = new TypeDatabase();
-        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
-
-        var parentSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.Outer");
-        module.RegisterType(parentSwiftName, new TypeRecord
-        {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Outer"),
-            SwiftTypeName = parentSwiftName,
-            MetadataAccessor = "$sMa",
-            Flags = TypeRecordFlags.Frozen,
-            Kind = TypeRecordKind.Struct
-        });
-
-        var configSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.Outer.Config");
-        module.RegisterType(configSwiftName, new TypeRecord
-        {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Outer.Config"),
-            SwiftTypeName = configSwiftName,
-            MetadataAccessor = "$sMa",
-            Flags = TypeRecordFlags.Frozen,
-            Kind = TypeRecordKind.Struct
-        });
-
-        var detailSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.Outer.Config.Detail");
-        module.RegisterType(detailSwiftName, new TypeRecord
-        {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Outer.Config.Detail"),
-            SwiftTypeName = detailSwiftName,
-            MetadataAccessor = "$sMa",
-            Flags = TypeRecordFlags.Frozen,
-            Kind = TypeRecordKind.Struct
-        });
-
-        var flagSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.Outer.Config.Detail.Flag");
-        module.RegisterType(flagSwiftName, new TypeRecord
-        {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Outer.Config.Detail.Flag"),
-            SwiftTypeName = flagSwiftName,
-            MetadataAccessor = "$sMa",
-            Flags = TypeRecordFlags.Frozen,
-            Kind = TypeRecordKind.Struct
-        });
-
-        typeDatabase.AddModuleDatabase(module);
-
-        var moduleDecl = new ModuleDecl
-        {
-            Name = "TestModule",
-            Properties = new List<PropertyDecl>(),
-            Methods = new List<MethodDecl>(),
-            Types = new List<TypeDecl>(),
-            Dependencies = new List<string>(),
-            Protocols = new List<ProtocolDecl>(),
-            ParentDecl = null,
-            ModuleDecl = null
-        };
-
-        // Build hierarchy: Outer → Config → Detail → Flag
-        var flagDecl = CreateStructDecl("Flag", flagSwiftName, moduleDecl);
-        var detailDecl = CreateStructDecl("Detail", detailSwiftName, moduleDecl);
-        detailDecl.Types = new List<TypeDecl> { flagDecl };
-        flagDecl.ParentDecl = detailDecl;
-
-        var configDecl = CreateStructDecl("Config", configSwiftName, moduleDecl);
-        configDecl.Types = new List<TypeDecl> { detailDecl };
-        detailDecl.ParentDecl = configDecl;
-
-        var outerDecl = new StructDecl
-        {
-            Name = "Outer",
-            SwiftTypeName = parentSwiftName,
-            MangledName = "$sN",
-            Properties = new List<PropertyDecl>
-            {
-                new()
-                {
-                    Name = "config",
-                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
-                    IsStatic = false,
-                    HasStorage = true,
-                    Accessors = new List<AccessorDecl>(),
-                    ParentDecl = null,
-                    ModuleDecl = moduleDecl
-                }
-            },
-            Methods = new List<MethodDecl>(),
-            Types = new List<TypeDecl> { configDecl },
-            Operators = new List<OperatorDecl>(),
-            Subscripts = new List<SubscriptDecl>(),
-            GenericParameters = new List<GenericArgumentDecl>(),
-            Conformances = new List<TypeConformance>(),
-            ParentDecl = moduleDecl,
-            ModuleDecl = moduleDecl,
-            IsFrozen = true,
-            MetadataAccessor = "$sMa"
-        };
-        configDecl.ParentDecl = outerDecl;
-
-        // Act
-        NameProvider.ComputeAndApplyNestedTypeRenames(outerDecl, typeDatabase);
-
-        // Assert — Config renamed, all descendants updated
-        Assert.True(typeDatabase.TryGetTypeRecord(configSwiftName, out var configRecord));
-        Assert.Equal("Outer.ConfigInfo", configRecord!.CSharpTypeName.Name);
-
-        Assert.True(typeDatabase.TryGetTypeRecord(detailSwiftName, out var detailRecord));
-        Assert.Equal("Outer.ConfigInfo.Detail", detailRecord!.CSharpTypeName.Name);
-
-        Assert.True(typeDatabase.TryGetTypeRecord(flagSwiftName, out var flagRecord));
-        Assert.Equal("Outer.ConfigInfo.Detail.Flag", flagRecord!.CSharpTypeName.Name);
-    }
-
-    [Fact]
-    public void ComputeAndApplyNestedTypeRenames_NoCollision_LeavesDescendantsUnchanged()
-    {
-        // When there's no property/type name collision, descendant types should not be modified.
+        // When there's no property/type name collision, no renames should be generated.
         var typeDatabase = new TypeDatabase();
         var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
 
@@ -411,7 +276,7 @@ public class NameProviderRenameTests
         childDecl.ParentDecl = parentDecl;
 
         // Act
-        var renames = NameProvider.ComputeAndApplyNestedTypeRenames(parentDecl, typeDatabase);
+        var renames = NameProvider.ComputePropertyRenames(parentDecl, typeDatabase);
 
         // Assert — no renames, child name unchanged
         Assert.Empty(renames);
@@ -421,136 +286,26 @@ public class NameProviderRenameTests
 
     #endregion
 
-    #region PrecomputeAllNestedTypeRenames Tests
+    #region GetFinalMemberName Tests
 
     [Fact]
-    public void PrecomputeAllNestedTypeRenames_ProcessesNestedTypesRecursively()
+    public void GetFinalMemberName_WithRename_ReturnsRenamed()
     {
-        // Scenario: Module has type A with nested type B that collides with A's property.
-        // B itself has nested type C that collides with B's property.
-        // PrecomputeAllNestedTypeRenames should handle both levels.
-        var typeDatabase = new TypeDatabase();
-        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        var renames = new Dictionary<string, string> { { "Cache", "CacheValue" } };
+        Assert.Equal("CacheValue", NameProvider.GetFinalMemberName("Cache", renames));
+    }
 
-        var aSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.A");
-        module.RegisterType(aSwiftName, new TypeRecord
-        {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "A"),
-            SwiftTypeName = aSwiftName,
-            MetadataAccessor = "$sMa",
-            Flags = TypeRecordFlags.Frozen,
-            Kind = TypeRecordKind.Struct
-        });
+    [Fact]
+    public void GetFinalMemberName_WithoutRename_ReturnsOriginal()
+    {
+        var renames = new Dictionary<string, string> { { "Cache", "CacheValue" } };
+        Assert.Equal("Name", NameProvider.GetFinalMemberName("Name", renames));
+    }
 
-        var bSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.A.B");
-        module.RegisterType(bSwiftName, new TypeRecord
-        {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "A.B"),
-            SwiftTypeName = bSwiftName,
-            MetadataAccessor = "$sMa",
-            Flags = TypeRecordFlags.Frozen,
-            Kind = TypeRecordKind.Struct
-        });
-
-        var cSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.A.B.C");
-        module.RegisterType(cSwiftName, new TypeRecord
-        {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "A.B.C"),
-            SwiftTypeName = cSwiftName,
-            MetadataAccessor = "$sMa",
-            Flags = TypeRecordFlags.Frozen,
-            Kind = TypeRecordKind.Struct
-        });
-
-        typeDatabase.AddModuleDatabase(module);
-
-        var moduleDecl = new ModuleDecl
-        {
-            Name = "TestModule",
-            Properties = new List<PropertyDecl>(),
-            Methods = new List<MethodDecl>(),
-            Types = new List<TypeDecl>(),
-            Dependencies = new List<string>(),
-            Protocols = new List<ProtocolDecl>(),
-            ParentDecl = null,
-            ModuleDecl = null
-        };
-
-        // B has property "c" colliding with nested type C
-        var cDecl = CreateStructDecl("C", cSwiftName, moduleDecl);
-        var bDecl = new StructDecl
-        {
-            Name = "B",
-            SwiftTypeName = bSwiftName,
-            MangledName = "$sN",
-            Properties = new List<PropertyDecl>
-            {
-                new()
-                {
-                    Name = "c",
-                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
-                    IsStatic = false,
-                    HasStorage = true,
-                    Accessors = new List<AccessorDecl>(),
-                    ParentDecl = null,
-                    ModuleDecl = moduleDecl
-                }
-            },
-            Methods = new List<MethodDecl>(),
-            Types = new List<TypeDecl> { cDecl },
-            Operators = new List<OperatorDecl>(),
-            Subscripts = new List<SubscriptDecl>(),
-            GenericParameters = new List<GenericArgumentDecl>(),
-            Conformances = new List<TypeConformance>(),
-            ParentDecl = null,
-            ModuleDecl = moduleDecl,
-            IsFrozen = true,
-            MetadataAccessor = "$sMa"
-        };
-        cDecl.ParentDecl = bDecl;
-
-        // A has property "b" colliding with nested type B
-        var aDecl = new StructDecl
-        {
-            Name = "A",
-            SwiftTypeName = aSwiftName,
-            MangledName = "$sN",
-            Properties = new List<PropertyDecl>
-            {
-                new()
-                {
-                    Name = "b",
-                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
-                    IsStatic = false,
-                    HasStorage = true,
-                    Accessors = new List<AccessorDecl>(),
-                    ParentDecl = null,
-                    ModuleDecl = moduleDecl
-                }
-            },
-            Methods = new List<MethodDecl>(),
-            Types = new List<TypeDecl> { bDecl },
-            Operators = new List<OperatorDecl>(),
-            Subscripts = new List<SubscriptDecl>(),
-            GenericParameters = new List<GenericArgumentDecl>(),
-            Conformances = new List<TypeConformance>(),
-            ParentDecl = moduleDecl,
-            ModuleDecl = moduleDecl,
-            IsFrozen = true,
-            MetadataAccessor = "$sMa"
-        };
-        bDecl.ParentDecl = aDecl;
-
-        // Act — process entire module
-        NameProvider.PrecomputeAllNestedTypeRenames(new[] { aDecl }, typeDatabase);
-
-        // Assert — B renamed to BInfo at level 1
-        Assert.True(typeDatabase.TryGetTypeRecord(bSwiftName, out var bRecord));
-        Assert.Equal("A.BInfo", bRecord!.CSharpTypeName.Name);
-
-        // Assert — C renamed to CInfo at level 2, and its parent prefix updated from B → BInfo
-        Assert.True(typeDatabase.TryGetTypeRecord(cSwiftName, out var cRecord));
-        Assert.Equal("A.BInfo.CInfo", cRecord!.CSharpTypeName.Name);
+    [Fact]
+    public void GetFinalMemberName_NullRenames_ReturnsOriginal()
+    {
+        Assert.Equal("Cache", NameProvider.GetFinalMemberName("Cache", null));
     }
 
     #endregion

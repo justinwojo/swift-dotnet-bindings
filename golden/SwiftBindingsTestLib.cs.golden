@@ -11022,13 +11022,13 @@ public partial class NestedOuter : ISwiftObject, IDisposable
                 //
                 // Important: Direct access to these fields from C# will not provide the correct value - always
                 // use the generated property accessors which call into Swift.
-        private Swift.SwiftBindingsTestLib.NestedOuter.InnerInfo inner_;  // Note: Do not access this field directly - use the property accessors
+        private Swift.SwiftBindingsTestLib.NestedOuter.Inner inner_;  // Note: Do not access this field directly - use the property accessors
         private IntPtr label_;  // Note: Do not access this field directly - use the property accessors
 }
 
 public unsafe PayloadBuffer<NestedOuter.Buffer> PayloadBuffer => new PayloadBuffer<NestedOuter.Buffer>(_payload);
 
-private Swift.SwiftBindingsTestLib.NestedOuter.InnerInfo Inner_Get()
+private Swift.SwiftBindingsTestLib.NestedOuter.Inner Inner_Get()
 {
     unsafe
     {
@@ -11056,9 +11056,9 @@ private Swift.SwiftBindingsTestLib.NestedOuter.InnerInfo Inner_Get()
 
 [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
 [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11NestedOuterV5innerAC5InnerVvg")]
-private static partial Swift.SwiftBindingsTestLib.NestedOuter.InnerInfo PInvoke_inner_Get_ED9E9E11( SwiftSelf<NestedOuter.Buffer> self);
+private static partial Swift.SwiftBindingsTestLib.NestedOuter.Inner PInvoke_inner_Get_ED9E9E11( SwiftSelf<NestedOuter.Buffer> self);
 
-private void Inner_Set( Swift.SwiftBindingsTestLib.NestedOuter.InnerInfo value)
+private void Inner_Set( Swift.SwiftBindingsTestLib.NestedOuter.Inner value)
 {
     unsafe
     {
@@ -11086,9 +11086,9 @@ private void Inner_Set( Swift.SwiftBindingsTestLib.NestedOuter.InnerInfo value)
 
 [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
 [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11NestedOuterV5innerAC5InnerVvs")]
-private static partial void PInvoke_inner_Set_019EBD8D( Swift.SwiftBindingsTestLib.NestedOuter.InnerInfo value,  SwiftSelf self);
+private static partial void PInvoke_inner_Set_019EBD8D( Swift.SwiftBindingsTestLib.NestedOuter.Inner value,  SwiftSelf self);
 
-public Swift.SwiftBindingsTestLib.NestedOuter.InnerInfo Inner
+public Swift.SwiftBindingsTestLib.NestedOuter.Inner InnerValue
 {
     get => Inner_Get();
     set => Inner_Set(value);
@@ -11229,7 +11229,7 @@ static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescript
     return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
 }
 
-public unsafe partial struct InnerInfo : ISwiftObject, IDisposable
+public unsafe partial struct Inner : ISwiftObject, IDisposable
 {
     
                 // For frozen structs, we need to emit fields that match the Swift struct's memory layout exactly.
@@ -11246,7 +11246,7 @@ public unsafe partial struct InnerInfo : ISwiftObject, IDisposable
         {
             try
             {
-                var self = new SwiftSelf<InnerInfo>(this);
+                var self = new SwiftSelf<Inner>(this);
                 
                 
                 
@@ -11264,7 +11264,7 @@ public unsafe partial struct InnerInfo : ISwiftObject, IDisposable
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11NestedOuterV5InnerV5values5Int32Vvg")]
-    private static partial int PInvoke_value_Get_F00E1DC0( SwiftSelf<InnerInfo> self);
+    private static partial int PInvoke_value_Get_F00E1DC0( SwiftSelf<Inner> self);
     
     private void Value_Set( int value)
     {
@@ -11272,7 +11272,7 @@ public unsafe partial struct InnerInfo : ISwiftObject, IDisposable
         {
             try
             {
-                fixed (InnerInfo* __self = &this)
+                fixed (Inner* __self = &this)
                 {
                     var self = new SwiftSelf(__self);
                     
@@ -11311,13 +11311,13 @@ public unsafe partial struct InnerInfo : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return *(InnerInfo*)handle;
+        return *(Inner*)handle;
     }
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
-        var metadata = SwiftObjectHelper<InnerInfo>.GetTypeMetadata();
+        var metadata = SwiftObjectHelper<Inner>.GetTypeMetadata();
         if ((int)metadata.Size > swiftDestSpan.Length)
         {
             throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
@@ -11332,7 +11332,7 @@ public unsafe partial struct InnerInfo : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     private static Dictionary<Type, string> _protocolConformanceSymbols;
-    static InnerInfo()
+    static Inner()
     {
         _protocolConformanceSymbols = new Dictionary<Type, string>
         {
@@ -11353,7 +11353,7 @@ public unsafe partial struct InnerInfo : ISwiftObject, IDisposable
     
     public void Dispose() { }
     
-    public InnerInfo( int _value)
+    public Inner( int _value)
     {
         unsafe
         {
@@ -11365,13 +11365,13 @@ public unsafe partial struct InnerInfo : ISwiftObject, IDisposable
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11NestedOuterV5InnerV5valueAEs5Int32V_tcfC")]
-    private static partial Swift.SwiftBindingsTestLib.NestedOuter.InnerInfo PInvoke_init_584E3F38( int _value);
+    private static partial Swift.SwiftBindingsTestLib.NestedOuter.Inner PInvoke_init_584E3F38( int _value);
     
     
 }
 
 
-public NestedOuter( Swift.SwiftBindingsTestLib.NestedOuter.InnerInfo inner,  string label)
+public NestedOuter( Swift.SwiftBindingsTestLib.NestedOuter.Inner inner,  string label)
 {
     unsafe
     {
@@ -11390,7 +11390,7 @@ public NestedOuter( Swift.SwiftBindingsTestLib.NestedOuter.InnerInfo inner,  str
 
 [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
 [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11NestedOuterV5inner5labelA2C5InnerV_SStcfC")]
-private static partial Swift.SwiftBindingsTestLib.NestedOuter.Buffer PInvoke_init_4DB19E84( Swift.SwiftBindingsTestLib.NestedOuter.InnerInfo inner,  Swift.SwiftString.Buffer label);
+private static partial Swift.SwiftBindingsTestLib.NestedOuter.Buffer PInvoke_init_4DB19E84( Swift.SwiftBindingsTestLib.NestedOuter.Inner inner,  Swift.SwiftString.Buffer label);
 
 
 public int GetInnerValue()
@@ -25924,7 +25924,7 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
         get => Method_Get();
     }
     
-    private Swift.SwiftBindingsTestLib.NetworkConfig.ContentTypeInfo ContentType_Get()
+    private Swift.SwiftBindingsTestLib.NetworkConfig.ContentType ContentType_Get()
     {
         unsafe
         {
@@ -25934,7 +25934,7 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
             {
                 var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
                 
-                var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<Swift.SwiftBindingsTestLib.NetworkConfig.ContentTypeInfo>();
+                var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<Swift.SwiftBindingsTestLib.NetworkConfig.ContentType>();
                 var payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
                 var swiftIndirectResult = new SwiftIndirectResult(payload);
                 
@@ -25942,7 +25942,7 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
                 
                 PInvoke_contentType_Get_EFBAE0E3(swiftIndirectResult, self);
                 
-                return SwiftMarshal.MarshalFromSwift<Swift.SwiftBindingsTestLib.NetworkConfig.ContentTypeInfo>(new IntPtr(swiftIndirectResult.Value));
+                return SwiftMarshal.MarshalFromSwift<Swift.SwiftBindingsTestLib.NetworkConfig.ContentType>(new IntPtr(swiftIndirectResult.Value));
             }
             
             finally
@@ -25958,7 +25958,7 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib13NetworkConfigV11contentTypeAC07ContentH0Ovg")]
     private static partial void PInvoke_contentType_Get_EFBAE0E3( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
     
-    public Swift.SwiftBindingsTestLib.NetworkConfig.ContentTypeInfo ContentType
+    public Swift.SwiftBindingsTestLib.NetworkConfig.ContentType ContentTypeValue
     {
         get => ContentType_Get();
     }
@@ -26386,14 +26386,14 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
     /// <summary>
     /// Nested String enum for content types.
     /// </summary>
-    public partial class ContentTypeInfo : ISwiftObject, IDisposable
+    public partial class ContentType : ISwiftObject, IDisposable
     {
         [EditorBrowsable(EditorBrowsableState.Never)]
-        static nuint _payloadSize = SwiftObjectHelper<ContentTypeInfo>.GetTypeMetadata().Size;
+        static nuint _payloadSize = SwiftObjectHelper<ContentType>.GetTypeMetadata().Size;
         [EditorBrowsable(EditorBrowsableState.Never)]
-        SwiftSafeHandle<ContentTypeInfo> _payload = SwiftSafeHandle<ContentTypeInfo>.Zero;
+        SwiftSafeHandle<ContentType> _payload = SwiftSafeHandle<ContentType>.Zero;
         [EditorBrowsable(EditorBrowsableState.Never)]
-        internal SwiftSafeHandle<ContentTypeInfo> Payload => _payload;
+        internal SwiftSafeHandle<ContentType> Payload => _payload;
         #pragma warning disable CS0649
         [EditorBrowsable(EditorBrowsableState.Never)]
         internal bool _isCachedSingleton;
@@ -26405,7 +26405,7 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
             _payload.Dispose();
             GC.SuppressFinalize(this);
         }
-        ~ContentTypeInfo()
+        ~ContentType()
         {
             if (!_isCachedSingleton)
                 Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
@@ -26418,10 +26418,10 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
             public nint Len;
         }
         /// <summary>
-        /// Creates a ContentTypeInfo from its raw value.
+        /// Creates a ContentType from its raw value.
         /// Returns null if the raw value doesn't correspond to a valid case.
         /// </summary>
-        public static unsafe ContentTypeInfo? FromRawValue(string rawValue)
+        public static unsafe ContentType? FromRawValue(string rawValue)
         {
             // Get metadata for the enum type
             var enumMetadata = PInvoke_getMetadata();
@@ -26455,8 +26455,8 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
                 IntPtr enumBuffer = (IntPtr)NativeMemory.Alloc(enumMetadata.Size);
                 enumMetadata.ValueWitnessTable->InitializeWithCopy((void*)enumBuffer, resultBuffer, enumMetadata);
                 
-                var result = new ContentTypeInfo();
-                result._payload = new SwiftSafeHandle<ContentTypeInfo>(enumBuffer);
+                var result = new ContentType();
+                result._payload = new SwiftSafeHandle<ContentType>(enumBuffer);
                 return result;
             }
             finally
@@ -26475,53 +26475,53 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         private static partial TypeMetadata PInvokesForSwiftOptional_MetadataAccessor(TypeMetadataRequest request, TypeMetadata typeMetadata);
         
-        private static readonly Lazy<ContentTypeInfo> _lazy_json = new(() =>
+        private static readonly Lazy<ContentType> _lazy_json = new(() =>
         {
             var result = FromRawValue("json")
-                ?? throw new InvalidOperationException("Failed to create ContentTypeInfo.Json from raw value \"json\"");
+                ?? throw new InvalidOperationException("Failed to create ContentType.Json from raw value \"json\"");
             result._isCachedSingleton = true;
             return result;
         });
         /// <summary>
-        /// Gets the 'json' case of ContentTypeInfo.
+        /// Gets the 'json' case of ContentType.
         /// </summary>
-        public static ContentTypeInfo Json => _lazy_json.Value;
+        public static ContentType Json => _lazy_json.Value;
         
-        private static readonly Lazy<ContentTypeInfo> _lazy_xml = new(() =>
+        private static readonly Lazy<ContentType> _lazy_xml = new(() =>
         {
             var result = FromRawValue("xml")
-                ?? throw new InvalidOperationException("Failed to create ContentTypeInfo.Xml from raw value \"xml\"");
+                ?? throw new InvalidOperationException("Failed to create ContentType.Xml from raw value \"xml\"");
             result._isCachedSingleton = true;
             return result;
         });
         /// <summary>
-        /// Gets the 'xml' case of ContentTypeInfo.
+        /// Gets the 'xml' case of ContentType.
         /// </summary>
-        public static ContentTypeInfo Xml => _lazy_xml.Value;
+        public static ContentType Xml => _lazy_xml.Value;
         
-        private static readonly Lazy<ContentTypeInfo> _lazy_formData = new(() =>
+        private static readonly Lazy<ContentType> _lazy_formData = new(() =>
         {
             var result = FromRawValue("formData")
-                ?? throw new InvalidOperationException("Failed to create ContentTypeInfo.FormData from raw value \"formData\"");
+                ?? throw new InvalidOperationException("Failed to create ContentType.FormData from raw value \"formData\"");
             result._isCachedSingleton = true;
             return result;
         });
         /// <summary>
-        /// Gets the 'formData' case of ContentTypeInfo.
+        /// Gets the 'formData' case of ContentType.
         /// </summary>
-        public static ContentTypeInfo FormData => _lazy_formData.Value;
+        public static ContentType FormData => _lazy_formData.Value;
         
-        private static readonly Lazy<ContentTypeInfo> _lazy_text = new(() =>
+        private static readonly Lazy<ContentType> _lazy_text = new(() =>
         {
             var result = FromRawValue("text")
-                ?? throw new InvalidOperationException("Failed to create ContentTypeInfo.Text from raw value \"text\"");
+                ?? throw new InvalidOperationException("Failed to create ContentType.Text from raw value \"text\"");
             result._isCachedSingleton = true;
             return result;
         });
         /// <summary>
-        /// Gets the 'text' case of ContentTypeInfo.
+        /// Gets the 'text' case of ContentType.
         /// </summary>
-        public static ContentTypeInfo Text => _lazy_text.Value;
+        public static ContentType Text => _lazy_text.Value;
         
         /// <summary>
         /// Enum representing the possible cases of ContentType.
@@ -26548,7 +26548,7 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
                     _payload.DangerousAddRef(ref success);
                     try
                     {
-                        var metadata = SwiftObjectHelper<ContentTypeInfo>.GetTypeMetadata();
+                        var metadata = SwiftObjectHelper<ContentType>.GetTypeMetadata();
                         byte* payload = (byte*)_payload.DangerousGetHandle();
                         return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
                     }
@@ -26607,22 +26607,22 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
         [EditorBrowsable(EditorBrowsableState.Never)]
         static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
         {
-            return new ContentTypeInfo(handle);
+            return new ContentType(handle);
         }
         
-        ContentTypeInfo()
+        ContentType()
         {
         }
         
-        ContentTypeInfo(SwiftHandle handle)
+        ContentType(SwiftHandle handle)
         {
-            _payload = new SwiftSafeHandle<ContentTypeInfo>(handle);
+            _payload = new SwiftSafeHandle<ContentType>(handle);
         }
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
         {
-            var metadata = SwiftObjectHelper<ContentTypeInfo>.GetTypeMetadata();
+            var metadata = SwiftObjectHelper<ContentType>.GetTypeMetadata();
             if ((int)metadata.Size > swiftDestSpan.Length)
             {
                 throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
@@ -26647,11 +26647,11 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         private static Dictionary<Type, string> _protocolConformanceSymbols;
-        static ContentTypeInfo()
+        static ContentType()
         {
             _protocolConformanceSymbols = new Dictionary<Type, string>
             {
-                {typeof(IEquatable<ContentTypeInfo>), "$s20SwiftBindingsTestLib13NetworkConfigV11ContentTypeOSQAAMc"},
+                {typeof(IEquatable<ContentType>), "$s20SwiftBindingsTestLib13NetworkConfigV11ContentTypeOSQAAMc"},
         {typeof(ISwiftHashable), "$s20SwiftBindingsTestLib13NetworkConfigV11ContentTypeOSHAAMc"}
             };
         }
@@ -26670,7 +26670,7 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
     }
     
     
-    public NetworkConfig( Swift.SwiftBindingsTestLib.NetworkConfig.HttpMethod method,  Swift.SwiftBindingsTestLib.NetworkConfig.ContentTypeInfo contentType,  string url)
+    public NetworkConfig( Swift.SwiftBindingsTestLib.NetworkConfig.HttpMethod method,  Swift.SwiftBindingsTestLib.NetworkConfig.ContentType contentType,  string url)
     {
         unsafe
         {

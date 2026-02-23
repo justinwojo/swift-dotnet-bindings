@@ -40,12 +40,9 @@ public static class GenericTypeEmitter
     /// </summary>
     /// <param name="typeDecl">The type declaration.</param>
     /// <returns>The type name with generic parameters.</returns>
-    public static string GetTypeNameWithGenerics(TypeDecl typeDecl, Dictionary<string, string>? renames = null)
+    public static string GetTypeNameWithGenerics(TypeDecl typeDecl)
     {
-        var name = typeDecl.Name;
-        if (renames != null && renames.TryGetValue(name, out var renamed))
-            name = renamed;
-        return $"{name}{GetGenericParameterList(typeDecl)}";
+        return $"{typeDecl.Name}{GetGenericParameterList(typeDecl)}";
     }
 
     /// <summary>

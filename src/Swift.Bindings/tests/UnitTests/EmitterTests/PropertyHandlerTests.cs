@@ -1467,6 +1467,20 @@ public class PropertyHandlerTests
         };
         moduleDecl.Protocols.Add(protocolDecl);
 
+        // Register protocol in TypeDatabase so GetImplementedInterfaces includes it.
+        // Use AddOutOfModuleTypes since the TestModule module database already exists.
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (protocolDecl.SwiftTypeName, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "IDisplayable"),
+                SwiftTypeName = protocolDecl.SwiftTypeName,
+                Kind = TypeRecordKind.Protocol,
+                Flags = TypeRecordFlags.None,
+                MetadataAccessor = "",
+            })
+        });
+
         // Concrete type conforms to the protocol
         classDecl.Conformances.Add(new TypeConformance(
             ConformingType: classDecl.SwiftTypeName,
@@ -1516,6 +1530,20 @@ public class PropertyHandlerTests
             ModuleDecl = moduleDecl
         };
         moduleDecl.Protocols.Add(protocolDecl);
+
+        // Register protocol in TypeDatabase so GetImplementedInterfaces includes it.
+        // Use AddOutOfModuleTypes since the TestModule module database already exists.
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (protocolDecl.SwiftTypeName, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "IDisplayable"),
+                SwiftTypeName = protocolDecl.SwiftTypeName,
+                Kind = TypeRecordKind.Protocol,
+                Flags = TypeRecordFlags.None,
+                MetadataAccessor = "",
+            })
+        });
 
         classDecl.Conformances.Add(new TypeConformance(
             ConformingType: classDecl.SwiftTypeName,

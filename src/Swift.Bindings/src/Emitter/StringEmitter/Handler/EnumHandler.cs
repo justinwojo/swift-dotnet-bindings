@@ -101,20 +101,20 @@ namespace BindingsGeneration
                 return;
             }
 
-            var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(enumDecl, context.NestedTypeRenames);
+            var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(enumDecl);
             var whereClause = GenericTypeEmitter.GetWhereClause(enumDecl, env.TypeDatabase);
 
             // Create P/Invoke helper context for generic enums (to avoid CS7042).
             var ownPInvokeContext = PInvokeHelperContext.CreateIfGeneric(enumDecl);
             var pinvokeHelperContext = ownPInvokeContext ?? context.PInvokeHelperContext;
 
-            // Compute nested type renames to resolve property/nested-type name collisions
-            var nestedTypeRenames = NameProvider.ComputeAndApplyNestedTypeRenames(enumDecl, env.TypeDatabase);
+            // Compute property renames to resolve property/nested-type name collisions
+            var propertyRenames = NameProvider.ComputePropertyRenames(enumDecl, env.TypeDatabase);
 
             // Build child context for nested handlers
             var childContext = context with {
                 PInvokeHelperContext = pinvokeHelperContext,
-                NestedTypeRenames = nestedTypeRenames
+                PropertyRenames = propertyRenames
             };
 
             {
@@ -174,9 +174,10 @@ namespace BindingsGeneration
             {
                 if (caseDecl.HasAssociatedValues)
                 {
-                    if (EmitEnumCaseWithAssociatedValues(csWriter, enumDecl, caseDecl, moduleDecl, env.TypeDatabase, typeNameWithGenerics, pinvokeHelperContext))
+                    if (EmitEnumCaseWithAssociatedValues(csWriter, enumDecl, caseDecl, moduleDecl, env.TypeDatabase, typeNameWithGenerics, pinvokeHelperContext, propertyRenames))
                     {
-                        emittedCaseConstructorNames.Add(NameProvider.ToPascalCase(caseDecl.Name));
+                        emittedCaseConstructorNames.Add(NameProvider.GetFinalMemberName(
+                            NameProvider.ToPascalCase(caseDecl.Name), propertyRenames));
                     }
                 }
                 else
@@ -198,14 +199,14 @@ namespace BindingsGeneration
             {
                 if (enumDecl.IsRawRepresentable)
                 {
-                    EmitRawRepresentableSupport(csWriter, swiftWriter, enumDecl, simpleCases, moduleDecl, env.TypeDatabase, typeNameWithGenerics, pinvokeHelperContext, canCacheCases);
+                    EmitRawRepresentableSupport(csWriter, swiftWriter, enumDecl, simpleCases, moduleDecl, env.TypeDatabase, typeNameWithGenerics, pinvokeHelperContext, canCacheCases, propertyRenames);
                 }
                 else
                 {
                     // No RawRepresentable - construct no-payload cases from enum tag.
                     foreach (var caseDecl in simpleCases)
                     {
-                        EmitSimpleCaseFromTag(csWriter, enumDecl, caseDecl, typeNameWithGenerics, canCacheCases);
+                        EmitSimpleCaseFromTag(csWriter, enumDecl, caseDecl, typeNameWithGenerics, canCacheCases, propertyRenames);
                     }
                 }
             }
@@ -232,7 +233,8 @@ namespace BindingsGeneration
             // Emit properties using the same pattern as other handlers
             foreach (var propertyDecl in enumDecl.Properties)
             {
-                var propertyName = NameProvider.GetPropertyName(propertyDecl.Name, enumDecl.Name);
+                var propertyName = NameProvider.GetFinalMemberName(
+                    NameProvider.GetPropertyName(propertyDecl.Name, enumDecl.Name), propertyRenames);
                 if (emittedCaseConstructorNames.Contains(propertyName))
                 {
                     _logger.LogInformation($"Skipping enum property '{enumDecl.Name}.{propertyName}' because a case constructor with the same C# name is already emitted.");
@@ -263,9 +265,10 @@ namespace BindingsGeneration
             iSwiftObjectWriter.WriteEnumImplementation();
 
             // Collect all emitted member names for method/property collision detection.
-            // Include actual property names, case constructor names, and synthesized names.
+            // Include actual property names (post-rename), case constructor names, and synthesized names.
             var propertyNames = new HashSet<string>(enumDecl.Properties.Select(p =>
-                NameProvider.GetPropertyName(p.Name, enumDecl.Name)));
+                NameProvider.GetFinalMemberName(
+                    NameProvider.GetPropertyName(p.Name, enumDecl.Name), propertyRenames)));
 
             // Include case-derived names to prevent method collisions
             foreach (var caseName in emittedCaseConstructorNames)
@@ -278,7 +281,8 @@ namespace BindingsGeneration
             foreach (var caseDecl in enumDecl.Cases.Where(c => c.HasAssociatedValues))
                 propertyNames.Add($"TryGet{NameProvider.ToPascalCase(caseDecl.Name)}");
             foreach (var caseDecl in enumDecl.Cases.Where(c => !c.HasAssociatedValues))
-                propertyNames.Add(NameProvider.ToPascalCase(caseDecl.Name));
+                propertyNames.Add(NameProvider.GetFinalMemberName(
+                    NameProvider.ToPascalCase(caseDecl.Name), propertyRenames));
 
             // Record enum operators — equality operators are handled by C# enum semantics
             // (RawValue comparison), other operators are unsupported on enum types.
@@ -320,7 +324,7 @@ namespace BindingsGeneration
             }
         }
 
-        // ComputeAndApplyNestedTypeRenames is now centralized in NameProvider.
+        // ComputePropertyRenames is now centralized in NameProvider.
 
         /// <summary>
         /// Emits a static property for a simple enum case (no associated values).
@@ -365,10 +369,11 @@ namespace BindingsGeneration
         /// When <paramref name="canCacheCases"/> is true, the case is cached as a lazy singleton to avoid
         /// repeated native memory allocation on each access.
         /// </summary>
-        private void EmitSimpleCaseFromTag(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, string enumTypeName, bool canCacheCases)
+        private void EmitSimpleCaseFromTag(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, string enumTypeName, bool canCacheCases, Dictionary<string, string>? propertyRenames = null)
         {
             var caseName = caseDecl.Name;
-            var capitalizedName = NameProvider.ToPascalCase(caseName);
+            var capitalizedName = NameProvider.GetFinalMemberName(
+                NameProvider.ToPascalCase(caseName), propertyRenames);
             var fieldName = caseName;
             var caseTag = enumDecl.GetCaseTag(caseDecl);
 

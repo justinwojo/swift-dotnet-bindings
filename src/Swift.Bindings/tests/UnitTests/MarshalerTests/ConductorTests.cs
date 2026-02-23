@@ -451,7 +451,7 @@ public class ConductorTests
         Assert.Null(ctx.PInvokeHelperContext);
         Assert.NotNull(ctx.DeferredPInvokeHelperContexts);
         Assert.Empty(ctx.DeferredPInvokeHelperContexts);
-        Assert.Null(ctx.NestedTypeRenames);
+        Assert.Null(ctx.PropertyRenames);
     }
 
     [Fact]

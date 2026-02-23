@@ -380,10 +380,9 @@ public class OperatorHandlerOutputTests
     }
 
     [Fact]
-    public void EmitOperator_RenamedNestedType_UsesResolvedNameFromTypeDatabase()
+    public void EmitOperator_NestedType_UsesOriginalNameFromTypeDatabase()
     {
-        // When a nested type is renamed (e.g., ContentType → ContentTypeInfo),
-        // the operator should use the resolved name from TypeDatabase
+        // TypeDatabase is no longer modified by rename logic — operators use original type names
         var typeDatabase = new TypeDatabase();
         var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
         swiftModule.RegisterType(
@@ -399,12 +398,12 @@ public class OperatorHandlerOutputTests
         typeDatabase.AddModuleDatabase(swiftModule);
 
         var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
-        // Register with renamed CSharpTypeName (simulating rename by ComputeAndApplyNestedTypeRenames)
+        // Register with original CSharpTypeName (TypeDatabase is no longer mutated by rename logic)
         module.RegisterType(
             SwiftTypeName.FromModuleQualifiedName("TestModule.ContentType"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Parent.ContentTypeInfo"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Parent.ContentType"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ContentType"),
                 MetadataAccessor = "$s10TestModule11ContentTypeVMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -436,16 +435,14 @@ public class OperatorHandlerOutputTests
 
         var output = EmitOperator(op, typeDatabase);
 
-        // Operator parameter types should reference the renamed name (ContentTypeInfo)
-        Assert.Contains("ContentTypeInfo", output);
-        Assert.DoesNotContain("ContentType left", output);
-        Assert.DoesNotContain("ContentType right", output);
+        // Operator parameter types should reference the original name (ContentType)
+        Assert.Contains("ContentType", output);
     }
 
     [Fact]
-    public void ValidateAndEmitPairs_RenamedNestedType_SynthesizedOperatorUsesResolvedName()
+    public void ValidateAndEmitPairs_NestedType_SynthesizedOperatorUsesOriginalName()
     {
-        // Synthesized paired operators (e.g., != from ==) should use the resolved name
+        // Synthesized paired operators (e.g., != from ==) use the original type name
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentType = CreateStructDecl("ContentType", moduleDecl);
         var op = CreateBinaryOperator("==", parentType, moduleDecl, "Swift.Bool");
@@ -453,12 +450,11 @@ public class OperatorHandlerOutputTests
 
         var writer = new StringWriter();
         var csWriter = new CSharpWriter(writer);
-        // Pass the renamed type name (as it would be after ComputeAndApplyNestedTypeRenames)
-        handler.ValidateAndEmitPairs(csWriter, new List<OperatorDecl> { op }, "ContentTypeInfo", new HashSet<string> { "==" });
+        // Pass the original type name (TypeDatabase is no longer mutated)
+        handler.ValidateAndEmitPairs(csWriter, new List<OperatorDecl> { op }, "ContentType", new HashSet<string> { "==" });
 
         var output = writer.ToString();
-        Assert.Contains("public static bool operator !=(ContentTypeInfo left, ContentTypeInfo right)", output);
-        Assert.DoesNotContain("ContentType left", output);
+        Assert.Contains("public static bool operator !=(ContentType left, ContentType right)", output);
     }
 
     private static OperatorDecl CreateBinaryOperator(string symbol, StructDecl parentType,
