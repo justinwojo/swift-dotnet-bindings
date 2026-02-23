@@ -255,12 +255,16 @@ public class OptionalProjection : ITypeProjection
     /// </summary>
     public string? GetReturnElementConversion(string elementVar)
     {
-        var innerConv = _innerProjection.GetReturnElementConversion("_optVal");
+        // Derive a unique inner variable name from elementVar to avoid CS0128 when
+        // multiple optional elements appear in the same scope (e.g., tuple elements).
+        var safeVar = elementVar.Replace(".", "_").Replace("[", "").Replace("]", "");
+        var innerVar = $"_optVal_{safeVar}";
+        var innerConv = _innerProjection.GetReturnElementConversion(innerVar);
         if (innerConv != null)
         {
             // Inner needs conversion: e.g., SwiftOptional<SwiftString> → string?
             // ToNullable() gives SwiftString?, then convert the inner value.
-            return $"({elementVar}.ToNullable() is {{ }} _optVal ? ({_innerProjection.PublicType}?){innerConv} : null)";
+            return $"({elementVar}.ToNullable() is {{ }} {innerVar} ? ({_innerProjection.PublicType}?){innerConv} : null)";
         }
         // Simple inner: SwiftOptional<T> → T?
         return $"{elementVar}.ToNullable()";

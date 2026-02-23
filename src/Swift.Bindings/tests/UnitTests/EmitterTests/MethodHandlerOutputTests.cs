@@ -818,7 +818,7 @@ public class MethodHandlerOutputTests
     }
 
     [Fact]
-    public void Emit_TupleReturnWithOptionalString_DoesNotConvertInnerString()
+    public void Emit_TupleReturnWithOptionalString_ConvertsToIdiomaticType()
     {
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -844,13 +844,13 @@ public class MethodHandlerOutputTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        // Optional<String> stays as SwiftOptional<SwiftString> in tuples (marshalling requires raw types)
-        Assert.Contains("Swift.SwiftOptional<Swift.SwiftString>", csOutput);
-        Assert.DoesNotContain("SwiftOptional<string>", csOutput);
+        // Optional<String> is now projected to string? via factory in the public signature
+        Assert.Contains("(string?, long)", csOutput);
+        // Raw types may still appear in marshalling body (MarshalFromSwift calls) — that's correct
     }
 
     [Fact]
-    public void Emit_TupleReturnWithArrayString_DoesNotConvertInnerString()
+    public void Emit_TupleReturnWithArrayString_ConvertsToIdiomaticType()
     {
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -876,13 +876,13 @@ public class MethodHandlerOutputTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        // Array<String> stays as SwiftArray<SwiftString> in tuples (marshalling requires raw types)
-        Assert.Contains("Swift.SwiftArray<Swift.SwiftString>", csOutput);
-        Assert.DoesNotContain("SwiftArray<string>", csOutput);
+        // Array<String> is now projected to IReadOnlyList<string> via factory in the public signature
+        Assert.Contains("IReadOnlyList<string>", csOutput);
+        // Raw types may still appear in marshalling body (MarshalFromSwift calls) — that's correct
     }
 
     [Fact]
-    public void Emit_MixedTupleReturnWithBareAndOptionalString_OnlyConvertsBareString()
+    public void Emit_MixedTupleReturnWithBareAndOptionalString_ConvertsBoth()
     {
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -909,9 +909,44 @@ public class MethodHandlerOutputTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        // Bare String → string, Optional<String> stays as SwiftOptional<SwiftString>
-        Assert.Contains("(string, Swift.SwiftOptional<Swift.SwiftString>, long)", csOutput);
-        Assert.DoesNotContain("SwiftOptional<string>", csOutput);
+        // Both bare String and Optional<String> now use idiomatic types in the public signature
+        Assert.Contains("(string, string?, long)", csOutput);
+        // Raw types may still appear in marshalling body (MarshalFromSwift calls) — that's correct
+    }
+
+    [Fact]
+    public void Emit_TupleReturnWithOptionalObjC_UsesIntPtrZeroCheck()
+    {
+        // P1 regression test: Optional<ObjC> tuple elements use bare IntPtr (null = IntPtr.Zero),
+        // NOT SwiftOptional buffer layout. The factory projection must be skipped for these types.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        // Tuple return: (Optional<UIKit.UIImage>, Swift.Int)
+        var optionalObjC = new NamedTypeSpec("Swift.Optional");
+        optionalObjC.GenericParameters.Add(new NamedTypeSpec("UIKit.UIImage"));
+        var tupleType = new TupleTypeSpec(new List<TypeSpec>
+        {
+            optionalObjC,
+            new NamedTypeSpec("Swift.Int")
+        });
+
+        var method = CreateMethodDecl(
+            name: "getImage",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: tupleType,
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Static);
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        // Optional<ObjC> should use IntPtr.Zero check, NOT MarshalFromSwift<SwiftOptional<IntPtr>>
+        Assert.Contains("IntPtr.Zero", csOutput);
+        Assert.Contains("GetNSObject", csOutput);
+        Assert.DoesNotContain("MarshalFromSwift<SwiftOptional<IntPtr>>", csOutput);
     }
 
     #endregion
@@ -1266,6 +1301,20 @@ public class MethodHandlerOutputTests
                 Kind = TypeRecordKind.Enum
             });
         typeDatabase.AddModuleDatabase(module);
+
+        // UIKit module with ObjC bridged type for Optional<ObjC> tests
+        var uikitModule = new ModuleTypeDatabase("UIKit", "/System/Library/Frameworks/UIKit.framework/UIKit");
+        uikitModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("UIKit.UIImage"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("UIKit", "UIImage"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("UIKit.UIImage"),
+                MetadataAccessor = "$sSo7UIImageCMa",
+                Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        typeDatabase.AddModuleDatabase(uikitModule);
 
         return typeDatabase;
     }

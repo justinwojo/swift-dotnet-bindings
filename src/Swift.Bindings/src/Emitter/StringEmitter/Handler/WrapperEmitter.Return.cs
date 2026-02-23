@@ -411,7 +411,9 @@ namespace BindingsGeneration
             // Emit per-element marshalling and tuple reconstruction
             foreach (var line in marshalLines)
             {
-                csWriter.WriteLine(line);
+                // Handle multi-line marshal code (e.g., projection two-step conversion)
+                foreach (var subLine in line.Split('\n'))
+                    csWriter.WriteLine(subLine);
             }
             csWriter.WriteLine($"return ({string.Join(", ", resultElements)});");
         }
@@ -499,9 +501,19 @@ namespace BindingsGeneration
         /// <param name="applyIdiomaticConversion">When true, converts bare SwiftString to string. Set to false for recursive calls inside generics.</param>
         private string GetCSharpTypeForTupleElement(TypeSpec element, bool applyIdiomaticConversion = true)
         {
-            // Handle Optional<T> (bound generic with Optional)
+            // Handle bound generics — try factory projection first for idiomatic types
             if (element is NamedTypeSpec namedType && namedType.ContainsGenericParameters)
             {
+                var projection = s_projectionFactory.Project(element, new ProjectionContext
+                {
+                    TypeDatabase = _env.TypeDatabase,
+                    IsParameter = false,
+                    GenericContext = _genericContext
+                });
+                if (projection != null)
+                    return projection.PublicType;
+
+                // Factory returned null — fall back to raw type translation
                 var baseTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
                 if (_env.TypeDatabase.TryGetTypeRecord(baseTypeName, out var baseRecord))
                 {
@@ -542,9 +554,50 @@ namespace BindingsGeneration
             // Handle bound generic types (Optional<T>, Array<T>, etc.)
             if (element is NamedTypeSpec namedType && namedType.ContainsGenericParameters)
             {
+                // Check for Optional<ObjC> first — ObjC types use bare IntPtr (null = IntPtr.Zero),
+                // NOT SwiftOptional buffer layout. Must skip projection to use the ObjC special-case below.
                 var baseTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+                bool isOptionalObjC = false;
                 if (_env.TypeDatabase.TryGetTypeRecord(baseTypeName, out var baseRecord) &&
-                    baseRecord.CSharpTypeName.Name == "SwiftOptional")
+                    baseRecord.CSharpTypeName.Name == "SwiftOptional" &&
+                    namedType.GenericParameters.Count > 0 &&
+                    namedType.GenericParameters[0] is NamedTypeSpec innerObjCCheck &&
+                    _env.TypeDatabase.TryGetTypeRecord(innerObjCCheck, out var innerObjCRecord) &&
+                    MarshallingHelpers.IsObjCBridged(innerObjCRecord))
+                {
+                    isOptionalObjC = true;
+                }
+
+                // Try factory projection for idiomatic return marshalling (skip Optional<ObjC>)
+                if (!isOptionalObjC)
+                {
+                    var projection = s_projectionFactory.Project(element, new ProjectionContext
+                    {
+                        TypeDatabase = _env.TypeDatabase,
+                        IsParameter = false,
+                        GenericContext = _genericContext
+                    });
+                    if (projection != null)
+                    {
+                        var containerType = projection.ContainerTypeName;
+                        var containerConv = projection.GetReturnContainerConversion($"_swift{resultName}");
+                        if (containerConv != null)
+                        {
+                            // Two-step: marshal from Swift container type, then convert to public type
+                            return $"var _swift{resultName} = SwiftMarshal.MarshalFromSwift<{containerType}>({itemName});\nvar {resultName} = {containerConv};";
+                        }
+                        var elemConv = projection.GetReturnElementConversion($"_swift{resultName}");
+                        if (elemConv != null)
+                        {
+                            return $"var _swift{resultName} = SwiftMarshal.MarshalFromSwift<{containerType}>({itemName});\nvar {resultName} = {elemConv};";
+                        }
+                        // No conversion needed — use container type for MarshalFromSwift
+                        return $"var {resultName} = SwiftMarshal.MarshalFromSwift<{containerType}>({itemName});";
+                    }
+                }
+
+                // Factory returned null or Optional<ObjC> — fall back to raw type marshalling
+                if (baseRecord != null && baseRecord.CSharpTypeName.Name == "SwiftOptional")
                 {
                     // For optional ObjC types, the P/Invoke type is IntPtr
                     // For optional Swift types, it's SwiftOptional<T>.Buffer

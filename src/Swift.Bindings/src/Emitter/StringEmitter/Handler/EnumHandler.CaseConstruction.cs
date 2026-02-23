@@ -76,14 +76,32 @@ namespace BindingsGeneration
             csWriter.Indent++;
             csWriter.WriteLine($"var {resultVarName} = new {enumTypeName}();");
 
-            // Emit SwiftString conversions for string parameters
+            // Emit conversions for parameters that differ between public and internal types
             var typeConversionHandler = new TypeConversionHandler(typeDatabase);
+            var projectedArgs = new Dictionary<int, MarshalPlan>();
             for (int i = 0; i < parameters.Count; i++)
             {
                 var (type, publicType, name, typeSpec) = parameters[i];
                 if (typeConversionHandler.IsSwiftString(typeSpec))
                 {
                     csWriter.WriteLine($"using var __{name} = new SwiftString({name});");
+                }
+                else if (publicType != type && typeSpec is NamedTypeSpec ns && ns.ContainsGenericParameters)
+                {
+                    // Bound generic with factory projection — emit conversion via MarshalPlan
+                    var genericContext = enumDecl.IsGeneric
+                        ? BuildGenericContextFromEnumParams(enumDecl.GenericParameters)
+                        : GenericContext.Empty;
+                    var projection = new TypeProjectionFactory().Project(typeSpec, new ProjectionContext
+                    {
+                        TypeDatabase = typeDatabase, IsParameter = true, GenericContext = genericContext
+                    });
+                    if (projection != null)
+                    {
+                        var plan = projection.GetParameterPlan(name);
+                        MarshalPlanRenderer.RenderStatements(csWriter, plan.SetupStatements);
+                        projectedArgs[i] = plan;
+                    }
                 }
             }
 
@@ -108,6 +126,10 @@ namespace BindingsGeneration
                     csWriter.WriteLine($"var {name}SwiftSpan = new Span<byte>({name}SwiftBuffer, (int){name}Metadata.Size);");
                     csWriter.WriteLine($"SwiftMarshal.MarshalToSwift({name}, ref {name}SwiftSpan);");
                     argList.Add($"(IntPtr){name}SwiftBuffer");
+                }
+                else if (projectedArgs.TryGetValue(i, out var projPlan))
+                {
+                    argList.Add(projPlan.PInvokeExpression);
                 }
                 else
                 {
@@ -253,16 +275,19 @@ namespace BindingsGeneration
                 }
             }
 
-            // Handle tuple types - recurse per element, but keep SwiftString as-is
-            // inside tuples (P/Invoke marshalling needs the ABI type for tuple elements).
-            // Other conversions (existential→interface) still apply.
+            // Handle tuple types - recurse per element, but keep SwiftString and bound generics
+            // as-is inside tuples (P/Invoke marshalling needs the ABI type for tuple elements).
+            // Only existential→interface conversion applies inside tuples.
             if (typeSpec is TupleTypeSpec tupleType)
             {
                 var tupleHandler = new TupleHandler(typeDatabase);
                 return tupleHandler.GetCSharpTupleType(tupleType, elementTypeSpec =>
                 {
-                    // SwiftString inside tuples keeps ABI type (marshalling needs SwiftString, not string)
+                    // SwiftString and bound generics (Optional, Array, Dictionary) inside tuples
+                    // keep ABI types — body-side marshalling doesn't support per-element conversion
                     if (typeConversionHandler.IsSwiftString(elementTypeSpec))
+                        return GetCSharpTypeNameForEnumCase(elementTypeSpec, typeDatabase, boundGenericsHandler, genericParams);
+                    if (elementTypeSpec is NamedTypeSpec ns && ns.ContainsGenericParameters)
                         return GetCSharpTypeNameForEnumCase(elementTypeSpec, typeDatabase, boundGenericsHandler, genericParams);
                     return GetPublicCSharpTypeNameForEnumCase(elementTypeSpec, typeDatabase, boundGenericsHandler, genericParams);
                 });
@@ -271,6 +296,29 @@ namespace BindingsGeneration
             // Handle SwiftString → string for public API
             if (typeConversionHandler.IsSwiftString(typeSpec))
                 return "string";
+
+            // Handle bound generics (Optional<T>, Array<T>, Dictionary<K,V>) via factory
+            // The factory produces idiomatic public types (string?, IReadOnlyList<T>, IReadOnlyDictionary<K,V>).
+            // Always use IsParameter=false so types are consistent between construction (factory methods)
+            // and deconstruction (TryGet out parameters). IReadOnlyList/IReadOnlyDictionary work for both
+            // since construction uses IEnumerable-based conversion and TryGet uses AsProjected.
+            // Skip closure types — delegate* can't be used as generic type arguments in MarshalFromSwift<T>.
+            // Use recursive check to catch nested closures like Optional<Array<Closure>>.
+            if (typeSpec is NamedTypeSpec namedBoundGeneric && namedBoundGeneric.ContainsGenericParameters
+                && !ContainsClosureTypeSpec(namedBoundGeneric))
+            {
+                var genericContext = genericParams != null
+                    ? BuildGenericContextFromEnumParams(genericParams)
+                    : GenericContext.Empty;
+                var projection = new TypeProjectionFactory().Project(typeSpec, new ProjectionContext
+                {
+                    TypeDatabase = typeDatabase,
+                    IsParameter = false,
+                    GenericContext = genericContext
+                });
+                if (projection != null)
+                    return projection.PublicType;
+            }
 
             // Everything else: delegate to the internal type
             return GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams);
@@ -440,6 +488,38 @@ namespace BindingsGeneration
 
             // Fallback — IntPtr is safe for any unknown type (Protocol/AnyType, etc.)
             return "IntPtr";
+        }
+
+        /// <summary>
+        /// Recursively checks whether a TypeSpec contains any ClosureTypeSpec.
+        /// Closure function pointers (delegate*) cannot be used as C# generic type arguments,
+        /// so containers with nested closures must skip factory projection.
+        /// </summary>
+        private static bool ContainsClosureTypeSpec(TypeSpec typeSpec)
+        {
+            if (typeSpec is ClosureTypeSpec)
+                return true;
+            if (typeSpec is NamedTypeSpec named)
+                return named.GenericParameters.Any(ContainsClosureTypeSpec);
+            if (typeSpec is TupleTypeSpec tuple)
+                return tuple.Elements.Any(ContainsClosureTypeSpec);
+            return false;
+        }
+
+        /// <summary>
+        /// Builds a GenericContext from enum generic parameters for use with TypeProjectionFactory.
+        /// Maps τ_0_0 → T0/T/TKey etc. based on the enum's GenericArgumentDecl list.
+        /// </summary>
+        private static GenericContext BuildGenericContextFromEnumParams(IReadOnlyList<GenericArgumentDecl> genericParams)
+        {
+            var mapping = new Dictionary<string, GenericParameterCSName>();
+            for (int i = 0; i < genericParams.Count; i++)
+            {
+                var param = genericParams[i];
+                var csName = NameProvider.GetCSharpGenericParameterName(param, i);
+                mapping[param.TypeName] = new GenericParameterCSName(csName);
+            }
+            return new GenericContext(mapping);
         }
 
         private static bool TryGetGenericTypeParameterName(string swiftTypeName, out string typeParameterName,

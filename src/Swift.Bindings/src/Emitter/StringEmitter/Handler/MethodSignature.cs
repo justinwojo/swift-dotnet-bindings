@@ -376,6 +376,16 @@ namespace BindingsGeneration
                     (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec, _genericContext) && !(hasGenericElements && _env.MethodDecl.IsAsync)))
                     SetReturnType(_env.TupleHandler.GetCSharpTupleType(tupleTypeSpec, typeSpec =>
                     {
+                        // Try factory projection first for bound generics (Optional, Array, Dictionary)
+                        var projection = _factory.Project(typeSpec, new ProjectionContext
+                        {
+                            TypeDatabase = _env.TypeDatabase,
+                            IsParameter = false,
+                            GenericContext = _genericContext
+                        });
+                        if (projection != null)
+                            return projection.PublicType;
+
                         if (MarshallingHelpers.IsSwiftString(typeSpec))
                             return "string";
                         return TranslateTypeSpecForConversion(typeSpec);

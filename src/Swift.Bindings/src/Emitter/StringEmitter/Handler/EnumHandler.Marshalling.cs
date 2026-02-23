@@ -215,6 +215,38 @@ namespace BindingsGeneration
                 }
             }
 
+            // For bound generics, check if public type differs (needs conversion after marshal).
+            // Skip closures — delegate* can't be used as generic type arguments in MarshalFromSwift<T>.
+            if (typeSpec is NamedTypeSpec namedOffset && namedOffset.ContainsGenericParameters
+                && !ContainsClosureTypeSpec(namedOffset))
+            {
+                var publicType = GetPublicCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams);
+                if (publicType != csharpType)
+                {
+                    var genericContext = genericParams != null
+                        ? BuildGenericContextFromEnumParams(genericParams)
+                        : GenericContext.Empty;
+                    var projection = new TypeProjectionFactory().Project(typeSpec, new ProjectionContext
+                    {
+                        TypeDatabase = typeDatabase, IsParameter = false, GenericContext = genericContext
+                    });
+                    if (projection != null)
+                    {
+                        var containerType = projection.ContainerTypeName;
+                        csWriter.WriteLine($"var _{varName}_raw = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr} + (int){offsetVar}));");
+                        var containerConv = projection.GetReturnContainerConversion($"_{varName}_raw");
+                        var elemConv = projection.GetReturnElementConversion($"_{varName}_raw");
+                        if (containerConv != null)
+                            csWriter.WriteLine($"{varName} = {containerConv};");
+                        else if (elemConv != null)
+                            csWriter.WriteLine($"{varName} = {elemConv};");
+                        else
+                            csWriter.WriteLine($"{varName} = _{varName}_raw;");
+                        return;
+                    }
+                }
+            }
+
             csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(new IntPtr({sourcePtr} + (int){offsetVar}));");
         }
 
@@ -255,6 +287,38 @@ namespace BindingsGeneration
                 }
             }
 
+            // For bound generics, check if public type differs (needs conversion after marshal)
+            if (typeSpec is NamedTypeSpec namedMarshal && namedMarshal.ContainsGenericParameters
+                && !ContainsClosureTypeSpec(namedMarshal))
+            {
+                var publicType = GetPublicCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams);
+                var internalType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams);
+                if (publicType != internalType)
+                {
+                    var genericContext = genericParams != null
+                        ? BuildGenericContextFromEnumParams(genericParams)
+                        : GenericContext.Empty;
+                    var projection = new TypeProjectionFactory().Project(typeSpec, new ProjectionContext
+                    {
+                        TypeDatabase = typeDatabase, IsParameter = false, GenericContext = genericContext
+                    });
+                    if (projection != null)
+                    {
+                        var containerType = projection.ContainerTypeName;
+                        csWriter.WriteLine($"var _{varName}_raw = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr}));");
+                        var containerConv = projection.GetReturnContainerConversion($"_{varName}_raw");
+                        var elemConv = projection.GetReturnElementConversion($"_{varName}_raw");
+                        if (containerConv != null)
+                            csWriter.WriteLine($"{varName} = {containerConv};");
+                        else if (elemConv != null)
+                            csWriter.WriteLine($"{varName} = {elemConv};");
+                        else
+                            csWriter.WriteLine($"{varName} = _{varName}_raw;");
+                        return;
+                    }
+                }
+            }
+
             // Use GetCSharpTypeNameForEnumCase to properly handle bound generics
             var csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams);
             csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(new IntPtr({sourcePtr}));");
@@ -271,6 +335,37 @@ namespace BindingsGeneration
 
             // Get the C# type name for this typeSpec
             string csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams);
+
+            // For bound generics, check if public type differs (needs conversion after marshal)
+            if (typeSpec is NamedTypeSpec namedDecl && namedDecl.ContainsGenericParameters
+                && !ContainsClosureTypeSpec(namedDecl))
+            {
+                var publicType = GetPublicCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams);
+                if (publicType != csharpType)
+                {
+                    var genericContext = genericParams != null
+                        ? BuildGenericContextFromEnumParams(genericParams)
+                        : GenericContext.Empty;
+                    var projection = new TypeProjectionFactory().Project(typeSpec, new ProjectionContext
+                    {
+                        TypeDatabase = typeDatabase, IsParameter = false, GenericContext = genericContext
+                    });
+                    if (projection != null)
+                    {
+                        var containerType = projection.ContainerTypeName;
+                        csWriter.WriteLine($"var _{varName}_raw = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr}));");
+                        var containerConv = projection.GetReturnContainerConversion($"_{varName}_raw");
+                        var elemConv = projection.GetReturnElementConversion($"_{varName}_raw");
+                        if (containerConv != null)
+                            csWriter.WriteLine($"var {varName} = {containerConv};");
+                        else if (elemConv != null)
+                            csWriter.WriteLine($"var {varName} = {elemConv};");
+                        else
+                            csWriter.WriteLine($"var {varName} = _{varName}_raw;");
+                        return;
+                    }
+                }
+            }
 
             // Handle existential types
             if (existentialHandler.IsExistential(typeSpec))
