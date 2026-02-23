@@ -1,7 +1,7 @@
 # Class Inheritance Implementation Plan
 
 **Created**: February 2026
-**Status**: Spike → Implementation
+**Status**: Sessions 1-2 complete, Session 3 next
 **Prerequisite for**: ObjC Binding Integration, Self-return handling, polymorphic collections
 
 ---
@@ -61,124 +61,84 @@ With inheritance as foundation, the subsequent quick-win and closure sessions be
 
 ---
 
-## Current State (What Exists)
+## Current State (After Sessions 1-2)
 
-### ABI JSON (has the data)
-```json
-{
-  "declKind": "Class",
-  "usr": "s:9Alamofire13UploadRequestC",
-  "superclassUsr": "s:9Alamofire11DataRequestC",
-  "superclassNames": ["Alamofire.DataRequest", "Alamofire.Request"],
-  "inheritsConvenienceInitializers": true,
-  "hasMissingDesignatedInitializers": true
-}
-```
+### Parser & Model ✅
+- `Node` record deserializes `superclassUsr`, `superclassNames`, `inheritsConvenienceInitializers`, `hasMissingDesignatedInitializers` from ABI JSON
+- `ClassDecl` has `SuperclassUsr`, `SuperclassNames`, `DirectSuperclassName`, `InheritsConvenienceInitializers`, `HasMissingDesignatedInitializers`, `ResolvedSuperclass`, `HasResolvedSuperclass`, `HasExternalSuperclass`
+- `ModuleProcessor.ResolveClassHierarchy()` resolves same-module superclass references with cycle detection
 
-### Parser (`Node` record) — missing 4 fields
-No `superclassUsr`, `superclassNames`, `inheritsConvenienceInitializers`, `hasMissingDesignatedInitializers`.
+### TypeRecord & Module Database ✅
+- `TypeRecord.SuperclassTypeName` persists direct superclass for cross-module support
+- `ModuleDatabaseEmitter` serializes `superclass` attribute; `TypeDatabase` deserializes it
+- Generic superclass names (e.g., `VirtualTimeScheduler<Converter>`) guarded — stored as null
 
-### Model (`ClassDecl`) — no inheritance properties
-Only `Conformances`, `IsActor`, `IsFinal`. No `SuperclassTypeName`, `SuperclassNames`, `SuperclassDecl`.
-
-### Emitter (`ClassHandler`) — flat emission
+### Emitter (`ClassHandler`) — still flat emission (Session 3)
 Every class independently gets: `_payload`, `_payloadSize`, `Dispose()`, `~Destructor()`, `ISwiftObject` implementation, `GetTypeMetadata()` P/Invoke. Declaration is always `class X : ISwiftObject, IDisposable, [protocols]`.
 
-### Validation (`ProtocolConformanceValidator`) — own members only
+### Validation (`ProtocolConformanceValidator`) — own members only (Session 5)
 Checks `type.Properties`, `type.Methods`, `type.Subscripts` — does NOT traverse superclass members. Inherited conformances may be suppressed incorrectly.
 
-### Type ordering — no topological sort
-Types emitted in ABI JSON order (source declaration order). No guarantee base class is processed before derived.
+### Type ordering — no topological sort (Session 3)
+Types emitted in ABI JSON order (source declaration order). No guarantee base class is emitted before derived. Topological sort deferred to Session 3 (first emission session).
 
 ---
 
 ## Implementation Sessions
 
-### Session 1: Parse & Model (Small)
+### Session 1: Parse & Model ✅ COMPLETE
 
 **Goal**: Get superclass data from ABI JSON into the model. Pure data plumbing — no emission changes.
 
 **Changes**:
 
-1. **`Node` record** (`SwiftABIParser.cs:44-67`): Add 4 fields
-   ```csharp
-   public string? superclassUsr { get; set; }
-   public string[]? superclassNames { get; set; }
-   public bool? inheritsConvenienceInitializers { get; set; }
-   public bool? hasMissingDesignatedInitializers { get; set; }
-   ```
+1. **`Node` record** (`SwiftABIParser.cs:63-67`): Added 4 nullable fields matching ABI JSON keys for automatic Newtonsoft.Json deserialization.
 
-2. **`ClassDecl` model** (`ClassDecl.cs`): Add inheritance properties
-   ```csharp
-   public string? SuperclassUsr { get; set; }
-   public List<string> SuperclassNames { get; set; } = new();  // full chain
-   public string? DirectSuperclassName { get; set; }            // first in chain
-   public bool InheritsConvenienceInitializers { get; set; }
-   public bool HasMissingDesignatedInitializers { get; set; }
-   ```
+2. **`ClassDecl` model** (`ClassDecl.cs`): Added inheritance properties. `DirectSuperclassName` is a computed property from `SuperclassNames[0]` (not stored separately as originally planned).
 
-3. **`CreateClassDecl`** (`SwiftABIParser.cs:678-705`): Populate from Node
-   ```csharp
-   SuperclassUsr = node.superclassUsr,
-   SuperclassNames = node.superclassNames?.ToList() ?? new(),
-   DirectSuperclassName = node.superclassNames?.FirstOrDefault(),
-   InheritsConvenienceInitializers = node.inheritsConvenienceInitializers ?? false,
-   HasMissingDesignatedInitializers = node.hasMissingDesignatedInitializers ?? false,
-   ```
+3. **`CreateClassDecl`** (`SwiftABIParser.cs:705-708`): Populated from Node fields.
 
-4. **Unit tests**: Parse a real ABI JSON snippet (Alamofire UploadRequest) and verify `SuperclassNames` = `["Alamofire.DataRequest", "Alamofire.Request"]`.
+4. **Unit tests** (`ClassInheritanceParserTests.cs`): 8 tests covering superclass parsing, ObjC USRs, initializer flags, and default values.
 
-**Acceptance gate**: All existing tests pass. New tests verify parsing. No emission changes.
-
-**Commit**: "Session 1: Parse superclass data from ABI JSON into ClassDecl model"
+**Results**: 4023 unit tests pass (18 new), 32/32 validation, golden files unchanged.
 
 ---
 
-### Session 2: Class Hierarchy Resolution (Medium)
+### Session 2: Class Hierarchy Resolution ✅ COMPLETE
 
-**Goal**: Resolve superclass names to actual ClassDecl references. Build hierarchy graph. Topological sort for emission.
+**Goal**: Resolve superclass names to actual ClassDecl references. Persist superclass metadata on TypeRecord for cross-module support.
 
 **Changes**:
 
-1. **`ClassDecl`**: Add resolved reference
-   ```csharp
-   public ClassDecl? ResolvedSuperclass { get; set; }  // null for root classes and external bases
-   public bool HasResolvedSuperclass => ResolvedSuperclass != null;
-   public bool HasExternalSuperclass => DirectSuperclassName != null && ResolvedSuperclass == null;
-   ```
+1. **`ClassDecl`** (`ClassDecl.cs`): Added `ResolvedSuperclass`, `HasResolvedSuperclass`, `HasExternalSuperclass`.
 
-2. **`ModuleProcessor`** (or new `ClassHierarchyResolver`): After parsing all types, resolve references
-   - Iterate all ClassDecls in the module
-   - For each with `DirectSuperclassName`, look up the ClassDecl by SwiftTypeName
-   - If found (same module): set `ResolvedSuperclass`
-   - If not found (cross-module or ObjC): leave null, mark as external
-   - Detect cycles (should be impossible but guard anyway)
+2. **`ModuleProcessor.ResolveClassHierarchy()`**: Same-module resolution by `SwiftTypeName.ModuleQualifiedName` lookup. Cross-module and ObjC bases left unresolved (`HasExternalSuperclass = true`). Cycle detection via Floyd's tortoise-and-hare with full-cycle participant cleanup (all members of a cycle cleared, not just the detection node).
 
-3. **`ModuleHandler`** or `HandleBaseDecl`: Topological sort
-   - Before emitting types, sort so base classes come before derived
-   - This ensures TypeRecord for base class exists when derived class is processed
-   - Only reorder ClassDecls with resolved superclasses; leave others in original order
+3. **`TypeRecord.SuperclassTypeName`** (`TypeRecord.cs`): Added `SwiftTypeName?` property. Populated in `RegisterClassType()` with guard for generic superclass names (`Contains('<')` → null, since `SwiftTypeName.FromModuleQualifiedName` rejects generics).
 
-4. **`TypeRecord`**: Add optional superclass reference
-   ```csharp
-   public SwiftTypeName? SuperclassTypeName { get; set; }
-   ```
+4. **Module database serialization**: `ModuleDatabaseEmitter` writes optional `superclass` attribute. `TypeDatabase.ReadVersion1_0` reads it back with matching generic-name guard.
 
-5. **Cross-module support**: When loading module databases (`--module-database`), include superclass info in serialized TypeRecord so downstream modules can resolve cross-module inheritance.
+5. **Unit tests**: `ClassHierarchyResolutionTests.cs` (6 tests: 3-level chain, ObjC base, cross-module base, root class, multiple hierarchies, same-module resolution). `SuperclassModuleDatabaseTests.cs` (4 tests: TypeRecord storage, XML emission, omission for root class, round-trip).
 
-6. **Unit tests**: Verify resolution on Alamofire 3-level chain. Verify topological sort produces `Request` before `DataRequest` before `UploadRequest`. Verify external bases (NSObject) are correctly marked unresolved.
+**Results**: 4023 unit tests pass, 32/32 validation, golden files unchanged, no emission changes.
 
-**Acceptance gate**: All existing tests pass. Hierarchy resolution verified. No emission changes yet.
-
-**Commit**: "Session 2: Class hierarchy resolution and topological sort for emission ordering"
+**What was deferred to Session 3**: Topological sort of emission ordering. Originally planned for Session 2, but reordering types changes generated output (golden files, validation line counts), which contradicts Session 2's "no output changes" constraint. The sort is only needed once Session 3 adds `class Derived : Base` syntax (C# requires base class declared before derived in the same file). **Must also handle nested types** — not just top-level `moduleDecl.Types`, but also the `HandleBaseDecl(..., type.Types, ...)` calls for nested class hierarchies.
 
 ---
 
-### Session 3: Core Emission — Base Class Syntax, Shared Infrastructure & Ownership Fix (Large)
+### Session 3: Core Emission — Topological Sort, Base Class Syntax, Shared Infrastructure & Ownership Fix (Large)
 
-**Goal**: Emit `class Derived : Base`, share infrastructure (payload, Dispose, ISwiftObject) between base and derived classes, and fix the SafeHandle ownership model to prevent use-after-free and memory leaks.
+**Goal**: Topologically sort emission ordering (moved from Session 2), emit `class Derived : Base`, share infrastructure (payload, Dispose, ISwiftObject) between base and derived classes, and fix the SafeHandle ownership model to prevent use-after-free and memory leaks.
 
 **Changes**:
+
+0. **Topological sort** (moved from Session 2 — prerequisite for all emission changes):
+   - Add `TopologicallySortTypes()` to `ModuleHandler` (or shared helper) — base classes emitted before derived
+   - Apply at `ModuleHandler.Emit` line 185 where `moduleDecl.Types` is passed to `HandleBaseDecl`
+   - **Also handle nested types**: The same sort must apply wherever `HandleBaseDecl(..., type.Types, ...)` is called for nested class hierarchies (e.g., `ClassHandler` emitting nested types)
+   - Only reorder ClassDecls with `HasResolvedSuperclass`; non-class types and classes without resolved superclass maintain original relative order
+   - Use `ReferenceEqualityComparer.Instance` for ClassDecl identity (record value-equality could match different instances)
+   - Golden files will change after this step
 
 1. **`ClassHandler.Emit`** — class declaration syntax (line 116):
    - If `classDecl.HasResolvedSuperclass`: emit `class Derived : BaseClass, [protocols not on base]`
@@ -395,4 +355,4 @@ cd TestFramework && ./build-and-test.sh 2>&1 | tee /tmp/testframework-results.tx
 golden/check-golden-files.sh                                                       # Determinism (fast)
 ```
 
-Sessions I1-I2 should produce zero emission changes (model/resolution only). Sessions I3-I5 will change emission output. Session I6 is the full validation pass.
+Sessions I1-I2 produced zero emission changes (model/resolution only) ✅. Sessions I3-I5 will change emission output. Session I6 is the full validation pass.

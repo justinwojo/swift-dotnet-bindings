@@ -173,6 +173,7 @@ namespace BindingsGeneration
                 string? rawValueType = typeDeclarationNode?.Attributes?["rawValueType"]?.Value;
                 string? emittedMemberCountStr = typeDeclarationNode?.Attributes?["emittedMemberCount"]?.Value;
                 int? emittedMemberCount = emittedMemberCountStr != null ? int.Parse(emittedMemberCountStr) : null;
+                string? superclassStr = typeDeclarationNode?.Attributes?["superclass"]?.Value;
                 if (swiftTypeIdentifier == null || csharpTypeIdentifier == null)
                     throw new Exception("Invalid XML structure: Missing attributes.");
 
@@ -216,6 +217,9 @@ namespace BindingsGeneration
                     NativeTypeName = nativeTypeName,
                     RawValueTypeName = rawValueType,
                     EmittedMemberCount = emittedMemberCount,
+                    SuperclassTypeName = superclassStr != null && !superclassStr.Contains('<')
+                        ? SwiftTypeName.FromModuleQualifiedName(superclassStr)
+                        : null,
                 };
 
                 moduleDatabase.RegisterType(swiftTypeName, typeRecord);

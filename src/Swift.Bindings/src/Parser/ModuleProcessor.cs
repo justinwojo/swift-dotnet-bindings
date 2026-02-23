@@ -93,6 +93,8 @@ namespace BindingsGeneration
                 ProcessTypeRecursively(typeSpec, typeDecl);
             }
 
+            ResolveClassHierarchy();
+
             return new ModuleProcessingResult(_moduleDatabase);
         }
 
@@ -420,6 +422,10 @@ namespace BindingsGeneration
                 MetadataAccessor = $"{classDecl.MangledName}Ma",
                 Flags = flags,
                 Kind = TypeRecordKind.Class,
+                SuperclassTypeName = classDecl.DirectSuperclassName != null
+                    && !classDecl.DirectSuperclassName.Contains('<')
+                    ? SwiftTypeName.FromModuleQualifiedName(classDecl.DirectSuperclassName)
+                    : null,
             };
 
             _moduleDatabase.RegisterType(classDecl.SwiftTypeName, typeRecord);
@@ -446,6 +452,81 @@ namespace BindingsGeneration
             var swiftTypeInfo = new SwiftTypeInfo { MetadataPtr = metadataPtr };
 
             RegisterClassType(namedTypeSpec, classDecl, swiftTypeInfo);
+        }
+
+        /// <summary>
+        /// Resolves superclass references for all classes within the current module.
+        /// For each ClassDecl with a DirectSuperclassName, looks up the matching ClassDecl
+        /// in the module's type declarations. Same-module matches are resolved;
+        /// cross-module and ObjC base classes are left unresolved (HasExternalSuperclass = true).
+        /// </summary>
+        private void ResolveClassHierarchy()
+        {
+            // Build a lookup from module-qualified name to ClassDecl for efficient resolution.
+            var classesByName = new Dictionary<string, ClassDecl>(StringComparer.Ordinal);
+            foreach (var (_, typeDecl) in _typeDecls)
+            {
+                if (typeDecl is ClassDecl classDecl)
+                {
+                    classesByName[classDecl.SwiftTypeName.ModuleQualifiedName] = classDecl;
+                }
+            }
+
+            // Resolve each class's direct superclass
+            foreach (var (_, classDecl) in classesByName)
+            {
+                var superName = classDecl.DirectSuperclassName;
+                if (superName == null)
+                    continue; // Root class
+
+                if (classesByName.TryGetValue(superName, out var superclassDecl))
+                {
+                    classDecl.ResolvedSuperclass = superclassDecl;
+                }
+                // else: cross-module or ObjC base — leave null (HasExternalSuperclass will be true)
+            }
+
+            // Validate: detect cycles (should be impossible in valid ABI, but guard).
+            // Collect all cycle participants and clear their ResolvedSuperclass to avoid
+            // leaving partially-resolved inconsistent state (e.g., A→B→A where only A is cleared).
+            var cycleParticipants = new HashSet<ClassDecl>(ReferenceEqualityComparer.Instance);
+            foreach (var (_, classDecl) in classesByName)
+            {
+                CollectCycleParticipants(classDecl, cycleParticipants);
+            }
+            foreach (var participant in cycleParticipants)
+            {
+                _logger.LogWarning(
+                    "Cyclic class hierarchy detected for '{ClassName}'. Clearing resolved superclass.",
+                    participant.SwiftTypeName.ModuleQualifiedName);
+                participant.ResolvedSuperclass = null;
+            }
+        }
+
+        /// <summary>
+        /// If the class participates in a cycle, adds all cycle members to the set.
+        /// Uses Floyd's tortoise-and-hare algorithm, then walks the cycle to collect all participants.
+        /// </summary>
+        private static void CollectCycleParticipants(ClassDecl classDecl, HashSet<ClassDecl> participants)
+        {
+            var slow = classDecl.ResolvedSuperclass;
+            var fast = classDecl.ResolvedSuperclass?.ResolvedSuperclass;
+            while (fast != null)
+            {
+                if (ReferenceEquals(slow, fast))
+                {
+                    // Found a cycle — collect all members in the cycle
+                    var current = slow;
+                    do
+                    {
+                        participants.Add(current!);
+                        current = current!.ResolvedSuperclass;
+                    } while (!ReferenceEquals(current, slow));
+                    return;
+                }
+                slow = slow?.ResolvedSuperclass;
+                fast = fast.ResolvedSuperclass?.ResolvedSuperclass;
+            }
         }
 
         /// <summary>

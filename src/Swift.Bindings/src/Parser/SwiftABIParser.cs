@@ -61,6 +61,10 @@ namespace BindingsGeneration
         public required bool? hasDefaultArg { get; set; }
         public string? funcSelfKind { get; set; }
         public string? usr { get; set; }
+        public string? superclassUsr { get; set; }
+        public string[]? superclassNames { get; set; }
+        public bool? inheritsConvenienceInitializers { get; set; }
+        public bool? hasMissingDesignatedInitializers { get; set; }
         public required IEnumerable<Node> Children { get; set; } = Enumerable.Empty<Node>();
         public required IEnumerable<Node> Conformances { get; set; } = Enumerable.Empty<Node>();
         public required IEnumerable<Node> Accessors { get; set; } = Enumerable.Empty<Node>();
@@ -698,7 +702,11 @@ namespace BindingsGeneration
                 ModuleDecl = moduleDecl,
                 IsActor = isActor,
                 IsFinal = node.DeclAttributes?.Contains("Final") == true,
-                IsModuleInternal = IsNodeModuleInternal(node)
+                IsModuleInternal = IsNodeModuleInternal(node),
+                SuperclassUsr = node.superclassUsr,
+                SuperclassNames = node.superclassNames?.ToList() ?? new List<string>(),
+                InheritsConvenienceInitializers = node.inheritsConvenienceInitializers ?? false,
+                HasMissingDesignatedInitializers = node.hasMissingDesignatedInitializers ?? false,
             };
             PopulateDocumentation(decl, node);
             return decl;

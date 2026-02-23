@@ -116,6 +116,10 @@ namespace BindingsGeneration
             if (record.Kind == TypeRecordKind.Protocol && record.EmittedMemberCount.HasValue)
                 writer.WriteAttributeString("emittedMemberCount", record.EmittedMemberCount.Value.ToString());
 
+            // Superclass type name (classes only)
+            if (record.SuperclassTypeName != null)
+                writer.WriteAttributeString("superclass", record.SuperclassTypeName.ModuleQualifiedName);
+
             // Native type name (e.g., Foundation.NSUrl for URL)
             if (record.NativeTypeName != null)
             {

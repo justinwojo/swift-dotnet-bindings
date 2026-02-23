@@ -109,4 +109,10 @@ public record TypeRecord
     /// generator cannot produce stubs for cross-module protocol requirements.
     /// </summary>
     public int? EmittedMemberCount { get; init; }
+
+    /// <summary>
+    /// The Swift type name of this class's direct superclass, or null for root classes
+    /// and non-class types. Used for cross-module inheritance resolution.
+    /// </summary>
+    public SwiftTypeName? SuperclassTypeName { get; init; }
 }

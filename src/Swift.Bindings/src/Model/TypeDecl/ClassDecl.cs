@@ -26,5 +26,50 @@ namespace BindingsGeneration
         /// Non-final classes use vtable dispatch (only Tj thunk symbols exported).
         /// </summary>
         public bool IsFinal { get; set; }
+
+        /// <summary>
+        /// The USR (Unified Symbol Resolution) identifier of the direct superclass.
+        /// Null for root classes. ObjC superclasses use "c:" prefix (e.g., "c:objc(cs)NSObject").
+        /// Swift superclasses use "s:" prefix (e.g., "s:9Alamofire11DataRequestC").
+        /// </summary>
+        public string? SuperclassUsr { get; set; }
+
+        /// <summary>
+        /// Full superclass chain from direct parent to root (e.g., ["Alamofire.DataRequest", "Alamofire.Request"]).
+        /// Each entry is a module-qualified Swift type name. Empty for root classes.
+        /// </summary>
+        public List<string> SuperclassNames { get; set; } = new();
+
+        /// <summary>
+        /// The module-qualified name of the direct superclass (first in chain), or null for root classes.
+        /// </summary>
+        public string? DirectSuperclassName => SuperclassNames.Count > 0 ? SuperclassNames[0] : null;
+
+        /// <summary>
+        /// Whether this class inherits convenience initializers from its superclass.
+        /// </summary>
+        public bool InheritsConvenienceInitializers { get; set; }
+
+        /// <summary>
+        /// Whether this class has missing designated initializers (hidden from Swift callers).
+        /// </summary>
+        public bool HasMissingDesignatedInitializers { get; set; }
+
+        /// <summary>
+        /// The resolved superclass ClassDecl, or null for root classes and classes with external
+        /// (cross-module/ObjC) bases. Set during hierarchy resolution in ModuleProcessor.
+        /// </summary>
+        public ClassDecl? ResolvedSuperclass { get; set; }
+
+        /// <summary>
+        /// Whether this class has a resolved in-module superclass.
+        /// </summary>
+        public bool HasResolvedSuperclass => ResolvedSuperclass != null;
+
+        /// <summary>
+        /// Whether this class has a superclass that could not be resolved within the current module
+        /// (cross-module or ObjC base class).
+        /// </summary>
+        public bool HasExternalSuperclass => DirectSuperclassName != null && ResolvedSuperclass == null;
     }
 }
