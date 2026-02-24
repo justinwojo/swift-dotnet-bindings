@@ -1,11 +1,11 @@
 # Roadmap
 
-**Updated**: February 2026 (post-Q1 quality session)
+**Updated**: February 2026 (post-Q2 quality session)
 **Status**: Active — path to production-grade
 **Target**: Production-ready binding libraries that feel like native C# to consumers
 **Scoring reference**: `binding-review-feb-23.md` — 18-library quality review with 10-category scorecards
 
-For completed work (binding quality sessions A-D, architecture sessions 1-9, cross-module resolution, ExistentialContainer elimination, native C# enums, Optional truncation fix, SwiftDictionary projection, class inheritance I1-I6, quality session Q1), see `Completed/roadmap-completed-feb2026.md`.
+For completed work (binding quality sessions A-D, architecture sessions 1-9, cross-module resolution, ExistentialContainer elimination, native C# enums, Optional truncation fix, SwiftDictionary projection, class inheritance I1-I6, quality sessions Q1-Q2), see `Completed/roadmap-completed-feb2026.md`.
 
 For future vision items (ObjC integration, multi-platform, emitter redesign, SwiftUI bridge corpus, performance benchmarks, etc.), see `Future/future-roadmap.md`.
 
@@ -15,7 +15,7 @@ For future vision items (ObjC integration, multi-platform, emitter redesign, Swi
 
 | Metric | Value |
 |--------|-------|
-| Unit tests | 4,113 passing (1 skipped) |
+| Unit tests | 4,130 passing (1 skipped) |
 | Integration tests | 700 passing (11 skipped, pre-existing) |
 | Runtime library tests | 221 passing (1 skipped) |
 | TestFramework must-pass | 94/94 passing, 0 degraded |
@@ -75,36 +75,20 @@ The projections were slightly optimistic for the two lowest-scoring libraries be
 
 **Key files modified**: `NameProvider.cs`, `IEnvironment.cs`, `IHandler.cs`, `DefaultParameterOverloadEmitter.cs`, `MethodHandler.cs`, `MethodSignature.cs`, `EnumHandler.CaseConstruction.cs`, `SubscriptHandler.cs` (new), `ClassHandler.cs`, `FrozenStructHandler.cs`, `NonFrozenStructHandler.cs`, `EnumHandler.cs`, `TypeHandlerHelpers.cs`, `ProtocolHandler.cs`, `ProtocolConformanceValidator.cs`, `ProtocolProxyEmitter.InterfaceImpl.cs`, `ProtocolProxyEmitter.Receivers.cs`, `ProtocolSignatureHelper.cs`
 
-#### Session Q2: Apple SDK Type Database + Protocol Audit
+#### Session Q2: Apple SDK Type Database + Protocol Audit ✅ COMPLETE
 
-**Effort**: 1 session | **Libraries**: SkeletonView, Alamofire, Starscream, BlinkIDUX, Lottie + all (audit)
+**Results**: Type database expanded with SecurityDatabase.xml (SecTrust, SecCertificate, SecKey, SecIdentity → IntPtr) and IndexPath → NSIndexPath ObjC-bridged entry in FoundationDatabase.xml. JSONDecoder added to AppleFrameworkValueTypes exclusion list. Protocol diagnostics: SB0004 emitted on empty interfaces where all declared members were skipped (excludes genuine marker protocols and derived protocols with inherited members). SB0003 emitted on non-dispatchable proxy members (properties with non-dispatchable accessors, all subscripts, non-dispatchable methods). Proxy class suppresses self-generated SB0003/SB0004 warnings via `#pragma warning disable`. SDK `Sdk.props` NoWarn updated. 32/32 validation maintained.
 
-Both halves are "fill in gaps" work — adding missing type entries and categorizing empty interfaces. The protocol audit informs what the later closure session needs to fix, so it's valuable to do early.
+| Sub-task | Status | Notes |
+|----------|--------|-------|
+| **Q2a. SecurityDatabase.xml** | ✅ | New `SecurityDatabase.xml` with SecTrust, SecCertificate, SecKey, SecIdentity → `System.IntPtr`. Registered in `Program.cs` builtInDatabases. |
+| **Q2b. IndexPath → NSIndexPath** | ✅ | ObjC-bridged class entry in `FoundationDatabase.xml`. DB lookup takes priority over AppleFrameworkValueTypes guard. |
+| **Q2c. JSONDecoder exclusion** | ✅ | Added to `AppleFrameworkValueTypes` list — prevents incorrect ObjC auto-bridging, correctly falls to AnyType. |
+| **Q2d. SB0004 on empty interfaces** | ✅ | Interface body buffered via `CSharpWriter(StringWriter)`, diagnostic emitted when `emittedMemberCount == 0 && totalDeclaredMembers > 0 && inheritedInterfaces.Count == 0`. |
+| **Q2e. SB0003 on proxy members** | ✅ | Non-dispatchable properties (with correct accessor presence check), subscripts (always), and methods annotated. |
+| **Q2f. Warning suppression** | ✅ | Proxy class wraps in `#pragma warning disable SB0003, SB0004`. Sdk.props adds SB0003;SB0004 to `<NoWarn>`. |
 
-**Type database expansion:**
-
-| Type | Framework | Libraries Affected |
-|------|-----------|-------------------|
-| `IndexPath` | Foundation | SkeletonView (6 protocol methods) |
-| `SecTrust` | Security | Alamofire, Starscream |
-| `SecCertificate` | Security | Alamofire, Starscream |
-| `AsyncStream` | _Concurrency | BlinkIDUX (8 occurrences) |
-| `CGColorSpace` | CoreGraphics | Lottie |
-| `CTFont` | CoreText | Lottie (`IAnimationFontProvider`) |
-| `SecKey` | Security | Various |
-| `DispatchQueue` | Dispatch | Alamofire, Mixpanel |
-| `JSONEncoder`/`JSONDecoder` | Foundation | CryptoSwift, Stripe |
-| `URLSessionConfiguration` | Foundation | Alamofire |
-
-**Protocol audit & diagnostics:**
-
-| Step | Description | Effort |
-|------|-------------|--------|
-| **Q2a. Audit empty interface root causes** | Regenerate all libraries, categorize 67 empty interfaces: genuinely empty (marker protocols) vs. skipped members. | Low |
-| **Q2b. Emit diagnostics** | `[Obsolete("...", DiagnosticId = "SB0004")]` on empty interfaces with skip reasons. `[Obsolete("...", DiagnosticId = "SB0003")]` on proxy members that throw `NotSupportedException`. | Low |
-
-**Key files**: `TypeDatabase.cs`, `MarshallingHelpers.cs`, `ProtocolHandler.cs`, `ProtocolProxyEmitter.cs`
-**Acceptance gate**: 0 `AnyType` from missing Apple SDK types in SkeletonView. `SecTrust`/`SecCertificate` resolved in Alamofire/Starscream. `SB0003`/`SB0004` diagnostic counts match actual skip/empty counts. 32/32 validation.
+**Key files modified**: `SecurityDatabase.xml` (new), `FoundationDatabase.xml`, `TypeDatabaseExtensions.cs`, `Program.cs`, `ProtocolHandler.cs`, `ProtocolProxyEmitter.InterfaceImpl.cs`, `ProtocolProxyEmitter.cs`, `Sdk.props`
 
 #### Session Q3: Closure Parameter Relaxation
 
@@ -144,8 +128,8 @@ Self-returning methods are the #1 issue from the binding review. This session al
 |-----|---------|--------|---------|
 | `Get` prefix on fluent methods | ~40 | 0 | Q1 ✅ |
 | `SwiftOptional`/`SwiftString` in enum tuple params | ~20 | 0 | Q1 ✅ |
-| `AnyType` from missing Apple SDK types | ~30 | 0 | Q2 |
-| Empty protocol interfaces | 67 | <10 | Q2+Q4 |
+| `AnyType` from missing Apple SDK types | ~30 | 0 | Q2 ✅ (Security + IndexPath resolved; remaining are intentional AnyType) |
+| Empty protocol interfaces with diagnostics | 67 | <10 | Q2 ✅ (SB0004 on skip-caused empties) + Q4 |
 | Core workflow methods skipped (closure gate) | ~200 | <50 | Q3 |
 | `Self` → `AnyType` in protocol returns | ~50 | 0 | Q4 |
 | Binding quality avg | 3.37 | >3.80 | All |
@@ -269,7 +253,7 @@ DONE                       Phase 1: Class Inheritance (I1-I6) ✅
                            |
 NOW                        Phase 2: Binding Quality (Q1-Q4, 4 sessions)
                            |  Q1: Bug fixes — naming, tuples, polish ✅
-                           |  Q2: Type database + protocol audit (SkeletonView, Alamofire, BlinkIDUX)
+                           |  Q2: Type database + protocol audit ✅
                            |  Q3: Closure parameter relaxation (Alamofire, GRDB, Stripe, RxSwift)
                            |  Q4: Self returns + protocol recovery (Kingfisher, SnapKit, RxSwift)
                            |

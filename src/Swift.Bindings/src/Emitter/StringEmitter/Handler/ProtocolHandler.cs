@@ -75,18 +75,18 @@ namespace BindingsGeneration
             var interfaceName = GetInterfaceNameWithGenerics(protocolDecl);
             var inheritedInterfaces = GetInheritedInterfaceList(protocolDecl);
 
-            // Write the interface declaration
-            XmlDocCommentEmitter.EmitDocComment(csWriter, protocolDecl);
-            if (inheritedInterfaces.Count > 0)
-            {
-                csWriter.WriteLine($"public interface {interfaceName} : {string.Join(", ", inheritedInterfaces)}");
-            }
-            else
-            {
-                csWriter.WriteLine($"public interface {interfaceName}");
-            }
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
+            // Count total declared members that are candidates for interface emission
+            // (non-static, non-constructor). Used for SB0004 diagnostic.
+            int totalDeclaredMembers =
+                protocolDecl.Properties.Count(p => !p.IsStatic) +
+                protocolDecl.Subscripts.Count(s => !s.IsStatic) +
+                protocolDecl.Methods.Count(m => !m.IsConstructor && m.MethodType != MethodType.Static);
+
+            // Buffer the interface body so we can decide whether to emit SB0004
+            // (empty interface with skipped members) before the declaration.
+            var bodyStringWriter = new System.IO.StringWriter();
+            var bodyWriter = new CSharpWriter(bodyStringWriter);
+            bodyWriter.Indent = csWriter.Indent + 1;
 
             // Track emitted members to avoid duplicates
             int emittedInterfaceMemberCount = 0;
@@ -172,7 +172,7 @@ namespace BindingsGeneration
                     continue;
                 }
 
-                EmitInterfaceProperty(csWriter, propertyDecl, env.TypeDatabase, protocolDecl);
+                EmitInterfaceProperty(bodyWriter, propertyDecl, env.TypeDatabase, protocolDecl);
                 emittedInterfaceMemberCount++;
                 ReportCollector.RecordMemberEmitted(BindingItemKind.Property, propertyDecl.Name, protocolDecl);
             }
@@ -233,7 +233,7 @@ namespace BindingsGeneration
                     continue;
                 }
 
-                EmitInterfaceSubscript(csWriter, subscriptDecl, env.TypeDatabase, protocolDecl);
+                EmitInterfaceSubscript(bodyWriter, subscriptDecl, env.TypeDatabase, protocolDecl);
                 emittedInterfaceMemberCount++;
                 ReportCollector.RecordMemberEmitted(BindingItemKind.Subscript, "subscript", protocolDecl);
                 subscriptIndex++;
@@ -361,7 +361,7 @@ namespace BindingsGeneration
                     continue;
                 }
 
-                EmitInterfaceMethod(csWriter, methodDecl, env.TypeDatabase, protocolDecl);
+                EmitInterfaceMethod(bodyWriter, methodDecl, env.TypeDatabase, protocolDecl);
                 emittedInterfaceMemberCount++;
                 ReportCollector.RecordMemberEmitted(BindingItemKind.Method, methodDecl.Name, protocolDecl);
             }
@@ -372,7 +372,28 @@ namespace BindingsGeneration
                 ReportCollector.RecordMemberSkipped(BindingItemKind.Operator, operatorDecl.Name, protocolDecl, SkipReason.StaticProtocolMember, "Protocol operator requirements cannot be declared in C# interfaces.");
             }
 
-            csWriter.Indent--;
+            // Now emit the interface declaration with optional SB0004 diagnostic.
+            // We deferred writing the declaration until after the body was buffered
+            // so we know whether any members were emitted.
+            XmlDocCommentEmitter.EmitDocComment(csWriter, protocolDecl);
+            if (emittedInterfaceMemberCount == 0 && totalDeclaredMembers > 0 && inheritedInterfaces.Count == 0)
+            {
+                csWriter.WriteLine($"[Obsolete(\"All {totalDeclaredMembers} protocol member(s) were skipped during binding generation (SB0004). \" +");
+                csWriter.WriteLine("    \"This interface is empty because no members could be projected to C#.\",");
+                csWriter.WriteLine("    DiagnosticId = \"SB0004\",");
+                csWriter.WriteLine("    UrlFormat = \"https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md\")]");
+            }
+            if (inheritedInterfaces.Count > 0)
+            {
+                csWriter.WriteLine($"public interface {interfaceName} : {string.Join(", ", inheritedInterfaces)}");
+            }
+            else
+            {
+                csWriter.WriteLine($"public interface {interfaceName}");
+            }
+            csWriter.WriteLine("{");
+            // Flush the buffered body (already indented by bodyWriter)
+            csWriter.InnerWriter.Write(bodyStringWriter.ToString());
             csWriter.WriteLine("}");
             csWriter.WriteLine();
 

@@ -1728,6 +1728,159 @@ public class ProtocolProxyEmitterTests
 
     #endregion
 
+    #region SB0003 Diagnostic Tests
+
+    [Fact]
+    public void EmitProxyClass_NonDispatchableMethod_EmitsSB0003()
+    {
+        // Without TypeDB registration, Swift.Int returns AnyType → non-dispatchable
+        var protocolDecl = CreateSimpleProtocol("TestProtocol");
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "getValue",
+            MangledName = "$sgetValue",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false,
+            Visibility = Visibility.Public
+        });
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("SB0003", output);
+        Assert.Contains("not dispatchable to Swift", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_DispatchableMethod_DoesNotEmitSB0003()
+    {
+        RegisterSwiftInt32();
+        var protocolDecl = CreateSimpleProtocol("TestProtocol");
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "getValue",
+            MangledName = "$sgetValue",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int32"),
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false,
+            Visibility = Visibility.Public
+        });
+        var output = EmitProxyClass(protocolDecl);
+
+        // Dispatchable method should NOT have SB0003 on its declaration
+        // (SB0003 may still appear in other members, so check near the method)
+        var methodIdx = output.IndexOf("public int GetValue()", StringComparison.Ordinal);
+        Assert.True(methodIdx >= 0, "Expected to find 'public int GetValue()' in output");
+        // Look at the 300 chars before the method declaration for the absence of SB0003
+        var preMethodText = output.Substring(Math.Max(0, methodIdx - 300), Math.Min(300, methodIdx));
+        Assert.DoesNotContain("SB0003", preMethodText);
+    }
+
+    [Fact]
+    public void EmitProxyClass_NonDispatchableProperty_EmitsSB0003()
+    {
+        // Without TypeDB, property is non-dispatchable → SB0003
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("SB0003", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_DispatchablePropertyGetter_NoSB0003()
+    {
+        RegisterSwiftInt32();
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "count", hasGetter: true, hasSetter: false, new NamedTypeSpec("Swift.Int32"));
+        var output = EmitProxyClass(protocolDecl);
+
+        // Property with dispatchable getter should NOT have SB0003
+        var propIdx = output.IndexOf("public int Count", StringComparison.Ordinal);
+        Assert.True(propIdx >= 0, "Expected to find 'public int Count' in output");
+        var preText = output.Substring(Math.Max(0, propIdx - 300), Math.Min(300, propIdx));
+        Assert.DoesNotContain("SB0003", preText);
+    }
+
+    [Fact]
+    public void EmitProxyClass_Subscript_AlwaysEmitsSB0003()
+    {
+        // Subscripts are always non-dispatchable → SB0003
+        var protocolDecl = CreateSimpleProtocol("TestProtocol");
+        protocolDecl.Subscripts.Add(new SubscriptDecl
+        {
+            Name = "subscript",
+            MangledName = "$sTestProtocol_subscript",
+            ReturnTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IndexParameters = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = "index",
+                    PrivateName = "index",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            IsStatic = false,
+            ParentDecl = null,
+            ModuleDecl = null,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl
+                {
+                    Method = new MethodDecl
+                    {
+                        Name = "subscript_get",
+                        MangledName = "$ssubscriptg",
+                        MethodType = MethodType.Instance,
+                        IsConstructor = false,
+                        CSSignature = new List<ArgumentDecl>(),
+                        GenericParameters = new List<GenericArgumentDecl>(),
+                        ParentDecl = null,
+                        ModuleDecl = null,
+                        Throws = false,
+                        IsAsync = false,
+                        Visibility = Visibility.Private
+                    }
+                }
+            }
+        });
+        var output = EmitProxyClass(protocolDecl);
+
+        // Subscripts always get SB0003
+        var subscriptIdx = output.IndexOf("public Swift.AnyType this[", StringComparison.Ordinal);
+        Assert.True(subscriptIdx >= 0, "Expected subscript indexer in output");
+        var preText = output.Substring(Math.Max(0, subscriptIdx - 300), Math.Min(300, subscriptIdx));
+        Assert.Contains("SB0003", preText);
+    }
+
+    #endregion
+
     #region Utf8Slice Struct Tests
 
     [Fact]

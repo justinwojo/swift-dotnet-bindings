@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<swifttypedatabase version="1.0" moduleName="Security" modulePath="/System/Library/Frameworks/Security.framework/Security">
+    <entities>
+        <entity managedNameSpace="System" managedTypeName="IntPtr">
+            <typedeclaration kind="struct" name="SecTrust" module="Security" mangledName="" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <entity managedNameSpace="System" managedTypeName="IntPtr">
+            <typedeclaration kind="struct" name="SecCertificate" module="Security" mangledName="" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <entity managedNameSpace="System" managedTypeName="IntPtr">
+            <typedeclaration kind="struct" name="SecKey" module="Security" mangledName="" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <entity managedNameSpace="System" managedTypeName="IntPtr">
+            <typedeclaration kind="struct" name="SecIdentity" module="Security" mangledName="" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+    </entities>
+</swifttypedatabase>

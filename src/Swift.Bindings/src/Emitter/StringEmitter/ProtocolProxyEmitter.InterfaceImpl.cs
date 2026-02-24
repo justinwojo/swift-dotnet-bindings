@@ -116,6 +116,16 @@ public partial class ProtocolProxyEmitter
             }
         }
 
+        bool isAnyAccessorNonDispatchable =
+            (hasGetter && !isGetterDispatchable) || (hasSetter && !isSetterDispatchable);
+        if (isAnyAccessorNonDispatchable)
+        {
+            writer.WriteLine("[Obsolete(\"This member is not dispatchable to Swift and throws NotSupportedException \" +");
+            writer.WriteLine("    \"when called on a Swift-backed existential container (SB0003).\",");
+            writer.WriteLine("    DiagnosticId = \"SB0003\",");
+            writer.WriteLine("    UrlFormat = \"https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md\")]");
+        }
+
         writer.WriteLine($"public {csharpTypeName} {propertyName}");
         writer.WriteLine("{");
         writer.Indent++;
@@ -277,6 +287,11 @@ public partial class ProtocolProxyEmitter
             NameProvider.GetCSharpParameterName(p)).ToList();
         var argsString = string.Join(", ", argNames);
 
+        writer.WriteLine("[Obsolete(\"This member is not dispatchable to Swift and throws NotSupportedException \" +");
+        writer.WriteLine("    \"when called on a Swift-backed existential container (SB0003).\",");
+        writer.WriteLine("    DiagnosticId = \"SB0003\",");
+        writer.WriteLine("    UrlFormat = \"https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md\")]");
+
         writer.WriteLine($"public {returnTypeName} this[{parametersString}]");
         writer.WriteLine("{");
         writer.Indent++;
@@ -404,6 +419,14 @@ public partial class ProtocolProxyEmitter
                     break;
                 }
             }
+        }
+
+        if (!isDispatchable)
+        {
+            writer.WriteLine("[Obsolete(\"This member is not dispatchable to Swift and throws NotSupportedException \" +");
+            writer.WriteLine("    \"when called on a Swift-backed existential container (SB0003).\",");
+            writer.WriteLine("    DiagnosticId = \"SB0003\",");
+            writer.WriteLine("    UrlFormat = \"https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md\")]");
         }
 
         writer.WriteLine($"public {returnTypeName} {methodName}({parametersString})");

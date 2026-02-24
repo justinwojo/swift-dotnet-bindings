@@ -578,6 +578,7 @@ public static class TypeDatabaseExtensions
         "Foundation._NSRange",
         // Foundation types with no .NET equivalent (excluded from ObjC bridging)
         "Foundation.JSONEncoder",
+        "Foundation.JSONDecoder",
         "Foundation.NSNotification.Name",
         "Foundation.objc_AssociationPolicy",
         // Foundation nested enums with remapped .NET names

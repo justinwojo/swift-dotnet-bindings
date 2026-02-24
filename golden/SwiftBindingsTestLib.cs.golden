@@ -4518,6 +4518,7 @@ namespace Swift.SwiftBindingsTestLib
         Swift.AnyType Add(Swift.AnyType other);
     }
     
+    #pragma warning disable SB0003, SB0004
     /// <summary>
     /// Proxy class that enables C# implementations of the Summable protocol.
     /// Can wrap either a C# implementation or receive Swift existential containers.
@@ -4628,6 +4629,10 @@ namespace Swift.SwiftBindingsTestLib
         }
         #region Interface Implementation
         
+        [Obsolete("This member is not dispatchable to Swift and throws NotSupportedException " +
+            "when called on a Swift-backed existential container (SB0003).",
+            DiagnosticId = "SB0003",
+            UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         public Swift.AnyType Add(Swift.AnyType other)
         {
             if (_csharpImpl != null)
@@ -4731,6 +4736,7 @@ namespace Swift.SwiftBindingsTestLib
             public static partial IntPtr GetWitnessTable();
         }
     }
+    #pragma warning restore SB0003, SB0004
     
     
     /// <summary>
@@ -32899,6 +32905,7 @@ public interface IDescribable
     string GetDescribe();
 }
 
+#pragma warning disable SB0003, SB0004
 /// <summary>
 /// Proxy class that enables C# implementations of the Describable protocol.
 /// Can wrap either a C# implementation or receive Swift existential containers.
@@ -33173,6 +33180,7 @@ public unsafe partial class DescribableProxy : IDescribable, ISwiftObject, IDisp
         public static partial void SBW_Describable_free_method_describe_0(IntPtr ptr);
     }
 }
+#pragma warning restore SB0003, SB0004
 
 
 /// <summary>
@@ -33183,6 +33191,7 @@ public interface ITestIdentifiable
     string Id { get; }
 }
 
+#pragma warning disable SB0003, SB0004
 /// <summary>
 /// Proxy class that enables C# implementations of the TestIdentifiable protocol.
 /// Can wrap either a C# implementation or receive Swift existential containers.
@@ -33416,6 +33425,7 @@ public unsafe partial class TestIdentifiableProxy : ITestIdentifiable, ISwiftObj
         public static partial void SBW_TestIdentifiable_free_get_id_0(IntPtr ptr);
     }
 }
+#pragma warning restore SB0003, SB0004
 
 
 /// <summary>
@@ -33426,6 +33436,7 @@ public interface IDisplayable
     string GetDisplay();
 }
 
+#pragma warning disable SB0003, SB0004
 /// <summary>
 /// Proxy class that enables C# implementations of the Displayable protocol.
 /// Can wrap either a C# implementation or receive Swift existential containers.
@@ -33657,6 +33668,7 @@ public unsafe partial class DisplayableProxy : IDisplayable, ISwiftObject, IDisp
         public static partial void SBW_Displayable_free_method_display_0(IntPtr ptr);
     }
 }
+#pragma warning restore SB0003, SB0004
 
 
 /// <summary>
@@ -33669,6 +33681,7 @@ public interface IHasValue
     void SetValue(int newValue);
 }
 
+#pragma warning disable SB0003, SB0004
 /// <summary>
 /// Proxy class that enables C# implementations of the HasValue protocol.
 /// Can wrap either a C# implementation or receive Swift existential containers.
@@ -33989,6 +34002,7 @@ public unsafe partial class HasValueProxy : IHasValue, ISwiftObject, IDisposable
         public static partial void SBW_HasValue_method_setValue_1(IntPtr containerPtr, IntPtr arg0Ptr);
     }
 }
+#pragma warning restore SB0003, SB0004
 
 
 /// <summary>
@@ -34930,6 +34944,7 @@ public interface INameable
     string Name { get; }
 }
 
+#pragma warning disable SB0003, SB0004
 /// <summary>
 /// Proxy class that enables C# implementations of the Nameable protocol.
 /// Can wrap either a C# implementation or receive Swift existential containers.
@@ -35163,6 +35178,7 @@ public unsafe partial class NameableProxy : INameable, ISwiftObject, IDisposable
         public static partial void SBW_Nameable_free_get_name_0(IntPtr ptr);
     }
 }
+#pragma warning restore SB0003, SB0004
 
 
 /// <summary>
@@ -35173,6 +35189,7 @@ public interface IAgeable
     int Age { get; }
 }
 
+#pragma warning disable SB0003, SB0004
 /// <summary>
 /// Proxy class that enables C# implementations of the Ageable protocol.
 /// Can wrap either a C# implementation or receive Swift existential containers.
@@ -35398,6 +35415,7 @@ public unsafe partial class AgeableProxy : IAgeable, ISwiftObject, IDisposable, 
         public static partial void SBW_Ageable_free_get_age_0(IntPtr ptr);
     }
 }
+#pragma warning restore SB0003, SB0004
 
 
 /// <summary>
@@ -35408,6 +35426,7 @@ public interface IAddable
     int Add(int other);
 }
 
+#pragma warning disable SB0003, SB0004
 /// <summary>
 /// Proxy class that enables C# implementations of the Addable protocol.
 /// Can wrap either a C# implementation or receive Swift existential containers.
@@ -35635,6 +35654,7 @@ public unsafe partial class AddableProxy : IAddable, ISwiftObject, IDisposable, 
         public static partial void SBW_Addable_free_method_add_0(IntPtr ptr);
     }
 }
+#pragma warning restore SB0003, SB0004
 
 
 /// <summary>
@@ -35645,6 +35665,7 @@ public interface ISubtractable
     int GetSubtract(int other);
 }
 
+#pragma warning disable SB0003, SB0004
 /// <summary>
 /// Proxy class that enables C# implementations of the Subtractable protocol.
 /// Can wrap either a C# implementation or receive Swift existential containers.
@@ -35872,6 +35893,7 @@ public unsafe partial class SubtractableProxy : ISubtractable, ISwiftObject, IDi
         public static partial void SBW_Subtractable_free_method_subtract_0(IntPtr ptr);
     }
 }
+#pragma warning restore SB0003, SB0004
 
 
 /// <summary>
@@ -35882,6 +35904,7 @@ public interface IMultipliable
     int GetMultiply(int other);
 }
 
+#pragma warning disable SB0003, SB0004
 /// <summary>
 /// Proxy class that enables C# implementations of the Multipliable protocol.
 /// Can wrap either a C# implementation or receive Swift existential containers.
@@ -36109,6 +36132,7 @@ public unsafe partial class MultipliableProxy : IMultipliable, ISwiftObject, IDi
         public static partial void SBW_Multipliable_free_method_multiply_0(IntPtr ptr);
     }
 }
+#pragma warning restore SB0003, SB0004
 
 
 /// <summary>
@@ -36119,6 +36143,7 @@ public interface IDividable
     int GetDivide(int other);
 }
 
+#pragma warning disable SB0003, SB0004
 /// <summary>
 /// Proxy class that enables C# implementations of the Dividable protocol.
 /// Can wrap either a C# implementation or receive Swift existential containers.
@@ -36346,6 +36371,7 @@ public unsafe partial class DividableProxy : IDividable, ISwiftObject, IDisposab
         public static partial void SBW_Dividable_free_method_divide_0(IntPtr ptr);
     }
 }
+#pragma warning restore SB0003, SB0004
 
 
 /// <summary>
@@ -37143,6 +37169,7 @@ public interface INamed
     string Name { get; }
 }
 
+#pragma warning disable SB0003, SB0004
 /// <summary>
 /// Proxy class that enables C# implementations of the Named protocol.
 /// Can wrap either a C# implementation or receive Swift existential containers.
@@ -37376,6 +37403,7 @@ public unsafe partial class NamedProxy : INamed, ISwiftObject, IDisposable, Swif
         public static partial void SBW_Named_free_get_name_0(IntPtr ptr);
     }
 }
+#pragma warning restore SB0003, SB0004
 
 
 /// <summary>
@@ -37389,6 +37417,7 @@ public interface IMutableNamed
     string Name { get; set; }
 }
 
+#pragma warning disable SB0003, SB0004
 /// <summary>
 /// Proxy class that enables C# implementations of the MutableNamed protocol.
 /// Can wrap either a C# implementation or receive Swift existential containers.
@@ -37656,6 +37685,7 @@ public unsafe partial class MutableNamedProxy : IMutableNamed, ISwiftObject, IDi
         public static partial void SBW_MutableNamed_set_name_0(IntPtr containerPtr, IntPtr valuePtr);
     }
 }
+#pragma warning restore SB0003, SB0004
 
 
 /// <summary>
@@ -37669,6 +37699,7 @@ public interface IPrioritized
     Swift.SwiftBindingsTestLib.TaskPriority Priority { get; }
 }
 
+#pragma warning disable SB0003, SB0004
 /// <summary>
 /// Proxy class that enables C# implementations of the Prioritized protocol.
 /// Can wrap either a C# implementation or receive Swift existential containers.
@@ -37778,6 +37809,10 @@ public unsafe partial class PrioritizedProxy : IPrioritized, ISwiftObject, IDisp
     }
     #region Interface Implementation
     
+    [Obsolete("This member is not dispatchable to Swift and throws NotSupportedException " +
+        "when called on a Swift-backed existential container (SB0003).",
+        DiagnosticId = "SB0003",
+        UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     public Swift.SwiftBindingsTestLib.TaskPriority Priority
     {
         get
@@ -37884,6 +37919,7 @@ public unsafe partial class PrioritizedProxy : IPrioritized, ISwiftObject, IDisp
         public static partial IntPtr GetWitnessTable();
     }
 }
+#pragma warning restore SB0003, SB0004
 
 
 /// <summary>
@@ -37897,6 +37933,7 @@ public interface IMutablePrioritized
     Swift.SwiftBindingsTestLib.TaskPriority Priority { get; set; }
 }
 
+#pragma warning disable SB0003, SB0004
 /// <summary>
 /// Proxy class that enables C# implementations of the MutablePrioritized protocol.
 /// Can wrap either a C# implementation or receive Swift existential containers.
@@ -38018,6 +38055,10 @@ public unsafe partial class MutablePrioritizedProxy : IMutablePrioritized, ISwif
     }
     #region Interface Implementation
     
+    [Obsolete("This member is not dispatchable to Swift and throws NotSupportedException " +
+        "when called on a Swift-backed existential container (SB0003).",
+        DiagnosticId = "SB0003",
+        UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     public Swift.SwiftBindingsTestLib.TaskPriority Priority
     {
         get
@@ -38135,6 +38176,7 @@ public unsafe partial class MutablePrioritizedProxy : IMutablePrioritized, ISwif
         public static partial IntPtr GetWitnessTable();
     }
 }
+#pragma warning restore SB0003, SB0004
 
 
 /// <summary>
@@ -38147,6 +38189,7 @@ public interface ITaskDescriptor
     Swift.SwiftBindingsTestLib.TaskPriority Priority { get; }
 }
 
+#pragma warning disable SB0003, SB0004
 /// <summary>
 /// Proxy class that enables C# implementations of the TaskDescriptor protocol.
 /// Can wrap either a C# implementation or receive Swift existential containers.
@@ -38305,6 +38348,10 @@ public unsafe partial class TaskDescriptorProxy : ITaskDescriptor, ISwiftObject,
         }
     }
     
+    [Obsolete("This member is not dispatchable to Swift and throws NotSupportedException " +
+        "when called on a Swift-backed existential container (SB0003).",
+        DiagnosticId = "SB0003",
+        UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     public Swift.SwiftBindingsTestLib.TaskStatus StatusProperty
     {
         get
@@ -38317,6 +38364,10 @@ public unsafe partial class TaskDescriptorProxy : ITaskDescriptor, ISwiftObject,
         }
     }
     
+    [Obsolete("This member is not dispatchable to Swift and throws NotSupportedException " +
+        "when called on a Swift-backed existential container (SB0003).",
+        DiagnosticId = "SB0003",
+        UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     public Swift.SwiftBindingsTestLib.TaskPriority Priority
     {
         get
@@ -38430,6 +38481,7 @@ public unsafe partial class TaskDescriptorProxy : ITaskDescriptor, ISwiftObject,
         public static partial void SBW_TaskDescriptor_free_get_taskName_0(IntPtr ptr);
     }
 }
+#pragma warning restore SB0003, SB0004
 
 
 /// <summary>
@@ -38447,6 +38499,7 @@ public interface IStringProcessor
     string GetOutput();
 }
 
+#pragma warning disable SB0003, SB0004
 /// <summary>
 /// Proxy class that enables C# implementations of the StringProcessor protocol.
 /// Can wrap either a C# implementation or receive Swift existential containers.
@@ -38732,6 +38785,7 @@ public unsafe partial class StringProcessorProxy : IStringProcessor, ISwiftObjec
         public static partial void SBW_StringProcessor_free_method_getOutput_1(IntPtr ptr);
     }
 }
+#pragma warning restore SB0003, SB0004
 
 
 /// <summary>
@@ -38753,6 +38807,7 @@ public interface IStatusHandler
     Swift.SwiftBindingsTestLib.TaskStatus GetTransitionStatus(Swift.SwiftBindingsTestLib.TaskStatus from);
 }
 
+#pragma warning disable SB0003, SB0004
 /// <summary>
 /// Proxy class that enables C# implementations of the StatusHandler protocol.
 /// Can wrap either a C# implementation or receive Swift existential containers.
@@ -38889,6 +38944,10 @@ public unsafe partial class StatusHandlerProxy : IStatusHandler, ISwiftObject, I
     }
     #region Interface Implementation
     
+    [Obsolete("This member is not dispatchable to Swift and throws NotSupportedException " +
+        "when called on a Swift-backed existential container (SB0003).",
+        DiagnosticId = "SB0003",
+        UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     public void HandleStatus(Swift.SwiftBindingsTestLib.TaskStatus status)
     {
         if (_csharpImpl != null)
@@ -38901,6 +38960,10 @@ public unsafe partial class StatusHandlerProxy : IStatusHandler, ISwiftObject, I
             "Protocol member access is only supported when wrapping a C# implementation.");
     }
     
+    [Obsolete("This member is not dispatchable to Swift and throws NotSupportedException " +
+        "when called on a Swift-backed existential container (SB0003).",
+        DiagnosticId = "SB0003",
+        UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     public Swift.SwiftBindingsTestLib.TaskStatus GetCurrentStatus()
     {
         if (_csharpImpl != null)
@@ -38910,6 +38973,10 @@ public unsafe partial class StatusHandlerProxy : IStatusHandler, ISwiftObject, I
             "Protocol member access is only supported when wrapping a C# implementation.");
     }
     
+    [Obsolete("This member is not dispatchable to Swift and throws NotSupportedException " +
+        "when called on a Swift-backed existential container (SB0003).",
+        DiagnosticId = "SB0003",
+        UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     public Swift.SwiftBindingsTestLib.TaskStatus GetTransitionStatus(Swift.SwiftBindingsTestLib.TaskStatus from)
     {
         if (_csharpImpl != null)
@@ -39013,6 +39080,7 @@ public unsafe partial class StatusHandlerProxy : IStatusHandler, ISwiftObject, I
         public static partial IntPtr GetWitnessTable();
     }
 }
+#pragma warning restore SB0003, SB0004
 
 
 /// <summary>
@@ -39034,6 +39102,7 @@ public interface IPriorityHandler
     bool IsHigherPriority(Swift.SwiftBindingsTestLib.TaskPriority other);
 }
 
+#pragma warning disable SB0003, SB0004
 /// <summary>
 /// Proxy class that enables C# implementations of the PriorityHandler protocol.
 /// Can wrap either a C# implementation or receive Swift existential containers.
@@ -39170,6 +39239,10 @@ public unsafe partial class PriorityHandlerProxy : IPriorityHandler, ISwiftObjec
     }
     #region Interface Implementation
     
+    [Obsolete("This member is not dispatchable to Swift and throws NotSupportedException " +
+        "when called on a Swift-backed existential container (SB0003).",
+        DiagnosticId = "SB0003",
+        UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     public void SetPriority(Swift.SwiftBindingsTestLib.TaskPriority priority)
     {
         if (_csharpImpl != null)
@@ -39182,6 +39255,10 @@ public unsafe partial class PriorityHandlerProxy : IPriorityHandler, ISwiftObjec
             "Protocol member access is only supported when wrapping a C# implementation.");
     }
     
+    [Obsolete("This member is not dispatchable to Swift and throws NotSupportedException " +
+        "when called on a Swift-backed existential container (SB0003).",
+        DiagnosticId = "SB0003",
+        UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     public Swift.SwiftBindingsTestLib.TaskPriority GetPriority()
     {
         if (_csharpImpl != null)
@@ -39191,6 +39268,10 @@ public unsafe partial class PriorityHandlerProxy : IPriorityHandler, ISwiftObjec
             "Protocol member access is only supported when wrapping a C# implementation.");
     }
     
+    [Obsolete("This member is not dispatchable to Swift and throws NotSupportedException " +
+        "when called on a Swift-backed existential container (SB0003).",
+        DiagnosticId = "SB0003",
+        UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     public bool IsHigherPriority(Swift.SwiftBindingsTestLib.TaskPriority other)
     {
         if (_csharpImpl != null)
@@ -39294,6 +39375,7 @@ public unsafe partial class PriorityHandlerProxy : IPriorityHandler, ISwiftObjec
         public static partial IntPtr GetWitnessTable();
     }
 }
+#pragma warning restore SB0003, SB0004
 
 
 /// <summary>

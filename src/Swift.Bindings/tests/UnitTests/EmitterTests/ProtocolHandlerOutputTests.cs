@@ -2502,6 +2502,239 @@ public class ProtocolHandlerOutputTests
         };
     }
 
+    // --- SB0004: Empty interface with skipped members ---
+
+    [Fact]
+    public void Emit_ProtocolWithAllMembersSkipped_EmitsSB0004()
+    {
+        // Protocol with a closure-typed property → skipped → empty interface → SB0004
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "CallbackProtocol",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.CallbackProtocol"),
+            MangledName = "$s10TestModule16CallbackProtocolP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Subscripts = new List<SubscriptDecl>(),
+            Properties = new List<PropertyDecl>
+            {
+                new()
+                {
+                    Name = "callback",
+                    SwiftTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty),
+                    IsStatic = false,
+                    HasStorage = false,
+                    Accessors = new List<AccessorDecl>
+                    {
+                        new GetAccessorDecl
+                        {
+                            Method = CreateMethodDecl("callback_get", moduleDecl)
+                        }
+                    },
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            Methods = new List<MethodDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        Assert.Contains("DiagnosticId = \"SB0004\"", csOutput);
+        Assert.Contains("1 protocol member(s) were skipped", csOutput);
+        Assert.Contains("public interface ICallbackProtocol", csOutput);
+    }
+
+    [Fact]
+    public void Emit_MarkerProtocolWithNoMembers_DoesNotEmitSB0004()
+    {
+        // Genuine marker protocol — zero declared members → no diagnostic
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "MarkerProtocol",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MarkerProtocol"),
+            MangledName = "$s10TestModule14MarkerProtocolP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Subscripts = new List<SubscriptDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        Assert.DoesNotContain("DiagnosticId = \"SB0004\"", csOutput);
+        Assert.Contains("public interface IMarkerProtocol", csOutput);
+    }
+
+    [Fact]
+    public void Emit_ProtocolWithEmittedMembers_DoesNotEmitSB0004()
+    {
+        // Protocol with a successfully emitted member → no SB0004
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "CountableProtocol",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.CountableProtocol"),
+            MangledName = "$s10TestModule17CountableProtocolP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Subscripts = new List<SubscriptDecl>(),
+            Properties = new List<PropertyDecl>
+            {
+                new()
+                {
+                    Name = "count",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    IsStatic = false,
+                    HasStorage = false,
+                    Accessors = new List<AccessorDecl>
+                    {
+                        new GetAccessorDecl
+                        {
+                            Method = CreateMethodDecl("count_get", moduleDecl)
+                        }
+                    },
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            Methods = new List<MethodDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        Assert.DoesNotContain("DiagnosticId = \"SB0004\"", csOutput);
+        Assert.Contains("public interface ICountableProtocol", csOutput);
+    }
+
+    [Fact]
+    public void Emit_DerivedProtocolWithAllOwnMembersSkipped_DoesNotEmitSB0004()
+    {
+        // A derived protocol inheriting from a non-empty parent, but with all of its
+        // own members skipped, should NOT get SB0004 — the interface still has
+        // inherited members via the base interface.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "DerivedProtocol",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.DerivedProtocol"),
+            MangledName = "$s10TestModule15DerivedProtocolP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>
+            {
+                new NamedTypeSpec("TestModule.BaseProtocol")
+            },
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Subscripts = new List<SubscriptDecl>(),
+            // A closure property that will be skipped
+            Properties = new List<PropertyDecl>
+            {
+                new()
+                {
+                    Name = "onComplete",
+                    SwiftTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty),
+                    IsStatic = false,
+                    HasStorage = false,
+                    Accessors = new List<AccessorDecl>
+                    {
+                        new GetAccessorDecl
+                        {
+                            Method = CreateMethodDecl("onComplete_get", moduleDecl)
+                        }
+                    },
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            Methods = new List<MethodDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        Assert.DoesNotContain("DiagnosticId = \"SB0004\"", csOutput);
+        // Should still have the inherited interface
+        Assert.Contains(": IBaseProtocol", csOutput);
+    }
+
+    [Fact]
+    public void Emit_ProxyClass_SuppressesSB0003AndSB0004()
+    {
+        // Verify that generated proxy classes include pragma warning disable
+        // to prevent self-referential obsolete warnings
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "SimpleProtocol",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.SimpleProtocol"),
+            MangledName = "$s10TestModule14SimpleProtocolP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Subscripts = new List<SubscriptDecl>(),
+            Properties = new List<PropertyDecl>
+            {
+                new()
+                {
+                    Name = "count",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    IsStatic = false,
+                    HasStorage = false,
+                    Accessors = new List<AccessorDecl>
+                    {
+                        new GetAccessorDecl
+                        {
+                            Method = CreateMethodDecl("count_get", moduleDecl)
+                        }
+                    },
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            Methods = new List<MethodDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        Assert.Contains("#pragma warning disable SB0003, SB0004", csOutput);
+        Assert.Contains("#pragma warning restore SB0003, SB0004", csOutput);
+    }
+
     private static (string csOutput, string swiftOutput) EmitProtocol(ProtocolDecl protocolDecl, TypeDatabase typeDatabase)
     {
         var csOutput = new StringWriter();

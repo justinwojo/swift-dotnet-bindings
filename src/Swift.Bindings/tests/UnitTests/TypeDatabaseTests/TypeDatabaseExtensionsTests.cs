@@ -918,4 +918,75 @@ public class TypeDatabaseExtensionsTests
 
         Assert.Equal(TypeDatabaseExtensions.AnyType, record);
     }
+
+    // --- Security opaque CF types → IntPtr (loaded from SecurityDatabase.xml) ---
+
+    [Fact]
+    public async Task LoadSecurityDatabase_SecTrust_ResolvesToIntPtr()
+    {
+        var typeDatabase = new TypeDatabase();
+        var dbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Swift", "SecurityDatabase.xml");
+        await typeDatabase.LoadModuleDatabaseFromFile(dbPath);
+
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("Security.SecTrust");
+        Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record));
+        Assert.Equal("System", record!.CSharpTypeName.Namespace);
+        Assert.Equal("IntPtr", record.CSharpTypeName.Name);
+        Assert.Equal(TypeRecordFlags.Frozen, record.Flags);
+        Assert.Equal(TypeRecordKind.Struct, record.Kind);
+    }
+
+    [Theory]
+    [InlineData("Security.SecCertificate")]
+    [InlineData("Security.SecKey")]
+    [InlineData("Security.SecIdentity")]
+    public async Task LoadSecurityDatabase_OpaqueCFTypes_ResolveToIntPtr(string swiftType)
+    {
+        var typeDatabase = new TypeDatabase();
+        var dbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Swift", "SecurityDatabase.xml");
+        await typeDatabase.LoadModuleDatabaseFromFile(dbPath);
+
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(swiftType);
+        Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record));
+        Assert.Equal("System", record!.CSharpTypeName.Namespace);
+        Assert.Equal("IntPtr", record.CSharpTypeName.Name);
+    }
+
+    // --- IndexPath → NSIndexPath ObjC-bridged (loaded from FoundationDatabase.xml) ---
+
+    [Fact]
+    public async Task LoadFoundationDatabase_IndexPath_ResolvesToNSIndexPath()
+    {
+        var typeDatabase = new TypeDatabase();
+        var dbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Swift", "FoundationDatabase.xml");
+        await typeDatabase.LoadModuleDatabaseFromFile(dbPath);
+
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.IndexPath");
+        Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record));
+        Assert.Equal("Foundation", record!.CSharpTypeName.Namespace);
+        Assert.Equal("NSIndexPath", record.CSharpTypeName.Name);
+        Assert.True((record.Flags & TypeRecordFlags.ObjCBridged) != 0);
+        Assert.Equal(TypeRecordKind.Class, record.Kind);
+    }
+
+    // --- JSONDecoder → AnyType (AppleFrameworkValueTypes exclusion) ---
+
+    [Fact]
+    public void GetTypeRecordOrAnyType_JSONDecoder_ReturnsAnyType()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec("Foundation.JSONDecoder"));
+
+        Assert.Equal(TypeDatabaseExtensions.AnyType, record);
+    }
+
+    [Fact]
+    public void IsObjCModuleType_JSONDecoder_ReturnsFalse()
+    {
+        // JSONDecoder is in AppleFrameworkValueTypes → not treated as ObjC class
+        var result = TypeDatabaseExtensions.IsObjCModuleType(new NamedTypeSpec("Foundation.JSONDecoder"));
+
+        Assert.False(result);
+    }
 }
