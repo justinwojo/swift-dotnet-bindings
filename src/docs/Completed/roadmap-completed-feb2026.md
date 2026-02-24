@@ -93,3 +93,15 @@ Runtime `SwiftDictionary<K,V>` implements `IReadOnlyDictionary<K,V>`. Generator 
 ### Architecture Overhaul (Sessions 1-9)
 
 9-session architecture rework replacing fragmented type conversion with unified `TypeProjectionFactory` + `ITypeProjection` + `MarshalPlan`. Eliminated ~1,000 lines of overlapping conversion code. `TypeHandlerContext` replaced mutable Conductor state. All 32/32 libraries passing at 0 compile errors post-rework.
+
+### 6. Class Inheritance (Phase 1, Sessions I1-I6)
+
+6-session implementation of Swift class inheritance in generated C# bindings. Full plan: `class-inheritance-implementation.md`.
+
+- **I1-I2 (Parse & Resolve)**: `superclassUsr`, `superclassNames`, `inheritsConvenienceInitializers`, `hasMissingDesignatedInitializers` parsed from ABI JSON. `ModuleProcessor.ResolveClassHierarchy()` resolves same-module superclasses with cycle detection. `TypeRecord.SuperclassTypeName` persisted for cross-module support. Generic superclass names guarded (stored as null).
+- **I3 (Core Emission)**: Topological sort (Kahn's algorithm in `BaseHandler.TopologicallySortTypes`). `class Derived : Base` syntax. Protected `_payload` on root, shared by derived. `SwiftInheritanceChain` sentinel for constructor chaining. ISwiftObject re-implementation on derived (own type metadata). Disposal `<remarks>` on all classes. Validation: 32/32 (up from 22/32 mid-session).
+- **I4 (Virtual/Override Dispatch)**: `overriding` field and `Override`/`Final` declAttributes parsed. `virtual`/`override`/`sealed override` emitted on class instance methods and properties. `HasMethodInResolvedAncestors`/`HasPropertyInResolvedAncestors` walks resolved superclass chain matching by name + param count + param types + `WasEmitted`. CS0108/CS0109 warning suppressions removed.
+- **I5 (Protocol Conformance Inheritance)**: `GetEmittableAncestors` walks `ResolvedSuperclass` chain for protocol conformance validation. Inherited conformance dictionary entries. Empty conformance symbols resolved from ancestors. `IsEffectivelyDerived` canonical predicate.
+- **I6 (Validation)**: All edge cases verified as handled: generic base classes (fallback to flat), actor inheritance (non-issue), cross-module inheritance (flat fallback), multi-level ObjC chains (stops at boundary), TestFramework Animal/Dog hierarchy working.
+
+**Results**: 60 derived classes across 12 libraries now have proper C# inheritance. 4,089 unit tests, 700 integration, 221 runtime, 94/94 must-pass, 32/32 validation. Post-inheritance score assessment: Alamofire 2.90→~3.15, SnapKit 3.20→~3.50, Lottie 3.85→~4.05.

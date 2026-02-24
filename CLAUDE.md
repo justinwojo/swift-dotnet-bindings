@@ -64,38 +64,13 @@ dotnet run --project src/Swift.Bindings/src -- \
   -o /tmp/nuke-output/
 ```
 
-**Output files:**
-- `Swift.{Module}.cs` — main C# bindings
-- `Swift.{Module}.swift` — Swift wrapper functions
-- `{Module}SwiftBindings.xcframework/` — compiled Swift wrapper (module-unique name)
-- `{Module}.Swift.iOS.csproj` — ready-to-build project (references `Swift.Runtime` NuGet)
-- `{Module}.Swift.iOS.targets` — NuGet consumer targets
-- `binding-metadata.json` / `binding-metadata.props` — extracted metadata
-
 **Compiling the generated bindings to verify correctness:**
 ```bash
 cd /path/to/output && dotnet build {Module}.Swift.iOS.csproj -p:EnableDefaultCompileItems=false
 ```
 Note: `-p:EnableDefaultCompileItems=false` is needed because the generated `.csproj` explicitly lists `<Compile>` items but the .NET SDK also auto-includes `*.cs` (known issue — the SDK mode avoids this).
 
-**All CLI options:**
-
-| Option | Description |
-|--------|-------------|
-| `--xcframework <path>` | Path to xcframework (auto-resolves all inputs) |
-| `--platform-target <target>` | `simulator` (default) or `device` |
-| `-o, --output <path>` | Output directory (required) |
-| `-l, --library-name <name>` | Runtime library name for DllImport |
-| `--async-library <name>` | Library name for async wrapper functions |
-| `-s, --swiftinterface <path>` | `.swiftinterface` for `@inlinable internal` detection |
-| `--symbolgraph <path>` | Symbol graph JSON for C# XML doc comments |
-| `--bridge-hints <path>` | Bridge hints JSON for SwiftUI bridge customization |
-| `--namespace-pattern <pattern>` | C# namespace (supports `{Module}`, `{Framework}`) |
-| `--sdk-mode` | Skips `.csproj` emission (used when the MSBuild SDK is the project system) |
-| `--package-id <id>` | NuGet package ID override |
-| `--wrapper-architectures <scope>` | `simulator`, `device`, or `all` |
-| `--framework-dependency <path>` | Dependency xcframework path (repeatable). Adds `-F` search paths for wrapper compilation and `PackageReference` in emitted `.csproj`. Requires `--xcframework`. |
-| `-v, --verbose <level>` | 0=silent, 1=normal, 2=debug |
+All CLI options available via `dotnet run --project src/Swift.Bindings/src -- --help`.
 
 ### Manual mode (original)
 
@@ -189,16 +164,6 @@ Use `<SwiftFrameworkDependency>` when your library imports another Swift framewo
 - `src/Swift.Bindings.Sdk/Sdk/Sdk.targets` — 9 build targets (discover → fingerprint → generate → compile → pack)
 - `src/Swift.Bindings.Sdk/build-sdk.sh` — publishes generator + packs SDK NuGet
 
-## Validation After Generator Changes
-
-Run after changes to `src/Swift.Bindings/src/{Marshaler,Emitter,Parser,TypeDatabase,Model}/`:
-```bash
-./run-tests.sh                                                    # Unit tests first
-cd TestFramework && ./build-and-test.sh && ./generate-coverage-report.sh  # Then coverage
-```
-
-Coverage report shows must-pass features as passing/degraded/missing. Verify no regressions.
-
 ## Working Guidelines
 
 - When fixing a bug pattern, grep the entire codebase for ALL instances before finishing.
@@ -208,6 +173,8 @@ Coverage report shows must-pass features as passing/degraded/missing. Verify no 
 - Use logical/semantic cohesion for refactoring, not arbitrary LOC limits.
 - Double-check memory management operations target the correct pointer/object.
 - Do NOT commit unless the user explicitly asks.
+- `run-tests.sh` is fine to run per sub-task. `validate-libraries.sh`, `build-and-test.sh`, and `golden/check-golden-files.sh` should only run at the end of all sub-tasks or when absolutely needed mid-session.
+- NEVER use `git stash` — linter hooks detect reverted files and stash pop discards changes silently.
 
 ## Known Runtime Issues
 
