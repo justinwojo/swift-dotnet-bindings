@@ -95,6 +95,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 return;
             }
             EmitAsyncStreamProperty(csWriter, swiftWriter, propertyEnv, propertyDecl, context.PropertyRenames);
+            propertyDecl.WasEmitted = true;
             ReportCollector.RecordMemberEmitted(BindingItemKind.Property, propertyDecl.Name, propertyDecl.ParentDecl);
             return;
         }
@@ -418,13 +419,30 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         }
 
         var staticModifier = propertyDecl.IsStatic ? "static " : string.Empty;
+
+        // Compute virtual/override/sealed override modifier for class instance properties.
+        // Can only emit "override" if a resolved ancestor actually has this property in C#.
+        // Otherwise CS0115 occurs when the property comes from an external ancestor or was skipped.
+        string dispatchModifier = "";
+        if (propertyDecl.ParentDecl is ClassDecl classParent && !propertyDecl.IsStatic)
+        {
+            if (propertyDecl.IsOverride && WrapperEmitter.HasPropertyInResolvedAncestors(classParent, propertyDecl.Name))
+            {
+                dispatchModifier = propertyDecl.IsFinal ? "sealed override " : "override ";
+            }
+            else if (!classParent.IsFinal && !propertyDecl.IsFinal)
+            {
+                dispatchModifier = "virtual ";
+            }
+        }
+
         // Then emit the property
         if (fallbackInfo.HasValue)
         {
             UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, fallbackInfo.Value);
         }
         XmlDocCommentEmitter.EmitDocComment(csWriter, propertyDecl);
-        csWriter.WriteLine($"public {staticModifier}{csTypeName} {propertyName}");
+        csWriter.WriteLine($"public {staticModifier}{dispatchModifier}{csTypeName} {propertyName}");
         csWriter.WriteLine("{");
         csWriter.Indent++;
 
@@ -453,6 +471,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         }
 
         csWriter.WriteLine();
+        propertyDecl.WasEmitted = true;
         ReportCollector.RecordMemberEmitted(BindingItemKind.Property, propertyDecl.Name, propertyDecl.ParentDecl);
     }
 

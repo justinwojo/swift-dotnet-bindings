@@ -33,7 +33,7 @@ public class MethodHandlerOutputTests
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
         Assert.Contains("[LibraryImport(\"/tmp/AsyncWrapper.dylib\"", csOutput);
-        Assert.Contains("public Task<long> FetchAsync(System.Threading.CancellationToken cancellationToken = default)", csOutput);
+        Assert.Contains("public virtual Task<long> FetchAsync(System.Threading.CancellationToken cancellationToken = default)", csOutput);
         Assert.Contains("return _tcs.Task;", csOutput);
     }
 
@@ -86,7 +86,7 @@ public class MethodHandlerOutputTests
         var (csOutput, _) = EmitMethodWithSignatures(method, typeDatabase, emittedSignatures);
 
         // The sync method itself should still be emitted
-        Assert.Contains("public void Collect(", csOutput);
+        Assert.Contains("public virtual void Collect(", csOutput);
         // But the completion handler async wrapper should be skipped (collision)
         Assert.DoesNotContain("CollectAsync", csOutput);
     }
@@ -132,7 +132,7 @@ public class MethodHandlerOutputTests
         var (csOutput, _) = EmitMethodWithSignatures(method, typeDatabase, emittedSignatures);
 
         // Both the sync method and the async wrapper should be emitted
-        Assert.Contains("public void Collect(", csOutput);
+        Assert.Contains("public virtual void Collect(", csOutput);
         Assert.Contains("CollectAsync", csOutput);
     }
 
@@ -178,7 +178,7 @@ public class MethodHandlerOutputTests
         var siblingProperties = new HashSet<string> { "Fetch" };
         var (csOutput, _) = EmitMethod(method, typeDatabase, siblingProperties);
 
-        Assert.Contains("public long FetchMethod()", csOutput);
+        Assert.Contains("public virtual long FetchMethod()", csOutput);
     }
 
     [Fact]
@@ -227,7 +227,7 @@ public class MethodHandlerOutputTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        Assert.Contains("public long Decode<T>()", csOutput);
+        Assert.Contains("public virtual long Decode<T>()", csOutput);
         Assert.Contains("where T : ISwiftObject, ILoadable", csOutput);
     }
 
@@ -330,7 +330,7 @@ public class MethodHandlerOutputTests
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
         Assert.Contains("[global::Swift.UnsupportedSwiftType(\"Unsupported closure fallback\",", csOutput);
-        Assert.Contains("public Swift.TestModule.Box<object> GetBoxedHandler()", csOutput);
+        Assert.Contains("public virtual Swift.TestModule.Box<object> GetBoxedHandler()", csOutput);
     }
 
     [Fact]

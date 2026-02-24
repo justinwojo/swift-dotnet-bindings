@@ -6359,7 +6359,7 @@ namespace Swift.SwiftBindingsTestLib
         }
         
         
-        public T Value
+        public virtual T Value
         {
             get => Value_Get();
             set => Value_Set(value);
@@ -6480,7 +6480,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Returns the stored value.
         /// </summary>
-        public T Get()
+        public virtual T Get()
         {
             unsafe
             {
@@ -6516,7 +6516,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Replaces the stored value.
         /// </summary>
-        public void Set( T newValue)
+        public virtual void Set( T newValue)
         {
             unsafe
             {
@@ -8638,7 +8638,7 @@ namespace Swift.SwiftBindingsTestLib
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib6AnimalC4nameSSvsTj")]
         private static partial void PInvoke_name_Set_9213B91D( Swift.SwiftString.Buffer value,  SwiftSelf self);
         
-        public string Name
+        public virtual string Name
         {
             get { using var __ret = Name_Get(); return __ret.ToString(); }
             set { using var __val = new SwiftString(value); Name_Set(__val); }
@@ -8707,7 +8707,7 @@ namespace Swift.SwiftBindingsTestLib
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib6AnimalC5soundSSvsTj")]
         private static partial void PInvoke_sound_Set_0D485702( Swift.SwiftString.Buffer value,  SwiftSelf self);
         
-        public string Sound
+        public virtual string Sound
         {
             get { using var __ret = Sound_Get(); return __ret.ToString(); }
             set { using var __val = new SwiftString(value); Sound_Set(__val); }
@@ -8824,7 +8824,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Instance method.
         /// </summary>
-        public string GetSpeak()
+        public virtual string GetSpeak()
         {
             unsafe
             {
@@ -8860,7 +8860,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Method that can be overridden.
         /// </summary>
-        public string GetDescribe()
+        public virtual string GetDescribe()
         {
             unsafe
             {
@@ -8967,7 +8967,7 @@ namespace Swift.SwiftBindingsTestLib
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib3DogC5breedSSvsTj")]
         private static partial void PInvoke_breed_Set_0C8B5BB2( Swift.SwiftString.Buffer value,  SwiftSelf self);
         
-        public string Breed
+        public virtual string Breed
         {
             get { using var __ret = Breed_Get(); return __ret.ToString(); }
             set { using var __val = new SwiftString(value); Breed_Set(__val); }
@@ -9068,7 +9068,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Overridden method.
         /// </summary>
-        public string GetDescribe()
+        public override string GetDescribe()
         {
             unsafe
             {
@@ -9104,7 +9104,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Subclass-specific method.
         /// </summary>
-        public string Fetch()
+        public virtual string Fetch()
         {
             unsafe
             {
@@ -9506,7 +9506,7 @@ namespace Swift.SwiftBindingsTestLib
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib19ClassWithPropertiesC9storedInts5Int32VvsTj")]
         private static partial void PInvoke_storedInt_Set_51A44EB2( int value,  SwiftSelf self);
         
-        public int StoredInt
+        public virtual int StoredInt
         {
             get => StoredInt_Get();
             set => StoredInt_Set(value);
@@ -9575,7 +9575,7 @@ namespace Swift.SwiftBindingsTestLib
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib19ClassWithPropertiesC12storedStringSSvsTj")]
         private static partial void PInvoke_storedString_Set_724A7E46( Swift.SwiftString.Buffer value,  SwiftSelf self);
         
-        public string StoredString
+        public virtual string StoredString
         {
             get { using var __ret = StoredString_Get(); return __ret.ToString(); }
             set { using var __val = new SwiftString(value); StoredString_Set(__val); }
@@ -9616,7 +9616,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Computed property (read-only).
         /// </summary>
-        public string Summary
+        public virtual string Summary
         {
             get { using var __ret = Summary_Get(); return __ret.ToString(); }
         }
@@ -12173,7 +12173,7 @@ public partial class ValueAnimal : Animal, ISwiftObject, IHasValue
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11ValueAnimalC5values5Int32VvsTj")]
     private static partial void PInvoke_value_Set_E6CE71AB( int value,  SwiftSelf self);
     
-    public int Value
+    public virtual int Value
     {
         get => Value_Get();
         set => Value_Set(value);
@@ -12270,7 +12270,7 @@ public partial class ValueAnimal : Animal, ISwiftObject, IHasValue
     private static partial void PInvoke_init_522829E0( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer name,  Swift.SwiftString.Buffer sound,  int _value);
     
     
-    public int GetValue()
+    public virtual int GetValue()
     {
         unsafe
         {
@@ -12301,7 +12301,7 @@ public partial class ValueAnimal : Animal, ISwiftObject, IHasValue
     private static partial int PInvoke_getValue_36CFB9F9( SwiftSelf self);
     
     
-    public void SetValue( int newValue)
+    public virtual void SetValue( int newValue)
     {
         unsafe
         {
@@ -12336,7 +12336,7 @@ public partial class ValueAnimal : Animal, ISwiftObject, IHasValue
     /// <summary>
     /// Summary combining inherited and own properties.
     /// </summary>
-    public string GetSummary()
+    public virtual string GetSummary()
     {
         unsafe
         {
@@ -18034,7 +18034,7 @@ public partial class AsyncTask : ISwiftObject, IDisposable
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib9AsyncTaskC6statusSSvsTj")]
     private static partial void PInvoke_status_Set_D4B0A6E4( Swift.SwiftString.Buffer value,  SwiftSelf self);
     
-    public string StatusProperty
+    public virtual string StatusProperty
     {
         get { using var __ret = Status_Get(); return __ret.ToString(); }
         set { using var __val = new SwiftString(value); Status_Set(__val); }
@@ -18165,7 +18165,7 @@ public partial class AsyncTask : ISwiftObject, IDisposable
     
     
     [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
-    public string GetDescription()
+    public virtual string GetDescription()
     {
         unsafe
         {
@@ -22402,7 +22402,7 @@ public partial class MainActorViewModel : ISwiftObject, IDisposable
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib18MainActorViewModelC5titleSSvsTj")]
     private static partial void PInvoke_title_Set_EAF08D72( Swift.SwiftString.Buffer value,  SwiftSelf self);
     
-    public string Title
+    public virtual string Title
     {
         get { using var __ret = Title_Get(); return __ret.ToString(); }
         set { using var __val = new SwiftString(value); Title_Set(__val); }
@@ -22468,7 +22468,7 @@ public partial class MainActorViewModel : ISwiftObject, IDisposable
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib18MainActorViewModelC5counts5Int32VvsTj")]
     private static partial void PInvoke_count_Set_8C40F233( int value,  SwiftSelf self);
     
-    public int Count
+    public virtual int Count
     {
         get => Count_Get();
         set => Count_Set(value);
@@ -22509,7 +22509,7 @@ public partial class MainActorViewModel : ISwiftObject, IDisposable
     /// <summary>
     /// Computed property on @MainActor class.
     /// </summary>
-    public string Summary
+    public virtual string Summary
     {
         get { using var __ret = Summary_Get(); return __ret.ToString(); }
     }
@@ -22622,7 +22622,7 @@ public partial class MainActorViewModel : ISwiftObject, IDisposable
     /// <summary>
     /// Synchronous method on @MainActor class.
     /// </summary>
-    public int Increment()
+    public virtual int Increment()
     {
         unsafe
         {
@@ -22777,7 +22777,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_r
     /// <summary>
     /// Async method on @MainActor class.
     /// </summary>
-    public Task<string> RefreshTitleAsync(System.Threading.CancellationToken cancellationToken = default)
+    public virtual Task<string> RefreshTitleAsync(System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -24327,7 +24327,7 @@ public partial class Counter : ISwiftObject, IDisposable
     /// <summary>
     /// Nonisolated computed property.
     /// </summary>
-    public string TypeName
+    public virtual string TypeName
     {
         get { using var __ret = TypeName_Get(); return __ret.ToString(); }
     }
@@ -24455,7 +24455,7 @@ public partial class Counter : ISwiftObject, IDisposable
     /// <summary>
     /// Isolated method — accesses actor state.
     /// </summary>
-    public int Increment()
+    public virtual int Increment()
     {
         unsafe
         {
@@ -24489,7 +24489,7 @@ public partial class Counter : ISwiftObject, IDisposable
     /// <summary>
     /// Isolated method — accesses actor state.
     /// </summary>
-    public int Decrement()
+    public virtual int Decrement()
     {
         unsafe
         {
@@ -24523,7 +24523,7 @@ public partial class Counter : ISwiftObject, IDisposable
     /// <summary>
     /// Isolated method — reads actor state.
     /// </summary>
-    public int GetCount()
+    public virtual int GetCount()
     {
         unsafe
         {
@@ -24557,7 +24557,7 @@ public partial class Counter : ISwiftObject, IDisposable
     /// <summary>
     /// Isolated method with parameters.
     /// </summary>
-    public int Add( int amount)
+    public virtual int Add( int amount)
     {
         unsafe
         {
@@ -24592,7 +24592,7 @@ public partial class Counter : ISwiftObject, IDisposable
     /// <summary>
     /// Nonisolated method — does not access actor state.
     /// </summary>
-    public string GetDescription()
+    public virtual string GetDescription()
     {
         unsafe
         {
@@ -24864,7 +24864,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_p
     /// <summary>
     /// Async isolated method.
     /// </summary>
-    public Task<string> ProcessAsync( string input, System.Threading.CancellationToken cancellationToken = default)
+    public virtual Task<string> ProcessAsync( string input, System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -24932,7 +24932,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_p
     /// <summary>
     /// Returns the count of processed results.
     /// </summary>
-    public int GetResultCount()
+    public virtual int GetResultCount()
     {
         unsafe
         {
@@ -25075,7 +25075,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_p
     /// <summary>
     /// Nonisolated async method.
     /// </summary>
-    public Task<int> ComputeHashAsync( string input, System.Threading.CancellationToken cancellationToken = default)
+    public virtual Task<int> ComputeHashAsync( string input, System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -25215,7 +25215,7 @@ public partial class SharedState : ISwiftObject, IDisposable
     /// <summary>
     /// A nonisolated(unsafe) property — accessible from any context without isolation.
     /// </summary>
-    public int Counter
+    public virtual int Counter
     {
         get => Counter_Get();
         set => Counter_Set(value);
@@ -25287,7 +25287,7 @@ public partial class SharedState : ISwiftObject, IDisposable
     /// <summary>
     /// A regular stored property for comparison.
     /// </summary>
-    public string Label
+    public virtual string Label
     {
         get { using var __ret = Label_Get(); return __ret.ToString(); }
         set { using var __val = new SwiftString(value); Label_Set(__val); }
@@ -25401,7 +25401,7 @@ public partial class SharedState : ISwiftObject, IDisposable
     /// <summary>
     /// Reads the counter value.
     /// </summary>
-    public int GetCounter()
+    public virtual int GetCounter()
     {
         unsafe
         {
@@ -25435,7 +25435,7 @@ public partial class SharedState : ISwiftObject, IDisposable
     /// <summary>
     /// Increments the counter.
     /// </summary>
-    public void IncrementCounter()
+    public virtual void IncrementCounter()
     {
         unsafe
         {
@@ -29540,7 +29540,7 @@ public partial class MutableClass : ISwiftObject, IDisposable
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib12MutableClassC7counters5Int32VvsTj")]
     private static partial void PInvoke_counter_Set_3E00F7BE( int value,  SwiftSelf self);
     
-    public int Counter
+    public virtual int Counter
     {
         get => Counter_Get();
         set => Counter_Set(value);
@@ -29609,7 +29609,7 @@ public partial class MutableClass : ISwiftObject, IDisposable
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib12MutableClassC5titleSSvsTj")]
     private static partial void PInvoke_title_Set_67E825A6( Swift.SwiftString.Buffer value,  SwiftSelf self);
     
-    public string Title
+    public virtual string Title
     {
         get { using var __ret = Title_Get(); return __ret.ToString(); }
         set { using var __val = new SwiftString(value); Title_Set(__val); }
@@ -32825,7 +32825,7 @@ public partial class SliceProcessor : ISwiftObject, IDisposable
     private static partial void PInvoke_init_10298458( SwiftIndirectResult swiftIndirectResult,  int offset);
     
     
-    public int ProcessSlice( IEnumerable<int> data)
+    public virtual int ProcessSlice( IEnumerable<int> data)
     {
         unsafe
         {
@@ -41197,7 +41197,7 @@ public partial class SimpleModel : ISwiftObject, IDisposable
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11SimpleModelC5values5Int32VvsTj")]
     private static partial void PInvoke_value_Set_B01BA5C9( int value,  SwiftSelf self);
     
-    public int Value
+    public virtual int Value
     {
         get => Value_Get();
         set => Value_Set(value);
@@ -41306,7 +41306,7 @@ public partial class SimpleModel : ISwiftObject, IDisposable
     private static partial void PInvoke_init_A3186675( SwiftIndirectResult swiftIndirectResult,  int _value);
     
     
-    public int GetValue()
+    public virtual int GetValue()
     {
         unsafe
         {
@@ -41651,7 +41651,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
     
     
     [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
-    public string GetKey()
+    public virtual string GetKey()
     {
         unsafe
         {
@@ -41878,7 +41878,7 @@ public partial class Processor : ISwiftObject, IDisposable
     private static partial void PInvoke_init_0C547260( SwiftIndirectResult swiftIndirectResult,  SafeHandle service,  int mode);
     
     
-    public int GetMode()
+    public virtual int GetMode()
     {
         unsafe
         {

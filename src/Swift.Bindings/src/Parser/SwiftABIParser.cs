@@ -59,6 +59,7 @@ namespace BindingsGeneration
         public required string? EnumRawTypeName { get; set; }
         public required string? paramValueOwnership { get; set; }
         public required bool? hasDefaultArg { get; set; }
+        public bool? overriding { get; set; }
         public string? funcSelfKind { get; set; }
         public string? usr { get; set; }
         public string? superclassUsr { get; set; }
@@ -822,6 +823,7 @@ namespace BindingsGeneration
                 Visibility = Visibility.Public,
                 IsMutating = node.funcSelfKind == "Mutating",
                 IsFinal = node.DeclAttributes?.Contains("Final") == true,
+                IsOverride = node.overriding == true || node.DeclAttributes?.Contains("Override") == true,
                 IsModuleInternal = IsNodeModuleInternal(node) ||
                     IsInternalFromSwiftInterface(parentDecl.Name, node.PrintedName),
             };
@@ -1112,6 +1114,8 @@ namespace BindingsGeneration
                 ModuleDecl = moduleDecl,
                 IsStatic = node.@static ?? false,
                 HasStorage = node.DeclAttributes is not null && Array.IndexOf(node.DeclAttributes, "HasStorage") != -1,
+                IsOverride = node.overriding == true || node.DeclAttributes?.Contains("Override") == true,
+                IsFinal = node.DeclAttributes?.Contains("Final") == true,
                 Accessors = HandleAccessors(node.Accessors, sanitizedName, parentDecl, moduleDecl)
             };
             PopulateDocumentation(decl, node);

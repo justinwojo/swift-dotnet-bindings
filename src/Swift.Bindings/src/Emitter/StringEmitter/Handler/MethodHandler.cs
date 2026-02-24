@@ -310,6 +310,7 @@ namespace BindingsGeneration
                 wrapperEmitter.EmitConstructor(csWriter);
             }
             PInvokeEmitter.EmitPInvoke(csWriter, methodEnv, signatureHandler);
+            methodEnv.MethodDecl.WasEmitted = true;
             ReportCollector.RecordMemberEmitted(BindingItemKind.Method, methodEnv.MethodDecl.Name, methodEnv.MethodDecl.ParentDecl);
 
             // Emit constructor overloads for trailing default parameters
@@ -613,6 +614,7 @@ namespace BindingsGeneration
             var wrapperEmitter = new WrapperEmitter(methodEnv, signatureHandler, fallbackInfo);
             wrapperEmitter.EmitMethod(csWriter, swiftWriter);
             PInvokeEmitter.EmitPInvoke(csWriter, methodEnv, signatureHandler);
+            methodEnv.MethodDecl.WasEmitted = true;
             if (isAccessor)
             {
                 ReportCollector.RecordMemberSynthesized(BindingItemKind.Method, methodEnv.MethodDecl.Name, methodEnv.MethodDecl.ParentDecl);

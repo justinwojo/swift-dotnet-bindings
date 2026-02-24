@@ -477,6 +477,241 @@ public class ClassInheritanceEmissionTests
 
     #endregion
 
+    #region Virtual/Override Dispatch Tests
+
+    [Fact]
+    public void NonFinalClass_InstanceMethod_EmitsVirtual()
+    {
+        var (csOutput, _) = EmitMethodOnClass("describe", classIsFinal: false);
+        Assert.Contains("public virtual void Describe()", csOutput);
+    }
+
+    [Fact]
+    public void FinalClass_InstanceMethod_NoVirtual()
+    {
+        var (csOutput, _) = EmitMethodOnClass("describe", classIsFinal: true);
+        Assert.Contains("public void Describe()", csOutput);
+        Assert.DoesNotContain("virtual", csOutput);
+    }
+
+    [Fact]
+    public void NonFinalClass_FinalMethod_NoVirtual()
+    {
+        var (csOutput, _) = EmitMethodOnClass("describe", classIsFinal: false, methodIsFinal: true);
+        Assert.Contains("public void Describe()", csOutput);
+        Assert.DoesNotContain("virtual", csOutput);
+    }
+
+    [Fact]
+    public void OverrideMethod_WithResolvedBase_EmitsOverride()
+    {
+        var (csOutput, _) = EmitMethodOnClass("describe", classIsFinal: false,
+            methodIsOverride: true, hasResolvedBase: true);
+        Assert.Contains("public override void Describe()", csOutput);
+    }
+
+    [Fact]
+    public void SealedOverrideMethod_WithResolvedBase_EmitsSealedOverride()
+    {
+        var (csOutput, _) = EmitMethodOnClass("describe", classIsFinal: false,
+            methodIsOverride: true, methodIsFinal: true, hasResolvedBase: true);
+        Assert.Contains("public sealed override void Describe()", csOutput);
+    }
+
+    [Fact]
+    public void OverrideMethod_WithExternalBase_EmitsVirtualNotOverride()
+    {
+        // When a class has an external superclass (e.g., NSObject) with no C# base,
+        // override keyword would cause CS0115. Emit virtual instead.
+        var (csOutput, _) = EmitMethodOnClass("describe", classIsFinal: false,
+            methodIsOverride: true, hasResolvedBase: false);
+        Assert.Contains("public virtual void Describe()", csOutput);
+        Assert.DoesNotContain("override", csOutput);
+    }
+
+    [Fact]
+    public void StaticMethod_NoVirtualOrOverride()
+    {
+        var (csOutput, _) = EmitMethodOnClass("create", classIsFinal: false, isStatic: true);
+        Assert.Contains("public static void Create()", csOutput);
+        Assert.DoesNotContain("virtual", csOutput);
+        Assert.DoesNotContain("override", csOutput);
+    }
+
+    [Fact]
+    public void Constructor_NoVirtualOrOverride()
+    {
+        // Constructors go through ConstructorHandler, not MethodHandler.
+        // But we can verify at the model level: IsOverride should be parsed but not used.
+        var method = CreateVoidMethodDecl("init", isOverride: true);
+        method.IsConstructor = true;
+        Assert.True(method.IsOverride);
+        Assert.True(method.IsConstructor);
+        // (Constructor emission is covered by ConstructorHandlerOutputTests;
+        //  virtual/override logic in WrapperEmitter.Signature.cs explicitly excludes constructors.)
+    }
+
+    [Fact]
+    public void AccessorMethod_NoVirtualOrOverride()
+    {
+        // Accessor methods are private helpers; the property declaration carries the modifier.
+        var (csOutput, _) = EmitMethodOnClass("name_Get", classIsFinal: false, isAccessor: true);
+        Assert.DoesNotContain("virtual", csOutput);
+        Assert.DoesNotContain("override", csOutput);
+    }
+
+    [Fact]
+    public void NonFinalClass_Property_EmitsVirtualOnProperty()
+    {
+        var classDecl = CreateClassDecl("Animal");
+        var prop = CreateSimplePropertyDecl("name");
+        prop.ParentDecl = classDecl;
+        classDecl.Properties.Add(prop);
+
+        var csOutput = EmitPropertyOnClass(prop, classDecl);
+        Assert.Contains("public virtual string Name", csOutput);
+    }
+
+    [Fact]
+    public void FinalProperty_OnNonFinalClass_NoVirtual()
+    {
+        var classDecl = CreateClassDecl("Animation");
+        var prop = CreateSimplePropertyDecl("startFrame", isFinal: true);
+        prop.ParentDecl = classDecl;
+        classDecl.Properties.Add(prop);
+
+        var csOutput = EmitPropertyOnClass(prop, classDecl);
+        Assert.Contains("public string StartFrame", csOutput);
+        Assert.DoesNotContain("virtual", csOutput);
+    }
+
+    [Fact]
+    public void OverrideProperty_WithResolvedBase_EmitsOverride()
+    {
+        var baseClass = CreateClassDecl("Animal");
+        // Base class must have the matching property for override resolution
+        var baseProp = CreateSimplePropertyDecl("name");
+        baseProp.ParentDecl = baseClass;
+        baseProp.WasEmitted = true;
+        baseClass.Properties.Add(baseProp);
+        var classDecl = CreateClassDecl("Dog");
+        classDecl.ResolvedSuperclass = baseClass;
+        var prop = CreateSimplePropertyDecl("name", isOverride: true);
+        prop.ParentDecl = classDecl;
+        classDecl.Properties.Add(prop);
+
+        var csOutput = EmitPropertyOnClass(prop, classDecl);
+        Assert.Contains("public override string Name", csOutput);
+    }
+
+    [Fact]
+    public void SealedOverrideProperty_WithResolvedBase_EmitsSealedOverride()
+    {
+        var baseClass = CreateClassDecl("Animal");
+        var baseProp = CreateSimplePropertyDecl("name");
+        baseProp.ParentDecl = baseClass;
+        baseProp.WasEmitted = true;
+        baseClass.Properties.Add(baseProp);
+        var classDecl = CreateClassDecl("Dog");
+        classDecl.ResolvedSuperclass = baseClass;
+        var prop = CreateSimplePropertyDecl("name", isOverride: true, isFinal: true);
+        prop.ParentDecl = classDecl;
+        classDecl.Properties.Add(prop);
+
+        var csOutput = EmitPropertyOnClass(prop, classDecl);
+        Assert.Contains("public sealed override string Name", csOutput);
+    }
+
+    [Fact]
+    public void OverrideProperty_WithExternalBase_EmitsVirtualNotOverride()
+    {
+        // When class has external superclass (no resolved C# base), emit virtual instead of override.
+        var classDecl = CreateClassDecl("AnimatedControl");
+        classDecl.SuperclassNames.Add("UIKit.UIControl");
+        // ResolvedSuperclass is null — external base
+        var prop = CreateSimplePropertyDecl("isEnabled", isOverride: true);
+        prop.ParentDecl = classDecl;
+        classDecl.Properties.Add(prop);
+
+        var csOutput = EmitPropertyOnClass(prop, classDecl);
+        Assert.Contains("public virtual string IsEnabled", csOutput);
+        Assert.DoesNotContain("override", csOutput);
+    }
+
+    [Fact]
+    public void StaticProperty_NoVirtualOrOverride()
+    {
+        var classDecl = CreateClassDecl("Animal");
+        var prop = CreateSimplePropertyDecl("species", isStatic: true);
+        prop.ParentDecl = classDecl;
+        classDecl.Properties.Add(prop);
+
+        var csOutput = EmitPropertyOnClass(prop, classDecl);
+        Assert.Contains("public static string Species", csOutput);
+        Assert.DoesNotContain("virtual", csOutput);
+    }
+
+    [Fact]
+    public void OverrideMethod_BaseOverloadSkipped_AncestorCheckReturnsFalse()
+    {
+        // Base class has two overloads: foo(Swift.Int) emitted, foo(Swift.String) skipped.
+        // Derived class overrides foo(Swift.String). The guard must not match foo(Swift.Int)
+        // and incorrectly return true — that would cause CS0115 from emitting "override".
+        var baseClass = CreateClassDecl("Base");
+
+        // foo(Swift.Int) — emitted
+        var baseFooInt = CreateMethodDeclWithParam("foo", "Swift.Int", "value");
+        baseFooInt.ParentDecl = baseClass;
+        baseFooInt.WasEmitted = true;
+        baseClass.Methods.Add(baseFooInt);
+
+        // foo(Swift.String) — skipped by validation gates
+        var baseFooString = CreateMethodDeclWithParam("foo", "Swift.String", "value");
+        baseFooString.ParentDecl = baseClass;
+        baseFooString.WasEmitted = false;
+        baseClass.Methods.Add(baseFooString);
+
+        var derivedClass = CreateClassDecl("Derived");
+        derivedClass.ResolvedSuperclass = baseClass;
+
+        // Derived overrides foo(Swift.String) — but base's foo(Swift.String) was not emitted
+        var derivedFoo = CreateMethodDeclWithParam("foo", "Swift.String", "value");
+        derivedFoo.IsOverride = true;
+
+        // Guard should return false — the specific overload was not emitted
+        Assert.False(WrapperEmitter.HasMethodInResolvedAncestors(derivedClass, derivedFoo));
+    }
+
+    [Fact]
+    public void OverrideMethod_BaseOverloadEmitted_AncestorCheckReturnsTrue()
+    {
+        // Complementary test: when the matching overload IS emitted, the guard returns true.
+        var baseClass = CreateClassDecl("Base");
+
+        // foo(Swift.String) — emitted
+        var baseFooString = CreateMethodDeclWithParam("foo", "Swift.String", "value");
+        baseFooString.ParentDecl = baseClass;
+        baseFooString.WasEmitted = true;
+        baseClass.Methods.Add(baseFooString);
+
+        // foo(Swift.Int) — also emitted (different overload)
+        var baseFooInt = CreateMethodDeclWithParam("foo", "Swift.Int", "value");
+        baseFooInt.ParentDecl = baseClass;
+        baseFooInt.WasEmitted = true;
+        baseClass.Methods.Add(baseFooInt);
+
+        var derivedClass = CreateClassDecl("Derived");
+        derivedClass.ResolvedSuperclass = baseClass;
+
+        // Derived overrides foo(Swift.String) — base's foo(Swift.String) was emitted
+        var derivedFoo = CreateMethodDeclWithParam("foo", "Swift.String", "value");
+        derivedFoo.IsOverride = true;
+
+        Assert.True(WrapperEmitter.HasMethodInResolvedAncestors(derivedClass, derivedFoo));
+    }
+
+    #endregion
+
     #region Helper Methods
 
     /// <summary>
@@ -513,6 +748,22 @@ public class ClassInheritanceEmissionTests
         foreach (var cls in classes)
         {
             cls.ModuleDecl = moduleDecl;
+            // Set ParentDecl and ModuleDecl on all child methods and properties
+            foreach (var method in cls.Methods)
+            {
+                method.ParentDecl = cls;
+                method.ModuleDecl = moduleDecl;
+            }
+            foreach (var prop in cls.Properties)
+            {
+                prop.ParentDecl = cls;
+                prop.ModuleDecl = moduleDecl;
+                foreach (var accessor in prop.Accessors)
+                {
+                    accessor.Method.ParentDecl = cls;
+                    accessor.Method.ModuleDecl = moduleDecl;
+                }
+            }
             testModule.RegisterType(
                 cls.SwiftTypeName,
                 new TypeRecord
@@ -559,6 +810,22 @@ public class ClassInheritanceEmissionTests
         var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
 
         classDecl.ModuleDecl = moduleDecl;
+        // Set ParentDecl and ModuleDecl on all child methods and properties
+        foreach (var method in classDecl.Methods)
+        {
+            method.ParentDecl = classDecl;
+            method.ModuleDecl = moduleDecl;
+        }
+        foreach (var prop in classDecl.Properties)
+        {
+            prop.ParentDecl = classDecl;
+            prop.ModuleDecl = moduleDecl;
+            foreach (var accessor in prop.Accessors)
+            {
+                accessor.Method.ParentDecl = classDecl;
+                accessor.Method.ModuleDecl = moduleDecl;
+            }
+        }
         testModule.RegisterType(
             classDecl.SwiftTypeName,
             new TypeRecord
@@ -747,6 +1014,269 @@ public class ClassInheritanceEmissionTests
             Types = new List<TypeDecl>(),
             Dependencies = new List<string>(),
             Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+    }
+
+    /// <summary>
+    /// Creates a void-returning, no-parameter method on a class and emits it via MethodHandler.
+    /// Returns the C# and Swift output.
+    /// </summary>
+    private static (string csOutput, string swiftOutput) EmitMethodOnClass(
+        string name,
+        bool classIsFinal = false,
+        bool methodIsOverride = false,
+        bool methodIsFinal = false,
+        bool isStatic = false,
+        bool isAccessor = false,
+        bool hasResolvedBase = false)
+    {
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = CreateClassDecl("TestClass");
+        classDecl.IsFinal = classIsFinal;
+        classDecl.ParentDecl = moduleDecl;
+        classDecl.ModuleDecl = moduleDecl;
+
+        if (hasResolvedBase)
+        {
+            var baseClass = CreateClassDecl("BaseClass");
+            baseClass.ParentDecl = moduleDecl;
+            baseClass.ModuleDecl = moduleDecl;
+            // Add the matching emitted method to the base class so override resolution finds it
+            var baseMethod = CreateVoidMethodDecl(name);
+            baseMethod.ParentDecl = baseClass;
+            baseMethod.ModuleDecl = moduleDecl;
+            baseMethod.WasEmitted = true;
+            baseClass.Methods.Add(baseMethod);
+            classDecl.ResolvedSuperclass = baseClass;
+        }
+
+        var method = CreateVoidMethodDecl(name,
+            isOverride: methodIsOverride, isFinal: methodIsFinal,
+            isStatic: isStatic, isAccessor: isAccessor);
+        method.ParentDecl = classDecl;
+        method.ModuleDecl = moduleDecl;
+        classDecl.Methods.Add(method);
+
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        typeDatabase.AddModuleDatabase(swiftModule);
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            classDecl.SwiftTypeName,
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", classDecl.Name),
+                SwiftTypeName = classDecl.SwiftTypeName,
+                MetadataAccessor = $"{classDecl.MangledName}Ma",
+                Kind = TypeRecordKind.Class,
+                Flags = TypeRecordFlags.None
+            });
+        typeDatabase.AddModuleDatabase(testModule);
+
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        var handler = new MethodHandler(NullLogger<MethodHandler>.Instance);
+        var env = new MethodEnvironment(method, typeDatabase);
+        var conductor = new Conductor(NullLoggerFactory.Instance);
+        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
+
+        return (csOutput.ToString(), swiftOutput.ToString());
+    }
+
+    /// <summary>
+    /// Emits a property on a class via PropertyHandler and returns the C# output.
+    /// </summary>
+    private static string EmitPropertyOnClass(PropertyDecl propertyDecl, ClassDecl classDecl)
+    {
+        var moduleDecl = CreateModuleDecl("TestModule");
+        classDecl.ParentDecl = moduleDecl;
+        classDecl.ModuleDecl = moduleDecl;
+        propertyDecl.ModuleDecl = moduleDecl;
+        foreach (var accessor in propertyDecl.Accessors)
+        {
+            accessor.Method.ParentDecl = classDecl;
+            accessor.Method.ModuleDecl = moduleDecl;
+        }
+
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "String"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+                MetadataAccessor = "$sSSMa",
+                Kind = TypeRecordKind.Struct,
+                Flags = TypeRecordFlags.Frozen
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            classDecl.SwiftTypeName,
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", classDecl.Name),
+                SwiftTypeName = classDecl.SwiftTypeName,
+                MetadataAccessor = $"{classDecl.MangledName}Ma",
+                Kind = TypeRecordKind.Class,
+                Flags = TypeRecordFlags.None
+            });
+        typeDatabase.AddModuleDatabase(testModule);
+
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(new StringWriter());
+
+        var handler = new PropertyHandler(NullLogger<PropertyHandler>.Instance);
+        var env = handler.Marshal(propertyDecl, typeDatabase);
+        var conductor = new Conductor(NullLoggerFactory.Instance);
+        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
+
+        return csOutput.ToString();
+    }
+
+    /// <summary>
+    /// Creates a void-returning, no-parameter MethodDecl for testing.
+    /// </summary>
+    private static MethodDecl CreateVoidMethodDecl(
+        string name,
+        bool isOverride = false,
+        bool isFinal = false,
+        bool isStatic = false,
+        bool isAccessor = false)
+    {
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s10TestModule{name.Length}{name}yyF",
+            MethodType = isStatic ? MethodType.Static : MethodType.Instance,
+            IsConstructor = false,
+            IsAccessor = isAccessor,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    Name = "",
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public,
+            IsOverride = isOverride,
+            IsFinal = isFinal,
+        };
+    }
+
+    /// <summary>
+    /// Creates a void-returning MethodDecl with one parameter of the given Swift type.
+    /// Used for testing overload-aware override resolution.
+    /// </summary>
+    private static MethodDecl CreateMethodDeclWithParam(string name, string swiftParamType, string paramName)
+    {
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s10TestModule{name.Length}{name}yyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            IsAccessor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    Name = "",
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                },
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = new NamedTypeSpec(swiftParamType),
+                    Name = paramName,
+                    PrivateName = paramName,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public,
+        };
+    }
+
+    /// <summary>
+    /// Creates a simple string-returning, no-parameter property for testing dispatch modifiers.
+    /// </summary>
+    private static PropertyDecl CreateSimplePropertyDecl(
+        string name,
+        bool isOverride = false,
+        bool isFinal = false,
+        bool isStatic = false)
+    {
+        return new PropertyDecl
+        {
+            Name = name,
+            SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+            IsStatic = isStatic,
+            HasStorage = false,
+            IsOverride = isOverride,
+            IsFinal = isFinal,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl
+                {
+                    Method = new MethodDecl
+                    {
+                        Name = $"{name}_Get",
+                        MangledName = $"$s10TestModule{name.Length}{name}Ssvg",
+                        MethodType = isStatic ? MethodType.Static : MethodType.Instance,
+                        IsConstructor = false,
+                        IsAccessor = true,
+                        CSSignature = new List<ArgumentDecl>
+                        {
+                            new ArgumentDecl
+                            {
+                                SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                                Name = "",
+                                PrivateName = "",
+                                IsInOut = false,
+                                IsGeneric = false,
+                                ParentDecl = null,
+                                ModuleDecl = null
+                            }
+                        },
+                        GenericParameters = new List<GenericArgumentDecl>(),
+                        ParentDecl = null,
+                        ModuleDecl = null,
+                        Throws = false,
+                        IsAsync = false,
+                        Visibility = Visibility.Private
+                    }
+                }
+            },
             ParentDecl = null,
             ModuleDecl = null
         };

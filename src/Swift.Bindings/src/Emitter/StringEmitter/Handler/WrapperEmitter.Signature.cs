@@ -45,6 +45,33 @@ namespace BindingsGeneration
             bool isAsyncConstructor = _env.MethodDecl.IsConstructor && _env.MethodDecl.IsAsync;
 
             var staticKeyword = _env.MethodDecl.MethodType == MethodType.Static || _env.ParentDecl is ModuleDecl || isAsyncConstructor ? "static " : "";
+
+            // Compute virtual/override/sealed override modifier for class instance methods.
+            // Excludes: static methods, constructors, async constructors, accessor methods.
+            string dispatchModifier = "";
+            bool isClassInstanceMethod =
+                _env.ParentDecl is ClassDecl
+                && _env.MethodDecl.MethodType != MethodType.Static
+                && !_env.MethodDecl.IsConstructor
+                && !isAsyncConstructor
+                && !_env.MethodDecl.IsAccessor;
+            if (isClassInstanceMethod)
+            {
+                var classParent = (ClassDecl)_env.ParentDecl;
+                // Can only emit "override" if a resolved ancestor actually has this method in C#.
+                // Otherwise CS0115 ("no suitable method found to override") occurs when:
+                // - The ancestor is external (NSObject, UIView, etc.) — no C# base class
+                // - The ancestor method was skipped by validation gates — no C# method to override
+                if (_env.MethodDecl.IsOverride && HasMethodInResolvedAncestors(classParent, _env.MethodDecl))
+                {
+                    dispatchModifier = _env.MethodDecl.IsFinal ? "sealed override " : "override ";
+                }
+                else if (!classParent.IsFinal && !_env.MethodDecl.IsFinal)
+                {
+                    dispatchModifier = "virtual ";
+                }
+            }
+
             var returnType = _wrapperSignature.ReturnType;
             if (_requiresSwiftAsync)
             {
@@ -61,7 +88,7 @@ namespace BindingsGeneration
             var cancellationTokenParam = _requiresSwiftAsync
                 ? $"{(_wrapperSignature.Parameters.Count > 0 ? ", " : "")}System.Threading.CancellationToken cancellationToken = default"
                 : "";
-            csWriter.WriteLine($"{accessModifier} {staticKeyword}{returnType} {methodName}{genericParams}({_wrapperSignature.ParametersString(BuildOriginalSwiftTypeAttributes())}{cancellationTokenParam})");
+            csWriter.WriteLine($"{accessModifier} {staticKeyword}{dispatchModifier}{returnType} {methodName}{genericParams}({_wrapperSignature.ParametersString(BuildOriginalSwiftTypeAttributes())}{cancellationTokenParam})");
 
             // Emit where clauses for generic constraints
             var whereClause = BuildWhereClause();
@@ -218,6 +245,82 @@ namespace BindingsGeneration
             {
                 csWriter.WriteLine($"[return: global::Swift.OriginalSwiftType(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(info.SwiftType)}\")]");
             }
+        }
+
+        /// <summary>
+        /// Walks the resolved superclass chain looking for a method with the given Swift name
+        /// and matching parameter types that was actually emitted into C# output.
+        /// Matches by name + parameter count + Swift type spec strings to handle overloaded methods
+        /// where only some overloads were emitted.
+        /// Returns false when: the chain reaches an external ancestor (null), the ancestor has
+        /// unsupported constraints, or no ancestor has an emitted method matching by full signature.
+        /// </summary>
+        internal static bool HasMethodInResolvedAncestors(ClassDecl classDecl, MethodDecl method)
+        {
+            var ancestor = classDecl.ResolvedSuperclass;
+            // CSSignature[0] is the return type; parameters start at [1]
+            int paramCount = method.CSSignature.Count - 1;
+            var paramTypes = GetParameterTypeStrings(method);
+            while (ancestor != null)
+            {
+                if (GenericTypeEmitter.TryGetUnsupportedConstraint(ancestor, out _))
+                    return false; // ancestor has unsupported constraints, won't be emitted as base
+                if (ancestor.Methods.Any(m =>
+                    m.WasEmitted
+                    && m.Name == method.Name
+                    && !m.IsAccessor
+                    && !m.IsConstructor
+                    && (m.CSSignature.Count - 1) == paramCount
+                    && ParameterTypesMatch(m, paramTypes)))
+                    return true;
+                ancestor = ancestor.ResolvedSuperclass;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Gets the Swift type spec strings for all parameters (excluding CSSignature[0] which is the return type).
+        /// </summary>
+        private static List<string> GetParameterTypeStrings(MethodDecl method)
+        {
+            var types = new List<string>(method.CSSignature.Count - 1);
+            for (int i = 1; i < method.CSSignature.Count; i++)
+                types.Add(method.CSSignature[i].SwiftTypeSpec.ToString());
+            return types;
+        }
+
+        /// <summary>
+        /// Returns true if the candidate method's parameter Swift type specs match the given list.
+        /// Assumes parameter counts are already verified equal.
+        /// </summary>
+        private static bool ParameterTypesMatch(MethodDecl candidate, List<string> expectedTypes)
+        {
+            for (int i = 0; i < expectedTypes.Count; i++)
+            {
+                if (candidate.CSSignature[i + 1].SwiftTypeSpec.ToString() != expectedTypes[i])
+                    return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Walks the resolved superclass chain looking for a property with the given Swift name
+        /// that was actually emitted into C# output.
+        /// Returns false when: the chain reaches an external ancestor, the ancestor has
+        /// unsupported constraints, or no ancestor has an emitted property with this name.
+        /// </summary>
+        internal static bool HasPropertyInResolvedAncestors(ClassDecl classDecl, string propertyName)
+        {
+            var ancestor = classDecl.ResolvedSuperclass;
+            while (ancestor != null)
+            {
+                if (GenericTypeEmitter.TryGetUnsupportedConstraint(ancestor, out _))
+                    return false;
+                if (ancestor.Properties.Any(p => p.WasEmitted && p.Name == propertyName))
+                    return true;
+                ancestor = ancestor.ResolvedSuperclass;
+            }
+            return false;
         }
     }
 }

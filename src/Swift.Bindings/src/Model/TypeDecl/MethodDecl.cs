@@ -82,6 +82,20 @@ namespace BindingsGeneration
         public bool IsFinal { get; set; } = false;
 
         /// <summary>
+        /// Whether this method overrides a superclass method.
+        /// Parsed from the ABI JSON 'overriding' field or 'Override' in declAttributes.
+        /// Used to emit 'override' keyword on C# methods.
+        /// </summary>
+        public bool IsOverride { get; set; } = false;
+
+        /// <summary>
+        /// Set to true during emission when this method passes all validation gates and is
+        /// actually written to the C# output. Used by override resolution to verify that a
+        /// base class method exists in the emitted C# hierarchy (not just the parsed model).
+        /// </summary>
+        public bool WasEmitted { get; set; } = false;
+
+        /// <summary>
         /// Indicates the method is @usableFromInline internal — visible in the ABI but not
         /// callable from external modules. Used by ArraySlice normalization to skip generating
         /// wrapper extensions for inaccessible methods.

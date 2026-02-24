@@ -27,5 +27,24 @@ namespace BindingsGeneration
         /// The accessors available for this field.
         /// </summary>
         public required IReadOnlyList<AccessorDecl> Accessors { get; init; }
+
+        /// <summary>
+        /// Whether this property overrides a superclass property.
+        /// Parsed from the ABI JSON Var node's 'overriding' field or 'Override' in declAttributes.
+        /// </summary>
+        public bool IsOverride { get; set; } = false;
+
+        /// <summary>
+        /// Whether this property is declared as 'final'.
+        /// Final properties cannot be overridden in subclasses.
+        /// </summary>
+        public bool IsFinal { get; set; } = false;
+
+        /// <summary>
+        /// Set to true during emission when this property passes all validation gates and is
+        /// actually written to the C# output. Used by override resolution to verify that a
+        /// base class property exists in the emitted C# hierarchy (not just the parsed model).
+        /// </summary>
+        public bool WasEmitted { get; set; } = false;
     }
 }

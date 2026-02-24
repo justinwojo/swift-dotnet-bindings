@@ -1,7 +1,7 @@
 # Class Inheritance Implementation Plan
 
 **Created**: February 2026
-**Status**: Sessions 1-3 complete, Session 4 next
+**Status**: Sessions 1-4 complete, Session 5 next
 **Prerequisite for**: ObjC Binding Integration, Self-return handling, polymorphic collections
 
 ---
@@ -181,47 +181,62 @@ Checks `type.Properties`, `type.Methods`, `type.Subscripts` — does NOT travers
    - Disposal remarks on both base and derived.
    - Equality: derived with Equatable gets own equality; derived without Equatable inherits none.
 
-**Results**: 4049 unit tests pass (34 new), 700 integration, 221 runtime. 32/32 validation libraries (up from 22/32 mid-session due to inheritance compilation fixes across Alamofire, SnapKit, Stripe hierarchies). Golden files updated. CompileCheck 0 errors. CS0108/CS0109 member-hiding warnings suppressed in TestFramework projects (member dedup deferred to Session 4).
+**Results**: 4049 unit tests pass (34 new), 700 integration, 221 runtime. 32/32 validation libraries (up from 22/32 mid-session due to inheritance compilation fixes across Alamofire, SnapKit, Stripe hierarchies). Golden files updated. CompileCheck 0 errors. CS0108/CS0109 member-hiding warnings suppressed in TestFramework projects (resolved by Session 4 virtual/override dispatch).
 
 ---
 
-### Session 4: Member Deduplication (Medium)
+### Session 4: Virtual/Override Method Dispatch ✅ COMPLETE
 
-**Goal**: Derived classes should not re-emit members that are defined on their base class. Identify inherited vs own members. Handle overrides.
+**Goal**: Emit proper `virtual`/`override`/`sealed override` keywords on class instance methods and properties. Remove CS0108/CS0109 warning suppressions.
+
+**Key discovery**: The original plan assumed ABI JSON includes ALL members (inherited + own) requiring dedup. This is wrong — ABI JSON only includes a class's own members plus overridden members. The `"overriding": true` field and `"Override"` in `declAttributes` explicitly mark overrides. No member dedup filtering needed — the real work is proper `virtual`/`override` keyword emission.
+
+**Scale**: Test library has 1 override. Real libraries: Lottie 56, Stripe 73, Alamofire 5.
 
 **Changes**:
 
-1. **Member identification strategy**:
-   - ABI JSON includes ALL members (inherited + own) on each class
-   - Need to identify which members are "own" vs "inherited from base"
-   - Strategy: When emitting a derived class, collect all member keys from all ancestor ClassDecls. Skip any member on the derived class whose key matches an ancestor's member.
-   - Member key: method mangled name prefix, property name, operator signature
+1. **Parser** (`SwiftABIParser.cs`, `MethodDecl.cs`, `PropertyDecl.cs`):
+   - Added `overriding` (nullable bool) to `Node` record for ABI JSON deserialization
+   - Added `IsOverride` and `WasEmitted` to `MethodDecl` — `IsOverride` set from `node.overriding == true || declAttributes.Contains("Override")`
+   - Added `IsOverride`, `IsFinal`, and `WasEmitted` to `PropertyDecl` — set from Var node's overriding field and declAttributes
+   - `WasEmitted` is set to `true` at the 4 actual emission points: `MethodHandler` (constructor + regular method), `PropertyHandler` (AsyncStream + normal property)
 
-2. **`ClassHandler.Emit`** — filter members before emission:
-   - Build `HashSet<string>` of base class member keys (all ancestors)
-   - For properties: filter `classDecl.Properties` to exclude those with matching name+type in base
-   - For methods: filter `classDecl.Methods` to exclude those with matching projected C# signature in base
-   - For operators: same pattern
+2. **Method emission** (`WrapperEmitter.Signature.cs`):
+   - Dispatch modifier computed for class instance methods (excludes static, constructors, async constructors, accessors)
+   - `IsOverride` alone is NOT sufficient — must also verify the overridden member exists in C# output via `HasMethodInResolvedAncestors`
+   - `IsOverride && ancestorMatch && IsFinal` → `sealed override`, `IsOverride && ancestorMatch` → `override`, else `!classIsFinal && !methodIsFinal` → `virtual`
 
-3. **Override detection**:
-   - If a derived class has a method with the same name/signature as a base class method, it's an override
-   - Emit `override` keyword in C# for virtual (non-final) base methods
-   - For Swift, non-final class methods are implicitly virtual (use Tj dispatch thunks)
-   - If base method is `final`: derived shouldn't have it (ABI JSON won't include it). If somehow present, use `new` keyword.
+3. **Override safety — `HasMethodInResolvedAncestors`/`HasPropertyInResolvedAncestors`** (`WrapperEmitter.Signature.cs`):
+   - Walks the `ResolvedSuperclass` chain looking for a matching emitted member
+   - **Methods**: matches by Swift name + parameter count + `SwiftTypeSpec.ToString()` for each parameter + `WasEmitted == true`. Parameter-type matching prevents false positives with overloaded methods (e.g., base has `foo(Int)` emitted and `foo(String)` skipped — derived overriding `foo(String)` must not match `foo(Int)`)
+   - **Properties**: matches by Swift name + `WasEmitted == true`
+   - Both abort early if an ancestor has unsupported constraints (`GenericTypeEmitter.TryGetUnsupportedConstraint`)
+   - Prevents CS0115 ("no suitable method found to override") for: (1) external ancestors (NSObject, UIView — no C# base class), (2) methods skipped by validation gates in the base class, (3) mixed chains with in-module parent but external grandparent, (4) overloaded methods where only a different-signature overload was emitted
+   - Relies on topological sort (Session 3) to guarantee base classes emit before derived — `WasEmitted` is always set before derived class override checks run
 
-4. **Property overrides**: Same pattern — if derived class explicitly declares a property that exists on base, check if it's an override vs computed-property-with-stored-in-base.
+4. **Property emission** (`PropertyHandler.cs`):
+   - Same dispatch modifier logic adapted for properties using `PropertyDecl.IsOverride`/`IsFinal` + `HasPropertyInResolvedAncestors`
+   - `ClassDecl.IsFinal` gate prevents virtual on final class properties
 
-5. **Edge case — member hiding**: If a derived class intentionally hides a base member with a different type, emit `new` keyword to suppress CS0108 warning.
+5. **Warning suppression removal** (`CompileCheck.csproj`, `RuntimeTestsApp.csproj`):
+   - Removed `CS0108;CS0109` from `<NoWarn>` — these are now resolved by proper virtual/override emission
 
 6. **Tests**:
-   - Verify `DataRequest` does NOT emit `Cancel()`, `Resume()`, `State`, `Id` (inherited from `Request`)
-   - Verify `DataRequest` DOES emit its own unique members
-   - Verify override methods get `override` keyword
-   - Verify member count on `UploadRequest` is ~4 (own) not ~104 (own + inherited)
+   - **Parser tests** (`ClassInheritanceParserTests.cs`, 5 new): `overriding: true`, `"Override"` declAttribute, regular method, property override, property final
+   - **Emission tests** (`ClassInheritanceEmissionTests.cs`, 17 new): virtual on non-final class, no virtual on final class, no virtual on final method, override with resolved base, sealed override with resolved base, override with external base (virtual fallback), static (no virtual), constructor (no virtual/override), accessor (no virtual/override), property virtual/override/sealed override/final/static, property override with external base (virtual fallback), overloaded method with skipped base overload (ancestor check returns false), overloaded method with emitted base overload (ancestor check returns true)
 
-**Acceptance gate**: Alamofire `DataRequest` has only own members. Full validation suite passes.
+**Edge cases handled**:
+- Accessor methods do NOT get virtual/override — they're private helpers, the public property declaration carries the modifier
+- Constructors cannot be virtual/override in C# — `IsOverride` is parsed but not used by `EmitSignatureConstructor`
+- `final override` (e.g., Lottie `CompatibleAnimationView.contentMode`) correctly emits `sealed override`
+- Cross-module inheritance: if base is unresolved, derived falls back to flat emission — no override needed
+- External ancestors (NSObject, UIView): override → virtual fallback (no C# base class to override)
+- Skipped base methods: validation gates may prune base method → `WasEmitted` prevents false override
+- Overloaded methods: `SwiftTypeSpec.ToString()` per parameter prevents matching wrong overload
 
-**Commit**: "Session 4: Member deduplication — skip inherited members, emit override keyword"
+**Acceptance gate**: Zero CS0108/CS0109 after removing suppressions. 32/32 validation. Golden files updated.
+
+**Results**: 4071 unit tests pass (22 new: 5 parser + 17 emission), 700 integration, 221 runtime. 32/32 validation. Golden files updated.
 
 ---
 
@@ -280,7 +295,7 @@ Checks `type.Properties`, `type.Methods`, `type.Subscripts` — does NOT travers
 
 3. **TestFramework**: Add a simple inheritance test case (if `Animal`/`Dog` hierarchy exists in SwiftBindingsTestLib). Verify generated C# compiles and base members accessible.
 
-4. **Golden files**: Regenerate `golden/` files. They will change (inheritance syntax, member dedup).
+4. **Golden files**: Regenerate `golden/` files. They will change (inheritance syntax, virtual/override keywords).
 
 5. **Unit test updates**: Existing tests may need adjustment for new emission patterns. Update expected output in `ClassHandlerOutputTests`, `ThirdPartyValidationFixTests`, etc.
 
@@ -299,8 +314,8 @@ Checks `type.Properties`, `type.Methods`, `type.Subscripts` — does NOT travers
 - Cross-module Swift class inheritance (via module database)
 - Base class declaration syntax (`: BaseClass`)
 - Shared Dispose/payload infrastructure
-- Member deduplication (inherited vs own)
-- Method override detection (`override` keyword)
+- Virtual/override keyword emission (`virtual`, `override`, `sealed override`)
+- Override detection from ABI JSON (`overriding` field, `Override`/`Final` declAttributes)
 - Protocol conformance inheritance
 - Empty conformance symbol fixes
 - Topological sort for emission ordering
@@ -318,11 +333,11 @@ Checks `type.Properties`, `type.Methods`, `type.Subscripts` — does NOT travers
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| Compile errors in validation libraries from incorrect dedup | Medium | High | Conservative approach: if in doubt, emit the member (duplicates are safer than missing members) |
+| CS0115 from incorrect override on edge case methods | Very Low | Medium | `HasMethodInResolvedAncestors` checks `WasEmitted` + name + arity + parameter types; `HasPropertyInResolvedAncestors` checks `WasEmitted` + name. Topological sort guarantees base emits first. |
 | Dispose/payload sharing causes memory corruption | Low | Critical | Test with runtime tests on iOS simulator. SafeHandle prevents most issues. |
 | Topological sort fails for circular references | Very Low | Medium | Cycle detection with clear error message |
 | Cross-module base classes not resolved | Medium | Low | Fall back to flat emission (current behavior) when base is unresolved |
-| Member override detection produces false positives | Medium | Medium | Use mangled name matching (precise) not just name matching (ambiguous) |
+| Override detection misses edge cases | Very Low | Medium | ABI JSON `overriding` field + `Override` declAttribute checked redundantly; ancestor walk validates emitted member exists with matching signature |
 | Existing tests break from emission changes | High | Low | Expected — update test expectations as part of each session |
 
 ---
@@ -341,4 +356,4 @@ cd TestFramework && ./build-and-test.sh 2>&1 | tee /tmp/testframework-results.tx
 golden/check-golden-files.sh                                                       # Determinism (fast)
 ```
 
-Sessions I1-I2 produced zero emission changes (model/resolution only) ✅. Sessions I3-I5 will change emission output. Session I6 is the full validation pass.
+Sessions I1-I2 produced zero emission changes (model/resolution only) ✅. Session I3 added inheritance syntax. Session I4 added virtual/override dispatch keywords. Sessions I5-I6 will change emission output further.
