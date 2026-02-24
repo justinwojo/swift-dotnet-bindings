@@ -109,10 +109,48 @@ namespace BindingsGeneration
                     env.TypeDatabase,
                     conformanceValidator);
 
+                // A class is derived only if its resolved base class will actually be emitted.
+                // If the base class would be skipped (e.g., unsupported generic constraints),
+                // fall back to flat emission to avoid referencing a non-emitted base type.
+                bool isDerived = classDecl.HasResolvedSuperclass
+                    && !GenericTypeEmitter.TryGetUnsupportedConstraint(classDecl.ResolvedSuperclass!, out _);
+
+                if (isDerived)
+                {
+                    var baseName = GenericTypeEmitter.GetTypeNameWithGenerics(classDecl.ResolvedSuperclass!);
+
+                    // Collect base class interfaces to filter duplicates
+                    var baseInterfaces = new HashSet<string>(
+                        ProtocolConformanceHelper.GetImplementedInterfaces(
+                            classDecl.ResolvedSuperclass!,
+                            baseName,
+                            moduleDecl.Name, env.TypeDatabase, conformanceValidator));
+
+                    // Start with base class name. Keep ISwiftObject (needed for explicit interface
+                    // re-implementation with derived type metadata). Skip IDisposable (inherited).
+                    // Skip base-class protocols that aren't parameterized differently on derived.
+                    var derivedInterfaces = new List<string> { baseName };
+                    foreach (var iface in interfaces)
+                    {
+                        if (iface == "IDisposable")
+                            continue;
+                        if (iface == "ISwiftObject")
+                        {
+                            derivedInterfaces.Add(iface);
+                            continue;
+                        }
+                        if (!baseInterfaces.Contains(iface))
+                            derivedInterfaces.Add(iface);
+                    }
+                    interfaces = derivedInterfaces;
+                }
+
                 if (classDecl.IsActor)
                     csWriter.WriteLine("// Swift actor type - methods are actor-isolated unless marked nonisolated");
 
                 XmlDocCommentEmitter.EmitDocComment(csWriter, classDecl);
+                // Emit disposal remarks for class types
+                EmitDisposalRemarks(csWriter, classDecl);
                 var classDeclaration = $"public partial class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
                 if (!string.IsNullOrEmpty(whereClause))
                     classDeclaration += $" {whereClause}";
@@ -163,9 +201,15 @@ namespace BindingsGeneration
                     }
                 }
 
-                // Emit private fields and payload
-                WriteClassPrivateFields(csWriter, typeNameWithGenerics);
-                WriteClassPayload(csWriter, typeNameWithGenerics);
+                // Emit private fields and payload.
+                // All classes need _payloadSize (per-type metadata size for allocation).
+                // Only root classes emit _payload, Payload property, Dispose(), and finalizer.
+                WriteClassPayloadSize(csWriter, typeNameWithGenerics, isDerived);
+                if (!isDerived)
+                {
+                    WriteClassPayloadField(csWriter, typeNameWithGenerics);
+                    WriteClassPayload(csWriter, typeNameWithGenerics);
+                }
 
                 // Emit operators
                 var operatorHandler = new OperatorHandler(_logger);
@@ -195,7 +239,11 @@ namespace BindingsGeneration
                 var iSwiftObjectWriter = new ClassISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, classDecl, typeNameWithGenerics, pinvokeHelperContext);
                 var equatableWriter = new ClassEqualityMethodsWriter(csWriter, classDecl, typeNameWithGenerics, hasEquality, hasInequality);
 
-                equatableWriter.WriteSwiftEquatableImplementation();
+                // Derived classes emit equality if they have their own IEquatable<DerivedType>
+                // (IEquatable<Derived> is a different interface from IEquatable<Base>).
+                // Root classes always emit equality if Equatable.
+                if (!isDerived || interfaces.Any(i => i.StartsWith("IEquatable<")))
+                    equatableWriter.WriteSwiftEquatableImplementation();
                 iSwiftObjectWriter.WriteClassImplementation();
 
                 // Collect property names (post-rename) for method/property collision detection
@@ -231,14 +279,41 @@ namespace BindingsGeneration
         // ComputePropertyRenames is now centralized in NameProvider.
 
         /// <summary>
-        /// Writes the private fields for the class.
+        /// Emits disposal remarks as XML doc comments for class types.
+        /// Appended after XmlDocCommentEmitter.EmitDocComment, before the class declaration.
         /// </summary>
-        private static void WriteClassPrivateFields(CSharpWriter csWriter, string typeNameWithGenerics)
+        private static void EmitDisposalRemarks(CSharpWriter csWriter, ClassDecl classDecl)
+        {
+            // If the symbol graph already provided remarks, skip to avoid duplication
+            if (classDecl.Documentation != null && !classDecl.Documentation.IsEmpty
+                && (classDecl.Documentation.Remarks.Count > 0 || !string.IsNullOrWhiteSpace(classDecl.Documentation.Throws)))
+                return;
+
+            // Emit standalone <remarks> when no doc comment or when doc has summary but no remarks
+            csWriter.WriteLine("/// <remarks>");
+            csWriter.WriteLine("/// This type wraps a Swift class and must be disposed explicitly.");
+            csWriter.WriteLine("/// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.");
+            csWriter.WriteLine("/// </remarks>");
+        }
+
+        /// <summary>
+        /// Writes the _payloadSize static field (all classes — each needs its own metadata size).
+        /// Each class independently declares _payloadSize for its own type metadata.
+        /// </summary>
+        private static void WriteClassPayloadSize(CSharpWriter csWriter, string typeNameWithGenerics, bool isDerived)
         {
             csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
             csWriter.WriteLine($"static nuint _payloadSize = SwiftObjectHelper<{typeNameWithGenerics}>.GetTypeMetadata().Size;");
+            csWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// Writes the _payload instance field (root classes only — derived classes inherit).
+        /// </summary>
+        private static void WriteClassPayloadField(CSharpWriter csWriter, string typeNameWithGenerics)
+        {
             csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
-            csWriter.WriteLine($"SwiftSafeHandle<{typeNameWithGenerics}> _payload = SwiftSafeHandle<{typeNameWithGenerics}>.Zero;");
+            csWriter.WriteLine($"protected SwiftSafeHandle<{typeNameWithGenerics}> _payload = SwiftSafeHandle<{typeNameWithGenerics}>.Zero;");
             csWriter.WriteLine();
         }
 
@@ -282,6 +357,8 @@ namespace BindingsGeneration
         private readonly string _typeNameWithGenerics;
         private readonly string _constructorName;
         private readonly PInvokeHelperContext? _pinvokeHelperContext;
+        private readonly bool _isDerived;
+        private readonly string _rootBaseTypeNameWithGenerics;
 
         public ClassISwiftObjectMethodWriter(CSharpWriter csWriter, ITypeDatabase typeDatabase, ModuleDecl moduleDecl, ClassDecl classDecl, string typeNameWithGenerics, PInvokeHelperContext? pinvokeHelperContext = null)
         {
@@ -293,6 +370,33 @@ namespace BindingsGeneration
             var angleBracket = typeNameWithGenerics.IndexOf('<');
             _constructorName = angleBracket >= 0 ? typeNameWithGenerics.Substring(0, angleBracket) : typeNameWithGenerics;
             _pinvokeHelperContext = pinvokeHelperContext;
+            _isDerived = classDecl.HasResolvedSuperclass;
+            _rootBaseTypeNameWithGenerics = GetRootBaseTypeNameWithGenerics(classDecl);
+        }
+
+        /// <summary>
+        /// Walks the ResolvedSuperclass chain to find the root base class type name.
+        /// Returns the current type name if this is a root class.
+        /// </summary>
+        private static string GetRootBaseTypeNameWithGenerics(ClassDecl classDecl)
+        {
+            var current = classDecl;
+            while (current.HasResolvedSuperclass)
+                current = current.ResolvedSuperclass!;
+            return GenericTypeEmitter.GetTypeNameWithGenerics(current);
+        }
+
+        /// <summary>
+        /// Checks whether the class has a truly parameterless constructor (init() in Swift).
+        /// Only checks for zero-parameter constructors in the ABI, NOT constructors with all-default
+        /// parameters. The default-parameter overload emitter may skip methods with unsupported types,
+        /// so we can't rely on it to produce a parameterless overload.
+        /// </summary>
+        private static bool HasParameterlessConstructor(ClassDecl classDecl)
+        {
+            return classDecl.Methods.Any(m =>
+                m.IsConstructor && m.Visibility == Visibility.Public &&
+                m.CSSignature.Count <= 1); // CSSignature[0] is return type, no parameters = Count <= 1
         }
 
         /// <summary>
@@ -340,10 +444,11 @@ namespace BindingsGeneration
                 _writer.WriteLine("static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();");
                 _writer.WriteLine();
 
+                var newModifier = _isDerived ? "new " : "";
                 var pinvokeText = $$"""
                 [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
                 [LibraryImport("{{libPath}}", EntryPoint = "{{metadataAccessor}}")]
-                internal static partial TypeMetadata PInvoke_getMetadata();
+                internal static {{newModifier}}partial TypeMetadata PInvoke_getMetadata();
                 """;
 
                 _writer.WriteLines(pinvokeText);
@@ -353,6 +458,7 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Writes the NewFromPayload method for the class.
+        /// The handle must carry a +1 ARC retain that this wrapper takes ownership of.
         /// </summary>
         private void WriteNewFromPayload()
         {
@@ -372,18 +478,41 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Writes the private constructor accepting a SwiftHandle.
+        /// The handle must carry a +1 ARC retain that this wrapper takes ownership of.
+        /// Dispose releases exactly one ARC reference.
         /// </summary>
         private void EmitPrivateConstructor()
         {
+            // Derived classes assign to the inherited _payload field using the ROOT base class's
+            // SwiftSafeHandle<T> type parameter. For class types, VWT->Destroy calls swift_release
+            // which operates on the isa pointer inside the Swift object, ignoring the metadata's T.
+            var safeHandleType = _rootBaseTypeNameWithGenerics;
+            // Derived private constructors chain to the base's protected sentinel constructor
+            var baseChain = _isDerived ? " : base(default(SwiftInheritanceChain))" : "";
             var text = $$"""
-            {{_constructorName}}(SwiftHandle handle)
+            {{_constructorName}}(SwiftHandle handle){{baseChain}}
             {
-                _payload = new SwiftSafeHandle<{{_typeNameWithGenerics}}>(handle);
+                _payload = new SwiftSafeHandle<{{safeHandleType}}>(handle);
             }
             """;
 
             _writer.WriteLines(text);
             _writer.WriteLine();
+
+            // All classes emit a protected constructor with a SwiftInheritanceChain sentinel parameter
+            // for derived class constructor chaining. Derived constructors chain to
+            // base(default(SwiftInheritanceChain)) to invoke this constructor. SwiftInheritanceChain
+            // is a marker struct from Swift.Runtime that cannot conflict with any Swift-generated
+            // constructor parameters (unlike bool, int, etc. which Swift types commonly use).
+            {
+                var sentinelBaseChain = _isDerived ? " : base(default(SwiftInheritanceChain))" : "";
+                var protectedCtor = $$"""
+                [EditorBrowsable(EditorBrowsableState.Never)]
+                protected {{_constructorName}}(SwiftInheritanceChain _swiftObject){{sentinelBaseChain}} { }
+                """;
+                _writer.WriteLines(protectedCtor);
+                _writer.WriteLine();
+            }
         }
 
         /// <summary>

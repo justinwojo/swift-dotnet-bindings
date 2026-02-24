@@ -3,6 +3,7 @@
 // Licensed under the MIT License.
 
 using System.CodeDom.Compiler;
+using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Swift.Runtime;
 
@@ -93,6 +94,100 @@ namespace BindingsGeneration
         /// <param name="typeDatabase">The type database instance.</param>
         /// <param name="context">The type handler context (P/Invoke helper, renames, etc.).</param>
         /// <param name="siblingPropertyNames">Optional set of property names for detecting method/property collisions.</param>
+        /// <summary>
+        /// Topologically sorts type declarations so that base classes are emitted before derived classes.
+        /// Non-class types and root classes maintain their original relative ordering.
+        /// Uses Kahn's algorithm with original-index tie-breaking for stability.
+        /// </summary>
+        protected static List<BaseDecl> TopologicallySortTypes(IEnumerable<BaseDecl> decls)
+        {
+            var list = decls as List<BaseDecl> ?? decls.ToList();
+
+            // Build edges: derived ClassDecl depends on its ResolvedSuperclass
+            var classToIndex = new Dictionary<ClassDecl, int>(ReferenceEqualityComparer.Instance);
+            var edges = new List<(int derivedIdx, int baseIdx)>();
+
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (list[i] is ClassDecl cd)
+                    classToIndex[cd] = i;
+            }
+
+            foreach (var (cd, idx) in classToIndex)
+            {
+                if (cd.HasResolvedSuperclass && classToIndex.TryGetValue(cd.ResolvedSuperclass!, out var baseIdx))
+                    edges.Add((idx, baseIdx));
+            }
+
+            if (edges.Count == 0) return list;
+
+            // Kahn's algorithm: edges are "derived depends on base".
+            // In-degree counts how many types depend on this index (i.e., how many derived classes point to it).
+            // Actually, for Kahn's we need: in-degree = number of dependencies that must come before this node.
+            // Edge direction: derived → base means "base must come first".
+            // So for emission order: in-degree[derived] += 1 for each base it depends on.
+            var inDegree = new int[list.Count];
+            var dependents = new Dictionary<int, List<int>>(); // baseIdx → list of derivedIdx
+
+            foreach (var (derivedIdx, baseIdx) in edges)
+            {
+                inDegree[derivedIdx]++;
+                if (!dependents.TryGetValue(baseIdx, out var deps))
+                {
+                    deps = new List<int>();
+                    dependents[baseIdx] = deps;
+                }
+                deps.Add(derivedIdx);
+            }
+
+            // Priority queue: nodes with 0 in-degree, ordered by original index for stability
+            var ready = new SortedSet<int>();
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (inDegree[i] == 0)
+                    ready.Add(i);
+            }
+
+            var result = new List<BaseDecl>(list.Count);
+            while (ready.Count > 0)
+            {
+                var idx = ready.Min;
+                ready.Remove(idx);
+                result.Add(list[idx]);
+
+                if (dependents.TryGetValue(idx, out var deps))
+                {
+                    foreach (var dep in deps)
+                    {
+                        inDegree[dep]--;
+                        if (inDegree[dep] == 0)
+                            ready.Add(dep);
+                    }
+                }
+            }
+
+            // Safety: if the graph has a cycle (or inconsistent hierarchy), some nodes
+            // will never reach in-degree 0. Append them in original order rather than
+            // silently dropping declarations.
+            if (result.Count < list.Count)
+            {
+                var cycleNames = new List<string>();
+                for (int i = 0; i < list.Count; i++)
+                {
+                    if (inDegree[i] > 0)
+                    {
+                        result.Add(list[i]);
+                        cycleNames.Add(list[i].Name);
+                    }
+                }
+                Debug.WriteLine($"[TopologicallySortTypes] WARNING: Cycle detected in class hierarchy. " +
+                    $"The following types have unresolvable dependencies and were appended in original order: " +
+                    $"{string.Join(", ", cycleNames)}");
+            }
+
+            return result;
+        }
+
         protected virtual void HandleBaseDecl(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnumerable<BaseDecl> decl, Conductor conductor, ITypeDatabase typeDatabase, TypeHandlerContext context, IReadOnlySet<string>? siblingPropertyNames = null)
         {
             // Track emitted method signatures to avoid duplicates
@@ -100,7 +195,8 @@ namespace BindingsGeneration
             // B15: Secondary dedup based on projected C# public signature
             var emittedProjectedSignatures = new HashSet<string>(StringComparer.Ordinal);
 
-            foreach (var baseDecl in decl)
+            var sortedDecl = TopologicallySortTypes(decl);
+            foreach (var baseDecl in sortedDecl)
             {
                 if (baseDecl is StructDecl structDecl)
                 {

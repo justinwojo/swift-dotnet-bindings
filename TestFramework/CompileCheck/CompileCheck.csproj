@@ -6,7 +6,10 @@
     <Nullable>enable</Nullable>
     <!-- CS0169: unused private field (generated backing fields) -->
     <!-- CA1420: using features that require runtime marshalling (LibraryImport with Swift types) -->
-    <NoWarn>0169;CA1420</NoWarn>
+    <!-- CS0169: unused private field (generated backing fields) -->
+    <!-- CA1420: using features that require runtime marshalling (LibraryImport with Swift types) -->
+    <!-- CS0108/CS0109: member hiding in class hierarchies (intentional for ISwiftObject re-impl, awaiting Session I4 dedup) -->
+    <NoWarn>0169;CA1420;CS0108;CS0109</NoWarn>
   </PropertyGroup>
   <!-- LibraryImport requires DisableRuntimeMarshalling for Swift interop types (SwiftSelf, SwiftError, etc.) -->
   <ItemGroup>

@@ -173,3 +173,12 @@ public unsafe ref struct PayloadBuffer<T> : IDisposable where T : unmanaged
         }
     }
 }
+
+/// <summary>
+/// Marker struct used as a sentinel parameter in protected constructors for class inheritance chaining.
+/// Generated derived class constructors chain to base(default(SwiftInheritanceChain)) to invoke
+/// the base class's protected constructor. This type cannot conflict with any Swift-generated
+/// constructor parameters.
+/// </summary>
+[System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+public struct SwiftInheritanceChain { }

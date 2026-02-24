@@ -15,7 +15,8 @@
     <!-- CA1422: Obsolete API warnings (UIWindow, etc.) -->
     <!-- IL2075/IL2087: AOT trimming warnings (reflection use in tests) -->
     <!-- SB0001: Mono JIT crash risk warnings (test code intentionally calls these methods) -->
-    <NoWarn>CS0169;SB0001;SB0002;CA1422;IL2075;IL2087;IL2091;IL2026;IL2104</NoWarn>
+    <!-- CS0108/CS0109: member hiding in class hierarchies (intentional for ISwiftObject re-impl, awaiting Session I4 dedup) -->
+    <NoWarn>CS0169;SB0001;SB0002;CA1422;IL2075;IL2087;IL2091;IL2026;IL2104;CS0108;CS0109</NoWarn>
     <!-- Disable trimming for test app (reflection-heavy) -->
     <MtouchLink>None</MtouchLink>
     <!-- Avoid InstallNameTool failure with libSwiftBindingsRuntime.dylib.tmp -->

@@ -19,7 +19,12 @@ namespace BindingsGeneration
             var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.Visibility);
             // Use the resolved C# type name (may be renamed for nested type collision avoidance)
             var constructorName = GetResolvedTypeName();
-            csWriter.WriteLine($"{accessModifier} {constructorName}({_wrapperSignature.ParametersString(BuildOriginalSwiftTypeAttributes())})");
+            // Derived class constructors must chain to the base's protected sentinel constructor
+            // to satisfy C#'s requirement for a parameterless base constructor.
+            var baseChain = _env.ParentDecl is ClassDecl cd && cd.HasResolvedSuperclass
+                ? " : base(default(SwiftInheritanceChain))"
+                : "";
+            csWriter.WriteLine($"{accessModifier} {constructorName}({_wrapperSignature.ParametersString(BuildOriginalSwiftTypeAttributes())}){baseChain}");
         }
 
         /// <summary>

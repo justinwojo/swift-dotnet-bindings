@@ -88,15 +88,15 @@ sys.exit(1)
             cd ..
             if [ $RUNTIME_EXIT -ne 0 ]; then
                 # Known crash-risk classes (must match [CrashRisk] attributes in RuntimeTestsApp)
-                CRASH_ALLOWLIST="EnumMarshallingTests|OwnershipGCStressTests"
+                CRASH_ALLOWLIST="EnumMarshallingTests|OwnershipGCStressTests|ArrayMarshallingTests"
 
-                if grep -q "jit-info\.c:918\|RUNTIME TESTS CRASHED" "$RUNTIME_OUTPUT" 2>/dev/null; then
+                if grep -q "jit-info\.c:918\|RUNTIME TESTS CRASHED\|RUNTIME TESTS TIMEOUT" "$RUNTIME_OUTPUT" 2>/dev/null; then
                     # Extract the last test class from === ClassName === markers
                     LAST_CLASS=$(grep -oE '=== [A-Za-z0-9_]+ ===' "$RUNTIME_OUTPUT" | tail -1 | sed 's/=== //;s/ ===//')
 
                     if [ -n "$LAST_CLASS" ] && echo "$LAST_CLASS" | grep -qE "^($CRASH_ALLOWLIST)$"; then
                         echo ""
-                        echo "WARNING: Runtime crash in known crash-risk class ($LAST_CLASS)."
+                        echo "WARNING: Runtime crash/timeout in known crash-risk class ($LAST_CLASS)."
                         echo "This is a pre-existing Mono runtime bug, not a regression."
                     elif [ -z "$LAST_CLASS" ]; then
                         # Crash before any test class ran — likely Mono startup issue

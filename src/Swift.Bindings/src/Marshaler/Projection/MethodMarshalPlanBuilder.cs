@@ -291,12 +291,23 @@ internal class MethodMarshalPlanBuilder
                 typeName = $"{typeName}<{genericParams}>";
             }
 
+            // For derived classes, SwiftSafeHandle<T> must use the root base type
+            // because _payload is declared as SwiftSafeHandle<RootBase> on the base class.
+            var safeHandleTypeName = typeName;
+            if (_env.ParentDecl is ClassDecl cd && cd.HasResolvedSuperclass)
+            {
+                var root = cd;
+                while (root.HasResolvedSuperclass)
+                    root = root.ResolvedSuperclass!;
+                safeHandleTypeName = GenericTypeEmitter.GetTypeNameWithGenerics(root);
+            }
+
             return new IndirectResultSetup
             {
                 IsConstructor = true,
                 ReturnTypeName = typeName,
                 AllocationCode = $$"""
-                    _payload = new SwiftSafeHandle<{{typeName}}>((IntPtr)NativeMemory.Alloc(_payloadSize));
+                    _payload = new SwiftSafeHandle<{{safeHandleTypeName}}>((IntPtr)NativeMemory.Alloc(_payloadSize));
                     var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                     """
             };

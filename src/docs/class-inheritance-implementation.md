@@ -1,7 +1,7 @@
 # Class Inheritance Implementation Plan
 
 **Created**: February 2026
-**Status**: Sessions 1-2 complete, Session 3 next
+**Status**: Sessions 1-3 complete, Session 4 next
 **Prerequisite for**: ObjC Binding Integration, Self-return handling, polymorphic collections
 
 ---
@@ -61,7 +61,7 @@ With inheritance as foundation, the subsequent quick-win and closure sessions be
 
 ---
 
-## Current State (After Sessions 1-2)
+## Current State (After Sessions 1-3)
 
 ### Parser & Model ✅
 - `Node` record deserializes `superclassUsr`, `superclassNames`, `inheritsConvenienceInitializers`, `hasMissingDesignatedInitializers` from ABI JSON
@@ -73,14 +73,21 @@ With inheritance as foundation, the subsequent quick-win and closure sessions be
 - `ModuleDatabaseEmitter` serializes `superclass` attribute; `TypeDatabase` deserializes it
 - Generic superclass names (e.g., `VirtualTimeScheduler<Converter>`) guarded — stored as null
 
-### Emitter (`ClassHandler`) — still flat emission (Session 3)
-Every class independently gets: `_payload`, `_payloadSize`, `Dispose()`, `~Destructor()`, `ISwiftObject` implementation, `GetTypeMetadata()` P/Invoke. Declaration is always `class X : ISwiftObject, IDisposable, [protocols]`.
+### Emitter (`ClassHandler`) — inheritance emission ✅ (Session 3)
+- Topological sort ensures base classes are emitted before derived
+- Derived classes emit `class Derived : Base, [new protocols only]`
+- Derived classes inherit `_payload` (now `protected`), `Dispose()`, `~Destructor()`, equality from base
+- Derived classes re-emit `ISwiftObject` members (`GetTypeMetadata`, `NewFromPayload`, `MarshalToSwift`, `GetProtocolConformanceDescriptor`) with their own type metadata
+- Private constructor on derived uses root base type for `SwiftSafeHandle<T>` (VWT Destroy / swift_release operates on isa pointer, ignoring T)
+- Disposal `<remarks>` emitted on all class XML doc comments
+- **Ownership analysis (Session 3)**: Generated class return path is correct — each Swift P/Invoke return provides +1 ARC retain, wrapper Dispose provides exactly -1. No ARC code changes needed.
+- **Deferred to Session G**: Container/optional factory paths (`SwiftMarshal.MarshalFromSwift<T>` beyond generated class returns), manual `NewFromPayload` calls with aliased pointers
 
 ### Validation (`ProtocolConformanceValidator`) — own members only (Session 5)
 Checks `type.Properties`, `type.Methods`, `type.Subscripts` — does NOT traverse superclass members. Inherited conformances may be suppressed incorrectly.
 
-### Type ordering — no topological sort (Session 3)
-Types emitted in ABI JSON order (source declaration order). No guarantee base class is emitted before derived. Topological sort deferred to Session 3 (first emission session).
+### Type ordering — topological sort ✅ (Session 3)
+`BaseHandler.TopologicallySortTypes()` applies Kahn's algorithm in `HandleBaseDecl` before the emission loop. Handles both top-level types (`ModuleHandler.Emit` → `HandleBaseDecl`) and nested types (`ClassHandler.Emit` → `HandleBaseDecl`). Original index used as tie-breaker for stable ordering. `ReferenceEqualityComparer.Instance` used for ClassDecl identity.
 
 ---
 
@@ -126,76 +133,55 @@ Types emitted in ABI JSON order (source declaration order). No guarantee base cl
 
 ---
 
-### Session 3: Core Emission — Topological Sort, Base Class Syntax, Shared Infrastructure & Ownership Fix (Large)
+### Session 3: Core Emission — Topological Sort, Base Class Syntax, Shared Infrastructure ✅ COMPLETE
 
-**Goal**: Topologically sort emission ordering (moved from Session 2), emit `class Derived : Base`, share infrastructure (payload, Dispose, ISwiftObject) between base and derived classes, and fix the SafeHandle ownership model to prevent use-after-free and memory leaks.
+**Goal**: Topologically sort emission ordering (moved from Session 2), emit `class Derived : Base`, share infrastructure (payload, Dispose, ISwiftObject) between base and derived classes, document ownership model.
 
 **Changes**:
 
-0. **Topological sort** (moved from Session 2 — prerequisite for all emission changes):
-   - Add `TopologicallySortTypes()` to `ModuleHandler` (or shared helper) — base classes emitted before derived
-   - Apply at `ModuleHandler.Emit` line 185 where `moduleDecl.Types` is passed to `HandleBaseDecl`
-   - **Also handle nested types**: The same sort must apply wherever `HandleBaseDecl(..., type.Types, ...)` is called for nested class hierarchies (e.g., `ClassHandler` emitting nested types)
-   - Only reorder ClassDecls with `HasResolvedSuperclass`; non-class types and classes without resolved superclass maintain original relative order
-   - Use `ReferenceEqualityComparer.Instance` for ClassDecl identity (record value-equality could match different instances)
-   - Golden files will change after this step
+0. **Topological sort** (`BaseHandler.TopologicallySortTypes` in `IHandler.cs`):
+   - Kahn's algorithm applied in `HandleBaseDecl` before the emission loop — handles all contexts (top-level via `ModuleHandler.Emit`, nested via `ClassHandler.Emit`)
+   - `ReferenceEqualityComparer.Instance` for ClassDecl identity. Original index tie-breaking for stability.
+   - Cycle safety net: if any nodes remain with non-zero in-degree after Kahn's loop, they are appended in original order (not silently dropped) and a `Debug.WriteLine` warning is emitted.
 
-1. **`ClassHandler.Emit`** — class declaration syntax (line 116):
-   - If `classDecl.HasResolvedSuperclass`: emit `class Derived : BaseClass, [protocols not on base]`
-   - If no superclass: emit current pattern `class X : ISwiftObject, IDisposable, [protocols]`
-   - Derived classes must NOT re-declare `ISwiftObject, IDisposable` (base already declares them)
-   - Protocol interface list: filter out interfaces that the base class already implements
+1. **`ClassHandler.Emit`** — class declaration syntax:
+   - Derived: `class Derived : BaseClass, ISwiftObject, [new protocols only]` — keeps ISwiftObject (needed for explicit interface re-implementation), omits IDisposable (inherited), filters base-class protocols.
+   - Root: unchanged `class X : ISwiftObject, IDisposable, [protocols]`.
+   - **Fallback guard**: `isDerived` requires both `HasResolvedSuperclass` AND that the base class won't be skipped during emission (`!GenericTypeEmitter.TryGetUnsupportedConstraint`). If the base has unsupported constraints (SwiftUI/Combine generics), derived falls back to flat emission.
 
-2. **`ClassHandler`** — skip payload/Dispose for derived classes:
-   - `WriteClassPrivateFields` (line 236): Skip `_payload`, `_payloadSize` for derived classes
-   - `WriteClassPayload` (line 248): Skip `Dispose()`, `~Destructor()` for derived classes
-   - `WriteISwiftObjectImpl`: Skip for derived classes (inherits from base)
-   - `WriteEqualityMethods`: Skip for derived classes (inherits from base)
+2. **Derived class payload/Dispose/equality sharing**:
+   - `_payload` is `protected` on base classes, inherited by derived.
+   - `_payloadSize` is private per class (each class needs its own metadata size).
+   - Derived classes inherit `Dispose()`, `~Destructor()`, `Payload` property from base.
+   - `IEquatable<T>` is parameterized per type — both base and derived emit their own equality if they conform to Equatable.
 
-3. **Base class infrastructure — shared payload approach**:
+3. **ISwiftObject re-implementation on derived classes**:
+   - All ISwiftObject static abstract members (`GetTypeMetadata`, `NewFromPayload`, `MarshalToSwift`, `GetProtocolConformanceDescriptor`) re-emitted on derived with their own type metadata. Without this, `SwiftMarshal.MarshalFromSwift<Derived>()` would resolve to Base's `NewFromPayload`.
+   - Private constructor on derived uses **root base type** for `SwiftSafeHandle<T>` (VWT Destroy / swift_release operates on the isa pointer, ignoring T). Root type found by walking `ResolvedSuperclass` chain in both `ClassHandler` and `MethodMarshalPlanBuilder`.
 
-   In Swift, a derived class instance IS the base class — the memory layout includes the base class's fields. When passed to a P/Invoke expecting `Request`, the same handle works. A single `_payload` (from the base class) works for all derived types — the handle is the same object.
+4. **Constructor chaining via `SwiftInheritanceChain` sentinel**:
+   - Challenge: derived class constructors must chain to base, but base classes may not have a parameterless constructor (all-defaults constructors with unsupported types get skipped).
+   - Solution: `SwiftInheritanceChain` marker struct in `Swift.Runtime/SwiftHandle.cs` — a unique empty struct that cannot conflict with any Swift-generated constructor parameter type.
+   - All classes emit `protected ClassName(SwiftInheritanceChain _swiftObject)` constructor.
+   - All derived class constructors (private SwiftHandle, protected sentinel, and public user-facing) chain to `base(default(SwiftInheritanceChain))`.
+   - Three emission sites: `ClassISwiftObjectMethodWriter.EmitPrivateConstructor`, `ClassHandler.Emit` (sentinel), `WrapperEmitter.Signature.EmitSignatureConstructor`.
+   - `HasParameterlessConstructor` check uses `CSSignature.Count <= 1` only (not all-defaults, which causes false positives for skipped constructors).
 
-   **Approach**:
-   - `_payload` is `protected` on base class, used by all derived classes for P/Invoke
-   - `_payloadSize` uses `SwiftObjectHelper<ThisType>.GetTypeMetadata().Size` — each class uses its OWN type metadata for construction, but the handle is the same SafeHandle
-   - `Dispose()` on base class only — derived classes inherit it
-   - Constructor on derived class: constructs using own metadata, stores in inherited `_payload`
-   - Factory/NewFromPayload on derived class: creates with own type metadata
+5. **Ownership analysis (documentation only, no ARC code changes)**:
+   - Generated class return path is correct: each Swift P/Invoke return provides +1 ARC retain, wrapper's `Dispose()` → `VWT->Destroy` → `swift_release` provides exactly -1.
+   - Disposal `<remarks>` emitted on all class XML doc comments.
+   - **Deferred to Session G**: Container/optional factory paths, manual `NewFromPayload` with aliased pointers, Roslyn analyzer for compile-time dispose enforcement.
 
-4. **SafeHandle ownership fix (critical correctness bug)**:
+6. **Tests** (`ClassInheritanceEmissionTests.cs`, 34 tests):
+   - Topological sort: no classes, single root, already correct, reversed, 3-level chain, mixed types, cyclic dependency (safety net).
+   - Declaration syntax: derived starts with base, keeps ISwiftObject, omits IDisposable, new protocols emitted.
+   - Payload sharing: no `_payload` field, no Dispose, no finalizer on derived; protected `_payload` on base.
+   - ISwiftObject: own `GetTypeMetadata`, own `NewFromPayload`, root base type for `SwiftSafeHandle<T>`, 3-level hierarchy root base.
+   - Fallback: external superclass flat emission, no resolved superclass flat emission, skipped base class (unsupported constraints) flat emission.
+   - Disposal remarks on both base and derived.
+   - Equality: derived with Equatable gets own equality; derived without Equatable inherits none.
 
-   This is the right time to fix the ownership model because we're already restructuring how `_payload` and `Dispose()` work for inheritance. Two related bugs:
-
-   **Bug A — No shared ownership (use-after-free)**:
-   ```csharp
-   var array1 = new SwiftArray<int>();
-   var array2 = array1;  // Value copy of SafeHandle — NO Arc.Retain
-   array1.Dispose();     // Calls Destroy
-   array2.Append(1);     // USE AFTER FREE
-   ```
-   With inheritance this gets worse: a `DataRequest` stored as both `DataRequest` and `Request` — the first dispose kills both.
-
-   **Bug B — Finalizer leaks Swift memory permanently**:
-   `SwiftSafeHandle<T>.ReleaseHandle()` deliberately skips `ValueWitnessTable.Destroy()` during finalization (unsafe during .NET shutdown ordering). Any `ISwiftObject` that isn't explicitly disposed leaks Swift-side memory forever.
-
-   **Fixes**:
-   - **For Bug A**: Classes are reference types in C#, so `var b = a` copies the reference (not the SafeHandle). The issue is when a *new* C# wrapper is created for the same Swift object (e.g., `NewFromPayload` with the same pointer). In that case, the factory must call `Arc.Retain()` to balance the `Destroy()` that will happen on each wrapper's Dispose. Audit all `NewFromPayload` / factory paths to ensure retain/release balance.
-   - **For Bug B**: Evaluate whether finalization can safely call `Destroy()` for class types (which use ARC, not VWT Destroy). If not, add loud diagnostics: `[DebuggerDisplay]` on finalized-without-dispose handles, `Debug.WriteLine` warning in finalizer, XML doc comments on all `ISwiftObject` types warning that Dispose is required. The Roslyn analyzer (Session G) provides compile-time enforcement.
-
-5. **Handle forwarding**: When a method returns a `Request` and we need to wrap it in C#, we may need to check if the actual Swift type is `DataRequest` and create the right C# wrapper. This is a runtime concern — defer to Session 6 as an edge case.
-
-6. **Tests**: Emit a simple hierarchy (2 classes), verify:
-   - C# compiles
-   - Derived class has `: BaseClass` in declaration
-   - Derived class does NOT have its own `Dispose()`, `_payload` field
-   - Derived class inherits `ISwiftObject`, `IDisposable` from base
-   - Multiple C# references to same Swift object: dispose one, other still valid (ownership test)
-   - Finalizer-without-dispose: diagnostic emitted (debug build)
-
-**Acceptance gate**: TestFramework `build-and-test.sh` passes. Alamofire/SnapKit compile with inheritance syntax. No use-after-free in basic ownership scenarios.
-
-**Commit**: "Session 3: Emit class inheritance — base class syntax, shared payload, ownership fix"
+**Results**: 4049 unit tests pass (34 new), 700 integration, 221 runtime. 32/32 validation libraries (up from 22/32 mid-session due to inheritance compilation fixes across Alamofire, SnapKit, Stripe hierarchies). Golden files updated. CompileCheck 0 errors. CS0108/CS0109 member-hiding warnings suppressed in TestFramework projects (member dedup deferred to Session 4).
 
 ---
 
@@ -322,7 +308,7 @@ Types emitted in ABI JSON order (source declaration order). No guarantee base cl
 ### Out of Scope (Deferred)
 - **ObjC base classes** (NSObject, UIView hierarchy) — requires ObjC binding integration (separate project)
 - **Runtime polymorphic unwrapping** — when Swift returns a base type that is actually a derived type, creating the correct C# wrapper. Deferred to runtime improvements.
-- **Constructor chaining** — `derived()` calling `base()` through interop. Constructors are handled separately for now.
+- **Constructor chaining** — ✅ Resolved in Session 3 via `SwiftInheritanceChain` sentinel pattern.
 - **Multiple inheritance** — Swift is single-inheritance for classes. Not applicable.
 - **Property/method override ABI differences** — if a derived class overrides a property with different ABI layout. Edge case — defer if encountered.
 

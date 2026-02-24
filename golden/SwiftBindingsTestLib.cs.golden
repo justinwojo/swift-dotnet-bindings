@@ -6288,6 +6288,10 @@ namespace Swift.SwiftBindingsTestLib
     /// <summary>
     /// A generic class with stored property and methods.
     /// </summary>
+    /// <remarks>
+    /// This type wraps a Swift class and must be disposed explicitly.
+    /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
+    /// </remarks>
     public partial class GenericClass<T> : ISwiftObject, IDisposable where T : ISwiftObject
     {
         private T Value_Get()
@@ -6363,8 +6367,9 @@ namespace Swift.SwiftBindingsTestLib
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         static nuint _payloadSize = SwiftObjectHelper<GenericClass<T>>.GetTypeMetadata().Size;
+        
         [EditorBrowsable(EditorBrowsableState.Never)]
-        SwiftSafeHandle<GenericClass<T>> _payload = SwiftSafeHandle<GenericClass<T>>.Zero;
+        protected SwiftSafeHandle<GenericClass<T>> _payload = SwiftSafeHandle<GenericClass<T>>.Zero;
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         internal SwiftSafeHandle<GenericClass<T>> Payload => _payload;
@@ -6391,6 +6396,9 @@ namespace Swift.SwiftBindingsTestLib
         {
             _payload = new SwiftSafeHandle<GenericClass<T>>(handle);
         }
+        
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        protected GenericClass(SwiftInheritanceChain _swiftObject) { }
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
@@ -8561,6 +8569,10 @@ namespace Swift.SwiftBindingsTestLib
     /// <summary>
     /// Base class for testing class hierarchy emission.
     /// </summary>
+    /// <remarks>
+    /// This type wraps a Swift class and must be disposed explicitly.
+    /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
+    /// </remarks>
     public partial class Animal : ISwiftObject, IDisposable
     {
         private Swift.SwiftString Name_Get()
@@ -8703,8 +8715,9 @@ namespace Swift.SwiftBindingsTestLib
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         static nuint _payloadSize = SwiftObjectHelper<Animal>.GetTypeMetadata().Size;
+        
         [EditorBrowsable(EditorBrowsableState.Never)]
-        SwiftSafeHandle<Animal> _payload = SwiftSafeHandle<Animal>.Zero;
+        protected SwiftSafeHandle<Animal> _payload = SwiftSafeHandle<Animal>.Zero;
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         internal SwiftSafeHandle<Animal> Payload => _payload;
@@ -8735,6 +8748,9 @@ namespace Swift.SwiftBindingsTestLib
         {
             _payload = new SwiftSafeHandle<Animal>(handle);
         }
+        
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        protected Animal(SwiftInheritanceChain _swiftObject) { }
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
@@ -8882,7 +8898,11 @@ namespace Swift.SwiftBindingsTestLib
     /// <summary>
     /// Subclass testing inheritance emission.
     /// </summary>
-    public partial class Dog : ISwiftObject, IDisposable
+    /// <remarks>
+    /// This type wraps a Swift class and must be disposed explicitly.
+    /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
+    /// </remarks>
+    public partial class Dog : Animal, ISwiftObject
     {
         private Swift.SwiftString Breed_Get()
         {
@@ -8955,27 +8975,12 @@ namespace Swift.SwiftBindingsTestLib
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         static nuint _payloadSize = SwiftObjectHelper<Dog>.GetTypeMetadata().Size;
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        SwiftSafeHandle<Dog> _payload = SwiftSafeHandle<Dog>.Zero;
-        
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        internal SwiftSafeHandle<Dog> Payload => _payload;
-        
-        public void Dispose()
-        {
-            _payload.Dispose();
-            GC.SuppressFinalize(this);
-        }
-        ~Dog()
-        {
-            Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
-        }
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib3DogCMa")]
-        internal static partial TypeMetadata PInvoke_getMetadata();
+        internal static new partial TypeMetadata PInvoke_getMetadata();
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
@@ -8983,10 +8988,13 @@ namespace Swift.SwiftBindingsTestLib
             return new Dog(handle);
         }
         
-        Dog(SwiftHandle handle)
+        Dog(SwiftHandle handle) : base(default(SwiftInheritanceChain))
         {
-            _payload = new SwiftSafeHandle<Dog>(handle);
+            _payload = new SwiftSafeHandle<Animal>(handle);
         }
+        
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        protected Dog(SwiftInheritanceChain _swiftObject) : base(default(SwiftInheritanceChain)) { }
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
@@ -9035,11 +9043,11 @@ namespace Swift.SwiftBindingsTestLib
             return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
         }
         
-        public Dog( string name,  string breed)
+        public Dog( string name,  string breed) : base(default(SwiftInheritanceChain))
         {
             unsafe
             {
-                _payload = new SwiftSafeHandle<Dog>((IntPtr)NativeMemory.Alloc(_payloadSize));
+                _payload = new SwiftSafeHandle<Animal>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
                 using var nameSwift = new SwiftString(name);
@@ -9134,6 +9142,10 @@ namespace Swift.SwiftBindingsTestLib
     /// <summary>
     /// Final class — cannot be subclassed.
     /// </summary>
+    /// <remarks>
+    /// This type wraps a Swift class and must be disposed explicitly.
+    /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
+    /// </remarks>
     public partial class FinalCounter : ISwiftObject, IDisposable
     {
         private int Count_Get()
@@ -9204,8 +9216,9 @@ namespace Swift.SwiftBindingsTestLib
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         static nuint _payloadSize = SwiftObjectHelper<FinalCounter>.GetTypeMetadata().Size;
+        
         [EditorBrowsable(EditorBrowsableState.Never)]
-        SwiftSafeHandle<FinalCounter> _payload = SwiftSafeHandle<FinalCounter>.Zero;
+        protected SwiftSafeHandle<FinalCounter> _payload = SwiftSafeHandle<FinalCounter>.Zero;
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         internal SwiftSafeHandle<FinalCounter> Payload => _payload;
@@ -9236,6 +9249,9 @@ namespace Swift.SwiftBindingsTestLib
         {
             _payload = new SwiftSafeHandle<FinalCounter>(handle);
         }
+        
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        protected FinalCounter(SwiftInheritanceChain _swiftObject) { }
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
@@ -9424,6 +9440,10 @@ namespace Swift.SwiftBindingsTestLib
     /// <summary>
     /// Class with stored, computed, and static properties.
     /// </summary>
+    /// <remarks>
+    /// This type wraps a Swift class and must be disposed explicitly.
+    /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
+    /// </remarks>
     public partial class ClassWithProperties : ISwiftObject, IDisposable
     {
         private int StoredInt_Get()
@@ -9654,8 +9674,9 @@ namespace Swift.SwiftBindingsTestLib
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         static nuint _payloadSize = SwiftObjectHelper<ClassWithProperties>.GetTypeMetadata().Size;
+        
         [EditorBrowsable(EditorBrowsableState.Never)]
-        SwiftSafeHandle<ClassWithProperties> _payload = SwiftSafeHandle<ClassWithProperties>.Zero;
+        protected SwiftSafeHandle<ClassWithProperties> _payload = SwiftSafeHandle<ClassWithProperties>.Zero;
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         internal SwiftSafeHandle<ClassWithProperties> Payload => _payload;
@@ -9686,6 +9707,9 @@ namespace Swift.SwiftBindingsTestLib
         {
             _payload = new SwiftSafeHandle<ClassWithProperties>(handle);
         }
+        
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        protected ClassWithProperties(SwiftInheritanceChain _swiftObject) { }
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
@@ -12083,7 +12107,11 @@ private static partial Swift.SwiftString.Buffer PInvoke_effectiveName_29570547( 
 /// <summary>
 /// Class combining inheritance (Animal) with protocol conformance (HasValue). Real-world pattern: Lottie animation hierarchy implementing protocol interfaces.
 /// </summary>
-public partial class ValueAnimal : ISwiftObject, IDisposable, IHasValue
+/// <remarks>
+/// This type wraps a Swift class and must be disposed explicitly.
+/// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
+/// </remarks>
+public partial class ValueAnimal : Animal, ISwiftObject, IHasValue
 {
     private int Value_Get()
     {
@@ -12153,27 +12181,12 @@ public partial class ValueAnimal : ISwiftObject, IDisposable, IHasValue
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     static nuint _payloadSize = SwiftObjectHelper<ValueAnimal>.GetTypeMetadata().Size;
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    SwiftSafeHandle<ValueAnimal> _payload = SwiftSafeHandle<ValueAnimal>.Zero;
-    
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    internal SwiftSafeHandle<ValueAnimal> Payload => _payload;
-    
-    public void Dispose()
-    {
-        _payload.Dispose();
-        GC.SuppressFinalize(this);
-    }
-    ~ValueAnimal()
-    {
-        Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
-    }
     
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11ValueAnimalCMa")]
-    internal static partial TypeMetadata PInvoke_getMetadata();
+    internal static new partial TypeMetadata PInvoke_getMetadata();
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
@@ -12181,10 +12194,13 @@ public partial class ValueAnimal : ISwiftObject, IDisposable, IHasValue
         return new ValueAnimal(handle);
     }
     
-    ValueAnimal(SwiftHandle handle)
+    ValueAnimal(SwiftHandle handle) : base(default(SwiftInheritanceChain))
     {
-        _payload = new SwiftSafeHandle<ValueAnimal>(handle);
+        _payload = new SwiftSafeHandle<Animal>(handle);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    protected ValueAnimal(SwiftInheritanceChain _swiftObject) : base(default(SwiftInheritanceChain)) { }
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
@@ -12233,11 +12249,11 @@ public partial class ValueAnimal : ISwiftObject, IDisposable, IHasValue
         return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
     }
     
-    public ValueAnimal( string name,  string sound,  int _value)
+    public ValueAnimal( string name,  string sound,  int _value) : base(default(SwiftInheritanceChain))
     {
         unsafe
         {
-            _payload = new SwiftSafeHandle<ValueAnimal>((IntPtr)NativeMemory.Alloc(_payloadSize));
+            _payload = new SwiftSafeHandle<Animal>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
             using var nameSwift = new SwiftString(name);
@@ -12358,6 +12374,10 @@ public partial class ValueAnimal : ISwiftObject, IDisposable, IHasValue
 /// <summary>
 /// Singleton class with optional class return and class parameter. Real-world pattern: Nuke ImagePipeline.shared with lookup returning nil.
 /// </summary>
+/// <remarks>
+/// This type wraps a Swift class and must be disposed explicitly.
+/// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
+/// </remarks>
 public partial class Registry : ISwiftObject, IDisposable
 {
     private static Swift.SwiftBindingsTestLib.Registry Shared_Get()
@@ -12401,8 +12421,9 @@ public partial class Registry : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     static nuint _payloadSize = SwiftObjectHelper<Registry>.GetTypeMetadata().Size;
+    
     [EditorBrowsable(EditorBrowsableState.Never)]
-    SwiftSafeHandle<Registry> _payload = SwiftSafeHandle<Registry>.Zero;
+    protected SwiftSafeHandle<Registry> _payload = SwiftSafeHandle<Registry>.Zero;
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<Registry> Payload => _payload;
@@ -12433,6 +12454,9 @@ public partial class Registry : ISwiftObject, IDisposable
     {
         _payload = new SwiftSafeHandle<Registry>(handle);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    protected Registry(SwiftInheritanceChain _swiftObject) { }
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
@@ -12623,6 +12647,10 @@ public partial class Registry : ISwiftObject, IDisposable
 /// <summary>
 /// Class combining optional closure property with static factory. Real-world pattern: Lottie animation callback handlers.
 /// </summary>
+/// <remarks>
+/// This type wraps a Swift class and must be disposed explicitly.
+/// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
+/// </remarks>
 public partial class EventHandler : ISwiftObject, IDisposable
 {
     private Func<int, bool>? OnComplete_Get()
@@ -12794,8 +12822,9 @@ public partial class EventHandler : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     static nuint _payloadSize = SwiftObjectHelper<EventHandler>.GetTypeMetadata().Size;
+    
     [EditorBrowsable(EditorBrowsableState.Never)]
-    SwiftSafeHandle<EventHandler> _payload = SwiftSafeHandle<EventHandler>.Zero;
+    protected SwiftSafeHandle<EventHandler> _payload = SwiftSafeHandle<EventHandler>.Zero;
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<EventHandler> Payload => _payload;
@@ -12826,6 +12855,9 @@ public partial class EventHandler : ISwiftObject, IDisposable
     {
         _payload = new SwiftSafeHandle<EventHandler>(handle);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    protected EventHandler(SwiftInheritanceChain _swiftObject) { }
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
@@ -16253,6 +16285,10 @@ public partial class AsyncConfig : ISwiftObject, IDisposable
 /// <summary>
 /// Class with async computed properties.
 /// </summary>
+/// <remarks>
+/// This type wraps a Swift class and must be disposed explicitly.
+/// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
+/// </remarks>
 public partial class AsyncDataSource : ISwiftObject, IDisposable
 {
     private Swift.SwiftString Identifier_Get()
@@ -16294,8 +16330,9 @@ public partial class AsyncDataSource : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     static nuint _payloadSize = SwiftObjectHelper<AsyncDataSource>.GetTypeMetadata().Size;
+    
     [EditorBrowsable(EditorBrowsableState.Never)]
-    SwiftSafeHandle<AsyncDataSource> _payload = SwiftSafeHandle<AsyncDataSource>.Zero;
+    protected SwiftSafeHandle<AsyncDataSource> _payload = SwiftSafeHandle<AsyncDataSource>.Zero;
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<AsyncDataSource> Payload => _payload;
@@ -16326,6 +16363,9 @@ public partial class AsyncDataSource : ISwiftObject, IDisposable
     {
         _payload = new SwiftSafeHandle<AsyncDataSource>(handle);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    protected AsyncDataSource(SwiftInheritanceChain _swiftObject) { }
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
@@ -17888,6 +17928,10 @@ public partial class AsyncStatus : ISwiftObject, IDisposable
 /// <summary>
 /// A class for async return testing.
 /// </summary>
+/// <remarks>
+/// This type wraps a Swift class and must be disposed explicitly.
+/// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
+/// </remarks>
 public partial class AsyncTask : ISwiftObject, IDisposable
 {
     private Swift.SwiftString TaskId_Get()
@@ -17998,8 +18042,9 @@ public partial class AsyncTask : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     static nuint _payloadSize = SwiftObjectHelper<AsyncTask>.GetTypeMetadata().Size;
+    
     [EditorBrowsable(EditorBrowsableState.Never)]
-    SwiftSafeHandle<AsyncTask> _payload = SwiftSafeHandle<AsyncTask>.Zero;
+    protected SwiftSafeHandle<AsyncTask> _payload = SwiftSafeHandle<AsyncTask>.Zero;
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<AsyncTask> Payload => _payload;
@@ -18030,6 +18075,9 @@ public partial class AsyncTask : ISwiftObject, IDisposable
     {
         _payload = new SwiftSafeHandle<AsyncTask>(handle);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    protected AsyncTask(SwiftInheritanceChain _swiftObject) { }
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
@@ -22285,6 +22333,10 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
 /// <summary>
 /// A class annotated with @MainActor, requiring main-thread execution. Tests: @MainActor isolation on entire class. Expected C#: Class with dispatch wrapper or [MainActor] attribute.
 /// </summary>
+/// <remarks>
+/// This type wraps a Swift class and must be disposed explicitly.
+/// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
+/// </remarks>
 public partial class MainActorViewModel : ISwiftObject, IDisposable
 {
     private Swift.SwiftString Title_Get()
@@ -22464,8 +22516,9 @@ public partial class MainActorViewModel : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     static nuint _payloadSize = SwiftObjectHelper<MainActorViewModel>.GetTypeMetadata().Size;
+    
     [EditorBrowsable(EditorBrowsableState.Never)]
-    SwiftSafeHandle<MainActorViewModel> _payload = SwiftSafeHandle<MainActorViewModel>.Zero;
+    protected SwiftSafeHandle<MainActorViewModel> _payload = SwiftSafeHandle<MainActorViewModel>.Zero;
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<MainActorViewModel> Payload => _payload;
@@ -22496,6 +22549,9 @@ public partial class MainActorViewModel : ISwiftObject, IDisposable
     {
         _payload = new SwiftSafeHandle<MainActorViewModel>(handle);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    protected MainActorViewModel(SwiftInheritanceChain _swiftObject) { }
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
@@ -24230,6 +24286,10 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
 /// <summary>
 /// A simple actor with isolated mutable state.
 /// </summary>
+/// <remarks>
+/// This type wraps a Swift class and must be disposed explicitly.
+/// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
+/// </remarks>
 public partial class Counter : ISwiftObject, IDisposable
 {
     private Swift.SwiftString TypeName_Get()
@@ -24274,8 +24334,9 @@ public partial class Counter : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     static nuint _payloadSize = SwiftObjectHelper<Counter>.GetTypeMetadata().Size;
+    
     [EditorBrowsable(EditorBrowsableState.Never)]
-    SwiftSafeHandle<Counter> _payload = SwiftSafeHandle<Counter>.Zero;
+    protected SwiftSafeHandle<Counter> _payload = SwiftSafeHandle<Counter>.Zero;
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<Counter> Payload => _payload;
@@ -24306,6 +24367,9 @@ public partial class Counter : ISwiftObject, IDisposable
     {
         _payload = new SwiftSafeHandle<Counter>(handle);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    protected Counter(SwiftInheritanceChain _swiftObject) { }
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
@@ -24567,12 +24631,17 @@ public partial class Counter : ISwiftObject, IDisposable
 /// <summary>
 /// An actor that performs async work with isolated state.
 /// </summary>
+/// <remarks>
+/// This type wraps a Swift class and must be disposed explicitly.
+/// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
+/// </remarks>
 public partial class AsyncProcessor : ISwiftObject, IDisposable
 {
     [EditorBrowsable(EditorBrowsableState.Never)]
     static nuint _payloadSize = SwiftObjectHelper<AsyncProcessor>.GetTypeMetadata().Size;
+    
     [EditorBrowsable(EditorBrowsableState.Never)]
-    SwiftSafeHandle<AsyncProcessor> _payload = SwiftSafeHandle<AsyncProcessor>.Zero;
+    protected SwiftSafeHandle<AsyncProcessor> _payload = SwiftSafeHandle<AsyncProcessor>.Zero;
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<AsyncProcessor> Payload => _payload;
@@ -24603,6 +24672,9 @@ public partial class AsyncProcessor : ISwiftObject, IDisposable
     {
         _payload = new SwiftSafeHandle<AsyncProcessor>(handle);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    protected AsyncProcessor(SwiftInheritanceChain _swiftObject) { }
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
@@ -25074,6 +25146,10 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_p
 /// <summary>
 /// A class with shared mutable state using <c>nonisolated(unsafe)</c>.
 /// </summary>
+/// <remarks>
+/// This type wraps a Swift class and must be disposed explicitly.
+/// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
+/// </remarks>
 public partial class SharedState : ISwiftObject, IDisposable
 {
     private int Counter_Get()
@@ -25219,8 +25295,9 @@ public partial class SharedState : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     static nuint _payloadSize = SwiftObjectHelper<SharedState>.GetTypeMetadata().Size;
+    
     [EditorBrowsable(EditorBrowsableState.Never)]
-    SwiftSafeHandle<SharedState> _payload = SwiftSafeHandle<SharedState>.Zero;
+    protected SwiftSafeHandle<SharedState> _payload = SwiftSafeHandle<SharedState>.Zero;
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<SharedState> Payload => _payload;
@@ -25251,6 +25328,9 @@ public partial class SharedState : ISwiftObject, IDisposable
     {
         _payload = new SwiftSafeHandle<SharedState>(handle);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    protected SharedState(SwiftInheritanceChain _swiftObject) { }
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
@@ -25666,6 +25746,10 @@ public partial class SendablePoint : ISwiftObject, IDisposable
 /// <summary>
 /// A final class conforming to Sendable with immutable state. Tests: Sendable conformance on reference types (requires immutability).
 /// </summary>
+/// <remarks>
+/// This type wraps a Swift class and must be disposed explicitly.
+/// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
+/// </remarks>
 public partial class SendableConfig : ISwiftObject, IDisposable
 {
     private Swift.SwiftString Name_Get()
@@ -25742,8 +25826,9 @@ public partial class SendableConfig : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     static nuint _payloadSize = SwiftObjectHelper<SendableConfig>.GetTypeMetadata().Size;
+    
     [EditorBrowsable(EditorBrowsableState.Never)]
-    SwiftSafeHandle<SendableConfig> _payload = SwiftSafeHandle<SendableConfig>.Zero;
+    protected SwiftSafeHandle<SendableConfig> _payload = SwiftSafeHandle<SendableConfig>.Zero;
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<SendableConfig> Payload => _payload;
@@ -25774,6 +25859,9 @@ public partial class SendableConfig : ISwiftObject, IDisposable
     {
         _payload = new SwiftSafeHandle<SendableConfig>(handle);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    protected SendableConfig(SwiftInheritanceChain _swiftObject) { }
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
@@ -29386,6 +29474,10 @@ public partial class NonFrozenMutableProps : ISwiftObject, IDisposable
 /// <summary>
 /// Class with mutable properties.
 /// </summary>
+/// <remarks>
+/// This type wraps a Swift class and must be disposed explicitly.
+/// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
+/// </remarks>
 public partial class MutableClass : ISwiftObject, IDisposable
 {
     private int Counter_Get()
@@ -29525,8 +29617,9 @@ public partial class MutableClass : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     static nuint _payloadSize = SwiftObjectHelper<MutableClass>.GetTypeMetadata().Size;
+    
     [EditorBrowsable(EditorBrowsableState.Never)]
-    SwiftSafeHandle<MutableClass> _payload = SwiftSafeHandle<MutableClass>.Zero;
+    protected SwiftSafeHandle<MutableClass> _payload = SwiftSafeHandle<MutableClass>.Zero;
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<MutableClass> Payload => _payload;
@@ -29557,6 +29650,9 @@ public partial class MutableClass : ISwiftObject, IDisposable
     {
         _payload = new SwiftSafeHandle<MutableClass>(handle);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    protected MutableClass(SwiftInheritanceChain _swiftObject) { }
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
@@ -32620,12 +32716,17 @@ public unsafe partial struct ClosureFactory : ISwiftObject, IDisposable
 /// <summary>
 /// A simple processor class with ArraySlice methods.
 /// </summary>
+/// <remarks>
+/// This type wraps a Swift class and must be disposed explicitly.
+/// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
+/// </remarks>
 public partial class SliceProcessor : ISwiftObject, IDisposable
 {
     [EditorBrowsable(EditorBrowsableState.Never)]
     static nuint _payloadSize = SwiftObjectHelper<SliceProcessor>.GetTypeMetadata().Size;
+    
     [EditorBrowsable(EditorBrowsableState.Never)]
-    SwiftSafeHandle<SliceProcessor> _payload = SwiftSafeHandle<SliceProcessor>.Zero;
+    protected SwiftSafeHandle<SliceProcessor> _payload = SwiftSafeHandle<SliceProcessor>.Zero;
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<SliceProcessor> Payload => _payload;
@@ -32656,6 +32757,9 @@ public partial class SliceProcessor : ISwiftObject, IDisposable
     {
         _payload = new SwiftSafeHandle<SliceProcessor>(handle);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    protected SliceProcessor(SwiftInheritanceChain _swiftObject) { }
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
@@ -40979,6 +41083,10 @@ public partial class AlertStyle : ISwiftObject, IDisposable
 /// <summary>
 /// Simple class for BoundType parameter testing. Includes deinit counter for lifetime validation.
 /// </summary>
+/// <remarks>
+/// This type wraps a Swift class and must be disposed explicitly.
+/// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
+/// </remarks>
 public partial class SimpleModel : ISwiftObject, IDisposable
 {
     private static int DeinitCount_Get()
@@ -41097,8 +41205,9 @@ public partial class SimpleModel : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     static nuint _payloadSize = SwiftObjectHelper<SimpleModel>.GetTypeMetadata().Size;
+    
     [EditorBrowsable(EditorBrowsableState.Never)]
-    SwiftSafeHandle<SimpleModel> _payload = SwiftSafeHandle<SimpleModel>.Zero;
+    protected SwiftSafeHandle<SimpleModel> _payload = SwiftSafeHandle<SimpleModel>.Zero;
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<SimpleModel> Payload => _payload;
@@ -41129,6 +41238,9 @@ public partial class SimpleModel : ISwiftObject, IDisposable
     {
         _payload = new SwiftSafeHandle<SimpleModel>(handle);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    protected SimpleModel(SwiftInheritanceChain _swiftObject) { }
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
@@ -41231,6 +41343,10 @@ public partial class SimpleModel : ISwiftObject, IDisposable
 /// <summary>
 /// Async service class for testing single-level async chain inference. init(key:) is <c>async throws</c> — the bridge must construct this in a Task.
 /// </summary>
+/// <remarks>
+/// This type wraps a Swift class and must be disposed explicitly.
+/// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
+/// </remarks>
 public partial class AsyncService : ISwiftObject, IDisposable
 {
     private Swift.SwiftString Key_Get()
@@ -41272,8 +41388,9 @@ public partial class AsyncService : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     static nuint _payloadSize = SwiftObjectHelper<AsyncService>.GetTypeMetadata().Size;
+    
     [EditorBrowsable(EditorBrowsableState.Never)]
-    SwiftSafeHandle<AsyncService> _payload = SwiftSafeHandle<AsyncService>.Zero;
+    protected SwiftSafeHandle<AsyncService> _payload = SwiftSafeHandle<AsyncService>.Zero;
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<AsyncService> Payload => _payload;
@@ -41304,6 +41421,9 @@ public partial class AsyncService : ISwiftObject, IDisposable
     {
         _payload = new SwiftSafeHandle<AsyncService>(handle);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    protected AsyncService(SwiftInheritanceChain _swiftObject) { }
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
@@ -41569,6 +41689,10 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
 /// <summary>
 /// Intermediate class that depends on AsyncService — for testing deep chains. init(service:, mode:) is synchronous but takes an async dependency.
 /// </summary>
+/// <remarks>
+/// This type wraps a Swift class and must be disposed explicitly.
+/// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
+/// </remarks>
 public partial class Processor : ISwiftObject, IDisposable
 {
     private Swift.SwiftBindingsTestLib.AsyncService Service_Get()
@@ -41653,8 +41777,9 @@ public partial class Processor : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     static nuint _payloadSize = SwiftObjectHelper<Processor>.GetTypeMetadata().Size;
+    
     [EditorBrowsable(EditorBrowsableState.Never)]
-    SwiftSafeHandle<Processor> _payload = SwiftSafeHandle<Processor>.Zero;
+    protected SwiftSafeHandle<Processor> _payload = SwiftSafeHandle<Processor>.Zero;
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<Processor> Payload => _payload;
@@ -41685,6 +41810,9 @@ public partial class Processor : ISwiftObject, IDisposable
     {
         _payload = new SwiftSafeHandle<Processor>(handle);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    protected Processor(SwiftInheritanceChain _swiftObject) { }
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
