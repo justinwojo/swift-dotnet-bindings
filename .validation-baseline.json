@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-02-24T19:00:29Z",
-  "git_sha": "4bfbc75",
+  "timestamp": "2026-02-24T19:16:49Z",
+  "git_sha": "931a9e8",
   "runtime_version": "0.1.0-preview.5",
   "compile_gate": {
     "total": 32,
@@ -12,7 +12,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 45403,
-        "gen_seconds": 3
+        "gen_seconds": 2
       },
       "BlinkID": {
         "generate": "fail",
@@ -33,28 +33,28 @@
         "compile": "ok",
         "errors": 0,
         "lines": 43,
-        "gen_seconds": 2
+        "gen_seconds": 3
       },
       "CryptoSwift": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 33918,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "GRDB": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 84027,
-        "gen_seconds": 4
+        "gen_seconds": 3
       },
       "KeychainAccess": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 11464,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "Kingfisher": {
         "generate": "fail",
@@ -75,28 +75,28 @@
         "compile": "ok",
         "errors": 0,
         "lines": 51474,
-        "gen_seconds": 3
+        "gen_seconds": 2
       },
       "MicroblinkPlatform": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 3631,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "Mixpanel": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 7274,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "Nuke": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 23269,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "RxSwift": {
         "generate": "ok",
@@ -117,21 +117,21 @@
         "compile": "ok",
         "errors": 0,
         "lines": 4905,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "SnapKit": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 10615,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "Starscream": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 16409,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "Stripe": {
         "generate": "ok",
@@ -159,14 +159,14 @@
         "compile": "ok",
         "errors": 0,
         "lines": 2635,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "StripeConnect": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 12363,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "StripeCore": {
         "generate": "fail",

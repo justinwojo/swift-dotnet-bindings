@@ -1,13 +1,28 @@
 # Roadmap
 
-**Updated**: February 2026 (post-Q4 quality session)
-**Status**: Active — path to production-grade
-**Target**: Production-ready binding libraries that feel like native C# to consumers
-**Scoring reference**: `binding-review-feb-23.md` — 18-library quality review with 10-category scorecards
+**Updated**: February 2026 (post-v2 binding review)
+**Status**: Active — pushing toward 4.0+ across all libraries
+**Target**: Every validation library scores above 4.0/5.0 in binding quality
+**Scoring reference**: `binding-review-v2.md` — 18-library quality review with 10-category scorecards
 
-For completed work (binding quality sessions A-D, architecture sessions 1-9, cross-module resolution, ExistentialContainer elimination, native C# enums, Optional truncation fix, SwiftDictionary projection, class inheritance I1-I6, quality sessions Q1-Q4), see `Completed/roadmap-completed-feb2026.md`.
+---
 
-For future vision items (ObjC integration, multi-platform, emitter redesign, SwiftUI bridge corpus, performance benchmarks, etc.), see `Future/future-roadmap.md`.
+## Completed Work
+
+All completed phases are archived in `Completed/`:
+
+| Phase | Sessions | What | Score Impact |
+|-------|----------|------|-------------|
+| Infrastructure | A-G, 1-9 | Core pipeline, CryptoSwift validation, architecture overhaul | Foundation |
+| Class Inheritance | I1-I6 | 60 derived classes, virtual/override dispatch, protocol conformance inheritance | +0.20 avg |
+| Binding Quality | Q1-Q4 | Naming fixes, type database, closure relaxation, Self-returning protocols | +0.07 avg |
+| Binding Review v2 | P3 | Full 18-library re-review against v1 baseline. Result: 3.38 → 3.45 | Measurement |
+
+Key completed-work references:
+- `Completed/roadmap-completed-feb2026.md` — full session details for all phases
+- `Completed/class-inheritance-implementation.md` — Phase 1 design doc
+- `Completed/binding-review-feb-23.md` — original v1 scores
+- `binding-review-v2.md` — post-Phase 2 scores and gap analysis
 
 ---
 
@@ -20,229 +35,72 @@ For future vision items (ObjC integration, multi-platform, emitter redesign, Swi
 | Runtime library tests | 221 passing (1 skipped) |
 | TestFramework must-pass | 94/94 passing, 0 degraded |
 | Libraries validated | 32/32 passing (all at 0 compile errors) |
-| Binding quality avg | 3.37/5 (range: 2.30 RxSwift — 4.44 SmartCardIO) |
+| Binding quality avg | 3.45/5 (range: 2.40 RxSwift — 4.44 SmartCardIO) |
 
 ---
 
-## Definition of Done: Production-Grade
+## Active Work
 
-A binding library is production-grade when a C# developer can:
+### Usability Roadmap (10 sessions) — `usability-roadmap.md`
 
-1. **Discover** — NuGet package with XML doc comments, no internal types in IntelliSense
-2. **Construct** — Create Swift objects naturally, with proper constructors and factory methods
-3. **Use** — Call methods, access properties, chain builders, iterate collections, await async
-4. **Trust** — No memory leaks from normal usage patterns (GC handles cleanup), meaningful exceptions on errors
-5. **Extend** — Implement Swift protocols from C#, pass callbacks, subscribe to events
-6. **Compose** — Base class methods available on derived types, polymorphic assignment works, protocol inheritance correct
+10 sessions optimized for **workflow completion first** (scores follow). Derived from v2 binding review, corrected after cross-review with Codex. Tracks both average score and a per-library critical workflow pass matrix.
 
-We are at 5/6 today (1-2, 4-6 are solid). Core workflow usability (#3) has improved significantly with Q3 closure relaxation and Q4 Self-return resolution — fluent builders, closure-based transactions, and Self-returning protocol methods now project correctly. Remaining gaps are complex enums in closures, Optional<Primitive/Enum> closure params, and actor isolation.
+```
+Session 1: Foundation + Quick Wins                    ← Start here (1 session)
+ │         (conformance, Self-concrete, SwiftSet,
+ │          bound-generic optional)
+ │
+ ├─► Session 2: Swiftinterface + Actor + Markers     ← Independent (1 session)
+ ├─► Session 3: Existential & Dictionary             ← Independent (1 session)
+ ├─► Session 4: Generic Throwing Closures            ← Independent, GRDB-targeted (1 session)
+ │
+ └─► Session 5: Protocol Extensions — Owned Types    ← Benefits from Session 2 (1-2 sessions)
+      └─► Session 6: Protocol Extensions — Foreign    ← Depends on 5 (1 session)
+           └─► Session 7: Protocol Extensions — RxSwift  ← Depends on 5-6, high risk (1-2 sessions)
 
----
+Session 8: Naming + Polish + Cross-Module             ← Defer until after 1-7 (1 session)
+Session 9: Safety & Hardening                         ← After workflows unlocked (0.5-1 session)
+Session 10: Library-Specific Patches                  ← Endgame (1 session)
+```
 
-## Roadmap Phases
+**Projected outcome**: 3.45 avg → ~3.81 avg (realistic range 3.70–3.90).
 
-### Phase 1: Class Inheritance ✅ COMPLETE
-
-Sessions I1-I6 complete. See `class-inheritance-implementation.md`.
-
-**Results**: 60 derived classes across 12 libraries now have proper C# inheritance. 6 Alamofire request classes hierarchically linked. SnapKit fluent builder chain structurally works. Lottie AnimatedControl hierarchy correct. Virtual/override dispatch, shared payload/disposal, protocol conformance inheritance all working. 32/32 validation maintained.
-
-**Post-inheritance score assessment** (from regenerated binding analysis):
-- Alamofire: 2.90 → ~3.15 (+0.25). Hierarchy correct, but core request/response workflow still blocked by closure param gate.
-- SnapKit: 3.20 → ~3.50 (+0.30). Fluent chain works internally, but `Get` prefix naming and no `view.snp` entry point limit real usability.
-- Lottie: 3.85 → ~4.05 (+0.20). Clean improvement — 4 hierarchies, 116 virtual members, `IAnimationImageProvider` no longer empty.
-
-The projections were slightly optimistic for the two lowest-scoring libraries because inheritance is foundational but doesn't fix the core workflow gaps (closures, naming, type database). Those are addressed in Phase 2.
+See `usability-roadmap.md` for full session plans, sub-tasks, acceptance gates, per-library projections, and critical workflow matrix.
 
 ---
 
-### Phase 2: Binding Quality ✅ COMPLETE (4 sessions)
+### Finalizer Safety & Consumer Diagnostics
 
-**Ordering principle**: Most impactful items that improve the most libraries first. Derived from the 10 prioritized action items in `binding-review-feb-23.md`, cross-referenced with per-library score impact.
+Carried from original Phase 3. Not in usability roadmap because it doesn't move binding quality scores, but critical for production use.
 
-#### Session Q1: Generator Bug Fixes — Naming, Tuples, Polish ✅ COMPLETE
-
-**Results**: All 6 sub-tasks implemented. Self-returning methods no longer get `Get` prefix. `#file`/`#line` debug params stripped (SnapKit overloads reduced by ~60%). `ToString()` synthesized on types with `Description` property. C# indexers emitted for Swift subscripts on concrete types (KeychainAccess, GRDB, Nuke). Enum case tuple element types projected idiomatically. Subscript indexer param types aligned with protocol interfaces. Constructor debug-param wrappers emit correct static factory pattern.
-
-| Sub-task | Status | Notes |
-|----------|--------|-------|
-| **Q1a. Fix `Get` prefix** | ✅ | Self-returning detection via `IsDynamicSelf` + concrete type name match. Applied to both concrete types and protocol interfaces. CS0542 guard added (method name = enclosing type). |
-| **Q1b. Strip debug params** | ✅ | `IsDebugParameter()` heuristic: `StaticString`+file/function, `UInt`+line/column. Filtered in `WrapperSignatureBuilder` and overload counting. Swift `@_silgen_name` wrapper fills defaults. |
-| **Q1c. `Description` → `ToString()`** | ✅ | `TypeHandlerHelpers.TryGetDescriptionPropertyName()`. Emitted on classes, structs, and class-backed enums. |
-| **Q1d. C# indexers for subscripts** | ✅ | `SubscriptHandler.cs` emits `this[...]` with P/Invoke-backed get/set. Skip gates for wrapper-triggering accessors, complex index params (dict/existential/array/optional). Idiomatic param types with conversion in indexer body. |
-| **Q1e. Tuple element projection** | ✅ (enum cases) | Enum case tuples fully projected. Method param tuples intentionally deferred (documented in `MethodSignature.cs:475`). |
-| **Q1f. Tuple label verification** | ✅ | Labels from ABI JSON propagate correctly — confirmed by verification. |
-
-**Key files modified**: `NameProvider.cs`, `IEnvironment.cs`, `IHandler.cs`, `DefaultParameterOverloadEmitter.cs`, `MethodHandler.cs`, `MethodSignature.cs`, `EnumHandler.CaseConstruction.cs`, `SubscriptHandler.cs` (new), `ClassHandler.cs`, `FrozenStructHandler.cs`, `NonFrozenStructHandler.cs`, `EnumHandler.cs`, `TypeHandlerHelpers.cs`, `ProtocolHandler.cs`, `ProtocolConformanceValidator.cs`, `ProtocolProxyEmitter.InterfaceImpl.cs`, `ProtocolProxyEmitter.Receivers.cs`, `ProtocolSignatureHelper.cs`
-
-#### Session Q2: Apple SDK Type Database + Protocol Audit ✅ COMPLETE
-
-**Results**: Type database expanded with SecurityDatabase.xml (SecTrust, SecCertificate, SecKey, SecIdentity → IntPtr) and IndexPath → NSIndexPath ObjC-bridged entry in FoundationDatabase.xml. JSONDecoder added to AppleFrameworkValueTypes exclusion list. Protocol diagnostics: SB0004 emitted on empty interfaces where all declared members were skipped (excludes genuine marker protocols and derived protocols with inherited members). SB0003 emitted on non-dispatchable proxy members (properties with non-dispatchable accessors, all subscripts, non-dispatchable methods). Proxy class suppresses self-generated SB0003/SB0004 warnings via `#pragma warning disable`. SDK `Sdk.props` NoWarn updated. 32/32 validation maintained.
-
-| Sub-task | Status | Notes |
-|----------|--------|-------|
-| **Q2a. SecurityDatabase.xml** | ✅ | New `SecurityDatabase.xml` with SecTrust, SecCertificate, SecKey, SecIdentity → `System.IntPtr`. Registered in `Program.cs` builtInDatabases. |
-| **Q2b. IndexPath → NSIndexPath** | ✅ | ObjC-bridged class entry in `FoundationDatabase.xml`. DB lookup takes priority over AppleFrameworkValueTypes guard. |
-| **Q2c. JSONDecoder exclusion** | ✅ | Added to `AppleFrameworkValueTypes` list — prevents incorrect ObjC auto-bridging, correctly falls to AnyType. |
-| **Q2d. SB0004 on empty interfaces** | ✅ | Interface body buffered via `CSharpWriter(StringWriter)`, diagnostic emitted when `emittedMemberCount == 0 && totalDeclaredMembers > 0 && inheritedInterfaces.Count == 0`. |
-| **Q2e. SB0003 on proxy members** | ✅ | Non-dispatchable properties (with correct accessor presence check), subscripts (always), and methods annotated. |
-| **Q2f. Warning suppression** | ✅ | Proxy class wraps in `#pragma warning disable SB0003, SB0004`. Sdk.props adds SB0003;SB0004 to `<NoWarn>`. |
-
-**Key files modified**: `SecurityDatabase.xml` (new), `FoundationDatabase.xml`, `TypeDatabaseExtensions.cs`, `Program.cs`, `ProtocolHandler.cs`, `ProtocolProxyEmitter.InterfaceImpl.cs`, `ProtocolProxyEmitter.cs`, `Sdk.props`
-
-#### Session Q3: Closure Parameter Relaxation ✅ COMPLETE
-
-**Results**: Two-layer closure gate selectively relaxed for classes, simple enums, ObjC-bridged types, and `Optional<Class/ObjC>`. Layer 1 (`IsSupportedClosureParameterType`) now admits these types for method emission. Layer 2 (`IsCdeclCompatibleType`) now generates `@_cdecl` Swift wrappers with proper ABI conversions. Complex enums remain blocked (structural emitter change needed). `Optional<Primitive/Enum>` deferred (different ABI — tag+value layout, not nil-pointer).
-
-Spot-check confirmed: GRDB gained 23 closure-accepting methods (`DatabasePool.AsyncWriteWithoutTransaction`, `Database.AfterNextTransaction`, migration/alteration APIs). StripePayments gained 33 (`ConfirmPaymentIntent`, `ConfirmSetupIntent`, `CreateToken`, `RetrievePaymentIntent`, etc.). 56+ previously-skipped methods now available to C# consumers across just these two libraries.
-
-| Sub-task | Status | Notes |
-|----------|--------|-------|
-| **Q3a. Type classification helpers** | ✅ | `IsClassType`, `IsSimpleEnum`, `GetSimpleEnumInfo`, `IsObjCBridgedClass`, `IsReferenceType` added to `ClosureHandler`. `EnumHandler.GetSwiftScalarType` made `internal`. |
-| **Q3b. Selective B16 relaxation** | ✅ | Simple enums (with `SimpleEnum` flag) now pass Layer 1. Complex enums still blocked. |
-| **Q3c. Layer 2 Cdecl expansion** | ✅ | Classes/ObjC → `UnsafeMutableRawPointer`. Simple enums → underlying integer (e.g., `Int32`). `Optional<ref>` → `UnsafeMutableRawPointer?` (nil-pointer ABI). |
-| **Q3d. Swift wrapper conversions** | ✅ | Classes/ObjC: `Unmanaged.passUnretained`/`takeUnretainedValue`. Simple enums: `unsafeBitCast`. `Optional<ref>`: `.map { Unmanaged... }`. |
-| **Q3e. C# callback emission** | ✅ | `TranslateTypeSpecToPInvokeType` returns underlying int for simple enums. `GetInvokeArgExpression` handles enum cast, `Optional<ref>` null-check. Direct-handle return paths for classes (`.Payload.DangerousGetHandle()`) and ObjC (`.Handle`). Both escaping and throwing callback paths updated. |
-| **Q3f. Return-closure (blast radius)** | ✅ | `GetSwiftInvokeArgExpression` and `EmitClosureReturnMarshalling` handle simple enum conversions for the invoke-Swift-from-C# direction. |
-
-**Key files modified**: `ClosureHandler.cs`, `ClosureEmitter.SwiftWrapper.cs`, `ClosureEmitter.cs`, `ClosureEmitter.Throwing.cs`, `EnumHandler.SimpleEnum.cs`, `ClosureHandlerTests.cs`, `ClosureCdeclEmitterTests.cs`, `ClosureEmitterDirectTests.cs`, `ThirdPartyValidationFixTestsV3.cs`
-
-#### Session Q4: Self-Returning Methods + Protocol Member Recovery ✅ COMPLETE
-
-**Results**: Self-returning protocol methods (`τ_0_0` → `TSelf`) now resolve correctly through `GenericContext.ForProtocolSelf()` factory method, threaded through 6 projection sites (ProtocolHandler, ProtocolSignatureHelper, ProtocolConformanceValidator ×3 resolvers + 3 BoundGenericsHandler fallbacks). Concrete types declare generic interface conformance (`IFoo<ConcreteType>`). `HasSelfRequirement` flag (TypeRecordFlags bit 5) plumbed through ModuleProcessor → ModuleDatabaseEmitter → TypeDatabase serialization. Self-requirement protocols excluded from `IsProtocolAvailableForConstraint` (both WrapperEmitter and PInvokeEmitter) and conformance dictionary entries. Closure methods/properties now emitted in protocol interfaces (concrete types can implement them); proxy gets `NotSupportedException` stubs with SB0003 diagnostic. 6 previously-failing libraries (Alamofire, CryptoSwift, GRDB, Kingfisher, RxSwift, StripeApplePay) recovered to 0 errors.
-
-| Sub-task | Status | Notes |
-|----------|--------|-------|
-| **Q4a. GenericContext.ForProtocolSelf()** | ✅ | Maps `τ_0_0 → TSelf`. Handles plain, Optional, Array, closure, and tuple nesting through factory recursion. |
-| **Q4a. Protocol-aware projection** | ✅ | 6 sites updated: `ProtocolHandler.GetCSharpTypeName`, `ProtocolSignatureHelper.ProjectTypeToCSharp`, `ProtocolConformanceValidator` (3 resolvers + 3 BoundGenericsHandler fallbacks). |
-| **Q4a. TSelf-aware conformance matching** | ✅ | `AreTypesCompatible` uses string substitution for nested `TSelf` (handles `Task<TSelf>`, `IReadOnlyList<TSelf>`, etc.). |
-| **Q4a. HasSelfRequirement flag** | ✅ | TypeRecordFlags bit 5. Set in ModuleProcessor, serialized in ModuleDatabaseEmitter/TypeDatabase. Excludes from constraint availability and conformance dictionary. |
-| **Q4a. Generic interface names** | ✅ | `GetImplementedInterfaces` emits `IFoo<ConcreteType>` for Self-requirement protocols. |
-| **Q4b. Closure interface recovery** | ✅ | Closure methods/properties emitted in interface. Proxy gets `NotSupportedException` stub. Two-tier tracking: `closureSkippedX` (after all gates) vs `skippedX` (all reasons). |
-
-**Key files modified**: `NameProvider.cs`, `ProtocolHandler.cs`, `ProtocolSignatureHelper.cs`, `ProtocolConformanceValidator.cs`, `TypeHandlerHelpers.cs`, `TypeRecord.cs`, `ModuleProcessor.cs`, `ModuleDatabaseEmitter.cs`, `TypeDatabase.cs`, `WrapperEmitter.cs`, `PInvokeEmitter.cs`, `ProtocolProxyEmitter.cs`, `ProtocolProxyEmitter.InterfaceImpl.cs`
-
-**Phase 2 Acceptance KPIs**:
-
-| KPI | Current | Target | Session |
-|-----|---------|--------|---------|
-| `Get` prefix on fluent methods | ~40 | 0 | Q1 ✅ |
-| `SwiftOptional`/`SwiftString` in enum tuple params | ~20 | 0 | Q1 ✅ |
-| `AnyType` from missing Apple SDK types | ~30 | 0 | Q2 ✅ (Security + IndexPath resolved; remaining are intentional AnyType) |
-| Empty protocol interfaces with diagnostics | 67 | <10 | Q2 ✅ (SB0004 on skip-caused empties) + Q4 |
-| Core workflow methods skipped (closure gate) | ~200 | <50 | Q3 ✅ (56+ methods unblocked in GRDB+Stripe alone) |
-| `Self` → `AnyType` in protocol returns | ~50 | 0 | Q4 ✅ |
-| Binding quality avg | 3.37 | >3.80 | All |
-
----
-
-### Phase 3: Binding Polish & Safety (3 sessions, after Phase 2)
-
-Items that improve correctness and developer experience but don't directly move library usability scores.
-
-#### Session P1: Swiftinterface Parsing & Actor Isolation
-
-**Priority**: P2 | **Effort**: Medium (1 session)
-
-| Step | Description | Effort |
+| Item | Description | Effort |
 |------|-------------|--------|
-| **P1a. Access-level filtering** | Types absent from `.swiftinterface` → `[EditorBrowsable(Never)]` or suppressed entirely. Heuristic fallback when swiftinterface unavailable: `*Pinglet*`, `*Telemetry*`, `_*`. | Medium |
-| **P1b. Parse @MainActor** | `SwiftInterfaceAccessParser` already extracts other annotations. Add `@MainActor` / `@_Concurrency.MainActor`. | Low |
-| **P1c. Emit actor isolation on wrappers** | When protocol/class is `@MainActor`, emit on generated wrapper functions. Handle custom actors. | Medium |
-| **P1d. Remove -strict-concurrency=minimal** | Once actor-aware emission covers known cases. | Low |
-
-**Key files**: `SwiftInterfaceAccessParser.cs`, `MemberEmissionValidator.cs`, `EveryProtocolEmitter.cs`, `SwiftWrapperCompiler.cs`
-**Acceptance gate**: Internal types suppressed for BlinkID/StripePayments. BlinkIDUX wrapper compiles with 0 actor isolation errors.
-
-#### Session P2: Finalizer Safety & Consumer Diagnostics
-
-**Priority**: P2 | **Effort**: Medium (1 session)
-
-**P2a. Finalizer memory leak documentation + mitigation.** `SwiftSafeHandle<T>` finalizer deliberately skips `ValueWitnessTable.Destroy()` (unsafe during .NET shutdown ordering). Result: any `ISwiftObject` not explicitly disposed leaks Swift-side memory permanently. Mitigation options (pick one or combine):
-- Document loudly in README, XML doc comments, and generated code comments
-- Add `[DebuggerDisplay]` showing "LEAKED — call Dispose()" on finalized handles
-- Explore release-queue pattern: release on next P/Invoke call from same thread (deferred — complex)
-
-**P2b. Roslyn analyzer for undisposed Swift objects.** Existing plan: `Future/roslyn-analyzer-plan.md`. Warn at compile time when `ISwiftObject` locals are created without `using` or explicit `Dispose()`. Package as part of `Swift.Runtime` NuGet.
-
-**Key files**: `SwiftSafeHandle.cs`, new `Swift.Runtime.Analyzers/` project
-**Acceptance gate**: Analyzer warns on undisposed locals in test code. Zero false positives on properly disposed objects.
-
-#### Session P3: Binding Quality Re-Review
-
-**Priority**: P2 | **Effort**: Small (0.5 session)
-
-Re-run the full binding quality review (`binding-review-feb-23.md` methodology) against all 18 libraries with Phase 2 improvements applied. Update scores, identify any new top-priority items that emerged. This closes the loop and ensures the Phase 2 work actually moved the needle.
-
-**Acceptance gate**: Average binding quality score > 3.80 (up from 3.37). Bottom-3 libraries all above 3.0.
+| **Finalizer leak mitigation** | `SwiftSafeHandle<T>` finalizer skips VWT Destroy. Document loudly + `[DebuggerDisplay]` on leaked handles. Explore release-queue pattern. | 0.5 session |
+| **Roslyn analyzer** | Warn at compile time when `ISwiftObject` locals lack `using`/`Dispose()`. Package in `Swift.Runtime` NuGet. Plan: `Future/roslyn-analyzer-plan.md`. | 0.5 session |
+| **Proxy Dispose() no-op** | SkeletonView's 11 proxy classes leak GCHandle/EveryProtocol. Fix Dispose to clean up properly. | Small (part of safety session) |
 
 ---
 
-### Phase 4: Production Readiness (4 items, ~2 sessions total)
+### Production Readiness (before public launch)
 
-Infrastructure and documentation items needed before the repo goes public and NuGet packages are promoted beyond preview.
-
-#### H. Contributor Onboarding
-
-**Effort**: 0.5 session
-
-| Item | Description |
-|------|-------------|
-| `CONTRIBUTING.md` | How to build, test, submit PRs. Code style. Commit conventions. |
-| Architecture overview | How the pipeline works: Parser → TypeDatabase → Marshaler → Emitter. Why `TypeProjectionFactory` exists. How to add a new type projection. |
-| Issue + PR templates | Structured templates for bug reports, feature requests, and PRs. |
-
-Currently the project has excellent documentation for AI agents (CLAUDE.md, memory files) but nothing for human contributors. The architecture session docs (1-9, A-D) exist only in Claude's memory — the key decisions need to be in the repo.
-
-#### J. ABI & Module Database Versioning
-
-**Effort**: 0.5 session
-
-| Item | Description |
-|------|-------------|
-| **ABI JSON robustness** | Document supported Swift version range. Graceful degradation on unknown node kinds (currently `NotImplementedException` logged, node silently skipped). Add `--swift-version` auto-detection from ABI metadata. |
-| **Module database migration** | Current format is XML version "1.0" with no migration path. Superclass data was the first schema change (Phase 1). Add version bump + clear SWIFTBIND error code for version mismatches. Backward-compatible reads where possible. |
-
-#### K. End-to-End Consumer Smoke Test
-
-**Effort**: 0.5 session
-
-CI lane that tests the full NuGet consumer workflow:
-1. `dotnet new swift-binding -n TestLib`
-2. Copy in a small xcframework
-3. `dotnet build`
-4. `dotnet pack`
-5. Reference the NuGet from a consuming app project
-6. Call a generated binding method
-
-The current CI `package-smoke` job packs but doesn't consume. Breaking changes to `Sdk.targets`, `Sdk.props`, or the template could ship undetected.
-
-#### L. Upstream Bug Reports
-
-**Effort**: Trivial (filing only) | **Blocked on**: Repo going public
-
-Three Mono runtime issues are drafted and ready to file (`Future/upstream-bug-reports-draft.md`):
-1. JIT assertion crash (`!ji->async`) — process-fatal
-2. Non-blittable CallConvSwift rejection
-3. SafeHandle lifetime in async
-
-Plus the NativeAOT simulator request (`Future/upstream-nativeaot-simulator-issue.md`).
-
-**Action**: File as soon as repo is public. Zero code effort, starts the clock on runtime team engagement.
+| Item | Description | Effort |
+|------|-------------|--------|
+| **H. Contributor Onboarding** | `CONTRIBUTING.md`, architecture overview, issue/PR templates. Currently excellent AI docs but nothing for human contributors. | 0.5 session |
+| **J. ABI & Module Database Versioning** | Document supported Swift versions. Add schema version + migration path for module databases. | 0.5 session |
+| **K. Consumer Smoke Test** | CI lane: `dotnet new swift-binding` → build → pack → consume from app → call binding. Current CI packs but doesn't consume. | 0.5 session |
+| **L. Upstream Bug Reports** | File 3 Mono JIT issues + NativeAOT simulator request. Drafts ready: `Future/upstream-bug-reports-draft.md`. Blocked on repo going public. | Trivial |
 
 ---
 
-### Phase 5: Future Vision
-
-Substantial capability expansions. See `Future/future-roadmap.md` for detailed analysis and prioritization.
+### Future Vision — `Future/future-roadmap.md`
 
 | Item | Effort | Notes |
 |------|--------|-------|
-| **ObjC Binding Integration** | Large (3-5 sessions) | Replace Objective Sharpie. Prerequisite for NSObject hierarchy in generated bindings. Design: `Future/objc-binding-integration.md`. |
-| **Multi-Platform Support** | Large (3+ sessions) | Mac Catalyst, macOS, tvOS. Design: `Future/dx-multi-framework-auto-detection.md`. |
-| **Performance Benchmarks** | Medium | BenchmarkDotNet harness. Design: `Future/interop-performance-validation-plan.md`. |
-| **API Snapshot Tooling** | Medium | Detect accidental API surface changes. Design: `Future/api-snapshot-tooling.md`. |
-| **SwiftUI Bridge Corpus** | Medium | Coverage tracking across 10+ libraries. Design: `Future/swiftui-bridge-v2-plan.md`. |
+| **ObjC Binding Integration** | Large (3-5 sessions) | Replace Objective Sharpie. Design: `Future/objc-binding-integration.md` |
+| **Multi-Platform Support** | Large (3+ sessions) | Mac Catalyst, macOS, tvOS. Design: `Future/dx-multi-framework-auto-detection.md` |
+| **Performance Benchmarks** | Medium | BenchmarkDotNet harness. Design: `Future/interop-performance-validation-plan.md` |
+| **API Snapshot Tooling** | Medium | Detect accidental API surface changes. Design: `Future/api-snapshot-tooling.md` |
+| **SwiftUI Bridge Corpus** | Medium | Coverage tracking across 10+ libraries. Design: `Future/swiftui-bridge-v2-plan.md` |
 
 ---
 
@@ -250,43 +108,31 @@ Substantial capability expansions. See `Future/future-roadmap.md` for detailed a
 
 ```
 DONE                       Phase 1: Class Inheritance (I1-I6) ✅
+                           Phase 2: Binding Quality (Q1-Q4) ✅
+                           Binding Review v2 ✅
                            |
-DONE                       Phase 2: Binding Quality (Q1-Q4, 4 sessions) ✅
-                           |  Q1: Bug fixes — naming, tuples, polish ✅
-                           |  Q2: Type database + protocol audit ✅
-                           |  Q3: Closure parameter relaxation ✅
-                           |  Q4: Self returns + protocol recovery ✅
+NOW ─────────────────────► Usability Roadmap (10 sessions)
+                           |  1-4: Quick wins + workflow unlocks → avg ~3.65
+                           |  5-7: Protocol extensions (Kingfisher/SnapKit/RxSwift) → avg ~3.80
+                           |  8-10: Polish + safety + patches → avg ~3.81
                            |
-NOW                        Phase 3: Binding Polish & Safety (P1-P3)
-                           |  P1: Swiftinterface/actor isolation
-                           |  P2: Finalizer safety + Roslyn analyzer
-                           |  P3: Binding quality re-review (score verification)
+PARALLEL ────────────────► Finalizer Safety (bundled into Session 9)
                            |
-BEFORE PUBLIC LAUNCH       Phase 4: Production Readiness (H, J, K, L)
-                           |  H (contributor docs) gates external contributions
-                           |  J (versioning) gates module database schema changes
-                           |  K (consumer smoke test) gates NuGet promotion
-                           |  L (upstream bugs) gates going public
+BEFORE PUBLIC LAUNCH ────► Production Readiness (H, J, K, L, ~2 sessions)
                            |
-POST-LAUNCH                Phase 5: Future Vision
-                           |  ObjC integration, multi-platform, benchmarks
+POST-LAUNCH ─────────────► Future Vision (ObjC, multi-platform, benchmarks)
 ```
-
-**Estimated total**: ~10 sessions from current state to production-grade (Phases 2-4). Phase 5 is ongoing capability expansion with no fixed timeline.
 
 ---
 
 ## Explicitly Out of Scope
 
-Items evaluated during the February 2026 architectural audit and deliberately excluded:
-
 | Item | Reason |
 |------|--------|
-| Full Swift type graph infrastructure | Over-engineered. Inheritance topological sort + existing ModuleProcessor + cross-module database cover 90% of needs. Build more when a specific ordering bug is found. |
-| Deep generic signature / associated type constraint emission | C# generics can't express Swift's full type system (`where Element.SubSequence == Slice<Self>`). Better protocol proxy emission (Session Q5) is the practical fix. |
-| Result builder (`@resultBuilder`) projection | Compile-time Swift feature with no ABI JSON representation. Builder methods appear as regular methods, which is correct. |
-| `@dynamicMemberLookup` / KeyPath projection | Affects <5 types across 32 validation libraries. Nice-to-have, not foundational. |
-| Centralized `ISwiftRuntime` abstraction layer | Current separation of concerns (Arc.cs, TypeMetadata, ErrorDescriptionEmitter, etc.) is appropriate. Adding a facade would be abstraction without a concrete problem. |
+| Full Swift type graph infrastructure | Over-engineered. Build more when a specific ordering bug is found. |
+| Deep generic signature / associated type constraint emission | C# generics can't express Swift's full type system. Protocol proxy emission is the practical fix. |
+| Result builder (`@resultBuilder`) projection | Compile-time Swift feature with no ABI JSON representation. Builder methods appear as regular methods. |
+| `@dynamicMemberLookup` / KeyPath projection | Affects <5 types across 32 validation libraries. |
 | Incremental regeneration | Full regen is fast. Premature optimization. |
 | Ownership semantics (`consume`/`borrow`) | Swift 6 feature with unclear ABI impact. Wait for stabilization. |
 
@@ -294,16 +140,15 @@ Items evaluated during the February 2026 architectural audit and deliberately ex
 
 ## Upstream .NET Runtime Notes
 
-NativeAOT resolves most Mono JIT issues (SafeHandle crashes, non-blittable CallConvSwift, closure Cdecl limitations). The Mono JIT bugs only affect the iOS Simulator; device builds using NativeAOT are unaffected. Workarounds remain in place for simulator testing. Draft bug reports: `Future/upstream-bug-reports-draft.md`.
+NativeAOT resolves most Mono JIT issues. The bugs only affect iOS Simulator; device builds using NativeAOT are unaffected. Workarounds in place. See `known-issues-workarounds.md` for details and revert plan.
 
 | Issue | Affects | Notes |
 |-------|---------|-------|
 | SafeHandle finalizer crashes | Simulator (Mono) | `Dispose()` required; works on NativeAOT |
-| Non-blittable types with CallConvSwift | Simulator (Mono) | Wrapper methods + `MonoJitRiskDetector`; works on NativeAOT |
-| Async runtime (32 tests, Tier 3) | Simulator (Mono) | Tests written, tagged Tier 3; works on NativeAOT |
-| Non-primitive closure Cdecl | Simulator (Mono) | Fall back to CallConvSwift; works on NativeAOT |
-| SafeHandle in async P/Invoke | All runtimes | Singleton + IntPtr conversion; needs dotnet/runtime SwiftSelf async support |
-| Typed throws ABI mismatch | All runtimes | `throws(E)` may pack error in return (not swifterror register); needs dotnet/runtime typed throws ABI support |
+| Non-blittable types with CallConvSwift | Simulator (Mono) | Wrapper methods + `MonoJitRiskDetector` |
+| Non-primitive closure Cdecl | Simulator (Mono) | Fall back to CallConvSwift |
+| SafeHandle in async P/Invoke | All runtimes | Singleton + IntPtr; needs dotnet/runtime support |
+| Typed throws ABI mismatch | All runtimes | `throws(E)` packs error in return; needs runtime support |
 
 **Tracking**: [#93631](https://github.com/dotnet/runtime/issues/93631), [#108662](https://github.com/dotnet/runtime/issues/108662), [#64215](https://github.com/dotnet/runtime/issues/64215), [#80905](https://github.com/dotnet/runtime/issues/80905)
 
@@ -311,11 +156,10 @@ NativeAOT resolves most Mono JIT issues (SafeHandle crashes, non-blittable CallC
 
 ## Known Generator Bugs (Tracked, Not Prioritized)
 
-| Bug | Impact | Workaround |
-|-----|--------|------------|
-| String enum raw values use case names | Cosmetic | ABI JSON lacks individual case raw values |
-| `UnsafePointer<T>` → AnyType | No concrete projection | Use `UnsafeMutablePointer<T>` |
-| Throwing closure thunks | `SwiftString` return as `void*` | Exclude throwing closures |
+| Bug | Impact | Addressed In |
+|-----|--------|-------------|
+| String enum raw values use case names | Cosmetic | ABI JSON lacks raw values — no fix possible |
+| `UnsafePointer<T>` → AnyType | No concrete projection | Future work |
 | `async throws(ErrorType)` free functions | `_payload`/`this` in static context | Guarded — no runtime impact |
-| ExistentialContainer0 in tuple element | Lottie edge case | `HasClosureUnsafeTupleElements` safety gate |
-| Bare `Any` in generic positions → AnyType | CS0311 with `ISwiftObject` constraint | AnyType fallback correct; needs `SwiftAny` wrapper |
+| ExistentialContainer0 in tuple element | Lottie edge case | U8 (existential projection) |
+| Bare `Any` in generic positions → AnyType | CS0311 with `ISwiftObject` constraint | U8 (existential projection) |

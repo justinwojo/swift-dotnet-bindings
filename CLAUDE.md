@@ -184,9 +184,9 @@ Use `<SwiftFrameworkDependency>` when your library imports another Swift framewo
 
 ## Key References
 
-- `src/docs/roadmap.md` — Path to production-grade (Phases 1-4: Inheritance → Quality → Readiness → Future)
-- `src/docs/class-inheritance-implementation.md` — Class inheritance implementation plan (6 sessions)
+- `src/docs/roadmap.md` — Master roadmap (sequencing, production readiness, future vision)
+- `src/docs/usability-roadmap.md` — Active work: 8 sessions to push all libraries above 4.0
+- `src/docs/binding-review-v2.md` — Latest binding quality scores (18 libraries, 10 categories)
 - `src/docs/Completed/dx-msbuild-sdk-design.md` — MSBuild SDK design (Steps 1-5, all complete)
-- `src/docs/Completed/binding-errors.md` — Third-party library binding error tracking
 - `src/docs/Future/emitter-redesign-proposal.md` — Architecture direction
 - `src/docs/known-issues-workarounds.md` — Runtime workarounds
