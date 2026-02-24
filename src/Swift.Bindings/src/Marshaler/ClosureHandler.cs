@@ -435,14 +435,16 @@ public class ClosureHandler
         // Named types should be resolvable in the type database
         if (typeSpec is NamedTypeSpec namedType)
         {
-            // B16: C# enums are non-blittable and cannot be used in [UnmanagedCallersOnly] callbacks
+            // B16: Complex enums are non-blittable value types requiring structural wrapper changes.
+            // Simple enums pass as their underlying integer type (blittable).
             if (!namedType.ContainsGenericParameters && namedType.HasModule())
             {
                 var enumSwiftName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
                 if (_typeDatabase.TryGetTypeRecord(enumSwiftName, out var enumRecord) &&
-                    enumRecord.Kind == TypeRecordKind.Enum)
+                    enumRecord.Kind == TypeRecordKind.Enum &&
+                    (enumRecord.Flags & TypeRecordFlags.SimpleEnum) == 0)
                 {
-                    return false;
+                    return false; // Complex enum — still blocked
                 }
             }
             // Generic type parameters (τ_0_0, τ_0_1, T, etc.) are not supported in closures
@@ -1010,6 +1012,18 @@ public class ClosureHandler
             if (namedType.ContainsGenericParameters)
                 return "void*";
 
+            // Simple enums: use underlying integer type (blittable for [UnmanagedCallersOnly])
+            if (!namedType.ContainsGenericParameters && namedType.HasModule())
+            {
+                var enumSwiftName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+                if (_typeDatabase.TryGetTypeRecord(enumSwiftName, out var enumRecord) &&
+                    enumRecord.Kind == TypeRecordKind.Enum &&
+                    (enumRecord.Flags & TypeRecordFlags.SimpleEnum) != 0)
+                {
+                    return EnumHandler.GetCSharpEnumUnderlyingType(enumRecord.RawValueTypeName);
+                }
+            }
+
             // All other types (structs, classes, etc.) must be passed as void*
             // and marshalled manually, even if frozen - only primitives are safe
             // to pass directly in unmanaged function pointers
@@ -1132,6 +1146,105 @@ public class ClosureHandler
         return typeRecord.Kind == TypeRecordKind.Struct &&
                (typeRecord.Flags & TypeRecordFlags.Frozen) == 0;
     }
+
+    /// <summary>
+    /// Checks if a type is a class in the type database.
+    /// Classes pass as raw pointers (UnsafeMutableRawPointer) in closure callbacks.
+    /// </summary>
+    public bool IsClassType(TypeSpec typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec namedType)
+            return false;
+
+        if (namedType.ContainsGenericParameters)
+            return false;
+
+        if (!namedType.HasModule())
+            return false;
+
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+        if (!_typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord))
+            return false;
+
+        return typeRecord.Kind == TypeRecordKind.Class && !MarshallingHelpers.IsObjCBridged(typeRecord);
+    }
+
+    /// <summary>
+    /// Checks if a type is a simple enum (no-payload) in the type database.
+    /// Simple enums pass as their underlying integer type in closure callbacks.
+    /// </summary>
+    public bool IsSimpleEnum(TypeSpec typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec namedType)
+            return false;
+
+        if (namedType.ContainsGenericParameters)
+            return false;
+
+        if (!namedType.HasModule())
+            return false;
+
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+        if (!_typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord))
+            return false;
+
+        return typeRecord.Kind == TypeRecordKind.Enum &&
+               (typeRecord.Flags & TypeRecordFlags.SimpleEnum) != 0;
+    }
+
+    /// <summary>
+    /// Gets the C# underlying type and Swift scalar type for a simple enum.
+    /// Returns null if the type is not a simple enum.
+    /// </summary>
+    public (string csUnderlying, string swiftScalar)? GetSimpleEnumInfo(TypeSpec typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec namedType)
+            return null;
+
+        if (namedType.ContainsGenericParameters || !namedType.HasModule())
+            return null;
+
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+        if (!_typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord))
+            return null;
+
+        if (typeRecord.Kind != TypeRecordKind.Enum ||
+            (typeRecord.Flags & TypeRecordFlags.SimpleEnum) == 0)
+            return null;
+
+        var csUnderlying = EnumHandler.GetCSharpEnumUnderlyingType(typeRecord.RawValueTypeName);
+        var swiftScalar = EnumHandler.GetSwiftScalarType(csUnderlying);
+        return (csUnderlying, swiftScalar);
+    }
+
+    /// <summary>
+    /// Checks if a type is an Objective-C bridged class in the type database.
+    /// ObjC-bridged types (e.g., NSError, UIImage) pass as raw pointers in closure callbacks.
+    /// </summary>
+    public bool IsObjCBridgedClass(TypeSpec typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec namedType)
+            return false;
+
+        if (namedType.ContainsGenericParameters)
+            return false;
+
+        if (!namedType.HasModule())
+            return false;
+
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+        if (!_typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord))
+            return false;
+
+        return MarshallingHelpers.IsObjCBridged(typeRecord);
+    }
+
+    /// <summary>
+    /// Checks if a type is a reference type (class or ObjC-bridged) that uses pointer ABI
+    /// in closure callbacks. This is the unified check for nil-pointer Optional ABI.
+    /// </summary>
+    public bool IsReferenceType(TypeSpec typeSpec) =>
+        IsClassType(typeSpec) || IsObjCBridgedClass(typeSpec);
 
     /// <summary>
     /// Checks if invoking a closure from C# requires struct marshalling for any parameter.

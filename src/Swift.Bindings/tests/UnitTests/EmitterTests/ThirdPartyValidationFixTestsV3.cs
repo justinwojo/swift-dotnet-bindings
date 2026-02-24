@@ -223,14 +223,30 @@ public class ThirdPartyValidationFixTestsV3
     #region B16 — Non-blittable enum in closure callback
 
     [Fact]
-    public void IsSupportedClosureParameterType_Enum_ReturnsFalse()
+    public void IsSupportedClosureParameterType_SimpleEnum_ReturnsTrue()
     {
+        // Q3: Simple enums now pass Layer 1 — they use their underlying integer type (blittable).
         var typeDatabase = CreateTypeDatabaseWithEnum(isSimple: true, requiresMemMgmt: false);
         var handler = new ClosureHandler(typeDatabase);
 
-        // Create a closure with an enum parameter: (SimpleEnum) -> Void
+        // Create a closure with a simple enum parameter: (SimpleEnum) -> Void
         var closureTypeSpec = new ClosureTypeSpec(
             new NamedTypeSpec("TestModule.SimpleEnum"),
+            TupleTypeSpec.Empty);
+
+        Assert.True(handler.IsSupportedClosure(closureTypeSpec));
+    }
+
+    [Fact]
+    public void IsSupportedClosureParameterType_ComplexEnum_ReturnsFalse()
+    {
+        // B16: Complex enums are still blocked — non-blittable value types.
+        var typeDatabase = CreateTypeDatabaseWithEnum(isSimple: false, requiresMemMgmt: true);
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Create a closure with a complex enum parameter: (ComplexEnum) -> Void
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("TestModule.ComplexEnum"),
             TupleTypeSpec.Empty);
 
         Assert.False(handler.IsSupportedClosure(closureTypeSpec));

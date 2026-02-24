@@ -1062,6 +1062,132 @@ public class ClosureCdeclEmitterTests
 
     #endregion
 
+    #region Q3 Closure Parameter Relaxation Tests
+
+    [Fact]
+    public void IsClosureCdeclCompatible_ClassParam_ReturnsTrue()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        // Closure: (Loader) -> Void — class param should be Cdecl-compatible
+        var closureType = new ClosureTypeSpec(
+            new NamedTypeSpec("TestModule.Loader"),
+            TupleTypeSpec.Empty);
+
+        Assert.True(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
+    }
+
+    [Fact]
+    public void IsClosureCdeclCompatible_SimpleEnumParam_ReturnsTrue()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        // Closure: (ColorMode) -> Void — simple enum should be Cdecl-compatible
+        var closureType = new ClosureTypeSpec(
+            new NamedTypeSpec("TestModule.ColorMode"),
+            TupleTypeSpec.Empty);
+
+        Assert.True(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
+    }
+
+    [Fact]
+    public void IsClosureCdeclCompatible_ObjCBridgedParam_ReturnsTrue()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        // Closure: (NSError) -> Void — ObjC-bridged should be Cdecl-compatible
+        var closureType = new ClosureTypeSpec(
+            new NamedTypeSpec("Foundation.NSError"),
+            TupleTypeSpec.Empty);
+
+        Assert.True(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
+    }
+
+    [Fact]
+    public void IsClosureCdeclCompatible_OptionalClass_ReturnsTrue()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        // Closure: (Optional<Loader>) -> Void — Optional<Class> uses nil-pointer ABI
+        var optionalClass = new NamedTypeSpec("Swift.Optional",
+            new NamedTypeSpec("TestModule.Loader"));
+        var closureType = new ClosureTypeSpec(optionalClass, TupleTypeSpec.Empty);
+
+        Assert.True(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
+    }
+
+    [Fact]
+    public void IsClosureCdeclCompatible_OptionalObjCBridged_ReturnsTrue()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        // Closure: (Optional<NSError>) -> Void — Optional<ObjC> uses nil-pointer ABI
+        var optionalNSError = new NamedTypeSpec("Swift.Optional",
+            new NamedTypeSpec("Foundation.NSError"));
+        var closureType = new ClosureTypeSpec(optionalNSError, TupleTypeSpec.Empty);
+
+        Assert.True(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
+    }
+
+    [Fact]
+    public void SwiftWrapper_SimpleEnumParam_UsesIntegerType()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        // Closure: (ColorMode) -> Void
+        var closureType = new ClosureTypeSpec(
+            new NamedTypeSpec("TestModule.ColorMode"),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var conventionCType = ClosureEmitter.GetSwiftConventionCType(closureType, closureHandler);
+        // Simple enum should use the underlying Swift integer type (Int32), not UnsafeMutableRawPointer
+        Assert.Contains("Int32", conventionCType);
+        Assert.DoesNotContain("UnsafeMutableRawPointer, UnsafeMutableRawPointer?", conventionCType);
+    }
+
+    [Fact]
+    public void SwiftWrapper_ClassParam_UsesPointerType()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        // Closure: (Loader) -> Void
+        var closureType = new ClosureTypeSpec(
+            new NamedTypeSpec("TestModule.Loader"),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var conventionCType = ClosureEmitter.GetSwiftConventionCType(closureType, closureHandler);
+        // Class params use UnsafeMutableRawPointer (pointer ABI)
+        Assert.Contains("UnsafeMutableRawPointer", conventionCType);
+    }
+
+    [Fact]
+    public void SwiftWrapper_OptionalClassParam_UsesOptionalPointerType()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        // Closure: (Optional<Loader>) -> Void
+        var optionalLoader = new NamedTypeSpec("Swift.Optional",
+            new NamedTypeSpec("TestModule.Loader"));
+        var closureType = new ClosureTypeSpec(optionalLoader, TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var conventionCType = ClosureEmitter.GetSwiftConventionCType(closureType, closureHandler);
+        // Optional<Class> should use UnsafeMutableRawPointer? (nullable pointer)
+        Assert.Contains("UnsafeMutableRawPointer?", conventionCType);
+    }
+
+    #endregion
+
     #region Test Helpers
 
     private static TypeDatabase CreateTypeDatabase()
@@ -1132,7 +1258,31 @@ public class ClosureCdeclEmitterTests
                 Flags = TypeRecordFlags.Frozen,
                 Kind = TypeRecordKind.Struct
             });
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.ColorMode"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "ColorMode"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ColorMode"),
+                MetadataAccessor = "$s10TestModule9ColorModeOMa",
+                Flags = TypeRecordFlags.SimpleEnum,
+                Kind = TypeRecordKind.Enum,
+                RawValueTypeName = "Int32"
+            });
         typeDatabase.AddModuleDatabase(module);
+
+        var foundationModule = new ModuleTypeDatabase("Foundation", "/usr/lib/swift/libswiftFoundation.dylib");
+        foundationModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Foundation.NSError"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSError"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.NSError"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        typeDatabase.AddModuleDatabase(foundationModule);
 
         return typeDatabase;
     }

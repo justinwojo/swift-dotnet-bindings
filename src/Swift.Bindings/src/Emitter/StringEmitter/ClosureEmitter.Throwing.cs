@@ -127,6 +127,31 @@ public static partial class ClosureEmitter
                 // callback ABI expects void* — just cast the pointer value directly.
                 csWriter.WriteLine("        return (void*)swiftResult.Success;");
             }
+            else if (returnType == "void*" && closureHandler.IsClassType(closureTypeSpec.ReturnType))
+            {
+                // Class returns: delegate returns ClassName, callback returns void* (raw handle)
+                csWriter.WriteLine("        return (void*)swiftResult.Success.Payload.DangerousGetHandle();");
+            }
+            else if (returnType == "void*" && closureHandler.IsObjCBridgedClass(closureTypeSpec.ReturnType))
+            {
+                // ObjC-bridged returns: delegate returns NSError/UIImage/etc., callback returns void* (.Handle)
+                csWriter.WriteLine("        return (void*)swiftResult.Success.Handle;");
+            }
+            else if (returnType == "void*" && IsOptionalReferenceReturn(closureTypeSpec.ReturnType, closureHandler))
+            {
+                // Optional<Class/ObjC> returns: null-safe pointer extraction
+                var isClass = closureHandler.IsClassType(((NamedTypeSpec)closureTypeSpec.ReturnType).GenericParameters[0]);
+                if (isClass)
+                    csWriter.WriteLine("        return swiftResult.Success != null ? (void*)swiftResult.Success.Payload.DangerousGetHandle() : null;");
+                else
+                    csWriter.WriteLine("        return swiftResult.Success != null ? (void*)swiftResult.Success.Handle : null;");
+            }
+            else if (closureHandler.IsSimpleEnum(closureTypeSpec.ReturnType))
+            {
+                // Simple enum returns: cast C# enum to underlying integer
+                var underlyingType = closureHandler.GetSimpleEnumInfo(closureTypeSpec.ReturnType)?.csUnderlying ?? "int";
+                csWriter.WriteLine($"        return ({underlyingType})swiftResult.Success;");
+            }
             else if (returnType == "void*" && !closureHandler.CanUseDirectCallbackReturn(closureTypeSpec.ReturnType))
             {
                 // Non-frozen struct / ObjC class returns: the callback signature uses void*

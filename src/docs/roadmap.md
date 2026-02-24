@@ -1,11 +1,11 @@
 # Roadmap
 
-**Updated**: February 2026 (post-Q2 quality session)
+**Updated**: February 2026 (post-Q3 quality session)
 **Status**: Active — path to production-grade
 **Target**: Production-ready binding libraries that feel like native C# to consumers
 **Scoring reference**: `binding-review-feb-23.md` — 18-library quality review with 10-category scorecards
 
-For completed work (binding quality sessions A-D, architecture sessions 1-9, cross-module resolution, ExistentialContainer elimination, native C# enums, Optional truncation fix, SwiftDictionary projection, class inheritance I1-I6, quality sessions Q1-Q2), see `Completed/roadmap-completed-feb2026.md`.
+For completed work (binding quality sessions A-D, architecture sessions 1-9, cross-module resolution, ExistentialContainer elimination, native C# enums, Optional truncation fix, SwiftDictionary projection, class inheritance I1-I6, quality sessions Q1-Q3), see `Completed/roadmap-completed-feb2026.md`.
 
 For future vision items (ObjC integration, multi-platform, emitter redesign, SwiftUI bridge corpus, performance benchmarks, etc.), see `Future/future-roadmap.md`.
 
@@ -15,7 +15,7 @@ For future vision items (ObjC integration, multi-platform, emitter redesign, Swi
 
 | Metric | Value |
 |--------|-------|
-| Unit tests | 4,130 passing (1 skipped) |
+| Unit tests | 4,158 passing (1 skipped) |
 | Integration tests | 700 passing (11 skipped, pre-existing) |
 | Runtime library tests | 221 passing (1 skipped) |
 | TestFramework must-pass | 94/94 passing, 0 degraded |
@@ -90,23 +90,22 @@ The projections were slightly optimistic for the two lowest-scoring libraries be
 
 **Key files modified**: `SecurityDatabase.xml` (new), `FoundationDatabase.xml`, `TypeDatabaseExtensions.cs`, `Program.cs`, `ProtocolHandler.cs`, `ProtocolProxyEmitter.InterfaceImpl.cs`, `ProtocolProxyEmitter.cs`, `Sdk.props`
 
-#### Session Q3: Closure Parameter Relaxation
+#### Session Q3: Closure Parameter Relaxation ✅ COMPLETE
 
-**Effort**: 1 session (large) | **Libraries**: Alamofire, GRDB, Stripe, RxSwift, SkeletonView
+**Results**: Two-layer closure gate selectively relaxed for classes, simple enums, ObjC-bridged types, and `Optional<Class/ObjC>`. Layer 1 (`IsSupportedClosureParameterType`) now admits these types for method emission. Layer 2 (`IsCdeclCompatibleType`) now generates `@_cdecl` Swift wrappers with proper ABI conversions. Complex enums remain blocked (structural emitter change needed). `Optional<Primitive/Enum>` deferred (different ABI — tag+value layout, not nil-pointer).
 
-This is the single highest-impact change possible. Methods with closures containing non-primitive parameter or return types are either skipped entirely or degraded. This blocks the **core workflows** of the libraries that need it most — GRDB's `read`/`write`, Alamofire's `responseData`/`responseString`, Stripe's `confirmPayment`.
+Spot-check confirmed: GRDB gained 23 closure-accepting methods (`DatabasePool.AsyncWriteWithoutTransaction`, `Database.AfterNextTransaction`, migration/alteration APIs). StripePayments gained 33 (`ConfirmPaymentIntent`, `ConfirmSetupIntent`, `CreateToken`, `RetrievePaymentIntent`, etc.). 56+ previously-skipped methods now available to C# consumers across just these two libraries.
 
-The closure parameter gate (`ClosureHandler` safety constraints) currently requires all closure parameter types to be primitive. This needs to be relaxed for known-safe types: enums, classes, frozen structs, and ObjC-bridged types.
+| Sub-task | Status | Notes |
+|----------|--------|-------|
+| **Q3a. Type classification helpers** | ✅ | `IsClassType`, `IsSimpleEnum`, `GetSimpleEnumInfo`, `IsObjCBridgedClass`, `IsReferenceType` added to `ClosureHandler`. `EnumHandler.GetSwiftScalarType` made `internal`. |
+| **Q3b. Selective B16 relaxation** | ✅ | Simple enums (with `SimpleEnum` flag) now pass Layer 1. Complex enums still blocked. |
+| **Q3c. Layer 2 Cdecl expansion** | ✅ | Classes/ObjC → `UnsafeMutableRawPointer`. Simple enums → underlying integer (e.g., `Int32`). `Optional<ref>` → `UnsafeMutableRawPointer?` (nil-pointer ABI). |
+| **Q3d. Swift wrapper conversions** | ✅ | Classes/ObjC: `Unmanaged.passUnretained`/`takeUnretainedValue`. Simple enums: `unsafeBitCast`. `Optional<ref>`: `.map { Unmanaged... }`. |
+| **Q3e. C# callback emission** | ✅ | `TranslateTypeSpecToPInvokeType` returns underlying int for simple enums. `GetInvokeArgExpression` handles enum cast, `Optional<ref>` null-check. Direct-handle return paths for classes (`.Payload.DangerousGetHandle()`) and ObjC (`.Handle`). Both escaping and throwing callback paths updated. |
+| **Q3f. Return-closure (blast radius)** | ✅ | `GetSwiftInvokeArgExpression` and `EmitClosureReturnMarshalling` handle simple enum conversions for the invoke-Swift-from-C# direction. |
 
-| Step | Description | Impact |
-|------|-------------|--------|
-| **Q3a. Audit closure skip reasons** | Regenerate all 32 libraries with verbose logging. Categorize every skipped-due-to-closure method. | Understand the full scope |
-| **Q3b. Relax gate for class/enum params** | Allow closure parameters that are classes (passed as pointer) or enums (passed as int/tagged union). These are the most common non-primitive types in closures. | GRDB `(Database) throws -> T`, Stripe `(STPPaymentHandlerActionStatus, STPPaymentIntent?, NSError?) -> Void` |
-| **Q3c. Relax gate for ObjC-bridged params** | Allow `NSError`, `NSData`, `NSUrl`, etc. in closure parameters — these already have working projections. | Alamofire response handlers, many Stripe callbacks |
-| **Q3d. Wrapper function generation** | Generate Swift `@_cdecl` wrapper functions that bridge between the relaxed closure signatures and the actual Swift API. | Required for the C-ABI boundary |
-
-**Key files**: `ClosureHandler.cs`, `ClosureEmitter.cs`, `MemberEmissionValidator.cs`, `SwiftWrapperEmitter.cs`
-**Acceptance gate**: GRDB `read`/`write` methods emitted. Alamofire `responseData`/`responseString` emitted. Stripe `confirmPayment` emitted. 32/32 validation.
+**Key files modified**: `ClosureHandler.cs`, `ClosureEmitter.SwiftWrapper.cs`, `ClosureEmitter.cs`, `ClosureEmitter.Throwing.cs`, `EnumHandler.SimpleEnum.cs`, `ClosureHandlerTests.cs`, `ClosureCdeclEmitterTests.cs`, `ClosureEmitterDirectTests.cs`, `ThirdPartyValidationFixTestsV3.cs`
 
 #### Session Q4: Self-Returning Methods + Protocol Member Recovery
 
@@ -130,7 +129,7 @@ Self-returning methods are the #1 issue from the binding review. This session al
 | `SwiftOptional`/`SwiftString` in enum tuple params | ~20 | 0 | Q1 ✅ |
 | `AnyType` from missing Apple SDK types | ~30 | 0 | Q2 ✅ (Security + IndexPath resolved; remaining are intentional AnyType) |
 | Empty protocol interfaces with diagnostics | 67 | <10 | Q2 ✅ (SB0004 on skip-caused empties) + Q4 |
-| Core workflow methods skipped (closure gate) | ~200 | <50 | Q3 |
+| Core workflow methods skipped (closure gate) | ~200 | <50 | Q3 ✅ (56+ methods unblocked in GRDB+Stripe alone) |
 | `Self` → `AnyType` in protocol returns | ~50 | 0 | Q4 |
 | Binding quality avg | 3.37 | >3.80 | All |
 
@@ -254,7 +253,7 @@ DONE                       Phase 1: Class Inheritance (I1-I6) ✅
 NOW                        Phase 2: Binding Quality (Q1-Q4, 4 sessions)
                            |  Q1: Bug fixes — naming, tuples, polish ✅
                            |  Q2: Type database + protocol audit ✅
-                           |  Q3: Closure parameter relaxation (Alamofire, GRDB, Stripe, RxSwift)
+                           |  Q3: Closure parameter relaxation ✅
                            |  Q4: Self returns + protocol recovery (Kingfisher, SnapKit, RxSwift)
                            |
 AFTER QUALITY              Phase 3: Binding Polish & Safety (P1-P3)

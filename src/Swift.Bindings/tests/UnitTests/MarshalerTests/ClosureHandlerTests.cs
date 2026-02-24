@@ -1946,10 +1946,10 @@ public class ClosureHandlerTests
     }
 
     [Fact]
-    public void IsSupportedClosure_B16_EnumInCallbackParameter_ReturnsFalse()
+    public void IsSupportedClosure_B16_ComplexEnumInCallbackParameter_ReturnsFalse()
     {
-        // B16: C# enums are non-blittable and cannot be used in [UnmanagedCallersOnly] callbacks.
-        // Swift.Result is registered as TypeRecordKind.Enum in MockTypeDatabase.
+        // B16: Complex enums (no SimpleEnum flag) are non-blittable value types requiring
+        // structural wrapper changes. Swift.Result is a complex enum in MockTypeDatabase.
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
 
@@ -1959,6 +1959,151 @@ public class ClosureHandlerTests
         closure.Attributes.Add(new TypeSpecAttribute("escaping"));
 
         Assert.False(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_SimpleEnumInCallbackParameter_ReturnsTrue()
+    {
+        // Q3: Simple enums pass as their underlying integer type (blittable).
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closure = new ClosureTypeSpec(
+            new NamedTypeSpec("TestModule.ColorMode"),
+            TupleTypeSpec.Empty);
+        closure.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        Assert.True(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_ClassInCallbackParameter_ReturnsTrue()
+    {
+        // Q3: Classes (Nuke.ImageTask) pass Layer 1 — they are in the type database.
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closure = new ClosureTypeSpec(
+            new NamedTypeSpec("Nuke.ImageTask"),
+            TupleTypeSpec.Empty);
+        closure.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        Assert.True(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_ObjCBridgedInCallbackParameter_ReturnsTrue()
+    {
+        // Q3: ObjC-bridged types (Foundation.NSError) pass Layer 1.
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closure = new ClosureTypeSpec(
+            new NamedTypeSpec("Foundation.NSError"),
+            TupleTypeSpec.Empty);
+        closure.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        Assert.True(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_OptionalClassInCallbackParameter_ReturnsTrue()
+    {
+        // Q3: Optional<Class> passes Layer 1 via IsSupportedGenericType recursive check.
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var optionalClass = new NamedTypeSpec("Swift.Optional",
+            new NamedTypeSpec("Nuke.ImageTask"));
+        var closure = new ClosureTypeSpec(optionalClass, TupleTypeSpec.Empty);
+        closure.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        Assert.True(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
+    public void IsClassType_SwiftClass_ReturnsTrue()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+        Assert.True(handler.IsClassType(new NamedTypeSpec("Nuke.ImageTask")));
+    }
+
+    [Fact]
+    public void IsClassType_ObjCBridged_ReturnsFalse()
+    {
+        // ObjC-bridged is NOT a plain class — separate check
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+        Assert.False(handler.IsClassType(new NamedTypeSpec("Foundation.NSError")));
+    }
+
+    [Fact]
+    public void IsSimpleEnum_SimpleEnum_ReturnsTrue()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+        Assert.True(handler.IsSimpleEnum(new NamedTypeSpec("TestModule.ColorMode")));
+    }
+
+    [Fact]
+    public void IsSimpleEnum_ComplexEnum_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+        Assert.False(handler.IsSimpleEnum(new NamedTypeSpec("Swift.Result")));
+    }
+
+    [Fact]
+    public void IsObjCBridgedClass_NSError_ReturnsTrue()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+        Assert.True(handler.IsObjCBridgedClass(new NamedTypeSpec("Foundation.NSError")));
+    }
+
+    [Fact]
+    public void IsReferenceType_Class_ReturnsTrue()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+        Assert.True(handler.IsReferenceType(new NamedTypeSpec("Nuke.ImageTask")));
+    }
+
+    [Fact]
+    public void IsReferenceType_ObjCBridged_ReturnsTrue()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+        Assert.True(handler.IsReferenceType(new NamedTypeSpec("Foundation.NSError")));
+    }
+
+    [Fact]
+    public void IsReferenceType_Struct_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+        Assert.False(handler.IsReferenceType(new NamedTypeSpec("Swift.Int")));
+    }
+
+    [Fact]
+    public void GetSimpleEnumInfo_SimpleEnum_ReturnsCorrectTypes()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+        var info = handler.GetSimpleEnumInfo(new NamedTypeSpec("TestModule.ColorMode"));
+        Assert.NotNull(info);
+        Assert.Equal("int", info!.Value.csUnderlying);
+        Assert.Equal("Int32", info!.Value.swiftScalar);
+    }
+
+    [Fact]
+    public void TranslateTypeSpecToPInvokeType_SimpleEnum_ReturnsUnderlyingType()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+        var result = handler.TranslateTypeSpecToPInvokeType(new NamedTypeSpec("TestModule.ColorMode"));
+        Assert.Equal("int", result);
     }
 
     [Fact]
@@ -2192,7 +2337,26 @@ public class ClosureHandlerTests
                 },
                 // Pointer type — must return the exact TypeDatabaseExtensions.IntPtrType instance
                 // so TranslateBoundGenericToCSharp recognizes it as a pointer (reference equality check)
-                ["Swift.UnsafeMutablePointer"] = TypeDatabaseExtensions.IntPtrType
+                ["Swift.UnsafeMutablePointer"] = TypeDatabaseExtensions.IntPtrType,
+                // Simple enum for testing closure parameter relaxation (Q3)
+                ["TestModule.ColorMode"] = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "ColorMode"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ColorMode"),
+                    MetadataAccessor = "",
+                    Flags = TypeRecordFlags.SimpleEnum,
+                    Kind = TypeRecordKind.Enum,
+                    RawValueTypeName = "Int32"
+                },
+                // ObjC-bridged class for testing closure parameter relaxation (Q3)
+                ["Foundation.NSError"] = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSError"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.NSError"),
+                    MetadataAccessor = "",
+                    Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,
+                    Kind = TypeRecordKind.Class
+                }
             };
         }
 

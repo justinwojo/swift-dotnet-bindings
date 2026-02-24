@@ -97,6 +97,37 @@ public static partial class ClosureEmitter
             // callback ABI expects void* — just cast the pointer value directly.
             returnStatement = $"return (void*)del({invokeArgsString});";
         }
+        else if (returnType == "void*" && closureHandler.IsClassType(closureTypeSpec.ReturnType))
+        {
+            // Class returns: delegate returns ClassName, callback returns void* (raw handle)
+            returnStatement = $"return (void*)del({invokeArgsString}).Payload.DangerousGetHandle();";
+        }
+        else if (returnType == "void*" && closureHandler.IsObjCBridgedClass(closureTypeSpec.ReturnType))
+        {
+            // ObjC-bridged returns: delegate returns NSError/UIImage/etc., callback returns void* (.Handle)
+            returnStatement = $"return (void*)del({invokeArgsString}).Handle;";
+        }
+        else if (returnType == "void*" && IsOptionalReferenceReturn(closureTypeSpec.ReturnType, closureHandler))
+        {
+            // Optional<Class/ObjC> returns: delegate returns ClassName?, callback returns void* (null-safe)
+            var isClass = closureHandler.IsClassType(((NamedTypeSpec)closureTypeSpec.ReturnType).GenericParameters[0]);
+            if (isClass)
+                returnStatement = $$"""
+                    var _optResult = del({{invokeArgsString}});
+                            return _optResult != null ? (void*)_optResult.Payload.DangerousGetHandle() : null;
+                    """;
+            else // ObjC-bridged
+                returnStatement = $$"""
+                    var _optResult = del({{invokeArgsString}});
+                            return _optResult != null ? (void*)_optResult.Handle : null;
+                    """;
+        }
+        else if (closureHandler.IsSimpleEnum(closureTypeSpec.ReturnType))
+        {
+            // Simple enum returns: delegate returns C# enum, callback returns underlying integer
+            var underlyingType = closureHandler.GetSimpleEnumInfo(closureTypeSpec.ReturnType)?.csUnderlying ?? "int";
+            returnStatement = $"return ({underlyingType})del({invokeArgsString});";
+        }
         else if (returnType == "void*" && !closureHandler.CanUseDirectCallbackReturn(closureTypeSpec.ReturnType))
         {
             // Non-frozen struct / ObjC class returns: the callback signature uses void*
@@ -268,6 +299,12 @@ public static partial class ClosureEmitter
         {
             returnExpr = $"return (object){invokeExpr};";
         }
+        else if (closureHandler.IsSimpleEnum(closureTypeSpec.ReturnType))
+        {
+            // Simple enum return: Swift returns underlying integer, delegate expects C# enum
+            var enumCsType = closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true);
+            returnExpr = $"return ({enumCsType}){invokeExpr};";
+        }
         else
         {
             returnExpr = $"return {invokeExpr};";
@@ -339,6 +376,13 @@ public static partial class ClosureEmitter
         if (IsBoolType(typeSpec))
             return $"arg{argIndex} != 0";
 
+        // Simple enum: callback receives underlying integer, delegate expects C# enum → cast
+        if (closureHandler.IsSimpleEnum(typeSpec))
+        {
+            var delegateType = closureHandler.TranslateTypeSpecToCSharp(typeSpec);
+            return $"({delegateType})arg{argIndex}";
+        }
+
         // Check if this parameter needs marshalling from void*
         var callbackType = GetCallbackParameterType(typeSpec, closureHandler);
         if (callbackType == "void*" && typeSpec is NamedTypeSpec namedType)
@@ -349,6 +393,18 @@ public static partial class ClosureEmitter
                 // but IntPtr in the delegate — just cast.
                 return $"new IntPtr(arg{argIndex})";
             }
+
+            // Optional<Class>: void* → null check → MarshalFromSwift or null
+            if (IsOptionalReferenceParam(namedType, closureHandler))
+            {
+                var inner = namedType.GenericParameters[0];
+                var innerType = closureHandler.TranslateTypeSpecToCSharp(inner);
+                if (closureHandler.IsClassType(inner))
+                    return $"arg{argIndex} != null ? SwiftMarshal.MarshalFromSwift<{innerType}>(new IntPtr(arg{argIndex})) : null";
+                else // ObjC-bridged
+                    return $"arg{argIndex} != null ? ObjCRuntime.Runtime.GetNSObject<{innerType}>(new IntPtr(arg{argIndex})) : null";
+            }
+
             // The callback receives void* but the delegate expects the actual type.
             // Use SwiftMarshal.MarshalFromSwift to convert.
             var delegateType = closureHandler.TranslateTypeSpecToCSharp(typeSpec);
@@ -369,6 +425,29 @@ public static partial class ClosureEmitter
             return $"(object)arg{argIndex}";
 
         return $"arg{argIndex}";
+    }
+
+    /// <summary>
+    /// Checks if a type is Optional&lt;Class/ObjC&gt; with nil-pointer ABI (parameter direction).
+    /// </summary>
+    private static bool IsOptionalReferenceParam(NamedTypeSpec namedType, ClosureHandler closureHandler)
+    {
+        return namedType.ContainsGenericParameters &&
+               namedType.Name == "Swift.Optional" &&
+               namedType.GenericParameters.Count == 1 &&
+               closureHandler.IsReferenceType(namedType.GenericParameters[0]);
+    }
+
+    /// <summary>
+    /// Checks if a return type is Optional&lt;Class/ObjC&gt; with nil-pointer ABI.
+    /// </summary>
+    private static bool IsOptionalReferenceReturn(TypeSpec typeSpec, ClosureHandler closureHandler)
+    {
+        return typeSpec is NamedTypeSpec named &&
+               named.ContainsGenericParameters &&
+               named.Name == "Swift.Optional" &&
+               named.GenericParameters.Count == 1 &&
+               closureHandler.IsReferenceType(named.GenericParameters[0]);
     }
 
 
@@ -413,6 +492,13 @@ public static partial class ClosureEmitter
 
         if (IsBoolType(closureTypeSpec.ReturnType))
             return "byte";
+
+        // Simple enum returns use their underlying integer type (blittable)
+        if (closureHandler.IsSimpleEnum(closureTypeSpec.ReturnType))
+        {
+            var enumInfo = closureHandler.GetSimpleEnumInfo(closureTypeSpec.ReturnType);
+            return enumInfo?.csUnderlying ?? "int";
+        }
 
         if (closureHandler.CanUseDirectCallbackReturn(closureTypeSpec.ReturnType))
             return closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true);
@@ -495,6 +581,13 @@ public static partial class ClosureEmitter
         // Bool requires bool -> byte conversion
         if (IsBoolType(typeSpec))
             return $"(byte)(_arg{argIndex} ? 1 : 0)";
+
+        // Simple enum: delegate passes C# enum, Swift function pointer expects underlying int
+        if (closureHandler != null && closureHandler.IsSimpleEnum(typeSpec))
+        {
+            var underlyingType = closureHandler.GetSimpleEnumInfo(typeSpec)?.csUnderlying ?? "int";
+            return $"({underlyingType})_arg{argIndex}";
+        }
 
         // Well-known protocol types: unwrap to ExistentialContainer for function pointer
         if (closureHandler != null && closureHandler.NeedsWellKnownProtocolWrapping(typeSpec, out _))

@@ -32,7 +32,7 @@ namespace BindingsGeneration
         /// <summary>
         /// Maps a C# enum underlying type to the corresponding Swift scalar type for P/Invoke.
         /// </summary>
-        private static string GetSwiftScalarType(string csUnderlyingType)
+        internal static string GetSwiftScalarType(string csUnderlyingType)
         {
             return csUnderlyingType switch
             {

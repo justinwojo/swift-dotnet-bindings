@@ -23,7 +23,7 @@ public static partial class ClosureEmitter
         var paramTypes = new List<string>();
         foreach (var arg in closureTypeSpec.EachArgument())
         {
-            paramTypes.Add(GetSwiftCdeclParamType(arg));
+            paramTypes.Add(GetSwiftCdeclParamType(arg, closureHandler));
         }
 
         // For throwing closures: add error out parameter
@@ -49,10 +49,26 @@ public static partial class ClosureEmitter
     /// Returns the Swift parameter type for a Cdecl function pointer.
     /// Maps Swift types to their C-compatible equivalents.
     /// </summary>
-    private static string GetSwiftCdeclParamType(TypeSpec typeSpec)
+    private static string GetSwiftCdeclParamType(TypeSpec typeSpec, ClosureHandler? closureHandler = null)
     {
         if (typeSpec is NamedTypeSpec named)
         {
+            // Simple enums pass as their underlying integer type
+            if (closureHandler != null)
+            {
+                var enumInfo = closureHandler.GetSimpleEnumInfo(named);
+                if (enumInfo != null)
+                    return enumInfo.Value.swiftScalar;
+            }
+
+            // Optional<Class/ObjC> uses nil-pointer ABI: UnsafeMutableRawPointer?
+            if (closureHandler != null && named.ContainsGenericParameters &&
+                named.Name == "Swift.Optional" && named.GenericParameters.Count == 1 &&
+                closureHandler.IsReferenceType(named.GenericParameters[0]))
+            {
+                return "UnsafeMutableRawPointer?";
+            }
+
             return named.Name switch
             {
                 "Swift.Bool" => "UInt8",
@@ -96,7 +112,7 @@ public static partial class ClosureEmitter
         if (closureTypeSpec.ReturnType.IsEmptyTuple)
             return "Void";
 
-        return GetSwiftCdeclParamType(closureTypeSpec.ReturnType);
+        return GetSwiftCdeclParamType(closureTypeSpec.ReturnType, closureHandler);
     }
 
     /// <summary>
@@ -187,7 +203,7 @@ public static partial class ClosureEmitter
         argIndex = 0;
         foreach (var arg in closureTypeSpec.EachArgument())
         {
-            cdeclArgs.Add(GetSwiftArgConversion(arg, $"p{argIndex}"));
+            cdeclArgs.Add(GetSwiftArgConversion(arg, $"p{argIndex}", closureHandler));
             argIndex++;
         }
 
@@ -233,7 +249,7 @@ public static partial class ClosureEmitter
 
             if (hasReturn)
             {
-                var returnConversion = GetSwiftReturnConversion(closureTypeSpec.ReturnType, $"{cdeclVarName}({cdeclArgsStr})");
+                var returnConversion = GetSwiftReturnConversion(closureTypeSpec.ReturnType, $"{cdeclVarName}({cdeclArgsStr})", closureHandler);
                 lines.Add($"{indent}    let rawResult = {returnConversion}");
             }
             else
@@ -259,7 +275,7 @@ public static partial class ClosureEmitter
 
             if (hasReturn)
             {
-                var returnConversion = GetSwiftReturnConversion(closureTypeSpec.ReturnType, $"{cdeclVarName}({cdeclArgsStr})");
+                var returnConversion = GetSwiftReturnConversion(closureTypeSpec.ReturnType, $"{cdeclVarName}({cdeclArgsStr})", closureHandler);
                 lines.Add($"{indent}    return {returnConversion}");
             }
             else
@@ -275,9 +291,9 @@ public static partial class ClosureEmitter
 
     /// <summary>
     /// Converts a Swift argument to the form expected by the @convention(c) function.
-    /// E.g., Bool → (p0 ? 1 : 0), structs → pointer conversion.
+    /// E.g., Bool → (p0 ? 1 : 0), classes → Unmanaged.passUnretained, enums → unsafeBitCast.
     /// </summary>
-    private static string GetSwiftArgConversion(TypeSpec typeSpec, string argExpr)
+    private static string GetSwiftArgConversion(TypeSpec typeSpec, string argExpr, ClosureHandler? closureHandler = null)
     {
         if (typeSpec is NamedTypeSpec named)
         {
@@ -291,21 +307,76 @@ public static partial class ClosureEmitter
             // Pointer types pass through
             if (named.Name.Contains("Pointer") || named.Name == "Swift.OpaquePointer")
                 return argExpr;
+
+            if (closureHandler != null)
+            {
+                // Classes and ObjC-bridged: convert to raw pointer via Unmanaged
+                if (closureHandler.IsClassType(named) || closureHandler.IsObjCBridgedClass(named))
+                    return $"Unmanaged.passUnretained({argExpr}).toOpaque()";
+
+                // Simple enums: bitcast to underlying integer type
+                var enumInfo = closureHandler.GetSimpleEnumInfo(named);
+                if (enumInfo != null)
+                    return $"unsafeBitCast({argExpr}, to: {enumInfo.Value.swiftScalar}.self)";
+
+                // Optional<Class/ObjC>: map to Optional raw pointer, nil maps to nil
+                if (named.ContainsGenericParameters && named.Name == "Swift.Optional" &&
+                    named.GenericParameters.Count == 1 &&
+                    closureHandler.IsReferenceType(named.GenericParameters[0]))
+                {
+                    return $"{argExpr}.map {{ Unmanaged.passUnretained($0).toOpaque() }}";
+                }
+            }
         }
 
-        // For non-primitive types, we'd need pointer conversion
-        // but for now the supported closure args are all primitives/bool
         return argExpr;
     }
 
     /// <summary>
     /// Converts the raw Cdecl return value back to the Swift type.
-    /// E.g., UInt8 → (rawResult != 0) for Bool.
+    /// E.g., UInt8 → (rawResult != 0) for Bool, class pointer → Unmanaged.fromOpaque.
     /// </summary>
-    private static string GetSwiftReturnConversion(TypeSpec typeSpec, string expr)
+    private static string GetSwiftReturnConversion(TypeSpec typeSpec, string expr, ClosureHandler? closureHandler = null)
     {
-        if (typeSpec is NamedTypeSpec named && named.Name == "Swift.Bool")
-            return $"({expr}) != 0";
+        if (typeSpec is NamedTypeSpec named)
+        {
+            if (named.Name == "Swift.Bool")
+                return $"({expr}) != 0";
+
+            if (closureHandler != null)
+            {
+                // Classes: raw pointer → Unmanaged.fromOpaque.takeUnretainedValue
+                if (closureHandler.IsClassType(named))
+                {
+                    var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(named);
+                    return $"Unmanaged<{swiftType}>.fromOpaque({expr}).takeUnretainedValue()";
+                }
+
+                // ObjC-bridged: same pattern as classes
+                if (closureHandler.IsObjCBridgedClass(named))
+                {
+                    var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(named);
+                    return $"Unmanaged<{swiftType}>.fromOpaque({expr}).takeUnretainedValue()";
+                }
+
+                // Simple enums: bitcast from underlying integer
+                var enumInfo = closureHandler.GetSimpleEnumInfo(named);
+                if (enumInfo != null)
+                {
+                    var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(named);
+                    return $"unsafeBitCast({expr}, to: {swiftType}.self)";
+                }
+
+                // Optional<Class/ObjC>: map raw pointer back to typed optional
+                if (named.ContainsGenericParameters && named.Name == "Swift.Optional" &&
+                    named.GenericParameters.Count == 1 &&
+                    closureHandler.IsReferenceType(named.GenericParameters[0]))
+                {
+                    var innerType = ExistentialBypassEmitter.RenderSwiftTypeSpec(named.GenericParameters[0]);
+                    return $"({expr}).map {{ Unmanaged<{innerType}>.fromOpaque($0).takeUnretainedValue() }}";
+                }
+            }
+        }
 
         return expr;
     }
@@ -329,12 +400,12 @@ public static partial class ClosureEmitter
 
     /// <summary>
     /// Checks if a type is Cdecl-compatible for Swift wrapper closure adaptation.
-    /// Only primitive types (Int, Double, Bool, etc.), Void, and pointer types can be
-    /// passed directly through @convention(c) without pointer marshalling.
-    /// Complex types (String, classes, non-frozen structs) require full marshalling
+    /// Supported types: primitives, Bool, Void, pointer types, classes, simple enums,
+    /// ObjC-bridged types, and Optional&lt;Class/ObjC&gt; (nil-pointer ABI).
+    /// Complex types (String, non-frozen structs, complex enums) require full marshalling
     /// which is not yet implemented in the Cdecl wrapper path.
     /// </summary>
-    private static bool IsCdeclCompatibleType(TypeSpec typeSpec)
+    private static bool IsCdeclCompatibleType(TypeSpec typeSpec, ClosureHandler closureHandler)
     {
         if (typeSpec.IsEmptyTuple)
             return true;
@@ -347,6 +418,28 @@ public static partial class ClosureEmitter
                 return true;
             if (named.Name.Contains("Pointer") || named.Name == "Swift.OpaquePointer")
                 return true;
+
+            // Classes and ObjC-bridged types pass as UnsafeMutableRawPointer (pointer ABI)
+            if (closureHandler.IsClassType(named))
+                return true;
+            if (closureHandler.IsObjCBridgedClass(named))
+                return true;
+
+            // Simple enums pass as their underlying integer type (value ABI)
+            if (closureHandler.IsSimpleEnum(named))
+                return true;
+
+            // Optional<Class/ObjC> uses nil-pointer ABI (pointer-sized)
+            if (named.ContainsGenericParameters && named.Name == "Swift.Optional" &&
+                named.GenericParameters.Count == 1)
+            {
+                var inner = named.GenericParameters[0];
+                // Only Optional<Class> and Optional<ObjC-bridged> — nil-pointer ABI
+                if (closureHandler.IsReferenceType(inner))
+                    return true;
+                // Optional<Primitive> and Optional<SimpleEnum> have different ABI — not supported here
+                return false;
+            }
         }
 
         return false;
@@ -361,12 +454,12 @@ public static partial class ClosureEmitter
         // Check all arguments
         foreach (var arg in closureTypeSpec.EachArgument())
         {
-            if (!IsCdeclCompatibleType(arg))
+            if (!IsCdeclCompatibleType(arg, closureHandler))
                 return false;
         }
 
         // Check return type (indirect return closures write to buffer — return type must be Cdecl-compatible for load)
-        if (!closureTypeSpec.ReturnType.IsEmptyTuple && !IsCdeclCompatibleType(closureTypeSpec.ReturnType))
+        if (!closureTypeSpec.ReturnType.IsEmptyTuple && !IsCdeclCompatibleType(closureTypeSpec.ReturnType, closureHandler))
             return false;
 
         return true;
