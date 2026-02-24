@@ -402,6 +402,30 @@ public class TypeHandlerHelpersTests
         Assert.DoesNotContain("AsyncSequence", result);
     }
 
+    [Fact]
+    public void ConformanceDescriptor_EmptySymbol_ExcludedFromDictionary()
+    {
+        // Empty conformance symbol should be filtered out — LoadFromSymbol("lib", "") crashes at runtime.
+        var typeDatabase = CreateTypeDatabase();
+        var conformances = new[] {
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Widget"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                ""), // Empty symbol
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Widget"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Hashable"),
+                "$s10TestModule6WidgetVSHAAMc") // Valid symbol
+        };
+
+        var result = ProtocolConformanceHelper.GenerateProtocolConformanceDictionaryEntries(
+            conformances, "TestModule", "Widget", typeDatabase);
+
+        // Hashable should be present (valid symbol), Equatable should be filtered out (empty symbol)
+        Assert.Contains("$s10TestModule6WidgetVSHAAMc", result);
+        Assert.DoesNotContain("IEquatable", result);
+    }
+
     #endregion
 
     #region EqualityMethodsWriter Tests

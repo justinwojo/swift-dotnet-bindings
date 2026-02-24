@@ -397,6 +397,42 @@ public class ClassInheritanceEmissionTests
         Assert.DoesNotContain("GenericBase", classLine);
     }
 
+    [Fact]
+    public void SkippedBaseClass_FlatEmission_ConstructorHandleTypeMatchesPayload()
+    {
+        // P1 regression: When a class falls back to flat emission because its base is non-emittable,
+        // the private constructor's SwiftSafeHandle<T> type must match the _payload field's type.
+        // Both should use the current class type, not the non-emittable base.
+        var baseClass = CreateClassDecl("GenericBase");
+        baseClass.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl(
+                TypeName: "V",
+                SugaredTypeName: "V",
+                GenericConformances: new List<GenericParameterConformance>
+                {
+                    new GenericParameterConformance(
+                        Path: Array.Empty<string>(),
+                        ConformanceTarget: SwiftTypeName.FromModuleQualifiedName("SwiftUI.View"),
+                        Kind: ConformanceKind.Protocol)
+                },
+                AssosiatedTypeConformances: new List<GenericParameterConformance>())
+        };
+
+        var derived = CreateClassDecl("ConcreteChild");
+        derived.ResolvedSuperclass = baseClass;
+
+        var output = EmitSingleClass(derived);
+        var body = GetClassBody(output, "ConcreteChild");
+
+        // _payload field should be SwiftSafeHandle<ConcreteChild>, not SwiftSafeHandle<GenericBase<V>>
+        Assert.Contains("SwiftSafeHandle<ConcreteChild> _payload", body);
+        // Private constructor should also use SwiftSafeHandle<ConcreteChild>
+        Assert.Contains("new SwiftSafeHandle<ConcreteChild>(handle)", body);
+        // Should NOT reference the non-emittable base type anywhere in the handle types
+        Assert.DoesNotContain("SwiftSafeHandle<GenericBase", body);
+    }
+
     #endregion
 
     #region Disposal Remarks Tests
@@ -708,6 +744,173 @@ public class ClassInheritanceEmissionTests
         derivedFoo.IsOverride = true;
 
         Assert.True(WrapperEmitter.HasMethodInResolvedAncestors(derivedClass, derivedFoo));
+    }
+
+    #endregion
+
+    #region Protocol Conformance Inheritance (Session I5)
+
+    [Fact]
+    public void DerivedInheritsConformanceDictionaryEntriesFromBase()
+    {
+        // Base has Equatable conformance with a symbol. Derived has no own conformances.
+        // The derived class's conformance dictionary should include the base's Equatable entry.
+        var baseClass = CreateClassDecl("Base");
+        baseClass.Conformances.Add(new TypeConformance(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Base"),
+            SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+            "$s10TestModule4BaseVSQAAMc"));
+
+        var derived = CreateClassDecl("Derived");
+        derived.Conformances = new List<TypeConformance>();
+
+        var output = EmitClassHierarchy(baseClass, derived);
+        var derivedBody = GetClassBody(output, "Derived");
+
+        // Derived should have Equatable in its conformance dictionary (inherited from Base)
+        Assert.Contains("$s10TestModule4BaseVSQAAMc", derivedBody);
+    }
+
+    [Fact]
+    public void OwnConformanceWithEmptySymbol_ResolvesFromBaseSymbol()
+    {
+        // Derived has Equatable conformance with empty symbol (TBD lookup failed).
+        // Base has the same conformance with a valid symbol.
+        // Derived's dictionary entry should use the base's symbol.
+        var baseClass = CreateClassDecl("Base");
+        baseClass.Conformances.Add(new TypeConformance(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Base"),
+            SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+            "$s10TestModule4BaseVSQAAMc"));
+
+        var derived = CreateClassDecl("Derived");
+        derived.Conformances = new List<TypeConformance>
+        {
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Derived"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                "") // Empty symbol — should be resolved from base
+        };
+
+        var output = EmitClassHierarchy(baseClass, derived);
+        var derivedBody = GetClassBody(output, "Derived");
+
+        // Should contain the base's symbol, not empty
+        Assert.Contains("$s10TestModule4BaseVSQAAMc", derivedBody);
+        Assert.DoesNotContain("\"\"", derivedBody);
+    }
+
+    [Fact]
+    public void OwnAndInheritedConformancesMergedCorrectly()
+    {
+        // Base: Equatable. Derived: Hashable. Both should appear in derived's dictionary.
+        var baseClass = CreateClassDecl("Base");
+        baseClass.Conformances.Add(new TypeConformance(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Base"),
+            SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+            "$s10TestModule4BaseVSQAAMc"));
+
+        var derived = CreateClassDecl("Derived");
+        derived.Conformances = new List<TypeConformance>
+        {
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Derived"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Hashable"),
+                "$s10TestModule7DerivedVSHAAMc")
+        };
+
+        var output = EmitClassHierarchy(baseClass, derived);
+        var derivedBody = GetClassBody(output, "Derived");
+
+        Assert.Contains("$s10TestModule7DerivedVSHAAMc", derivedBody); // Own Hashable
+        Assert.Contains("$s10TestModule4BaseVSQAAMc", derivedBody);    // Inherited Equatable
+    }
+
+    [Fact]
+    public void EmptySymbolWithNoAncestorResolution_OmittedFromDictionary()
+    {
+        // Derived has conformance with empty symbol, and base has no matching conformance.
+        // The empty symbol should be filtered out (Step 1 safety net).
+        var baseClass = CreateClassDecl("Base");
+
+        var derived = CreateClassDecl("Derived");
+        derived.Conformances = new List<TypeConformance>
+        {
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Derived"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                "") // Empty, no ancestor to resolve from
+        };
+
+        var output = EmitClassHierarchy(baseClass, derived);
+        var derivedBody = GetClassBody(output, "Derived");
+
+        // Should NOT contain an empty string entry
+        Assert.DoesNotContain("IEquatable", derivedBody);
+    }
+
+    [Fact]
+    public void OwnNonEmptySymbol_TakesPriorityOverBase()
+    {
+        // Both base and derived have Equatable with valid symbols. Derived's own symbol wins.
+        var baseClass = CreateClassDecl("Base");
+        baseClass.Conformances.Add(new TypeConformance(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Base"),
+            SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+            "$sBase_EQ_Symbol"));
+
+        var derived = CreateClassDecl("Derived");
+        derived.Conformances = new List<TypeConformance>
+        {
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Derived"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                "$sDerived_EQ_Symbol")
+        };
+
+        var output = EmitClassHierarchy(baseClass, derived);
+        var derivedBody = GetClassBody(output, "Derived");
+
+        Assert.Contains("$sDerived_EQ_Symbol", derivedBody);
+        // Base's symbol should NOT appear (dedup by protocol name)
+        Assert.DoesNotContain("$sBase_EQ_Symbol", derivedBody);
+    }
+
+    [Fact]
+    public void SkippedBase_NoAncestorConformancesInDictionary()
+    {
+        // Base class has unsupported generic constraints → effectively not derived.
+        // Derived's dictionary should NOT include base's conformances.
+        var baseClass = CreateClassDecl("GenericBase");
+        baseClass.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl(
+                TypeName: "T",
+                SugaredTypeName: "T",
+                GenericConformances: new List<GenericParameterConformance>
+                {
+                    new GenericParameterConformance(
+                        Path: new[] { "T" },
+                        ConformanceTarget: SwiftTypeName.FromModuleQualifiedName("SwiftUI.View"),
+                        Kind: ConformanceKind.Protocol)
+                },
+                AssosiatedTypeConformances: new List<GenericParameterConformance>())
+        };
+        baseClass.Conformances.Add(new TypeConformance(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.GenericBase"),
+            SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+            "$sGenericBase_EQ"));
+
+        var derived = CreateClassDecl("Derived");
+        derived.ResolvedSuperclass = baseClass;
+        derived.Conformances = new List<TypeConformance>();
+
+        // Emit just the derived class (base is skipped)
+        var output = EmitSingleClass(derived);
+        var derivedBody = GetClassBody(output, "Derived");
+
+        // Base is non-emittable, so _isDerived is false — no ancestor conformances
+        Assert.DoesNotContain("$sGenericBase_EQ", derivedBody);
     }
 
     #endregion

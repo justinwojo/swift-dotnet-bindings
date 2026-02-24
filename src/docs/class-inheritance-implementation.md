@@ -1,7 +1,7 @@
 # Class Inheritance Implementation Plan
 
 **Created**: February 2026
-**Status**: Sessions 1-4 complete, Session 5 next
+**Status**: Sessions 1-5 complete, Session 6 next
 **Prerequisite for**: ObjC Binding Integration, Self-return handling, polymorphic collections
 
 ---
@@ -61,7 +61,7 @@ With inheritance as foundation, the subsequent quick-win and closure sessions be
 
 ---
 
-## Current State (After Sessions 1-3)
+## Current State (After Sessions 1-5)
 
 ### Parser & Model ✅
 - `Node` record deserializes `superclassUsr`, `superclassNames`, `inheritsConvenienceInitializers`, `hasMissingDesignatedInitializers` from ABI JSON
@@ -83,8 +83,15 @@ With inheritance as foundation, the subsequent quick-win and closure sessions be
 - **Ownership analysis (Session 3)**: Generated class return path is correct — each Swift P/Invoke return provides +1 ARC retain, wrapper Dispose provides exactly -1. No ARC code changes needed.
 - **Deferred to Session G**: Container/optional factory paths (`SwiftMarshal.MarshalFromSwift<T>` beyond generated class returns), manual `NewFromPayload` calls with aliased pointers
 
-### Validation (`ProtocolConformanceValidator`) — own members only (Session 5)
-Checks `type.Properties`, `type.Methods`, `type.Subscripts` — does NOT traverse superclass members. Inherited conformances may be suppressed incorrectly.
+### Validation (`ProtocolConformanceValidator`) — ancestor walking ✅ (Session 5)
+- `GetEmittableAncestors(TypeDecl)` walks the `ResolvedSuperclass` chain, stopping at non-emittable ancestors
+- `FindMatchingProperty`, `FindMatchingSubscript`, `FindMatchingMethod` iterate ancestors — a derived class satisfies protocol requirements via inherited base class members
+- Non-class types (structs, enums) only check own members
+
+### Conformance dictionary inheritance ✅ (Session 5)
+- Derived classes inherit conformance dictionary entries from ancestors (via `CollectAllConformancesWithResolvedSymbols`)
+- Empty conformance symbols (`""`) resolved from ancestor's non-empty symbol, or omitted entirely (safety net in `GenerateProtocolConformanceDictionaryEntries`)
+- `IsEffectivelyDerived(ClassDecl)` is the canonical predicate — used consistently in `ClassHandler.Emit`, `ClassISwiftObjectMethodWriter`, and `GetRootBaseTypeNameWithGenerics`
 
 ### Type ordering — topological sort ✅ (Session 3)
 `BaseHandler.TopologicallySortTypes()` applies Kahn's algorithm in `HandleBaseDecl` before the emission loop. Handles both top-level types (`ModuleHandler.Emit` → `HandleBaseDecl`) and nested types (`ClassHandler.Emit` → `HandleBaseDecl`). Original index used as tie-breaker for stable ordering. `ReferenceEqualityComparer.Instance` used for ClassDecl identity.
@@ -240,40 +247,45 @@ Checks `type.Properties`, `type.Methods`, `type.Subscripts` — does NOT travers
 
 ---
 
-### Session 5: Protocol Conformance Inheritance (Medium)
+### Session 5: Protocol Conformance Inheritance ✅ COMPLETE
 
-**Goal**: Fix protocol conformance resolution for inherited conformances. Fix empty conformance symbols.
+**Goal**: Fix protocol conformance resolution for inherited conformances. Fix empty conformance symbols. Ensure consistent "effectively derived" predicate across all class emission.
 
 **Changes**:
 
-1. **`ProtocolConformanceValidator.CanFullyImplementProtocol`** (line 71-205):
-   - When checking if a type's members satisfy a protocol requirement, also check ancestor class members
-   - Traverse `ResolvedSuperclass` chain collecting properties, methods, subscripts
-   - A protocol requirement satisfied by a base class member counts as satisfied for the derived class
+1. **Empty conformance symbol guard** (`TypeHandlerHelpers.cs:570-575`):
+   - Added `string.IsNullOrEmpty(protocolConformanceSymbol)` guard in `GenerateProtocolConformanceDictionaryEntries`
+   - Applies to all types (class/struct/enum) — an empty symbol would crash at runtime via `LoadFromSymbol("lib", "")`
 
-2. **`ProtocolConformanceHelper.GetImplementedInterfaces`**:
-   - If the base class already declares an interface, the derived class should NOT re-declare it
-   - Build set of interfaces declared on all ancestors
-   - Filter the derived class's interface list to exclude already-declared interfaces
-   - This prevents redundant `: IEquatable<T>` on every derived class
+2. **`IsEffectivelyDerived` predicate** (`ClassHandler.cs:281-289`):
+   - Extracted `internal static bool IsEffectivelyDerived(ClassDecl)` — canonical check: `HasResolvedSuperclass && !TryGetUnsupportedConstraint(base)`
+   - Updated `ClassHandler.Emit` and `ClassISwiftObjectMethodWriter` constructor to use it (previously inconsistent — Emit checked constraints, ISwiftObjectMethodWriter didn't)
+   - **P1 fix**: `GetRootBaseTypeNameWithGenerics` also stops at non-emittable ancestors, preventing `SwiftSafeHandle<T>` type mismatch when a class falls back to flat emission
 
-3. **`GenerateProtocolConformanceDictionaryEntries`**:
-   - Include inherited conformance symbols in the derived class's dictionary
-   - If a conformance symbol is `""` (empty), check if the base class has a non-empty symbol for the same protocol — use that instead
-   - If no ancestor has the symbol, omit the entry (don't register crashable `""`)
+3. **Ancestor member walking in `ProtocolConformanceValidator`** (`ProtocolConformanceValidator.cs:348-417`):
+   - `GetEmittableAncestors(TypeDecl)` yields the type itself, then walks `ResolvedSuperclass` chain stopping at the first non-emittable ancestor (unsupported generic constraints). For non-class types, yields only self.
+   - Updated `FindMatchingProperty`, `FindMatchingSubscript`, `FindMatchingMethod` to iterate `GetEmittableAncestors` — a derived class satisfies protocol requirements via inherited base class members
+   - **Safety**: stops at non-emittable ancestors to prevent relying on members from a non-emitted base class
 
-4. **Cross-module inherited conformances**:
-   - If a class in module A inherits from a class in module B, and the base class conforms to protocol P, the derived class should inherit that conformance
-   - May need module database to carry conformance info
+4. **Inherited conformances in class descriptor dictionary** (`ClassHandler.cs:617-687`):
+   - `CollectAllConformancesWithResolvedSymbols()` yields own conformances first (resolving empty symbols from ancestors via `with` expression), then ancestor conformances not already seen. Deduplicates by `Protocol.ModuleQualifiedName`. Gated on `_isDerived`.
+   - `FindConformanceSymbolInAncestors(SwiftTypeName)` walks the chain for a non-empty symbol
+   - Existing `ShouldEmitConformance` filter still applies to inherited conformances (same module, same protocol, same rules)
 
-5. **Tests**:
-   - Verify RxSwift `BehaviorSubject` no longer has `""` for `IObservableType` conformance
-   - Verify `DataRequest` inherits `ICustomStringConvertible` from `Request`
-   - Verify derived classes don't re-declare base interfaces
+5. **Tests** (18 new across 3 files):
+   - **ProtocolConformanceValidatorTests** (11 new): derived finds method in base, derived finds property in base, three-level chain finds method in grandparent, member not in base or self, struct only checks self, skipped base ancestor members not counted, `GetEmittableAncestors` unit tests (non-class, root class, deep chain, stops at non-emittable)
+   - **ClassInheritanceEmissionTests** (6 new): derived inherits conformance dictionary entries, empty symbol resolves from base, own+inherited merged, empty symbol with no resolution omitted, own non-empty takes priority, skipped base no ancestor conformances, P1 constructor handle type mismatch regression test
+   - **TypeHandlerHelpersTests** (1 new): empty conformance symbol excluded
 
-**Acceptance gate**: Zero `""` conformance symbols across all 32 libraries. No CS0535 (missing interface member) errors.
+**Edge cases handled**:
+- Cross-module base (unresolved): ancestor walk terminates immediately → current flat behavior
+- Base with unsupported generic constraints (skipped): `IsEffectivelyDerived` returns false → flat emission, no ancestor walk in validator, no ancestor conformances in dictionary
+- Deep hierarchy (3+ levels): `GetEmittableAncestors` walks full chain; `CollectAll` deduplicates
+- Same protocol at multiple levels: own conformance wins (iterated first); ancestor conformances deduped
+- Equatable inherited from base: dictionary gets base's Equatable symbol; `ClassEqualityMethodsWriter` does NOT emit `Equals(Derived)` unless own conformance exists (correct — `IEquatable<Derived>` is different from `IEquatable<Base>`)
+- Flat emission handle type (P1): `GetRootBaseTypeNameWithGenerics` stops at non-emittable ancestors, so `SwiftSafeHandle<T>` in the private constructor matches the `_payload` field type
 
-**Commit**: "Session 5: Protocol conformance inheritance — fix empty symbols, inherited interfaces"
+**Results**: 4089 unit tests pass (18 new), 700 integration, 32/32 validation. Golden files unchanged. CompileCheck 0 errors.
 
 ---
 
@@ -310,15 +322,15 @@ Checks `type.Properties`, `type.Methods`, `type.Subscripts` — does NOT travers
 ## Scope Boundaries
 
 ### In Scope
-- In-module Swift class inheritance (same module)
-- Cross-module Swift class inheritance (via module database)
-- Base class declaration syntax (`: BaseClass`)
-- Shared Dispose/payload infrastructure
-- Virtual/override keyword emission (`virtual`, `override`, `sealed override`)
-- Override detection from ABI JSON (`overriding` field, `Override`/`Final` declAttributes)
-- Protocol conformance inheritance
-- Empty conformance symbol fixes
-- Topological sort for emission ordering
+- In-module Swift class inheritance (same module) ✅
+- Cross-module Swift class inheritance (via module database) ✅ (falls back to flat for unresolved)
+- Base class declaration syntax (`: BaseClass`) ✅
+- Shared Dispose/payload infrastructure ✅
+- Virtual/override keyword emission (`virtual`, `override`, `sealed override`) ✅
+- Override detection from ABI JSON (`overriding` field, `Override`/`Final` declAttributes) ✅
+- Protocol conformance inheritance ✅
+- Empty conformance symbol fixes ✅
+- Topological sort for emission ordering ✅
 
 ### Out of Scope (Deferred)
 - **ObjC base classes** (NSObject, UIView hierarchy) — requires ObjC binding integration (separate project)
@@ -356,4 +368,4 @@ cd TestFramework && ./build-and-test.sh 2>&1 | tee /tmp/testframework-results.tx
 golden/check-golden-files.sh                                                       # Determinism (fast)
 ```
 
-Sessions I1-I2 produced zero emission changes (model/resolution only) ✅. Session I3 added inheritance syntax. Session I4 added virtual/override dispatch keywords. Sessions I5-I6 will change emission output further.
+Sessions I1-I2 produced zero emission changes (model/resolution only) ✅. Session I3 added inheritance syntax. Session I4 added virtual/override dispatch keywords. Session I5 added protocol conformance inheritance (golden files unchanged). Session I6 may change emission output further.

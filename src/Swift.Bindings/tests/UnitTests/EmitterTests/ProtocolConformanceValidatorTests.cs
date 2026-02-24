@@ -650,6 +650,267 @@ public class ProtocolConformanceValidatorTests
 
     #endregion
 
+    #region Ancestor Member Walking (Session I5)
+
+    [Fact]
+    public void CanFullyImplementProtocol_DerivedFindsMethodInBase_ReturnsTrue()
+    {
+        // Derived class doesn't have the method, but base does → should pass
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = CreateProtocolWithVoidMethod("Doable", "doIt", moduleDecl);
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        // Base class with the required method
+        var baseClass = CreateClassDecl("BaseClass", moduleDecl);
+        var baseMethod = CreateVoidMethod("doIt", moduleDecl);
+        baseMethod.ParentDecl = baseClass;
+        baseClass.Methods.Add(baseMethod);
+
+        // Derived class with no methods but resolved superclass
+        var derivedClass = CreateClassDecl("DerivedClass", moduleDecl);
+        derivedClass.ResolvedSuperclass = baseClass;
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var result = validator.CanFullyImplementProtocol(derivedClass, protocolDecl);
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void CanFullyImplementProtocol_DerivedFindsPropertyInBase_ReturnsTrue()
+    {
+        // Derived class doesn't have the property, but base does → should pass
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Named",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Named"),
+            MangledName = "$s10TestModule5NamedP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        protocolDecl.Properties.Add(
+            CreatePropertyDecl("name", new NamedTypeSpec("Swift.Int"), moduleDecl, hasGetter: true, hasSetter: false, accessorParent: protocolDecl));
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        // Base class with the property
+        var baseClass = CreateClassDecl("BaseClass", moduleDecl);
+        baseClass.Properties.Add(
+            CreatePropertyDecl("name", new NamedTypeSpec("Swift.Int"), moduleDecl, hasGetter: true, hasSetter: false, accessorParent: baseClass));
+
+        // Derived class: no properties, resolved superclass
+        var derivedClass = CreateClassDecl("DerivedClass", moduleDecl);
+        derivedClass.ResolvedSuperclass = baseClass;
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var result = validator.CanFullyImplementProtocol(derivedClass, protocolDecl);
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void CanFullyImplementProtocol_ThreeLevelChain_FindsMethodInGrandparent()
+    {
+        // Grandparent has the method, parent doesn't, child doesn't → should pass
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = CreateProtocolWithVoidMethod("Runnable", "run", moduleDecl);
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        var grandparent = CreateClassDecl("GrandBase", moduleDecl);
+        var gpMethod = CreateVoidMethod("run", moduleDecl);
+        gpMethod.ParentDecl = grandparent;
+        grandparent.Methods.Add(gpMethod);
+
+        var parent = CreateClassDecl("MidBase", moduleDecl);
+        parent.ResolvedSuperclass = grandparent;
+
+        var child = CreateClassDecl("Child", moduleDecl);
+        child.ResolvedSuperclass = parent;
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var result = validator.CanFullyImplementProtocol(child, protocolDecl);
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void CanFullyImplementProtocol_MethodNotInBaseOrSelf_ReturnsFalse()
+    {
+        // Neither derived nor base has the method → fails
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = CreateProtocolWithVoidMethod("Stoppable", "stop", moduleDecl);
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        var baseClass = CreateClassDecl("BaseClass", moduleDecl);
+        var derivedClass = CreateClassDecl("DerivedClass", moduleDecl);
+        derivedClass.ResolvedSuperclass = baseClass;
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var result = validator.CanFullyImplementProtocol(derivedClass, protocolDecl);
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void CanFullyImplementProtocol_StructType_OnlyChecksSelf()
+    {
+        // Struct types have no inheritance → only own members checked
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = CreateProtocolWithVoidMethod("Printable", "printSelf", moduleDecl);
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        // Struct without the method
+        var structDecl = CreateStructDecl("MyStruct", moduleDecl);
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var result = validator.CanFullyImplementProtocol(structDecl, protocolDecl);
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void CanFullyImplementProtocol_SkippedBase_AncestorMembersNotCounted()
+    {
+        // Base class has unsupported generic constraints → IsEffectivelyDerived is false.
+        // GetEmittableAncestors stops at the non-emittable base. Derived class must
+        // have its own members to satisfy the protocol.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = CreateProtocolWithVoidMethod("Flyable", "fly", moduleDecl);
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        // Base class with the method but also unsupported generic constraints (SwiftUI)
+        var baseClass = CreateClassDecl("GenericBase", moduleDecl);
+        baseClass.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl(
+                TypeName: "T",
+                SugaredTypeName: "T",
+                GenericConformances: new List<GenericParameterConformance>
+                {
+                    new GenericParameterConformance(
+                        Path: new[] { "T" },
+                        ConformanceTarget: SwiftTypeName.FromModuleQualifiedName("SwiftUI.View"),
+                        Kind: ConformanceKind.Protocol)
+                },
+                AssosiatedTypeConformances: new List<GenericParameterConformance>())
+        };
+        var baseMethod = CreateVoidMethod("fly", moduleDecl);
+        baseMethod.ParentDecl = baseClass;
+        baseClass.Methods.Add(baseMethod);
+
+        // Derived class — has resolved superclass but base is non-emittable
+        var derivedClass = CreateClassDecl("DerivedFly", moduleDecl);
+        derivedClass.ResolvedSuperclass = baseClass;
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var result = validator.CanFullyImplementProtocol(derivedClass, protocolDecl);
+
+        // Base is non-emittable → ancestor walk stops → method not found → false
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void GetEmittableAncestors_NonClassType_YieldsOnlySelf()
+    {
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDecl("MyStruct", moduleDecl);
+
+        var ancestors = ProtocolConformanceValidator.GetEmittableAncestors(structDecl).ToList();
+
+        Assert.Single(ancestors);
+        Assert.Same(structDecl, ancestors[0]);
+    }
+
+    [Fact]
+    public void GetEmittableAncestors_ClassWithNoSuperclass_YieldsOnlySelf()
+    {
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = CreateClassDecl("RootClass", moduleDecl);
+
+        var ancestors = ProtocolConformanceValidator.GetEmittableAncestors(classDecl).ToList();
+
+        Assert.Single(ancestors);
+        Assert.Same(classDecl, ancestors[0]);
+    }
+
+    [Fact]
+    public void GetEmittableAncestors_DeepChain_YieldsAllEmittable()
+    {
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var grandparent = CreateClassDecl("Grandparent", moduleDecl);
+        var parent = CreateClassDecl("Parent", moduleDecl);
+        parent.ResolvedSuperclass = grandparent;
+        var child = CreateClassDecl("Child", moduleDecl);
+        child.ResolvedSuperclass = parent;
+
+        var ancestors = ProtocolConformanceValidator.GetEmittableAncestors(child).ToList();
+
+        Assert.Equal(3, ancestors.Count);
+        Assert.Same(child, ancestors[0]);
+        Assert.Same(parent, ancestors[1]);
+        Assert.Same(grandparent, ancestors[2]);
+    }
+
+    [Fact]
+    public void GetEmittableAncestors_StopsAtNonEmittableAncestor()
+    {
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        // Grandparent with unsupported constraint
+        var grandparent = CreateClassDecl("GenericGP", moduleDecl);
+        grandparent.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl(
+                TypeName: "T",
+                SugaredTypeName: "T",
+                GenericConformances: new List<GenericParameterConformance>
+                {
+                    new GenericParameterConformance(
+                        Path: new[] { "T" },
+                        ConformanceTarget: SwiftTypeName.FromModuleQualifiedName("SwiftUI.View"),
+                        Kind: ConformanceKind.Protocol)
+                },
+                AssosiatedTypeConformances: new List<GenericParameterConformance>())
+        };
+
+        var parent = CreateClassDecl("Parent", moduleDecl);
+        parent.ResolvedSuperclass = grandparent;
+
+        var child = CreateClassDecl("Child", moduleDecl);
+        child.ResolvedSuperclass = parent;
+
+        var ancestors = ProtocolConformanceValidator.GetEmittableAncestors(child).ToList();
+
+        // Should yield child + parent, then stop (grandparent is non-emittable)
+        Assert.Equal(2, ancestors.Count);
+        Assert.Same(child, ancestors[0]);
+        Assert.Same(parent, ancestors[1]);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static TypeDatabase CreateTypeDatabase()
@@ -803,6 +1064,50 @@ public class ProtocolConformanceValidatorTests
             HasStorage = false,
             Accessors = accessors,
             ParentDecl = accessorParent,
+            ModuleDecl = moduleDecl
+        };
+    }
+
+    private static ClassDecl CreateClassDecl(string name, ModuleDecl moduleDecl)
+    {
+        return new ClassDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}CN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+    }
+
+    private static ProtocolDecl CreateProtocolWithVoidMethod(string protocolName, string methodName, ModuleDecl moduleDecl)
+    {
+        return new ProtocolDecl
+        {
+            Name = protocolName,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{protocolName}"),
+            MangledName = $"$s10TestModule{protocolName.Length}{protocolName}P",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                CreateVoidMethod(methodName, moduleDecl)
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
             ModuleDecl = moduleDecl
         };
     }

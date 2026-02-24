@@ -112,8 +112,7 @@ namespace BindingsGeneration
                 // A class is derived only if its resolved base class will actually be emitted.
                 // If the base class would be skipped (e.g., unsupported generic constraints),
                 // fall back to flat emission to avoid referencing a non-emitted base type.
-                bool isDerived = classDecl.HasResolvedSuperclass
-                    && !GenericTypeEmitter.TryGetUnsupportedConstraint(classDecl.ResolvedSuperclass!, out _);
+                bool isDerived = IsEffectivelyDerived(classDecl);
 
                 if (isDerived)
                 {
@@ -279,6 +278,16 @@ namespace BindingsGeneration
         // ComputePropertyRenames is now centralized in NameProvider.
 
         /// <summary>
+        /// Returns true if the class has a resolved superclass that will actually be emitted
+        /// in C# (i.e., not skipped due to unsupported generic constraints).
+        /// This is the canonical "effectively derived" predicate — use it everywhere
+        /// instead of raw HasResolvedSuperclass to ensure consistent behavior.
+        /// </summary>
+        internal static bool IsEffectivelyDerived(ClassDecl classDecl)
+            => classDecl.HasResolvedSuperclass
+               && !GenericTypeEmitter.TryGetUnsupportedConstraint(classDecl.ResolvedSuperclass!, out _);
+
+        /// <summary>
         /// Emits disposal remarks as XML doc comments for class types.
         /// Appended after XmlDocCommentEmitter.EmitDocComment, before the class declaration.
         /// </summary>
@@ -370,18 +379,21 @@ namespace BindingsGeneration
             var angleBracket = typeNameWithGenerics.IndexOf('<');
             _constructorName = angleBracket >= 0 ? typeNameWithGenerics.Substring(0, angleBracket) : typeNameWithGenerics;
             _pinvokeHelperContext = pinvokeHelperContext;
-            _isDerived = classDecl.HasResolvedSuperclass;
+            _isDerived = ClassHandler.IsEffectivelyDerived(classDecl);
             _rootBaseTypeNameWithGenerics = GetRootBaseTypeNameWithGenerics(classDecl);
         }
 
         /// <summary>
         /// Walks the ResolvedSuperclass chain to find the root base class type name.
-        /// Returns the current type name if this is a root class.
+        /// Stops at non-emittable ancestors (unsupported generic constraints) to stay
+        /// consistent with IsEffectivelyDerived — a flat-emitted class must use its own
+        /// type name so _payload and the private constructor agree on SwiftSafeHandle&lt;T&gt;.
         /// </summary>
         private static string GetRootBaseTypeNameWithGenerics(ClassDecl classDecl)
         {
             var current = classDecl;
-            while (current.HasResolvedSuperclass)
+            while (current.HasResolvedSuperclass
+                   && !GenericTypeEmitter.TryGetUnsupportedConstraint(current.ResolvedSuperclass!, out _))
                 current = current.ResolvedSuperclass!;
             return GenericTypeEmitter.GetTypeNameWithGenerics(current);
         }
@@ -602,10 +614,84 @@ namespace BindingsGeneration
         private string GenerateGetProtocolConformanceDictionaryEntries()
         {
             return ProtocolConformanceHelper.GenerateProtocolConformanceDictionaryEntries(
-                _classDecl.Conformances,
+                CollectAllConformancesWithResolvedSymbols(),
                 _moduleDecl.Name,
                 _typeNameWithGenerics,
                 _typeDatabase);
+        }
+
+        /// <summary>
+        /// Collects all conformances for this class, including inherited conformances from ancestors.
+        /// Only walks ancestors if _isDerived is true (which uses the strict IsEffectivelyDerived predicate).
+        /// Own conformances are yielded first; empty symbols are resolved from ancestors via 'with' expression.
+        /// Deduplicates by Protocol.ModuleQualifiedName to avoid duplicate dictionary entries.
+        /// </summary>
+        private IEnumerable<TypeConformance> CollectAllConformancesWithResolvedSymbols()
+        {
+            var seen = new HashSet<string>();
+
+            // Yield own conformances first, resolving empty symbols from ancestors
+            foreach (var conformance in _classDecl.Conformances)
+            {
+                seen.Add(conformance.Protocol.ModuleQualifiedName);
+
+                if (string.IsNullOrEmpty(conformance.ProtocolConformanceDescriptor) && _isDerived)
+                {
+                    // Try to find a non-empty symbol from an ancestor
+                    var ancestorSymbol = FindConformanceSymbolInAncestors(conformance.Protocol);
+                    if (ancestorSymbol != null)
+                    {
+                        yield return conformance with { ProtocolConformanceDescriptor = ancestorSymbol };
+                        continue;
+                    }
+                }
+
+                yield return conformance;
+            }
+
+            // Yield ancestor conformances not already present on this class
+            if (!_isDerived)
+                yield break;
+
+            var current = _classDecl;
+            while (current.HasResolvedSuperclass)
+            {
+                var ancestor = current.ResolvedSuperclass!;
+                if (GenericTypeEmitter.TryGetUnsupportedConstraint(ancestor, out _))
+                    break; // Stop at non-emittable ancestor
+
+                foreach (var conformance in ancestor.Conformances)
+                {
+                    if (seen.Add(conformance.Protocol.ModuleQualifiedName))
+                        yield return conformance;
+                }
+
+                current = ancestor;
+            }
+        }
+
+        /// <summary>
+        /// Walks the ResolvedSuperclass chain looking for a non-empty conformance symbol
+        /// for the given protocol. Returns null if no ancestor has it.
+        /// </summary>
+        private string? FindConformanceSymbolInAncestors(SwiftTypeName protocol)
+        {
+            var current = _classDecl;
+            while (current.HasResolvedSuperclass)
+            {
+                var ancestor = current.ResolvedSuperclass!;
+                if (GenericTypeEmitter.TryGetUnsupportedConstraint(ancestor, out _))
+                    break;
+
+                var match = ancestor.Conformances.FirstOrDefault(c =>
+                    c.Protocol.ModuleQualifiedName == protocol.ModuleQualifiedName
+                    && !string.IsNullOrEmpty(c.ProtocolConformanceDescriptor));
+                if (match != null)
+                    return match.ProtocolConformanceDescriptor;
+
+                current = ancestor;
+            }
+            return null;
         }
     }
 

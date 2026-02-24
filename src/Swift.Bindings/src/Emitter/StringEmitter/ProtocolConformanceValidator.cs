@@ -346,35 +346,77 @@ public class ProtocolConformanceValidator
     }
 
     /// <summary>
-    /// Finds matching property in concrete type by name.
+    /// Yields the type itself, then walks the ResolvedSuperclass chain for class types.
+    /// Stops at the first non-emittable ancestor (one with unsupported generic constraints),
+    /// because flat emission means there is no valid C# inheritance chain beyond that point.
+    /// For non-class types (structs, enums), yields only the type itself.
     /// </summary>
-    private static PropertyDecl? FindMatchingProperty(TypeDecl type, PropertyDecl protoProperty)
+    internal static IEnumerable<TypeDecl> GetEmittableAncestors(TypeDecl type)
     {
-        return type.Properties.FirstOrDefault(p => p.Name == protoProperty.Name && !p.IsStatic);
+        yield return type;
+
+        if (type is not ClassDecl classDecl)
+            yield break;
+
+        var current = classDecl;
+        while (current.HasResolvedSuperclass)
+        {
+            var ancestor = current.ResolvedSuperclass!;
+            if (GenericTypeEmitter.TryGetUnsupportedConstraint(ancestor, out _))
+                yield break; // Stop — can't see past a non-emittable ancestor
+            yield return ancestor;
+            current = ancestor;
+        }
     }
 
     /// <summary>
-    /// Finds matching subscript in concrete type by signature.
+    /// Finds matching property in concrete type or its emittable ancestors by name.
+    /// </summary>
+    private static PropertyDecl? FindMatchingProperty(TypeDecl type, PropertyDecl protoProperty)
+    {
+        foreach (var ancestor in GetEmittableAncestors(type))
+        {
+            var match = ancestor.Properties.FirstOrDefault(p => p.Name == protoProperty.Name && !p.IsStatic);
+            if (match != null)
+                return match;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Finds matching subscript in concrete type or its emittable ancestors by signature.
     /// </summary>
     private SubscriptDecl? FindMatchingSubscript(TypeDecl type, SubscriptDecl protoSubscript, ProtocolDecl protocolContext)
     {
         var protoKey = ProtocolSignatureHelper.GetSubscriptSignatureKey(protoSubscript, _typeDatabase, protocolContext);
 
-        return type.Subscripts.FirstOrDefault(s =>
-            !s.IsStatic &&
-            ProtocolSignatureHelper.GetSubscriptSignatureKey(s, _typeDatabase, null) == protoKey);
+        foreach (var ancestor in GetEmittableAncestors(type))
+        {
+            var match = ancestor.Subscripts.FirstOrDefault(s =>
+                !s.IsStatic &&
+                ProtocolSignatureHelper.GetSubscriptSignatureKey(s, _typeDatabase, null) == protoKey);
+            if (match != null)
+                return match;
+        }
+        return null;
     }
 
     /// <summary>
-    /// Finds matching method in concrete type by signature.
+    /// Finds matching method in concrete type or its emittable ancestors by signature.
     /// </summary>
     private MethodDecl? FindMatchingMethod(TypeDecl type, MethodDecl protoMethod, ProtocolDecl protocolContext)
     {
         var protoKey = ProtocolSignatureHelper.GetMethodSignatureKey(protoMethod, _typeDatabase, protocolContext);
 
-        return type.Methods.FirstOrDefault(m =>
-            !m.IsConstructor && m.MethodType != MethodType.Static &&
-            ProtocolSignatureHelper.GetMethodSignatureKey(m, _typeDatabase, null) == protoKey);
+        foreach (var ancestor in GetEmittableAncestors(type))
+        {
+            var match = ancestor.Methods.FirstOrDefault(m =>
+                !m.IsConstructor && m.MethodType != MethodType.Static &&
+                ProtocolSignatureHelper.GetMethodSignatureKey(m, _typeDatabase, null) == protoKey);
+            if (match != null)
+                return match;
+        }
+        return null;
     }
 
     /// <summary>

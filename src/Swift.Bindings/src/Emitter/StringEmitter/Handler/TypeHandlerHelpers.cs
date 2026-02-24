@@ -569,6 +569,12 @@ internal static class ProtocolConformanceHelper
             var protocol = NameProvider.GetInterfaceName(conformance.Protocol.Name, typeName, conformance.Protocol.Module);
             var protocolConformanceSymbol = conformance.ProtocolConformanceDescriptor;
 
+            // Skip empty conformance symbols — an empty string would crash at runtime
+            // via LoadFromSymbol("lib", ""). This can happen when an inherited conformance's
+            // symbol lives under the base class's TBD entry and is not found for the derived class.
+            if (string.IsNullOrEmpty(protocolConformanceSymbol))
+                continue;
+
                 entries.Add($"{{typeof({protocol}), \"{protocolConformanceSymbol}\"}}");
             }
 
