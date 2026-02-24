@@ -934,6 +934,50 @@ public class ProtocolConformanceValidatorTests
         return typeDatabase;
     }
 
+    /// <summary>
+    /// Creates a TypeDatabase with a Builder class registered in TestModule for TSelf conformance tests.
+    /// </summary>
+    private static TypeDatabase CreateTypeDatabaseWithBuilder()
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        // Swift.Array is needed so TryGetAnyTypeFallbackInfo doesn't flag Array<T> as missing
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Array"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftArray"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Array"),
+                MetadataAccessor = "$sSaMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        var builderTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Builder");
+        testModule.RegisterType(builderTypeName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Builder"),
+            SwiftTypeName = builderTypeName,
+            MetadataAccessor = "$s10TestModule7BuilderCMa",
+            Flags = TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class
+        });
+        typeDatabase.AddModuleDatabase(testModule);
+        return typeDatabase;
+    }
+
     private static ModuleDecl CreateModuleDecl(string name)
     {
         return new ModuleDecl
@@ -1152,6 +1196,239 @@ public class ProtocolConformanceValidatorTests
             ParentDecl = moduleDecl,
             ModuleDecl = moduleDecl
         };
+    }
+
+    #endregion
+
+    #region TSelf Conformance Matching
+
+    [Fact]
+    public void CanFullyImplementProtocol_SelfReturningMethod_MatchesConcreteType()
+    {
+        // Protocol with Self-returning method: τ_0_0 → TSelf.
+        // Concrete type returns itself → conformance should succeed.
+        var typeDatabase = CreateTypeDatabaseWithBuilder();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        // Protocol: method returns τ_0_0 (projected as TSelf)
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Configurable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Configurable"),
+            MangledName = "$s10TestModule12ConfigurableP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = true,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                // Protocol: configure() -> τ_0_0 (→ TSelf)
+                new()
+                {
+                    Name = "configure",
+                    MangledName = "$s10TestModule12ConfigurablePAAE9configurexyF",
+                    MethodType = MethodType.Instance,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        CreateArgument(string.Empty, new NamedTypeSpec("τ_0_0"), moduleDecl)
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl,
+                    Throws = false,
+                    IsAsync = false,
+                    Visibility = Visibility.Public
+                }
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        // Concrete type: configure() returns Builder (the concrete type itself)
+        var concreteType = CreateClassDecl("Builder", moduleDecl);
+        concreteType.Methods.Add(new MethodDecl
+        {
+            Name = "configure",
+            MangledName = "$s10TestModule7BuilderC9configureACyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, new NamedTypeSpec("TestModule.Builder"), moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = concreteType,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        });
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var result = validator.CanFullyImplementProtocol(concreteType, protocolDecl);
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void CanFullyImplementProtocol_AsyncSelfReturningMethod_MatchesTaskOfConcreteType()
+    {
+        // Protocol with async Self-returning method: τ_0_0 → TSelf, wrapped as Task<TSelf>.
+        // Concrete type returns Task<Builder> → conformance should succeed.
+        var typeDatabase = CreateTypeDatabaseWithBuilder();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        // Protocol: async method returns τ_0_0 → projected as Task<TSelf>
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "AsyncConfigurable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.AsyncConfigurable"),
+            MangledName = "$s10TestModule17AsyncConfigurableP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = true,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                new()
+                {
+                    Name = "configure",
+                    MangledName = "$s10TestModule17AsyncConfigurablePAAE9configurexyYaF",
+                    MethodType = MethodType.Instance,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        CreateArgument(string.Empty, new NamedTypeSpec("τ_0_0"), moduleDecl)
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl,
+                    Throws = false,
+                    IsAsync = true,
+                    Visibility = Visibility.Public
+                }
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        // Concrete type: async configure() returns Builder → Task<Builder>
+        var concreteType = CreateClassDecl("Builder", moduleDecl);
+        concreteType.Methods.Add(new MethodDecl
+        {
+            Name = "configure",
+            MangledName = "$s10TestModule7BuilderC9configureACyYaF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, new NamedTypeSpec("TestModule.Builder"), moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = concreteType,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = true,
+            Visibility = Visibility.Public
+        });
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var result = validator.CanFullyImplementProtocol(concreteType, protocolDecl);
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void CanFullyImplementProtocol_ArrayOfSelfReturningMethod_MatchesArrayOfConcreteType()
+    {
+        // Protocol with method returning Array<τ_0_0> → IReadOnlyList<TSelf>.
+        // Concrete type returns IReadOnlyList<Builder> → conformance should succeed.
+        var typeDatabase = CreateTypeDatabaseWithBuilder();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        // Protocol: method returns Array<τ_0_0> → IReadOnlyList<TSelf>
+        var arrayOfSelf = new NamedTypeSpec("Swift.Array");
+        arrayOfSelf.GenericParameters.Add(new NamedTypeSpec("τ_0_0"));
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "ListProvider",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ListProvider"),
+            MangledName = "$s10TestModule12ListProviderP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = true,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                new()
+                {
+                    Name = "getAll",
+                    MangledName = "$s10TestModule12ListProviderPAAE6getAllSayxGyF",
+                    MethodType = MethodType.Instance,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        CreateArgument(string.Empty, arrayOfSelf, moduleDecl)
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl,
+                    Throws = false,
+                    IsAsync = false,
+                    Visibility = Visibility.Public
+                }
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        // Concrete type: getAll() returns Array<Builder> → IReadOnlyList<Builder>
+        var arrayOfBuilder = new NamedTypeSpec("Swift.Array");
+        arrayOfBuilder.GenericParameters.Add(new NamedTypeSpec("TestModule.Builder"));
+
+        var concreteType = CreateClassDecl("Builder", moduleDecl);
+        concreteType.Methods.Add(new MethodDecl
+        {
+            Name = "getAll",
+            MangledName = "$s10TestModule7BuilderC6getAllSayACGyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, arrayOfBuilder, moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = concreteType,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        });
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var result = validator.CanFullyImplementProtocol(concreteType, protocolDecl);
+
+        Assert.True(result);
     }
 
     #endregion

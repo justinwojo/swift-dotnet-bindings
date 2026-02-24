@@ -85,6 +85,14 @@ public class ProtocolConformanceValidator
         if (HasUnemittableInterfaceMembers(protocolDecl))
             return false;
 
+        // Resolve the concrete type's C# name for TSelf-aware type matching
+        string? conformingTypeName = null;
+        if (protocolDecl.HasSelfRequirement && concreteType.SwiftTypeName != null &&
+            _typeDatabase.TryGetTypeRecord(concreteType.SwiftTypeName, out var concreteRecord))
+        {
+            conformingTypeName = concreteRecord.CSharpTypeName.FullyQualifiedName;
+        }
+
         // Track interface requirements (mirrors ProtocolHandler dedup)
         var requiredProperties = new HashSet<string>();
         var requiredSubscripts = new HashSet<string>();
@@ -118,7 +126,7 @@ public class ProtocolConformanceValidator
 
             // Check type compatibility (CS0738)
             var interfaceType = GetInterfacePropertyType(protoProperty, protocolDecl);
-            if (!AreTypesCompatible(interfaceType, concreteTypeProjected))
+            if (!AreTypesCompatible(interfaceType, concreteTypeProjected, conformingTypeName))
                 return false;  // CS0738: types don't match
         }
 
@@ -149,7 +157,7 @@ public class ProtocolConformanceValidator
 
             // Check return type compatibility (CS0738)
             var interfaceReturnType = GetInterfaceSubscriptReturnType(protoSubscript, protocolDecl);
-            if (!AreTypesCompatible(interfaceReturnType, concreteReturnType))
+            if (!AreTypesCompatible(interfaceReturnType, concreteReturnType, conformingTypeName))
                 return false;
         }
 
@@ -182,7 +190,7 @@ public class ProtocolConformanceValidator
 
             // Check return type compatibility (CS0738)
             var interfaceReturnType = GetInterfaceMethodReturnType(protoMethod, protocolDecl);
-            if (!AreTypesCompatible(interfaceReturnType, concreteReturnType))
+            if (!AreTypesCompatible(interfaceReturnType, concreteReturnType, conformingTypeName))
                 return false;
         }
 
@@ -215,12 +223,17 @@ public class ProtocolConformanceValidator
             return "?";  // PAT - should have been filtered earlier
 
         // Use factory with GenericContext for all types including bound generics
+        // For Self-requirement protocols, map τ_0_0 → TSelf
+        var genericContext = protocolContext.HasSelfRequirement
+            ? GenericContext.ForProtocolSelf()
+            : GenericContext.Empty;
+
         var factory = new TypeProjectionFactory();
         var projection = factory.Project(protoProperty.SwiftTypeSpec, new ProjectionContext
         {
             TypeDatabase = _typeDatabase,
             IsParameter = false,
-            GenericContext = GenericContext.Empty
+            GenericContext = genericContext
         });
         if (projection != null)
             return projection.PublicType;
@@ -229,7 +242,7 @@ public class ProtocolConformanceValidator
         if (protoProperty.SwiftTypeSpec is NamedTypeSpec propBoundGeneric && propBoundGeneric.ContainsGenericParameters)
         {
             var bgh = new BoundGenericsHandler(_typeDatabase);
-            return bgh.TranslateBoundGenericTypeToCSharp(protoProperty.SwiftTypeSpec, GenericContext.Empty);
+            return bgh.TranslateBoundGenericTypeToCSharp(protoProperty.SwiftTypeSpec, genericContext);
         }
 
         return _typeDatabase.GetTypeRecordOrAnyType(protoProperty.SwiftTypeSpec).CSharpTypeName.FullyQualifiedName;
@@ -249,12 +262,17 @@ public class ProtocolConformanceValidator
             if (returnArg.SwiftTypeSpec is not TupleTypeSpec tuple || !tuple.IsEmptyTuple)
             {
                 // Try factory-based projection with GenericContext
+                // For Self-requirement protocols, map τ_0_0 → TSelf
+                var genericContext = protocolContext.HasSelfRequirement
+                    ? GenericContext.ForProtocolSelf()
+                    : GenericContext.Empty;
+
                 var methodFactory = new TypeProjectionFactory();
                 var methodProjection = methodFactory.Project(returnArg.SwiftTypeSpec, new ProjectionContext
                 {
                     TypeDatabase = _typeDatabase,
                     IsParameter = false,
-                    GenericContext = GenericContext.Empty
+                    GenericContext = genericContext
                 });
                 if (methodProjection != null)
                 {
@@ -267,7 +285,7 @@ public class ProtocolConformanceValidator
                 else if (returnArg.SwiftTypeSpec is NamedTypeSpec retBoundGeneric && retBoundGeneric.ContainsGenericParameters)
                 {
                     var bgh = new BoundGenericsHandler(_typeDatabase);
-                    returnType = bgh.TranslateBoundGenericTypeToCSharp(returnArg.SwiftTypeSpec, GenericContext.Empty);
+                    returnType = bgh.TranslateBoundGenericTypeToCSharp(returnArg.SwiftTypeSpec, genericContext);
                 }
                 else
                 {
@@ -323,12 +341,17 @@ public class ProtocolConformanceValidator
     private string GetInterfaceSubscriptReturnType(SubscriptDecl protoSubscript, ProtocolDecl protocolContext)
     {
         // Factory-based projection with GenericContext
+        // For Self-requirement protocols, map τ_0_0 → TSelf
+        var genericContext = protocolContext.HasSelfRequirement
+            ? GenericContext.ForProtocolSelf()
+            : GenericContext.Empty;
+
         var subscriptFactory = new TypeProjectionFactory();
         var subscriptProjection = subscriptFactory.Project(protoSubscript.ReturnTypeSpec, new ProjectionContext
         {
             TypeDatabase = _typeDatabase,
             IsParameter = false,
-            GenericContext = GenericContext.Empty
+            GenericContext = genericContext
         });
         if (subscriptProjection != null)
             return subscriptProjection.PublicType;
@@ -340,7 +363,7 @@ public class ProtocolConformanceValidator
         if (protoSubscript.ReturnTypeSpec is NamedTypeSpec subBoundGeneric && subBoundGeneric.ContainsGenericParameters)
         {
             var bgh = new BoundGenericsHandler(_typeDatabase);
-            return bgh.TranslateBoundGenericTypeToCSharp(protoSubscript.ReturnTypeSpec, GenericContext.Empty);
+            return bgh.TranslateBoundGenericTypeToCSharp(protoSubscript.ReturnTypeSpec, genericContext);
         }
 
         return _typeDatabase.GetTypeRecordOrAnyType(protoSubscript.ReturnTypeSpec).CSharpTypeName.FullyQualifiedName;
@@ -428,6 +451,23 @@ public class ProtocolConformanceValidator
         if (interfaceType == null || implType == null) return false;
         // String comparison with normalization for now
         return NormalizeTypeName(interfaceType) == NormalizeTypeName(implType);
+    }
+
+    /// <summary>
+    /// Checks if interface and implementation types are compatible, with TSelf awareness.
+    /// TSelf anywhere in the interface type is substituted with the conforming type's C# name
+    /// before comparison. This handles plain TSelf, TSelf?, Task&lt;TSelf&gt;,
+    /// IReadOnlyList&lt;TSelf&gt;, Func&lt;TSelf, int&gt;, etc.
+    /// </summary>
+    private static bool AreTypesCompatible(string? interfaceType, string? implType, string? conformingTypeName)
+    {
+        if (interfaceType == null || implType == null) return false;
+        var ni = NormalizeTypeName(interfaceType);
+        var np = NormalizeTypeName(implType);
+        // Substitute TSelf with the conforming type's projected name
+        if (conformingTypeName != null && ni.Contains("TSelf"))
+            ni = ni.Replace("TSelf", NormalizeTypeName(conformingTypeName));
+        return ni == np;
     }
 
     private static string NormalizeTypeName(string typeName)

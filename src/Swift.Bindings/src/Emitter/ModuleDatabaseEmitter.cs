@@ -106,6 +106,9 @@ namespace BindingsGeneration
             if ((record.Flags & TypeRecordFlags.HasAssociatedTypes) != 0)
                 writer.WriteAttributeString("hasAssociatedTypes", "true");
 
+            if ((record.Flags & TypeRecordFlags.HasSelfRequirement) != 0)
+                writer.WriteAttributeString("hasSelfRequirement", "true");
+
             if ((record.Flags & TypeRecordFlags.SimpleEnum) != 0)
                 writer.WriteAttributeString("simpleEnum", "true");
 

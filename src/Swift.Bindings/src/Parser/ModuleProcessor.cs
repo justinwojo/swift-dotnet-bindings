@@ -554,11 +554,14 @@ namespace BindingsGeneration
             // Use "I" prefix for interface naming convention
             var csharpTypeIdentifier = NameProvider.GetInterfaceName(protocolDecl.Name, moduleName: namedTypeSpec.Module);
 
-            // Protocols with associated types generate generic C# interfaces
+            // Protocols with associated types or Self requirements generate generic C# interfaces
             // Mark them so we can skip them in generic constraints (can't use generic interfaces without type arguments)
             var flags = protocolDecl.AssociatedTypes.Count > 0
                 ? TypeRecordFlags.HasAssociatedTypes
                 : TypeRecordFlags.None;
+
+            if (protocolDecl.HasSelfRequirement)
+                flags |= TypeRecordFlags.HasSelfRequirement;
 
             var typeRecord = new TypeRecord
             {

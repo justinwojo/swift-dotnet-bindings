@@ -1,11 +1,11 @@
 # Roadmap
 
-**Updated**: February 2026 (post-Q3 quality session)
+**Updated**: February 2026 (post-Q4 quality session)
 **Status**: Active — path to production-grade
 **Target**: Production-ready binding libraries that feel like native C# to consumers
 **Scoring reference**: `binding-review-feb-23.md` — 18-library quality review with 10-category scorecards
 
-For completed work (binding quality sessions A-D, architecture sessions 1-9, cross-module resolution, ExistentialContainer elimination, native C# enums, Optional truncation fix, SwiftDictionary projection, class inheritance I1-I6, quality sessions Q1-Q3), see `Completed/roadmap-completed-feb2026.md`.
+For completed work (binding quality sessions A-D, architecture sessions 1-9, cross-module resolution, ExistentialContainer elimination, native C# enums, Optional truncation fix, SwiftDictionary projection, class inheritance I1-I6, quality sessions Q1-Q4), see `Completed/roadmap-completed-feb2026.md`.
 
 For future vision items (ObjC integration, multi-platform, emitter redesign, SwiftUI bridge corpus, performance benchmarks, etc.), see `Future/future-roadmap.md`.
 
@@ -15,7 +15,7 @@ For future vision items (ObjC integration, multi-platform, emitter redesign, Swi
 
 | Metric | Value |
 |--------|-------|
-| Unit tests | 4,158 passing (1 skipped) |
+| Unit tests | 4,161 passing (1 skipped) |
 | Integration tests | 700 passing (11 skipped, pre-existing) |
 | Runtime library tests | 221 passing (1 skipped) |
 | TestFramework must-pass | 94/94 passing, 0 degraded |
@@ -35,7 +35,7 @@ A binding library is production-grade when a C# developer can:
 5. **Extend** — Implement Swift protocols from C#, pass callbacks, subscribe to events
 6. **Compose** — Base class methods available on derived types, polymorphic assignment works, protocol inheritance correct
 
-We are at 5/6 today (1-2, 4-6 are solid). Core workflow usability (#3) is the remaining gap — the generator projects data models well but misses the core "verbs" (closure-based transactions, fluent builders, response handlers) that define how each library is actually used.
+We are at 5/6 today (1-2, 4-6 are solid). Core workflow usability (#3) has improved significantly with Q3 closure relaxation and Q4 Self-return resolution — fluent builders, closure-based transactions, and Self-returning protocol methods now project correctly. Remaining gaps are complex enums in closures, Optional<Primitive/Enum> closure params, and actor isolation.
 
 ---
 
@@ -56,7 +56,7 @@ The projections were slightly optimistic for the two lowest-scoring libraries be
 
 ---
 
-### Phase 2: Binding Quality (Next — 4 sessions)
+### Phase 2: Binding Quality ✅ COMPLETE (4 sessions)
 
 **Ordering principle**: Most impactful items that improve the most libraries first. Derived from the 10 prioritized action items in `binding-review-feb-23.md`, cross-referenced with per-library score impact.
 
@@ -107,19 +107,20 @@ Spot-check confirmed: GRDB gained 23 closure-accepting methods (`DatabasePool.As
 
 **Key files modified**: `ClosureHandler.cs`, `ClosureEmitter.SwiftWrapper.cs`, `ClosureEmitter.cs`, `ClosureEmitter.Throwing.cs`, `EnumHandler.SimpleEnum.cs`, `ClosureHandlerTests.cs`, `ClosureCdeclEmitterTests.cs`, `ClosureEmitterDirectTests.cs`, `ThirdPartyValidationFixTestsV3.cs`
 
-#### Session Q4: Self-Returning Methods + Protocol Member Recovery
+#### Session Q4: Self-Returning Methods + Protocol Member Recovery ✅ COMPLETE
 
-**Effort**: 1 session (large) | **Libraries**: Kingfisher, SnapKit, KeychainAccess, RxSwift
+**Results**: Self-returning protocol methods (`τ_0_0` → `TSelf`) now resolve correctly through `GenericContext.ForProtocolSelf()` factory method, threaded through 6 projection sites (ProtocolHandler, ProtocolSignatureHelper, ProtocolConformanceValidator ×3 resolvers + 3 BoundGenericsHandler fallbacks). Concrete types declare generic interface conformance (`IFoo<ConcreteType>`). `HasSelfRequirement` flag (TypeRecordFlags bit 5) plumbed through ModuleProcessor → ModuleDatabaseEmitter → TypeDatabase serialization. Self-requirement protocols excluded from `IsProtocolAvailableForConstraint` (both WrapperEmitter and PInvokeEmitter) and conformance dictionary entries. Closure methods/properties now emitted in protocol interfaces (concrete types can implement them); proxy gets `NotSupportedException` stubs with SB0003 diagnostic. 6 previously-failing libraries (Alamofire, CryptoSwift, GRDB, Kingfisher, RxSwift, StripeApplePay) recovered to 0 errors.
 
-Self-returning methods are the #1 issue from the binding review. This session also re-evaluates remaining skipped protocol members now that Q3 has relaxed the closure gate.
+| Sub-task | Status | Notes |
+|----------|--------|-------|
+| **Q4a. GenericContext.ForProtocolSelf()** | ✅ | Maps `τ_0_0 → TSelf`. Handles plain, Optional, Array, closure, and tuple nesting through factory recursion. |
+| **Q4a. Protocol-aware projection** | ✅ | 6 sites updated: `ProtocolHandler.GetCSharpTypeName`, `ProtocolSignatureHelper.ProjectTypeToCSharp`, `ProtocolConformanceValidator` (3 resolvers + 3 BoundGenericsHandler fallbacks). |
+| **Q4a. TSelf-aware conformance matching** | ✅ | `AreTypesCompatible` uses string substitution for nested `TSelf` (handles `Task<TSelf>`, `IReadOnlyList<TSelf>`, etc.). |
+| **Q4a. HasSelfRequirement flag** | ✅ | TypeRecordFlags bit 5. Set in ModuleProcessor, serialized in ModuleDatabaseEmitter/TypeDatabase. Excludes from constraint availability and conformance dictionary. |
+| **Q4a. Generic interface names** | ✅ | `GetImplementedInterfaces` emits `IFoo<ConcreteType>` for Self-requirement protocols. |
+| **Q4b. Closure interface recovery** | ✅ | Closure methods/properties emitted in interface. Proxy gets `NotSupportedException` stub. Two-tier tracking: `closureSkippedX` (after all gates) vs `skippedX` (all reasons). |
 
-| Step | Description | Libraries | Effort |
-|------|-------------|-----------|--------|
-| **Q4a. Self-returning protocol methods** | When a Swift protocol method returns `Self`, emit using concrete type substitution on conforming types (not `AnyType`). For the protocol interface itself, use `TSelf` generic constraint or return the interface type. | Kingfisher (30+ builder methods), SnapKit, KeychainAccess, RxSwift | Large |
-| **Q4b. Reduce member skip rate** | With Q3 closure relaxation in place, re-evaluate remaining skipped protocol members. Some will now be emittable. | All | Medium |
-
-**Key files**: `ProtocolHandler.cs`, `ProtocolProxyEmitter.cs`, `TypeConversionHandler.cs`, `MethodHandler.cs`
-**Acceptance gate**: `IKFOptionSetter` methods return concrete types, not `AnyType`. Empty interfaces with skipped-member root cause drop to 0. 32/32 validation.
+**Key files modified**: `NameProvider.cs`, `ProtocolHandler.cs`, `ProtocolSignatureHelper.cs`, `ProtocolConformanceValidator.cs`, `TypeHandlerHelpers.cs`, `TypeRecord.cs`, `ModuleProcessor.cs`, `ModuleDatabaseEmitter.cs`, `TypeDatabase.cs`, `WrapperEmitter.cs`, `PInvokeEmitter.cs`, `ProtocolProxyEmitter.cs`, `ProtocolProxyEmitter.InterfaceImpl.cs`
 
 **Phase 2 Acceptance KPIs**:
 
@@ -130,7 +131,7 @@ Self-returning methods are the #1 issue from the binding review. This session al
 | `AnyType` from missing Apple SDK types | ~30 | 0 | Q2 ✅ (Security + IndexPath resolved; remaining are intentional AnyType) |
 | Empty protocol interfaces with diagnostics | 67 | <10 | Q2 ✅ (SB0004 on skip-caused empties) + Q4 |
 | Core workflow methods skipped (closure gate) | ~200 | <50 | Q3 ✅ (56+ methods unblocked in GRDB+Stripe alone) |
-| `Self` → `AnyType` in protocol returns | ~50 | 0 | Q4 |
+| `Self` → `AnyType` in protocol returns | ~50 | 0 | Q4 ✅ |
 | Binding quality avg | 3.37 | >3.80 | All |
 
 ---
@@ -250,13 +251,13 @@ Substantial capability expansions. See `Future/future-roadmap.md` for detailed a
 ```
 DONE                       Phase 1: Class Inheritance (I1-I6) ✅
                            |
-NOW                        Phase 2: Binding Quality (Q1-Q4, 4 sessions)
+DONE                       Phase 2: Binding Quality (Q1-Q4, 4 sessions) ✅
                            |  Q1: Bug fixes — naming, tuples, polish ✅
                            |  Q2: Type database + protocol audit ✅
                            |  Q3: Closure parameter relaxation ✅
-                           |  Q4: Self returns + protocol recovery (Kingfisher, SnapKit, RxSwift)
+                           |  Q4: Self returns + protocol recovery ✅
                            |
-AFTER QUALITY              Phase 3: Binding Polish & Safety (P1-P3)
+NOW                        Phase 3: Binding Polish & Safety (P1-P3)
                            |  P1: Swiftinterface/actor isolation
                            |  P2: Finalizer safety + Roslyn analyzer
                            |  P3: Binding quality re-review (score verification)

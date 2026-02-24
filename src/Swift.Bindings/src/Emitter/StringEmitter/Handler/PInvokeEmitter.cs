@@ -437,10 +437,11 @@ namespace BindingsGeneration
         {
             if (typeDatabase.TryGetTypeRecord(protocolTypeName, out var record))
             {
-                // Must be a protocol and must NOT have associated types
-                // (protocols with associated types generate generic interfaces which can't be used as constraints)
+                // Must be a protocol and must NOT have associated types or Self requirements
+                // (both generate generic interfaces which can't be used as non-generic constraints)
                 return record.Kind == TypeRecordKind.Protocol &&
-                       !record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes);
+                       !record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes) &&
+                       !record.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement);
             }
             return false;
         }

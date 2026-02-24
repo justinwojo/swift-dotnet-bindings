@@ -34,6 +34,10 @@ public enum TypeRecordFlags
     // This flag indicates the enum is simple (no associated values, frozen, non-generic,
     // integral or no raw value) and should be emitted as a C# enum value type.
     SimpleEnum = 1 << 4,
+    // This flag indicates a protocol has a Self requirement (Self appears in method signatures).
+    // Such protocols generate generic C# interfaces (e.g., IFoo<TSelf>) and cannot be used
+    // as non-generic constraints or in conformance dictionaries.
+    HasSelfRequirement = 1 << 5,
 }
 
 /// <summary>

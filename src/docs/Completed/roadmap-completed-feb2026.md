@@ -118,3 +118,41 @@ Generator bug fixes improving naming, tuple projection, subscript emission, and 
 - **Q1f (Tuple label verification)**: Confirmed labels from ABI JSON propagate to C# parameter names via existing `TypeLabel` infrastructure.
 
 **Results**: 4,113 unit tests, 700 integration, 221 runtime, 32/32 validation. SnapKit overloads reduced ~60%. KeychainAccess/GRDB/Nuke subscript indexers emitted. Lottie enum tuples idiomatic.
+
+### 8. Binding Quality Session Q2 (Phase 2)
+
+Apple SDK type database expansion and protocol diagnostics.
+
+- **Q2a (SecurityDatabase.xml)**: New database with SecTrust, SecCertificate, SecKey, SecIdentity → `System.IntPtr` (opaque CF types). Registered in `Program.cs` builtInDatabases.
+- **Q2b (IndexPath → NSIndexPath)**: ObjC-bridged class entry in `FoundationDatabase.xml`. DB lookup priority over AppleFrameworkValueTypes guard.
+- **Q2c (JSONDecoder exclusion)**: Added to `AppleFrameworkValueTypes` list — prevents incorrect ObjC auto-bridging.
+- **Q2d (SB0004 empty interfaces)**: Interface body buffered via `CSharpWriter(StringWriter)`. Diagnostic emitted when `emittedMemberCount == 0 && totalDeclaredMembers > 0 && inheritedInterfaces.Count == 0`.
+- **Q2e (SB0003 proxy members)**: Non-dispatchable properties (with accessor presence check), subscripts (always), and methods annotated with `[Obsolete]` + `DiagnosticId`.
+- **Q2f (Warning suppression)**: Proxy class wraps in `#pragma warning disable SB0003, SB0004`. Sdk.props adds to `<NoWarn>`.
+
+**Results**: 4,137 unit tests, 700 integration, 221 runtime, 32/32 validation.
+
+### 9. Binding Quality Session Q3 (Phase 2)
+
+Closure parameter relaxation — classes, simple enums, ObjC-bridged types, and Optional<ref> now supported in closure parameters.
+
+- **Q3a (Type classification)**: `IsClassType`, `IsSimpleEnum`, `GetSimpleEnumInfo`, `IsObjCBridgedClass`, `IsReferenceType` added to `ClosureHandler`.
+- **Q3b (Selective B16 relaxation)**: Simple enums with `SimpleEnum` flag pass Layer 1. Complex enums remain blocked.
+- **Q3c (Layer 2 Cdecl expansion)**: Classes/ObjC → `UnsafeMutableRawPointer`. Simple enums → underlying integer. `Optional<ref>` → `UnsafeMutableRawPointer?` (nil-pointer ABI).
+- **Q3d (Swift wrapper conversions)**: Classes/ObjC: `Unmanaged.passUnretained`/`takeUnretainedValue`. Simple enums: `unsafeBitCast`. `Optional<ref>`: `.map { Unmanaged... }`.
+- **Q3e (C# callback emission)**: `TranslateTypeSpecToPInvokeType` returns underlying int for simple enums. Direct-handle return paths for classes/ObjC. Both escaping and throwing callback paths.
+- **Q3f (Return-closure blast radius)**: `GetSwiftInvokeArgExpression` and `EmitClosureReturnMarshalling` handle simple enum conversions for invoke-Swift-from-C# direction.
+
+**Results**: 4,158 unit tests, 700 integration, 221 runtime, 32/32 validation. GRDB gained 23 closure-accepting methods, StripePayments gained 33.
+
+### 10. Binding Quality Session Q4 (Phase 2)
+
+Self-returning protocol methods (`τ_0_0 → TSelf`) and closure interface recovery.
+
+- **Q4a (GenericContext.ForProtocolSelf)**: Factory method maps `τ_0_0 → TSelf`. Handles plain, Optional, Array, closure, and tuple nesting through existing factory recursion. Used in 6 projection sites: `ProtocolHandler.GetCSharpTypeName`, `ProtocolSignatureHelper.ProjectTypeToCSharp`, `ProtocolConformanceValidator` (3 resolvers + 3 BoundGenericsHandler fallbacks).
+- **Q4a (TSelf conformance matching)**: `AreTypesCompatible` uses string substitution (`ni.Replace("TSelf", conformingTypeName)`) to handle nested `TSelf` in `Task<TSelf>`, `IReadOnlyList<TSelf>`, etc.
+- **Q4a (HasSelfRequirement flag)**: `TypeRecordFlags` bit 5. Set in `ModuleProcessor`, serialized/deserialized in `ModuleDatabaseEmitter`/`TypeDatabase`. Self-requirement protocols excluded from `IsProtocolAvailableForConstraint` (both WrapperEmitter and PInvokeEmitter) and conformance dictionary entries.
+- **Q4a (Generic interface names)**: `GetImplementedInterfaces` emits `IFoo<ConcreteType>` for Self-requirement protocols. Proxy and EveryProtocol emission correctly skipped (pre-existing).
+- **Q4b (Closure interface recovery)**: Closure methods/properties now emitted in protocol interfaces so concrete types can implement them. Proxy gets `NotSupportedException` stubs with SB0003 diagnostic. Two-tier tracking: `closureSkippedMethodKeys`/`closureSkippedPropertyNames` (populated after ALL gates pass) vs `skippedMethodKeys`/`skippedPropertyNames` (includes AnyType/etc that stay out of interface).
+
+**Results**: 4,161 unit tests, 700 integration, 221 runtime, 32/32 validation. 6 previously-failing libraries (Alamofire, CryptoSwift, GRDB, Kingfisher, RxSwift, StripeApplePay) recovered to 0 errors.

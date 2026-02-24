@@ -118,12 +118,17 @@ internal static class ProtocolSignatureHelper
 
         // Factory-first: handles existentials, closures, tuples, containers (Array, Dict, Optional),
         // string, bool, ObjC bridged, simple enum, native remapped, class, non-frozen, blittable
+        // For Self-requirement protocols, map τ_0_0 → TSelf
+        var genericContext = protocolContext?.HasSelfRequirement == true
+            ? GenericContext.ForProtocolSelf()
+            : GenericContext.Empty;
+
         var factory = new TypeProjectionFactory();
         var projection = factory.Project(typeSpec, new ProjectionContext
         {
             TypeDatabase = typeDatabase,
             IsParameter = isParameter,
-            GenericContext = GenericContext.Empty
+            GenericContext = genericContext
         });
         if (projection != null)
             return projection.PublicType;

@@ -533,6 +533,18 @@ internal static class ProtocolConformanceHelper
                         // Same-module protocol - validate concrete type members
                         if (!conformanceValidator.CanFullyImplementProtocol(typeDecl, protocolDecl))
                             continue;  // Skip interface if we can't fully implement it
+
+                        // Self-requirement protocols produce generic interfaces (IFoo<TSelf>)
+                        // The concrete type provides itself as the type argument
+                        if (protocolDecl.HasSelfRequirement)
+                        {
+                            var baseName = NameProvider.GetInterfaceName(conformance.Protocol.Name,
+                                typeNameWithGenerics, conformance.Protocol.Module);
+                            var genericIface = $"{baseName}<{typeNameWithGenerics}>";
+                            if (emitted.Add(genericIface))
+                                interfaces.Add(genericIface);
+                            continue;
+                        }
                     }
                 }
 
@@ -564,6 +576,11 @@ internal static class ProtocolConformanceHelper
         foreach (var conformance in conformances)
         {
             if (!ShouldEmitConformance(conformance, moduleName, typeDatabase))
+                continue;
+
+            // Skip Self-requirement protocols — no proxy, no EveryProtocol, no runtime PWT lookup
+            if (typeDatabase.TryGetTypeRecord(conformance.Protocol, out var protoRecord) &&
+                protoRecord.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement))
                 continue;
 
             var protocol = NameProvider.GetInterfaceName(conformance.Protocol.Name, typeName, conformance.Protocol.Module);

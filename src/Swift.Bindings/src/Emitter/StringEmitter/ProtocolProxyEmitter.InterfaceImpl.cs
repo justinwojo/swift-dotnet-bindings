@@ -20,9 +20,13 @@ public partial class ProtocolProxyEmitter
                 continue;
             if (emittedMembers.Add($"property:{property.Name}"))
             {
-                // Skip properties that the interface skipped due to AnyType generic args
                 if (_skippedPropertyNames.Contains(property.Name))
+                {
+                    // Closure-skipped properties are now in the interface — emit NotSupported stub
+                    if (_closureSkippedPropertyNames.Contains(property.Name))
+                        EmitNotSupportedPropertyStub(writer, property);
                     continue;
+                }
                 EmitPropertyImplementation(writer, property, protocolDecl, dispatchEmitter);
             }
         }
@@ -61,9 +65,18 @@ public partial class ProtocolProxyEmitter
             {
                 var idx = methodIndex++;
                 methodIndices[methodKey] = idx;
-                // Skip methods that the interface skipped due to AnyType generic args
                 if (_skippedMethodKeys.Contains(methodKey))
+                {
+                    // Closure-skipped methods are now in the interface — emit NotSupported stub
+                    if (_closureSkippedMethodKeys.Contains(methodKey))
+                    {
+                        var projectedKeySkipped = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
+                        if (!emittedCSharpKeys.Add(projectedKeySkipped))
+                            continue;
+                        EmitNotSupportedMethodStub(writer, method);
+                    }
                     continue;
+                }
                 var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
                 if (!emittedCSharpKeys.Add(projectedKey))
                     continue;
@@ -686,5 +699,131 @@ public partial class ProtocolProxyEmitter
             }
         }
         return pinHandles;
+    }
+
+    /// <summary>
+    /// Emits a NotSupportedException stub for a closure property that is in the interface
+    /// but can't be dispatched by the proxy (closure marshalling not supported).
+    /// </summary>
+    private void EmitNotSupportedPropertyStub(CSharpWriter writer, PropertyDecl property)
+    {
+        var csharpTypeName = GetInterfaceCompatiblePropertyTypeName(property);
+        var propertyName = NameProvider.GetPropertyName(property.Name);
+        var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
+        var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
+
+        writer.WriteLine("[Obsolete(\"This member has closure parameters that cannot be marshalled in protocol proxy (SB0003).\",");
+        writer.WriteLine("    DiagnosticId = \"SB0003\",");
+        writer.WriteLine("    UrlFormat = \"https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md\")]");
+        writer.WriteLine($"public {csharpTypeName} {propertyName}");
+        writer.WriteLine("{");
+        writer.Indent++;
+
+        if (hasGetter)
+        {
+            writer.WriteLines($$"""
+                get
+                {
+                    if (_csharpImpl != null)
+                        return _csharpImpl.{{propertyName}};
+                    throw new NotSupportedException(
+                        "Cannot get property '{{propertyName}}' on a Swift-backed existential container. " +
+                        "Closure-typed properties cannot be marshalled in protocol proxy.");
+                }
+                """);
+        }
+
+        if (hasSetter)
+        {
+            writer.WriteLines($$"""
+                set
+                {
+                    if (_csharpImpl != null)
+                    {
+                        _csharpImpl.{{propertyName}} = value;
+                        return;
+                    }
+                    throw new NotSupportedException(
+                        "Cannot set property '{{propertyName}}' on a Swift-backed existential container. " +
+                        "Closure-typed properties cannot be marshalled in protocol proxy.");
+                }
+                """);
+        }
+
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.WriteLine();
+    }
+
+    /// <summary>
+    /// Emits a NotSupportedException stub for a closure method that is in the interface
+    /// but can't be dispatched by the proxy (closure parameter marshalling not supported).
+    /// </summary>
+    private void EmitNotSupportedMethodStub(CSharpWriter writer, MethodDecl method)
+    {
+        var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+        var hasReturn = returnType != null && !returnType.IsEmptyTuple;
+        var returnTypeName = hasReturn ? GetCSharpTypeName(returnType!, isParameter: false) : "void";
+
+        if (method.IsAsync)
+        {
+            returnTypeName = returnTypeName == "void" ? "Task" : $"Task<{returnTypeName}>";
+        }
+
+        var parameters = new List<string>();
+        var argNames = new List<string>();
+        foreach (var param in method.CSSignature.Skip(1))
+        {
+            var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, isParameter: true);
+            var paramName = NameProvider.GetCSharpParameterName(param);
+            parameters.Add($"{paramTypeName} {paramName}");
+            argNames.Add(paramName);
+        }
+        if (method.IsAsync)
+        {
+            parameters.Add("System.Threading.CancellationToken cancellationToken = default");
+            argNames.Add("cancellationToken");
+        }
+
+        var parametersString = string.Join(", ", parameters);
+        var argsString = string.Join(", ", argNames);
+
+        var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(method);
+        var methodName = NameProvider.GetPublicMethodName(method.Name, method.IsAsync, hasReturn, isSelfReturning: isSelfReturning);
+
+        writer.WriteLine("[Obsolete(\"This member has closure parameters that cannot be marshalled in protocol proxy (SB0003).\",");
+        writer.WriteLine("    DiagnosticId = \"SB0003\",");
+        writer.WriteLine("    UrlFormat = \"https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md\")]");
+        writer.WriteLine($"public {returnTypeName} {methodName}({parametersString})");
+        writer.WriteLine("{");
+        writer.Indent++;
+
+        if (hasReturn || method.IsAsync)
+        {
+            writer.WriteLines($$"""
+                if (_csharpImpl != null)
+                    return _csharpImpl.{{methodName}}({{argsString}});
+                throw new NotSupportedException(
+                    "Cannot call method '{{methodName}}' on a Swift-backed existential container. " +
+                    "Closure parameters cannot be marshalled in protocol proxy.");
+                """);
+        }
+        else
+        {
+            writer.WriteLines($$"""
+                if (_csharpImpl != null)
+                {
+                    _csharpImpl.{{methodName}}({{argsString}});
+                    return;
+                }
+                throw new NotSupportedException(
+                    "Cannot call method '{{methodName}}' on a Swift-backed existential container. " +
+                    "Closure parameters cannot be marshalled in protocol proxy.");
+                """);
+        }
+
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.WriteLine();
     }
 }

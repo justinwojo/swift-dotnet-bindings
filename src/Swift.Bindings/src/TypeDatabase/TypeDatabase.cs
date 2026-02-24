@@ -169,6 +169,7 @@ namespace BindingsGeneration
                 string kindStr = typeDeclarationNode?.Attributes?["kind"]?.Value ?? "struct";
                 string? nativeType = typeDeclarationNode?.Attributes?["nativeType"]?.Value;
                 string hasAssociatedTypes = typeDeclarationNode?.Attributes?["hasAssociatedTypes"]?.Value ?? "false";
+                string hasSelfRequirement = typeDeclarationNode?.Attributes?["hasSelfRequirement"]?.Value ?? "false";
                 string simpleEnum = typeDeclarationNode?.Attributes?["simpleEnum"]?.Value ?? "false";
                 string? rawValueType = typeDeclarationNode?.Attributes?["rawValueType"]?.Value;
                 string? emittedMemberCountStr = typeDeclarationNode?.Attributes?["emittedMemberCount"]?.Value;
@@ -205,6 +206,7 @@ namespace BindingsGeneration
                             (requiresMemoryManagement.ToLower() == "true" ? TypeRecordFlags.RequiresMemoryManagement : TypeRecordFlags.None) |
                             (objcBridged.ToLower() == "true" ? TypeRecordFlags.ObjCBridged : TypeRecordFlags.None) |
                             (hasAssociatedTypes.ToLower() == "true" ? TypeRecordFlags.HasAssociatedTypes : TypeRecordFlags.None) |
+                            (hasSelfRequirement.ToLower() == "true" ? TypeRecordFlags.HasSelfRequirement : TypeRecordFlags.None) |
                             (simpleEnum.ToLower() == "true" ? TypeRecordFlags.SimpleEnum : TypeRecordFlags.None),
                     Kind = kindStr.ToLower() switch
                     {

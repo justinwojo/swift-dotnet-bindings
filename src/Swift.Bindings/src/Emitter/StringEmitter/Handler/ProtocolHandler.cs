@@ -99,6 +99,7 @@ namespace BindingsGeneration
 
             // Emit properties as interface members
             var skippedPropertyNames = new HashSet<string>();
+            var closureSkippedPropertyNames = new HashSet<string>(); // Closure properties: in interface, proxy needs stub
             foreach (var propertyDecl in protocolDecl.Properties)
             {
                 // Skip static properties - C# interfaces cannot have static members as requirements
@@ -160,16 +161,16 @@ namespace BindingsGeneration
                     continue;
                 }
 
-                // Skip ALL closure-typed properties — protocol proxy receivers use
-                // MarshalFromSwift<T> which can't handle closures (falls through to AnyType).
-                // See method skip gate below for detailed rationale and future-work note.
+                // Closure-typed properties: emit in interface for concrete type implementation,
+                // but track for proxy NotSupportedException stub.
+                // Protocol proxy receivers use MarshalFromSwift<T> which can't handle closures.
                 var closureHandlerProp = new ClosureHandler(env.TypeDatabase);
                 if (closureHandlerProp.IsClosure(propertyDecl))
                 {
                     skippedPropertyNames.Add(propertyDecl.Name);
-                    _logger.LogDebug($"Skipping property '{propertyDecl.Name}' in interface {protocolDecl.Name} - closure type can't be marshalled in protocol receiver.");
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, protocolDecl, SkipReason.UnsupportedClosure, "Property has closure type that can't be marshalled in protocol proxy receiver.");
-                    continue;
+                    closureSkippedPropertyNames.Add(propertyDecl.Name);
+                    _logger.LogDebug($"Property '{propertyDecl.Name}' in interface {protocolDecl.Name} has closure type - proxy will use NotSupportedException stub.");
+                    // Fall through to emit in interface — concrete types can implement it
                 }
 
                 EmitInterfaceProperty(bodyWriter, propertyDecl, env.TypeDatabase, protocolDecl);
@@ -241,6 +242,7 @@ namespace BindingsGeneration
 
             // Emit methods as interface members
             var skippedMethodKeys = new HashSet<string>();
+            var closureSkippedMethodKeys = new HashSet<string>(); // Closure methods: in interface, proxy needs stub
             foreach (var methodDecl in protocolDecl.Methods)
             {
                 // Skip constructors and static methods early (they can't be in C# interfaces)
@@ -310,25 +312,21 @@ namespace BindingsGeneration
                     continue;
                 }
 
-                // Skip methods with ANY closure parameters (including Optional<Closure>).
+                // Methods with closure parameters: emit in interface for concrete type
+                // implementation, but track for proxy NotSupportedException stub.
                 // Protocol proxy receivers use MarshalFromSwift<T> for each parameter, but
                 // closures can't be marshalled this way — the ABI type for Optional<() -> Void>
                 // falls through to AnyType, causing CS1503 (AnyType vs Action?).
                 // Even "supported" closures (IsSupportedClosure=true) can't be received.
-                //
-                // INTENTIONAL API surface reduction: This trades protocol method coverage for
-                // compile correctness. Future work to implement closure marshalling in receivers
-                // (SwiftClosureData ↔ Action/Func conversion in UnmanagedCallersOnly callbacks)
-                // would recover these APIs. Non-protocol emission paths are unaffected.
                 var closureHandlerSkip = new ClosureHandler(env.TypeDatabase);
                 bool hasClosureParam = methodDecl.CSSignature.Skip(1).Any(arg =>
                     closureHandlerSkip.IsClosure(arg));
                 if (hasClosureParam)
                 {
                     skippedMethodKeys.Add(methodKey);
-                    _logger.LogDebug($"Skipping method '{methodDecl.Name}' in interface {protocolDecl.Name} - has closure parameter that can't be marshalled in protocol receiver.");
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, SkipReason.UnsupportedClosure, "Method has closure parameter that can't be marshalled in protocol proxy receiver.");
-                    continue;
+                    _logger.LogDebug($"Method '{methodDecl.Name}' in interface {protocolDecl.Name} has closure parameter - proxy will use NotSupportedException stub.");
+                    // Fall through to emit in interface — concrete types can implement it
+                    // closureSkippedMethodKeys is populated below, after all remaining gates pass
                 }
 
                 // Check for AnyType as a generic type argument in the method signature
@@ -360,6 +358,10 @@ namespace BindingsGeneration
                     ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, SkipReason.DuplicateSignature, "Emitted C# method signature collides with already-emitted method.");
                     continue;
                 }
+
+                // Track closure methods that passed all gates and are emitted in interface
+                if (hasClosureParam)
+                    closureSkippedMethodKeys.Add(methodKey);
 
                 EmitInterfaceMethod(bodyWriter, methodDecl, env.TypeDatabase, protocolDecl);
                 emittedInterfaceMemberCount++;
@@ -413,7 +415,8 @@ namespace BindingsGeneration
             // C# proxy would produce calls to non-existent Swift symbols (SetVtable, WitnessTableGetter).
             if (!ModuleHandler.HasMembersReferencingUnsupportedModule(protocolDecl))
             {
-                EmitProtocolProxy(csWriter, protocolDecl, env.TypeDatabase, skippedMethodKeys, skippedPropertyNames, skippedSubscriptIndices);
+                EmitProtocolProxy(csWriter, protocolDecl, env.TypeDatabase, skippedMethodKeys, skippedPropertyNames, skippedSubscriptIndices,
+                    closureSkippedMethodKeys, closureSkippedPropertyNames);
             }
             else
             {
@@ -431,11 +434,13 @@ namespace BindingsGeneration
         /// The proxy wraps either a C# implementation or a Swift existential container.
         /// </summary>
         private void EmitProtocolProxy(CSharpWriter csWriter, ProtocolDecl protocolDecl, ITypeDatabase typeDatabase,
-            HashSet<string> skippedMethodKeys, HashSet<string> skippedPropertyNames, HashSet<int> skippedSubscriptIndices)
+            HashSet<string> skippedMethodKeys, HashSet<string> skippedPropertyNames, HashSet<int> skippedSubscriptIndices,
+            HashSet<string> closureSkippedMethodKeys, HashSet<string> closureSkippedPropertyNames)
         {
             var moduleName = protocolDecl.ModuleDecl?.Name ?? "Swift";
             var proxyEmitter = new ProtocolProxyEmitter(typeDatabase, _logger, moduleName);
-            proxyEmitter.EmitProxyClass(csWriter, protocolDecl, skippedMethodKeys, skippedPropertyNames, skippedSubscriptIndices);
+            proxyEmitter.EmitProxyClass(csWriter, protocolDecl, skippedMethodKeys, skippedPropertyNames, skippedSubscriptIndices,
+                closureSkippedMethodKeys, closureSkippedPropertyNames);
         }
 
         /// <summary>
@@ -693,12 +698,17 @@ namespace BindingsGeneration
             }
 
             // Factory-first with GenericContext: handles all types
+            // For Self-requirement protocols, map τ_0_0 → TSelf
+            var genericContext = protocolContext?.HasSelfRequirement == true
+                ? GenericContext.ForProtocolSelf()
+                : GenericContext.Empty;
+
             var factory = new TypeProjectionFactory();
             var projection = factory.Project(typeSpec, new ProjectionContext
             {
                 TypeDatabase = typeDatabase,
                 IsParameter = isParameter,
-                GenericContext = GenericContext.Empty,
+                GenericContext = genericContext,
                 CompositionCollector = _compositionCollector
             });
             if (projection != null)

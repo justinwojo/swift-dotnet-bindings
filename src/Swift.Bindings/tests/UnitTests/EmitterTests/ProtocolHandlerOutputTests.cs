@@ -1723,12 +1723,11 @@ public class ProtocolHandlerOutputTests
     #region Dictionary Generic Arg Preservation (typeTranslator fix)
 
     [Fact]
-    public void Emit_InterfaceMethodWithClosureParam_SkippedFromProtocol()
+    public void Emit_InterfaceMethodWithClosureParam_EmittedInInterfaceWithProxyStub()
     {
-        // Protocol methods with closure parameters are skipped because proxy receivers
-        // can't marshal closures (MarshalFromSwift<T> falls through to AnyType).
-        // This verifies the skip gate works for closures with complex generic args
-        // like Optional<Dictionary<K,V>>.
+        // Protocol methods with closure parameters are emitted in the interface so
+        // concrete types can implement them. The proxy gets a NotSupportedException stub
+        // because proxy receivers can't marshal closures (MarshalFromSwift<T> falls through to AnyType).
         var typeDatabase = CreateTypeDatabaseWithDictionary();
         var moduleDecl = CreateModuleDecl("TestModule");
 
@@ -1784,7 +1783,8 @@ public class ProtocolHandlerOutputTests
         var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
 
         Assert.Contains("public interface IDataFetcher", csOutput);
-        Assert.DoesNotContain("FetchData", csOutput);
+        // Closure methods are now emitted in the interface for concrete type implementation
+        Assert.Contains("FetchData", csOutput);
     }
 
     [Fact]
@@ -2505,9 +2505,10 @@ public class ProtocolHandlerOutputTests
     // --- SB0004: Empty interface with skipped members ---
 
     [Fact]
-    public void Emit_ProtocolWithAllMembersSkipped_EmitsSB0004()
+    public void Emit_ProtocolWithClosureProperty_EmitsInInterfaceNoSB0004()
     {
-        // Protocol with a closure-typed property → skipped → empty interface → SB0004
+        // Protocol with a closure-typed property → emitted in interface (no longer SB0004)
+        // Closure properties are now part of the interface for concrete type implementation.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var protocolDecl = new ProtocolDecl
@@ -2548,9 +2549,10 @@ public class ProtocolHandlerOutputTests
 
         var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
 
-        Assert.Contains("DiagnosticId = \"SB0004\"", csOutput);
-        Assert.Contains("1 protocol member(s) were skipped", csOutput);
+        // Closure property is now emitted in the interface — no SB0004
+        Assert.DoesNotContain("DiagnosticId = \"SB0004\"", csOutput);
         Assert.Contains("public interface ICallbackProtocol", csOutput);
+        Assert.Contains("Callback", csOutput);
     }
 
     [Fact]

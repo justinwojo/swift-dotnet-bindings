@@ -29,6 +29,15 @@ public sealed class GenericContext
     public static GenericContext Empty { get; } = new(new());
 
     /// <summary>
+    /// Build a context for Self-requirement protocols: τ_0_0 → TSelf.
+    /// </summary>
+    public static GenericContext ForProtocolSelf() =>
+        new(new Dictionary<string, GenericParameterCSName>
+        {
+            ["τ_0_0"] = new GenericParameterCSName("TSelf")
+        });
+
+    /// <summary>
     /// Build from a method (uses method's own GenericParameters).
     /// </summary>
     public static GenericContext FromMethod(MethodDecl methodDecl) =>
