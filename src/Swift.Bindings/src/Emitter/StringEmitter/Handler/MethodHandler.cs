@@ -246,6 +246,13 @@ namespace BindingsGeneration
                 }
             }
 
+            // Emit Swift wrapper for constructors with debug params (#file, #line, etc.)
+            if (!methodEnv.MethodDecl.UsesWrapperLibrary &&
+                DefaultParameterOverloadEmitter.HasDebugParameters(methodEnv.MethodDecl))
+            {
+                DefaultParameterOverloadEmitter.EmitDebugParamWrapper(swiftWriter, methodEnv);
+            }
+
             var signatureHandler = new SignatureHandler(methodEnv);
 
             if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)
@@ -544,6 +551,14 @@ namespace BindingsGeneration
                     "ArraySliceNormalization",
                     "ArraySlice parameters normalized to Array via Swift wrapper.");
                 return;
+            }
+
+            // Emit Swift wrapper for methods with debug params (#file, #line, etc.)
+            // Must happen before SignatureHandler — updates MangledName + UsesWrapperLibrary.
+            if (!methodEnv.MethodDecl.UsesWrapperLibrary &&
+                DefaultParameterOverloadEmitter.HasDebugParameters(methodEnv.MethodDecl))
+            {
+                DefaultParameterOverloadEmitter.EmitDebugParamWrapper(swiftWriter, methodEnv);
             }
 
             var signatureHandler = new SignatureHandler(methodEnv);

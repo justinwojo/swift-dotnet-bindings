@@ -532,6 +532,134 @@ public class TypeHandlerHelpersTests
 
     #endregion
 
+    #region ToStringHelper Tests
+
+    [Fact]
+    public void TryGetDescriptionPropertyName_WithDescription_ReturnsTrue()
+    {
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        classDecl.Properties.Add(CreateDescriptionProperty(moduleDecl));
+
+        Assert.True(ToStringHelper.TryGetDescriptionPropertyName(classDecl, null, out var name));
+        Assert.Equal("Description", name);
+    }
+
+    [Fact]
+    public void TryGetDescriptionPropertyName_WithoutDescription_ReturnsFalse()
+    {
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+
+        Assert.False(ToStringHelper.TryGetDescriptionPropertyName(classDecl, null, out _));
+    }
+
+    [Fact]
+    public void TryGetDescriptionPropertyName_StaticDescription_ReturnsFalse()
+    {
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        var prop = CreateDescriptionProperty(moduleDecl);
+        prop.IsStatic = true;
+        classDecl.Properties.Add(prop);
+
+        Assert.False(ToStringHelper.TryGetDescriptionPropertyName(classDecl, null, out _));
+    }
+
+    [Fact]
+    public void TryGetDescriptionPropertyName_WrongType_ReturnsFalse()
+    {
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        classDecl.Properties.Add(new PropertyDecl
+        {
+            Name = "description",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl> { new GetAccessorDecl { Method = CreateMinimalMethodDecl(moduleDecl) } },
+            ParentDecl = classDecl,
+            ModuleDecl = moduleDecl
+        });
+
+        Assert.False(ToStringHelper.TryGetDescriptionPropertyName(classDecl, null, out _));
+    }
+
+    [Fact]
+    public void TryGetDescriptionPropertyName_WithRename_ReturnsRenamedName()
+    {
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        classDecl.Properties.Add(CreateDescriptionProperty(moduleDecl));
+        var renames = new Dictionary<string, string> { { "Description", "DescriptionValue" } };
+
+        Assert.True(ToStringHelper.TryGetDescriptionPropertyName(classDecl, renames, out var name));
+        Assert.Equal("DescriptionValue", name);
+    }
+
+    [Fact]
+    public void EmitToString_WithDescription_EmitsOverride()
+    {
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        classDecl.Properties.Add(CreateDescriptionProperty(moduleDecl));
+
+        ToStringHelper.EmitToStringIfDescriptionExists(csWriter, classDecl, null);
+
+        Assert.Contains("public override string ToString() => Description;", output.ToString());
+    }
+
+    [Fact]
+    public void EmitToString_WithoutDescription_EmitsNothing()
+    {
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+
+        ToStringHelper.EmitToStringIfDescriptionExists(csWriter, classDecl, null);
+
+        Assert.Equal("", output.ToString());
+    }
+
+    private static PropertyDecl CreateDescriptionProperty(ModuleDecl moduleDecl)
+    {
+        return new PropertyDecl
+        {
+            Name = "description",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl> { new GetAccessorDecl { Method = CreateMinimalMethodDecl(moduleDecl) } },
+            ParentDecl = null!,
+            ModuleDecl = moduleDecl
+        };
+    }
+
+    private static MethodDecl CreateMinimalMethodDecl(ModuleDecl moduleDecl)
+    {
+        return new MethodDecl
+        {
+            Name = "description.get",
+            MangledName = "$sTest",
+            IsAccessor = true,
+            IsFinal = false,
+            IsConstructor = false,
+            MethodType = MethodType.Instance,
+            CSSignature = new List<ArgumentDecl>(),
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+            ParentDecl = null!,
+            ModuleDecl = moduleDecl
+        };
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static TypeDatabase CreateTypeDatabase()

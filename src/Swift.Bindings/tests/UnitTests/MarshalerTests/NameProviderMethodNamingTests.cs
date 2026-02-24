@@ -203,4 +203,46 @@ public class NameProviderMethodNamingTests
     }
 
     #endregion
+
+    #region Self-returning methods (suppress Get prefix)
+
+    [Fact]
+    public void SelfReturning_NounOnly_SkipsGetPrefix()
+    {
+        // "equalTo" returning Self → "EqualTo", not "GetEqualTo"
+        var result = NameProvider.GetPublicMethodName("equalTo", isAsync: false, hasReturnValue: true, isSelfReturning: true);
+        Assert.Equal("EqualTo", result);
+    }
+
+    [Fact]
+    public void SelfReturning_Accessibility_SkipsGetPrefix()
+    {
+        var result = NameProvider.GetPublicMethodName("accessibility", isAsync: false, hasReturnValue: true, isSelfReturning: true);
+        Assert.Equal("Accessibility", result);
+    }
+
+    [Fact]
+    public void SelfReturning_TargetCache_SkipsGetPrefix()
+    {
+        var result = NameProvider.GetPublicMethodName("targetCache", isAsync: false, hasReturnValue: true, isSelfReturning: true);
+        Assert.Equal("TargetCache", result);
+    }
+
+    [Fact]
+    public void SelfReturning_WithVerb_KeepsVerb()
+    {
+        // Self-returning with existing verb: leave it alone
+        var result = NameProvider.GetPublicMethodName("makeConstraints", isAsync: false, hasReturnValue: true, isSelfReturning: true);
+        Assert.Equal("MakeConstraints", result);
+    }
+
+    [Fact]
+    public void NotSelfReturning_NounOnly_GetsGetPrefix()
+    {
+        // Same method name but NOT self-returning → "Get" prefix applies
+        var result = NameProvider.GetPublicMethodName("equalTo", isAsync: false, hasReturnValue: true, isSelfReturning: false);
+        Assert.Equal("GetEqualTo", result);
+    }
+
+    #endregion
 }

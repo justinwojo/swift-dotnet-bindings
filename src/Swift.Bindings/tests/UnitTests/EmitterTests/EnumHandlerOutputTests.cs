@@ -1546,10 +1546,10 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
-    public void Emit_TupleWithSwiftStringAndExistential_KeepsSwiftStringButConvertsExistential()
+    public void Emit_TupleWithSwiftStringAndExistential_ProjectsBothElements()
     {
-        // Tuple: (SwiftString, known protocol) — SwiftString must keep ABI type for marshalling,
-        // but the existential should still get its interface type.
+        // Tuple: (SwiftString, known protocol) — both elements should be projected
+        // to idiomatic C# types in the public API (SwiftString → string, existential → interface).
         var typeDatabase = CreateTypeDatabaseWithStringAndProtocol("TestModule", "ImageProcessing");
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("FilterError", moduleDecl, isFrozen: true);
@@ -1566,10 +1566,8 @@ public class EnumHandlerOutputTests
 
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
-        // Factory signature: single tuple param — SwiftString stays as ABI type, existential gets interface
-        Assert.Contains("(Swift.SwiftString, IImageProcessing) value0)", csOutput);
-        // SwiftString inside tuple should NOT become "string" (would break P/Invoke marshalling)
-        Assert.DoesNotContain("(string,", csOutput);
+        // Factory signature: tuple elements projected — SwiftString → string, existential → interface
+        Assert.Contains("(string, IImageProcessing) value0)", csOutput);
     }
 
     [Fact]

@@ -860,7 +860,7 @@ public static class NameProvider
     /// <param name="hasReturnValue">Whether the method has a non-void return value.</param>
     /// <param name="propertyNames">Set of property names in the same type (already in PascalCase).</param>
     /// <returns>The public-facing method name.</returns>
-    public static string GetPublicMethodName(string methodName, bool isAsync, bool hasReturnValue = false, IReadOnlySet<string>? propertyNames = null)
+    public static string GetPublicMethodName(string methodName, bool isAsync, bool hasReturnValue = false, IReadOnlySet<string>? propertyNames = null, bool isSelfReturning = false, string? parentTypeName = null)
     {
         // 1. Strip leading async/Async prefix (Swift convention → .NET suffix convention)
         //    Only strip for actual async methods — a sync property named "asyncInstance"
@@ -872,7 +872,8 @@ public static class NameProvider
 
         // 3. Add "Get" prefix for noun-only names with a return value
         //    Do this BEFORE property collision check so "Data" → "GetData" no longer collides
-        if (hasReturnValue && !StartsWithVerb(name) && !isAsync)
+        //    Skip for self-returning methods (fluent/builder pattern: EqualTo(), Accessibility(), etc.)
+        if (hasReturnValue && !StartsWithVerb(name) && !isAsync && !isSelfReturning)
             name = $"Get{name}";
 
         // 4. Property collision resolution (only if still colliding after verb prefix)
@@ -884,6 +885,12 @@ public static class NameProvider
         // colliding with the inherited method (CS0111). Suffix with "Swift" to disambiguate.
         if (_inheritedMethodCollisions.Contains(name))
             name = $"{name}Swift";
+
+        // 4c. Type name collision: C# forbids member names identical to the enclosing type (CS0542).
+        // This can happen when a Swift type has a method whose PascalCase name matches the type name
+        // (e.g., `DatabaseRegion.databaseRegion(_:)` → `DatabaseRegion.DatabaseRegion(Database)`).
+        if (parentTypeName != null && name == parentTypeName)
+            name = $"Get{name}";
 
         // 5. Append "Async" suffix for async methods (per .NET convention)
         if (isAsync && !name.EndsWith("Async"))

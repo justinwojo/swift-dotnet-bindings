@@ -621,4 +621,51 @@ internal static class ProtocolConformanceHelper
         return true;
     }
 }
+
+    /// <summary>
+    /// Helper for emitting ToString() override on types conforming to CustomStringConvertible.
+    /// </summary>
+    internal static class ToStringHelper
+    {
+        /// <summary>
+        /// Checks if the type has a non-static 'description' property returning Swift.String
+        /// (indicating CustomStringConvertible conformance) and returns the emitted C# property name.
+        /// </summary>
+        public static bool TryGetDescriptionPropertyName(
+            TypeDecl typeDecl,
+            Dictionary<string, string>? renames,
+            out string propertyName)
+        {
+            propertyName = "";
+
+            var descProp = typeDecl.Properties.FirstOrDefault(p =>
+                p.Name == "description" &&
+                !p.IsStatic &&
+                p.Accessors.Any(a => a is GetAccessorDecl) &&
+                p.SwiftTypeSpec is NamedTypeSpec named &&
+                named.Name == "Swift.String");
+
+            if (descProp == null)
+                return false;
+
+            propertyName = NameProvider.GetFinalMemberName(
+                NameProvider.GetPropertyName(descProp.Name, typeDecl.Name), renames);
+            return true;
+        }
+
+        /// <summary>
+        /// Emits 'public override string ToString() => PropertyName;' if the type has a description property.
+        /// </summary>
+        public static void EmitToStringIfDescriptionExists(
+            IndentedTextWriter writer,
+            TypeDecl typeDecl,
+            Dictionary<string, string>? renames)
+        {
+            if (TryGetDescriptionPropertyName(typeDecl, renames, out var propertyName))
+            {
+                writer.WriteLine($"public override string ToString() => {propertyName};");
+                writer.WriteLine();
+            }
+        }
+    }
 }

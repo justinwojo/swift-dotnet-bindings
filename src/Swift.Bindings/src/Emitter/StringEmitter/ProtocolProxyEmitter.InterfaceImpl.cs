@@ -359,7 +359,8 @@ public partial class ProtocolProxyEmitter
         var parametersString = string.Join(", ", parameters);
         var argsString = string.Join(", ", argNames);
 
-        var methodName = NameProvider.GetPublicMethodName(method.Name, method.IsAsync, hasReturn);
+        var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(method);
+        var methodName = NameProvider.GetPublicMethodName(method.Name, method.IsAsync, hasReturn, isSelfReturning: isSelfReturning);
         var isDispatchable = dispatchEmitter.IsMethodDispatchable(method);
 
         // Validate that the projected return type matches the dispatch strategy.

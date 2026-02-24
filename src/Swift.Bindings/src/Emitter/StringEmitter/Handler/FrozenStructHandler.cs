@@ -277,10 +277,14 @@ namespace BindingsGeneration
                 SwiftEquatableMethodWriter.WriteSwiftEquatableImplementation();
                 ISwiftObjectMethodWriter.WriteFrozenStructImplementation(pinvokeHelperContext, isProjectedAsClass);
 
+                ToStringHelper.EmitToStringIfDescriptionExists(csWriter, structDecl, propertyRenames);
+
                 // Collect property names (post-rename) for method/property collision detection
                 var propertyNames = new HashSet<string>(structDecl.Properties.Select(p =>
                     NameProvider.GetFinalMemberName(
                         NameProvider.GetPropertyName(p.Name, structDecl.Name), propertyRenames)));
+
+                SubscriptHandler.EmitSubscripts(csWriter, swiftWriter, structDecl, env.TypeDatabase, conductor, childContext, _logger);
 
                 base.HandleBaseDecl(csWriter, swiftWriter, structDecl.Types, conductor, env.TypeDatabase, childContext);
                 base.HandleBaseDecl(csWriter, swiftWriter, structDecl.Methods, conductor, env.TypeDatabase, childContext, propertyNames);

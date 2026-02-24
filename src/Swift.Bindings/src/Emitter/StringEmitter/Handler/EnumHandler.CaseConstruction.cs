@@ -80,12 +80,81 @@ namespace BindingsGeneration
             // Emit conversions for parameters that differ between public and internal types
             var typeConversionHandler = new TypeConversionHandler(typeDatabase);
             var projectedArgs = new Dictionary<int, MarshalPlan>();
+            // Track tuple params with per-element conversion (maps param index → converted tuple expression)
+            var tuplePInvokeExprs = new Dictionary<int, string>();
             for (int i = 0; i < parameters.Count; i++)
             {
                 var (type, publicType, name, typeSpec) = parameters[i];
                 if (typeConversionHandler.IsSwiftString(typeSpec))
                 {
                     csWriter.WriteLine($"using var __{name} = new SwiftString({name});");
+                }
+                else if (typeSpec is TupleTypeSpec tupleSpec && publicType != type)
+                {
+                    // Tuple with projected elements — emit per-element conversion.
+                    // Build a converted tuple expression for the P/Invoke call.
+                    var genericContext = enumDecl.IsGeneric
+                        ? BuildGenericContextFromEnumParams(enumDecl.GenericParameters)
+                        : GenericContext.Empty;
+                    // Emit per-element marshalling from public types → ABI types.
+                    // The public signature uses factory-projected types (string, int?, etc.)
+                    // but the P/Invoke tuple uses lowered types (IntPtr, nint, etc.).
+                    // We marshal each element from public → ABI, then use GetPInvokeArgument
+                    // to get the correct lowered expression for the tuple P/Invoke call.
+                    var factory = new TypeProjectionFactory();
+                    var elementExprs = new List<string>();
+                    for (int j = 0; j < tupleSpec.Elements.Count; j++)
+                    {
+                        var element = tupleSpec.Elements[j];
+                        var elementAccess = !string.IsNullOrEmpty(element.TypeLabel)
+                            ? $"{name}.{element.TypeLabel}"
+                            : $"{name}.Item{j + 1}";
+
+                        var proj = factory.Project(element, new ProjectionContext
+                        {
+                            TypeDatabase = typeDatabase, IsParameter = true, GenericContext = genericContext
+                        });
+                        if (proj is StringProjection)
+                        {
+                            // String: public is `string`, P/Invoke tuple element is IntPtr.
+                            // Convert string → SwiftString, then extract IntPtr handle.
+                            var elemVarName = $"__{name}_e{j}";
+                            csWriter.WriteLine($"using var {elemVarName} = new SwiftString({elementAccess});");
+                            elementExprs.Add(GetPInvokeArgument(elemVarName, element, typeDatabase));
+                        }
+                        else if (proj is NativeRemappedProjection nrp)
+                        {
+                            // NativeRemapped (URL, etc.): factory creates wrapper, but P/Invoke tuple
+                            // element is IntPtr. Use factory setup, then extract IntPtr from the wrapper.
+                            var elemVarName = $"__{name}_e{j}";
+                            csWriter.WriteLine($"var {elemVarName} = {elementAccess};");
+                            var elemPlan = nrp.GetParameterPlan(elemVarName);
+                            MarshalPlanRenderer.RenderStatements(csWriter, elemPlan.SetupStatements);
+                            // For non-frozen NativeRemapped (URL): plan gives "{name}Swift.Payload" (SwiftSafeHandle).
+                            // Need to add .DangerousGetHandle() for IntPtr.
+                            var pinvokeExpr = elemPlan.PInvokeExpression;
+                            if (pinvokeExpr.EndsWith(".Payload"))
+                                pinvokeExpr += ".DangerousGetHandle()";
+                            elementExprs.Add(pinvokeExpr);
+                        }
+                        else if (proj is OptionalProjection or ArrayProjection or DictionaryProjection
+                            or ExistentialProjection)
+                        {
+                            // These projections produce PInvokeExpression that already matches
+                            // the tuple P/Invoke type (IntPtr for Optional/Array/Dict, ExistentialContainer for existentials).
+                            var elemVarName = $"__{name}_e{j}";
+                            csWriter.WriteLine($"var {elemVarName} = {elementAccess};");
+                            var elemPlan = proj.GetParameterPlan(elemVarName);
+                            MarshalPlanRenderer.RenderStatements(csWriter, elemPlan.SetupStatements);
+                            elementExprs.Add(elemPlan.PInvokeExpression);
+                        }
+                        else
+                        {
+                            // No projection or unsupported — use direct P/Invoke argument lowering
+                            elementExprs.Add(GetPInvokeArgument(elementAccess, element, typeDatabase));
+                        }
+                    }
+                    tuplePInvokeExprs[i] = $"({string.Join(", ", elementExprs)})";
                 }
                 else if (publicType != type && typeSpec is NamedTypeSpec ns && ns.ContainsGenericParameters)
                 {
@@ -131,6 +200,10 @@ namespace BindingsGeneration
                 else if (projectedArgs.TryGetValue(i, out var projPlan))
                 {
                     argList.Add(projPlan.PInvokeExpression);
+                }
+                else if (tuplePInvokeExprs.TryGetValue(i, out var tupleExpr))
+                {
+                    argList.Add(tupleExpr);
                 }
                 else
                 {
@@ -276,22 +349,13 @@ namespace BindingsGeneration
                 }
             }
 
-            // Handle tuple types - recurse per element, but keep SwiftString and bound generics
-            // as-is inside tuples (P/Invoke marshalling needs the ABI type for tuple elements).
-            // Only existential→interface conversion applies inside tuples.
+            // Handle tuple types - recurse per element using idiomatic projection.
+            // TupleProjection.GetParameterPlan() handles per-element conversion in the body.
             if (typeSpec is TupleTypeSpec tupleType)
             {
                 var tupleHandler = new TupleHandler(typeDatabase);
                 return tupleHandler.GetCSharpTupleType(tupleType, elementTypeSpec =>
-                {
-                    // SwiftString and bound generics (Optional, Array, Dictionary) inside tuples
-                    // keep ABI types — body-side marshalling doesn't support per-element conversion
-                    if (typeConversionHandler.IsSwiftString(elementTypeSpec))
-                        return GetCSharpTypeNameForEnumCase(elementTypeSpec, typeDatabase, boundGenericsHandler, genericParams);
-                    if (elementTypeSpec is NamedTypeSpec ns && ns.ContainsGenericParameters)
-                        return GetCSharpTypeNameForEnumCase(elementTypeSpec, typeDatabase, boundGenericsHandler, genericParams);
-                    return GetPublicCSharpTypeNameForEnumCase(elementTypeSpec, typeDatabase, boundGenericsHandler, genericParams);
-                });
+                    GetPublicCSharpTypeNameForEnumCase(elementTypeSpec, typeDatabase, boundGenericsHandler, genericParams));
             }
 
             // Handle SwiftString → string for public API

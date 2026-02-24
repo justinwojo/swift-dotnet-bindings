@@ -199,6 +199,10 @@ namespace BindingsGeneration
         {
             foreach (var argument in _env.MethodDecl.CSSignature.Skip(1))
             {
+                // Strip Swift compiler-injected debug params (#file, #line, #column, #function)
+                if (DefaultParameterOverloadEmitter.IsDebugParameter(argument))
+                    continue;
+
                 var csName = NameProvider.GetCSharpParameterName(argument);
 
                 if (_env.BoundGenericsHandler.IsBoundGeneric(argument))

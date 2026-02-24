@@ -292,7 +292,8 @@ public class ProtocolConformanceValidator
     {
         var returnTypeSpec = protoMethod.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         bool hasReturnValue = returnTypeSpec != null && !returnTypeSpec.IsEmptyTuple;
-        var methodName = NameProvider.GetPublicMethodName(protoMethod.Name, protoMethod.IsAsync, hasReturnValue: hasReturnValue);
+        var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(protoMethod);
+        var methodName = NameProvider.GetPublicMethodName(protoMethod.Name, protoMethod.IsAsync, hasReturnValue: hasReturnValue, isSelfReturning: isSelfReturning);
 
         var parameterTypes = new List<string>();
         for (int i = 1; i < protoMethod.CSSignature.Count; i++)

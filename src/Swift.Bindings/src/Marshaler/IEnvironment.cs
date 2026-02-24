@@ -133,7 +133,48 @@ namespace BindingsGeneration
         public string CSharpMethodName => NameProvider.GetPublicMethodName(
             MethodDecl.Name, MethodDecl.IsAsync,
             hasReturnValue: !MethodDecl.IsAccessor && MethodDecl.CSSignature.Count > 0 && !MethodDecl.CSSignature.First().SwiftTypeSpec.IsEmptyTuple,
-            SiblingPropertyNames);
+            SiblingPropertyNames,
+            isSelfReturning: IsSelfReturning,
+            parentTypeName: (MethodDecl.ParentDecl as TypeDecl)?.Name);
+
+        /// <summary>
+        /// Returns true if the method returns its declaring type (fluent/builder pattern).
+        /// Self-returning methods skip the "Get" prefix (e.g., "equalTo" → "EqualTo", not "GetEqualTo").
+        /// Only applies to non-constructor, non-accessor instance methods.
+        /// </summary>
+        internal bool IsSelfReturning => IsSelfReturningMethod(MethodDecl);
+
+        /// <summary>
+        /// Static helper for detecting self-returning methods.
+        /// Reused by dedup key builders that don't have a MethodEnvironment.
+        /// </summary>
+        internal static bool IsSelfReturningMethod(MethodDecl methodDecl)
+        {
+            // Only instance methods can be "self-returning" (fluent/builder pattern).
+            // Static methods returning Self are factories/singletons where Get prefix IS appropriate.
+            if (methodDecl.IsConstructor || methodDecl.IsAccessor || methodDecl.IsAsync)
+                return false;
+            if (methodDecl.MethodType == MethodType.Static)
+                return false;
+            if (methodDecl.CSSignature.Count == 0)
+                return false;
+
+            var returnTypeSpec = methodDecl.CSSignature[0].SwiftTypeSpec;
+            if (returnTypeSpec.IsEmptyTuple)
+                return false;
+
+            // Check for literal Self returns (protocol extension methods)
+            if (returnTypeSpec.IsDynamicSelf)
+                return true;
+
+            // Check for concrete type matching the parent type
+            if (methodDecl.ParentDecl is TypeDecl parentTypeDecl &&
+                returnTypeSpec is NamedTypeSpec named &&
+                named.Name == parentTypeDecl.SwiftTypeName.ModuleQualifiedName)
+                return true;
+
+            return false;
+        }
 
         /// <summary>
         /// Gets the P/Invoke helper context for collecting P/Invoke declarations in generic types.

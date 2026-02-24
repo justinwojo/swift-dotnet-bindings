@@ -350,14 +350,18 @@ namespace BindingsGeneration
         {
             var returnTypeSpec = methodDecl.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
             bool hasReturnValue = returnTypeSpec != null && !returnTypeSpec.IsEmptyTuple;
+            var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(methodDecl);
             var methodName = methodDecl.IsConstructor
                 ? "ctor"
-                : NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: hasReturnValue);
+                : NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: hasReturnValue, isSelfReturning: isSelfReturning, parentTypeName: (methodDecl.ParentDecl as TypeDecl)?.Name);
 
             var paramTypes = new List<string>();
             for (int i = 1; i < methodDecl.CSSignature.Count; i++)
             {
                 var arg = methodDecl.CSSignature[i];
+                // Debug params (#file, #line, etc.) are stripped from the public signature
+                if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
+                    continue;
                 // C11: Optional<Closure> and bare Closure are the same overload in C#
                 // (nullable reference types don't affect overload resolution).
                 // Unwrap Optional<Closure> so both produce the same projected key.

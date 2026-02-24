@@ -298,6 +298,10 @@ namespace BindingsGeneration
             foreach (var methodDecl in enumDecl.Methods.Where(m => m.IsConstructor))
                 ReportCollector.RecordMemberEmitted(BindingItemKind.Method, methodDecl.Name, enumDecl);
 
+            ToStringHelper.EmitToStringIfDescriptionExists(csWriter, enumDecl, propertyRenames);
+
+            SubscriptHandler.EmitSubscripts(csWriter, swiftWriter, enumDecl, env.TypeDatabase, conductor, childContext, _logger);
+
             // Emit nested types and methods using base handler
             base.HandleBaseDecl(csWriter, swiftWriter, enumDecl.Types, conductor, env.TypeDatabase, childContext);
             base.HandleBaseDecl(csWriter, swiftWriter, enumDecl.Methods.Where(m => !m.IsConstructor).ToList(), conductor, env.TypeDatabase, childContext, propertyNames);

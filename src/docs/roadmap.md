@@ -1,11 +1,11 @@
 # Roadmap
 
-**Updated**: February 2026 (post-inheritance rewrite)
+**Updated**: February 2026 (post-Q1 quality session)
 **Status**: Active — path to production-grade
 **Target**: Production-ready binding libraries that feel like native C# to consumers
 **Scoring reference**: `binding-review-feb-23.md` — 18-library quality review with 10-category scorecards
 
-For completed work (binding quality sessions A-D, architecture sessions 1-9, cross-module resolution, ExistentialContainer elimination, native C# enums, Optional truncation fix, SwiftDictionary projection, class inheritance I1-I6), see `Completed/roadmap-completed-feb2026.md`.
+For completed work (binding quality sessions A-D, architecture sessions 1-9, cross-module resolution, ExistentialContainer elimination, native C# enums, Optional truncation fix, SwiftDictionary projection, class inheritance I1-I6, quality session Q1), see `Completed/roadmap-completed-feb2026.md`.
 
 For future vision items (ObjC integration, multi-platform, emitter redesign, SwiftUI bridge corpus, performance benchmarks, etc.), see `Future/future-roadmap.md`.
 
@@ -15,7 +15,7 @@ For future vision items (ObjC integration, multi-platform, emitter redesign, Swi
 
 | Metric | Value |
 |--------|-------|
-| Unit tests | 4,089 passing (1 skipped) |
+| Unit tests | 4,113 passing (1 skipped) |
 | Integration tests | 700 passing (11 skipped, pre-existing) |
 | Runtime library tests | 221 passing (1 skipped) |
 | TestFramework must-pass | 94/94 passing, 0 degraded |
@@ -60,30 +60,20 @@ The projections were slightly optimistic for the two lowest-scoring libraries be
 
 **Ordering principle**: Most impactful items that improve the most libraries first. Derived from the 10 prioritized action items in `binding-review-feb-23.md`, cross-referenced with per-library score impact.
 
-#### Session Q1: Generator Bug Fixes — Naming, Tuples, Polish
+#### Session Q1: Generator Bug Fixes — Naming, Tuples, Polish ✅ COMPLETE
 
-**Effort**: 1 session | **Libraries**: All 18 (naming), Lottie/Starscream/Kingfisher/BlinkID (tuples), SnapKit (debug params)
+**Results**: All 6 sub-tasks implemented. Self-returning methods no longer get `Get` prefix. `#file`/`#line` debug params stripped (SnapKit overloads reduced by ~60%). `ToString()` synthesized on types with `Description` property. C# indexers emitted for Swift subscripts on concrete types (KeychainAccess, GRDB, Nuke). Enum case tuple element types projected idiomatically. Subscript indexer param types aligned with protocol interfaces. Constructor debug-param wrappers emit correct static factory pattern.
 
-All items in this session are existing-pipeline fixes — the projection and naming infrastructure exists, it just needs to be applied more broadly or have heuristics corrected. No new design work.
+| Sub-task | Status | Notes |
+|----------|--------|-------|
+| **Q1a. Fix `Get` prefix** | ✅ | Self-returning detection via `IsDynamicSelf` + concrete type name match. Applied to both concrete types and protocol interfaces. CS0542 guard added (method name = enclosing type). |
+| **Q1b. Strip debug params** | ✅ | `IsDebugParameter()` heuristic: `StaticString`+file/function, `UInt`+line/column. Filtered in `WrapperSignatureBuilder` and overload counting. Swift `@_silgen_name` wrapper fills defaults. |
+| **Q1c. `Description` → `ToString()`** | ✅ | `TypeHandlerHelpers.TryGetDescriptionPropertyName()`. Emitted on classes, structs, and class-backed enums. |
+| **Q1d. C# indexers for subscripts** | ✅ | `SubscriptHandler.cs` emits `this[...]` with P/Invoke-backed get/set. Skip gates for wrapper-triggering accessors, complex index params (dict/existential/array/optional). Idiomatic param types with conversion in indexer body. |
+| **Q1e. Tuple element projection** | ✅ (enum cases) | Enum case tuples fully projected. Method param tuples intentionally deferred (documented in `MethodSignature.cs:475`). |
+| **Q1f. Tuple label verification** | ✅ | Labels from ABI JSON propagate correctly — confirmed by verification. |
 
-**Naming & polish:**
-
-| Step | Description | Libraries | Effort |
-|------|-------------|-----------|--------|
-| **Q1a. Fix `Get` prefix on fluent methods** | When a method returns its declaring type (or `Self`), suppress the `Get` prefix. `GetEqualTo()` → `EqualTo()`, `GetAccessibility()` → `Accessibility()`, `GetTargetCache()` → `TargetCache()`. | SnapKit, KeychainAccess, Kingfisher, GRDB (4) | Small |
-| **Q1b. Strip `#file`/`#line` debug params** | Detect Swift `#file`/`#line` default parameter expressions and suppress from C# overloads. Currently triples overload count on SnapKit methods. | SnapKit (primary), others with debug params | Small |
-| **Q1c. `Description` → `ToString()`** | When a type has a `Description` property (from `CustomStringConvertible`), emit `public override string ToString() => Description;`. Universal C# expectation. | All 18 libraries | Small |
-| **Q1d. C# indexers for Swift subscripts** | Emit `this[key]` indexer syntax for Swift subscript declarations. `keychain["key"]` and `row["column"]` are the defining APIs for KeychainAccess and GRDB. | KeychainAccess, GRDB (primary), others | Medium |
-
-**Tuple element projection:**
-
-| Step | Description | Impact |
-|------|-------------|--------|
-| **Q1e. Project tuple element types** | Apply `TypeProjectionFactory` recursively to each element of tuple parameters and returns. `SwiftOptional<T>` → `T?`, `SwiftString` → `string`, `SwiftDictionary<K,V>` → `IReadOnlyDictionary<K,V>`. | Lottie `LottiePlaybackMode.FromProgress((double?, double, LottieLoopMode))` fixed |
-| **Q1f. Enum factory param naming in tuples** | Ensure tuple element labels from ABI JSON propagate to C# parameter names (already partially done in Session B2 — verify tuple path). | `value0` → named params in tuple constructors |
-
-**Key files**: `NameProvider.cs`, `WrapperEmitter.Signature.cs`, `PropertyHandler.cs`, `DefaultParameterOverloadEmitter.cs`, `EnumHandler.CaseConstruction.cs`, `TypeProjectionFactory.cs`
-**Acceptance gate**: 0 `Get` prefix on Self-returning methods. 0 `#file`/`#line` parameters in generated C#. `ToString()` emitted on all types with `Description` property. 0 `SwiftOptional<SwiftString>` or `SwiftOptional<double>` in public tuple signatures. 32/32 validation.
+**Key files modified**: `NameProvider.cs`, `IEnvironment.cs`, `IHandler.cs`, `DefaultParameterOverloadEmitter.cs`, `MethodHandler.cs`, `MethodSignature.cs`, `EnumHandler.CaseConstruction.cs`, `SubscriptHandler.cs` (new), `ClassHandler.cs`, `FrozenStructHandler.cs`, `NonFrozenStructHandler.cs`, `EnumHandler.cs`, `TypeHandlerHelpers.cs`, `ProtocolHandler.cs`, `ProtocolConformanceValidator.cs`, `ProtocolProxyEmitter.InterfaceImpl.cs`, `ProtocolProxyEmitter.Receivers.cs`, `ProtocolSignatureHelper.cs`
 
 #### Session Q2: Apple SDK Type Database + Protocol Audit
 
@@ -152,8 +142,8 @@ Self-returning methods are the #1 issue from the binding review. This session al
 
 | KPI | Current | Target | Session |
 |-----|---------|--------|---------|
-| `Get` prefix on fluent methods | ~40 | 0 | Q1 |
-| `SwiftOptional`/`SwiftString` in tuple params | ~20 | 0 | Q1 |
+| `Get` prefix on fluent methods | ~40 | 0 | Q1 ✅ |
+| `SwiftOptional`/`SwiftString` in enum tuple params | ~20 | 0 | Q1 ✅ |
 | `AnyType` from missing Apple SDK types | ~30 | 0 | Q2 |
 | Empty protocol interfaces | 67 | <10 | Q2+Q4 |
 | Core workflow methods skipped (closure gate) | ~200 | <50 | Q3 |
@@ -278,7 +268,7 @@ Substantial capability expansions. See `Future/future-roadmap.md` for detailed a
 DONE                       Phase 1: Class Inheritance (I1-I6) ✅
                            |
 NOW                        Phase 2: Binding Quality (Q1-Q4, 4 sessions)
-                           |  Q1: Bug fixes — naming, tuples, polish (all 18 libraries)
+                           |  Q1: Bug fixes — naming, tuples, polish ✅
                            |  Q2: Type database + protocol audit (SkeletonView, Alamofire, BlinkIDUX)
                            |  Q3: Closure parameter relaxation (Alamofire, GRDB, Stripe, RxSwift)
                            |  Q4: Self returns + protocol recovery (Kingfisher, SnapKit, RxSwift)

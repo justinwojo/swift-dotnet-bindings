@@ -652,7 +652,8 @@ namespace BindingsGeneration
                 }
             }
 
-            var methodName = NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: hasReturnValue);
+            var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(methodDecl);
+            var methodName = NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: hasReturnValue, isSelfReturning: isSelfReturning);
             XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl);
             csWriter.WriteLine($"{returnType} {methodName}({string.Join(", ", parameters)});");
         }
@@ -909,7 +910,8 @@ namespace BindingsGeneration
 
             var returnTypeSpec = methodDecl.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
             bool hasReturnValue = returnTypeSpec != null && !returnTypeSpec.IsEmptyTuple;
-            var methodName = NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: hasReturnValue);
+            var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(methodDecl);
+            var methodName = NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: hasReturnValue, isSelfReturning: isSelfReturning);
 
             var paramTypes = new List<string>();
             for (int i = 1; i < methodDecl.CSSignature.Count; i++)

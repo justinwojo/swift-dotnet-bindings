@@ -147,6 +147,8 @@ public static class DefaultParameterOverloadEmitter
         int count = 0;
         for (int i = args.Count - 1; i >= 0; i--)
         {
+            if (IsDebugParameter(args[i]))
+                continue; // debug params are always omitted; don't count them
             if (args[i].HasDefaultArg)
                 count++;
             else
@@ -425,14 +427,18 @@ public static class DefaultParameterOverloadEmitter
     {
         var returnTypeSpec = overloadDecl.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         bool hasReturnValue = returnTypeSpec != null && !returnTypeSpec.IsEmptyTuple;
+        var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(overloadDecl);
         var methodName = overloadDecl.IsConstructor
             ? "ctor"
-            : NameProvider.GetPublicMethodName(overloadDecl.Name, overloadDecl.IsAsync, hasReturnValue: hasReturnValue);
+            : NameProvider.GetPublicMethodName(overloadDecl.Name, overloadDecl.IsAsync, hasReturnValue: hasReturnValue, isSelfReturning: isSelfReturning, parentTypeName: (overloadDecl.ParentDecl as TypeDecl)?.Name);
 
         var paramTypes = new List<string>();
         for (int i = 1; i < overloadDecl.CSSignature.Count; i++)
         {
             var arg = overloadDecl.CSSignature[i];
+            // Debug params (#file, #line, etc.) are stripped from the public signature
+            if (IsDebugParameter(arg))
+                continue;
             // P1: Unwrap Optional<Closure> to bare Closure, matching the main pass (C11 in IHandler.cs).
             // Nullable reference types don't affect C# overload resolution — Action<T>? and Action<T>
             // are the same signature. Without this, cross-pass dedup misses collisions.
@@ -521,5 +527,207 @@ public static class DefaultParameterOverloadEmitter
         return $"DBW_{typeName}_{methodDecl.Name}_{hash}_{trimCount}";
     }
 
+    /// <summary>
+    /// Returns true if the method has any debug parameters (#file, #line, etc.).
+    /// </summary>
+    internal static bool HasDebugParameters(MethodDecl methodDecl)
+        => methodDecl.CSSignature.Skip(1).Any(IsDebugParameter);
+
+    /// <summary>
+    /// Emits a Swift @_silgen_name wrapper that strips debug params from a method,
+    /// letting Swift supply the defaults. Updates the MethodDecl's MangledName to
+    /// point to the wrapper symbol so the P/Invoke targets it instead of the original.
+    /// </summary>
+    internal static void EmitDebugParamWrapper(SwiftWriter swiftWriter, MethodEnvironment env)
+    {
+        var methodDecl = env.MethodDecl;
+        var parentTypeDecl = methodDecl.ParentDecl as TypeDecl;
+        bool isFreeFunction = parentTypeDecl == null;
+
+        // Build wrapper symbol
+        var hash = DeterministicHash8(methodDecl.MangledName);
+        var typeName = parentTypeDecl?.Name ?? "Global";
+        var wrapperSymbol = $"DBG_{typeName}_{methodDecl.Name}_{hash}";
+
+        // Gather kept (non-debug) params
+        var keptArgs = methodDecl.CSSignature.Skip(1).Where(a => !IsDebugParameter(a)).ToList();
+
+        // Build Swift parameter list for the wrapper
+        var swiftParams = new List<string>();
+        var derefLines = new List<string>();
+        foreach (var arg in keptArgs)
+        {
+            var label = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
+            if (OptionalPointerWrapperEmitter.ShouldWidenParam(arg, env.BoundGenericsHandler))
+            {
+                swiftParams.Add($"_ {label}: UnsafeRawPointer");
+                derefLines.Add(OptionalPointerWrapperEmitter.GetDerefCode(arg, label, label));
+            }
+            else
+            {
+                var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec);
+                if (arg.SwiftTypeSpec is ClosureTypeSpec closureSpec)
+                {
+                    if (!swiftType.StartsWith("@escaping"))
+                    {
+                        if (closureSpec.IsAsync && !swiftType.Contains("@Sendable"))
+                            swiftType = $"@escaping @Sendable {swiftType}";
+                        else
+                            swiftType = $"@escaping {swiftType}";
+                    }
+                    else if (closureSpec.IsAsync && !swiftType.Contains("@Sendable"))
+                    {
+                        swiftType = swiftType.Replace("@escaping ", "@escaping @Sendable ");
+                    }
+                }
+                swiftParams.Add($"_ {label}: {swiftType}");
+            }
+        }
+
+        // Large optional return buffer
+        bool hasLargeOptionalReturn = env.BoundGenericsHandler.IsLargeOptionalReturn(methodDecl);
+        if (hasLargeOptionalReturn)
+            swiftParams.Add("_ _resultBuf: UnsafeMutableRawPointer");
+
+        var swiftParamString = string.Join(", ", swiftParams);
+
+        // Build call arguments
+        var callArgs = new List<string>();
+        foreach (var arg in keptArgs)
+        {
+            var privateName = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
+            var valueRef = OptionalPointerWrapperEmitter.ShouldWidenParam(arg, env.BoundGenericsHandler)
+                ? $"{privateName}Val" : privateName;
+            var argStr = arg.Name switch
+            {
+                var n when n.StartsWith("arg") => "",
+                var n when n.StartsWith("_") => $"{n.Substring(1)}: ",
+                var n when string.IsNullOrEmpty(n) => "",
+                var n => $"{n}: "
+            };
+            callArgs.Add(argStr + valueRef);
+        }
+        var callArgString = string.Join(", ", callArgs);
+
+        // Return type
+        var returnTypeSpec = methodDecl.CSSignature.First().SwiftTypeSpec;
+        var returnType = ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec);
+        bool isVoid = returnTypeSpec is TupleTypeSpec tupleTypeSpec && tupleTypeSpec == TupleTypeSpec.Empty;
+        bool throws = methodDecl.Throws;
+        var asyncKeyword = methodDecl.IsAsync ? " async" : "";
+        var awaitPrefix = methodDecl.IsAsync ? "await " : "";
+        var throwsClause = throws ? " throws" : "";
+        var returnClause = (isVoid || hasLargeOptionalReturn) ? "" : $" -> {returnType}";
+        var tryPrefix = throws ? "try " : "";
+
+        var swiftFuncName = $"_dbg_{methodDecl.Name}_{hash}";
+
+        swiftWriter.WriteLine();
+
+        if (isFreeFunction)
+        {
+            var moduleName = ArraySliceNormalizationEmitter.UnescapeModuleName(methodDecl.ModuleDecl?.Name ?? "");
+            var callPrefix = !string.IsNullOrEmpty(moduleName) ? $"{moduleName}." : "";
+            swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
+            swiftWriter.WriteLine($"public func {swiftFuncName}({swiftParamString}){asyncKeyword}{throwsClause}{returnClause} {{");
+            swiftWriter.Indent++;
+            foreach (var line in derefLines) swiftWriter.WriteLine(line);
+            var callExpr = $"{tryPrefix}{awaitPrefix}{callPrefix}{methodDecl.Name}({callArgString})";
+            if (hasLargeOptionalReturn)
+                foreach (var bufLine in OptionalPointerWrapperEmitter.GetReturnBufferCode(callExpr, returnType))
+                    swiftWriter.WriteLine(bufLine);
+            else
+                swiftWriter.WriteLine(isVoid ? callExpr : $"return {callExpr}");
+            swiftWriter.Indent--;
+            swiftWriter.WriteLine("}");
+        }
+        else if (methodDecl.IsConstructor)
+        {
+            // Constructor — emit as static factory function in extension
+            // (mirrors EmitSwiftOverloadWrapper constructor branch)
+            var swiftModuleQualifiedName = parentTypeDecl!.SwiftTypeName.ModuleQualifiedName;
+            var ctorReturnType = swiftModuleQualifiedName;
+            var ctorReturnClause = methodDecl.IsFailable
+                ? $" -> {ctorReturnType}?"
+                : $" -> {ctorReturnType}";
+            swiftWriter.WriteLine($"extension {swiftModuleQualifiedName} {{");
+            swiftWriter.Indent++;
+            swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
+            swiftWriter.WriteLine($"public static func {swiftFuncName}({swiftParamString}){asyncKeyword}{throwsClause}{ctorReturnClause} {{");
+            swiftWriter.Indent++;
+            foreach (var line in derefLines) swiftWriter.WriteLine(line);
+            var callExpr = $"{tryPrefix}{awaitPrefix}{swiftModuleQualifiedName}({callArgString})";
+            swiftWriter.WriteLine($"return {callExpr}");
+            swiftWriter.Indent--;
+            swiftWriter.WriteLine("}");
+            swiftWriter.Indent--;
+            swiftWriter.WriteLine("}");
+        }
+        else
+        {
+            var swiftModuleQualifiedName = parentTypeDecl!.SwiftTypeName.ModuleQualifiedName;
+            bool isStatic = methodDecl.MethodType == MethodType.Static;
+            var staticKeyword = isStatic ? "static " : "";
+            var selfPrefix = isStatic ? "Self" : "self";
+            swiftWriter.WriteLine($"extension {swiftModuleQualifiedName} {{");
+            swiftWriter.Indent++;
+            swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
+            swiftWriter.WriteLine($"public {staticKeyword}func {swiftFuncName}({swiftParamString}){asyncKeyword}{throwsClause}{returnClause} {{");
+            swiftWriter.Indent++;
+            foreach (var line in derefLines) swiftWriter.WriteLine(line);
+            var callExpr = $"{tryPrefix}{awaitPrefix}{selfPrefix}.{methodDecl.Name}({callArgString})";
+            if (hasLargeOptionalReturn)
+                foreach (var bufLine in OptionalPointerWrapperEmitter.GetReturnBufferCode(callExpr, returnType))
+                    swiftWriter.WriteLine(bufLine);
+            else
+                swiftWriter.WriteLine(isVoid ? callExpr : $"return {callExpr}");
+            swiftWriter.Indent--;
+            swiftWriter.WriteLine("}");
+            swiftWriter.Indent--;
+            swiftWriter.WriteLine("}");
+        }
+
+        // Update the method's mangled name to target the wrapper
+        methodDecl.MangledName = wrapperSymbol;
+        methodDecl.UsesWrapperLibrary = true;
+
+        // Remove debug params from CSSignature so downstream iterators
+        // (marshalling, SafeHandle, closure callbacks) never see them.
+        methodDecl.CSSignature = methodDecl.CSSignature
+            .Where((a, i) => i == 0 || !IsDebugParameter(a))
+            .ToList();
+    }
+
     internal static string DeterministicHash8(string input) => EmitterUtility.DeterministicHash8(input);
+
+    /// <summary>
+    /// Detects Swift compiler-injected debug parameters (#file, #line, #column, #function).
+    /// These always have HasDefaultArg=true and use specific type+name combinations:
+    ///   - file/_file with StaticString (NOT String — real file params use String)
+    ///   - line/_line with UInt (NOT Int — #line produces UInt)
+    ///   - column/_column with UInt
+    ///   - function/_function with StaticString
+    /// </summary>
+    internal static bool IsDebugParameter(ArgumentDecl arg)
+    {
+        if (!arg.HasDefaultArg)
+            return false;
+
+        var name = arg.Name;
+        // Strip leading underscore for matching (Swift convention for hiding labels)
+        var baseName = name.StartsWith("_") ? name.Substring(1) : name;
+
+        if (arg.SwiftTypeSpec is not NamedTypeSpec namedType)
+            return false;
+
+        var typeName = namedType.Name;
+
+        return baseName switch
+        {
+            "file" or "filePath" => typeName == "Swift.StaticString",
+            "line" or "column" => typeName == "Swift.UInt",
+            "function" => typeName == "Swift.StaticString",
+            _ => false
+        };
+    }
 }

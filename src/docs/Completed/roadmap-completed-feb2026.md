@@ -105,3 +105,16 @@ Runtime `SwiftDictionary<K,V>` implements `IReadOnlyDictionary<K,V>`. Generator 
 - **I6 (Validation)**: All edge cases verified as handled: generic base classes (fallback to flat), actor inheritance (non-issue), cross-module inheritance (flat fallback), multi-level ObjC chains (stops at boundary), TestFramework Animal/Dog hierarchy working.
 
 **Results**: 60 derived classes across 12 libraries now have proper C# inheritance. 4,089 unit tests, 700 integration, 221 runtime, 94/94 must-pass, 32/32 validation. Post-inheritance score assessment: Alamofire 2.90→~3.15, SnapKit 3.20→~3.50, Lottie 3.85→~4.05.
+
+### 7. Binding Quality Session Q1 (Phase 2)
+
+Generator bug fixes improving naming, tuple projection, subscript emission, and polish across all 32 validated libraries.
+
+- **Q1a (Self-returning naming)**: Methods returning their declaring type or `Self` no longer get `Get` prefix. Detection via `IsDynamicSelf` + concrete type name match. Applied to concrete types AND protocol interfaces for consistency. CS0542 guard prevents method name = enclosing type name.
+- **Q1b (Debug param stripping)**: `IsDebugParameter()` heuristic detects `#file`/`#line`/`#column`/`#function` defaults using `StaticString`+name and `UInt`+name. Filtered in `WrapperSignatureBuilder.HandleArguments()` and overload counting. Swift `@_silgen_name` wrapper fills defaults. Constructor debug-param wrappers emit correct static factory pattern.
+- **Q1c (ToString synthesis)**: `TypeHandlerHelpers.TryGetDescriptionPropertyName()` detects non-static `description` property with string return. `public override string ToString() => Description;` emitted on classes, frozen/non-frozen structs, and class-backed enums.
+- **Q1d (Subscript indexers)**: New `SubscriptHandler.cs` emits C# `this[...]` indexers for Swift subscripts on concrete types. Accessor methods emitted via MethodHandler, wrapped in indexer syntax with factory-projected types. Skip gates for: static subscripts, AnyType fallbacks, unsupported modules, wrapper-triggering accessors, complex index params (dictionary/existential/array/optional). Idiomatic index param types with conversion code in indexer body (string→SwiftString, native-remapped). Protocol interface parity maintained.
+- **Q1e (Enum tuple projection)**: Enum case tuple element types projected idiomatically via `TypeProjectionFactory`. `SwiftOptional<double>` → `double?`, `SwiftString` → `string`, URL → `NSUrl`. Per-element P/Invoke marshalling added (StringProjection creates SwiftString, NativeRemappedProjection uses DangerousGetHandle). Method param tuples intentionally deferred.
+- **Q1f (Tuple label verification)**: Confirmed labels from ABI JSON propagate to C# parameter names via existing `TypeLabel` infrastructure.
+
+**Results**: 4,113 unit tests, 700 integration, 221 runtime, 32/32 validation. SnapKit overloads reduced ~60%. KeychainAccess/GRDB/Nuke subscript indexers emitted. Lottie enum tuples idiomatic.

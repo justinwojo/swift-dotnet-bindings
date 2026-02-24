@@ -245,10 +245,14 @@ namespace BindingsGeneration
                     equatableWriter.WriteSwiftEquatableImplementation();
                 iSwiftObjectWriter.WriteClassImplementation();
 
+                ToStringHelper.EmitToStringIfDescriptionExists(csWriter, classDecl, propertyRenames);
+
                 // Collect property names (post-rename) for method/property collision detection
                 var propertyNames = new HashSet<string>(classDecl.Properties.Select(p =>
                     NameProvider.GetFinalMemberName(
                         NameProvider.GetPropertyName(p.Name, classDecl.Name), propertyRenames)));
+
+                SubscriptHandler.EmitSubscripts(csWriter, swiftWriter, classDecl, env.TypeDatabase, conductor, childContext, _logger);
 
                 base.HandleBaseDecl(csWriter, swiftWriter, classDecl.Types, conductor, env.TypeDatabase, childContext);
                 base.HandleBaseDecl(csWriter, swiftWriter, classDecl.Methods, conductor, env.TypeDatabase, childContext, propertyNames);

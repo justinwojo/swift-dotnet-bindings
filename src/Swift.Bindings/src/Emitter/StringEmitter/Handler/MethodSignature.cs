@@ -447,6 +447,10 @@ namespace BindingsGeneration
 
             foreach (var argument in _env.MethodDecl.CSSignature.Skip(1))
             {
+                // Strip Swift compiler-injected debug params (#file, #line, #column, #function)
+                if (DefaultParameterOverloadEmitter.IsDebugParameter(argument))
+                    continue;
+
                 var csParamName = NameProvider.GetCSharpParameterName(argument);
 
                 // Try factory-based projection for non-tuple types (same guards as HandleReturnType)
@@ -469,6 +473,9 @@ namespace BindingsGeneration
                 }
 
                 // Fallback: tuple arguments (preserves element labels and shallow conversion)
+                // NOTE: Method tuple params are NOT factory-projected because the P/Invoke expects
+                // ABI types (e.g., IntPtr for Optional) and there's no per-element conversion in
+                // the wrapper body. Enum case tuples ARE projected (see EnumHandler.CaseConstruction.cs).
                 if (_env.TupleHandler.IsTuple(argument))
                 {
                     var tupleTypeSpec = _env.TupleHandler.GetTupleTypeSpec(argument)!;

@@ -7251,7 +7251,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Method on a simple enum.
         /// </summary>
-        public Swift.SwiftBindingsTestLib.Direction GetOpposite()
+        public Swift.SwiftBindingsTestLib.Direction Opposite()
         {
             unsafe
             {
@@ -10042,7 +10042,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Returns a new point translated by the given offsets.
         /// </summary>
-        public Swift.SwiftBindingsTestLib.FrozenPoint GetTranslated( double dx,  double dy)
+        public Swift.SwiftBindingsTestLib.FrozenPoint Translated( double dx,  double dy)
         {
             unsafe
             {
@@ -10072,7 +10072,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Returns the midpoint between this point and another.
         /// </summary>
-        public Swift.SwiftBindingsTestLib.FrozenPoint GetMidpoint( Swift.SwiftBindingsTestLib.FrozenPoint other)
+        public Swift.SwiftBindingsTestLib.FrozenPoint Midpoint( Swift.SwiftBindingsTestLib.FrozenPoint other)
         {
             unsafe
             {
@@ -34190,6 +34190,8 @@ public partial class SimpleItem : ISwiftObject, IDisposable
         return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
     }
     
+    public override string ToString() => Description;
+    
     
     public SimpleItem( string id,  string label)
     {
@@ -34645,6 +34647,8 @@ public partial class DisplayItem : ISwiftObject, IDisposable, IDisplayable
         }
         return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
     }
+    
+    public override string ToString() => Description;
     
     
     public DisplayItem( string text)
