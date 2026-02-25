@@ -80,11 +80,6 @@ public class ProtocolConformanceValidator
         if (!visited.Add(qualifiedName))
             return true;
 
-        // A7: If the protocol interface has unemittable members (AnyType fallback),
-        // concrete types can't implement it — skip conformance entirely.
-        if (HasUnemittableInterfaceMembers(protocolDecl))
-            return false;
-
         // Resolve the concrete type's C# name for TSelf-aware type matching
         string? conformingTypeName = null;
         if (protocolDecl.HasSelfRequirement && concreteType.SwiftTypeName != null &&
@@ -99,11 +94,16 @@ public class ProtocolConformanceValidator
         var requiredMethods = new HashSet<string>();
 
         // For each INTERFACE PROPERTY requirement:
+        var boundGenericsHandler = new BoundGenericsHandler(_typeDatabase);
         foreach (var protoProperty in protocolDecl.Properties)
         {
             if (protoProperty.IsStatic) continue;
             var propertyKey = protoProperty.Name;
             if (!requiredProperties.Add(propertyKey)) continue;
+
+            // Skip properties that won't appear in the interface (mirrors ProtocolHandler gates)
+            if (IsPropertySkippedFromInterface(protoProperty, boundGenericsHandler, protocolDecl))
+                continue;
 
             // Find matching property in CONCRETE TYPE
             var concreteProperty = FindMatchingProperty(concreteType, protoProperty);
@@ -170,6 +170,10 @@ public class ProtocolConformanceValidator
             var methodKey = ProtocolSignatureHelper.GetMethodSignatureKey(protoMethod, _typeDatabase, protocolDecl);
             if (!requiredMethods.Add(methodKey)) continue;
 
+            // Skip methods that won't appear in the interface (mirrors ProtocolHandler gates)
+            if (IsMethodSkippedFromInterface(protoMethod, boundGenericsHandler, protocolDecl))
+                continue;
+
             var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(protoMethod, _typeDatabase, protocolDecl);
             if (!emittedCSharpKeys.Add(projectedKey))
                 continue;
@@ -187,6 +191,43 @@ public class ProtocolConformanceValidator
                 concreteMethod, _typeDatabase, out _, out var concreteReturnType);
             if (skipReason != null)
                 return false;
+
+            // Check C# name parity: the concrete type's method is emitted via GetPublicMethodName
+            // with the concrete type's property names. If a property collision causes a "Method"
+            // suffix, the emitted name won't match the interface member name → CS0535.
+            // GetPublicMethodName accounts for Get prefix (noun-only + return value), Async suffix,
+            // and property collision — so we must use it, not just ToPascalCase.
+            var concreteProperties = concreteType switch
+            {
+                ClassDecl cd => cd.Properties,
+                StructDecl sd => sd.Properties,
+                EnumDecl ed => ed.Properties,
+                _ => Enumerable.Empty<PropertyDecl>()
+            };
+            var concretePropertyNames = new HashSet<string>(
+                concreteProperties.Select(p => NameProvider.GetPropertyName(p.Name)));
+            var concreteReturnTypeSpec = concreteMethod.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+            bool concreteHasReturn = concreteReturnTypeSpec != null && !concreteReturnTypeSpec.IsEmptyTuple;
+            var concreteIsSelfReturning = MethodEnvironment.IsSelfReturningMethod(concreteMethod);
+            var concreteParentTypeName = NameProvider.ToPascalCase(concreteType.Name);
+            var concreteEmittedName = NameProvider.GetPublicMethodName(
+                concreteMethod.Name, concreteMethod.IsAsync,
+                hasReturnValue: concreteHasReturn,
+                propertyNames: concretePropertyNames,
+                isSelfReturning: concreteIsSelfReturning,
+                parentTypeName: concreteParentTypeName);
+
+            // Compare with the interface method name (computed without property collision context)
+            var protoReturnTypeSpec = protoMethod.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+            bool protoHasReturn = protoReturnTypeSpec != null && !protoReturnTypeSpec.IsEmptyTuple;
+            var protoIsSelfReturning = MethodEnvironment.IsSelfReturningMethod(protoMethod);
+            var interfaceMethodName = NameProvider.GetPublicMethodName(
+                protoMethod.Name, protoMethod.IsAsync,
+                hasReturnValue: protoHasReturn,
+                isSelfReturning: protoIsSelfReturning);
+
+            if (concreteEmittedName != interfaceMethodName)
+                return false;  // CS0535: method names diverge due to collision resolution
 
             // Check return type compatibility (CS0738)
             var interfaceReturnType = GetInterfaceMethodReturnType(protoMethod, protocolDecl);
@@ -474,40 +515,97 @@ public class ProtocolConformanceValidator
         => typeName.Replace(" ", "").Trim();
 
     /// <summary>
-    /// Checks if a protocol has interface members that would project to AnyType,
-    /// making it impossible for concrete types to implement the interface.
+    /// Checks if a protocol property would be skipped from the interface.
+    /// Mirrors the skipping logic in ProtocolHandler.Emit for properties.
     /// </summary>
-    private bool HasUnemittableInterfaceMembers(ProtocolDecl protocolDecl)
+    private bool IsPropertySkippedFromInterface(PropertyDecl property, BoundGenericsHandler boundGenericsHandler, ProtocolDecl protocolDecl)
     {
-        var closureHandler = new ClosureHandler(_typeDatabase);
+        // Bare generic usage (e.g., SwiftDictionary without <K,V>)
+        if (boundGenericsHandler.HasBareGenericUsage(property.SwiftTypeSpec, property.ModuleDecl ?? _moduleDecl))
+            return true;
 
-        foreach (var method in protocolDecl.Methods)
+        // AnyType as a generic type argument (resolved C# name may contain AnyType
+        // even if TypeSpec doesn't look generic — e.g., unknown inner types in TypeDatabase).
+        // Pass protocolDecl so Self-requirement protocols resolve τ_0_0 → TSelf instead of AnyType.
+        var projected = ProtocolSignatureHelper.ProjectTypeToCSharp(property.SwiftTypeSpec, _typeDatabase, protocolDecl);
+        if (ContainsAnyTypeGenericArg(projected) ||
+            TypeDatabaseExtensions.IsBareGenericTypeName(projected))
+            return true;
+
+        // Unsupported module references (SwiftUI, Combine)
+        if (MemberEmissionValidator.ReferencesUnsupportedModule(property.SwiftTypeSpec))
+            return true;
+
+        // Bound generic properties with non-ISwiftObject args are skipped from interface
+        if (property.SwiftTypeSpec is NamedTypeSpec propNamedType &&
+            propNamedType.ContainsGenericParameters &&
+            boundGenericsHandler.HasNonSwiftObjectGenericArg(property.SwiftTypeSpec))
+            return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// Checks if a protocol method would be skipped from the interface.
+    /// Mirrors the skipping logic in ProtocolHandler.Emit for methods.
+    /// Does NOT skip closure methods (they are emitted in the interface with stubs).
+    /// </summary>
+    private bool IsMethodSkippedFromInterface(MethodDecl method, BoundGenericsHandler boundGenericsHandler, ProtocolDecl protocolDecl)
+    {
+        // Bound generic args that can't satisfy ISwiftObject
+        bool hasNonSwiftObjectArg = method.CSSignature.Any(arg =>
+            boundGenericsHandler.IsBoundGeneric(arg) &&
+            boundGenericsHandler.HasNonSwiftObjectGenericArg(arg.SwiftTypeSpec));
+        if (hasNonSwiftObjectArg)
+            return true;
+
+        // Bare generic type in signature (e.g., SwiftDictionary without <K,V>)
+        if (HasBareGenericInMethodSignature(method, protocolDecl))
+            return true;
+
+        // Existential parameters (can't marshal in receivers)
+        var existentialHandler = new ExistentialHandler(_typeDatabase);
+        bool hasExistentialParam = method.CSSignature.Skip(1).Any(arg =>
+            existentialHandler.IsExistential(arg.SwiftTypeSpec) ||
+            existentialHandler.IsOptionalExistential(arg.SwiftTypeSpec));
+        if (hasExistentialParam)
+            return true;
+
+        // AnyType as a generic type argument in return or params
+        if (HasAnyTypeGenericArgInSignature(method, protocolDecl))
+            return true;
+
+        // Unsupported module references (SwiftUI, Combine)
+        bool hasUnsupportedModuleRef = method.CSSignature.Any(arg =>
+            MemberEmissionValidator.ReferencesUnsupportedModule(arg.SwiftTypeSpec));
+        if (hasUnsupportedModuleRef)
+            return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// Checks if a method signature contains bare generic usage.
+    /// Mirrors ProtocolHandler.HasBareGenericInMethodSignature.
+    /// </summary>
+    private bool HasBareGenericInMethodSignature(MethodDecl method, ProtocolDecl protocolDecl)
+    {
+        var bgh = new BoundGenericsHandler(_typeDatabase);
+        var moduleDecl = method.ModuleDecl ?? protocolDecl.ModuleDecl;
+
+        if (method.CSSignature.Count > 0)
         {
-            if (method.IsConstructor || method.MethodType == MethodType.Static) continue;
-
-            foreach (var arg in method.CSSignature)
+            var returnArg = method.CSSignature[0];
+            if (returnArg.SwiftTypeSpec is not TupleTypeSpec tuple || !tuple.IsEmptyTuple)
             {
-                // Check via TryFindFallbackInfo (catches complex fallbacks)
-                if (UnsupportedSwiftTypeSupport.TryFindFallbackInfo(_typeDatabase, closureHandler, arg.SwiftTypeSpec, out _))
-                    return true;
-
-                // Check via projection (catches generic params → AnyType, including nested:
-                // Action<AnyType>, Func<AnyType, ...>, tuples with AnyType, etc.)
-                var projected = ProtocolSignatureHelper.ProjectTypeToCSharp(arg.SwiftTypeSpec, _typeDatabase, protocolDecl);
-                if (ContainsAnyTypeFallback(projected))
+                if (bgh.HasBareGenericUsage(returnArg.SwiftTypeSpec, moduleDecl))
                     return true;
             }
         }
 
-        foreach (var property in protocolDecl.Properties)
+        for (int i = 1; i < method.CSSignature.Count; i++)
         {
-            if (property.IsStatic) continue;
-
-            if (UnsupportedSwiftTypeSupport.TryFindFallbackInfo(_typeDatabase, closureHandler, property.SwiftTypeSpec, out _))
-                return true;
-
-            var projected = ProtocolSignatureHelper.ProjectTypeToCSharp(property.SwiftTypeSpec, _typeDatabase, protocolDecl);
-            if (ContainsAnyTypeFallback(projected))
+            if (bgh.HasBareGenericUsage(method.CSSignature[i].SwiftTypeSpec, moduleDecl))
                 return true;
         }
 
@@ -515,23 +613,43 @@ public class ProtocolConformanceValidator
     }
 
     /// <summary>
-    /// Checks if a projected C# type name contains an AnyType fallback, either at the top level
-    /// or nested inside generic wrappers (Action&lt;AnyType&gt;, Func&lt;AnyType, ...&gt;, tuples, etc.).
-    /// Uses word-boundary matching to avoid false positives on user types containing "AnyType" as a substring.
+    /// Checks if a method signature contains AnyType as a generic type argument.
+    /// Mirrors ProtocolHandler.HasAnyTypeGenericArgInSignature.
     /// </summary>
-    private static bool ContainsAnyTypeFallback(string projected)
+    private bool HasAnyTypeGenericArgInSignature(MethodDecl method, ProtocolDecl protocolDecl)
     {
-        // Fast path: exact match (most common case)
-        if (projected is "AnyType" or "Swift.AnyType")
-            return true;
-
-        // Check for AnyType nested inside generic types (Action<AnyType>, Func<AnyType, int>, etc.)
-        // Word boundary: AnyType must be preceded/followed by non-word chars or string boundaries
-        if (projected.Contains("AnyType"))
+        if (method.CSSignature.Count > 0)
         {
-            return System.Text.RegularExpressions.Regex.IsMatch(projected, @"\bAnyType\b");
+            var returnArg = method.CSSignature[0];
+            if (returnArg.SwiftTypeSpec is not TupleTypeSpec tuple || !tuple.IsEmptyTuple)
+            {
+                var projected = ProtocolSignatureHelper.ProjectTypeToCSharp(returnArg.SwiftTypeSpec, _typeDatabase, protocolDecl);
+                if (ContainsAnyTypeGenericArg(projected))
+                    return true;
+            }
+        }
+
+        for (int i = 1; i < method.CSSignature.Count; i++)
+        {
+            var projected = ProtocolSignatureHelper.ProjectTypeToCSharp(method.CSSignature[i].SwiftTypeSpec, _typeDatabase, protocolDecl);
+            if (ContainsAnyTypeGenericArg(projected))
+                return true;
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Checks if a type name contains AnyType as a generic type argument (not as the whole type).
+    /// E.g., "BatchedCollection&lt;AnyType&gt;" → true, "AnyType" → false.
+    /// </summary>
+    private static bool ContainsAnyTypeGenericArg(string typeName)
+    {
+        // Only check for AnyType INSIDE generic brackets, not the top-level type
+        var angleIdx = typeName.IndexOf('<');
+        if (angleIdx < 0)
+            return false;
+        var genericPart = typeName.Substring(angleIdx);
+        return System.Text.RegularExpressions.Regex.IsMatch(genericPart, @"\bAnyType\b");
     }
 }

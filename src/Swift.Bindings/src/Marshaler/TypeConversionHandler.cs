@@ -16,6 +16,7 @@ public class TypeConversionHandler
     private static readonly SwiftTypeName SwiftStringTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String");
     private static readonly SwiftTypeName SwiftArrayTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Array");
     private static readonly SwiftTypeName SwiftDictionaryTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Dictionary");
+    private static readonly SwiftTypeName SwiftSetTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Set");
     private static readonly SwiftTypeName SwiftOptionalTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional");
     private static readonly SwiftTypeName FoundationURLTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.URL");
     private static readonly SwiftTypeName FoundationDataTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.Data");
@@ -39,6 +40,7 @@ public class TypeConversionHandler
         return IsSwiftString(namedTypeSpec) ||
                IsSwiftArray(namedTypeSpec) ||
                IsSwiftDictionary(namedTypeSpec) ||
+               IsSwiftSet(namedTypeSpec) ||
                IsSwiftOptional(namedTypeSpec);
     }
 
@@ -87,6 +89,21 @@ public class TypeConversionHandler
 
         var typeName = SwiftTypeName.FromTypeSpec(namedTypeSpec);
         return typeName.Equals(SwiftDictionaryTypeName);
+    }
+
+    /// <summary>
+    /// Determines whether the specified type spec represents Swift.Set.
+    /// </summary>
+    public bool IsSwiftSet(TypeSpec? typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec namedTypeSpec)
+            return false;
+
+        if (!namedTypeSpec.HasModule())
+            return false;
+
+        var typeName = SwiftTypeName.FromTypeSpec(namedTypeSpec);
+        return typeName.Equals(SwiftSetTypeName);
     }
 
     /// <summary>
@@ -157,6 +174,10 @@ public class TypeConversionHandler
 
         // SwiftDictionary: FromDictionary() creates disposable
         if (IsSwiftDictionary(namedTypeSpec))
+            return true;
+
+        // SwiftSet: FromEnumerable() creates disposable
+        if (IsSwiftSet(namedTypeSpec))
             return true;
 
         // SwiftOptional: NewSome()/NewNone() creates disposable

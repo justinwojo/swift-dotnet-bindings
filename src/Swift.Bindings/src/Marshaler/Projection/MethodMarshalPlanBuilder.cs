@@ -181,7 +181,7 @@ internal class MethodMarshalPlanBuilder
 
         var returnArg = _env.MethodDecl.CSSignature.First();
         var projection = s_projectionFactory.Project(returnArg.SwiftTypeSpec,
-            new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false, GenericContext = _genericContext });
+            new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false, GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl });
         var swiftType = projection?.ContainerTypeName ?? _wrapperSignature.ReturnType;
 
         return new OptionalPointerWrapperSetup

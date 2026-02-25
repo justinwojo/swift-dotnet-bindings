@@ -1,6 +1,6 @@
 # Roadmap
 
-**Updated**: February 2026 (post-v2 binding review)
+**Updated**: February 2026 (post-Session 1 + Codex review fixes)
 **Status**: Active — pushing toward 4.0+ across all libraries
 **Target**: Every validation library scores above 4.0/5.0 in binding quality
 **Scoring reference**: `binding-review-v2.md` — 18-library quality review with 10-category scorecards
@@ -17,6 +17,8 @@ All completed phases are archived in `Completed/`:
 | Class Inheritance | I1-I6 | 60 derived classes, virtual/override dispatch, protocol conformance inheritance | +0.20 avg |
 | Binding Quality | Q1-Q4 | Naming fixes, type database, closure relaxation, Self-returning protocols | +0.07 avg |
 | Binding Review v2 | P3 | Full 18-library re-review against v1 baseline. Result: 3.38 → 3.45 | Measurement |
+| Usability Session 1 | U1 | Protocol conformance validation, Self-concrete methods, SwiftSet projection, bound-generic Optional params | Fixes |
+| Codex Review Fixes | — | SetProjection `GetContainerCreationPlan`, validator property-skip + method-name parity, SwiftSet double-enum, Alamofire type database gap | 31/32 → 32/32 |
 
 Key completed-work references:
 - `Completed/roadmap-completed-feb2026.md` — full session details for all phases
@@ -34,7 +36,7 @@ Key completed-work references:
 | Integration tests | 700 passing (11 skipped, pre-existing) |
 | Runtime library tests | 221 passing (1 skipped) |
 | TestFramework must-pass | 94/94 passing, 0 degraded |
-| Libraries validated | 32/32 passing (all at 0 compile errors) |
+| Libraries validated | 32/32 passing, 0 compile errors (Alamofire fixed — `URLCredential.Persistence` type database entry) |
 | Binding quality avg | 3.45/5 (range: 2.40 RxSwift — 4.44 SmartCardIO) |
 
 ---
@@ -46,7 +48,7 @@ Key completed-work references:
 10 sessions optimized for **workflow completion first** (scores follow). Derived from v2 binding review, corrected after cross-review with Codex. Tracks both average score and a per-library critical workflow pass matrix.
 
 ```
-Session 1: Foundation + Quick Wins                    ← Start here (1 session)
+Session 1: Foundation + Quick Wins                    ✅ COMPLETE
  │         (conformance, Self-concrete, SwiftSet,
  │          bound-generic optional)
  │

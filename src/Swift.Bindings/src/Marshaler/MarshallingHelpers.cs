@@ -9,6 +9,7 @@ namespace BindingsGeneration
         private static readonly SwiftTypeName SwiftStringTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String");
         private static readonly SwiftTypeName SwiftArrayTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Array");
         private static readonly SwiftTypeName SwiftDictionaryTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Dictionary");
+        private static readonly SwiftTypeName SwiftSetTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Set");
         private static readonly SwiftTypeName SwiftOptionalTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional");
 
         /// <summary>
@@ -20,6 +21,7 @@ namespace BindingsGeneration
             return IsSwiftString(typeSpec) ||
                    IsSwiftArray(typeSpec) ||
                    IsSwiftDictionary(typeSpec) ||
+                   IsSwiftSet(typeSpec) ||
                    IsSwiftOptional(typeSpec);
         }
 
@@ -57,6 +59,18 @@ namespace BindingsGeneration
             if (!namedTypeSpec.HasModule())
                 return false;
             return SwiftTypeName.FromTypeSpec(namedTypeSpec).Equals(SwiftDictionaryTypeName);
+        }
+
+        /// <summary>
+        /// Determines whether the specified type spec represents Swift.Set.
+        /// </summary>
+        public static bool IsSwiftSet(TypeSpec? typeSpec)
+        {
+            if (typeSpec is not NamedTypeSpec namedTypeSpec)
+                return false;
+            if (!namedTypeSpec.HasModule())
+                return false;
+            return SwiftTypeName.FromTypeSpec(namedTypeSpec).Equals(SwiftSetTypeName);
         }
 
         /// <summary>

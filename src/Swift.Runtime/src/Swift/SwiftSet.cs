@@ -22,7 +22,7 @@ public interface ISwiftHashable { }
 /// Represents a Swift set.
 /// </summary>
 /// <typeparam name="Element">The element type contained in the set.</typeparam>
-public class SwiftSet<Element> : ISwiftObject, ICollection<Element>, IReadOnlyCollection<Element>
+public class SwiftSet<Element> : ISwiftObject, ICollection<Element>, IReadOnlyCollection<Element>, IReadOnlySet<Element>
 {
     // Lazy initialization to avoid calling Swift runtime during static construction.
     // This prevents crashes when Element is an existential container type, where
@@ -439,6 +439,95 @@ public class SwiftSet<Element> : ISwiftObject, ICollection<Element>, IReadOnlyCo
             throw new ArgumentOutOfRangeException(nameof(arrayIndex));
         for (int i = 0; i < elements.Count; i++)
             array[arrayIndex + i] = elements[i];
+    }
+
+    #endregion
+
+    #region IReadOnlySet<Element> implementation
+
+    /// <summary>
+    /// Determines whether the current set is a proper subset of a specified collection.
+    /// </summary>
+    public bool IsProperSubsetOf(IEnumerable<Element> other)
+    {
+        var otherSet = new HashSet<Element>(other);
+        if (Count >= otherSet.Count) return false;
+        foreach (var element in this)
+        {
+            if (!otherSet.Contains(element))
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Determines whether the current set is a proper superset of a specified collection.
+    /// </summary>
+    public bool IsProperSupersetOf(IEnumerable<Element> other)
+    {
+        var otherSet = new HashSet<Element>(other);
+        if (Count <= otherSet.Count) return false;
+        foreach (var element in otherSet)
+        {
+            if (!Contains(element))
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Determines whether the current set is a subset of a specified collection.
+    /// </summary>
+    public bool IsSubsetOf(IEnumerable<Element> other)
+    {
+        var otherSet = new HashSet<Element>(other);
+        foreach (var element in this)
+        {
+            if (!otherSet.Contains(element))
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Determines whether the current set is a superset of a specified collection.
+    /// </summary>
+    public bool IsSupersetOf(IEnumerable<Element> other)
+    {
+        foreach (var element in other)
+        {
+            if (!Contains(element))
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Determines whether the current set overlaps with the specified collection.
+    /// </summary>
+    public bool Overlaps(IEnumerable<Element> other)
+    {
+        foreach (var element in other)
+        {
+            if (Contains(element))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Determines whether the current set and a specified collection contain the same elements.
+    /// </summary>
+    public bool SetEquals(IEnumerable<Element> other)
+    {
+        var otherSet = new HashSet<Element>(other);
+        if (Count != otherSet.Count) return false;
+        foreach (var element in this)
+        {
+            if (!otherSet.Contains(element))
+                return false;
+        }
+        return true;
     }
 
     #endregion

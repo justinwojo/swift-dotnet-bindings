@@ -263,7 +263,10 @@ public class ProtocolConformanceValidatorTests
         var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
         var result = validator.CanFullyImplementProtocol(concreteType, protocolDecl);
 
-        Assert.False(result);
+        // The closure method with AnyType arg is skipped from the interface (mirrors ProtocolHandler:
+        // HasAnyTypeGenericArgInSignature catches Action<AnyType>). With no interface requirements
+        // remaining, the concrete type can fully implement the protocol.
+        Assert.True(result);
     }
 
     [Fact]

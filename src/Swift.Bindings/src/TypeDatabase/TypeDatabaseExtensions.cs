@@ -590,6 +590,8 @@ public static class TypeDatabaseExtensions
         "Foundation.Stream.Event",
         // Foundation nested ObjC enum: Operation.QueuePriority → NSOperationQueuePriority
         "Foundation.Operation.QueuePriority",
+        // Foundation nested ObjC enum: URLCredential.Persistence → NSUrlCredentialPersistence
+        "Foundation.URLCredential.Persistence",
         // Foundation nested ObjC enums from URLSession delegate protocols
         "Foundation.URLSession.ResponseDisposition",
         "Foundation.URLSession.AuthChallengeDisposition",
@@ -642,6 +644,8 @@ public static class TypeDatabaseExtensions
         ["Foundation.Stream.Event"] = ("Foundation", "NSStreamEvent"),
         // Foundation nested ObjC enum: Swift nested form → .NET NS-prefix form
         ["Foundation.Operation.QueuePriority"] = ("Foundation", "NSOperationQueuePriority"),
+        // Foundation nested ObjC enum: URLCredential.Persistence → NSUrlCredentialPersistence
+        ["Foundation.URLCredential.Persistence"] = ("Foundation", "NSUrlCredentialPersistence"),
         // Foundation URLSession delegate enums: Swift nested form → .NET NS-prefix form
         ["Foundation.URLSession.ResponseDisposition"] = ("Foundation", "NSUrlSessionResponseDisposition"),
         ["Foundation.URLSession.AuthChallengeDisposition"] = ("Foundation", "NSUrlSessionAuthChallengeDisposition"),

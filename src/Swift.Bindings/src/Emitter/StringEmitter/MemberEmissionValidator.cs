@@ -213,7 +213,8 @@ public static class MemberEmissionValidator
                 {
                     TypeDatabase = typeDatabase,
                     IsParameter = false,
-                    GenericContext = boundGenericContext
+                    GenericContext = boundGenericContext,
+                    ParentTypeDecl = property.ParentDecl as TypeDecl
                 });
                 if (projection != null)
                 {
@@ -575,7 +576,8 @@ public static class MemberEmissionValidator
                 var projection = factory.Project(returnArg.SwiftTypeSpec, new ProjectionContext
                 {
                     TypeDatabase = typeDatabase,
-                    IsParameter = false
+                    IsParameter = false,
+                    ParentTypeDecl = method.ParentDecl as TypeDecl
                 });
                 if (projection != null)
                 {

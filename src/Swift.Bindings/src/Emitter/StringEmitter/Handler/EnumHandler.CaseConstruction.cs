@@ -138,7 +138,7 @@ namespace BindingsGeneration
                             elementExprs.Add(pinvokeExpr);
                         }
                         else if (proj is OptionalProjection or ArrayProjection or DictionaryProjection
-                            or ExistentialProjection)
+                            or SetProjection or ExistentialProjection)
                         {
                             // These projections produce PInvokeExpression that already matches
                             // the tuple P/Invoke type (IntPtr for Optional/Array/Dict, ExistentialContainer for existentials).

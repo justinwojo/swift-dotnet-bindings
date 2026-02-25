@@ -415,9 +415,19 @@ public partial class ProtocolProxyEmitter
             ObjCBridgedProjection => $"{varName}.Handle",
             ArrayProjection arr => GetReceiverArrayGetterConversion(arr, varName),
             DictionaryProjection dict => GetReceiverDictGetterConversion(dict, varName),
+            SetProjection set => GetReceiverSetGetterConversion(set, varName),
             OptionalProjection opt => GetReceiverOptionalGetterConversion(opt, varName),
             _ => null
         };
+    }
+
+    private string? GetReceiverSetGetterConversion(SetProjection set, string varName)
+    {
+        var rawElem = set.ElementProjection.SwiftContainerGenericType;
+        var elemConv = set.ElementProjection.GetParameterElementConversion("e");
+        if (elemConv != null)
+            return $"SwiftSet<{rawElem}>.FromEnumerable({varName}.Select(e => {elemConv}))";
+        return $"SwiftSet<{rawElem}>.FromEnumerable({varName})";
     }
 
     private string? GetReceiverArrayGetterConversion(ArrayProjection arr, string varName)
@@ -457,6 +467,8 @@ public partial class ProtocolProxyEmitter
                 GetReceiverArrayGetterConversion(arr, $"{varName}Val")),
             DictionaryProjection dict => BuildOptionalContainerGetterConversion(dict, varName, optType,
                 GetReceiverDictGetterConversion(dict, $"{varName}Val")),
+            SetProjection set => BuildOptionalContainerGetterConversion(set, varName, optType,
+                GetReceiverSetGetterConversion(set, $"{varName}Val")),
             // Closures have their own ABI (SwiftClosureData/function pointers) — can't wrap in SwiftOptional.
             // Passthrough; accessor methods handle closure marshalling.
             ClosureProjection => null,
@@ -501,6 +513,7 @@ public partial class ProtocolProxyEmitter
             ObjCBridgedProjection objc => $"ObjCRuntime.Runtime.GetNSObject<{objc.PublicType}>({varName})!",
             ArrayProjection arr => GetReceiverArraySetterConversion(arr, varName),
             DictionaryProjection dict => GetReceiverDictSetterConversion(dict, varName),
+            SetProjection set => GetReceiverSetSetterConversion(set, varName),
             OptionalProjection opt => GetReceiverOptionalSetterConversion(opt, varName),
             _ => null
         };
@@ -512,6 +525,14 @@ public partial class ProtocolProxyEmitter
         if (elemConv != null)
             return $"{varName}.AsProjected(e => {elemConv})";
         return null;  // SwiftArray<T> IS IReadOnlyList<T> — no conversion needed
+    }
+
+    private string? GetReceiverSetSetterConversion(SetProjection set, string varName)
+    {
+        var elemConv = set.ElementProjection.GetReturnElementConversion("e");
+        if (elemConv != null)
+            return $"{varName}.Select(e => {elemConv}).ToHashSet()";
+        return null;  // SwiftSet<T> IS IReadOnlySet<T> — no conversion needed
     }
 
     private string? GetReceiverDictSetterConversion(DictionaryProjection dict, string varName)
@@ -538,6 +559,7 @@ public partial class ProtocolProxyEmitter
             ObjCBridgedProjection objc => $"({varName}.Case == Swift.SwiftOptionalCases.None ? null : ObjCRuntime.Runtime.GetNSObject<{objc.PublicType}>({varName}.Some)!)",
             ArrayProjection arr => GetReceiverOptionalContainerSetterConversion(arr, varName, arr.PublicType),
             DictionaryProjection dict => GetReceiverOptionalContainerSetterConversion(dict, varName, dict.PublicType),
+            SetProjection set => GetReceiverOptionalContainerSetterConversion(set, varName, set.PublicType),
             // Closures have their own ABI — passthrough, accessor methods handle marshalling.
             ClosureProjection => null,
             // Class/NonFrozenStruct: the Optional is already deserialized as SwiftOptional<PublicType>

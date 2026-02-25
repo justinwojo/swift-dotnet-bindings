@@ -645,6 +645,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             OptionalProjection opt => GetOptionalAccessorGetterConversion(opt, resultExpr),
             ArrayProjection arr => GetArrayAccessorGetterConversion(arr, resultExpr),
             DictionaryProjection dict => GetDictAccessorGetterConversion(dict, resultExpr),
+            SetProjection set => GetSetAccessorGetterConversion(set, resultExpr),
             _ => (null, false)
         };
     }
@@ -682,6 +683,16 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         return (asProjected, false);
     }
 
+    private static (string? conversion, bool requiresDisposal) GetSetAccessorGetterConversion(
+        SetProjection set, string resultExpr)
+    {
+        var elemConv = set.ElementProjection.GetReturnElementConversion("e");
+        if (elemConv != null)
+            return ($"{resultExpr}.Select(e => {elemConv}).ToHashSet()", true);
+        // SwiftSet<T> IS IReadOnlySet<T> — no conversion needed
+        return (null, false);
+    }
+
     private static (string? conversion, bool requiresDisposal) GetOptionalAccessorGetterConversion(
         OptionalProjection opt, string resultExpr)
     {
@@ -696,6 +707,9 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             // Optional<Dictionary<K,V>>: discriminant check + inner dict conversion
             DictionaryProjection dict =>
                 GetOptionalContainerGetterConversion(dict, resultExpr),
+            // Optional<Set<T>>: discriminant check + inner set conversion
+            SetProjection set =>
+                GetOptionalContainerGetterConversion(set, resultExpr),
             // Optional<NativeRemapped>: ((SwiftType?)result)?.ToConversion()
             NativeRemappedProjection nrp => ($"(({nrp.SwiftWrapperType}?){resultExpr})?.{nrp.ToConversionMethod}()", true),
             // Optional<Closure>: passthrough — closure accessor methods handle their own marshalling
@@ -717,6 +731,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             ArrayProjection arr => arr.ElementProjection.GetReturnElementConversion("e") != null,
             DictionaryProjection dict => dict.KeyProjection.GetReturnElementConversion("k") != null
                 || dict.ValueProjection.GetReturnElementConversion("v") != null,
+            SetProjection set => set.ElementProjection.GetReturnElementConversion("e") != null,
             _ => false
         };
         var idiomaticType = innerContainer.PublicType;
@@ -743,6 +758,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 nrp.RequiresDisposal),
             ArrayProjection arr => GetArrayAccessorSetterConversion(arr, valueExpr),
             DictionaryProjection dict => GetDictAccessorSetterConversion(dict, valueExpr),
+            SetProjection set => GetSetAccessorSetterConversion(set, valueExpr),
             OptionalProjection opt => GetOptionalAccessorSetterConversion(opt, valueExpr),
             _ => (null, false)
         };
@@ -786,6 +802,18 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         return ($"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({valueExpr})", true);
     }
 
+    private static (string? conversion, bool requiresDisposal) GetSetAccessorSetterConversion(
+        SetProjection set, string valueExpr)
+    {
+        var rawElem = set.ElementProjection.MarshalFromSwiftType;
+        var elemConv = set.ElementProjection is ClassProjection or NonFrozenStructProjection
+            ? null
+            : set.ElementProjection.GetParameterElementConversion("e");
+        if (elemConv != null)
+            return ($"SwiftSet<{rawElem}>.FromEnumerable({valueExpr}.Select(e => {elemConv}))", true);
+        return ($"SwiftSet<{rawElem}>.FromEnumerable({valueExpr})", true);
+    }
+
     private static (string? conversion, bool requiresDisposal) GetOptionalAccessorSetterConversion(
         OptionalProjection opt, string valueExpr)
     {
@@ -809,6 +837,11 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         {
             var (dictConv, _) = GetDictAccessorSetterConversion(dict, $"{valueExpr}Val");
             return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({dictConv}) : SwiftOptional<{optType}>.NewNone())", true);
+        }
+        if (inner is SetProjection set)
+        {
+            var (setConv, _) = GetSetAccessorSetterConversion(set, $"{valueExpr}Val");
+            return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({setConv}) : SwiftOptional<{optType}>.NewNone())", true);
         }
 
         // Class/NonFrozenStruct inner — accessor methods take the public type directly,

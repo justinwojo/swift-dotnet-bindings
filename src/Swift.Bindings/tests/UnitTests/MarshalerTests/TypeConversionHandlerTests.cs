@@ -138,12 +138,12 @@ public class TypeConversionHandlerTests
     }
 
     [Fact]
-    public void IsConvertibleType_SwiftSet_ReturnsFalse()
+    public void IsConvertibleType_SwiftSet_ReturnsTrue()
     {
-        // SwiftSet is not yet supported for type conversion
+        // SwiftSet is supported for type conversion (IReadOnlySet<T>)
         var typeSpec = new NamedTypeSpec("Swift.Set");
         typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
-        Assert.False(_handler.IsConvertibleType(typeSpec));
+        Assert.True(_handler.IsConvertibleType(typeSpec));
     }
 
     #endregion

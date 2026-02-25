@@ -358,7 +358,8 @@ namespace BindingsGeneration
                 {
                     TypeDatabase = _env.TypeDatabase,
                     IsParameter = false,
-                    GenericContext = _genericContext
+                    GenericContext = _genericContext,
+                    ParentTypeDecl = _env.ParentDecl as TypeDecl
                 });
                 if (projection != null && !ShouldSkipProjectionForAccessor(argument.SwiftTypeSpec))
                 {
@@ -381,7 +382,8 @@ namespace BindingsGeneration
                         {
                             TypeDatabase = _env.TypeDatabase,
                             IsParameter = false,
-                            GenericContext = _genericContext
+                            GenericContext = _genericContext,
+                            ParentTypeDecl = _env.ParentDecl as TypeDecl
                         });
                         if (projection != null)
                             return projection.PublicType;
@@ -460,7 +462,8 @@ namespace BindingsGeneration
                     {
                         TypeDatabase = _env.TypeDatabase,
                         IsParameter = true,
-                        GenericContext = _genericContext
+                        GenericContext = _genericContext,
+                        ParentTypeDecl = _env.ParentDecl as TypeDecl
                     });
                     if (projection != null && !ShouldSkipProjectionForAccessor(argument.SwiftTypeSpec))
                     {

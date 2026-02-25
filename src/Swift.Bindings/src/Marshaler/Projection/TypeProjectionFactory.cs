@@ -29,6 +29,9 @@ public record ProjectionContext
     /// <summary>Optional composition collector for multi-protocol existential interfaces.
     /// When non-null, ExistentialHandler instances will collect composition interface names during projection.</summary>
     public SortedDictionary<string, List<string>>? CompositionCollector { get; init; }
+
+    /// <summary>Optional parent type declaration. When set, enables resolution of "Self" to the concrete type.</summary>
+    public TypeDecl? ParentTypeDecl { get; init; }
 }
 
 /// <summary>
@@ -98,11 +101,19 @@ public class TypeProjectionFactory
             return null;
         }
 
-        // Swift special type names that can't be projected:
-        // - "Self": dynamic self-type (protocol extensions, class factory methods)
-        // - "repeat": parameter packs (Swift 5.9+ variadic generics)
-        if (name is "Self" or "repeat")
+        // Parameter packs (Swift 5.9+ variadic generics) can't be projected
+        if (name is "repeat")
             return null;
+
+        // Self type: resolve to the concrete parent type when available
+        if (name is "Self")
+        {
+            if (context.ParentTypeDecl == null)
+                return null;
+            if (!context.TypeDatabase.TryGetTypeRecord(context.ParentTypeDecl.SwiftTypeName, out var selfTypeRecord))
+                return null;
+            return CreateProjectionForTypeRecord(selfTypeRecord);
+        }
 
         // Route NamedTypeSpec.IsAny to existential
         if (namedType.IsAny)
@@ -126,7 +137,26 @@ public class TypeProjectionFactory
             // always produces IReadOnlyDictionary (not IDictionary), regardless of outer context.
             var innerProjection = Project(inner, context with { IsParameter = false });
             if (innerProjection == null)
+            {
+                // Bound-generic optional fallback: Optional<UserType<A,B>> where inner factory
+                // returns null (user-defined generics bail at line 184). Resolve via
+                // BoundGenericsHandler to get raw C# name, then create projection for the base type.
+                if (inner is NamedTypeSpec innerBoundGeneric && innerBoundGeneric.ContainsGenericParameters &&
+                    innerBoundGeneric.HasModule() &&
+                    !IsStdlibContainer(innerBoundGeneric.Name))
+                {
+                    var bgh = new BoundGenericsHandler(context.TypeDatabase);
+                    var rawCSharpName = bgh.TranslateBoundGenericTypeToCSharp(inner, context.GenericContext ?? GenericContext.Empty);
+                    if (!rawCSharpName.Contains("AnyType") &&
+                        context.TypeDatabase.TryGetTypeRecord(SwiftTypeName.FromModuleQualifiedName(innerBoundGeneric.Name), out var baseRecord))
+                    {
+                        var baseProjection = CreateProjectionForTypeRecord(baseRecord, rawCSharpName);
+                        if (baseProjection != null)
+                            return new OptionalProjection(baseProjection, isExistentialInner);
+                    }
+                }
                 return null;
+            }
             return new OptionalProjection(innerProjection, isExistentialInner);
         }
 
@@ -136,6 +166,14 @@ public class TypeProjectionFactory
             if (elemProjection == null)
                 return null;
             return new ArrayProjection(elemProjection, context.IsParameter);
+        }
+
+        if (name == "Swift.Set" && namedType.GenericParameters.Count == 1)
+        {
+            var elemProjection = Project(namedType.GenericParameters[0], context);
+            if (elemProjection == null)
+                return null;
+            return new SetProjection(elemProjection, context.IsParameter);
         }
 
         if (name == "Swift.Dictionary" && namedType.GenericParameters.Count == 2)
@@ -176,20 +214,34 @@ public class TypeProjectionFactory
                 SwiftTypeName.FromModuleQualifiedName(name), out var typeRecord))
             return null;
 
+        return CreateProjectionForTypeRecord(typeRecord);
+    }
+
+    /// <summary>
+    /// Creates the appropriate projection for a resolved type record.
+    /// Dispatches based on the type's kind and flags (ObjC bridged, enum, class, struct, etc.).
+    /// </summary>
+    /// <param name="typeRecord">The resolved type record.</param>
+    /// <param name="typeNameOverride">Optional override for the C# type name. When set, used instead of
+    /// typeRecord.CSharpTypeName (e.g., for bound generics like "DateResult&lt;StringResult&gt;").</param>
+    internal ITypeProjection? CreateProjectionForTypeRecord(TypeRecord typeRecord, string? typeNameOverride = null)
+    {
+        var typeName = typeNameOverride ?? typeRecord.CSharpTypeName.FullyQualifiedName;
+
         // ObjC bridged types
         if (MarshallingHelpers.IsObjCBridged(typeRecord))
-            return new ObjCBridgedProjection(typeRecord.CSharpTypeName.FullyQualifiedName);
+            return new ObjCBridgedProjection(typeName);
 
         // Simple enums
         if (typeRecord.Kind == TypeRecordKind.Enum && typeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
         {
             var underlyingType = EnumHandler.GetCSharpEnumUnderlyingType(typeRecord.RawValueTypeName);
-            return new SimpleEnumProjection(typeRecord.CSharpTypeName.FullyQualifiedName, underlyingType);
+            return new SimpleEnumProjection(typeName, underlyingType);
         }
 
         // Classes (non-frozen, pointer-based)
         if (typeRecord.Kind == TypeRecordKind.Class)
-            return new ClassProjection(typeRecord.CSharpTypeName.FullyQualifiedName);
+            return new ClassProjection(typeName);
 
         // Native remapped types (URL → NSUrl, Data → NSData)
         if (typeRecord.NativeTypeName != null)
@@ -197,12 +249,11 @@ public class TypeProjectionFactory
             var isFrozen = MarshallingHelpers.IsTypeFrozen(typeRecord);
             var requiresDisposal = MarshallingHelpers.RequiresMemoryManagement(typeRecord);
             var nativeName = typeRecord.NativeTypeName.FullyQualifiedName;
-            var swiftName = typeRecord.CSharpTypeName.FullyQualifiedName;
             // Derive factory methods from the native type name suffix (NSUrl → FromNSUrl/ToNSUrl)
             var nativeShortName = nativeName.Contains('.') ? nativeName.Substring(nativeName.LastIndexOf('.') + 1) : nativeName;
             return new NativeRemappedProjection(
                 nativeName,
-                swiftName,
+                typeName,
                 isFrozen,
                 toConversionMethod: $"To{nativeShortName}",
                 fromFactoryMethod: $"From{nativeShortName}",
@@ -212,18 +263,18 @@ public class TypeProjectionFactory
         // Complex enums (non-simple) are C# classes with SafeHandle — not blittable.
         // They need MarshalFromSwift marshalling. P/Invoke returns IntPtr.
         if (typeRecord.Kind == TypeRecordKind.Enum && !typeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
-            return new NonFrozenStructProjection(typeRecord.CSharpTypeName.FullyQualifiedName, useMarshalFromSwift: true);
+            return new NonFrozenStructProjection(typeName, useMarshalFromSwift: true);
 
         // Non-frozen structs/classes
         if (!MarshallingHelpers.IsTypeFrozen(typeRecord))
-            return new NonFrozenStructProjection(typeRecord.CSharpTypeName.FullyQualifiedName);
+            return new NonFrozenStructProjection(typeName);
 
         // Blittable frozen types
         if (!MarshallingHelpers.RequiresMemoryManagement(typeRecord))
-            return new BlittableProjection(typeRecord.CSharpTypeName.FullyQualifiedName);
+            return new BlittableProjection(typeName);
 
         // Frozen with memory management (ClassWithBufferStruct) — P/Invoke returns .Buffer by value
-        return new FrozenWithMemoryProjection(typeRecord.CSharpTypeName.FullyQualifiedName);
+        return new FrozenWithMemoryProjection(typeName);
     }
 
     private ITypeProjection? ProjectTuple(TupleTypeSpec tupleType, ProjectionContext context)
@@ -293,6 +344,13 @@ public class TypeProjectionFactory
 
         return new ExistentialProjection(containerType, publicType, proxyClassName);
     }
+
+    /// <summary>
+    /// Determines whether a Swift type name is a stdlib container that has a dedicated projection handler.
+    /// These should not be resolved via the bound-generic optional fallback.
+    /// </summary>
+    private static bool IsStdlibContainer(string name) =>
+        name is "Swift.Array" or "Swift.Dictionary" or "Swift.Set" or "Swift.Optional" or "Swift.Result";
 
     /// <summary>
     /// Determines whether a Swift type name represents a pointer type that should be mapped to System.IntPtr.

@@ -70,7 +70,7 @@ namespace BindingsGeneration
                 (_env.MethodDecl.HasOptionalPointerWrapper || _env.MethodDecl.UsesWrapperLibrary))
             {
                 var projection = s_projectionFactory.Project(returnArg.SwiftTypeSpec,
-                    new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false, GenericContext = _genericContext });
+                    new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false, GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl });
                 var swiftType = projection?.ContainerTypeName ?? _wrapperSignature.ReturnType;
                 csWriter.WriteLines($$"""
                     var swiftResult = SwiftMarshal.MarshalFromSwift<{{swiftType}}>(_optRetPtr);
@@ -115,7 +115,7 @@ namespace BindingsGeneration
             if (_env.BoundGenericsHandler.RequiresBoundGenericMarshalling(returnArg))
             {
                 var projection = s_projectionFactory.Project(returnArg.SwiftTypeSpec,
-                    new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false, GenericContext = _genericContext });
+                    new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false, GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl });
                 if (projection != null)
                 {
                     var marshalType = projection.ContainerTypeName;
@@ -334,7 +334,7 @@ namespace BindingsGeneration
             if (returnArg.IsGeneric) return false;
 
             var projection = s_projectionFactory.Project(returnArg.SwiftTypeSpec,
-                new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false, GenericContext = _genericContext });
+                new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false, GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl });
             if (projection == null) return false;
 
             var strategy = DetermineReturnStrategy();
