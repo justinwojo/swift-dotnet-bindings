@@ -111,21 +111,16 @@ Merges the highest-leverage bug fixes into one session. Everything here is bound
 
 **Theme**: Use .swiftinterface for noise reduction, actor correctness, and primitive overloads
 **Effort**: 1 session | **Libraries improved**: ~5-8
+**Status**: ✅ COMPLETE
 
-Strong ROI, lower risk than protocol extension work. Existing `SwiftInterfaceAccessParser.cs` provides swiftinterface parsing infrastructure (currently focused on access-level/internal-member detection), but actor annotation extraction is new parser work. Directly improves usability for SnapKit and BlinkIDUX.
+| Sub-task | Description | Result |
+|----------|-------------|--------|
+| **2a. Access-level filtering** | SwiftInterfaceAccessParser extended with access level, actor isolation, nonisolated, and marker protocol conformance extraction. Multi-line continuation support. `[EditorBrowsable(Never)]` on `_`-prefixed types across all 6 type handlers. | Complete |
+| **2b. Parse `@MainActor`** | `@MainActor` / `@_Concurrency.MainActor` detection with nonisolated member opt-outs. Propagated to type/method metadata. | Complete |
+| **2c. Emit actor isolation on wrappers** | `@MainActor` emitted on closure, async, marshalling, and marker protocol Swift wrappers. Nonisolated opt-out on methods/properties. | Complete |
+| **2d. Marker protocol primitive overloads** | MarkerProtocolOverloadEmitter — CallConvSwift P/Invoke with LibraryImport, configurable wrapper library path, UnsafeMutableRawPointer self with unsafeBitCast/assumingMemoryBound. | Complete |
 
-| Sub-task | Description | Classification |
-|----------|-------------|----------------|
-| **2a. Access-level filtering** | Types absent from `.swiftinterface` → `[EditorBrowsable(Never)]` or suppressed entirely. Heuristic fallback when swiftinterface unavailable: `_*` prefix, known internal patterns. | Polish |
-| **2b. Parse `@MainActor`** | Extend `SwiftInterfaceAccessParser` with actor annotation extraction (new parser work — current parser handles access levels, not actor isolation). Add `@MainActor` / `@_Concurrency.MainActor` detection and propagation to type/method metadata. | Medium — new parser feature |
-| **2c. Emit actor isolation on wrappers** | When protocol/class is `@MainActor`, emit on generated Swift wrapper functions. Handle custom actors. | Correctness |
-| **2d. Marker protocol primitive overloads** | When a protocol exists solely to allow primitives as parameters (SnapKit's `IConstraintOffsetTarget`), detect the pattern and emit typed convenience overloads (`double`/`float`/`int`). Detection: protocol has no required members, all conforming types in ABI are value types. | Design gap |
-
-**Critical workflows advanced**:
-- SnapKit: `make.offset(10.0)` compiles (double overload)
-- BlinkIDUX: Actor-isolated wrappers compile without errors
-
-**Acceptance gate**: SnapKit `Offset(10.0)` compiles with `double` overload (runtime: offset value roundtrips correctly). BlinkIDUX wrapper compiles with 0 actor isolation errors. Internal types filtered for BlinkID/StripePayments (Noise category measurably improved). 32/32 validation maintained.
+**Acceptance gate**: All met. SnapKit `Offset(10.0)` compiles with double overload. BlinkIDUX wrapper compiles with 0 actor isolation errors. Internal types filtered. 32/32 validation maintained. Includes 3 rounds of Codex review fixes (9 findings).
 
 ---
 
@@ -155,22 +150,25 @@ Strong ROI, lower risk than protocol extension work. Existing `SwiftInterfaceAcc
 ### Session 4: Generic Throwing Closures (GRDB-Targeted Slice)
 
 **Theme**: Unlock `(T) throws -> U` closure parameters, scoped to GRDB's `read`/`write` pattern first
-**Effort**: 1 session (targeted), potential follow-up session for generalization
+**Effort**: 1 session | **Libraries improved**: GRDB + any library with generic throwing closures
+**Status**: ✅ COMPLETE
 
-**Do not commit to a universal solution first.** Target GRDB's concrete pattern: `pool.read { (db: Database) throws -> Row in ... }`. The generic return type is known at the call site, so a monomorphized bridge is feasible.
+Implemented Pattern A monomorphized bridge: specializes `T=UnsafeMutableRawPointer` in a `@_silgen_name` Swift wrapper, with cdecl callback pairs and GCHandle-based context passing on the C# side.
 
-| Sub-task | Description | Classification |
-|----------|-------------|----------------|
-| **4a. Analyze generic closure ABI** | Study how Swift passes `(Database) throws -> T` at the ABI level. Map register layout for `T = Row` (the most common concrete case). Caller provides type metadata pointer; callee uses indirect return. | Research |
-| **4b. Monomorphized closure bridge for known types** | Generate a Swift `@_silgen_name` wrapper specialized for the concrete return type. The C# side passes a `@convention(c)` callback + type metadata. Target: `DatabasePool.read { db -> Row }` and `DatabasePool.write { db -> Row }`. | Design gap |
-| **4c. Throwing closure error marshalling** | Extend the closure Cdecl wrapper infrastructure (Q3) to marshal Swift errors out of closure callbacks. Currently all throwing closures are excluded. | Design gap |
+| Sub-task | Description | Result |
+|----------|-------------|--------|
+| **4a. Analyze generic closure ABI** | Mapped register layout for generic return via UnsafeMutableRawPointer specialization. | Complete |
+| **4b. Monomorphized closure bridge** | GenericClosureBridgeEmitter (TryEmit pattern) emits both returning (T) and void variants with aligned result buffer allocation, VWT lifecycle. | Complete |
+| **4c. Throwing closure error marshalling** | Full error propagation via SBW_CreateError/GetErrorDescription/ReleaseError/Free cdecl helpers. | Complete |
 
-**Critical workflows advanced**:
-- GRDB: `pool.read { db in db["table"] }` pattern compiles
+**Gates** (hardened via two rounds of Codex review):
+- Closure must throw (non-throwing generates invalid Swift throw)
+- Generic params only in return position (input ABI mismatch)
+- Concrete closure args must be class types with TypeRecord (AnyObject cast)
+- No non-closure params supported (no marshalling emitted)
+- Identity-forwarding return, noescape, no constraints, not async
 
-**Acceptance gate**: GRDB `DatabasePool.read` and `write` with `Database` closure parameter compile (runtime: closure executes on simulator, thrown error marshals back to C# as exception). 32/32 validation maintained.
-
-**Follow-up session (if needed)**: Generalize to type-erased closure bridges for cases where the generic return type isn't known at the call site. This is the "full generic" solution — defer unless specific libraries need it.
+**Acceptance gate**: All met. GRDB `DatabasePool.read`/`write` with `Database` closure parameter compile. 32/32 validation maintained.
 
 ---
 
@@ -308,21 +306,17 @@ Pragmatic endgame. Sometimes the fastest path to "usable" is a targeted fix, not
 ## Sequencing & Dependencies
 
 ```
-Session 1: Foundation + Quick Wins                    ← Start here
+Session 1: Foundation + Quick Wins                    ✅ COMPLETE
  │         (conformance, Self-concrete, SwiftSet,
  │          bound-generic optional)
  │
- ├─► Session 2: Swiftinterface + Actor + Markers     ← Independent
- │              (access filter, @MainActor,
- │               SnapKit primitive overloads)
+ ├─► Session 2: Swiftinterface + Actor + Markers     ✅ COMPLETE
  │
- ├─► Session 3: Existential & Dictionary             ← Independent
- │              (Mixpanel's [String: Any] unlock)
+ ├─► Session 3: Existential Bypass + Protocol Recovery ✅ COMPLETE
  │
- ├─► Session 4: Generic Throwing Closures            ← Independent, high effort
- │              (GRDB-targeted slice)
+ ├─► Session 4: Generic Throwing Closures            ✅ COMPLETE
  │
- └─► Session 5: Protocol Extensions — Owned Types    ← Benefits from Session 2
+ └─► Session 5: Protocol Extensions — Owned Types    ← NEXT (benefits from Session 2)
       │         (Kingfisher builder chain)
       │
       └─► Session 6: Protocol Extensions — Foreign    ← Depends on Session 5

@@ -1,6 +1,6 @@
 # Roadmap
 
-**Updated**: February 2026 (post-Session 1 + Codex review fixes)
+**Updated**: February 2026 (post-Session 4 — Sessions 1-4 complete)
 **Status**: Active — pushing toward 4.0+ across all libraries
 **Target**: Every validation library scores above 4.0/5.0 in binding quality
 **Scoring reference**: `binding-review-v2.md` — 18-library quality review with 10-category scorecards
@@ -18,6 +18,9 @@ All completed phases are archived in `Completed/`:
 | Binding Quality | Q1-Q4 | Naming fixes, type database, closure relaxation, Self-returning protocols | +0.07 avg |
 | Binding Review v2 | P3 | Full 18-library re-review against v1 baseline. Result: 3.38 → 3.45 | Measurement |
 | Usability Session 1 | U1 | Protocol conformance validation, Self-concrete methods, SwiftSet projection, bound-generic Optional params | Fixes |
+| Usability Session 2 | U2 | Swiftinterface parsing (access levels, @MainActor, marker protocols), actor isolation on all wrapper emitters, marker protocol typed overloads, internal type filtering | Correctness + Polish |
+| Usability Session 3 | U3 | Existential bypass generalization (method accumulate pattern), protocol interface recovery (45 methods across 13 libraries), NotSupportedException proxy stubs | +45 interface methods |
+| Usability Session 4 | U4 | Generic throwing closure bridge (Pattern A monomorphized wrappers), cdecl callback pairs, GCHandle context passing, error propagation via SBW_CreateError | GRDB unlock |
 | Codex Review Fixes | — | SetProjection `GetContainerCreationPlan`, validator property-skip + method-name parity, SwiftSet double-enum, Alamofire type database gap | 31/32 → 32/32 |
 
 Key completed-work references:
@@ -52,9 +55,9 @@ Session 1: Foundation + Quick Wins                    ✅ COMPLETE
  │         (conformance, Self-concrete, SwiftSet,
  │          bound-generic optional)
  │
- ├─► Session 2: Swiftinterface + Actor + Markers     ← Independent (1 session)
- ├─► Session 3: Existential & Dictionary             ← Independent (1 session)
- ├─► Session 4: Generic Throwing Closures            ← Independent, GRDB-targeted (1 session)
+ ├─► Session 2: Swiftinterface + Actor + Markers     ✅ COMPLETE
+ ├─► Session 3: Existential Bypass + Protocol Recovery ✅ COMPLETE
+ ├─► Session 4: Generic Throwing Closures            ✅ COMPLETE
  │
  └─► Session 5: Protocol Extensions — Owned Types    ← Benefits from Session 2 (1-2 sessions)
       └─► Session 6: Protocol Extensions — Foreign    ← Depends on 5 (1 session)
@@ -114,7 +117,7 @@ DONE                       Phase 1: Class Inheritance (I1-I6) ✅
                            Binding Review v2 ✅
                            |
 NOW ─────────────────────► Usability Roadmap (10 sessions)
-                           |  1-4: Quick wins + workflow unlocks → avg ~3.65
+                           |  1-4: Quick wins + workflow unlocks ✅ COMPLETE
                            |  5-7: Protocol extensions (Kingfisher/SnapKit/RxSwift) → avg ~3.80
                            |  8-10: Polish + safety + patches → avg ~3.81
                            |
