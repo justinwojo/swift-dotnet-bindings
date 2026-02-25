@@ -576,6 +576,22 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Try generic closure bridge — emits monomorphized Swift wrapper + C# for methods
+            // with generic closure parameters (e.g., func read<T>(_ block: (Database) throws -> T) -> T).
+            // Must happen before SignatureHandler because generic closures produce placeholders.
+            if (!isAccessor && GenericClosureBridgeEmitter.TryEmit(
+                csWriter, swiftWriter, methodEnv, methodEnv.ParentDecl as TypeDecl))
+            {
+                ReportCollector.RecordMemberWrapped(
+                    BindingItemKind.Method,
+                    methodEnv.MethodDecl.Name,
+                    methodEnv.MethodDecl.MangledName,
+                    methodEnv.MethodDecl.ParentDecl,
+                    "GenericClosureBridge",
+                    "Generic closure parameter bridged via monomorphized Swift wrapper.");
+                return;
+            }
+
             // Emit Swift wrapper for methods with debug params (#file, #line, etc.)
             // Must happen before SignatureHandler — updates MangledName + UsesWrapperLibrary.
             if (!methodEnv.MethodDecl.UsesWrapperLibrary &&

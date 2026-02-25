@@ -74,6 +74,7 @@ namespace BindingsGeneration
             EnumHandler.ResetUtf8SliceTracking();
             CancellationTaskEmitter.ResetForModule();
             ErrorDescriptionEmitter.ResetForModule();
+            GenericClosureBridgeEmitter.ResetForModule();
 
             // Emit Swift imports at the top of the Swift wrapper file
             EmitSwiftImports(swiftWriter, moduleDecl);

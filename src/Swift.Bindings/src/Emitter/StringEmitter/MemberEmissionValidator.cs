@@ -792,6 +792,8 @@ public static class MemberEmissionValidator
         // P/Invoke emits AnyType for unsupported closures, but TypeProjectionFactory
         // projects them to Action<>/Func<> — wrapper body gets CS1503 type mismatch.
         // Must run BEFORE the constructor early-return so constructors are also covered.
+        // Exception: generic closures eligible for the monomorphized bridge pattern are
+        // allowed through — GenericClosureBridgeEmitter.TryEmit handles them in MethodHandler.
         var closureHandler = new ClosureHandler(typeDatabase);
         foreach (var arg in method.CSSignature.Skip(1)) // Skip return type (element 0)
         {
@@ -800,6 +802,16 @@ public static class MemberEmissionValidator
                 var closureTypeSpec = closureHandler.GetClosureTypeSpec(arg);
                 if (closureTypeSpec != null && !closureHandler.IsSupportedClosure(closureTypeSpec))
                 {
+                    // Check if this is a generic closure eligible for the bridge pattern.
+                    // Also verify all non-closure params are IntPtr-compatible (classes, primitives)
+                    // to avoid emitting methods the bridge can't fully handle.
+                    if (ClosureHandler.HasGenericTypeParameters(closureTypeSpec) &&
+                        closureHandler.IsMethodGenericClosureEligible(closureTypeSpec, method) &&
+                        GenericClosureBridgeEmitter.AreNonClosureParamsCompatible(method, arg, typeDatabase))
+                    {
+                        // Allow through — GenericClosureBridgeEmitter will handle this
+                        continue;
+                    }
                     skipDetails = $"Parameter '{arg.Name}' has unsupported closure type that cannot be marshalled.";
                     return SkipReason.UnsupportedClosure;
                 }

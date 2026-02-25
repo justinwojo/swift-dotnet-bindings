@@ -492,6 +492,167 @@ public class ClosureHandler
         TypeSpecHelpers.IsGenericTypeParameter(typeName);
 
     /// <summary>
+    /// Returns true if the closure's return type or any argument is a generic type parameter
+    /// (e.g., tau_0_0, T). This detects closures like <c>(Database) throws -> tau_0_0</c>
+    /// that cannot be emitted with concrete types.
+    /// </summary>
+    public static bool HasGenericTypeParameters(ClosureTypeSpec closureTypeSpec)
+    {
+        // Check return type
+        if (closureTypeSpec.ReturnType is NamedTypeSpec returnNamed &&
+            IsGenericTypeParameter(returnNamed.Name))
+            return true;
+
+        // Check each argument
+        foreach (var arg in closureTypeSpec.EachArgument())
+        {
+            if (arg is NamedTypeSpec argNamed && IsGenericTypeParameter(argNamed.Name))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Returns the set of generic type parameter names used in the closure's arguments and return type.
+    /// For example, <c>(Database) throws -> tau_0_0</c> returns <c>{ "tau_0_0" }</c>.
+    /// </summary>
+    public static HashSet<string> GetGenericParamNames(ClosureTypeSpec closureTypeSpec)
+    {
+        var names = new HashSet<string>();
+
+        if (closureTypeSpec.ReturnType is NamedTypeSpec returnNamed &&
+            IsGenericTypeParameter(returnNamed.Name))
+            names.Add(returnNamed.Name);
+
+        foreach (var arg in closureTypeSpec.EachArgument())
+        {
+            if (arg is NamedTypeSpec argNamed && IsGenericTypeParameter(argNamed.Name))
+                names.Add(argNamed.Name);
+        }
+
+        return names;
+    }
+
+    /// <summary>
+    /// Determines whether a method with a generic closure parameter is eligible for the
+    /// monomorphized Swift wrapper bridge pattern (Pattern A: sync, method-generic, noescape).
+    /// <para>
+    /// Eligible methods must satisfy ALL of the following:
+    /// (a) Closure has a generic return type (or generic params) that maps to the method's own generic signature.
+    /// (b) Closure is noescape (not @escaping).
+    /// (c) All non-generic closure params pass existing IsSupportedClosureParameterType.
+    /// (d) The method's return type is the SAME generic parameter as the closure's return type
+    ///     (identity-forwarding — ensures T=UnsafeMutableRawPointer specialization is safe).
+    /// (e) The method's generic signature has no where clauses constraining T
+    ///     (UnsafeMutableRawPointer cannot satisfy protocol conformance constraints).
+    /// (f) The method is not async (async generic closures are out of scope).
+    /// </para>
+    /// </summary>
+    /// <param name="closureTypeSpec">The closure type specification.</param>
+    /// <param name="methodDecl">The containing method declaration.</param>
+    /// <returns>True if the method is eligible for the generic closure bridge pattern.</returns>
+    public bool IsMethodGenericClosureEligible(ClosureTypeSpec closureTypeSpec, MethodDecl methodDecl)
+    {
+        // (a) Closure must have generic type parameters
+        if (!HasGenericTypeParameters(closureTypeSpec))
+            return false;
+
+        // (b) Closure must be noescape (not @escaping)
+        if (closureTypeSpec.IsEscaping)
+            return false;
+
+        // (b2) Closure must throw — the generated Swift closure body unconditionally contains
+        // error propagation (`throw unsafeBitCast(err, to: Swift.Error.self)`), which is
+        // invalid Swift for non-throwing closures.
+        if (!closureTypeSpec.Throws)
+            return false;
+
+        // (c) All non-generic closure arguments must be supported, and generic type parameters
+        // must NOT appear in argument position. The cdecl callback signature is built from
+        // ALL closure args (each becomes a void*), but the C# closureArgTypes list only
+        // includes concrete types (skipping generic params). This creates an ABI mismatch
+        // where Swift passes more void* args than C# expects. Gate out until we properly
+        // count generic args in the C# callback.
+        foreach (var arg in closureTypeSpec.EachArgument())
+        {
+            if (arg is NamedTypeSpec argNamed && IsGenericTypeParameter(argNamed.Name))
+                return false; // Generic args in input position — ABI mismatch (P0)
+            if (!IsSupportedClosureParameterType(arg))
+                return false;
+            // (c2) Concrete closure args must be reference types (classes). The Swift wrapper
+            // converts them via `Unmanaged.passUnretained(param as AnyObject).toOpaque()`
+            // which only works for class types. Value types (Int, Bool, frozen structs)
+            // would be incorrectly boxed. If no TypeRecord exists, reject — we can't
+            // verify the type is a class.
+            if (arg is NamedTypeSpec concreteNamed)
+            {
+                if (!_typeDatabase.TryGetTypeRecord(arg, out var argRecord) ||
+                    argRecord.Kind != TypeRecordKind.Class)
+                    return false;
+            }
+        }
+
+        // (d) Identity-forwarding return: the method's return type must be the same
+        // generic parameter as the closure's return type. This ensures T=UnsafeMutableRawPointer
+        // specialization is safe — the method just passes through whatever the closure returns.
+        var closureGenericParams = GetGenericParamNames(closureTypeSpec);
+        if (closureGenericParams.Count == 0)
+            return false;
+
+        // The closure's return type must be a generic type parameter
+        if (closureTypeSpec.ReturnType is not NamedTypeSpec closureReturnNamed ||
+            !IsGenericTypeParameter(closureReturnNamed.Name))
+            return false;
+
+        // The method must return the same generic parameter
+        if (methodDecl.CSSignature.Count == 0)
+            return false;
+        var methodReturnTypeSpec = methodDecl.CSSignature[0].SwiftTypeSpec;
+        if (methodReturnTypeSpec is not NamedTypeSpec methodReturnNamed ||
+            methodReturnNamed.Name != closureReturnNamed.Name)
+        {
+            // Also allow void methods with void closure return (side-effect pattern)
+            // But that case is handled differently — the generic closure return must be a type param
+            return false;
+        }
+
+        // The generic param must belong to the method's own generic signature (not type-level)
+        if (!methodDecl.IsGeneric)
+            return false;
+
+        var methodGenericParamNames = new HashSet<string>();
+        foreach (var gp in methodDecl.GenericParameters)
+        {
+            methodGenericParamNames.Add(gp.TypeName);
+            methodGenericParamNames.Add(gp.SugaredTypeName);
+        }
+
+        // All generic params used in the closure must map to method-level generic params
+        foreach (var paramName in closureGenericParams)
+        {
+            if (!methodGenericParamNames.Contains(paramName))
+                return false;
+        }
+
+        // (e) No constraints on the generic parameter (UnsafeMutableRawPointer can't conform to protocols)
+        foreach (var gp in methodDecl.GenericParameters)
+        {
+            if (closureGenericParams.Contains(gp.TypeName) || closureGenericParams.Contains(gp.SugaredTypeName))
+            {
+                if (gp.GenericConformances.Count > 0)
+                    return false;
+            }
+        }
+
+        // (f) Method must not be async
+        if (methodDecl.IsAsync)
+            return false;
+
+        return true;
+    }
+
+    /// <summary>
     /// Checks if a generic type is supported in closures.
     /// Supports pointer types and bound generic types whose base type is in the type database.
     /// </summary>

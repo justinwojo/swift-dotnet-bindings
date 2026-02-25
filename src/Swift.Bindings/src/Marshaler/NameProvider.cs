@@ -215,6 +215,11 @@ public static class NameProvider
         if (methodDecl.HasClosureCdeclWrapper)
             return $"{methodDecl.MangledName}_cdecl";
 
+        // Generic closure bridge wrappers specialize T=UnsafeMutableRawPointer and use
+        // cdecl callback pairs, requiring a unique symbol distinct from the original.
+        if (methodDecl.HasGenericClosureBridge)
+            return $"{methodDecl.MangledName}_XC";
+
         return methodDecl.MangledName;
     }
 

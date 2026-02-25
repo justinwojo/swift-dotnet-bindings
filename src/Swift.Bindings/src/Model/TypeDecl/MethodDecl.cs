@@ -171,6 +171,16 @@ namespace BindingsGeneration
         /// Whether this method uses Swift's typed throws syntax.
         /// </summary>
         public bool HasTypedThrows => ThrownErrorType != null;
+
+        /// <summary>
+        /// When true, this method has a generic closure parameter that is handled via
+        /// the monomorphized Swift wrapper bridge (Pattern A: sync, method-generic, noescape,
+        /// identity-forwarding return). The Swift wrapper specializes T=UnsafeMutableRawPointer
+        /// and passes a pre-allocated result buffer. The C# side uses a GCHandle-based callback
+        /// with aligned buffer allocation and VWT lifecycle management.
+        /// Set by MethodHandler when IsMethodGenericClosureEligible returns true.
+        /// </summary>
+        public bool HasGenericClosureBridge { get; set; } = false;
     }
 
     /// <summary>
