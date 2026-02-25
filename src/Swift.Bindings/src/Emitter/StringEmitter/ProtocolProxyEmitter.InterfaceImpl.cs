@@ -73,7 +73,15 @@ public partial class ProtocolProxyEmitter
                         var projectedKeySkipped = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
                         if (!emittedCSharpKeys.Add(projectedKeySkipped))
                             continue;
-                        EmitNotSupportedMethodStub(writer, method);
+                        EmitNotSupportedMethodStub(writer, method, "Closure parameters cannot be marshalled in protocol proxy.");
+                    }
+                    // Existential-skipped methods are now in the interface — emit NotSupported stub
+                    else if (_existentialSkippedMethodKeys.Contains(methodKey))
+                    {
+                        var projectedKeySkipped = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
+                        if (!emittedCSharpKeys.Add(projectedKeySkipped))
+                            continue;
+                        EmitNotSupportedMethodStub(writer, method, "Existential parameters cannot be marshalled in protocol proxy.");
                     }
                     continue;
                 }
@@ -756,10 +764,10 @@ public partial class ProtocolProxyEmitter
     }
 
     /// <summary>
-    /// Emits a NotSupportedException stub for a closure method that is in the interface
-    /// but can't be dispatched by the proxy (closure parameter marshalling not supported).
+    /// Emits a NotSupportedException stub for a method that is in the interface
+    /// but can't be dispatched by the proxy (e.g. closure or existential parameter marshalling).
     /// </summary>
-    private void EmitNotSupportedMethodStub(CSharpWriter writer, MethodDecl method)
+    private void EmitNotSupportedMethodStub(CSharpWriter writer, MethodDecl method, string reason)
     {
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
@@ -791,7 +799,7 @@ public partial class ProtocolProxyEmitter
         var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(method);
         var methodName = NameProvider.GetPublicMethodName(method.Name, method.IsAsync, hasReturn, isSelfReturning: isSelfReturning);
 
-        writer.WriteLine("[Obsolete(\"This member has closure parameters that cannot be marshalled in protocol proxy (SB0003).\",");
+        writer.WriteLine($"[Obsolete(\"{reason} (SB0003)\",");
         writer.WriteLine("    DiagnosticId = \"SB0003\",");
         writer.WriteLine("    UrlFormat = \"https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md\")]");
         writer.WriteLine($"public {returnTypeName} {methodName}({parametersString})");
@@ -805,7 +813,7 @@ public partial class ProtocolProxyEmitter
                     return _csharpImpl.{{methodName}}({{argsString}});
                 throw new NotSupportedException(
                     "Cannot call method '{{methodName}}' on a Swift-backed existential container. " +
-                    "Closure parameters cannot be marshalled in protocol proxy.");
+                    "{{reason}}");
                 """);
         }
         else
@@ -818,7 +826,7 @@ public partial class ProtocolProxyEmitter
                 }
                 throw new NotSupportedException(
                     "Cannot call method '{{methodName}}' on a Swift-backed existential container. " +
-                    "Closure parameters cannot be marshalled in protocol proxy.");
+                    "{{reason}}");
                 """);
         }
 

@@ -549,6 +549,7 @@ public class ProtocolConformanceValidator
     /// Checks if a protocol method would be skipped from the interface.
     /// Mirrors the skipping logic in ProtocolHandler.Emit for methods.
     /// Does NOT skip closure methods (they are emitted in the interface with stubs).
+    /// Does NOT skip existential methods (they are emitted in the interface with stubs).
     /// </summary>
     private bool IsMethodSkippedFromInterface(MethodDecl method, BoundGenericsHandler boundGenericsHandler, ProtocolDecl protocolDecl)
     {
@@ -563,13 +564,8 @@ public class ProtocolConformanceValidator
         if (HasBareGenericInMethodSignature(method, protocolDecl))
             return true;
 
-        // Existential parameters (can't marshal in receivers)
-        var existentialHandler = new ExistentialHandler(_typeDatabase);
-        bool hasExistentialParam = method.CSSignature.Skip(1).Any(arg =>
-            existentialHandler.IsExistential(arg.SwiftTypeSpec) ||
-            existentialHandler.IsOptionalExistential(arg.SwiftTypeSpec));
-        if (hasExistentialParam)
-            return true;
+        // Existential parameters — now emitted in interface (proxy gets NotSupportedException stub).
+        // Not skipped from interface. Fall through.
 
         // AnyType as a generic type argument in return or params
         if (HasAnyTypeGenericArgInSignature(method, protocolDecl))

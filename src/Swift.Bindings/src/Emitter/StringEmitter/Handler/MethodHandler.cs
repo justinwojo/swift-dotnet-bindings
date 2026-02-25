@@ -430,6 +430,11 @@ namespace BindingsGeneration
 
             if (!isAccessor)
             {
+                // Track existential args across the loop for bypass attempt after all args are checked.
+                // Mirrors the constructor path (lines 130-225) which also accumulates before deciding.
+                bool hasMethodExistentialArg = false;
+                string? firstMethodExistentialType = null;
+
                 foreach (var argument in methodEnv.MethodDecl.CSSignature)
                 {
                     if (methodEnv.BoundGenericsHandler.HasBareGenericUsage(argument.SwiftTypeSpec, methodEnv.MethodDecl.ModuleDecl))
@@ -477,14 +482,10 @@ namespace BindingsGeneration
 
                     if (methodEnv.BoundGenericsHandler.TryGetFirstUnsupportedExistentialTypeArgument(argument.SwiftTypeSpec, out var existentialType))
                     {
-                        _logger.LogWarning($"Skipping method {methodEnv.MethodDecl.Name}: bound generic contains existential type argument '{existentialType}'.");
-                        ReportCollector.RecordMemberSkipped(
-                            BindingItemKind.Method,
-                            methodEnv.MethodDecl.Name,
-                            methodEnv.MethodDecl.ParentDecl,
-                            SkipReason.UnsupportedExistential,
-                            $"Bound generic contains existential type argument '{existentialType}'.");
-                        return;
+                        // Accumulate for bypass attempt instead of returning immediately
+                        hasMethodExistentialArg = true;
+                        firstMethodExistentialType ??= existentialType;
+                        continue;
                     }
 
                     // B6: Catch supported existentials in non-Array/non-Optional bound generics.
@@ -526,16 +527,38 @@ namespace BindingsGeneration
 
                         if (!isArrayWithDirectExistentialElement && !isOptionalWithDirectExistentialElement)
                         {
-                            _logger.LogWarning($"Skipping method {methodEnv.MethodDecl.Name}: bound generic contains existential type argument '{supportedExistentialType}' in non-Array context.");
-                            ReportCollector.RecordMemberSkipped(
-                                BindingItemKind.Method,
-                                methodEnv.MethodDecl.Name,
-                                methodEnv.MethodDecl.ParentDecl,
-                                SkipReason.UnsupportedExistential,
-                                $"Bound generic contains existential type argument '{supportedExistentialType}'.");
-                            return;
+                            // Accumulate for bypass attempt instead of returning immediately
+                            hasMethodExistentialArg = true;
+                            firstMethodExistentialType ??= supportedExistentialType.ToString();
+                            continue;
                         }
                     }
+                }
+
+                // After checking all args, attempt bypass if any existential args were found
+                if (hasMethodExistentialArg)
+                {
+                    if (ExistentialBypassEmitter.TryEmitMethodBypass(csWriter, swiftWriter, methodEnv, _logger))
+                    {
+                        ReportCollector.RecordMemberWrapped(
+                            BindingItemKind.Method,
+                            methodEnv.MethodDecl.Name,
+                            methodEnv.MethodDecl.MangledName,
+                            methodEnv.MethodDecl.ParentDecl,
+                            "ExistentialBypass",
+                            "Existential parameter(s) omitted; Swift defaults used.");
+                        return;
+                    }
+
+                    // Fallback: skip as before
+                    _logger.LogWarning($"Skipping method {methodEnv.MethodDecl.Name}: bound generic contains unsupported existential type argument '{firstMethodExistentialType}'.");
+                    ReportCollector.RecordMemberSkipped(
+                        BindingItemKind.Method,
+                        methodEnv.MethodDecl.Name,
+                        methodEnv.MethodDecl.ParentDecl,
+                        SkipReason.UnsupportedExistential,
+                        $"Bound generic contains existential type argument '{firstMethodExistentialType}'.");
+                    return;
                 }
             }
 

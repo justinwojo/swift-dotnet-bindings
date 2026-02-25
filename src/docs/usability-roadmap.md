@@ -87,6 +87,7 @@ Track two things in parallel:
 
 **Theme**: Protocol conformance, concrete Self-resolution, collection + optional projection
 **Effort**: 1 session | **Libraries improved**: ~8-10
+**Status**: ✅ COMPLETE
 
 Merges the highest-leverage bug fixes into one session. Everything here is bounded and has existing infrastructure to build on.
 
@@ -128,24 +129,26 @@ Strong ROI, lower risk than protocol extension work. Existing `SwiftInterfaceAcc
 
 ---
 
-### Session 3: Existential & Dictionary Projection
+### Session 3: Existential Default-Arg Bypass & Protocol Receiver Relaxation
 
-**Theme**: Handle `[String: Any]` dictionaries and `Any`-typed parameters
-**Effort**: 1 session | **Libraries improved**: 3-5
+**Theme**: Bypass existential params with defaults + recover protocol interface methods
+**Effort**: 1 session | **Libraries improved**: 13 (protocol recovery)
+**Status**: ✅ COMPLETE — see `src/docs/Completed/session-3-results.md`
 
-Several libraries (Mixpanel, Alamofire, Nuke) use `[String: Any]` as the primary data-carrying mechanism. This is the critical workflow unlock for Mixpanel.
+**Actual scope** (revised from original roadmap): The dictionary/existential projection work (original 3a-3c) was deferred in favor of the bypass + protocol recovery plan (`session-3-plan.md`), which targets infrastructure that unblocks method and protocol interface emission.
 
-| Sub-task | Description | Classification |
-|----------|-------------|----------------|
-| **3a. `[String: Any]` → `Dictionary<string, object>`** | Project Swift `[String: Any]` as `Dictionary<string, object>` at public API, with boxing for primitives and identity pass-through for reference types. Requires a Swift wrapper that bridges `Any` values via `Unmanaged` or tagged representation. | Design gap |
-| **3b. Existential parameter projection** | When a method takes `Any` or `any Protocol`, emit `object` parameter with runtime type checking. The Swift wrapper performs the boxing/existential container construction. | Design gap |
-| **3c. AnyType reduction audit** | After 3a-3b, audit remaining `AnyType` across all libraries. Categorize by root cause. | Validation |
+| Sub-task | Description | Result |
+|----------|-------------|--------|
+| **3a. Method bypass generalization** | Extend `ExistentialBypassEmitter` from constructors to class/struct instance methods. Refactored MethodHandler to accumulate pattern. | Infrastructure added; 0 real-world methods bypass (passthrough params require marshalling) |
+| **3b. Protocol interface recovery** | Convert ProtocolHandler B9 gate from hard-skip to fall-through. Emit `NotSupportedException` proxy stubs (Q4b pattern). | **45 methods recovered across 32 protocols in 13 libraries** |
+| **3c. Audit** | Measure actual impact, run full test + validation suite. | All tests pass at baseline. Documented in results. |
 
-**Critical workflows advanced**:
-- Mixpanel: `track(event: "button_click", properties: dict)` compiles
-- Alamofire: Request parameters as dictionaries
+**Measured impact**: 45 protocol interface methods recovered (Kingfisher 8, Starscream 7, StripeConnect 7, Alamofire 6, StripeUICore 4, Mixpanel 3, GRDB 3, SkeletonView 2, RxSwift 1, StripeCore 1, Stripe 1, StripeApplePay 1, BlinkIDUX 1).
 
-**Acceptance gate**: Mixpanel `track()` with dictionary properties compiles (runtime: dictionary values bridge correctly for at least string + int + double + bool). `AnyType` count reduced by >30% across validation libraries. 32/32 validation maintained.
+**Deferred to future sessions**:
+- `[String: Any]` → `Dictionary<string, object>` projection (original roadmap 3a)
+- `any Protocol` → `object` parameter projection (original roadmap 3b)
+- Method bypass with marshalled passthrough params
 
 ---
 

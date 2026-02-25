@@ -6,9 +6,11 @@ using Microsoft.Extensions.Logging;
 namespace BindingsGeneration;
 
 /// <summary>
-/// Generates Swift wrapper + C# factory for constructors blocked by existential-in-bound-generic
+/// Generates Swift wrapper + C# bindings for members blocked by existential-in-bound-generic
 /// when all existential params have HasDefaultArg == true. The Swift wrapper omits the existential
-/// params (letting Swift fill in defaults) and returns a heap-allocated instance pointer.
+/// params (letting Swift fill in defaults).
+/// Supports: struct constructors (returns heap-allocated instance pointer) and
+/// class/struct instance methods (void return, non-throwing).
 /// </summary>
 public static class ExistentialBypassEmitter
 {
@@ -157,6 +159,333 @@ public static class ExistentialBypassEmitter
             wrapperLibPath, reducedWrapperSig, reducedPInvokeSig, isFrozenValue);
 
         return true;
+    }
+
+    /// <summary>
+    /// Attempts to emit a bypass wrapper for an instance method that has existential type arguments
+    /// in bound generic parameters. Only succeeds if: all existential params have HasDefaultArg == true,
+    /// the method is a void-returning, non-throwing instance method on a class or struct,
+    /// and the remaining non-existential params are fully marshallable.
+    /// </summary>
+    /// <returns>true if the bypass was emitted; false to fall back to skip.</returns>
+    public static bool TryEmitMethodBypass(
+        CSharpWriter csWriter,
+        SwiftWriter swiftWriter,
+        MethodEnvironment env,
+        ILogger logger)
+    {
+        // Must be a class or struct parent
+        if (env.ParentDecl is not TypeDecl parentTypeDecl)
+            return false;
+        bool isClass = parentTypeDecl is ClassDecl;
+        bool isStruct = parentTypeDecl is StructDecl;
+        if (!isClass && !isStruct)
+            return false;
+
+        // For structs, only non-frozen structs are supported (they have _payload like classes).
+        // Frozen structs are C# value types — passing 'this' as IntPtr requires pinning,
+        // which is not yet implemented for the bypass path.
+        if (isStruct)
+        {
+            var structRecord = env.TypeDatabase.TryGetTypeRecord(parentTypeDecl.SwiftTypeName, out var sr) ? sr : null;
+            if (structRecord != null && MarshallingHelpers.IsTypeFrozen(structRecord) && !MarshallingHelpers.RequiresMemoryManagement(structRecord))
+            {
+                logger.LogDebug("ExistentialBypassEmitter: method bypass - frozen value struct not supported.");
+                return false;
+            }
+        }
+
+        var methodDecl = env.MethodDecl;
+
+        // Only handle instance methods (not constructors, not static)
+        if (methodDecl.IsConstructor || methodDecl.MethodType == MethodType.Static)
+            return false;
+
+        // Only void return for now — non-void returns need result marshalling
+        var returnType = methodDecl.CSSignature.First();
+        if (returnType.SwiftTypeSpec != TupleTypeSpec.Empty)
+            return false;
+
+        // Throwing methods produce different Swift return shapes
+        if (methodDecl.Throws)
+            return false;
+
+        // Async methods need Task<T> return semantics — bypass emits synchronous void
+        if (methodDecl.IsAsync)
+            return false;
+
+        // Classify params into existential vs passthrough
+        var allArgs = methodDecl.CSSignature.Skip(1).ToList();
+        var existentialArgs = new List<ArgumentDecl>();
+        var passthroughArgs = new List<ArgumentDecl>();
+
+        foreach (var arg in allArgs)
+        {
+            bool isExistentialBoundGeneric =
+                env.BoundGenericsHandler.IsBoundGeneric(arg) &&
+                (env.BoundGenericsHandler.TryGetFirstExistentialTypeArgument(arg.SwiftTypeSpec, out _) ||
+                 env.BoundGenericsHandler.TryGetFirstUnsupportedExistentialTypeArgument(arg.SwiftTypeSpec, out _));
+
+            if (isExistentialBoundGeneric)
+                existentialArgs.Add(arg);
+            else
+                passthroughArgs.Add(arg);
+        }
+
+        if (existentialArgs.Count == 0)
+            return false;
+
+        // ALL existential args must have HasDefaultArg
+        foreach (var arg in existentialArgs)
+        {
+            if (!arg.HasDefaultArg)
+            {
+                logger.LogDebug("ExistentialBypassEmitter: method bypass - param '{Name}' lacks HasDefaultArg.", arg.Name);
+                return false;
+            }
+        }
+
+        // Reject passthrough args that are generic type parameters
+        foreach (var arg in passthroughArgs)
+        {
+            if (arg.IsGeneric)
+            {
+                logger.LogDebug("ExistentialBypassEmitter: method bypass - passthrough param '{Name}' is generic.", arg.Name);
+                return false;
+            }
+        }
+
+        // Build a reduced MethodDecl to check if passthrough args are marshallable.
+        // Use static method type so SignatureHandler doesn't expect self parameter.
+        var reducedSignature = new List<ArgumentDecl>
+        {
+            methodDecl.CSSignature.First() // return type (Void)
+        };
+        reducedSignature.AddRange(passthroughArgs);
+
+        var reducedMethodDecl = new MethodDecl
+        {
+            Name = methodDecl.Name,
+            MangledName = methodDecl.MangledName,
+            MethodType = MethodType.Static,
+            IsConstructor = false,
+            CSSignature = reducedSignature,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = methodDecl.ParentDecl,
+            ModuleDecl = methodDecl.ModuleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = methodDecl.Visibility
+        };
+
+        var reducedEnv = new MethodEnvironment(reducedMethodDecl, env.TypeDatabase, compositionCollector: env.CompositionCollector);
+        var reducedSigHandler = new SignatureHandler(reducedEnv);
+        var reducedWrapperSig = reducedSigHandler.GetWrapperSignature();
+
+        if (reducedWrapperSig.ContainsPlaceholder)
+        {
+            logger.LogDebug("ExistentialBypassEmitter: method bypass - reduced signature contains placeholder.");
+            return false;
+        }
+
+        var reducedPInvokeSig = reducedSigHandler.GetPInvokeSignature();
+
+        // Verify wrapper and P/Invoke signatures produce identical parameter lists
+        if (reducedWrapperSig.ParametersString() != reducedPInvokeSig.PInvokeParametersString())
+        {
+            logger.LogDebug("ExistentialBypassEmitter: method bypass - wrapper/P/Invoke param signatures differ.");
+            return false;
+        }
+
+        // Everything checks out — emit the bypass
+
+        var typeName = parentTypeDecl.Name;
+        var swiftModuleQualifiedName = parentTypeDecl.SwiftTypeName.ModuleQualifiedName;
+        var swiftTypeName = swiftModuleQualifiedName.Contains('.')
+            ? swiftModuleQualifiedName.Substring(swiftModuleQualifiedName.IndexOf('.') + 1)
+            : swiftModuleQualifiedName;
+
+        var mangledHash = EmitterUtility.DeterministicHash8(methodDecl.MangledName);
+        var wrapperSymbol = $"SBW_{typeName}_{methodDecl.Name}_{mangledHash}";
+
+        // Determine library path for the wrapper
+        var moduleDecl = methodDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(methodDecl.ModuleDecl));
+        var moduleLibPath = env.TypeDatabase.GetLibraryPath(moduleDecl.Name);
+        var wrapperLibPath = env.TypeDatabase.AsyncLibraryName ?? moduleLibPath;
+
+        // --- Emit Swift wrapper ---
+        EmitMethodSwiftWrapper(swiftWriter, wrapperSymbol, swiftTypeName, isClass,
+            passthroughArgs, existentialArgs, env);
+
+        // --- Emit C# method ---
+        EmitMethodCSharpBinding(csWriter, env, typeName, wrapperSymbol, wrapperLibPath,
+            isClass, reducedWrapperSig, reducedPInvokeSig);
+
+        return true;
+    }
+
+    private static void EmitMethodSwiftWrapper(
+        SwiftWriter swiftWriter,
+        string wrapperSymbol,
+        string swiftTypeName,
+        bool isClass,
+        List<ArgumentDecl> passthroughArgs,
+        List<ArgumentDecl> existentialArgs,
+        MethodEnvironment env)
+    {
+        var methodDecl = env.MethodDecl;
+
+        // Build Swift parameter list: self first, then passthrough args
+        var swiftParams = new List<string>();
+
+        // Self parameter
+        if (isClass)
+            swiftParams.Add($"_ __self: {swiftTypeName}");
+        else
+            swiftParams.Add("_ __self: UnsafeMutableRawPointer");
+
+        foreach (var arg in passthroughArgs)
+        {
+            var swiftType = RenderSwiftTypeSpec(arg.SwiftTypeSpec);
+            if (arg.SwiftTypeSpec is ClosureTypeSpec closureSpec)
+            {
+                if (!swiftType.StartsWith("@escaping"))
+                {
+                    if (closureSpec.IsAsync && !swiftType.Contains("@Sendable"))
+                        swiftType = $"@escaping @Sendable {swiftType}";
+                    else
+                        swiftType = $"@escaping {swiftType}";
+                }
+                else if (closureSpec.IsAsync && !swiftType.Contains("@Sendable"))
+                {
+                    swiftType = swiftType.Replace("@escaping ", "@escaping @Sendable ");
+                }
+            }
+            var label = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
+            swiftParams.Add($"_ {label}: {swiftType}");
+        }
+        var swiftParamString = string.Join(", ", swiftParams);
+
+        // Build Swift call arguments
+        var callArgs = new List<string>();
+        var allArgs = methodDecl.CSSignature.Skip(1).ToList();
+        foreach (var arg in allArgs)
+        {
+            if (existentialArgs.Contains(arg))
+                continue; // Omitted — Swift uses default value
+
+            var privateName = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
+            var argStr = arg.Name switch
+            {
+                var n when n.StartsWith("arg") => privateName,
+                var n when n.StartsWith("_") => $"{n.Substring(1)}: {privateName}",
+                var n when string.IsNullOrEmpty(n) => privateName,
+                var n => $"{n}: {privateName}"
+            };
+            callArgs.Add(argStr);
+        }
+        var callArgString = string.Join(", ", callArgs);
+
+        swiftWriter.WriteLine();
+        swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
+        swiftWriter.WriteLine($"public func {wrapperSymbol}({swiftParamString}) {{");
+        swiftWriter.Indent++;
+
+        // Convert self and call the method
+        if (!isClass)
+        {
+            // Non-frozen struct: dereference pointer to get value, call method.
+            // Use 'var' to support mutating methods (though most bypass candidates are non-mutating).
+            swiftWriter.WriteLine($"var __selfTyped = __self.assumingMemoryBound(to: {swiftTypeName}.self).pointee");
+            swiftWriter.WriteLine($"__selfTyped.{methodDecl.Name}({callArgString})");
+            // Write back for mutating methods
+            swiftWriter.WriteLine($"__self.assumingMemoryBound(to: {swiftTypeName}.self).pointee = __selfTyped");
+        }
+        else
+        {
+            swiftWriter.WriteLine($"__self.{methodDecl.Name}({callArgString})");
+        }
+
+        swiftWriter.Indent--;
+        swiftWriter.WriteLine("}");
+    }
+
+    private static void EmitMethodCSharpBinding(
+        CSharpWriter csWriter,
+        MethodEnvironment env,
+        string typeName,
+        string wrapperSymbol,
+        string wrapperLibPath,
+        bool isClass,
+        Signature reducedWrapperSig,
+        Signature reducedPInvokeSig)
+    {
+        var methodDecl = env.MethodDecl;
+        var accessModifier = NameProvider.GetAccessModifier(methodDecl.Visibility);
+
+        // Build the public method parameter list from the reduced wrapper signature
+        var paramString = reducedWrapperSig.ParametersString();
+
+        // P/Invoke params: self (IntPtr) + passthrough args
+        var pInvokeParamsList = new List<string> { "IntPtr self" };
+        var pInvokePassthroughParams = reducedPInvokeSig.PInvokeParametersString();
+        if (!string.IsNullOrEmpty(pInvokePassthroughParams))
+            pInvokeParamsList.Add(pInvokePassthroughParams);
+        var pInvokeParams = string.Join(", ", pInvokeParamsList);
+
+        // Emit P/Invoke declaration
+        if (env.PInvokeHelperContext != null)
+        {
+            env.PInvokeHelperContext.AddDeclaration(new PInvokeDeclaration
+            {
+                LibraryPath = wrapperLibPath,
+                EntryPoint = wrapperSymbol,
+                MethodName = wrapperSymbol,
+                ReturnType = "void",
+                ParametersString = pInvokeParams,
+                IsAsync = false,
+                MetadataParameters = null
+            });
+        }
+        else
+        {
+            csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
+            csWriter.WriteLine($"[LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{wrapperSymbol}\")]");
+            csWriter.WriteLine($"private static partial void {wrapperSymbol}({pInvokeParams});");
+            csWriter.WriteLine();
+        }
+
+        // Build C# method name
+        var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(methodDecl);
+        var methodName = NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: false, isSelfReturning: isSelfReturning);
+
+        // Emit public method (unsafe needed for class pointer dereference)
+        var unsafeModifier = isClass ? "unsafe " : "";
+        csWriter.WriteLine($"{accessModifier} {unsafeModifier}void {methodName}({paramString})");
+        csWriter.WriteLine("{");
+        csWriter.Indent++;
+
+        // Build call arguments: self handle + passthrough args.
+        // Classes: _payload buffer contains the object reference at offset 0 — dereference.
+        // Non-frozen structs: _payload buffer IS the struct data — pass directly.
+        var callArgsList = new List<string>();
+        callArgsList.Add(isClass
+            ? "*(IntPtr*)_payload.DangerousGetHandle()"
+            : "_payload.DangerousGetHandle()");
+
+        var passthroughCallArgs = reducedPInvokeSig.CallArgumentsString();
+        if (!string.IsNullOrEmpty(passthroughCallArgs))
+            callArgsList.Add(passthroughCallArgs);
+        var callArgs = string.Join(", ", callArgsList);
+
+        var wrapperCall = env.PInvokeHelperContext != null
+            ? $"{env.PInvokeHelperContext.HelperClassName}.{wrapperSymbol}"
+            : wrapperSymbol;
+
+        csWriter.WriteLine($"{wrapperCall}({callArgs});");
+
+        csWriter.Indent--;
+        csWriter.WriteLine("}");
     }
 
     private static void EmitSwiftWrapper(

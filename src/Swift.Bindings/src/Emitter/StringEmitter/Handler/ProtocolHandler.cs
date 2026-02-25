@@ -243,6 +243,7 @@ namespace BindingsGeneration
             // Emit methods as interface members
             var skippedMethodKeys = new HashSet<string>();
             var closureSkippedMethodKeys = new HashSet<string>(); // Closure methods: in interface, proxy needs stub
+            var existentialSkippedMethodKeys = new HashSet<string>(); // Existential methods: in interface, proxy needs stub
             foreach (var methodDecl in protocolDecl.Methods)
             {
                 // Skip constructors and static methods early (they can't be in C# interfaces)
@@ -298,8 +299,9 @@ namespace BindingsGeneration
                     continue;
                 }
 
-                // B9: Skip methods with existential parameters — the receiver can't marshal
+                // B9: Methods with existential parameters — the receiver can't marshal
                 // ExistentialContainer types to/from interface types in [UnmanagedCallersOnly] callbacks.
+                // Emit in interface for concrete type implementation, but track for proxy NotSupportedException stub.
                 var existentialHandlerB9 = new ExistentialHandler(env.TypeDatabase);
                 bool hasExistentialParam = methodDecl.CSSignature.Skip(1).Any(arg =>
                     existentialHandlerB9.IsExistential(arg.SwiftTypeSpec) ||
@@ -307,9 +309,9 @@ namespace BindingsGeneration
                 if (hasExistentialParam)
                 {
                     skippedMethodKeys.Add(methodKey);
-                    _logger.LogDebug($"Skipping method '{methodDecl.Name}' in interface {protocolDecl.Name} - has existential parameter.");
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, SkipReason.UnsupportedExistential, "Method has existential parameter that can't be marshalled in protocol receiver.");
-                    continue;
+                    _logger.LogDebug($"Method '{methodDecl.Name}' in interface {protocolDecl.Name} has existential parameter - proxy will use NotSupportedException stub.");
+                    // Fall through to emit in interface — concrete types can implement it
+                    // existentialSkippedMethodKeys is populated below, after all remaining gates pass
                 }
 
                 // Methods with closure parameters: emit in interface for concrete type
@@ -359,9 +361,11 @@ namespace BindingsGeneration
                     continue;
                 }
 
-                // Track closure methods that passed all gates and are emitted in interface
+                // Track closure/existential methods that passed all gates and are emitted in interface
                 if (hasClosureParam)
                     closureSkippedMethodKeys.Add(methodKey);
+                if (hasExistentialParam)
+                    existentialSkippedMethodKeys.Add(methodKey);
 
                 EmitInterfaceMethod(bodyWriter, methodDecl, env.TypeDatabase, protocolDecl);
                 emittedInterfaceMemberCount++;
@@ -418,7 +422,7 @@ namespace BindingsGeneration
             if (!ModuleHandler.HasMembersReferencingUnsupportedModule(protocolDecl))
             {
                 EmitProtocolProxy(csWriter, protocolDecl, env.TypeDatabase, skippedMethodKeys, skippedPropertyNames, skippedSubscriptIndices,
-                    closureSkippedMethodKeys, closureSkippedPropertyNames);
+                    closureSkippedMethodKeys, closureSkippedPropertyNames, existentialSkippedMethodKeys);
             }
             else
             {
@@ -437,12 +441,13 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitProtocolProxy(CSharpWriter csWriter, ProtocolDecl protocolDecl, ITypeDatabase typeDatabase,
             HashSet<string> skippedMethodKeys, HashSet<string> skippedPropertyNames, HashSet<int> skippedSubscriptIndices,
-            HashSet<string> closureSkippedMethodKeys, HashSet<string> closureSkippedPropertyNames)
+            HashSet<string> closureSkippedMethodKeys, HashSet<string> closureSkippedPropertyNames,
+            HashSet<string> existentialSkippedMethodKeys)
         {
             var moduleName = protocolDecl.ModuleDecl?.Name ?? "Swift";
             var proxyEmitter = new ProtocolProxyEmitter(typeDatabase, _logger, moduleName);
             proxyEmitter.EmitProxyClass(csWriter, protocolDecl, skippedMethodKeys, skippedPropertyNames, skippedSubscriptIndices,
-                closureSkippedMethodKeys, closureSkippedPropertyNames);
+                closureSkippedMethodKeys, closureSkippedPropertyNames, existentialSkippedMethodKeys);
         }
 
         /// <summary>

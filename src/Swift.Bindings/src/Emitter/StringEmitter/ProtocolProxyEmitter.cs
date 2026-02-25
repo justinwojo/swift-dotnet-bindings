@@ -23,6 +23,7 @@ public partial class ProtocolProxyEmitter
     private HashSet<int> _skippedSubscriptIndices = new HashSet<int>();
     private HashSet<string> _closureSkippedMethodKeys = new HashSet<string>();
     private HashSet<string> _closureSkippedPropertyNames = new HashSet<string>();
+    private HashSet<string> _existentialSkippedMethodKeys = new HashSet<string>();
 
     public ProtocolProxyEmitter(ITypeDatabase typeDatabase, ILogger logger, string moduleName)
     {
@@ -39,13 +40,15 @@ public partial class ProtocolProxyEmitter
         HashSet<string>? skippedPropertyNames = null,
         HashSet<int>? skippedSubscriptIndices = null,
         HashSet<string>? closureSkippedMethodKeys = null,
-        HashSet<string>? closureSkippedPropertyNames = null)
+        HashSet<string>? closureSkippedPropertyNames = null,
+        HashSet<string>? existentialSkippedMethodKeys = null)
     {
         _skippedMethodKeys = skippedMethodKeys ?? new HashSet<string>();
         _skippedPropertyNames = skippedPropertyNames ?? new HashSet<string>();
         _skippedSubscriptIndices = skippedSubscriptIndices ?? new HashSet<int>();
         _closureSkippedMethodKeys = closureSkippedMethodKeys ?? new HashSet<string>();
         _closureSkippedPropertyNames = closureSkippedPropertyNames ?? new HashSet<string>();
+        _existentialSkippedMethodKeys = existentialSkippedMethodKeys ?? new HashSet<string>();
 
         // Skip protocols with Self requirements - these require special handling
         // that can't be done with simple generic parameters
