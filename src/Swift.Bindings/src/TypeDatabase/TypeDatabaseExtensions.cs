@@ -514,6 +514,7 @@ public static class TypeDatabaseExtensions
         "MultipeerConnectivity", "UserNotifications", "NetworkExtension",
         "Intents", "IntentsUI",
         "QuartzCore",
+        "AVFAudio",
     };
 
     /// <summary>
@@ -523,6 +524,7 @@ public static class TypeDatabaseExtensions
     private static readonly Dictionary<string, string> ModuleToCSharpNamespaceOverrides = new(StringComparer.Ordinal)
     {
         { "QuartzCore", "CoreAnimation" },
+        { "AVFAudio", "AVFoundation" },
     };
 
     /// <summary>
@@ -572,7 +574,7 @@ public static class TypeDatabaseExtensions
         "Foundation.TimeZone", "Foundation.Notification", "Foundation.Notification.Name",
         "Foundation.Measurement", "Foundation.PersonNameComponents",
         "Foundation.CharacterSet", "Foundation.Decimal", "Foundation.NSRange",
-        "Foundation.Date", "Foundation.DateComponents",
+        "Foundation.Date", "Foundation.DateComponents", "Foundation.IndexSet",
         "Foundation.Selector", "Foundation.ComparisonResult",
         // Foundation types with underscore prefix in Swift ABI (C struct names)
         "Foundation._NSRange",
@@ -601,9 +603,50 @@ public static class TypeDatabaseExtensions
         "Foundation.FileAttributeKey",
         // Foundation nested ObjC NS_OPTIONS: NSData.WritingOptions → NSDataWritingOptions
         "Foundation.NSData.WritingOptions",
-        // UIKit nested ObjC enums (value types, not NSObject subclasses)
+        // UIKit nested ObjC enums/options (value types, not NSObject subclasses)
         "UIKit.UIImage.RenderingMode",
+        "UIKit.UIImage.ResizingMode",
+        "UIKit.UIImage.SymbolScale",
+        "UIKit.UIImage.SymbolWeight",
         "UIKit.UIView.AnimationOptions",
+        "UIKit.UIView.AutoresizingMask",
+        "UIKit.UIView.AnimationCurve",
+        "UIKit.UIRectEdge",
+        "UIKit.UIRectCorner",
+        "UIKit.UIInterfaceOrientation",
+        "UIKit.UIInterfaceOrientationMask",
+        "UIKit.UIUserInterfaceIdiom",
+        "UIKit.UIUserInterfaceStyle",
+        "UIKit.UISemanticContentAttribute",
+        "UIKit.UIControl.ContentHorizontalAlignment",
+        "UIKit.NSLineBreakMode",
+        "UIKit.UITextAutocapitalizationType",
+        "UIKit.UITextAutocorrectionType",
+        "UIKit.UITextSpellCheckingType",
+        "UIKit.UIReturnKeyType",
+        "UIKit.UIDataDetectorTypes",
+        // AVFoundation enums (value types)
+        "AVFoundation.AVMediaType",
+        "AVFoundation.AVFileType",
+        "AVFoundation.AVLayerVideoGravity",
+        "AVFoundation.AVCaptureDevice.Position",
+        "AVFoundation.AVCaptureDevice.FlashMode",
+        "AVFoundation.AVCaptureDevice.TorchMode",
+        "AVFoundation.AVPlayer.TimeControlStatus",
+        "AVFoundation.AVPlayer.Status",
+        "AVFoundation.AVPlayerItem.Status",
+        // StoreKit enums (value types)
+        "StoreKit.SKPaymentTransactionState",
+        "StoreKit.SKError.Code",
+        "StoreKit.SKProduct.PeriodUnit",
+        "StoreKit.SKProductDiscount.PaymentMode",
+        // CoreBluetooth enums (value types)
+        "CoreBluetooth.CBManagerState",
+        "CoreBluetooth.CBManagerAuthorization",
+        "CoreBluetooth.CBPeripheralState",
+        "CoreBluetooth.CBCharacteristicProperties",
+        "CoreBluetooth.CBAttributePermissions",
+        "CoreBluetooth.CBCharacteristicWriteType",
         // Photos ObjC enum (value type)
         "Photos.PHImageContentMode",
         // Foundation NS_OPTIONS imported via NSRegularExpression.Options
@@ -687,26 +730,62 @@ public static class TypeDatabaseExtensions
     private static readonly Dictionary<string, (string Namespace, string Name)> AppleFrameworkClassRemappings =
         new(StringComparer.Ordinal)
     {
+        // Foundation: Swift drops NS prefix — common classes
+        ["Foundation.Bundle"] = ("Foundation", "NSBundle"),
+        ["Foundation.NotificationCenter"] = ("Foundation", "NSNotificationCenter"),
+        ["Foundation.UserDefaults"] = ("Foundation", "NSUserDefaults"),
+        ["Foundation.Timer"] = ("Foundation", "NSTimer"),
+        ["Foundation.RunLoop"] = ("Foundation", "NSRunLoop"),
+        ["Foundation.Operation"] = ("Foundation", "NSOperation"),
+        ["Foundation.OperationQueue"] = ("Foundation", "NSOperationQueue"),
+        ["Foundation.BlockOperation"] = ("Foundation", "NSBlockOperation"),
+        ["Foundation.ProcessInfo"] = ("Foundation", "NSProcessInfo"),
+        ["Foundation.Thread"] = ("Foundation", "NSThread"),
         ["Foundation.FileManager"] = ("Foundation", "NSFileManager"),
+        ["Foundation.FileHandle"] = ("Foundation", "NSFileHandle"),
+        ["Foundation.UndoManager"] = ("Foundation", "NSUndoManager"),
+        ["Foundation.Progress"] = ("Foundation", "NSProgress"),
+        ["Foundation.Scanner"] = ("Foundation", "NSScanner"),
+        ["Foundation.NumberFormatter"] = ("Foundation", "NSNumberFormatter"),
+        ["Foundation.DateFormatter"] = ("Foundation", "NSDateFormatter"),
+        ["Foundation.InputStream"] = ("Foundation", "NSInputStream"),
+        ["Foundation.OutputStream"] = ("Foundation", "NSOutputStream"),
+        ["Foundation.Stream"] = ("Foundation", "NSStream"),
+
+        // Foundation: URL/HTTP/JSON acronym casing (URL→Url, HTTP→Http, JSON→Json)
         ["Foundation.URLSession"] = ("Foundation", "NSUrlSession"),
         ["Foundation.URLSessionTask"] = ("Foundation", "NSUrlSessionTask"),
         ["Foundation.URLSessionDataTask"] = ("Foundation", "NSUrlSessionDataTask"),
         ["Foundation.URLSessionDownloadTask"] = ("Foundation", "NSUrlSessionDownloadTask"),
+        ["Foundation.URLSessionUploadTask"] = ("Foundation", "NSUrlSessionUploadTask"),
+        ["Foundation.URLSessionStreamTask"] = ("Foundation", "NSUrlSessionStreamTask"),
         ["Foundation.URLSessionWebSocketTask"] = ("Foundation", "NSUrlSessionWebSocketTask"),
+        ["Foundation.URLSessionConfiguration"] = ("Foundation", "NSUrlSessionConfiguration"),
         ["Foundation.URLSessionTaskMetrics"] = ("Foundation", "NSUrlSessionTaskMetrics"),
+        ["Foundation.URLSessionTaskTransactionMetrics"] = ("Foundation", "NSUrlSessionTaskTransactionMetrics"),
         ["Foundation.URLResponse"] = ("Foundation", "NSUrlResponse"),
         ["Foundation.HTTPURLResponse"] = ("Foundation", "NSHttpUrlResponse"),
         ["Foundation.CachedURLResponse"] = ("Foundation", "NSCachedUrlResponse"),
         ["Foundation.URLAuthenticationChallenge"] = ("Foundation", "NSUrlAuthenticationChallenge"),
         ["Foundation.URLCredential"] = ("Foundation", "NSUrlCredential"),
+        ["Foundation.URLCredentialStorage"] = ("Foundation", "NSUrlCredentialStorage"),
+        ["Foundation.URLProtectionSpace"] = ("Foundation", "NSUrlProtectionSpace"),
+        ["Foundation.URLCache"] = ("Foundation", "NSUrlCache"),
+        ["Foundation.URLProtocol"] = ("Foundation", "NSUrlProtocol"),
+        ["Foundation.URLConnection"] = ("Foundation", "NSUrlConnection"),
+        ["Foundation.URLSessionWebSocketTask.Message"] = ("Foundation", "NSUrlSessionWebSocketMessage"),
+        ["Foundation.HTTPCookie"] = ("Foundation", "NSHttpCookie"),
+        ["Foundation.HTTPCookieStorage"] = ("Foundation", "NSHttpCookieStorage"),
+        ["Foundation.JSONSerialization"] = ("Foundation", "NSJsonSerialization"),
+
+        // Foundation: ObjC names with casing differences in .NET
         ["Foundation.NSURL"] = ("Foundation", "NSUrl"),
         ["Foundation.NSUUID"] = ("Foundation", "NSUuid"),
-        ["Foundation.DateFormatter"] = ("Foundation", "NSDateFormatter"),
-        ["Foundation.InputStream"] = ("Foundation", "NSInputStream"),
-        ["Foundation.Progress"] = ("Foundation", "NSProgress"),
-        ["Foundation.URLSessionWebSocketTask.Message"] = ("Foundation", "NSUrlSessionWebSocketMessage"),
-        // Foundation stream class: Swift name → .NET ObjC name
-        ["Foundation.Stream"] = ("Foundation", "NSStream"),
+
+        // AVFoundation: acronym casing
+        ["AVFoundation.AVURLAsset"] = ("AVFoundation", "AVUrlAsset"),
+        ["AVFoundation.AVMIDIPlayer"] = ("AVFoundation", "AVMidiPlayer"),
+
         // QuartzCore NSString typedefs — not bound as standalone types in .NET iOS,
         // but they are ObjC class references (NSString), not value types
         ["QuartzCore.CALayerContentsGravity"] = ("Foundation", "NSString"),
