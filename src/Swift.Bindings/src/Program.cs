@@ -747,6 +747,26 @@ namespace BindingsGeneration
 
                 logger.LogDebug("Parsed Swift ABI file successfully.");
 
+                // Reset protocol extension emitter state unconditionally (prevents stale
+                // wrappers leaking from a previous module when this module has no extensions).
+                // Must happen here, NOT in ModuleHandler.Emit(), because InjectExtensionMethods
+                // populates static state that ModuleHandler.Emit() later reads via EmitSwiftWrappers().
+                ProtocolExtensionEmitter.ResetForModule();
+
+                // Parse protocol extension methods from swiftinterface and inject onto conforming types
+                if (!string.IsNullOrWhiteSpace(swiftInterfacePath) && File.Exists(swiftInterfacePath))
+                {
+                    var protocolNames = SwiftInterfaceAccessParser.GetProtocolNames(swiftInterfacePath);
+                    if (protocolNames.Count > 0)
+                    {
+                        var extensionMethods = SwiftInterfaceAccessParser.GetProtocolExtensionMethods(swiftInterfacePath, protocolNames);
+                        if (extensionMethods.Count > 0)
+                        {
+                            ProtocolExtensionEmitter.InjectExtensionMethods(decl, extensionMethods, typeDatabase, logger);
+                        }
+                    }
+                }
+
                 // Emit the C# bindings
                 var stringEmitter = new StringEmitter(outputDirectory, typeDatabase, loggerFactory, namespaceResolver, bridgeHintsPath, markerProtocolConformances);
                 stringEmitter.EmitModule(decl);

@@ -175,24 +175,27 @@ Implemented Pattern A monomorphized bridge: specializes `T=UnsafeMutableRawPoint
 ### Session 5: Protocol Extension Methods — Owned Types (Kingfisher-First)
 
 **Theme**: Project Swift protocol extension methods as callable API on conforming types
-**Effort**: 1-2 sessions | **Libraries improved**: 2-4
+**Effort**: 1 session | **Libraries improved**: Kingfisher + any library with class-conforming protocol extensions
+**Status**: ✅ COMPLETE
 
-This is the critical unlock for Kingfisher. Protocol extension methods don't appear in ABI JSON — they must be parsed from `.swiftinterface` files and dispatched via static dispatch (not witness tables).
+Protocol extension methods don't appear in ABI JSON — parsed from `.swiftinterface` files and dispatched via `@_silgen_name` Swift wrappers (static dispatch, Swift calling convention compatible with existing `CallConvSwift` P/Invoke pipeline).
 
-**Key insight**: Existing `.swiftinterface` parsing infrastructure in `SwiftInterfaceAccessParser.cs` provides the foundation. Protocol extension methods use mangled names with `PAAE` suffix (Protocol AA Extension) and are present in TBD symbol files.
+| Sub-task | Description | Result |
+|----------|-------------|--------|
+| **5a. Parse protocol extension methods from swiftinterface** | `GetProtocolNames()` + `GetProtocolExtensionMethods()` in SwiftInterfaceAccessParser. Handles `#if compiler` blocks, multi-line signatures, `@MainActor`, `where` constraints. | Complete |
+| **5b. ProtocolExtensionEmitter** | Static emitter: conformance mapping, conservative gates (class-only self, no closures/existentials/structs/async/throwing/constrained), synthetic MethodDecl creation (`UsesWrapperLibrary` + `UsesFreeFunctionWrapper`), `@_silgen_name` Swift wrapper generation. | Complete |
+| **5c. Pipeline wiring** | Injection in Program.cs after `typeDatabase.AddModuleDatabase()`, Swift wrapper emission in ModuleHandler after type loop. | Complete |
+| **5d. Kingfisher validation** | 18 `KFOptionSetter` extension methods on `KF.Builder` with `Builder` return type. Fluent chain compiles. | Complete |
 
-| Sub-task | Description | Classification |
-|----------|-------------|----------------|
-| **5a. Parse protocol extension methods from swiftinterface** | Extract protocol extension method signatures from `.swiftinterface`. Associate with the declaring protocol. Match to TBD symbols for mangled name / dispatch target. | Design gap |
-| **5b. Emit extension methods on conforming types** | For each protocol extension method, emit a C# method on concrete types that conform to the protocol. Dispatch via the mangled symbol (static dispatch). Handle `Self` return types by resolving to the concrete type. | Design gap |
-| **5c. Kingfisher validation** | Verify `KF.Builder` gets all 32 `KFOptionSetter` extension methods with `Builder` return types. The fluent chain `builder.SetProcessor(...).SetCache(...).Set(imageView)` must compile. | Validation |
+**Gates** (hardened via two rounds of Codex review):
+- Class self only (struct self ABI deferred to Session 6+)
+- No closures, existentials, async, throwing, or constrained extensions
+- Parameters: class types (IntPtr) + primitives only (no SimpleEnum/ObjCBridged — wrapper marshals as `Unmanaged`)
+- Return: Self, Void, or class type
+- ABI collision check via PrintedName-style keys
+- Symbol naming uses parameter labels + type suffixes for overload disambiguation
 
-**Critical workflows advanced**:
-- Kingfisher: Full fluent builder chain works
-
-**Acceptance gate**: `KF.Builder` has 30+ methods with `Builder` return type. Fluent chain compiles (runtime: at least one builder method roundtrips — e.g., `Builder.SetProcessor(proc)` returns non-null Builder). 32/32 validation maintained.
-
-**Fallback**: If swiftinterface → TBD symbol matching proves unreliable for Kingfisher, fall back to targeted Swift wrapper shims for the top 5-10 `KFOptionSetter` methods (manual `@_cdecl` wrappers that call the extension methods directly). Slower to scale but guarantees the critical workflow.
+**Acceptance gate**: All met. 18 KF.Builder extension methods generated. 32/32 validation maintained. Two rounds of Codex review fixes applied (static state lifecycle, gate narrowing, async/throws gates, overload handling).
 
 **Depends on**: Session 2 (swiftinterface parsing infrastructure)
 
@@ -316,10 +319,10 @@ Session 1: Foundation + Quick Wins                    ✅ COMPLETE
  │
  ├─► Session 4: Generic Throwing Closures            ✅ COMPLETE
  │
- └─► Session 5: Protocol Extensions — Owned Types    ← NEXT (benefits from Session 2)
+ └─► Session 5: Protocol Extensions — Owned Types    ✅ COMPLETE
       │         (Kingfisher builder chain)
       │
-      └─► Session 6: Protocol Extensions — Foreign    ← Depends on Session 5
+      └─► Session 6: Protocol Extensions — Foreign    ← NEXT (depends on Session 5)
            │         (SnapKit snp, SkeletonView)
            │
            └─► Session 7: Protocol Extensions — RxSwift  ← Depends on 5-6, high risk

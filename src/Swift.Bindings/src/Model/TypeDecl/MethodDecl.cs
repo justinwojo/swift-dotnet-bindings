@@ -181,6 +181,13 @@ namespace BindingsGeneration
         /// Set by MethodHandler when IsMethodGenericClosureEligible returns true.
         /// </summary>
         public bool HasGenericClosureBridge { get; set; } = false;
+
+        /// <summary>
+        /// When true, this method was synthesized from a protocol extension method
+        /// parsed from a .swiftinterface file. Protocol extension methods use static
+        /// dispatch and are called via generated @_silgen_name Swift wrappers.
+        /// </summary>
+        public bool IsProtocolExtensionMethod { get; set; } = false;
     }
 
     /// <summary>

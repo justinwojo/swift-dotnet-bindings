@@ -637,6 +637,305 @@ public static class SwiftInterfaceAccessParser
         return result;
     }
 
+    // Regex for protocol declarations: matches "public protocol Name" or "open protocol Name"
+    private static readonly Regex ProtocolDeclRegex = new(
+        @"(?:public|open)\s+protocol\s+(\w+)",
+        RegexOptions.Compiled);
+
+    // Regex for public/open func in extension (captures function name)
+    private static readonly Regex ExtensionFuncRegex = new(
+        @"(?:@\S+\s+)*(?:public|open)\s+(?:static\s+)?func\s+(\w+)\s*(?:<[^>]*>\s*)?\(",
+        RegexOptions.Compiled);
+
+    // Regex for public/open var in extension (captures property name)
+    private static readonly Regex ExtensionVarRegex = new(
+        @"(?:@\S+\s+)*(?:public|open)\s+(?:static\s+)?var\s+(\w+)\s*:",
+        RegexOptions.Compiled);
+
+    /// <summary>
+    /// Parses a .swiftinterface file and returns the set of protocol names declared in
+    /// the module. Names are unqualified (e.g., "KFOptionSetter"). Used to distinguish
+    /// protocol extensions from type extensions when parsing extension blocks.
+    /// </summary>
+    public static HashSet<string> GetProtocolNames(string swiftInterfacePath)
+    {
+        var result = new HashSet<string>();
+
+        if (!File.Exists(swiftInterfacePath))
+            return result;
+
+        var lines = File.ReadAllLines(swiftInterfacePath);
+
+        foreach (var line in lines)
+        {
+            var trimmed = line.TrimStart();
+            var match = ProtocolDeclRegex.Match(trimmed);
+            if (match.Success)
+            {
+                result.Add(match.Groups[1].Value);
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Parses a .swiftinterface file and returns protocol extension methods grouped by
+    /// fully-qualified protocol name (e.g., "Kingfisher.KFOptionSetter").
+    /// Only collects methods from extensions of known protocols (provided by protocolNames).
+    /// Handles #if compiler(...) blocks, multi-line signatures, @MainActor annotations,
+    /// and where constraints on extension headers.
+    /// </summary>
+    public static Dictionary<string, List<ProtocolExtensionMethodDecl>> GetProtocolExtensionMethods(
+        string swiftInterfacePath, HashSet<string> protocolNames)
+    {
+        var result = new Dictionary<string, List<ProtocolExtensionMethodDecl>>();
+
+        if (!File.Exists(swiftInterfacePath) || protocolNames.Count == 0)
+            return result;
+
+        var lines = File.ReadAllLines(swiftInterfacePath);
+
+        var typeStack = new Stack<(string Name, int Depth)>();
+        int braceDepth = 0;
+        // Track whether we're inside a protocol extension and which protocol
+        string? currentProtocolExtension = null; // fully-qualified name
+        int protocolExtensionDepth = -1;
+        List<string> currentWhereConstraints = new();
+        bool pendingMainActor = false;
+        string? continuationLine = null;
+        bool continuationMainActor = false;
+
+        foreach (var line in lines)
+        {
+            var trimmed = line.TrimStart();
+
+            // Handle multi-line signature continuation
+            if (continuationLine != null)
+            {
+                continuationLine += " " + trimmed;
+                if (!HasUnmatchedOpenParen(continuationLine))
+                {
+                    var completeLine = continuationLine;
+                    var wasMainActor = continuationMainActor;
+                    continuationLine = null;
+                    continuationMainActor = false;
+                    if (currentProtocolExtension != null)
+                    {
+                        ProcessProtocolExtensionMember(completeLine, currentProtocolExtension,
+                            currentWhereConstraints, wasMainActor, result);
+                    }
+                }
+                continue;
+            }
+
+            // Skip #if / #endif lines (symbols exist in binary regardless)
+            if (trimmed.StartsWith("#if ") || trimmed.StartsWith("#endif") || trimmed.StartsWith("#else"))
+                continue;
+
+            var (openBraces, closeBraces) = CountBraces(line);
+
+            // Check for @MainActor annotation
+            bool hasMainActor = pendingMainActor || MainActorAnnotationRegex.IsMatch(trimmed);
+            pendingMainActor = false;
+
+            // Pending annotation (attribute on its own line, no declaration)
+            if (hasMainActor && !TypeDeclRegex.IsMatch(trimmed) &&
+                !ExtensionFuncRegex.IsMatch(trimmed) && !ExtensionVarRegex.IsMatch(trimmed) &&
+                openBraces == 0)
+            {
+                pendingMainActor = true;
+                braceDepth += openBraces - closeBraces;
+                while (typeStack.Count > 0 && braceDepth <= typeStack.Peek().Depth)
+                    typeStack.Pop();
+                continue;
+            }
+
+            // Check for extension declarations on known protocols
+            bool pushedScope = false;
+            var extMatch = ExtensionDeclRegex.Match(trimmed);
+            if (extMatch.Success && openBraces > 0)
+            {
+                var qualifiedName = extMatch.Groups[1].Value;
+                var dotIdx = qualifiedName.LastIndexOf('.');
+                var unqualifiedName = dotIdx >= 0 ? qualifiedName.Substring(dotIdx + 1) : qualifiedName;
+                typeStack.Push((unqualifiedName, braceDepth));
+                pushedScope = true;
+
+                // Check if this is a protocol extension
+                if (protocolNames.Contains(unqualifiedName))
+                {
+                    currentProtocolExtension = qualifiedName;
+                    protocolExtensionDepth = braceDepth;
+                    currentWhereConstraints = ParseWhereConstraints(trimmed);
+                }
+            }
+
+            // Track type declarations (class/struct/enum/actor/protocol)
+            if (!pushedScope)
+            {
+                var typeMatch = TypeDeclRegex.Match(trimmed);
+                if (typeMatch.Success && openBraces > 0)
+                {
+                    typeStack.Push((typeMatch.Groups[1].Value, braceDepth));
+                    pushedScope = true;
+                }
+            }
+
+            // If inside a protocol extension, look for func/var declarations
+            if (!pushedScope && currentProtocolExtension != null)
+            {
+                // Check for func declarations
+                if (ExtensionFuncRegex.IsMatch(trimmed))
+                {
+                    if (HasUnmatchedOpenParen(trimmed))
+                    {
+                        continuationLine = trimmed;
+                        continuationMainActor = hasMainActor;
+                    }
+                    else
+                    {
+                        ProcessProtocolExtensionMember(trimmed, currentProtocolExtension,
+                            currentWhereConstraints, hasMainActor, result);
+                    }
+                }
+                // Check for var declarations
+                else if (ExtensionVarRegex.IsMatch(trimmed))
+                {
+                    ProcessProtocolExtensionMember(trimmed, currentProtocolExtension,
+                        currentWhereConstraints, hasMainActor, result);
+                }
+            }
+
+            braceDepth += openBraces - closeBraces;
+
+            // Pop scopes and check if we've left the protocol extension
+            while (typeStack.Count > 0 && braceDepth <= typeStack.Peek().Depth)
+            {
+                typeStack.Pop();
+            }
+            if (currentProtocolExtension != null && braceDepth <= protocolExtensionDepth)
+            {
+                currentProtocolExtension = null;
+                protocolExtensionDepth = -1;
+                currentWhereConstraints = new();
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Extracts where constraints from an extension header line.
+    /// e.g., "extension Mod.Proto where Self : SomeClass {" → ["Self : SomeClass"]
+    /// </summary>
+    private static List<string> ParseWhereConstraints(string line)
+    {
+        var constraints = new List<string>();
+        var whereIdx = line.IndexOf(" where ", StringComparison.Ordinal);
+        if (whereIdx < 0)
+            return constraints;
+
+        var afterWhere = line.Substring(whereIdx + 7);
+        // Remove trailing " {" or "{"
+        var braceIdx = afterWhere.LastIndexOf('{');
+        if (braceIdx >= 0)
+            afterWhere = afterWhere.Substring(0, braceIdx).Trim();
+
+        // Split by commas, respecting angle brackets
+        var parts = SplitParameters(afterWhere);
+        foreach (var part in parts)
+        {
+            var trimmed = part.Trim();
+            if (!string.IsNullOrEmpty(trimmed))
+                constraints.Add(trimmed);
+        }
+
+        return constraints;
+    }
+
+    /// <summary>
+    /// Processes a single func/var line within a protocol extension block and adds
+    /// the parsed ProtocolExtensionMethodDecl to the result dictionary.
+    /// </summary>
+    private static void ProcessProtocolExtensionMember(
+        string line, string protocolQualifiedName,
+        List<string> whereConstraints, bool isMainActorIsolated,
+        Dictionary<string, List<ProtocolExtensionMethodDecl>> result)
+    {
+        // Check for func
+        var funcMatch = ExtensionFuncRegex.Match(line);
+        if (funcMatch.Success)
+        {
+            var methodName = funcMatch.Groups[1].Value;
+            var printedName = ExtractPrintedName(line, methodName);
+            bool isStatic = line.Contains("static func ");
+            bool returnsSelf = DetectSelfReturn(line);
+
+            var decl = new ProtocolExtensionMethodDecl
+            {
+                ProtocolQualifiedName = protocolQualifiedName,
+                MethodName = methodName,
+                RawSignature = line,
+                PrintedName = printedName,
+                ReturnsSelf = returnsSelf,
+                IsMainActorIsolated = isMainActorIsolated || MainActorAnnotationRegex.IsMatch(line),
+                IsStatic = isStatic,
+                IsProperty = false,
+                WhereConstraints = new List<string>(whereConstraints)
+            };
+
+            if (!result.ContainsKey(protocolQualifiedName))
+                result[protocolQualifiedName] = new List<ProtocolExtensionMethodDecl>();
+            result[protocolQualifiedName].Add(decl);
+            return;
+        }
+
+        // Check for var
+        var varMatch = ExtensionVarRegex.Match(line);
+        if (varMatch.Success)
+        {
+            var propertyName = varMatch.Groups[1].Value;
+            bool isStatic = line.Contains("static var ");
+
+            var decl = new ProtocolExtensionMethodDecl
+            {
+                ProtocolQualifiedName = protocolQualifiedName,
+                MethodName = propertyName,
+                RawSignature = line,
+                PrintedName = propertyName,
+                ReturnsSelf = false,
+                IsMainActorIsolated = isMainActorIsolated || MainActorAnnotationRegex.IsMatch(line),
+                IsStatic = isStatic,
+                IsProperty = true,
+                WhereConstraints = new List<string>(whereConstraints)
+            };
+
+            if (!result.ContainsKey(protocolQualifiedName))
+                result[protocolQualifiedName] = new List<ProtocolExtensionMethodDecl>();
+            result[protocolQualifiedName].Add(decl);
+        }
+    }
+
+    /// <summary>
+    /// Detects whether a function signature returns Self.
+    /// Looks for "-> Self" at the end of the signature (after the last ")").
+    /// </summary>
+    private static bool DetectSelfReturn(string line)
+    {
+        var lastParen = line.LastIndexOf(')');
+        if (lastParen < 0)
+            return false;
+
+        var afterParen = line.Substring(lastParen + 1).Trim();
+        // Remove trailing "{ ... }" or "{"
+        var braceIdx = afterParen.IndexOf('{');
+        if (braceIdx >= 0)
+            afterParen = afterParen.Substring(0, braceIdx).Trim();
+
+        return afterParen == "-> Self" || afterParen.EndsWith("-> Self");
+    }
+
     /// <summary>
     /// Parses a .swiftinterface file and returns a set of member keys that are
     /// declared as internal. Keys are formatted as "TypeName.printedName"
