@@ -19,6 +19,170 @@ namespace Swift.SwiftBindingsTestLib
     public partial class Functions
     {
         
+        
+        /// <summary>
+        /// Non-generic version: receives metadata as UnsafeRawPointer and uses swift_getTypeByMangledNameInContext or similar to get size. Actually, we can use _swift_getTypeMetadataLayoutSize at the ABI level.
+        /// </summary>
+        public static void SBW_Spike_sizeOfT_cdecl( System.IntPtr metadataPtr,  System.IntPtr resultBuf)
+        {
+            try
+            {
+                
+                
+                PInvoke_SBW_Spike_sizeOfT_cdecl_74858922(metadataPtr, resultBuf);
+                
+                return;
+            }
+            
+            finally
+            {
+            }
+            
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib23SBW_Spike_sizeOfT_cdeclyySV_SpySiGtF")]
+        private static partial void PInvoke_SBW_Spike_sizeOfT_cdecl_74858922( System.IntPtr metadataPtr,  System.IntPtr resultBuf);
+        
+        
+        
+        
+        
+        
+        
+        [Obsolete("P/Invoke entry point not exported by the library. This method will throw EntryPointNotFoundException at runtime.", DiagnosticId = "SB0002", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        /// <summary>
+        /// Creates a SpikeBox containing an Int value.
+        /// </summary>
+        public static System.IntPtr GetSBW_Spike_createIntBox( nint _value)
+        {
+            try
+            {
+                
+                
+                var result = PInvoke_SBW_Spike_createIntBox_0E161583(_value);
+                
+                return result;
+            }
+            
+            finally
+            {
+            }
+            
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "SBW_Spike_createIntBox")]
+        private static partial System.IntPtr PInvoke_SBW_Spike_createIntBox_0E161583( nint _value);
+        
+        
+        [Obsolete("P/Invoke entry point not exported by the library. This method will throw EntryPointNotFoundException at runtime.", DiagnosticId = "SB0002", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        /// <summary>
+        /// Releases a retained SpikeBox.
+        /// </summary>
+        public static void SBW_Spike_releaseBox( System.IntPtr ptr)
+        {
+            try
+            {
+                
+                
+                PInvoke_SBW_Spike_releaseBox_004CD96B(ptr);
+                
+                return;
+            }
+            
+            finally
+            {
+            }
+            
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "SBW_Spike_releaseBox")]
+        private static partial void PInvoke_SBW_Spike_releaseBox_004CD96B( System.IntPtr ptr);
+        
+        
+        [Obsolete("P/Invoke entry point not exported by the library. This method will throw EntryPointNotFoundException at runtime.", DiagnosticId = "SB0002", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        /// <summary>
+        /// Creates an NSError from a C string message. Used by C# callbacks to propagate errors.
+        /// </summary>
+        public static System.IntPtr GetSBW_Spike_createError( System.IntPtr message)
+        {
+            try
+            {
+                
+                
+                var result = PInvoke_SBW_Spike_createError_0D1C3499(message);
+                
+                return result;
+            }
+            
+            finally
+            {
+            }
+            
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "SBW_Spike_createError")]
+        private static partial System.IntPtr PInvoke_SBW_Spike_createError_0D1C3499( System.IntPtr message);
+        
+        
+        [Obsolete("P/Invoke entry point not exported by the library. This method will throw EntryPointNotFoundException at runtime.", DiagnosticId = "SB0002", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        /// <summary>
+        /// Gets the error description as a C string (caller must free with free()).
+        /// </summary>
+        public static System.IntPtr? GetSBW_Spike_getErrorDescription( System.IntPtr errorPtr)
+        {
+            unsafe
+            {
+                try
+                {
+                    
+                    
+                    var result = PInvoke_SBW_Spike_getErrorDescription_EBAC97BB(errorPtr);
+                    
+                    return SwiftMarshal.MarshalFromSwift<SwiftOptional<System.IntPtr>>(new IntPtr(&result)).ToNullable();
+                }
+                
+                finally
+                {
+                }
+                
+            }
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "SBW_Spike_getErrorDescription")]
+        private static partial IntPtr PInvoke_SBW_Spike_getErrorDescription_EBAC97BB( System.IntPtr errorPtr);
+        
+        
+        [Obsolete("P/Invoke entry point not exported by the library. This method will throw EntryPointNotFoundException at runtime.", DiagnosticId = "SB0002", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        /// <summary>
+        /// Releases an error object.
+        /// </summary>
+        public static void SBW_Spike_releaseError( System.IntPtr errorPtr)
+        {
+            try
+            {
+                
+                
+                PInvoke_SBW_Spike_releaseError_13CF06B8(errorPtr);
+                
+                return;
+            }
+            
+            finally
+            {
+            }
+            
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "SBW_Spike_releaseError")]
+        private static partial void PInvoke_SBW_Spike_releaseError_13CF06B8( System.IntPtr errorPtr);
+        
+        
         /// <summary>
         /// Generic function with a where clause constraining to Summable.
         /// </summary>
@@ -4509,6 +4673,183 @@ namespace Swift.SwiftBindingsTestLib
         
         
     }
+    
+    /// <summary>
+    /// A simple generic container class for testing (mimics Observable&lt;Element&gt;).
+    /// </summary>
+    /// <remarks>
+    /// This type wraps a Swift class and must be disposed explicitly.
+    /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
+    /// </remarks>
+    public partial class SpikeBox<TElement> : ISwiftObject, IDisposable where TElement : ISwiftObject
+    {
+        private TElement Value_Get()
+        {
+            unsafe
+            {
+                var success = false;
+                _payload.DangerousAddRef(ref success);
+                TypeMetadata TElementMetadata = TypeMetadata.GetTypeMetadataOrThrow<TElement>();
+                try
+                {
+                    var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
+                    
+                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<TElement>();
+                    var payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                    var swiftIndirectResult = new SwiftIndirectResult(payload);
+                    
+                    
+                    
+                    SpikeBox_PInvoke.PInvoke_value_Get_A0E095FD(swiftIndirectResult, TElementMetadata, self, SwiftObjectHelper<TElement>.GetTypeMetadata());
+                    
+                    return SwiftMarshal.MarshalFromSwift<TElement>(new IntPtr(swiftIndirectResult.Value));
+                }
+                
+                finally
+                {
+                    if (success)
+                       _payload.DangerousRelease();
+                }
+                
+            }
+        }
+        
+        
+        public TElement Value
+        {
+            get => Value_Get();
+        }
+        
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        static nuint _payloadSize = SwiftObjectHelper<SpikeBox<TElement>>.GetTypeMetadata().Size;
+        
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        protected SwiftSafeHandle<SpikeBox<TElement>> _payload = SwiftSafeHandle<SpikeBox<TElement>>.Zero;
+        
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        internal SwiftSafeHandle<SpikeBox<TElement>> Payload => _payload;
+        
+        public void Dispose()
+        {
+            _payload.Dispose();
+            GC.SuppressFinalize(this);
+        }
+        ~SpikeBox()
+        {
+            Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
+        }
+        
+        static TypeMetadata ISwiftObject.GetTypeMetadata() => SpikeBox_PInvoke.PInvoke_getMetadata(SwiftObjectHelper<TElement>.GetTypeMetadata());
+        
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
+        {
+            return new SpikeBox<TElement>(handle);
+        }
+        
+        SpikeBox(SwiftHandle handle)
+        {
+            _payload = new SwiftSafeHandle<SpikeBox<TElement>>(handle);
+        }
+        
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        protected SpikeBox(SwiftInheritanceChain _swiftObject) { }
+        
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
+        {
+            var metadata = SwiftObjectHelper<SpikeBox<TElement>>.GetTypeMetadata();
+            if ((int)metadata.Size > swiftDestSpan.Length)
+            {
+                throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
+            }
+            fixed (void* swiftDest = swiftDestSpan)
+            {
+                // Ensure that the instance is valid before making copy
+                bool success = false;
+                _payload.DangerousAddRef(ref success);
+                try
+                {
+                    metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
+                    return (int)metadata.Size;
+                }
+                finally
+                {
+                    if (success)
+                        _payload.DangerousRelease();
+                }
+            }
+        }
+        
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        private static Dictionary<Type, string> _protocolConformanceSymbols;
+        static SpikeBox()
+        {
+            _protocolConformanceSymbols = new Dictionary<Type, string>
+            {
+                
+            };
+        }
+        
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
+            where TProtocol : class
+        {
+            if (!_protocolConformanceSymbols.TryGetValue(typeof(TProtocol), out var symbolName))
+            {
+                throw new SwiftRuntimeException($"Attempted to retrieve protocol conformance descriptor for type SpikeBox and protocol {typeof(TProtocol).Name}, but no conformance was found.");
+            }
+            return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
+        }
+        
+        public SpikeBox( TElement _value)
+        {
+            unsafe
+            {
+                TypeMetadata TElementMetadata = TypeMetadata.GetTypeMetadataOrThrow<TElement>();
+                IntPtr _valuePayload = IntPtr.Zero;
+                try
+                {
+                    _payload = new SwiftSafeHandle<SpikeBox<TElement>>((IntPtr)NativeMemory.Alloc(_payloadSize));
+                    var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+                    
+                    Span<byte> _valuePayloadSpan = stackalloc byte[(int)TElementMetadata.Size];
+                    _valuePayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(_valuePayloadSpan));
+                    SwiftMarshal.MarshalToSwift(_value, ref _valuePayloadSpan);
+                    
+                    
+                    SpikeBox_PInvoke.PInvoke_init_270DD1A7(swiftIndirectResult, _valuePayload, TElementMetadata, SwiftObjectHelper<TElement>.GetTypeMetadata());
+                    
+                }
+                
+                finally
+                {
+                    TElementMetadata.ValueWitnessTable->Destroy((void *)_valuePayload, TElementMetadata);
+                }
+                
+            }
+        }
+        
+        
+        
+    }
+    
+    internal static partial class SpikeBox_PInvoke
+    {
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib8SpikeBoxC5valuexvg")]
+        internal static partial void PInvoke_value_Get_A0E095FD( SwiftIndirectResult swiftIndirectResult,  TypeMetadata TElementMetadata,  SwiftSelf self, TypeMetadata telementMetadata);
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib8SpikeBoxCMa")]
+        internal static partial TypeMetadata PInvoke_getMetadata(TypeMetadata telementMetadata);
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib8SpikeBoxCyACyxGxcfC")]
+        internal static partial void PInvoke_init_270DD1A7( SwiftIndirectResult swiftIndirectResult,  IntPtr _valuePayload,  TypeMetadata TElementMetadata, TypeMetadata telementMetadata);
+        
+    }
+    
     
     /// <summary>
     /// A protocol requiring an add operation.

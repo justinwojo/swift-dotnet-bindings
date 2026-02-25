@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-02-25T18:27:50Z",
-  "git_sha": "bdd08f7",
+  "timestamp": "2026-02-25T21:52:03Z",
+  "git_sha": "bac7f12",
   "runtime_version": "0.1.0-preview.5",
   "compile_gate": {
     "total": 32,
@@ -19,14 +19,14 @@
         "compile": "ok",
         "errors": 0,
         "lines": 52073,
-        "gen_seconds": 2
+        "gen_seconds": 3
       },
       "BlinkIDUX": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 9199,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "BRLMPrinterKit": {
         "generate": "ok",
@@ -46,7 +46,7 @@
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
-        "lines": 89759,
+        "lines": 89815,
         "gen_seconds": 4
       },
       "KeychainAccess": {
@@ -82,14 +82,14 @@
         "compile": "ok",
         "errors": 0,
         "lines": 3631,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "Mixpanel": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 7397,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "Nuke": {
         "generate": "ok",
@@ -99,11 +99,11 @@
         "gen_seconds": 2
       },
       "RxSwift": {
-        "generate": "fail",
+        "generate": "ok",
         "compile": "ok",
         "errors": 0,
-        "lines": 12384,
-        "gen_seconds": 1
+        "lines": 15055,
+        "gen_seconds": 2
       },
       "SkeletonView": {
         "generate": "fail",
@@ -131,14 +131,14 @@
         "compile": "ok",
         "errors": 0,
         "lines": 16524,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "Stripe": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 539,
-        "gen_seconds": 2
+        "gen_seconds": 3
       },
       "StripeApplePay": {
         "generate": "fail",
@@ -173,7 +173,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 33755,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "StripeCryptoOnramp": {
         "generate": "fail",
@@ -194,7 +194,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 1706,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "StripeIssuing": {
         "generate": "fail",
@@ -229,7 +229,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 32805,
-        "gen_seconds": 1
+        "gen_seconds": 2
       }
     }
   }

@@ -450,7 +450,11 @@ internal class MethodMarshalPlanBuilder
 
         if (_env.PInvokeHelperContext != null)
         {
-            var metadataArgs = string.Join(", ", _env.PInvokeHelperContext.GetMetadataArgumentList());
+            // Protocol extension methods handle their own metadata via HandleGenericMetadata
+            // (explicit + implicit for @_silgen_name ABI). Don't append PInvokeHelperContext metadata.
+            var metadataArgs = _env.MethodDecl.IsProtocolExtensionMethod
+                ? ""
+                : string.Join(", ", _env.PInvokeHelperContext.GetMetadataArgumentList());
             var fullArgs = string.IsNullOrEmpty(callArgs)
                 ? metadataArgs
                 : (string.IsNullOrEmpty(metadataArgs) ? callArgs : $"{callArgs}, {metadataArgs}");

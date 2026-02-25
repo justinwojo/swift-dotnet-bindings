@@ -188,6 +188,10 @@ namespace BindingsGeneration
                 { Name: "_selfClass" } => "*(IntPtr*)_payload.DangerousGetHandle()",
                 { Name: "_selfFixed" } => "(IntPtr)__self",
                 { Name: "_self", Type: MarshalledType.Simple("IntPtr") } => "_payload.DangerousGetHandle()",
+                // Implicit trailing TypeMetadata for generic @_silgen_name wrappers:
+                // reuse the same variable as the explicit metadata.
+                { Type: MarshalledType.Simple("TypeMetadata") } when parameter.Name.EndsWith("Implicit")
+                    => parameter.Name.Replace("Implicit", ""),
                 _ => parameter.Name
             };
         }
@@ -634,10 +638,24 @@ namespace BindingsGeneration
                 var pInvokeSignature = new PInvokeSignatureBuilder(_env);
                 pInvokeSignature.HandleReturnType();
                 pInvokeSignature.HandleSwiftAsync();
-                pInvokeSignature.HandleArguments();
-                pInvokeSignature.HandleGenericMetadata();
-                pInvokeSignature.HandleProtocolConformance();
-                pInvokeSignature.HandleSwiftSelf();
+                // Protocol extension @_silgen_name wrappers place self_ as the first
+                // explicit parameter in Swift. Place it before args to match the ABI.
+                // Other free-function wrappers (@_cdecl closures, optional pointer) put
+                // self LAST in the Swift wrapper, so they follow the normal order.
+                if (_env.MethodDecl.IsProtocolExtensionMethod)
+                {
+                    pInvokeSignature.HandleSwiftSelf();
+                    pInvokeSignature.HandleArguments();
+                    pInvokeSignature.HandleGenericMetadata();
+                    pInvokeSignature.HandleProtocolConformance();
+                }
+                else
+                {
+                    pInvokeSignature.HandleArguments();
+                    pInvokeSignature.HandleGenericMetadata();
+                    pInvokeSignature.HandleProtocolConformance();
+                    pInvokeSignature.HandleSwiftSelf();
+                }
                 pInvokeSignature.HandleSwiftError();
                 _pInvokeSignature = pInvokeSignature.Build();
             }

@@ -232,27 +232,28 @@ Extensions on foreign types (SnapKit's `view.snp`, SkeletonView's `view.showSkel
 
 ---
 
-### Session 7: Protocol Extensions — RxSwift Operators (Bounded Scope)
+### Session 7: Protocol Extensions — RxSwift Operators (Bounded Scope) ✅ PARTIAL
 
 **Theme**: Project constrained generic protocol extension methods (operators)
-**Effort**: 1-2 sessions | **Libraries improved**: 1-2 (but deeply)
+**Effort**: 1 session | **Libraries improved**: RxSwift (deeply)
+**Status**: ✅ PARTIAL — non-closure operators shipped; closure operators (map/filter/subscribe) deferred
 
-RxSwift's operators (`map`, `filter`, `flatMap`, `subscribe`) are protocol extension methods with generic constraints. This is the hardest case on the entire roadmap. **Scope this tightly**: target top-N operators for `Observable`, not "all operators."
+Proved generic `@_silgen_name` ABI with explicit+implicit TypeMetadata passing (9/9 spike tests), then extended `ProtocolExtensionEmitter` to handle generic conforming types (`Observable<Element>`, etc.).
 
-| Sub-task | Description | Classification |
-|----------|-------------|----------------|
-| **7a. Handle generic constraints in extension methods** | Map Swift `where` clauses to C# generic constraints where possible. Fall back to runtime checks where C# can't express the constraint. | Design gap |
-| **7b. Emit operator methods on Observable** | Target the top operators: `map`, `filter`, `flatMap`, `subscribe`, `disposed(by:)`. Each has generic parameters and `ObservableType` constraints. | Design gap |
-| **7c. RxSwift validation** | `Observable<int>.map { x -> string }.filter { ... }.subscribe { }` compiles. | Validation |
+| Sub-task | Description | Result |
+|----------|-------------|--------|
+| **7a. Generic @_silgen_name ABI spike** | Proved double TypeMetadata passing (explicit `T.Type` + implicit trailing) works from C# `CallConvSwift` P/Invoke. 9 tests: identity, sizeOf/strideOf, filter with closures, map with two generic params, throwing filter with error propagation. | ✅ Complete — see `Completed/generic-silgen-name-abi.md` |
+| **7b. Generic type support in ProtocolExtensionEmitter** | Removed `ContainsGenericParameters` rejection. Added `<Element>` generic clause, `unsafeBitCast` (Unmanaged requires non-generic T), explicit `Element.Type` metatype params, `ResolveSelfElement` for `Self.Element` → `τ_0_0` resolution. | ✅ Complete |
+| **7c. ABI correctness fixes** | Fixed P/Invoke param ordering (`IsProtocolExtensionMethod` self_ before args, scoped to NOT affect `@_cdecl` closure wrappers). Suppressed PInvokeHelperContext metadata for protocol extension methods (prevents triple TypeMetadata). Fixed `passUnretained` → `passRetained` for class returns (prevents dangling pointer on new objects). | ✅ Complete |
+| **7d. Closure-based operators** | `map`, `filter`, `subscribe`, `flatMap`, `disposed(by:)` — require closure TypeSpec bridging in protocol extension wrappers. | Deferred to Session 10 |
 
-**Critical workflows advanced**:
-- RxSwift: Basic reactive pipeline works
+**Results**:
+- 97 new `@_silgen_name` Swift wrappers across RxSwift
+- 21 unique non-closure operators per `ObservableType` conformer: `Skip`, `Take`, `TakeLast`, `Retry`, `Single`, `Element`, `ElementAt`, `AsObservable`, `RefCount`, `Publish`, `Replay`, `ReplayAll`, etc.
+- RxSwift bindings: 12,384 → 15,055 lines (+22%)
+- 32/32 validation maintained
 
-**Acceptance gate**: Top 5-10 operators emit on `Observable<T>`. Basic pipeline compiles (runtime: `Observable.just(42).map { $0 * 2 }.subscribe { }` executes on simulator, observer receives value). 32/32 validation maintained.
-
-**Risk note**: RxSwift may cap at ~3.5 even with good operator support due to the complexity of its full API surface. Define success as "top N operators work," not "all 76 operators."
-
-**Fallback**: If generic constraint mapping proves intractable for RxSwift's operator signatures, fall back to emitting the operators as unconstrained extension methods with runtime type checks. Less type-safe but functionally usable. Alternatively, provide hand-written `@_cdecl` wrappers for the top 5 operators as a stopgap.
+**Deferred**: Closure-based operators (`map`, `filter`, `subscribe`) require extending ProtocolExtensionEmitter to bridge closure TypeSpec params in `@_silgen_name` wrappers — passing func pointers and contexts, generating `@_cdecl` callbacks. This is the same pattern proven in the spike (tests S2a/S2b/S3a/S3b) but needs integration into the emitter pipeline. Folded into Session 10f.
 
 **Depends on**: Sessions 5-6 (protocol extension infrastructure)
 
@@ -307,6 +308,7 @@ Pragmatic endgame. Sometimes the fastest path to "usable" is a targeted fix, not
 | **10c. Alamofire response handlers** | `DataRequest.responseData { }` / `responseString { }` — the response side of the request-response workflow. Likely needs closure + generic return. | Alamofire |
 | **10d. Keychain subscript** | The defining `keychain["key"]` pattern. Investigate why the subscript was skipped (likely complex index type or optional return). | KeychainAccess |
 | **10e. `IWebSocketDelegate` event delivery** | Starscream's primary event mechanism. The delegate has closure/enum parameters that block emission. Targeted fix for the specific closure signature. | Starscream |
+| **10f. RxSwift closure operators** | `map`, `filter`, `subscribe` on `Observable<T>`. Requires closure TypeSpec bridging in ProtocolExtensionEmitter's `@_silgen_name` wrappers — the ABI pattern is proven (Session 7 spike S2a/S3a) but needs emitter integration: func pointer + context params, `@_cdecl` callback generation, GCHandle lifecycle. | RxSwift |
 
 **Acceptance gate**: Each targeted workflow compiles. Matrix updated.
 
@@ -331,10 +333,11 @@ Session 1: Foundation + Quick Wins                    ✅ COMPLETE
       └─► Session 6: Protocol Extensions — Foreign    ✅ COMPLETE
            │         (SnapKit snp, SkeletonView)
            │
-           └─► Session 7: Protocol Extensions — RxSwift  ← NEXT (depends on 5-6, high risk)
-                         (bounded operator scope)
+           └─► Session 7: Protocol Extensions — RxSwift  ✅ PARTIAL
+                         (21 non-closure operators shipped,
+                          closure operators → Session 10f)
 
-Session 8: Naming + Polish + Cross-Module             ← Independent, defer until after 1-7
+Session 8: Naming + Polish + Cross-Module             ← NEXT (independent)
 Session 9: Safety & Hardening                         ← After workflows are unlocked
 Session 10: Library-Specific Patches                  ← Endgame
 ```
@@ -390,8 +393,8 @@ Session 10: Library-Specific Patches                  ← Endgame
 | GRDB | 3.00 | 3.65 | +0.65 | 4 |
 | SkeletonView | 3.00 | 3.50 | +0.50 | 6 |
 | Mixpanel | 2.90 | 3.40 | +0.50 | 3, 10 |
-| RxSwift | 2.40 | 3.15 | +0.75 | 7 |
-| **Average** | **3.45** | **~3.81** | **+0.36** | |
+| RxSwift | 2.40 | 3.00 | +0.60 | 7 (partial), 10f |
+| **Average** | **3.45** | **~3.80** | **+0.35** | |
 
 **Realistic range**: 3.70–3.90 depending on how well protocol extension projection (Sessions 5-7) lands.
 
@@ -420,7 +423,7 @@ Session 10: Library-Specific Patches                  ← Endgame
 
 | Item | Why |
 |------|-----|
-| Full RxSwift operator parity (all 76) | Diminishing returns after top 10. Cap at "basic pipeline works." |
+| Full RxSwift operator parity (all 76) | 21 non-closure operators shipped (Session 7). Closure operators (map/filter/subscribe) deferred to 10f. Diminishing returns after those. |
 | Cross-module unification as a standalone session | Narrow (Stripe only). Bundled into Session 8. |
 | Naming polish before workflow unlocks | Scores follow usability. Do naming last. |
 | Universal generic closure solution before targeted GRDB fix | General solution may take 2+ sessions. Get one library working first. |

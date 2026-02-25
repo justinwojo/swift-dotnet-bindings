@@ -496,13 +496,13 @@ public static class ProtocolExtensionEmitter
         if (typeSpec is not NamedTypeSpec namedType)
             return false;
 
-        if (namedType.ContainsGenericParameters)
-            return false;
+        // For generic types like Observable<Self.Element>, strip generic params and check base
+        var lookupName = namedType.Name;
 
         try
         {
             if (typeDatabase.TryGetTypeRecord(
-                    SwiftTypeName.FromModuleQualifiedName(namedType.Name), out var typeRecord))
+                    SwiftTypeName.FromModuleQualifiedName(lookupName), out var typeRecord))
             {
                 return typeRecord.Kind == TypeRecordKind.Class;
             }
@@ -625,6 +625,8 @@ public static class ProtocolExtensionEmitter
 
     /// <summary>
     /// Emits the @_silgen_name Swift wrapper function for a protocol extension method.
+    /// For generic conforming types, emits a generic wrapper with unsafeBitCast and
+    /// explicit T.Type metatype parameters (required by Swift 6).
     /// </summary>
     private static void EmitSwiftWrapper(
         ClassDecl conformingType,
@@ -634,6 +636,25 @@ public static class ProtocolExtensionEmitter
         string symbolName)
     {
         var typeName = conformingType.SwiftTypeName.ModuleQualifiedName;
+        var isGenericConforming = conformingType.IsGeneric;
+
+        // Build generic parameter names for the wrapper function
+        var genericParamNames = new List<string>();
+        if (isGenericConforming)
+        {
+            foreach (var gp in conformingType.GenericParameters)
+            {
+                genericParamNames.Add(gp.SugaredTypeName ?? $"T{genericParamNames.Count}");
+            }
+        }
+        var genericClause = isGenericConforming
+            ? $"<{string.Join(", ", genericParamNames)}>"
+            : "";
+
+        // Build the qualified type name with generic parameters for unsafeBitCast
+        var qualifiedTypeName = isGenericConforming
+            ? $"{typeName}<{string.Join(", ", genericParamNames)}>"
+            : typeName;
 
         // Build Swift parameter list for the wrapper function
         var swiftParams = new List<string>();
@@ -653,6 +674,17 @@ public static class ProtocolExtensionEmitter
                 // Primitives and simple enums: pass directly
                 var renderedType = ExistentialBypassEmitter.RenderSwiftTypeSpec(typeSpec);
                 swiftParams.Add($"_ {paramName}: {renderedType}");
+            }
+        }
+
+        // For generic conforming types, add explicit T.Type metatype params.
+        // Swift 6 requires generic params to appear in the function signature.
+        // T.Type is ABI-equivalent to TypeMetadata* — C# passes TypeMetadata.
+        if (isGenericConforming)
+        {
+            foreach (var gpName in genericParamNames)
+            {
+                swiftParams.Add($"_ __{gpName.ToLowerInvariant()}Type: {gpName}.Type");
             }
         }
 
@@ -696,10 +728,19 @@ public static class ProtocolExtensionEmitter
         {
             _swiftWrapperLines.Add("@MainActor");
         }
-        _swiftWrapperLines.Add($"public func {symbolName}({string.Join(", ", swiftParams)}){returnArrow} {{");
+        _swiftWrapperLines.Add($"public func {symbolName}{genericClause}({string.Join(", ", swiftParams)}){returnArrow} {{");
 
         // Emit self conversion
-        _swiftWrapperLines.Add($"    let instance = Unmanaged<{typeName}>.fromOpaque(self_).takeUnretainedValue()");
+        if (isGenericConforming)
+        {
+            // Generic types use unsafeBitCast to cast the opaque pointer to the
+            // parameterized type. Unmanaged<T>.fromOpaque requires non-generic T.
+            _swiftWrapperLines.Add($"    let instance = unsafeBitCast(self_, to: {qualifiedTypeName}.self)");
+        }
+        else
+        {
+            _swiftWrapperLines.Add($"    let instance = Unmanaged<{typeName}>.fromOpaque(self_).takeUnretainedValue()");
+        }
 
         // Emit parameter conversions
         var callArgs = new List<string>();
@@ -729,8 +770,11 @@ public static class ProtocolExtensionEmitter
 
         if (extMethod.ReturnsSelf || returnIsClass)
         {
+            // passRetained transfers +1 ownership to the caller so the object
+            // stays alive after this wrapper returns. The C# SafeHandle calls
+            // Arc.Release on Dispose to balance.
             _swiftWrapperLines.Add($"    let result = {callStr}");
-            _swiftWrapperLines.Add($"    return Unmanaged.passUnretained(result).toOpaque()");
+            _swiftWrapperLines.Add($"    return Unmanaged.passRetained(result).toOpaque()");
         }
         else if (string.IsNullOrEmpty(swiftReturnType))
         {
@@ -760,6 +804,12 @@ public static class ProtocolExtensionEmitter
     {
         // Build CSSignature: [returnType, param1, param2, ...]
         var csSignature = new List<ArgumentDecl>();
+
+        // For generic conforming types, resolve Self.Element → τ_0_0 in the return type
+        if (conformingType.IsGeneric && returnTypeSpec != null)
+        {
+            returnTypeSpec = ResolveSelfElement(returnTypeSpec, conformingType);
+        }
 
         // Return type (first element of CSSignature)
         TypeSpec resolvedReturnTypeSpec;
@@ -803,6 +853,12 @@ public static class ProtocolExtensionEmitter
             });
         }
 
+        // For generic conforming types, copy the generic parameters so PInvokeEmitter
+        // generates TypeMetadata parameters for each generic type parameter.
+        var genericParams = conformingType.IsGeneric
+            ? new List<GenericArgumentDecl>(conformingType.GenericParameters)
+            : new List<GenericArgumentDecl>();
+
         return new MethodDecl
         {
             Name = extMethod.MethodName,
@@ -812,7 +868,7 @@ public static class ProtocolExtensionEmitter
             CSSignature = csSignature,
             Throws = false,
             IsAsync = false,
-            GenericParameters = new List<GenericArgumentDecl>(),
+            GenericParameters = genericParams,
             Visibility = Visibility.Public,
             ParentDecl = conformingType,
             ModuleDecl = moduleDecl,
@@ -821,6 +877,63 @@ public static class ProtocolExtensionEmitter
             IsProtocolExtensionMethod = true,
             IsActorIsolated = extMethod.IsMainActorIsolated || conformingType.IsMainActorIsolated,
         };
+    }
+
+    /// <summary>
+    /// Resolves Self.Element (and other Self.AssociatedType references) in a TypeSpec
+    /// to the conforming type's generic parameter (τ_0_0, τ_0_1, etc.).
+    /// For example, Observable<Element> conforming to ObservableType:
+    ///   Self.Element → τ_0_0 (the first generic parameter of Observable)
+    /// </summary>
+    private static TypeSpec ResolveSelfElement(TypeSpec typeSpec, ClassDecl conformingType)
+    {
+        if (typeSpec is NamedTypeSpec namedType)
+        {
+            // Direct Self.Element reference
+            if (namedType.Name.StartsWith("Self."))
+            {
+                var assocTypeName = namedType.Name.Substring(5); // Remove "Self."
+                // Find the matching generic parameter by sugared name
+                for (int i = 0; i < conformingType.GenericParameters.Count; i++)
+                {
+                    if (conformingType.GenericParameters[i].SugaredTypeName == assocTypeName)
+                    {
+                        return new NamedTypeSpec(conformingType.GenericParameters[i].TypeName);
+                    }
+                }
+                // If no matching generic parameter found, return unchanged so
+                // downstream gates reject the unresolvable Self.X reference.
+                // Do NOT silently fall back to GenericParameters[0] — that could
+                // produce a valid-but-wrong signature for protocols with multiple
+                // or differently-named associated types.
+            }
+
+            // Recurse into generic parameters: Observable<Self.Element> → Observable<τ_0_0>
+            if (namedType.ContainsGenericParameters)
+            {
+                var resolvedGenericParams = namedType.GenericParameters
+                    .Select(gp => ResolveSelfElement(gp, conformingType))
+                    .ToList();
+
+                // Check if any were actually resolved
+                bool changed = false;
+                for (int i = 0; i < resolvedGenericParams.Count; i++)
+                {
+                    if (!ReferenceEquals(resolvedGenericParams[i], namedType.GenericParameters[i]))
+                    {
+                        changed = true;
+                        break;
+                    }
+                }
+
+                if (changed)
+                {
+                    return new NamedTypeSpec(namedType.Name, resolvedGenericParams.ToArray());
+                }
+            }
+        }
+
+        return typeSpec;
     }
 
     /// <summary>

@@ -396,6 +396,9 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Handles the metadata of generic arguments.
+        /// For protocol extension methods on generic types, emits TWO TypeMetadata per
+        /// generic parameter: one for the explicit T.Type param in the @_silgen_name wrapper,
+        /// and one for the implicit trailing metadata added by Swift's calling convention.
         /// </summary>
         public void HandleGenericMetadata()
         {
@@ -403,6 +406,18 @@ namespace BindingsGeneration
             {
                 var metadataName = NameProvider.GetMetadataName(_env.GenericTypeMapping[genericParameter.TypeName].TypeParameter);
                 AddParameter("TypeMetadata", metadataName);
+            }
+
+            // Generic @_silgen_name wrappers require explicit T.Type params (Swift 6 mandate).
+            // Swift also adds implicit trailing TypeMetadata after all explicit params.
+            // Both values are identical — emit a second TypeMetadata per generic param.
+            if (_env.MethodDecl.IsProtocolExtensionMethod && _env.MethodDecl.GenericParameters.Count > 0)
+            {
+                foreach (var genericParameter in _env.MethodDecl.GenericParameters)
+                {
+                    var metadataName = NameProvider.GetMetadataName(_env.GenericTypeMapping[genericParameter.TypeName].TypeParameter);
+                    AddParameter("TypeMetadata", $"{metadataName}Implicit");
+                }
             }
         }
 
@@ -654,7 +669,12 @@ namespace BindingsGeneration
                     ReturnType = pInvokeSignature.ReturnType,
                     ParametersString = pInvokeSignature.PInvokeParametersString(),
                     IsAsync = methodDecl.IsAsync,
-                    MetadataParameters = methodEnv.PInvokeHelperContext.GetMetadataParameterDeclarations()
+                    // Protocol extension methods on generic types already have TypeMetadata
+                    // in the P/Invoke signature (via HandleGenericMetadata — explicit + implicit
+                    // for @_silgen_name ABI). Skip PInvokeHelperContext metadata to avoid triple params.
+                    MetadataParameters = methodDecl.IsProtocolExtensionMethod
+                        ? Array.Empty<string>()
+                        : methodEnv.PInvokeHelperContext.GetMetadataParameterDeclarations()
                 };
                 methodEnv.PInvokeHelperContext.AddDeclaration(declaration);
             }
