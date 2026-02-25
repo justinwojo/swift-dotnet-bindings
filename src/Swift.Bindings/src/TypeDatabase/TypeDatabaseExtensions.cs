@@ -699,6 +699,8 @@ public static class TypeDatabaseExtensions
         ["Foundation.CachedURLResponse"] = ("Foundation", "NSCachedUrlResponse"),
         ["Foundation.URLAuthenticationChallenge"] = ("Foundation", "NSUrlAuthenticationChallenge"),
         ["Foundation.URLCredential"] = ("Foundation", "NSUrlCredential"),
+        ["Foundation.NSURL"] = ("Foundation", "NSUrl"),
+        ["Foundation.NSUUID"] = ("Foundation", "NSUuid"),
         ["Foundation.DateFormatter"] = ("Foundation", "NSDateFormatter"),
         ["Foundation.InputStream"] = ("Foundation", "NSInputStream"),
         ["Foundation.Progress"] = ("Foundation", "NSProgress"),

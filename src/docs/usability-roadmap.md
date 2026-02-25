@@ -218,7 +218,7 @@ Extensions on foreign types (SnapKit's `view.snp`, SkeletonView's `view.showSkel
 - SnapKit: `view.GetSnp()` compiles (returns `ConstraintViewDSL` via `SwiftIndirectResult`)
 - SkeletonView: `view.ShowSkeleton()` / `view.HideSkeleton()` / property getters+setters compile
 - 11 libraries improved (fixed pre-existing foreign extension errors across the suite)
-- 30/32 validation maintained (same as before — Alamofire/GRDB are pre-existing failures)
+- 32/32 validation maintained
 
 **Key implementation details**:
 - `ForeignTypeExtensionEmitter.cs`: New static emitter class, parallel to `ProtocolExtensionEmitter`

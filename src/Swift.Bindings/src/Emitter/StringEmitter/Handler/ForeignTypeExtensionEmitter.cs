@@ -1066,13 +1066,17 @@ public static class ForeignTypeExtensionEmitter
 
     /// <summary>
     /// Resolves a foreign type's C# name using TypeDatabase or ObjC module conventions.
+    /// Uses the NamedTypeSpec overload of TryGetTypeRecord which auto-creates ObjC bridged
+    /// type records (handling class remappings like Foundation.HTTPURLResponse → NSHttpUrlResponse).
     /// </summary>
     private static string ResolveForeignTypeCSharpName(string foreignTypeQualifiedName, ITypeDatabase typeDatabase)
     {
+        // Use NamedTypeSpec-based lookup which goes through CreateObjCBridgedTypeRecord
+        // for ObjC types, handling Apple framework class remappings correctly
         try
         {
-            var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(foreignTypeQualifiedName);
-            if (typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord))
+            var namedType = new NamedTypeSpec(foreignTypeQualifiedName);
+            if (typeDatabase.TryGetTypeRecord(namedType, out var typeRecord))
             {
                 return typeRecord.CSharpTypeName.FullyQualifiedName;
             }
@@ -1082,7 +1086,7 @@ public static class ForeignTypeExtensionEmitter
             // Fall through
         }
 
-        // For ObjC types like UIKit.UIView → use the unqualified name with namespace
+        // Fallback: manual module.typeName construction
         var dotIdx = foreignTypeQualifiedName.IndexOf('.');
         if (dotIdx >= 0)
         {
@@ -1170,28 +1174,11 @@ public static class ForeignTypeExtensionEmitter
                 };
             }
 
-            try
+            // Use NamedTypeSpec-based lookup which goes through CreateObjCBridgedTypeRecord
+            // for ObjC types, handling Apple framework class remappings correctly
+            if (typeDatabase.TryGetTypeRecord(namedType, out var typeRecord))
             {
-                var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
-                if (typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord))
-                {
-                    return typeRecord.CSharpTypeName.FullyQualifiedName;
-                }
-            }
-            catch (ArgumentException)
-            {
-                // Fall through
-            }
-
-            // ObjC type: use module.type pattern with namespace overrides
-            var dotIdx = namedType.Name.IndexOf('.');
-            if (dotIdx >= 0)
-            {
-                var module = namedType.Name.Substring(0, dotIdx);
-                var typeName = namedType.Name.Substring(dotIdx + 1);
-                if (ModuleToCSharpNamespace.TryGetValue(module, out var csharpNamespace))
-                    return $"{csharpNamespace}.{typeName}";
-                return $"{module}.{typeName}";
+                return typeRecord.CSharpTypeName.FullyQualifiedName;
             }
 
             return namedType.Name;
