@@ -42,7 +42,11 @@ public partial class ProtocolProxyEmitter
             /// <summary>
             /// Gets the existential container that can be passed to Swift code.
             /// </summary>
-            public ExistentialContainer1 GetExistentialContainer() => _swiftContainer;
+            public ExistentialContainer1 GetExistentialContainer()
+            {
+                if (_disposed) throw new ObjectDisposedException(GetType().Name);
+                return _swiftContainer;
+            }
 
             public static TypeMetadata GetTypeMetadata()
             {
@@ -60,6 +64,7 @@ public partial class ProtocolProxyEmitter
 
             public int MarshalToSwift(ref Span<byte> swiftDestSpan)
             {
+                if (_disposed) throw new ObjectDisposedException(GetType().Name);
                 // Marshal the existential container
                 var size = _swiftContainer.SizeOf;
                 if (swiftDestSpan.Length < size)
@@ -79,7 +84,16 @@ public partial class ProtocolProxyEmitter
                     "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
             }
 
-            public void Dispose() { }
+            public void Dispose()
+            {
+                if (_disposed) return;
+                _disposed = true;
+                if (_everyProtocol != null)
+                {
+                    SwiftObjectRegistry.Unregister(_everyProtocol.Handle);
+                    _everyProtocol.Dispose();
+                }
+            }
 
             #endregion
 

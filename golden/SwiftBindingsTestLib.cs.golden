@@ -4883,12 +4883,14 @@ namespace Swift.SwiftBindingsTestLib
         private static IntPtr _protocolWitnessTable;
         private static SummableSwiftVTable _swiftVTable;
         private static SummableLocalVTable _localVTable;
+        // Application-lifetime: vtable must outlive all proxy instances. Never disposed.
         private static GCHandle _localVTableHandle;
         private static bool _vtableInitialized;
         private static readonly object _vtableLock = new object();
         private readonly ISummable? _csharpImpl;
         private readonly EveryProtocol? _everyProtocol;
         private ExistentialContainer1 _swiftContainer;
+        private bool _disposed;
         static SummableProxy()
         {
             InitializeVtable();
@@ -4976,6 +4978,7 @@ namespace Swift.SwiftBindingsTestLib
             UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         public Swift.AnyType Add(Swift.AnyType other)
         {
+            if (_disposed) throw new ObjectDisposedException(GetType().Name);
             if (_csharpImpl != null)
                 return _csharpImpl.Add(other);
             throw new NotSupportedException(
@@ -5012,7 +5015,11 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Gets the existential container that can be passed to Swift code.
         /// </summary>
-        public ExistentialContainer1 GetExistentialContainer() => _swiftContainer;
+        public ExistentialContainer1 GetExistentialContainer()
+        {
+            if (_disposed) throw new ObjectDisposedException(GetType().Name);
+            return _swiftContainer;
+        }
         public static TypeMetadata GetTypeMetadata()
         {
             // Proxy classes don't have their own Swift metadata
@@ -5027,6 +5034,7 @@ namespace Swift.SwiftBindingsTestLib
         }
         public int MarshalToSwift(ref Span<byte> swiftDestSpan)
         {
+            if (_disposed) throw new ObjectDisposedException(GetType().Name);
             // Marshal the existential container
             var size = _swiftContainer.SizeOf;
             if (swiftDestSpan.Length < size)
@@ -5043,7 +5051,16 @@ namespace Swift.SwiftBindingsTestLib
                 "Protocol conformance descriptor is not available for proxy types. " +
                 "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
         }
-        public void Dispose() { }
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            if (_everyProtocol != null)
+            {
+                SwiftObjectRegistry.Unregister(_everyProtocol.Handle);
+                _everyProtocol.Dispose();
+            }
+        }
         #endregion
         #region Marshalling Helpers
         [StructLayout(LayoutKind.Sequential)]
@@ -33272,12 +33289,14 @@ public unsafe partial class DescribableProxy : IDescribable, ISwiftObject, IDisp
     private static IntPtr _protocolWitnessTable;
     private static DescribableSwiftVTable _swiftVTable;
     private static DescribableLocalVTable _localVTable;
+    // Application-lifetime: vtable must outlive all proxy instances. Never disposed.
     private static GCHandle _localVTableHandle;
     private static bool _vtableInitialized;
     private static readonly object _vtableLock = new object();
     private readonly IDescribable? _csharpImpl;
     private readonly EveryProtocol? _everyProtocol;
     private ExistentialContainer1 _swiftContainer;
+    private bool _disposed;
     static DescribableProxy()
     {
         InitializeVtable();
@@ -33374,6 +33393,7 @@ public unsafe partial class DescribableProxy : IDescribable, ISwiftObject, IDisp
     {
         get
         {
+            if (_disposed) throw new ObjectDisposedException(GetType().Name);
             if (_csharpImpl != null)
                 return _csharpImpl.Description;
             fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
@@ -33394,6 +33414,7 @@ public unsafe partial class DescribableProxy : IDescribable, ISwiftObject, IDisp
     
     public string GetDescribe()
     {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
         if (_csharpImpl != null)
             return _csharpImpl.GetDescribe();
         fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
@@ -33442,7 +33463,11 @@ public unsafe partial class DescribableProxy : IDescribable, ISwiftObject, IDisp
     /// <summary>
     /// Gets the existential container that can be passed to Swift code.
     /// </summary>
-    public ExistentialContainer1 GetExistentialContainer() => _swiftContainer;
+    public ExistentialContainer1 GetExistentialContainer()
+    {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
+        return _swiftContainer;
+    }
     public static TypeMetadata GetTypeMetadata()
     {
         // Proxy classes don't have their own Swift metadata
@@ -33457,6 +33482,7 @@ public unsafe partial class DescribableProxy : IDescribable, ISwiftObject, IDisp
     }
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
         // Marshal the existential container
         var size = _swiftContainer.SizeOf;
         if (swiftDestSpan.Length < size)
@@ -33473,7 +33499,16 @@ public unsafe partial class DescribableProxy : IDescribable, ISwiftObject, IDisp
             "Protocol conformance descriptor is not available for proxy types. " +
             "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
     }
-    public void Dispose() { }
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        if (_everyProtocol != null)
+        {
+            SwiftObjectRegistry.Unregister(_everyProtocol.Handle);
+            _everyProtocol.Dispose();
+        }
+    }
     #endregion
     #region Marshalling Helpers
     [StructLayout(LayoutKind.Sequential)]
@@ -33556,12 +33591,14 @@ public unsafe partial class TestIdentifiableProxy : ITestIdentifiable, ISwiftObj
     private static IntPtr _protocolWitnessTable;
     private static TestIdentifiableSwiftVTable _swiftVTable;
     private static TestIdentifiableLocalVTable _localVTable;
+    // Application-lifetime: vtable must outlive all proxy instances. Never disposed.
     private static GCHandle _localVTableHandle;
     private static bool _vtableInitialized;
     private static readonly object _vtableLock = new object();
     private readonly ITestIdentifiable? _csharpImpl;
     private readonly EveryProtocol? _everyProtocol;
     private ExistentialContainer1 _swiftContainer;
+    private bool _disposed;
     static TestIdentifiableProxy()
     {
         InitializeVtable();
@@ -33647,6 +33684,7 @@ public unsafe partial class TestIdentifiableProxy : ITestIdentifiable, ISwiftObj
     {
         get
         {
+            if (_disposed) throw new ObjectDisposedException(GetType().Name);
             if (_csharpImpl != null)
                 return _csharpImpl.Id;
             fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
@@ -33694,7 +33732,11 @@ public unsafe partial class TestIdentifiableProxy : ITestIdentifiable, ISwiftObj
     /// <summary>
     /// Gets the existential container that can be passed to Swift code.
     /// </summary>
-    public ExistentialContainer1 GetExistentialContainer() => _swiftContainer;
+    public ExistentialContainer1 GetExistentialContainer()
+    {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
+        return _swiftContainer;
+    }
     public static TypeMetadata GetTypeMetadata()
     {
         // Proxy classes don't have their own Swift metadata
@@ -33709,6 +33751,7 @@ public unsafe partial class TestIdentifiableProxy : ITestIdentifiable, ISwiftObj
     }
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
         // Marshal the existential container
         var size = _swiftContainer.SizeOf;
         if (swiftDestSpan.Length < size)
@@ -33725,7 +33768,16 @@ public unsafe partial class TestIdentifiableProxy : ITestIdentifiable, ISwiftObj
             "Protocol conformance descriptor is not available for proxy types. " +
             "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
     }
-    public void Dispose() { }
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        if (_everyProtocol != null)
+        {
+            SwiftObjectRegistry.Unregister(_everyProtocol.Handle);
+            _everyProtocol.Dispose();
+        }
+    }
     #endregion
     #region Marshalling Helpers
     [StructLayout(LayoutKind.Sequential)]
@@ -33801,12 +33853,14 @@ public unsafe partial class DisplayableProxy : IDisplayable, ISwiftObject, IDisp
     private static IntPtr _protocolWitnessTable;
     private static DisplayableSwiftVTable _swiftVTable;
     private static DisplayableLocalVTable _localVTable;
+    // Application-lifetime: vtable must outlive all proxy instances. Never disposed.
     private static GCHandle _localVTableHandle;
     private static bool _vtableInitialized;
     private static readonly object _vtableLock = new object();
     private readonly IDisplayable? _csharpImpl;
     private readonly EveryProtocol? _everyProtocol;
     private ExistentialContainer1 _swiftContainer;
+    private bool _disposed;
     static DisplayableProxy()
     {
         InitializeVtable();
@@ -33889,6 +33943,7 @@ public unsafe partial class DisplayableProxy : IDisplayable, ISwiftObject, IDisp
     
     public string GetDisplay()
     {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
         if (_csharpImpl != null)
             return _csharpImpl.GetDisplay();
         fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
@@ -33937,7 +33992,11 @@ public unsafe partial class DisplayableProxy : IDisplayable, ISwiftObject, IDisp
     /// <summary>
     /// Gets the existential container that can be passed to Swift code.
     /// </summary>
-    public ExistentialContainer1 GetExistentialContainer() => _swiftContainer;
+    public ExistentialContainer1 GetExistentialContainer()
+    {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
+        return _swiftContainer;
+    }
     public static TypeMetadata GetTypeMetadata()
     {
         // Proxy classes don't have their own Swift metadata
@@ -33952,6 +34011,7 @@ public unsafe partial class DisplayableProxy : IDisplayable, ISwiftObject, IDisp
     }
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
         // Marshal the existential container
         var size = _swiftContainer.SizeOf;
         if (swiftDestSpan.Length < size)
@@ -33968,7 +34028,16 @@ public unsafe partial class DisplayableProxy : IDisplayable, ISwiftObject, IDisp
             "Protocol conformance descriptor is not available for proxy types. " +
             "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
     }
-    public void Dispose() { }
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        if (_everyProtocol != null)
+        {
+            SwiftObjectRegistry.Unregister(_everyProtocol.Handle);
+            _everyProtocol.Dispose();
+        }
+    }
     #endregion
     #region Marshalling Helpers
     [StructLayout(LayoutKind.Sequential)]
@@ -34052,12 +34121,14 @@ public unsafe partial class HasValueProxy : IHasValue, ISwiftObject, IDisposable
     private static IntPtr _protocolWitnessTable;
     private static HasValueSwiftVTable _swiftVTable;
     private static HasValueLocalVTable _localVTable;
+    // Application-lifetime: vtable must outlive all proxy instances. Never disposed.
     private static GCHandle _localVTableHandle;
     private static bool _vtableInitialized;
     private static readonly object _vtableLock = new object();
     private readonly IHasValue? _csharpImpl;
     private readonly EveryProtocol? _everyProtocol;
     private ExistentialContainer1 _swiftContainer;
+    private bool _disposed;
     static HasValueProxy()
     {
         InitializeVtable();
@@ -34174,6 +34245,7 @@ public unsafe partial class HasValueProxy : IHasValue, ISwiftObject, IDisposable
     {
         get
         {
+            if (_disposed) throw new ObjectDisposedException(GetType().Name);
             if (_csharpImpl != null)
                 return _csharpImpl.Value;
             fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
@@ -34185,6 +34257,7 @@ public unsafe partial class HasValueProxy : IHasValue, ISwiftObject, IDisposable
         }
         set
         {
+            if (_disposed) throw new ObjectDisposedException(GetType().Name);
             if (_csharpImpl != null)
             {
                 _csharpImpl.Value = value;
@@ -34200,6 +34273,7 @@ public unsafe partial class HasValueProxy : IHasValue, ISwiftObject, IDisposable
     
     public int GetValue()
     {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
         if (_csharpImpl != null)
             return _csharpImpl.GetValue();
         fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
@@ -34215,6 +34289,7 @@ public unsafe partial class HasValueProxy : IHasValue, ISwiftObject, IDisposable
     
     public void SetValue(int newValue)
     {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
         if (_csharpImpl != null)
         {
             _csharpImpl.SetValue(newValue);
@@ -34256,7 +34331,11 @@ public unsafe partial class HasValueProxy : IHasValue, ISwiftObject, IDisposable
     /// <summary>
     /// Gets the existential container that can be passed to Swift code.
     /// </summary>
-    public ExistentialContainer1 GetExistentialContainer() => _swiftContainer;
+    public ExistentialContainer1 GetExistentialContainer()
+    {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
+        return _swiftContainer;
+    }
     public static TypeMetadata GetTypeMetadata()
     {
         // Proxy classes don't have their own Swift metadata
@@ -34271,6 +34350,7 @@ public unsafe partial class HasValueProxy : IHasValue, ISwiftObject, IDisposable
     }
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
         // Marshal the existential container
         var size = _swiftContainer.SizeOf;
         if (swiftDestSpan.Length < size)
@@ -34287,7 +34367,16 @@ public unsafe partial class HasValueProxy : IHasValue, ISwiftObject, IDisposable
             "Protocol conformance descriptor is not available for proxy types. " +
             "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
     }
-    public void Dispose() { }
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        if (_everyProtocol != null)
+        {
+            SwiftObjectRegistry.Unregister(_everyProtocol.Handle);
+            _everyProtocol.Dispose();
+        }
+    }
     #endregion
     #region Marshalling Helpers
     [StructLayout(LayoutKind.Sequential)]
@@ -35309,12 +35398,14 @@ public unsafe partial class NameableProxy : INameable, ISwiftObject, IDisposable
     private static IntPtr _protocolWitnessTable;
     private static NameableSwiftVTable _swiftVTable;
     private static NameableLocalVTable _localVTable;
+    // Application-lifetime: vtable must outlive all proxy instances. Never disposed.
     private static GCHandle _localVTableHandle;
     private static bool _vtableInitialized;
     private static readonly object _vtableLock = new object();
     private readonly INameable? _csharpImpl;
     private readonly EveryProtocol? _everyProtocol;
     private ExistentialContainer1 _swiftContainer;
+    private bool _disposed;
     static NameableProxy()
     {
         InitializeVtable();
@@ -35400,6 +35491,7 @@ public unsafe partial class NameableProxy : INameable, ISwiftObject, IDisposable
     {
         get
         {
+            if (_disposed) throw new ObjectDisposedException(GetType().Name);
             if (_csharpImpl != null)
                 return _csharpImpl.Name;
             fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
@@ -35447,7 +35539,11 @@ public unsafe partial class NameableProxy : INameable, ISwiftObject, IDisposable
     /// <summary>
     /// Gets the existential container that can be passed to Swift code.
     /// </summary>
-    public ExistentialContainer1 GetExistentialContainer() => _swiftContainer;
+    public ExistentialContainer1 GetExistentialContainer()
+    {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
+        return _swiftContainer;
+    }
     public static TypeMetadata GetTypeMetadata()
     {
         // Proxy classes don't have their own Swift metadata
@@ -35462,6 +35558,7 @@ public unsafe partial class NameableProxy : INameable, ISwiftObject, IDisposable
     }
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
         // Marshal the existential container
         var size = _swiftContainer.SizeOf;
         if (swiftDestSpan.Length < size)
@@ -35478,7 +35575,16 @@ public unsafe partial class NameableProxy : INameable, ISwiftObject, IDisposable
             "Protocol conformance descriptor is not available for proxy types. " +
             "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
     }
-    public void Dispose() { }
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        if (_everyProtocol != null)
+        {
+            SwiftObjectRegistry.Unregister(_everyProtocol.Handle);
+            _everyProtocol.Dispose();
+        }
+    }
     #endregion
     #region Marshalling Helpers
     [StructLayout(LayoutKind.Sequential)]
@@ -35554,12 +35660,14 @@ public unsafe partial class AgeableProxy : IAgeable, ISwiftObject, IDisposable, 
     private static IntPtr _protocolWitnessTable;
     private static AgeableSwiftVTable _swiftVTable;
     private static AgeableLocalVTable _localVTable;
+    // Application-lifetime: vtable must outlive all proxy instances. Never disposed.
     private static GCHandle _localVTableHandle;
     private static bool _vtableInitialized;
     private static readonly object _vtableLock = new object();
     private readonly IAgeable? _csharpImpl;
     private readonly EveryProtocol? _everyProtocol;
     private ExistentialContainer1 _swiftContainer;
+    private bool _disposed;
     static AgeableProxy()
     {
         InitializeVtable();
@@ -35644,6 +35752,7 @@ public unsafe partial class AgeableProxy : IAgeable, ISwiftObject, IDisposable, 
     {
         get
         {
+            if (_disposed) throw new ObjectDisposedException(GetType().Name);
             if (_csharpImpl != null)
                 return _csharpImpl.Age;
             fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
@@ -35684,7 +35793,11 @@ public unsafe partial class AgeableProxy : IAgeable, ISwiftObject, IDisposable, 
     /// <summary>
     /// Gets the existential container that can be passed to Swift code.
     /// </summary>
-    public ExistentialContainer1 GetExistentialContainer() => _swiftContainer;
+    public ExistentialContainer1 GetExistentialContainer()
+    {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
+        return _swiftContainer;
+    }
     public static TypeMetadata GetTypeMetadata()
     {
         // Proxy classes don't have their own Swift metadata
@@ -35699,6 +35812,7 @@ public unsafe partial class AgeableProxy : IAgeable, ISwiftObject, IDisposable, 
     }
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
         // Marshal the existential container
         var size = _swiftContainer.SizeOf;
         if (swiftDestSpan.Length < size)
@@ -35715,7 +35829,16 @@ public unsafe partial class AgeableProxy : IAgeable, ISwiftObject, IDisposable, 
             "Protocol conformance descriptor is not available for proxy types. " +
             "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
     }
-    public void Dispose() { }
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        if (_everyProtocol != null)
+        {
+            SwiftObjectRegistry.Unregister(_everyProtocol.Handle);
+            _everyProtocol.Dispose();
+        }
+    }
     #endregion
     #region Marshalling Helpers
     [StructLayout(LayoutKind.Sequential)]
@@ -35791,12 +35914,14 @@ public unsafe partial class AddableProxy : IAddable, ISwiftObject, IDisposable, 
     private static IntPtr _protocolWitnessTable;
     private static AddableSwiftVTable _swiftVTable;
     private static AddableLocalVTable _localVTable;
+    // Application-lifetime: vtable must outlive all proxy instances. Never disposed.
     private static GCHandle _localVTableHandle;
     private static bool _vtableInitialized;
     private static readonly object _vtableLock = new object();
     private readonly IAddable? _csharpImpl;
     private readonly EveryProtocol? _everyProtocol;
     private ExistentialContainer1 _swiftContainer;
+    private bool _disposed;
     static AddableProxy()
     {
         InitializeVtable();
@@ -35880,6 +36005,7 @@ public unsafe partial class AddableProxy : IAddable, ISwiftObject, IDisposable, 
     
     public int Add(int other)
     {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
         if (_csharpImpl != null)
             return _csharpImpl.Add(other);
         fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
@@ -35923,7 +36049,11 @@ public unsafe partial class AddableProxy : IAddable, ISwiftObject, IDisposable, 
     /// <summary>
     /// Gets the existential container that can be passed to Swift code.
     /// </summary>
-    public ExistentialContainer1 GetExistentialContainer() => _swiftContainer;
+    public ExistentialContainer1 GetExistentialContainer()
+    {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
+        return _swiftContainer;
+    }
     public static TypeMetadata GetTypeMetadata()
     {
         // Proxy classes don't have their own Swift metadata
@@ -35938,6 +36068,7 @@ public unsafe partial class AddableProxy : IAddable, ISwiftObject, IDisposable, 
     }
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
         // Marshal the existential container
         var size = _swiftContainer.SizeOf;
         if (swiftDestSpan.Length < size)
@@ -35954,7 +36085,16 @@ public unsafe partial class AddableProxy : IAddable, ISwiftObject, IDisposable, 
             "Protocol conformance descriptor is not available for proxy types. " +
             "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
     }
-    public void Dispose() { }
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        if (_everyProtocol != null)
+        {
+            SwiftObjectRegistry.Unregister(_everyProtocol.Handle);
+            _everyProtocol.Dispose();
+        }
+    }
     #endregion
     #region Marshalling Helpers
     [StructLayout(LayoutKind.Sequential)]
@@ -36030,12 +36170,14 @@ public unsafe partial class SubtractableProxy : ISubtractable, ISwiftObject, IDi
     private static IntPtr _protocolWitnessTable;
     private static SubtractableSwiftVTable _swiftVTable;
     private static SubtractableLocalVTable _localVTable;
+    // Application-lifetime: vtable must outlive all proxy instances. Never disposed.
     private static GCHandle _localVTableHandle;
     private static bool _vtableInitialized;
     private static readonly object _vtableLock = new object();
     private readonly ISubtractable? _csharpImpl;
     private readonly EveryProtocol? _everyProtocol;
     private ExistentialContainer1 _swiftContainer;
+    private bool _disposed;
     static SubtractableProxy()
     {
         InitializeVtable();
@@ -36119,6 +36261,7 @@ public unsafe partial class SubtractableProxy : ISubtractable, ISwiftObject, IDi
     
     public int GetSubtract(int other)
     {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
         if (_csharpImpl != null)
             return _csharpImpl.GetSubtract(other);
         fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
@@ -36162,7 +36305,11 @@ public unsafe partial class SubtractableProxy : ISubtractable, ISwiftObject, IDi
     /// <summary>
     /// Gets the existential container that can be passed to Swift code.
     /// </summary>
-    public ExistentialContainer1 GetExistentialContainer() => _swiftContainer;
+    public ExistentialContainer1 GetExistentialContainer()
+    {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
+        return _swiftContainer;
+    }
     public static TypeMetadata GetTypeMetadata()
     {
         // Proxy classes don't have their own Swift metadata
@@ -36177,6 +36324,7 @@ public unsafe partial class SubtractableProxy : ISubtractable, ISwiftObject, IDi
     }
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
         // Marshal the existential container
         var size = _swiftContainer.SizeOf;
         if (swiftDestSpan.Length < size)
@@ -36193,7 +36341,16 @@ public unsafe partial class SubtractableProxy : ISubtractable, ISwiftObject, IDi
             "Protocol conformance descriptor is not available for proxy types. " +
             "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
     }
-    public void Dispose() { }
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        if (_everyProtocol != null)
+        {
+            SwiftObjectRegistry.Unregister(_everyProtocol.Handle);
+            _everyProtocol.Dispose();
+        }
+    }
     #endregion
     #region Marshalling Helpers
     [StructLayout(LayoutKind.Sequential)]
@@ -36269,12 +36426,14 @@ public unsafe partial class MultipliableProxy : IMultipliable, ISwiftObject, IDi
     private static IntPtr _protocolWitnessTable;
     private static MultipliableSwiftVTable _swiftVTable;
     private static MultipliableLocalVTable _localVTable;
+    // Application-lifetime: vtable must outlive all proxy instances. Never disposed.
     private static GCHandle _localVTableHandle;
     private static bool _vtableInitialized;
     private static readonly object _vtableLock = new object();
     private readonly IMultipliable? _csharpImpl;
     private readonly EveryProtocol? _everyProtocol;
     private ExistentialContainer1 _swiftContainer;
+    private bool _disposed;
     static MultipliableProxy()
     {
         InitializeVtable();
@@ -36358,6 +36517,7 @@ public unsafe partial class MultipliableProxy : IMultipliable, ISwiftObject, IDi
     
     public int GetMultiply(int other)
     {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
         if (_csharpImpl != null)
             return _csharpImpl.GetMultiply(other);
         fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
@@ -36401,7 +36561,11 @@ public unsafe partial class MultipliableProxy : IMultipliable, ISwiftObject, IDi
     /// <summary>
     /// Gets the existential container that can be passed to Swift code.
     /// </summary>
-    public ExistentialContainer1 GetExistentialContainer() => _swiftContainer;
+    public ExistentialContainer1 GetExistentialContainer()
+    {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
+        return _swiftContainer;
+    }
     public static TypeMetadata GetTypeMetadata()
     {
         // Proxy classes don't have their own Swift metadata
@@ -36416,6 +36580,7 @@ public unsafe partial class MultipliableProxy : IMultipliable, ISwiftObject, IDi
     }
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
         // Marshal the existential container
         var size = _swiftContainer.SizeOf;
         if (swiftDestSpan.Length < size)
@@ -36432,7 +36597,16 @@ public unsafe partial class MultipliableProxy : IMultipliable, ISwiftObject, IDi
             "Protocol conformance descriptor is not available for proxy types. " +
             "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
     }
-    public void Dispose() { }
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        if (_everyProtocol != null)
+        {
+            SwiftObjectRegistry.Unregister(_everyProtocol.Handle);
+            _everyProtocol.Dispose();
+        }
+    }
     #endregion
     #region Marshalling Helpers
     [StructLayout(LayoutKind.Sequential)]
@@ -36508,12 +36682,14 @@ public unsafe partial class DividableProxy : IDividable, ISwiftObject, IDisposab
     private static IntPtr _protocolWitnessTable;
     private static DividableSwiftVTable _swiftVTable;
     private static DividableLocalVTable _localVTable;
+    // Application-lifetime: vtable must outlive all proxy instances. Never disposed.
     private static GCHandle _localVTableHandle;
     private static bool _vtableInitialized;
     private static readonly object _vtableLock = new object();
     private readonly IDividable? _csharpImpl;
     private readonly EveryProtocol? _everyProtocol;
     private ExistentialContainer1 _swiftContainer;
+    private bool _disposed;
     static DividableProxy()
     {
         InitializeVtable();
@@ -36597,6 +36773,7 @@ public unsafe partial class DividableProxy : IDividable, ISwiftObject, IDisposab
     
     public int GetDivide(int other)
     {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
         if (_csharpImpl != null)
             return _csharpImpl.GetDivide(other);
         fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
@@ -36640,7 +36817,11 @@ public unsafe partial class DividableProxy : IDividable, ISwiftObject, IDisposab
     /// <summary>
     /// Gets the existential container that can be passed to Swift code.
     /// </summary>
-    public ExistentialContainer1 GetExistentialContainer() => _swiftContainer;
+    public ExistentialContainer1 GetExistentialContainer()
+    {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
+        return _swiftContainer;
+    }
     public static TypeMetadata GetTypeMetadata()
     {
         // Proxy classes don't have their own Swift metadata
@@ -36655,6 +36836,7 @@ public unsafe partial class DividableProxy : IDividable, ISwiftObject, IDisposab
     }
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
         // Marshal the existential container
         var size = _swiftContainer.SizeOf;
         if (swiftDestSpan.Length < size)
@@ -36671,7 +36853,16 @@ public unsafe partial class DividableProxy : IDividable, ISwiftObject, IDisposab
             "Protocol conformance descriptor is not available for proxy types. " +
             "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
     }
-    public void Dispose() { }
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        if (_everyProtocol != null)
+        {
+            SwiftObjectRegistry.Unregister(_everyProtocol.Handle);
+            _everyProtocol.Dispose();
+        }
+    }
     #endregion
     #region Marshalling Helpers
     [StructLayout(LayoutKind.Sequential)]
@@ -37534,12 +37725,14 @@ public unsafe partial class NamedProxy : INamed, ISwiftObject, IDisposable, Swif
     private static IntPtr _protocolWitnessTable;
     private static NamedSwiftVTable _swiftVTable;
     private static NamedLocalVTable _localVTable;
+    // Application-lifetime: vtable must outlive all proxy instances. Never disposed.
     private static GCHandle _localVTableHandle;
     private static bool _vtableInitialized;
     private static readonly object _vtableLock = new object();
     private readonly INamed? _csharpImpl;
     private readonly EveryProtocol? _everyProtocol;
     private ExistentialContainer1 _swiftContainer;
+    private bool _disposed;
     static NamedProxy()
     {
         InitializeVtable();
@@ -37625,6 +37818,7 @@ public unsafe partial class NamedProxy : INamed, ISwiftObject, IDisposable, Swif
     {
         get
         {
+            if (_disposed) throw new ObjectDisposedException(GetType().Name);
             if (_csharpImpl != null)
                 return _csharpImpl.Name;
             fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
@@ -37672,7 +37866,11 @@ public unsafe partial class NamedProxy : INamed, ISwiftObject, IDisposable, Swif
     /// <summary>
     /// Gets the existential container that can be passed to Swift code.
     /// </summary>
-    public ExistentialContainer1 GetExistentialContainer() => _swiftContainer;
+    public ExistentialContainer1 GetExistentialContainer()
+    {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
+        return _swiftContainer;
+    }
     public static TypeMetadata GetTypeMetadata()
     {
         // Proxy classes don't have their own Swift metadata
@@ -37687,6 +37885,7 @@ public unsafe partial class NamedProxy : INamed, ISwiftObject, IDisposable, Swif
     }
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
         // Marshal the existential container
         var size = _swiftContainer.SizeOf;
         if (swiftDestSpan.Length < size)
@@ -37703,7 +37902,16 @@ public unsafe partial class NamedProxy : INamed, ISwiftObject, IDisposable, Swif
             "Protocol conformance descriptor is not available for proxy types. " +
             "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
     }
-    public void Dispose() { }
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        if (_everyProtocol != null)
+        {
+            SwiftObjectRegistry.Unregister(_everyProtocol.Handle);
+            _everyProtocol.Dispose();
+        }
+    }
     #endregion
     #region Marshalling Helpers
     [StructLayout(LayoutKind.Sequential)]
@@ -37784,12 +37992,14 @@ public unsafe partial class MutableNamedProxy : IMutableNamed, ISwiftObject, IDi
     private static IntPtr _protocolWitnessTable;
     private static MutableNamedSwiftVTable _swiftVTable;
     private static MutableNamedLocalVTable _localVTable;
+    // Application-lifetime: vtable must outlive all proxy instances. Never disposed.
     private static GCHandle _localVTableHandle;
     private static bool _vtableInitialized;
     private static readonly object _vtableLock = new object();
     private readonly IMutableNamed? _csharpImpl;
     private readonly EveryProtocol? _everyProtocol;
     private ExistentialContainer1 _swiftContainer;
+    private bool _disposed;
     static MutableNamedProxy()
     {
         InitializeVtable();
@@ -37885,6 +38095,7 @@ public unsafe partial class MutableNamedProxy : IMutableNamed, ISwiftObject, IDi
     {
         get
         {
+            if (_disposed) throw new ObjectDisposedException(GetType().Name);
             if (_csharpImpl != null)
                 return _csharpImpl.Name;
             fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
@@ -37903,6 +38114,7 @@ public unsafe partial class MutableNamedProxy : IMutableNamed, ISwiftObject, IDi
         }
         set
         {
+            if (_disposed) throw new ObjectDisposedException(GetType().Name);
             if (_csharpImpl != null)
             {
                 _csharpImpl.Name = value;
@@ -37950,7 +38162,11 @@ public unsafe partial class MutableNamedProxy : IMutableNamed, ISwiftObject, IDi
     /// <summary>
     /// Gets the existential container that can be passed to Swift code.
     /// </summary>
-    public ExistentialContainer1 GetExistentialContainer() => _swiftContainer;
+    public ExistentialContainer1 GetExistentialContainer()
+    {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
+        return _swiftContainer;
+    }
     public static TypeMetadata GetTypeMetadata()
     {
         // Proxy classes don't have their own Swift metadata
@@ -37965,6 +38181,7 @@ public unsafe partial class MutableNamedProxy : IMutableNamed, ISwiftObject, IDi
     }
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
         // Marshal the existential container
         var size = _swiftContainer.SizeOf;
         if (swiftDestSpan.Length < size)
@@ -37981,7 +38198,16 @@ public unsafe partial class MutableNamedProxy : IMutableNamed, ISwiftObject, IDi
             "Protocol conformance descriptor is not available for proxy types. " +
             "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
     }
-    public void Dispose() { }
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        if (_everyProtocol != null)
+        {
+            SwiftObjectRegistry.Unregister(_everyProtocol.Handle);
+            _everyProtocol.Dispose();
+        }
+    }
     #endregion
     #region Marshalling Helpers
     [StructLayout(LayoutKind.Sequential)]
@@ -38064,12 +38290,14 @@ public unsafe partial class PrioritizedProxy : IPrioritized, ISwiftObject, IDisp
     private static IntPtr _protocolWitnessTable;
     private static PrioritizedSwiftVTable _swiftVTable;
     private static PrioritizedLocalVTable _localVTable;
+    // Application-lifetime: vtable must outlive all proxy instances. Never disposed.
     private static GCHandle _localVTableHandle;
     private static bool _vtableInitialized;
     private static readonly object _vtableLock = new object();
     private readonly IPrioritized? _csharpImpl;
     private readonly EveryProtocol? _everyProtocol;
     private ExistentialContainer1 _swiftContainer;
+    private bool _disposed;
     static PrioritizedProxy()
     {
         InitializeVtable();
@@ -38158,6 +38386,7 @@ public unsafe partial class PrioritizedProxy : IPrioritized, ISwiftObject, IDisp
     {
         get
         {
+            if (_disposed) throw new ObjectDisposedException(GetType().Name);
             if (_csharpImpl != null)
                 return _csharpImpl.Priority;
             throw new NotSupportedException(
@@ -38195,7 +38424,11 @@ public unsafe partial class PrioritizedProxy : IPrioritized, ISwiftObject, IDisp
     /// <summary>
     /// Gets the existential container that can be passed to Swift code.
     /// </summary>
-    public ExistentialContainer1 GetExistentialContainer() => _swiftContainer;
+    public ExistentialContainer1 GetExistentialContainer()
+    {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
+        return _swiftContainer;
+    }
     public static TypeMetadata GetTypeMetadata()
     {
         // Proxy classes don't have their own Swift metadata
@@ -38210,6 +38443,7 @@ public unsafe partial class PrioritizedProxy : IPrioritized, ISwiftObject, IDisp
     }
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
         // Marshal the existential container
         var size = _swiftContainer.SizeOf;
         if (swiftDestSpan.Length < size)
@@ -38226,7 +38460,16 @@ public unsafe partial class PrioritizedProxy : IPrioritized, ISwiftObject, IDisp
             "Protocol conformance descriptor is not available for proxy types. " +
             "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
     }
-    public void Dispose() { }
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        if (_everyProtocol != null)
+        {
+            SwiftObjectRegistry.Unregister(_everyProtocol.Handle);
+            _everyProtocol.Dispose();
+        }
+    }
     #endregion
     #region Marshalling Helpers
     [StructLayout(LayoutKind.Sequential)]
@@ -38300,12 +38543,14 @@ public unsafe partial class MutablePrioritizedProxy : IMutablePrioritized, ISwif
     private static IntPtr _protocolWitnessTable;
     private static MutablePrioritizedSwiftVTable _swiftVTable;
     private static MutablePrioritizedLocalVTable _localVTable;
+    // Application-lifetime: vtable must outlive all proxy instances. Never disposed.
     private static GCHandle _localVTableHandle;
     private static bool _vtableInitialized;
     private static readonly object _vtableLock = new object();
     private readonly IMutablePrioritized? _csharpImpl;
     private readonly EveryProtocol? _everyProtocol;
     private ExistentialContainer1 _swiftContainer;
+    private bool _disposed;
     static MutablePrioritizedProxy()
     {
         InitializeVtable();
@@ -38404,6 +38649,7 @@ public unsafe partial class MutablePrioritizedProxy : IMutablePrioritized, ISwif
     {
         get
         {
+            if (_disposed) throw new ObjectDisposedException(GetType().Name);
             if (_csharpImpl != null)
                 return _csharpImpl.Priority;
             throw new NotSupportedException(
@@ -38412,6 +38658,7 @@ public unsafe partial class MutablePrioritizedProxy : IMutablePrioritized, ISwif
         }
         set
         {
+            if (_disposed) throw new ObjectDisposedException(GetType().Name);
             if (_csharpImpl != null)
             {
                 _csharpImpl.Priority = value;
@@ -38452,7 +38699,11 @@ public unsafe partial class MutablePrioritizedProxy : IMutablePrioritized, ISwif
     /// <summary>
     /// Gets the existential container that can be passed to Swift code.
     /// </summary>
-    public ExistentialContainer1 GetExistentialContainer() => _swiftContainer;
+    public ExistentialContainer1 GetExistentialContainer()
+    {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
+        return _swiftContainer;
+    }
     public static TypeMetadata GetTypeMetadata()
     {
         // Proxy classes don't have their own Swift metadata
@@ -38467,6 +38718,7 @@ public unsafe partial class MutablePrioritizedProxy : IMutablePrioritized, ISwif
     }
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
         // Marshal the existential container
         var size = _swiftContainer.SizeOf;
         if (swiftDestSpan.Length < size)
@@ -38483,7 +38735,16 @@ public unsafe partial class MutablePrioritizedProxy : IMutablePrioritized, ISwif
             "Protocol conformance descriptor is not available for proxy types. " +
             "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
     }
-    public void Dispose() { }
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        if (_everyProtocol != null)
+        {
+            SwiftObjectRegistry.Unregister(_everyProtocol.Handle);
+            _everyProtocol.Dispose();
+        }
+    }
     #endregion
     #region Marshalling Helpers
     [StructLayout(LayoutKind.Sequential)]
@@ -38558,12 +38819,14 @@ public unsafe partial class TaskDescriptorProxy : ITaskDescriptor, ISwiftObject,
     private static IntPtr _protocolWitnessTable;
     private static TaskDescriptorSwiftVTable _swiftVTable;
     private static TaskDescriptorLocalVTable _localVTable;
+    // Application-lifetime: vtable must outlive all proxy instances. Never disposed.
     private static GCHandle _localVTableHandle;
     private static bool _vtableInitialized;
     private static readonly object _vtableLock = new object();
     private readonly ITaskDescriptor? _csharpImpl;
     private readonly EveryProtocol? _everyProtocol;
     private ExistentialContainer1 _swiftContainer;
+    private bool _disposed;
     static TaskDescriptorProxy()
     {
         InitializeVtable();
@@ -38671,6 +38934,7 @@ public unsafe partial class TaskDescriptorProxy : ITaskDescriptor, ISwiftObject,
     {
         get
         {
+            if (_disposed) throw new ObjectDisposedException(GetType().Name);
             if (_csharpImpl != null)
                 return _csharpImpl.TaskName;
             fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
@@ -38697,6 +38961,7 @@ public unsafe partial class TaskDescriptorProxy : ITaskDescriptor, ISwiftObject,
     {
         get
         {
+            if (_disposed) throw new ObjectDisposedException(GetType().Name);
             if (_csharpImpl != null)
                 return _csharpImpl.StatusProperty;
             throw new NotSupportedException(
@@ -38713,6 +38978,7 @@ public unsafe partial class TaskDescriptorProxy : ITaskDescriptor, ISwiftObject,
     {
         get
         {
+            if (_disposed) throw new ObjectDisposedException(GetType().Name);
             if (_csharpImpl != null)
                 return _csharpImpl.Priority;
             throw new NotSupportedException(
@@ -38750,7 +39016,11 @@ public unsafe partial class TaskDescriptorProxy : ITaskDescriptor, ISwiftObject,
     /// <summary>
     /// Gets the existential container that can be passed to Swift code.
     /// </summary>
-    public ExistentialContainer1 GetExistentialContainer() => _swiftContainer;
+    public ExistentialContainer1 GetExistentialContainer()
+    {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
+        return _swiftContainer;
+    }
     public static TypeMetadata GetTypeMetadata()
     {
         // Proxy classes don't have their own Swift metadata
@@ -38765,6 +39035,7 @@ public unsafe partial class TaskDescriptorProxy : ITaskDescriptor, ISwiftObject,
     }
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
         // Marshal the existential container
         var size = _swiftContainer.SizeOf;
         if (swiftDestSpan.Length < size)
@@ -38781,7 +39052,16 @@ public unsafe partial class TaskDescriptorProxy : ITaskDescriptor, ISwiftObject,
             "Protocol conformance descriptor is not available for proxy types. " +
             "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
     }
-    public void Dispose() { }
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        if (_everyProtocol != null)
+        {
+            SwiftObjectRegistry.Unregister(_everyProtocol.Handle);
+            _everyProtocol.Dispose();
+        }
+    }
     #endregion
     #region Marshalling Helpers
     [StructLayout(LayoutKind.Sequential)]
@@ -38866,12 +39146,14 @@ public unsafe partial class StringProcessorProxy : IStringProcessor, ISwiftObjec
     private static IntPtr _protocolWitnessTable;
     private static StringProcessorSwiftVTable _swiftVTable;
     private static StringProcessorLocalVTable _localVTable;
+    // Application-lifetime: vtable must outlive all proxy instances. Never disposed.
     private static GCHandle _localVTableHandle;
     private static bool _vtableInitialized;
     private static readonly object _vtableLock = new object();
     private readonly IStringProcessor? _csharpImpl;
     private readonly EveryProtocol? _everyProtocol;
     private ExistentialContainer1 _swiftContainer;
+    private bool _disposed;
     static StringProcessorProxy()
     {
         InitializeVtable();
@@ -38967,6 +39249,7 @@ public unsafe partial class StringProcessorProxy : IStringProcessor, ISwiftObjec
     
     public string Process(string input)
     {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
         if (_csharpImpl != null)
             return _csharpImpl.Process(input);
         fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
@@ -38999,6 +39282,7 @@ public unsafe partial class StringProcessorProxy : IStringProcessor, ISwiftObjec
     
     public string GetOutput()
     {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
         if (_csharpImpl != null)
             return _csharpImpl.GetOutput();
         fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
@@ -39047,7 +39331,11 @@ public unsafe partial class StringProcessorProxy : IStringProcessor, ISwiftObjec
     /// <summary>
     /// Gets the existential container that can be passed to Swift code.
     /// </summary>
-    public ExistentialContainer1 GetExistentialContainer() => _swiftContainer;
+    public ExistentialContainer1 GetExistentialContainer()
+    {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
+        return _swiftContainer;
+    }
     public static TypeMetadata GetTypeMetadata()
     {
         // Proxy classes don't have their own Swift metadata
@@ -39062,6 +39350,7 @@ public unsafe partial class StringProcessorProxy : IStringProcessor, ISwiftObjec
     }
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
         // Marshal the existential container
         var size = _swiftContainer.SizeOf;
         if (swiftDestSpan.Length < size)
@@ -39078,7 +39367,16 @@ public unsafe partial class StringProcessorProxy : IStringProcessor, ISwiftObjec
             "Protocol conformance descriptor is not available for proxy types. " +
             "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
     }
-    public void Dispose() { }
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        if (_everyProtocol != null)
+        {
+            SwiftObjectRegistry.Unregister(_everyProtocol.Handle);
+            _everyProtocol.Dispose();
+        }
+    }
     #endregion
     #region Marshalling Helpers
     [StructLayout(LayoutKind.Sequential)]
@@ -39176,12 +39474,14 @@ public unsafe partial class StatusHandlerProxy : IStatusHandler, ISwiftObject, I
     private static IntPtr _protocolWitnessTable;
     private static StatusHandlerSwiftVTable _swiftVTable;
     private static StatusHandlerLocalVTable _localVTable;
+    // Application-lifetime: vtable must outlive all proxy instances. Never disposed.
     private static GCHandle _localVTableHandle;
     private static bool _vtableInitialized;
     private static readonly object _vtableLock = new object();
     private readonly IStatusHandler? _csharpImpl;
     private readonly EveryProtocol? _everyProtocol;
     private ExistentialContainer1 _swiftContainer;
+    private bool _disposed;
     static StatusHandlerProxy()
     {
         InitializeVtable();
@@ -39291,6 +39591,7 @@ public unsafe partial class StatusHandlerProxy : IStatusHandler, ISwiftObject, I
         UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     public void HandleStatus(Swift.SwiftBindingsTestLib.TaskStatus status)
     {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
         if (_csharpImpl != null)
         {
             _csharpImpl.HandleStatus(status);
@@ -39307,6 +39608,7 @@ public unsafe partial class StatusHandlerProxy : IStatusHandler, ISwiftObject, I
         UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     public Swift.SwiftBindingsTestLib.TaskStatus GetCurrentStatus()
     {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
         if (_csharpImpl != null)
             return _csharpImpl.GetCurrentStatus();
         throw new NotSupportedException(
@@ -39320,6 +39622,7 @@ public unsafe partial class StatusHandlerProxy : IStatusHandler, ISwiftObject, I
         UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     public Swift.SwiftBindingsTestLib.TaskStatus GetTransitionStatus(Swift.SwiftBindingsTestLib.TaskStatus from)
     {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
         if (_csharpImpl != null)
             return _csharpImpl.GetTransitionStatus(from);
         throw new NotSupportedException(
@@ -39356,7 +39659,11 @@ public unsafe partial class StatusHandlerProxy : IStatusHandler, ISwiftObject, I
     /// <summary>
     /// Gets the existential container that can be passed to Swift code.
     /// </summary>
-    public ExistentialContainer1 GetExistentialContainer() => _swiftContainer;
+    public ExistentialContainer1 GetExistentialContainer()
+    {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
+        return _swiftContainer;
+    }
     public static TypeMetadata GetTypeMetadata()
     {
         // Proxy classes don't have their own Swift metadata
@@ -39371,6 +39678,7 @@ public unsafe partial class StatusHandlerProxy : IStatusHandler, ISwiftObject, I
     }
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
         // Marshal the existential container
         var size = _swiftContainer.SizeOf;
         if (swiftDestSpan.Length < size)
@@ -39387,7 +39695,16 @@ public unsafe partial class StatusHandlerProxy : IStatusHandler, ISwiftObject, I
             "Protocol conformance descriptor is not available for proxy types. " +
             "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
     }
-    public void Dispose() { }
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        if (_everyProtocol != null)
+        {
+            SwiftObjectRegistry.Unregister(_everyProtocol.Handle);
+            _everyProtocol.Dispose();
+        }
+    }
     #endregion
     #region Marshalling Helpers
     [StructLayout(LayoutKind.Sequential)]
@@ -39471,12 +39788,14 @@ public unsafe partial class PriorityHandlerProxy : IPriorityHandler, ISwiftObjec
     private static IntPtr _protocolWitnessTable;
     private static PriorityHandlerSwiftVTable _swiftVTable;
     private static PriorityHandlerLocalVTable _localVTable;
+    // Application-lifetime: vtable must outlive all proxy instances. Never disposed.
     private static GCHandle _localVTableHandle;
     private static bool _vtableInitialized;
     private static readonly object _vtableLock = new object();
     private readonly IPriorityHandler? _csharpImpl;
     private readonly EveryProtocol? _everyProtocol;
     private ExistentialContainer1 _swiftContainer;
+    private bool _disposed;
     static PriorityHandlerProxy()
     {
         InitializeVtable();
@@ -39586,6 +39905,7 @@ public unsafe partial class PriorityHandlerProxy : IPriorityHandler, ISwiftObjec
         UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     public void SetPriority(Swift.SwiftBindingsTestLib.TaskPriority priority)
     {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
         if (_csharpImpl != null)
         {
             _csharpImpl.SetPriority(priority);
@@ -39602,6 +39922,7 @@ public unsafe partial class PriorityHandlerProxy : IPriorityHandler, ISwiftObjec
         UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     public Swift.SwiftBindingsTestLib.TaskPriority GetPriority()
     {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
         if (_csharpImpl != null)
             return _csharpImpl.GetPriority();
         throw new NotSupportedException(
@@ -39615,6 +39936,7 @@ public unsafe partial class PriorityHandlerProxy : IPriorityHandler, ISwiftObjec
         UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     public bool IsHigherPriority(Swift.SwiftBindingsTestLib.TaskPriority other)
     {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
         if (_csharpImpl != null)
             return _csharpImpl.IsHigherPriority(other);
         throw new NotSupportedException(
@@ -39651,7 +39973,11 @@ public unsafe partial class PriorityHandlerProxy : IPriorityHandler, ISwiftObjec
     /// <summary>
     /// Gets the existential container that can be passed to Swift code.
     /// </summary>
-    public ExistentialContainer1 GetExistentialContainer() => _swiftContainer;
+    public ExistentialContainer1 GetExistentialContainer()
+    {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
+        return _swiftContainer;
+    }
     public static TypeMetadata GetTypeMetadata()
     {
         // Proxy classes don't have their own Swift metadata
@@ -39666,6 +39992,7 @@ public unsafe partial class PriorityHandlerProxy : IPriorityHandler, ISwiftObjec
     }
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
         // Marshal the existential container
         var size = _swiftContainer.SizeOf;
         if (swiftDestSpan.Length < size)
@@ -39682,7 +40009,16 @@ public unsafe partial class PriorityHandlerProxy : IPriorityHandler, ISwiftObjec
             "Protocol conformance descriptor is not available for proxy types. " +
             "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
     }
-    public void Dispose() { }
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        if (_everyProtocol != null)
+        {
+            SwiftObjectRegistry.Unregister(_everyProtocol.Handle);
+            _everyProtocol.Dispose();
+        }
+    }
     #endregion
     #region Marshalling Helpers
     [StructLayout(LayoutKind.Sequential)]

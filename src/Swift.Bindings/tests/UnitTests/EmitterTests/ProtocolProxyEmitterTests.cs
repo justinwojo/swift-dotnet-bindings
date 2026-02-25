@@ -1397,6 +1397,223 @@ public class ProtocolProxyEmitterTests
 
     #endregion
 
+    #region Dispose and Lifecycle Tests
+
+    [Fact]
+    public void EmitProxyClass_HasDisposedField()
+    {
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("private bool _disposed;", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_DisposeUnregistersFromSwiftObjectRegistry()
+    {
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("SwiftObjectRegistry.Unregister(_everyProtocol.Handle)", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_DisposeDisposesEveryProtocol()
+    {
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("_everyProtocol.Dispose()", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_DisposeIsIdempotent()
+    {
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("if (_disposed) return;", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_PropertyGetterThrowsAfterDispose()
+    {
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
+        var output = EmitProxyClass(protocolDecl);
+
+        // Find the property getter body and verify ObjectDisposedException is there
+        var getterIdx = output.IndexOf("public Swift.AnyType Value");
+        Assert.True(getterIdx >= 0, "Property not found in output");
+        var getterSection = output.Substring(getterIdx, Math.Min(500, output.Length - getterIdx));
+        Assert.Contains("ObjectDisposedException", getterSection);
+    }
+
+    [Fact]
+    public void EmitProxyClass_PropertySetterThrowsAfterDispose()
+    {
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: true);
+        var output = EmitProxyClass(protocolDecl);
+
+        // Find the property setter body and verify ObjectDisposedException is there
+        var setIdx = output.IndexOf("set\n");
+        if (setIdx < 0) setIdx = output.IndexOf("set\r\n");
+        Assert.True(setIdx >= 0, "Property setter not found in output");
+        var setterSection = output.Substring(setIdx, Math.Min(500, output.Length - setIdx));
+        Assert.Contains("ObjectDisposedException", setterSection);
+    }
+
+    [Fact]
+    public void EmitProxyClass_NotSupportedPropertyStubThrowsAfterDispose()
+    {
+        // Create a protocol with a property that is in closureSkippedPropertyNames
+        var protocolDecl = CreateProtocolWithProperty("StubProtocol", "callback", hasGetter: true, hasSetter: true);
+
+        // Emit with the property name in BOTH skippedPropertyNames and closureSkippedPropertyNames
+        // to route through EmitNotSupportedPropertyStub
+        var stringWriter = new StringWriter();
+        var writer = new CSharpWriter(stringWriter);
+        _emitter.EmitProxyClass(writer, protocolDecl,
+            skippedPropertyNames: new HashSet<string> { "callback" },
+            closureSkippedPropertyNames: new HashSet<string> { "callback" });
+        var output = stringWriter.ToString();
+
+        // Find the property and verify ObjectDisposedException guard in getter
+        var getterIdx = output.IndexOf("get\n");
+        if (getterIdx < 0) getterIdx = output.IndexOf("get\r\n");
+        Assert.True(getterIdx >= 0, "Property getter stub not found in output");
+        var getterSection = output.Substring(getterIdx, Math.Min(500, output.Length - getterIdx));
+        Assert.Contains("ObjectDisposedException", getterSection);
+        // Guard must appear before NotSupportedException
+        var disposeIdx = getterSection.IndexOf("ObjectDisposedException");
+        var notSupportedIdx = getterSection.IndexOf("NotSupportedException");
+        Assert.True(notSupportedIdx >= 0, "NotSupportedException not found in getter stub");
+        Assert.True(disposeIdx < notSupportedIdx, "ObjectDisposedException guard must come before NotSupportedException in getter");
+
+        // Verify ObjectDisposedException guard in setter
+        var setIdx = output.IndexOf("set\n");
+        if (setIdx < 0) setIdx = output.IndexOf("set\r\n");
+        Assert.True(setIdx >= 0, "Property setter stub not found in output");
+        var setterSection = output.Substring(setIdx, Math.Min(500, output.Length - setIdx));
+        Assert.Contains("ObjectDisposedException", setterSection);
+        var setDisposeIdx = setterSection.IndexOf("ObjectDisposedException");
+        var setNotSupportedIdx = setterSection.IndexOf("NotSupportedException");
+        Assert.True(setNotSupportedIdx >= 0, "NotSupportedException not found in setter stub");
+        Assert.True(setDisposeIdx < setNotSupportedIdx, "ObjectDisposedException guard must come before NotSupportedException in setter");
+    }
+
+    [Fact]
+    public void EmitProxyClass_MethodThrowsAfterDispose()
+    {
+        var protocolDecl = CreateProtocolWithMethod("TestProtocol", "doSomething");
+        var output = EmitProxyClass(protocolDecl);
+
+        // Find the method body and verify ObjectDisposedException is there
+        var methodIdx = output.IndexOf("public void DoSomething()");
+        Assert.True(methodIdx >= 0, "Method not found in output");
+        var methodSection = output.Substring(methodIdx, Math.Min(500, output.Length - methodIdx));
+        Assert.Contains("ObjectDisposedException", methodSection);
+    }
+
+    [Fact]
+    public void EmitProxyClass_SubscriptThrowsAfterDispose()
+    {
+        var protocolDecl = CreateSimpleProtocol("IndexedProtocol");
+        protocolDecl.Subscripts.Add(new SubscriptDecl
+        {
+            Name = "subscript",
+            MangledName = "$s7IndexedP9subscriptS2icig",
+            ReturnTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IndexParameters = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = "index",
+                    PrivateName = "index",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("subscript_get") },
+                new SetAccessorDecl { Method = CreateMethodDecl("subscript_set") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+        var output = EmitProxyClass(protocolDecl);
+
+        // Find the subscript getter body and verify ObjectDisposedException guard
+        var subscriptIdx = output.IndexOf("public Swift.AnyType this[");
+        Assert.True(subscriptIdx >= 0, "Subscript not found in output");
+        var subscriptSection = output.Substring(subscriptIdx, Math.Min(800, output.Length - subscriptIdx));
+        Assert.Contains("ObjectDisposedException", subscriptSection);
+    }
+
+    [Fact]
+    public void EmitProxyClass_NotSupportedMethodStubThrowsAfterDispose()
+    {
+        // Create a protocol with a method that routes through EmitNotSupportedMethodStub
+        var protocolDecl = CreateProtocolWithMethod("StubMethodProtocol", "apply");
+
+        // Get the method signature key to populate skipped sets
+        var method = protocolDecl.Methods.First(m => m.Name == "apply");
+        var methodKey = ProtocolSignatureHelper.GetMethodSignatureKey(method, _typeDatabase, protocolDecl);
+
+        // Emit with the method key in BOTH skippedMethodKeys and closureSkippedMethodKeys
+        // to route through EmitNotSupportedMethodStub
+        var stringWriter = new StringWriter();
+        var writer = new CSharpWriter(stringWriter);
+        _emitter.EmitProxyClass(writer, protocolDecl,
+            skippedMethodKeys: new HashSet<string> { methodKey },
+            closureSkippedMethodKeys: new HashSet<string> { methodKey });
+        var output = stringWriter.ToString();
+
+        // Find the method stub and verify ObjectDisposedException is emitted before _csharpImpl
+        var methodIdx = output.IndexOf("public void Apply(");
+        Assert.True(methodIdx >= 0, "Method stub not found in output");
+        var methodSection = output.Substring(methodIdx, Math.Min(500, output.Length - methodIdx));
+        Assert.Contains("ObjectDisposedException", methodSection);
+        // Guard must appear before _csharpImpl check
+        var disposeIdx = methodSection.IndexOf("ObjectDisposedException");
+        var implIdx = methodSection.IndexOf("_csharpImpl");
+        Assert.True(disposeIdx < implIdx, "ObjectDisposedException guard must come before _csharpImpl check");
+        // Should also contain NotSupportedException (this is a stub)
+        Assert.Contains("NotSupportedException", methodSection);
+    }
+
+    [Fact]
+    public void EmitProxyClass_MarshalToSwiftThrowsAfterDispose()
+    {
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
+        var output = EmitProxyClass(protocolDecl);
+
+        // Find MarshalToSwift body and verify ObjectDisposedException guard
+        var marshalIdx = output.IndexOf("public int MarshalToSwift(");
+        Assert.True(marshalIdx >= 0, "MarshalToSwift not found in output");
+        var marshalSection = output.Substring(marshalIdx, Math.Min(500, output.Length - marshalIdx));
+        Assert.Contains("ObjectDisposedException", marshalSection);
+    }
+
+    [Fact]
+    public void EmitProxyClass_GetExistentialContainerThrowsAfterDispose()
+    {
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
+        var output = EmitProxyClass(protocolDecl);
+
+        // Find GetExistentialContainer body and verify ObjectDisposedException guard
+        var containerIdx = output.IndexOf("public ExistentialContainer1 GetExistentialContainer()");
+        Assert.True(containerIdx >= 0, "GetExistentialContainer not found in output");
+        var containerSection = output.Substring(containerIdx, Math.Min(500, output.Length - containerIdx));
+        Assert.Contains("ObjectDisposedException", containerSection);
+    }
+
+    #endregion
+
     #region Witness Dispatch P/Invoke Tests
 
     [Fact]

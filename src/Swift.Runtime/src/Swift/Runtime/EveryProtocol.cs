@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace Swift.Runtime;
@@ -21,8 +22,13 @@ namespace Swift.Runtime;
 /// 4. When C# implementation is wrapped, it registers with SwiftObjectRegistry
 /// 5. Swift callbacks use the registry to find the C# proxy and invoke the implementation
 /// </remarks>
+[DebuggerDisplay("{DebugDisplay}")]
 public sealed class EveryProtocol : ISwiftObject
 {
+    private string DebugDisplay => _handle?.IsInvalid != false
+        ? "EveryProtocol [DISPOSED]"
+        : $"EveryProtocol (0x{Handle:X})";
+
     private static IntPtr _typeMetadataHandle;
     private static readonly object _metadataLock = new object();
 

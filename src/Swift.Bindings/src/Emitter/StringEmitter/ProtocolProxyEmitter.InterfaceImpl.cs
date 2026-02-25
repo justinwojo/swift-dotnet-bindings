@@ -163,6 +163,7 @@ public partial class ProtocolProxyEmitter
                 writer.WriteLines($$"""
                     get
                     {
+                        if (_disposed) throw new ObjectDisposedException(GetType().Name);
                         if (_csharpImpl != null)
                             return _csharpImpl.{{propertyName}};
                         fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
@@ -191,6 +192,7 @@ public partial class ProtocolProxyEmitter
                 writer.WriteLines($$"""
                     get
                     {
+                        if (_disposed) throw new ObjectDisposedException(GetType().Name);
                         if (_csharpImpl != null)
                             return _csharpImpl.{{propertyName}};
                         fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
@@ -207,6 +209,7 @@ public partial class ProtocolProxyEmitter
                 writer.WriteLines($$"""
                     get
                     {
+                        if (_disposed) throw new ObjectDisposedException(GetType().Name);
                         if (_csharpImpl != null)
                             return _csharpImpl.{{propertyName}};
                         throw new NotSupportedException(
@@ -227,6 +230,7 @@ public partial class ProtocolProxyEmitter
                 writer.WriteLines($$"""
                     set
                     {
+                        if (_disposed) throw new ObjectDisposedException(GetType().Name);
                         if (_csharpImpl != null)
                         {
                             _csharpImpl.{{propertyName}} = value;
@@ -253,6 +257,7 @@ public partial class ProtocolProxyEmitter
                 writer.WriteLines($$"""
                     set
                     {
+                        if (_disposed) throw new ObjectDisposedException(GetType().Name);
                         if (_csharpImpl != null)
                         {
                             _csharpImpl.{{propertyName}} = value;
@@ -271,6 +276,7 @@ public partial class ProtocolProxyEmitter
                 writer.WriteLines($$"""
                     set
                     {
+                        if (_disposed) throw new ObjectDisposedException(GetType().Name);
                         if (_csharpImpl != null)
                         {
                             _csharpImpl.{{propertyName}} = value;
@@ -322,6 +328,7 @@ public partial class ProtocolProxyEmitter
             writer.WriteLines($$"""
                 get
                 {
+                    if (_disposed) throw new ObjectDisposedException(GetType().Name);
                     if (_csharpImpl != null)
                         return _csharpImpl[{{argsString}}];
                     throw new NotSupportedException(
@@ -336,6 +343,7 @@ public partial class ProtocolProxyEmitter
             writer.WriteLines($$"""
                 set
                 {
+                    if (_disposed) throw new ObjectDisposedException(GetType().Name);
                     if (_csharpImpl != null)
                     {
                         _csharpImpl[{{argsString}}] = value;
@@ -453,6 +461,8 @@ public partial class ProtocolProxyEmitter
         writer.WriteLine($"public {returnTypeName} {methodName}({parametersString})");
         writer.WriteLine("{");
         writer.Indent++;
+
+        writer.WriteLine("if (_disposed) throw new ObjectDisposedException(GetType().Name);");
 
         if (isDispatchable)
         {
@@ -732,6 +742,7 @@ public partial class ProtocolProxyEmitter
             writer.WriteLines($$"""
                 get
                 {
+                    if (_disposed) throw new ObjectDisposedException(GetType().Name);
                     if (_csharpImpl != null)
                         return _csharpImpl.{{propertyName}};
                     throw new NotSupportedException(
@@ -746,6 +757,7 @@ public partial class ProtocolProxyEmitter
             writer.WriteLines($$"""
                 set
                 {
+                    if (_disposed) throw new ObjectDisposedException(GetType().Name);
                     if (_csharpImpl != null)
                     {
                         _csharpImpl.{{propertyName}} = value;
@@ -805,6 +817,8 @@ public partial class ProtocolProxyEmitter
         writer.WriteLine($"public {returnTypeName} {methodName}({parametersString})");
         writer.WriteLine("{");
         writer.Indent++;
+
+        writer.WriteLine("if (_disposed) throw new ObjectDisposedException(GetType().Name);");
 
         if (hasReturn || method.IsAsync)
         {

@@ -14,6 +14,7 @@ public partial class ProtocolProxyEmitter
             private static IntPtr _protocolWitnessTable;
             private static {swiftVtableName} _swiftVTable;
             private static {localVtableName} _localVTable;
+            // Application-lifetime: vtable must outlive all proxy instances. Never disposed.
             private static GCHandle _localVTableHandle;
             private static bool _vtableInitialized;
             private static readonly object _vtableLock = new object();
@@ -27,6 +28,7 @@ public partial class ProtocolProxyEmitter
             private readonly {interfaceName}? _csharpImpl;
             private readonly EveryProtocol? _everyProtocol;
             private ExistentialContainer1 _swiftContainer;
+            private bool _disposed;
 
             """);
     }

@@ -53,6 +53,7 @@ public struct SwiftHandle
 /// Represents an opaque handle to a Swift object of type T.
 /// Used to manage native memory associated with a Swift object of type T.
 /// </summary>
+[DebuggerDisplay("{DebugDisplay}")]
 public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where T : ISwiftObject
 {
     /// <summary>
@@ -76,11 +77,20 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
         SetHandle(handle);
     }
 
+    private string DebugDisplay => IsClosed || IsInvalid
+        ? $"SwiftSafeHandle<{typeof(T).Name}> [DISPOSED]"
+        : $"SwiftSafeHandle<{typeof(T).Name}> (0x{handle:X})";
+
     /// <summary>
     /// Disposes the handle. Call this to properly clean up Swift resources.
     /// During explicit disposal, Swift's Destroy is called to decrement reference counts.
     /// Also suppresses finalization since cleanup is already handled.
     /// </summary>
+    /// <remarks>
+    /// Failing to call Dispose() will cause the finalizer to run, which skips Swift's Destroy
+    /// to avoid crashes during runtime shutdown. This means the Swift ARC reference count won't
+    /// be decremented, leaking native memory. Always use 'using' or call Dispose() explicitly.
+    /// </remarks>
     public new void Dispose()
     {
         _explicitDispose = true;
