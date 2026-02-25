@@ -54,13 +54,13 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Creates a SpikeBox containing an Int value.
         /// </summary>
-        public static System.IntPtr GetSBW_Spike_createIntBox( nint _value)
+        public static System.IntPtr GetSBW_Spike_createIntBox( nint value)
         {
             try
             {
                 
                 
-                var result = PInvoke_SBW_Spike_createIntBox_0E161583(_value);
+                var result = PInvoke_SBW_Spike_createIntBox_0E161583(value);
                 
                 return result;
             }
@@ -73,7 +73,7 @@ namespace Swift.SwiftBindingsTestLib
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "SBW_Spike_createIntBox")]
-        private static partial System.IntPtr PInvoke_SBW_Spike_createIntBox_0E161583( nint _value);
+        private static partial System.IntPtr PInvoke_SBW_Spike_createIntBox_0E161583( nint value);
         
         
         [Obsolete("P/Invoke entry point not exported by the library. This method will throw EntryPointNotFoundException at runtime.", DiagnosticId = "SB0002", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
@@ -474,32 +474,32 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Unconstrained generic identity function.
         /// </summary>
-        public static T GetIdentity<T>( T _value)
+        public static T GetIdentity<T>( T value)
             where T : ISwiftObject
         {
             unsafe
             {
                 TypeMetadata TMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
-                IntPtr _valuePayload = IntPtr.Zero;
+                IntPtr valuePayload = IntPtr.Zero;
                 try
                 {
                     var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
                     var payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
                     var swiftIndirectResult = new SwiftIndirectResult(payload);
                     
-                    Span<byte> _valuePayloadSpan = stackalloc byte[(int)TMetadata.Size];
-                    _valuePayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(_valuePayloadSpan));
-                    SwiftMarshal.MarshalToSwift(_value, ref _valuePayloadSpan);
+                    Span<byte> valuePayloadSpan = stackalloc byte[(int)TMetadata.Size];
+                    valuePayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(valuePayloadSpan));
+                    SwiftMarshal.MarshalToSwift(value, ref valuePayloadSpan);
                     
                     
-                    PInvoke_identity_799A5111(swiftIndirectResult, _valuePayload, TMetadata);
+                    PInvoke_identity_799A5111(swiftIndirectResult, valuePayload, TMetadata);
                     
                     return SwiftMarshal.MarshalFromSwift<T>(new IntPtr(swiftIndirectResult.Value));
                 }
                 
                 finally
                 {
-                    TMetadata.ValueWitnessTable->Destroy((void *)_valuePayload, TMetadata);
+                    TMetadata.ValueWitnessTable->Destroy((void *)valuePayload, TMetadata);
                 }
                 
             }
@@ -507,7 +507,7 @@ namespace Swift.SwiftBindingsTestLib
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib8identityyxxlF")]
-        private static partial void PInvoke_identity_799A5111( SwiftIndirectResult swiftIndirectResult,  IntPtr _valuePayload,  TypeMetadata TMetadata);
+        private static partial void PInvoke_identity_799A5111( SwiftIndirectResult swiftIndirectResult,  IntPtr valuePayload,  TypeMetadata TMetadata);
         
         
         /// <summary>
@@ -1104,7 +1104,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Validates that a value is within a range, throwing a typed RangeError.
         /// </summary>
-        public static int ValidateRange( int _value,  int min,  int max)
+        public static int ValidateRange( int value,  int min,  int max)
         {
             unsafe
             {
@@ -1112,7 +1112,7 @@ namespace Swift.SwiftBindingsTestLib
                 {
                     
                     
-                    var result = PInvoke_validateRange_F7AA75D5(_value, min, max, out var error);
+                    var result = PInvoke_validateRange_F7AA75D5(value, min, max, out var error);
                     
                     if (error.Value != null)
                     {
@@ -1164,7 +1164,7 @@ namespace Swift.SwiftBindingsTestLib
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib13validateRange_3min3maxs5Int32VAF_A2FtAA0F5ErrorOYKF")]
-        private static partial int PInvoke_validateRange_F7AA75D5( int _value,  int min,  int max, out SwiftError error);
+        private static partial int PInvoke_validateRange_F7AA75D5( int value,  int min,  int max, out SwiftError error);
         
         
         /// <summary>
@@ -2662,7 +2662,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Finds the index of a value in the array, or nil if not found.
         /// </summary>
-        public static int? FindIndex( IEnumerable<int> array,  int _value)
+        public static int? FindIndex( IEnumerable<int> array,  int value)
         {
             unsafe
             {
@@ -2674,7 +2674,7 @@ namespace Swift.SwiftBindingsTestLib
                     using var arrayDisposable = arraySwift.PayloadBuffer;
                     IntPtr arrayBuffer = arrayDisposable.Buffer;
                     
-                    var result = PInvoke_findIndex_92FCB6F2(arrayBuffer, _value);
+                    var result = PInvoke_findIndex_92FCB6F2(arrayBuffer, value);
                     
                     return SwiftMarshal.MarshalFromSwift<SwiftOptional<int>>(new IntPtr(&result)).ToNullable();
                 }
@@ -2688,7 +2688,7 @@ namespace Swift.SwiftBindingsTestLib
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib9findIndex_5values5Int32VSgSayAEG_AEtF")]
-        private static partial IntPtr PInvoke_findIndex_92FCB6F2( IntPtr arrayBuffer,  int _value);
+        private static partial IntPtr PInvoke_findIndex_92FCB6F2( IntPtr arrayBuffer,  int value);
         
         
         /// <summary>
@@ -2729,18 +2729,18 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Describes an optional Int32, returning &quot;nil&quot; or the string value.
         /// </summary>
-        public static string GetDescribeOptionalInt( int? _value)
+        public static string GetDescribeOptionalInt( int? value)
         {
             unsafe
             {
                 try
                 {
                     
-                    using var _valueSwift = _value is { } _valueValue ? SwiftOptional<int>.NewSome(_valueValue) : SwiftOptional<int>.NewNone();
-                    using var _valueDisposable = _valueSwift.PayloadBuffer;
-                    IntPtr _valueBuffer = _valueDisposable.Buffer;
+                    using var valueSwift = value is { } valueValue ? SwiftOptional<int>.NewSome(valueValue) : SwiftOptional<int>.NewNone();
+                    using var valueDisposable = valueSwift.PayloadBuffer;
+                    IntPtr valueBuffer = valueDisposable.Buffer;
                     
-                    var result = PInvoke_describeOptionalInt_672CBC87(_valueBuffer);
+                    var result = PInvoke_describeOptionalInt_672CBC87(valueBuffer);
                     
                     var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
                     return swiftResult.ToString();
@@ -2755,32 +2755,32 @@ namespace Swift.SwiftBindingsTestLib
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib19describeOptionalIntySSs5Int32VSgF")]
-        private static partial Swift.SwiftString.Buffer PInvoke_describeOptionalInt_672CBC87( IntPtr _valueBuffer);
+        private static partial Swift.SwiftString.Buffer PInvoke_describeOptionalInt_672CBC87( IntPtr valueBuffer);
         
         
         /// <summary>
         /// Describes an optional String, returning &quot;nil&quot; or the value.
         /// </summary>
-        public static string GetDescribeOptionalString( string? _value)
+        public static string GetDescribeOptionalString( string? value)
         {
             unsafe
             {
                 try
                 {
                     
-                    SwiftOptional<SwiftString> _valueSwiftInner;
-                    if (_value is { } _valueValue)
+                    SwiftOptional<SwiftString> valueSwiftInner;
+                    if (value is { } valueValue)
                     {
-                        _valueSwiftInner = SwiftOptional<SwiftString>.NewSome(new SwiftString(_valueValue));
+                        valueSwiftInner = SwiftOptional<SwiftString>.NewSome(new SwiftString(valueValue));
                     }
                     else
                     {
-                        _valueSwiftInner = SwiftOptional<SwiftString>.NewNone();
+                        valueSwiftInner = SwiftOptional<SwiftString>.NewNone();
                     }
-                    using var _valueSwift = _valueSwiftInner;
-                    IntPtr _valueBuffer = _valueSwift.Payload.DangerousGetHandle();
+                    using var valueSwift = valueSwiftInner;
+                    IntPtr valueBuffer = valueSwift.Payload.DangerousGetHandle();
                     
-                    var result = PInvoke_describeOptionalString_3089AA57(_valueBuffer);
+                    var result = PInvoke_describeOptionalString_3089AA57(valueBuffer);
                     
                     var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
                     return swiftResult.ToString();
@@ -2795,7 +2795,7 @@ namespace Swift.SwiftBindingsTestLib
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib22describeOptionalStringyS2SSgF_optbuf")]
-        private static partial Swift.SwiftString.Buffer PInvoke_describeOptionalString_3089AA57( IntPtr _valueBuffer);
+        private static partial Swift.SwiftString.Buffer PInvoke_describeOptionalString_3089AA57( IntPtr valueBuffer);
         
         
         /// <summary>
@@ -2851,13 +2851,13 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Writes a value to the given mutable pointer.
         /// </summary>
-        public static void WritePointerValue( System.IntPtr ptr,  int _value)
+        public static void WritePointerValue( System.IntPtr ptr,  int value)
         {
             try
             {
                 
                 
-                PInvoke_writePointerValue_2D224037(ptr, _value);
+                PInvoke_writePointerValue_2D224037(ptr, value);
                 
                 return;
             }
@@ -2870,7 +2870,7 @@ namespace Swift.SwiftBindingsTestLib
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib17writePointerValue_5valueySpys5Int32VG_AEtF")]
-        private static partial void PInvoke_writePointerValue_2D224037( System.IntPtr ptr,  int _value);
+        private static partial void PInvoke_writePointerValue_2D224037( System.IntPtr ptr,  int value);
         
         
         /// <summary>
@@ -2926,13 +2926,13 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Fills a buffer with a repeated value.
         /// </summary>
-        public static void FillBuffer( System.IntPtr ptr,  int count,  int _value)
+        public static void FillBuffer( System.IntPtr ptr,  int count,  int value)
         {
             try
             {
                 
                 
-                PInvoke_fillBuffer_5AF289C5(ptr, count, _value);
+                PInvoke_fillBuffer_5AF289C5(ptr, count, value);
                 
                 return;
             }
@@ -2945,7 +2945,7 @@ namespace Swift.SwiftBindingsTestLib
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10fillBuffer_5count5valueySpys5Int32VG_A2FtF")]
-        private static partial void PInvoke_fillBuffer_5AF289C5( System.IntPtr ptr,  int count,  int _value);
+        private static partial void PInvoke_fillBuffer_5AF289C5( System.IntPtr ptr,  int count,  int value);
         
         
         /// <summary>
@@ -2976,13 +2976,13 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Stores an Int32 value at the raw mutable pointer.
         /// </summary>
-        public static void StoreInt32( System.IntPtr ptr,  int _value)
+        public static void StoreInt32( System.IntPtr ptr,  int value)
         {
             try
             {
                 
                 
-                PInvoke_storeInt32_F7A27E79(ptr, _value);
+                PInvoke_storeInt32_F7A27E79(ptr, value);
                 
                 return;
             }
@@ -2995,7 +2995,7 @@ namespace Swift.SwiftBindingsTestLib
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10storeInt32_5valueySv_s0F0VtF")]
-        private static partial void PInvoke_storeInt32_F7A27E79( System.IntPtr ptr,  int _value);
+        private static partial void PInvoke_storeInt32_F7A27E79( System.IntPtr ptr,  int value);
         
         
         /// <summary>
@@ -3928,7 +3928,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Creates an array of count elements, each set to value.
         /// </summary>
-        public static IReadOnlyList<int> CreateIntArray( int count,  int _value)
+        public static IReadOnlyList<int> CreateIntArray( int count,  int value)
         {
             unsafe
             {
@@ -3936,7 +3936,7 @@ namespace Swift.SwiftBindingsTestLib
                 {
                     
                     
-                    var result = PInvoke_createIntArray_5284A16A(count, _value);
+                    var result = PInvoke_createIntArray_5284A16A(count, value);
                     
                     return SwiftMarshal.MarshalFromSwift<SwiftArray<int>>(new IntPtr(&result)).AsProjected(e => e);
                 }
@@ -3950,7 +3950,7 @@ namespace Swift.SwiftBindingsTestLib
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib14createIntArray5count5valueSays5Int32VGAF_AFtF")]
-        private static partial IntPtr PInvoke_createIntArray_5284A16A( int count,  int _value);
+        private static partial IntPtr PInvoke_createIntArray_5284A16A( int count,  int value);
         
         
         /// <summary>
@@ -4802,29 +4802,29 @@ namespace Swift.SwiftBindingsTestLib
             return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
         }
         
-        public SpikeBox( TElement _value)
+        public SpikeBox( TElement value)
         {
             unsafe
             {
                 TypeMetadata TElementMetadata = TypeMetadata.GetTypeMetadataOrThrow<TElement>();
-                IntPtr _valuePayload = IntPtr.Zero;
+                IntPtr valuePayload = IntPtr.Zero;
                 try
                 {
                     _payload = new SwiftSafeHandle<SpikeBox<TElement>>((IntPtr)NativeMemory.Alloc(_payloadSize));
                     var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                     
-                    Span<byte> _valuePayloadSpan = stackalloc byte[(int)TElementMetadata.Size];
-                    _valuePayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(_valuePayloadSpan));
-                    SwiftMarshal.MarshalToSwift(_value, ref _valuePayloadSpan);
+                    Span<byte> valuePayloadSpan = stackalloc byte[(int)TElementMetadata.Size];
+                    valuePayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(valuePayloadSpan));
+                    SwiftMarshal.MarshalToSwift(value, ref valuePayloadSpan);
                     
                     
-                    SpikeBox_PInvoke.PInvoke_init_270DD1A7(swiftIndirectResult, _valuePayload, TElementMetadata, SwiftObjectHelper<TElement>.GetTypeMetadata());
+                    SpikeBox_PInvoke.PInvoke_init_270DD1A7(swiftIndirectResult, valuePayload, TElementMetadata, SwiftObjectHelper<TElement>.GetTypeMetadata());
                     
                 }
                 
                 finally
                 {
-                    TElementMetadata.ValueWitnessTable->Destroy((void *)_valuePayload, TElementMetadata);
+                    TElementMetadata.ValueWitnessTable->Destroy((void *)valuePayload, TElementMetadata);
                 }
                 
             }
@@ -4846,7 +4846,7 @@ namespace Swift.SwiftBindingsTestLib
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib8SpikeBoxCyACyxGxcfC")]
-        internal static partial void PInvoke_init_270DD1A7( SwiftIndirectResult swiftIndirectResult,  IntPtr _valuePayload,  TypeMetadata TElementMetadata, TypeMetadata telementMetadata);
+        internal static partial void PInvoke_init_270DD1A7( SwiftIndirectResult swiftIndirectResult,  IntPtr valuePayload,  TypeMetadata TElementMetadata, TypeMetadata telementMetadata);
         
     }
     
@@ -5177,11 +5177,11 @@ namespace Swift.SwiftBindingsTestLib
         
         public void Dispose() { }
         
-        public SummableInt32( int _value)
+        public SummableInt32( int value)
         {
             unsafe
             {
-                var result = PInvoke_init_61A228EA(_value);
+                var result = PInvoke_init_61A228EA(value);
                 
                 this = result;
             }
@@ -5189,7 +5189,7 @@ namespace Swift.SwiftBindingsTestLib
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib13SummableInt32V5valueACs0F0V_tcfC")]
-        private static partial Swift.SwiftBindingsTestLib.SummableInt32 PInvoke_init_61A228EA( int _value);
+        private static partial Swift.SwiftBindingsTestLib.SummableInt32 PInvoke_init_61A228EA( int value);
         
         
         public Swift.SwiftBindingsTestLib.SummableInt32 Add( Swift.SwiftBindingsTestLib.SummableInt32 other)
@@ -6794,29 +6794,29 @@ namespace Swift.SwiftBindingsTestLib
             return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
         }
         
-        public GenericClass( T _value)
+        public GenericClass( T value)
         {
             unsafe
             {
                 TypeMetadata TMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
-                IntPtr _valuePayload = IntPtr.Zero;
+                IntPtr valuePayload = IntPtr.Zero;
                 try
                 {
                     _payload = new SwiftSafeHandle<GenericClass<T>>((IntPtr)NativeMemory.Alloc(_payloadSize));
                     var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                     
-                    Span<byte> _valuePayloadSpan = stackalloc byte[(int)TMetadata.Size];
-                    _valuePayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(_valuePayloadSpan));
-                    SwiftMarshal.MarshalToSwift(_value, ref _valuePayloadSpan);
+                    Span<byte> valuePayloadSpan = stackalloc byte[(int)TMetadata.Size];
+                    valuePayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(valuePayloadSpan));
+                    SwiftMarshal.MarshalToSwift(value, ref valuePayloadSpan);
                     
                     
-                    GenericClass_PInvoke.PInvoke_init_65EEDA24(swiftIndirectResult, _valuePayload, TMetadata, SwiftObjectHelper<T>.GetTypeMetadata());
+                    GenericClass_PInvoke.PInvoke_init_65EEDA24(swiftIndirectResult, valuePayload, TMetadata, SwiftObjectHelper<T>.GetTypeMetadata());
                     
                 }
                 
                 finally
                 {
-                    TMetadata.ValueWitnessTable->Destroy((void *)_valuePayload, TMetadata);
+                    TMetadata.ValueWitnessTable->Destroy((void *)valuePayload, TMetadata);
                 }
                 
             }
@@ -6915,7 +6915,7 @@ namespace Swift.SwiftBindingsTestLib
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib12GenericClassC5valueACyxGx_tcfC")]
-        internal static partial void PInvoke_init_65EEDA24( SwiftIndirectResult swiftIndirectResult,  IntPtr _valuePayload,  TypeMetadata TMetadata, TypeMetadata tMetadata);
+        internal static partial void PInvoke_init_65EEDA24( SwiftIndirectResult swiftIndirectResult,  IntPtr valuePayload,  TypeMetadata TMetadata, TypeMetadata tMetadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib12GenericClassC3getxyFTj")]
@@ -8257,20 +8257,20 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Creates the 'point' case of Shape.
         /// </summary>
-        public static unsafe Shape Point(Swift.SwiftBindingsTestLib.FrozenPoint value0)
+        public static unsafe Shape Point(Swift.SwiftBindingsTestLib.FrozenPoint frozenPoint)
         {
             var result = new Shape();
             var metadata = PInvoke_getMetadata();
             IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
             var indirectResult = new SwiftIndirectResult((void*)buffer);
-            PInvoke_Point(indirectResult, value0);
+            PInvoke_Point(indirectResult, frozenPoint);
             result._payload = new SwiftSafeHandle<Shape>(buffer);
             return result;
         }
         
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib5ShapeO5pointyAcA11FrozenPointVcACmF")]
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        private static partial void PInvoke_Point(SwiftIndirectResult result, Swift.SwiftBindingsTestLib.FrozenPoint value0);
+        private static partial void PInvoke_Point(SwiftIndirectResult result, Swift.SwiftBindingsTestLib.FrozenPoint frozenPoint);
         
         private static readonly Lazy<Shape> _lazy_empty = new(() =>
         {
@@ -11724,11 +11724,11 @@ public unsafe partial struct Inner : ISwiftObject, IDisposable
     
     public void Dispose() { }
     
-    public Inner( int _value)
+    public Inner( int value)
     {
         unsafe
         {
-            var result = PInvoke_init_584E3F38(_value);
+            var result = PInvoke_init_584E3F38(value);
             
             this = result;
         }
@@ -11736,7 +11736,7 @@ public unsafe partial struct Inner : ISwiftObject, IDisposable
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11NestedOuterV5InnerV5valueAEs5Int32V_tcfC")]
-    private static partial Swift.SwiftBindingsTestLib.NestedOuter.Inner PInvoke_init_584E3F38( int _value);
+    private static partial Swift.SwiftBindingsTestLib.NestedOuter.Inner PInvoke_init_584E3F38( int value);
     
     
 }
@@ -11952,27 +11952,27 @@ public partial class StructBuilder : ISwiftObject, IDisposable
     }
     
     
-    public StructBuilder( int _value)
+    public StructBuilder( int value)
     {
         unsafe
         {
             _payload = new SwiftSafeHandle<StructBuilder>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_2B345105(swiftIndirectResult, _value);
+            PInvoke_init_2B345105(swiftIndirectResult, value);
             
         }
     }
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib13StructBuilderV5valueACs5Int32V_tcfC")]
-    private static partial void PInvoke_init_2B345105( SwiftIndirectResult swiftIndirectResult,  int _value);
+    private static partial void PInvoke_init_2B345105( SwiftIndirectResult swiftIndirectResult,  int value);
     
     
     /// <summary>
     /// Factory method returning a new instance.
     /// </summary>
-    public static Swift.SwiftBindingsTestLib.StructBuilder WithValue( int _value)
+    public static Swift.SwiftBindingsTestLib.StructBuilder WithValue( int value)
     {
         unsafe
         {
@@ -11984,7 +11984,7 @@ public partial class StructBuilder : ISwiftObject, IDisposable
                 
                 
                 
-                PInvoke_withValue_8B9D469D(swiftIndirectResult, _value);
+                PInvoke_withValue_8B9D469D(swiftIndirectResult, value);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftBindingsTestLib.StructBuilder>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -11998,7 +11998,7 @@ public partial class StructBuilder : ISwiftObject, IDisposable
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib13StructBuilderV9withValueyACs5Int32VFZ")]
-    private static partial void PInvoke_withValue_8B9D469D( SwiftIndirectResult swiftIndirectResult,  int _value);
+    private static partial void PInvoke_withValue_8B9D469D( SwiftIndirectResult swiftIndirectResult,  int value);
     
     
     /// <summary>
@@ -12596,7 +12596,7 @@ public partial class ValueAnimal : Animal, ISwiftObject, IHasValue
         return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
     }
     
-    public ValueAnimal( string name,  string sound,  int _value) : base(default(SwiftInheritanceChain))
+    public ValueAnimal( string name,  string sound,  int value) : base(default(SwiftInheritanceChain))
     {
         unsafe
         {
@@ -12607,14 +12607,14 @@ public partial class ValueAnimal : Animal, ISwiftObject, IHasValue
             using var nameDisposable = nameSwift.PayloadBuffer;
             using var soundSwift = new SwiftString(sound);
             using var soundDisposable = soundSwift.PayloadBuffer;
-            PInvoke_init_522829E0(swiftIndirectResult, nameDisposable.Buffer, soundDisposable.Buffer, _value);
+            PInvoke_init_522829E0(swiftIndirectResult, nameDisposable.Buffer, soundDisposable.Buffer, value);
             
         }
     }
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11ValueAnimalC4name5sound5valueACSS_SSs5Int32VtcfC")]
-    private static partial void PInvoke_init_522829E0( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer name,  Swift.SwiftString.Buffer sound,  int _value);
+    private static partial void PInvoke_init_522829E0( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer name,  Swift.SwiftString.Buffer sound,  int value);
     
     
     public virtual int GetValue()
@@ -13342,7 +13342,7 @@ public partial class EventHandler : ISwiftObject, IDisposable
     /// <summary>
     /// Fire the callback if present; returns false if no callback is set.
     /// </summary>
-    public bool GetFire( int _value)
+    public bool GetFire( int value)
     {
         unsafe
         {
@@ -13354,7 +13354,7 @@ public partial class EventHandler : ISwiftObject, IDisposable
                 
                 
                 
-                var result = PInvoke_fire_446D9F10(_value, self);
+                var result = PInvoke_fire_446D9F10(value, self);
                 
                 return result;
             }
@@ -13371,7 +13371,7 @@ public partial class EventHandler : ISwiftObject, IDisposable
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib12EventHandlerC4fireySbs5Int32VF")]
     [return: MarshalAs(UnmanagedType.U1)]
-    private static partial bool PInvoke_fire_446D9F10( int _value,  SwiftSelf self);
+    private static partial bool PInvoke_fire_446D9F10( int value,  SwiftSelf self);
     
     
 }
@@ -13530,7 +13530,7 @@ public unsafe partial struct Transformer : ISwiftObject, IDisposable
     /// <summary>
     /// Apply a transform to a value with the offset added.
     /// </summary>
-    public int Apply( int _value,  Func<int, int> transform)
+    public int Apply( int value,  Func<int, int> transform)
     {
         unsafe
         {
@@ -13542,7 +13542,7 @@ public unsafe partial struct Transformer : ISwiftObject, IDisposable
                     
                     transformHandle = GCHandle.Alloc(transform);
                     
-                    var result = PInvoke_apply_569490DE(_value, transformHandle.IsAllocated ? (IntPtr)s_apply__using_569490DE_Callback : IntPtr.Zero, transformHandle.IsAllocated ? GCHandle.ToIntPtr(transformHandle) : IntPtr.Zero, (IntPtr)__self);
+                    var result = PInvoke_apply_569490DE(value, transformHandle.IsAllocated ? (IntPtr)s_apply__using_569490DE_Callback : IntPtr.Zero, transformHandle.IsAllocated ? GCHandle.ToIntPtr(transformHandle) : IntPtr.Zero, (IntPtr)__self);
                     
                     return result;
                 }
@@ -13558,7 +13558,7 @@ public unsafe partial struct Transformer : ISwiftObject, IDisposable
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib11TransformerV5apply_5usings5Int32VAG_A2GctF_cdecl")]
-    private static partial int PInvoke_apply_569490DE( int _value,  IntPtr transformFuncPtr,  IntPtr transformContext,  IntPtr _selfFixed);
+    private static partial int PInvoke_apply_569490DE( int value,  IntPtr transformFuncPtr,  IntPtr transformContext,  IntPtr _selfFixed);
     
     
     private static unsafe readonly delegate* unmanaged[Cdecl]<int, IntPtr, int> s_chain_arg0_F8FD00D7_Callback = &chain_arg0_F8FD00D7_Callback;
@@ -13763,11 +13763,11 @@ public unsafe partial struct ArithmeticValue : ISwiftObject, IDisposable
     
     public void Dispose() { }
     
-    public ArithmeticValue( int _value)
+    public ArithmeticValue( int value)
     {
         unsafe
         {
-            var result = PInvoke_init_E01B1322(_value);
+            var result = PInvoke_init_E01B1322(value);
             
             this = result;
         }
@@ -13775,7 +13775,7 @@ public unsafe partial struct ArithmeticValue : ISwiftObject, IDisposable
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib15ArithmeticValueV5valueACs5Int32V_tcfC")]
-    private static partial Swift.SwiftBindingsTestLib.ArithmeticValue PInvoke_init_E01B1322( int _value);
+    private static partial Swift.SwiftBindingsTestLib.ArithmeticValue PInvoke_init_E01B1322( int value);
     
     
 }
@@ -13918,11 +13918,11 @@ public unsafe partial struct BitwiseValue : ISwiftObject, IDisposable
     
     public void Dispose() { }
     
-    public BitwiseValue( uint _value)
+    public BitwiseValue( uint value)
     {
         unsafe
         {
-            var result = PInvoke_init_261AFCB8(_value);
+            var result = PInvoke_init_261AFCB8(value);
             
             this = result;
         }
@@ -13930,7 +13930,7 @@ public unsafe partial struct BitwiseValue : ISwiftObject, IDisposable
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib12BitwiseValueV5valueACs6UInt32V_tcfC")]
-    private static partial Swift.SwiftBindingsTestLib.BitwiseValue PInvoke_init_261AFCB8( uint _value);
+    private static partial Swift.SwiftBindingsTestLib.BitwiseValue PInvoke_init_261AFCB8( uint value);
     
     
 }
@@ -14081,11 +14081,11 @@ public unsafe partial struct ComparableValue : ISwiftObject, IDisposable, IEquat
     
     public void Dispose() { }
     
-    public ComparableValue( int _value)
+    public ComparableValue( int value)
     {
         unsafe
         {
-            var result = PInvoke_init_C009B37E(_value);
+            var result = PInvoke_init_C009B37E(value);
             
             this = result;
         }
@@ -14093,7 +14093,7 @@ public unsafe partial struct ComparableValue : ISwiftObject, IDisposable, IEquat
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib15ComparableValueV5valueACs5Int32V_tcfC")]
-    private static partial Swift.SwiftBindingsTestLib.ComparableValue PInvoke_init_C009B37E( int _value);
+    private static partial Swift.SwiftBindingsTestLib.ComparableValue PInvoke_init_C009B37E( int value);
     
     
 }
@@ -14227,11 +14227,11 @@ public unsafe partial struct ApproximatelyEqual : ISwiftObject, IDisposable, IEq
     
     public void Dispose() { }
     
-    public ApproximatelyEqual( int _value)
+    public ApproximatelyEqual( int value)
     {
         unsafe
         {
-            var result = PInvoke_init_8C501D0F(_value);
+            var result = PInvoke_init_8C501D0F(value);
             
             this = result;
         }
@@ -14239,7 +14239,7 @@ public unsafe partial struct ApproximatelyEqual : ISwiftObject, IDisposable, IEq
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib18ApproximatelyEqualV5valueACs5Int32V_tcfC")]
-    private static partial Swift.SwiftBindingsTestLib.ApproximatelyEqual PInvoke_init_8C501D0F( int _value);
+    private static partial Swift.SwiftBindingsTestLib.ApproximatelyEqual PInvoke_init_8C501D0F( int value);
     
     
 }
@@ -16019,21 +16019,21 @@ public partial class ThrowingStruct : ISwiftObject, IDisposable
     }
     
     
-    public ThrowingStruct( int _value)
+    public ThrowingStruct( int value)
     {
         unsafe
         {
             _payload = new SwiftSafeHandle<ThrowingStruct>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_76433641(swiftIndirectResult, _value);
+            PInvoke_init_76433641(swiftIndirectResult, value);
             
         }
     }
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib14ThrowingStructV5valueACs5Int32V_tcfC")]
-    private static partial void PInvoke_init_76433641( SwiftIndirectResult swiftIndirectResult,  int _value);
+    private static partial void PInvoke_init_76433641( SwiftIndirectResult swiftIndirectResult,  int value);
     
     
     [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_GetErrorDescription_SwiftBindingsTestLib")]
@@ -23344,21 +23344,21 @@ public partial class MainActorMethods : ISwiftObject, IDisposable
     }
     
     
-    public MainActorMethods( int _value)
+    public MainActorMethods( int value)
     {
         unsafe
         {
             _payload = new SwiftSafeHandle<MainActorMethods>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_E3F8BBCE(swiftIndirectResult, _value);
+            PInvoke_init_E3F8BBCE(swiftIndirectResult, value);
             
         }
     }
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib16MainActorMethodsV5valueACs5Int32V_tcfC")]
-    private static partial void PInvoke_init_E3F8BBCE( SwiftIndirectResult swiftIndirectResult,  int _value);
+    private static partial void PInvoke_init_E3F8BBCE( SwiftIndirectResult swiftIndirectResult,  int value);
     
     
     [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
@@ -29548,13 +29548,13 @@ static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescript
     return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
 }
 
-public MutableProps( int _value,  string name)
+public MutableProps( int value,  string name)
 {
     unsafe
     {
         using var nameSwift = new SwiftString(name);
         using var nameDisposable = nameSwift.PayloadBuffer;
-        var result = PInvoke_init_0392D803(_value, nameDisposable.Buffer);
+        var result = PInvoke_init_0392D803(value, nameDisposable.Buffer);
         
         
                         unsafe {
@@ -29567,7 +29567,7 @@ public MutableProps( int _value,  string name)
 
 [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
 [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib12MutablePropsV5value4nameACs5Int32V_SStcfC")]
-private static partial Swift.SwiftBindingsTestLib.MutableProps.Buffer PInvoke_init_0392D803( int _value,  Swift.SwiftString.Buffer name);
+private static partial Swift.SwiftBindingsTestLib.MutableProps.Buffer PInvoke_init_0392D803( int value,  Swift.SwiftString.Buffer name);
 
 
 }
@@ -29796,7 +29796,7 @@ public partial class NonFrozenMutableProps : ISwiftObject, IDisposable
     }
     
     
-    public NonFrozenMutableProps( int _value,  string label)
+    public NonFrozenMutableProps( int value,  string label)
     {
         unsafe
         {
@@ -29805,14 +29805,14 @@ public partial class NonFrozenMutableProps : ISwiftObject, IDisposable
             
             using var labelSwift = new SwiftString(label);
             using var labelDisposable = labelSwift.PayloadBuffer;
-            PInvoke_init_24C6EE80(swiftIndirectResult, _value, labelDisposable.Buffer);
+            PInvoke_init_24C6EE80(swiftIndirectResult, value, labelDisposable.Buffer);
             
         }
     }
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib21NonFrozenMutablePropsV5value5labelACs5Int32V_SStcfC")]
-    private static partial void PInvoke_init_24C6EE80( SwiftIndirectResult swiftIndirectResult,  int _value,  Swift.SwiftString.Buffer label);
+    private static partial void PInvoke_init_24C6EE80( SwiftIndirectResult swiftIndirectResult,  int value,  Swift.SwiftString.Buffer label);
     
     
 }
@@ -30695,13 +30695,13 @@ public partial class StaticMethods : ISwiftObject, IDisposable
     /// <summary>
     /// Static setter method.
     /// </summary>
-    public static void SetStoredValue( int _value)
+    public static void SetStoredValue( int value)
     {
         try
         {
             
             
-            PInvoke_setStoredValue_7DB665F1(_value);
+            PInvoke_setStoredValue_7DB665F1(value);
             
             return;
         }
@@ -30714,7 +30714,7 @@ public partial class StaticMethods : ISwiftObject, IDisposable
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib13StaticMethodsV14setStoredValueyys5Int32VFZ")]
-    private static partial void PInvoke_setStoredValue_7DB665F1( int _value);
+    private static partial void PInvoke_setStoredValue_7DB665F1( int value);
     
     
     /// <summary>
@@ -32793,7 +32793,7 @@ public unsafe partial struct ClosureConsumer : ISwiftObject, IDisposable
     /// <summary>
     /// Instance method that accepts a closure.
     /// </summary>
-    public int ApplyToValue( int _value,  Func<int, int> transform)
+    public int ApplyToValue( int value,  Func<int, int> transform)
     {
         unsafe
         {
@@ -32805,7 +32805,7 @@ public unsafe partial struct ClosureConsumer : ISwiftObject, IDisposable
                     
                     transformHandle = GCHandle.Alloc(transform);
                     
-                    var result = PInvoke_applyToValue_AC00068C(_value, transformHandle.IsAllocated ? (IntPtr)s_applyToValue__using_AC00068C_Callback : IntPtr.Zero, transformHandle.IsAllocated ? GCHandle.ToIntPtr(transformHandle) : IntPtr.Zero, (IntPtr)__self);
+                    var result = PInvoke_applyToValue_AC00068C(value, transformHandle.IsAllocated ? (IntPtr)s_applyToValue__using_AC00068C_Callback : IntPtr.Zero, transformHandle.IsAllocated ? GCHandle.ToIntPtr(transformHandle) : IntPtr.Zero, (IntPtr)__self);
                     
                     return result;
                 }
@@ -32821,7 +32821,7 @@ public unsafe partial struct ClosureConsumer : ISwiftObject, IDisposable
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib15ClosureConsumerV12applyToValue_5usings5Int32VAG_A2GctF_cdecl")]
-    private static partial int PInvoke_applyToValue_AC00068C( int _value,  IntPtr transformFuncPtr,  IntPtr transformContext,  IntPtr _selfFixed);
+    private static partial int PInvoke_applyToValue_AC00068C( int value,  IntPtr transformFuncPtr,  IntPtr transformContext,  IntPtr _selfFixed);
     
     
     private static unsafe readonly delegate* unmanaged[Cdecl]<int, IntPtr, int> s_processWithClosure_closure_2AE8845C_Callback = &processWithClosure_closure_2AE8845C_Callback;
@@ -32835,7 +32835,7 @@ public unsafe partial struct ClosureConsumer : ISwiftObject, IDisposable
     /// <summary>
     /// Static method that accepts a closure.
     /// </summary>
-    public static int ProcessWithClosure( int _value,  Func<int, int> closure)
+    public static int ProcessWithClosure( int value,  Func<int, int> closure)
     {
         unsafe
         {
@@ -32845,7 +32845,7 @@ public unsafe partial struct ClosureConsumer : ISwiftObject, IDisposable
                 
                 closureHandle = GCHandle.Alloc(closure);
                 
-                var result = PInvoke_processWithClosure_2AE8845C(_value, closureHandle.IsAllocated ? (IntPtr)s_processWithClosure_closure_2AE8845C_Callback : IntPtr.Zero, closureHandle.IsAllocated ? GCHandle.ToIntPtr(closureHandle) : IntPtr.Zero);
+                var result = PInvoke_processWithClosure_2AE8845C(value, closureHandle.IsAllocated ? (IntPtr)s_processWithClosure_closure_2AE8845C_Callback : IntPtr.Zero, closureHandle.IsAllocated ? GCHandle.ToIntPtr(closureHandle) : IntPtr.Zero);
                 
                 return result;
             }
@@ -32860,7 +32860,7 @@ public unsafe partial struct ClosureConsumer : ISwiftObject, IDisposable
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib15ClosureConsumerV011processWithE0_7closures5Int32VAG_A2GctFZ_cdecl")]
-    private static partial int PInvoke_processWithClosure_2AE8845C( int _value,  IntPtr closureFuncPtr,  IntPtr closureContext);
+    private static partial int PInvoke_processWithClosure_2AE8845C( int value,  IntPtr closureFuncPtr,  IntPtr closureContext);
     
     
 }
@@ -34759,21 +34759,21 @@ public partial class MutableItem : ISwiftObject, IDisposable, IHasValue
     }
     
     
-    public MutableItem( int _value)
+    public MutableItem( int value)
     {
         unsafe
         {
             _payload = new SwiftSafeHandle<MutableItem>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_23785B72(swiftIndirectResult, _value);
+            PInvoke_init_23785B72(swiftIndirectResult, value);
             
         }
     }
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11MutableItemV5valueACs5Int32V_tcfC")]
-    private static partial void PInvoke_init_23785B72( SwiftIndirectResult swiftIndirectResult,  int _value);
+    private static partial void PInvoke_init_23785B72( SwiftIndirectResult swiftIndirectResult,  int value);
     
     
     public int GetValue()
@@ -36845,11 +36845,11 @@ public unsafe partial struct MultiConformingValue : ISwiftObject, IDisposable, I
     
     public void Dispose() { }
     
-    public MultiConformingValue( int _value)
+    public MultiConformingValue( int value)
     {
         unsafe
         {
-            var result = PInvoke_init_855B410F(_value);
+            var result = PInvoke_init_855B410F(value);
             
             this = result;
         }
@@ -36857,7 +36857,7 @@ public unsafe partial struct MultiConformingValue : ISwiftObject, IDisposable, I
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib20MultiConformingValueV5valueACs5Int32V_tcfC")]
-    private static partial Swift.SwiftBindingsTestLib.MultiConformingValue PInvoke_init_855B410F( int _value);
+    private static partial Swift.SwiftBindingsTestLib.MultiConformingValue PInvoke_init_855B410F( int value);
     
     
     public int Add( int other)
@@ -41716,21 +41716,21 @@ public partial class SimpleModel : ISwiftObject, IDisposable
         return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
     }
     
-    public SimpleModel( int _value)
+    public SimpleModel( int value)
     {
         unsafe
         {
             _payload = new SwiftSafeHandle<SimpleModel>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_A3186675(swiftIndirectResult, _value);
+            PInvoke_init_A3186675(swiftIndirectResult, value);
             
         }
     }
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11SimpleModelC5valueACs5Int32V_tcfC")]
-    private static partial void PInvoke_init_A3186675( SwiftIndirectResult swiftIndirectResult,  int _value);
+    private static partial void PInvoke_init_A3186675( SwiftIndirectResult swiftIndirectResult,  int value);
     
     
     public virtual int GetValue()

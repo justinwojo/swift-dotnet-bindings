@@ -1479,7 +1479,7 @@ public class EnumHandlerOutputTests
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         // P/Invoke parameter should use IntPtr (not the C# class name)
-        Assert.Contains("IntPtr value0)", csOutput);
+        Assert.Contains("IntPtr imageResponse)", csOutput);
         // Call site should extract the SafeHandle payload
         Assert.Contains(".Payload.DangerousGetHandle()", csOutput);
         // P/Invoke declaration should use IntPtr, not ImageResponse

@@ -874,8 +874,8 @@ public class ProtocolProxyEmitterTests
 
         var output = EmitProxyClass(protocolDecl);
 
-        // "value" is sanitized to "_value" by GetCSharpParameterName (it's a C# contextual keyword)
-        Assert.Contains("public void Update(Swift.TestModule.Box<Swift.AnyType> _value)", output);
+        // "value" is no longer sanitized — it's valid as a parameter name in all positions we generate
+        Assert.Contains("public void Update(Swift.TestModule.Box<Swift.AnyType> value)", output);
     }
 
     [Fact]

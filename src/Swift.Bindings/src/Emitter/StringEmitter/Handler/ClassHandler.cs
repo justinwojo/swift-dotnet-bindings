@@ -83,6 +83,15 @@ namespace BindingsGeneration
 
             ReportCollector.RecordTypeEmitted(classDecl);
 
+            // Cross-module extension: type defined in module A, extended in module B.
+            // Emit as a static extension class instead of a duplicate partial class.
+            if (!string.IsNullOrEmpty(classDecl.SwiftTypeName.Module) &&
+                classDecl.SwiftTypeName.Module != moduleDecl.Name)
+            {
+                CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, _logger);
+                return;
+            }
+
             // Get generic type parts if this is a generic type
             var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(classDecl);
             var whereClause = GenericTypeEmitter.GetWhereClause(classDecl, env.TypeDatabase);
@@ -720,7 +729,7 @@ namespace BindingsGeneration
             _classDecl = classDecl;
             _typeNameWithGenerics = typeNameWithGenerics;
             _implementsEquatable = _classDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
-            _implementsHashable = _classDecl.Conformances.Any(c => c.Protocol.ModuleQualifiedName == "Swift.Hashable");
+            _implementsHashable = _classDecl.Conformances.Any(c => c.Protocol.ModuleQualifiedName == "Swift.Hashable" || (c.Protocol.Name == "Hashable" && string.IsNullOrEmpty(c.Protocol.Module)));
             _hasExplicitEqualityOperator = hasExplicitEqualityOperator;
             _hasExplicitInequalityOperator = hasExplicitInequalityOperator;
         }

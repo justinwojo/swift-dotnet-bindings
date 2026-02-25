@@ -60,7 +60,7 @@ public class BasicGenericTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestSummableInt32Creation()
     {
-        var s = new SummableInt32(_value: 42);
+        var s = new SummableInt32(value: 42);
         AssertEqual(42, s.Value, "SummableInt32.Value");
         TestLogger.Info($"SummableInt32(42).Value = {s.Value}");
     }
@@ -68,8 +68,8 @@ public class BasicGenericTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestSummableInt32Add()
     {
-        var a = new SummableInt32(_value: 10);
-        var b = new SummableInt32(_value: 20);
+        var a = new SummableInt32(value: 10);
+        var b = new SummableInt32(value: 20);
         var result = a.Add(b);
         AssertEqual(30, result.Value, "SummableInt32.Add()");
         TestLogger.Info($"SummableInt32(10).Add(SummableInt32(20)) = {result.Value}");
@@ -78,8 +78,8 @@ public class BasicGenericTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestSummableInt32AddZero()
     {
-        var a = new SummableInt32(_value: 7);
-        var zero = new SummableInt32(_value: 0);
+        var a = new SummableInt32(value: 7);
+        var zero = new SummableInt32(value: 0);
         var result = a.Add(zero);
         AssertEqual(7, result.Value, "Add zero identity");
     }
@@ -87,9 +87,9 @@ public class BasicGenericTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestSummableInt32ChainedAdd()
     {
-        var a = new SummableInt32(_value: 1);
-        var b = new SummableInt32(_value: 2);
-        var c = new SummableInt32(_value: 3);
+        var a = new SummableInt32(value: 1);
+        var b = new SummableInt32(value: 2);
+        var c = new SummableInt32(value: 3);
         var result = a.Add(b).Add(c);
         AssertEqual(6, result.Value, "Chained Add: 1+2+3");
     }
@@ -101,7 +101,7 @@ public class BasicGenericTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestMutableItemCreation()
     {
-        var item = new MutableItem(_value: 100);
+        var item = new MutableItem(value: 100);
         AssertEqual(100, item.Value, "MutableItem.Value via property");
         AssertEqual(100, item.GetValue(), "MutableItem.GetValue()");
         TestLogger.Info($"MutableItem(100).Value = {item.Value}");
@@ -110,7 +110,7 @@ public class BasicGenericTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestMutableItemSetValue()
     {
-        var item = new MutableItem(_value: 10);
+        var item = new MutableItem(value: 10);
         AssertEqual(10, item.Value, "Initial value");
         item.SetValue(42);
         AssertEqual(42, item.GetValue(), "After SetValue(42)");
@@ -120,7 +120,7 @@ public class BasicGenericTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestMutableItemPropertySetter()
     {
-        var item = new MutableItem(_value: 0);
+        var item = new MutableItem(value: 0);
         AssertEqual(0, item.Value, "Initial zero");
         item.Value = 99;
         AssertEqual(99, item.Value, "After Value = 99");
@@ -129,7 +129,7 @@ public class BasicGenericTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestMutableItemDispose()
     {
-        var item = new MutableItem(_value: 5);
+        var item = new MutableItem(value: 5);
         item.Dispose();
         AssertThrows<ObjectDisposedException>(() => { _ = item.Value; },
             "Disposed MutableItem throws on access");
@@ -236,7 +236,7 @@ public class BasicGenericTests : TestBase
     [TestTier(TestTier.Tier3)]
     public void TestWrapperCreation()
     {
-        var inner = new SummableInt32(_value: 42);
+        var inner = new SummableInt32(value: 42);
         var wrapper = new Wrapper<SummableInt32>(wrapped: inner);
         var unwrapped = wrapper.Wrapped;
         AssertEqual(42, unwrapped.Value, "Wrapper<SummableInt32>.Wrapped.Value");
@@ -246,7 +246,7 @@ public class BasicGenericTests : TestBase
     [TestTier(TestTier.Tier3)]
     public void TestWrapperUnwrap()
     {
-        var inner = new SummableInt32(_value: 99);
+        var inner = new SummableInt32(value: 99);
         var wrapper = new Wrapper<SummableInt32>(wrapped: inner);
         var result = wrapper.Unwrap();
         AssertEqual(99, result.Value, "Wrapper.Unwrap().Value");
@@ -256,8 +256,8 @@ public class BasicGenericTests : TestBase
     [TestTier(TestTier.Tier3)]
     public void TestGenericPairCreation()
     {
-        var a = new SummableInt32(_value: 10);
-        var b = new SummableInt32(_value: 20);
+        var a = new SummableInt32(value: 10);
+        var b = new SummableInt32(value: 20);
         var pair = new GenericPair<SummableInt32, SummableInt32>(first: a, second: b);
         AssertEqual(10, pair.First.Value, "GenericPair.First.Value");
         AssertEqual(20, pair.Second.Value, "GenericPair.Second.Value");
@@ -267,7 +267,7 @@ public class BasicGenericTests : TestBase
     [TestTier(TestTier.Tier3)]
     public void TestGenericPairMixedTypes()
     {
-        var s = new SummableInt32(_value: 5);
+        var s = new SummableInt32(value: 5);
         var p = new BoundIntPair(first: 1, second: 2);
         var pair = new GenericPair<SummableInt32, BoundIntPair>(first: s, second: p);
         AssertEqual(5, pair.First.Value, "GenericPair mixed First.Value");
@@ -277,8 +277,8 @@ public class BasicGenericTests : TestBase
     [TestTier(TestTier.Tier3)]
     public void TestGenericClassCreation()
     {
-        var inner = new SummableInt32(_value: 77);
-        var gc = new GenericClass<SummableInt32>(_value: inner);
+        var inner = new SummableInt32(value: 77);
+        var gc = new GenericClass<SummableInt32>(value: inner);
         var val = gc.Value;
         AssertEqual(77, val.Value, "GenericClass<SummableInt32>.Value.Value");
         TestLogger.Info($"GenericClass<SummableInt32>(77).Value.Value = {val.Value}");
@@ -287,8 +287,8 @@ public class BasicGenericTests : TestBase
     [TestTier(TestTier.Tier3)]
     public void TestGenericClassGetMethod()
     {
-        var inner = new SummableInt32(_value: 33);
-        var gc = new GenericClass<SummableInt32>(_value: inner);
+        var inner = new SummableInt32(value: 33);
+        var gc = new GenericClass<SummableInt32>(value: inner);
         var result = gc.Get();
         AssertEqual(33, result.Value, "GenericClass.Get().Value");
     }
@@ -296,9 +296,9 @@ public class BasicGenericTests : TestBase
     [TestTier(TestTier.Tier3)]
     public void TestGenericClassValueSetter()
     {
-        var gc = new GenericClass<SummableInt32>(_value: new SummableInt32(_value: 1));
+        var gc = new GenericClass<SummableInt32>(value: new SummableInt32(value: 1));
         AssertEqual(1, gc.Value.Value, "Initial value");
-        gc.Value = new SummableInt32(_value: 100);
+        gc.Value = new SummableInt32(value: 100);
         AssertEqual(100, gc.Value.Value, "After setter");
         TestLogger.Info($"GenericClass.Value setter: 1 -> {gc.Value.Value}");
     }
@@ -314,7 +314,7 @@ public class BasicGenericTests : TestBase
     [TestTier(TestTier.Tier3)]
     public void TestGetIdentity()
     {
-        var original = new SummableInt32(_value: 42);
+        var original = new SummableInt32(value: 42);
         var result = SwiftBindingsTestLib.GetIdentity(original);
         AssertEqual(42, result.Value, "GetIdentity round-trip");
         TestLogger.Info($"GetIdentity(SummableInt32(42)).Value = {result.Value}");
@@ -323,7 +323,7 @@ public class BasicGenericTests : TestBase
     [TestTier(TestTier.Tier3)]
     public void TestGetIdentityPreservesValue()
     {
-        var original = new SummableInt32(_value: -100);
+        var original = new SummableInt32(value: -100);
         var result = SwiftBindingsTestLib.GetIdentity(original);
         AssertEqual(-100, result.Value, "GetIdentity negative value");
     }
@@ -331,8 +331,8 @@ public class BasicGenericTests : TestBase
     [TestTier(TestTier.Tier3)]
     public void TestGetPairSameType()
     {
-        var a = new SummableInt32(_value: 10);
-        var b = new SummableInt32(_value: 20);
+        var a = new SummableInt32(value: 10);
+        var b = new SummableInt32(value: 20);
         var pair = SwiftBindingsTestLib.GetPair(a, b);
         AssertEqual(10, pair.Item1.Value, "GetPair Item1.Value");
         AssertEqual(20, pair.Item2.Value, "GetPair Item2.Value");

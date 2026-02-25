@@ -273,7 +273,7 @@ public class XmlDocCommentEmitterTests
     public void EmitMethodDocComment_UnlabeledArgFallback()
     {
         // Swift param labeled "_" with private name "value", doc uses "value" (private name)
-        // NameProvider.SanitizeForCSharp("value") → "_value" since "value" is a C# contextual keyword
+        // NameProvider.SanitizeForCSharp("value") → "value" (valid as parameter name)
         var (csWriter, stringWriter) = CreateWriter();
         var methodDecl = CreateMethodDecl(
             new DocComment
@@ -289,8 +289,8 @@ public class XmlDocCommentEmitterTests
         XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl);
 
         var output = stringWriter.ToString();
-        // "value" matches via PrivateName fallback, C# name is "_value" (sanitized keyword)
-        Assert.Contains("/// <param name=\"_value\">The value to process.</param>", output);
+        // "value" matches via PrivateName fallback, C# name is "value" (no longer sanitized)
+        Assert.Contains("/// <param name=\"value\">The value to process.</param>", output);
     }
 
     [Fact]

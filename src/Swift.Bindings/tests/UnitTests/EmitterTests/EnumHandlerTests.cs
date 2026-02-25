@@ -643,7 +643,7 @@ public class EnumHandlerTests
         var output = csOutput.ToString();
 
         // Simple enum should use cast, not .Payload.DangerousGetHandle()
-        Assert.Contains("(int)value0", output);
+        Assert.Contains("(int)variant", output);
         Assert.DoesNotContain(".Payload.DangerousGetHandle()", output);
     }
 
@@ -715,7 +715,7 @@ public class EnumHandlerTests
         var output = csOutput.ToString();
 
         // UInt8 underlying type → byte cast
-        Assert.Contains("(byte)value0", output);
+        Assert.Contains("(byte)priority", output);
         Assert.DoesNotContain(".Payload.DangerousGetHandle()", output);
     }
 

@@ -39,8 +39,15 @@ namespace BindingsGeneration
 
                 var publicType = GetPublicCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, enumGenericParams);
 
-                // Use type label if available, otherwise generate a name
-                var paramName = typeSpec.TypeLabel ?? $"value{i}";
+                // Use type label if available, otherwise derive from type
+                var paramName = typeSpec.TypeLabel;
+                if (string.IsNullOrEmpty(paramName))
+                {
+                    paramName = NameProvider.DeriveParameterNameFromType(typeSpec) ?? $"value{i}";
+                    // Primitives return "value" — append index to distinguish
+                    if (paramName == "value")
+                        paramName = $"value{i}";
+                }
                 // Sanitize parameter name (remove invalid characters, ensure starts with letter)
                 paramName = SanitizeParameterName(paramName);
                 // Skip enum cases with tuple parameters containing unresolved existential elements.
@@ -55,6 +62,21 @@ namespace BindingsGeneration
                 }
 
                 parameters.Add((csharpType, publicType, paramName, typeSpec));
+            }
+
+            // Deduplicate derived parameter names using a usedNames set
+            // (same collision-safe pattern as NameProvider.DeduplicateParameterNamesCore)
+            var usedNames = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < parameters.Count; i++)
+            {
+                var (type, publicType, name, typeSpec) = parameters[i];
+                if (usedNames.Add(name))
+                    continue;
+
+                int suffix = 2;
+                while (!usedNames.Add($"{name}{suffix}"))
+                    suffix++;
+                parameters[i] = (type, publicType, $"{name}{suffix}", typeSpec);
             }
 
             // Generate the static method for this case — prefer symbol graph doc over synthetic

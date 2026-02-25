@@ -338,9 +338,22 @@ public static class NameProvider
             return arg.Name;
         }
 
-        // 3. Otherwise use Name as-is (including _keyword forms like _for, _using)
-        // We keep the _ prefix because derived names ({name}Handle, {name}Swift)
-        // must be valid identifiers without @ escaping.
+        // 3. Handle keyword-escaped names from the parser (_object, _event, _string)
+        if (arg.Name.Length > 1 && arg.Name[0] == '_' && IsCSharpKeyword(arg.Name.Substring(1)))
+        {
+            // "value" is a contextual keyword — safe as parameter name
+            if (arg.Name == "_value")
+                return "value";
+
+            // For true keywords, try type-derived name
+            var derived = DeriveParameterNameFromType(arg.SwiftTypeSpec);
+            if (derived != null && !IsCSharpKeyword(derived))
+                return derived;
+
+            // Fallback: keep _ prefix
+            return arg.Name;
+        }
+
         return arg.Name;
     }
 
@@ -391,7 +404,7 @@ public static class NameProvider
     /// Strips module prefixes and common type prefixes (UI, NS) to produce
     /// short, idiomatic camelCase names.
     /// </summary>
-    private static string? DeriveParameterNameFromType(TypeSpec typeSpec)
+    internal static string? DeriveParameterNameFromType(TypeSpec typeSpec)
     {
         if (typeSpec is not NamedTypeSpec namedType)
             return "value";
@@ -415,6 +428,10 @@ public static class NameProvider
         // Dictionary<K,V> → "dictionary"
         if (typeName == "Dictionary" && namedType.GenericParameters.Count >= 2)
             return "dictionary";
+
+        // Generic placeholders (τ_0_0, τ_0_1, etc.) → "value" to avoid leaking ABI names
+        if (typeName.StartsWith("τ_") || typeName.StartsWith("\u03C4_"))
+            return "value";
 
         // Primitives → generic "value"
         if (_primitiveTypeNames.Contains(typeName))
@@ -462,6 +479,11 @@ public static class NameProvider
     private static string SanitizeForCSharp(string name)
     {
         if (string.IsNullOrEmpty(name))
+            return name;
+
+        // "value" is a contextual keyword — valid as a parameter name in all positions
+        // we generate (method params, not property setters).
+        if (name == "value")
             return name;
 
         // Handle C# keywords with _ prefix (not @ because derived names like {name}Handle break)
@@ -892,7 +914,12 @@ public static class NameProvider
 
         // 4. Property collision resolution (only if still colliding after verb prefix)
         if (propertyNames != null && propertyNames.Contains(name))
-            name = $"{name}Method";
+        {
+            if (isSelfReturning)
+                name = $"With{name}";  // Builder pattern: WithAccessibility()
+            else
+                name = $"{name}Method";
+        }
 
         // 4b. Inherited method collision: generated C# classes inherit Dispose() from
         // IDisposable/SafeHandle. A Swift method named "dispose" PascalCase's to "Dispose",

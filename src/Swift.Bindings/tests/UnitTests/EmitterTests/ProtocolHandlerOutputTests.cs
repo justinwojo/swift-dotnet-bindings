@@ -1292,9 +1292,8 @@ public class ProtocolHandlerOutputTests
     [Fact]
     public void Emit_InterfaceSubscript_ValueParam_SanitizedToAvoidCS0316()
     {
-        // Regression: subscript with parameter named "value" would conflict
-        // with C# indexer setter's implicit "value" parameter (CS0316).
-        // GetCSharpParameterName sanitizes "value" to "_value".
+        // "value" is a valid C# parameter name — no longer sanitized.
+        // It was previously sanitized to "_value" to avoid CS0316 but that's no longer needed.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var protocolDecl = new ProtocolDecl
@@ -1337,9 +1336,9 @@ public class ProtocolHandlerOutputTests
 
         var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
 
-        // Parameter "value" should be sanitized to "_value" (C# contextual keyword)
-        Assert.Contains("this[long _value]", csOutput);
-        Assert.DoesNotContain("this[long value]", csOutput);
+        // Parameter "value" is no longer sanitized — it's valid as a parameter name
+        Assert.Contains("this[long value]", csOutput);
+        Assert.DoesNotContain("this[long _value]", csOutput);
     }
 
     [Fact]

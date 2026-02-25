@@ -10,5 +10,8 @@
         <entity managedNameSpace="UIKit" managedTypeName="UIKeyboardType">
             <typedeclaration kind="enum" name="UIKeyboardType" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" />
         </entity>
+        <entity managedNameSpace="UIKit" managedTypeName="UIEdgeInsets">
+            <typedeclaration kind="struct" name="UIEdgeInsets" module="UIKit" mangledName="$sSo12UIEdgeInsetsV" frozen="true" requiresMemoryManagement="false" />
+        </entity>
     </entities>
 </swifttypedatabase>

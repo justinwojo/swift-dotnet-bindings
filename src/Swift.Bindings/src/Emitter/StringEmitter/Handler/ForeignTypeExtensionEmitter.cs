@@ -1136,7 +1136,7 @@ public static class ForeignTypeExtensionEmitter
     /// <summary>
     /// Swift type aliases that resolve to primitives.
     /// </summary>
-    private static readonly Dictionary<string, string> TypeAliasToCSPrimitive = new(StringComparer.Ordinal)
+    internal static readonly Dictionary<string, string> TypeAliasToCSPrimitive = new(StringComparer.Ordinal)
     {
         { "Foundation.TimeInterval", "double" },
     };

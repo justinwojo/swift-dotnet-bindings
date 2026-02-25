@@ -365,7 +365,7 @@ namespace BindingsGeneration
             _structDecl = structDecl;
             _typeNameWithGenerics = typeNameWithGenerics;
             _implementsEquatable = _structDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
-            _implementsHashable = _structDecl.Conformances.Any(c => c.Protocol.ModuleQualifiedName == "Swift.Hashable");
+            _implementsHashable = _structDecl.Conformances.Any(c => c.Protocol.ModuleQualifiedName == "Swift.Hashable" || (c.Protocol.Name == "Hashable" && string.IsNullOrEmpty(c.Protocol.Module)));
             _isRefType = refType;
             _hasExplicitEqualityOperator = hasExplicitEqualityOperator;
             _hasExplicitInequalityOperator = hasExplicitInequalityOperator;
@@ -497,7 +497,7 @@ internal static class ProtocolConformanceHelper
         {
             // Hashable is a marker interface (ISwiftHashable) for PWT lookup only — not a user-facing
             // C# interface. The conformance descriptor is still emitted via GenerateProtocolConformanceDictionaryEntries().
-            if (conformance.Protocol.ModuleQualifiedName == "Swift.Hashable")
+            if (conformance.Protocol.ModuleQualifiedName == "Swift.Hashable" || (conformance.Protocol.Name == "Hashable" && string.IsNullOrEmpty(conformance.Protocol.Module)))
                 continue;
 
             // Special handling for Equatable: only emit for classes/structs with Equals implementation
@@ -603,7 +603,7 @@ internal static class ProtocolConformanceHelper
         // Preserve existing behavior for Equatable/Hashable even when protocol records are unavailable.
         if (conformance.Protocol.ModuleQualifiedName == "Swift.Equatable")
             return true;
-        if (conformance.Protocol.ModuleQualifiedName == "Swift.Hashable")
+        if (conformance.Protocol.ModuleQualifiedName == "Swift.Hashable" || (conformance.Protocol.Name == "Hashable" && string.IsNullOrEmpty(conformance.Protocol.Module)))
             return true;
 
         // Skip unknown protocols and protocols with associated types (PATs).
