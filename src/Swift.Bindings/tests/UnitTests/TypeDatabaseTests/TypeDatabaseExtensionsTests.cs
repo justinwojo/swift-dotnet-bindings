@@ -354,20 +354,64 @@ public class TypeDatabaseExtensionsTests
     // --- Foundation class types are auto-bridged as ObjC ---
 
     [Theory]
-    [InlineData("Foundation.URLResponse", "Foundation", "NSUrlResponse")]
-    [InlineData("Foundation.HTTPURLResponse", "Foundation", "NSHttpUrlResponse")]
-    [InlineData("Foundation.URLSession", "Foundation", "NSUrlSession")]
-    [InlineData("Foundation.URLSessionTask", "Foundation", "NSUrlSessionTask")]
-    [InlineData("Foundation.URLSessionTaskMetrics", "Foundation", "NSUrlSessionTaskMetrics")]
-    [InlineData("Foundation.URLCredential", "Foundation", "NSUrlCredential")]
-    [InlineData("Foundation.NSData", "Foundation", "NSData")]
+    // Foundation: Swift drops NS prefix — common classes
+    [InlineData("Foundation.Bundle", "Foundation", "NSBundle")]
+    [InlineData("Foundation.NotificationCenter", "Foundation", "NSNotificationCenter")]
+    [InlineData("Foundation.UserDefaults", "Foundation", "NSUserDefaults")]
+    [InlineData("Foundation.Timer", "Foundation", "NSTimer")]
+    [InlineData("Foundation.RunLoop", "Foundation", "NSRunLoop")]
+    [InlineData("Foundation.Operation", "Foundation", "NSOperation")]
+    [InlineData("Foundation.OperationQueue", "Foundation", "NSOperationQueue")]
+    [InlineData("Foundation.BlockOperation", "Foundation", "NSBlockOperation")]
+    [InlineData("Foundation.ProcessInfo", "Foundation", "NSProcessInfo")]
+    [InlineData("Foundation.Thread", "Foundation", "NSThread")]
     [InlineData("Foundation.FileManager", "Foundation", "NSFileManager")]
+    [InlineData("Foundation.FileHandle", "Foundation", "NSFileHandle")]
+    [InlineData("Foundation.UndoManager", "Foundation", "NSUndoManager")]
+    [InlineData("Foundation.Progress", "Foundation", "NSProgress")]
+    [InlineData("Foundation.Scanner", "Foundation", "NSScanner")]
+    [InlineData("Foundation.NumberFormatter", "Foundation", "NSNumberFormatter")]
     [InlineData("Foundation.DateFormatter", "Foundation", "NSDateFormatter")]
     [InlineData("Foundation.InputStream", "Foundation", "NSInputStream")]
-    [InlineData("Foundation.Progress", "Foundation", "NSProgress")]
-    [InlineData("Foundation.URLSessionWebSocketTask", "Foundation", "NSUrlSessionWebSocketTask")]
-    [InlineData("Foundation.URLSessionWebSocketTask.Message", "Foundation", "NSUrlSessionWebSocketMessage")]
+    [InlineData("Foundation.OutputStream", "Foundation", "NSOutputStream")]
     [InlineData("Foundation.Stream", "Foundation", "NSStream")]
+    [InlineData("Foundation.NSData", "Foundation", "NSData")]
+    // Foundation: URL/HTTP/JSON acronym casing
+    [InlineData("Foundation.URLSession", "Foundation", "NSUrlSession")]
+    [InlineData("Foundation.URLSessionTask", "Foundation", "NSUrlSessionTask")]
+    [InlineData("Foundation.URLSessionDataTask", "Foundation", "NSUrlSessionDataTask")]
+    [InlineData("Foundation.URLSessionDownloadTask", "Foundation", "NSUrlSessionDownloadTask")]
+    [InlineData("Foundation.URLSessionUploadTask", "Foundation", "NSUrlSessionUploadTask")]
+    [InlineData("Foundation.URLSessionStreamTask", "Foundation", "NSUrlSessionStreamTask")]
+    [InlineData("Foundation.URLSessionWebSocketTask", "Foundation", "NSUrlSessionWebSocketTask")]
+    [InlineData("Foundation.URLSessionConfiguration", "Foundation", "NSUrlSessionConfiguration")]
+    [InlineData("Foundation.URLSessionTaskMetrics", "Foundation", "NSUrlSessionTaskMetrics")]
+    [InlineData("Foundation.URLSessionTaskTransactionMetrics", "Foundation", "NSUrlSessionTaskTransactionMetrics")]
+    [InlineData("Foundation.URLResponse", "Foundation", "NSUrlResponse")]
+    [InlineData("Foundation.HTTPURLResponse", "Foundation", "NSHttpUrlResponse")]
+    [InlineData("Foundation.CachedURLResponse", "Foundation", "NSCachedUrlResponse")]
+    [InlineData("Foundation.URLAuthenticationChallenge", "Foundation", "NSUrlAuthenticationChallenge")]
+    [InlineData("Foundation.URLCredential", "Foundation", "NSUrlCredential")]
+    [InlineData("Foundation.URLCredentialStorage", "Foundation", "NSUrlCredentialStorage")]
+    [InlineData("Foundation.URLProtectionSpace", "Foundation", "NSUrlProtectionSpace")]
+    [InlineData("Foundation.URLCache", "Foundation", "NSUrlCache")]
+    [InlineData("Foundation.URLProtocol", "Foundation", "NSUrlProtocol")]
+    [InlineData("Foundation.URLConnection", "Foundation", "NSUrlConnection")]
+    [InlineData("Foundation.URLSessionWebSocketTask.Message", "Foundation", "NSUrlSessionWebSocketMessage")]
+    [InlineData("Foundation.HTTPCookie", "Foundation", "NSHttpCookie")]
+    [InlineData("Foundation.HTTPCookieStorage", "Foundation", "NSHttpCookieStorage")]
+    [InlineData("Foundation.JSONSerialization", "Foundation", "NSJsonSerialization")]
+    // Foundation: ObjC names with casing differences
+    [InlineData("Foundation.NSURL", "Foundation", "NSUrl")]
+    [InlineData("Foundation.NSUUID", "Foundation", "NSUuid")]
+    // AVFoundation: acronym casing
+    [InlineData("AVFoundation.AVURLAsset", "AVFoundation", "AVUrlAsset")]
+    [InlineData("AVFoundation.AVMIDIPlayer", "AVFoundation", "AVMidiPlayer")]
+    // QuartzCore: NSString typedefs (namespace remapped to CoreAnimation)
+    [InlineData("QuartzCore.CALayerContentsGravity", "Foundation", "NSString")]
+    [InlineData("QuartzCore.CAMediaTimingFunctionName", "Foundation", "NSString")]
+    [InlineData("QuartzCore.CATransitionType", "Foundation", "NSString")]
+    [InlineData("QuartzCore.CATransitionSubtype", "Foundation", "NSString")]
     public void GetTypeRecordOrAnyType_FoundationClass_ReturnsObjCBridgedRecord(string swiftType, string expectedNamespace, string expectedName)
     {
         var typeDatabase = new TypeDatabase();
@@ -388,10 +432,29 @@ public class TypeDatabaseExtensionsTests
     [InlineData("Foundation.UUID")]
     [InlineData("Foundation.URLError")]
     [InlineData("Foundation.URLError.Code")]
+    [InlineData("Foundation.URLComponents")]
+    [InlineData("Foundation.URLQueryItem")]
     [InlineData("Foundation.URLRequest")]
-    [InlineData("Foundation.Date")]
+    [InlineData("Foundation.DateInterval")]
     [InlineData("Foundation.Calendar")]
     [InlineData("Foundation.Locale")]
+    [InlineData("Foundation.TimeZone")]
+    [InlineData("Foundation.Notification")]
+    [InlineData("Foundation.Notification.Name")]
+    [InlineData("Foundation.Measurement")]
+    [InlineData("Foundation.PersonNameComponents")]
+    [InlineData("Foundation.CharacterSet")]
+    [InlineData("Foundation.Decimal")]
+    [InlineData("Foundation.NSRange")]
+    [InlineData("Foundation.Date")]
+    [InlineData("Foundation.DateComponents")]
+    [InlineData("Foundation.IndexSet")]
+    [InlineData("Foundation.ComparisonResult")]
+    [InlineData("Foundation.IndexPath")]
+    [InlineData("Foundation.JSONEncoder")]
+    [InlineData("Foundation.JSONDecoder")]
+    [InlineData("Foundation.NSNotification.Name")]
+    [InlineData("Foundation.objc_AssociationPolicy")]
     public void GetTypeRecordOrAnyType_FoundationValueType_ReturnsAnyType(string swiftType)
     {
         var typeDatabase = new TypeDatabase();
@@ -462,12 +525,30 @@ public class TypeDatabaseExtensionsTests
     // --- Known Apple framework value types are NOT auto-bridged ---
 
     [Theory]
+    // UIKit structs
     [InlineData("UIKit.UIEdgeInsets")]
     [InlineData("UIKit.UIOffset")]
     [InlineData("UIKit.UIFloatRange")]
     [InlineData("UIKit.NSDirectionalEdgeInsets")]
+    // SceneKit structs
     [InlineData("SceneKit.SCNVector3")]
     [InlineData("SceneKit.SCNVector4")]
+    [InlineData("SceneKit.SCNMatrix4")]
+    // MapKit structs
+    [InlineData("MapKit.MKCoordinateRegion")]
+    [InlineData("MapKit.MKCoordinateSpan")]
+    [InlineData("MapKit.MKMapRect")]
+    [InlineData("MapKit.MKMapPoint")]
+    [InlineData("MapKit.MKMapSize")]
+    // ARKit structs
+    [InlineData("ARKit.ARRaycastQuery")]
+    // AVFoundation structs
+    [InlineData("AVFoundation.AVAudioFramePosition")]
+    [InlineData("AVFoundation.AVAudioFrameCount")]
+    [InlineData("AVFoundation.AVAudioPacketCount")]
+    [InlineData("AVFoundation.AVAudioChannelCount")]
+    // CoreData structs
+    [InlineData("CoreData.NSFetchRequestResultType")]
     public void GetTypeRecordOrAnyType_AppleFrameworkValueType_ReturnsAnyType(string swiftType)
     {
         var typeDatabase = new TypeDatabase();
@@ -508,15 +589,57 @@ public class TypeDatabaseExtensionsTests
     // --- ObjC enum types from Apple frameworks are NOT auto-bridged ---
 
     [Theory]
+    // UIKit top-level enums
     [InlineData("UIKit.UIBarStyle")]
     [InlineData("UIKit.UIKeyboardAppearance")]
-    [InlineData("UIKit.UITextField.ViewMode")]
-    [InlineData("UIKit.UIControl.ContentVerticalAlignment")]
-    [InlineData("UIKit.UIActivityIndicatorView.Style")]
-    [InlineData("UIKit.UIBlurEffect.Style")]
     [InlineData("UIKit.UILayoutPriority")]
     [InlineData("UIKit.NSTextAlignment")]
     [InlineData("UIKit.UIUserInterfaceLayoutDirection")]
+    [InlineData("UIKit.UIRectEdge")]
+    [InlineData("UIKit.UIRectCorner")]
+    [InlineData("UIKit.UIInterfaceOrientation")]
+    [InlineData("UIKit.UIInterfaceOrientationMask")]
+    [InlineData("UIKit.UIUserInterfaceIdiom")]
+    [InlineData("UIKit.UIUserInterfaceStyle")]
+    [InlineData("UIKit.UISemanticContentAttribute")]
+    [InlineData("UIKit.NSLineBreakMode")]
+    [InlineData("UIKit.UITextAutocapitalizationType")]
+    [InlineData("UIKit.UITextAutocorrectionType")]
+    [InlineData("UIKit.UITextSpellCheckingType")]
+    [InlineData("UIKit.UIReturnKeyType")]
+    [InlineData("UIKit.UIDataDetectorTypes")]
+    // UIKit nested enums
+    [InlineData("UIKit.UITextField.ViewMode")]
+    [InlineData("UIKit.UIControl.ContentVerticalAlignment")]
+    [InlineData("UIKit.UIControl.ContentHorizontalAlignment")]
+    [InlineData("UIKit.UIControl.State")]
+    [InlineData("UIKit.UIControl.Event")]
+    [InlineData("UIKit.UIView.ContentMode")]
+    [InlineData("UIKit.UIAccessibilityTraits")]
+    [InlineData("UIKit.UIActivityIndicatorView.Style")]
+    [InlineData("UIKit.UIBlurEffect.Style")]
+    // AVFoundation enums
+    [InlineData("AVFoundation.AVMediaType")]
+    [InlineData("AVFoundation.AVFileType")]
+    [InlineData("AVFoundation.AVLayerVideoGravity")]
+    [InlineData("AVFoundation.AVCaptureDevice.Position")]
+    [InlineData("AVFoundation.AVCaptureDevice.FlashMode")]
+    [InlineData("AVFoundation.AVCaptureDevice.TorchMode")]
+    [InlineData("AVFoundation.AVPlayer.TimeControlStatus")]
+    [InlineData("AVFoundation.AVPlayer.Status")]
+    [InlineData("AVFoundation.AVPlayerItem.Status")]
+    // StoreKit enums
+    [InlineData("StoreKit.SKPaymentTransactionState")]
+    [InlineData("StoreKit.SKError.Code")]
+    [InlineData("StoreKit.SKProduct.PeriodUnit")]
+    [InlineData("StoreKit.SKProductDiscount.PaymentMode")]
+    // CoreBluetooth enums
+    [InlineData("CoreBluetooth.CBManagerState")]
+    [InlineData("CoreBluetooth.CBManagerAuthorization")]
+    [InlineData("CoreBluetooth.CBPeripheralState")]
+    [InlineData("CoreBluetooth.CBCharacteristicProperties")]
+    [InlineData("CoreBluetooth.CBAttributePermissions")]
+    [InlineData("CoreBluetooth.CBCharacteristicWriteType")]
     public void GetTypeRecordOrAnyType_ObjCEnumType_ReturnsAnyType(string swiftType)
     {
         var typeDatabase = new TypeDatabase();
@@ -560,9 +683,24 @@ public class TypeDatabaseExtensionsTests
     [InlineData("Foundation.RunLoop.Mode", "Foundation", "NSRunLoopMode")]
     [InlineData("Foundation.FileAttributeKey", "Foundation", "NSString")]
     [InlineData("Foundation.NSData.WritingOptions", "Foundation", "NSDataWritingOptions")]
+    [InlineData("Foundation.Operation.QueuePriority", "Foundation", "NSOperationQueuePriority")]
+    [InlineData("Foundation.URLCredential.Persistence", "Foundation", "NSUrlCredentialPersistence")]
     [InlineData("UIKit.UIImage.RenderingMode", "UIKit", "UIImageRenderingMode")]
     [InlineData("UIKit.UIView.AnimationOptions", "UIKit", "UIViewAnimationOptions")]
     [InlineData("Photos.PHImageContentMode", "Photos", "PHImageContentMode")]
+    // QuartzCore value types (namespace remapped to CoreAnimation)
+    [InlineData("QuartzCore.CATransform3D", "CoreAnimation", "CATransform3D")]
+    [InlineData("QuartzCore.CACornerMask", "CoreAnimation", "CACornerMask")]
+    [InlineData("QuartzCore.CAEdgeAntialiasingMask", "CoreAnimation", "CAEdgeAntialiasingMask")]
+    [InlineData("QuartzCore.CAAutoresizingMask", "CoreAnimation", "CAAutoresizingMask")]
+    [InlineData("QuartzCore.CAContentsFormat", "CoreAnimation", "CAContentsFormat")]
+    [InlineData("QuartzCore.CACornerCurve", "CoreAnimation", "CACornerCurve")]
+    [InlineData("QuartzCore.CAGradientLayerType", "CoreAnimation", "CAGradientLayerType")]
+    [InlineData("QuartzCore.CATextLayerAlignmentMode", "CoreAnimation", "CATextLayerAlignmentMode")]
+    [InlineData("QuartzCore.CATextLayerTruncationMode", "CoreAnimation", "CATextLayerTruncationMode")]
+    [InlineData("QuartzCore.CAScroll", "CoreAnimation", "CAScroll")]
+    [InlineData("QuartzCore.CADynamicRange", "CoreAnimation", "CADynamicRange")]
+    [InlineData("QuartzCore.CAToneMapMode", "CoreAnimation", "CAToneMapMode")]
     public void GetTypeRecordOrAnyType_FoundationRemappedValueType_ReturnsCorrectName(string swiftType, string expectedNamespace, string expectedName)
     {
         var typeDatabase = new TypeDatabase();
@@ -648,6 +786,45 @@ public class TypeDatabaseExtensionsTests
         var result = TypeDatabaseExtensions.IsObjCModuleType(new NamedTypeSpec("UIKit.UIKeyboardType"));
 
         Assert.False(result);
+    }
+
+    // --- Module namespace overrides ---
+
+    [Fact]
+    public void GetTypeRecordOrAnyType_QuartzCoreClass_UsesRemappedNamespace()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        // QuartzCore types that aren't in AppleFrameworkValueTypes or ClassRemappings
+        // should auto-bridge with CoreAnimation namespace
+        var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec("QuartzCore.CALayer"));
+
+        Assert.Equal("CoreAnimation.CALayer", record.CSharpTypeName.FullyQualifiedName);
+        Assert.True((record.Flags & TypeRecordFlags.ObjCBridged) != 0);
+        Assert.Equal(TypeRecordKind.Class, record.Kind);
+    }
+
+    [Fact]
+    public void GetTypeRecordOrAnyType_AVFAudioClass_UsesAVFoundationNamespace()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        // AVFAudio module maps to AVFoundation namespace
+        var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec("AVFAudio.AVAudioSession"));
+
+        Assert.Equal("AVFoundation.AVAudioSession", record.CSharpTypeName.FullyQualifiedName);
+        Assert.True((record.Flags & TypeRecordFlags.ObjCBridged) != 0);
+        Assert.Equal(TypeRecordKind.Class, record.Kind);
+    }
+
+    [Theory]
+    [InlineData("QuartzCore.CALayer")]
+    [InlineData("AVFAudio.AVAudioSession")]
+    public void IsObjCModuleType_NamespaceOverrideModules_ReturnsTrue(string swiftType)
+    {
+        var result = TypeDatabaseExtensions.IsObjCModuleType(new NamedTypeSpec(swiftType));
+
+        Assert.True(result);
     }
 
     // --- Modules NOT in auto-bridge set (removed for safety) ---
@@ -910,6 +1087,12 @@ public class TypeDatabaseExtensionsTests
     [InlineData("AVFoundation.AVCaptureVideoOrientation")]
     [InlineData("UIKit.NSWritingDirection")]
     [InlineData("UIKit.UIKeyboardType")]
+    // UIKit nested ObjC enums (value type remappings)
+    [InlineData("UIKit.UIImage.ResizingMode")]
+    [InlineData("UIKit.UIImage.SymbolScale")]
+    [InlineData("UIKit.UIImage.SymbolWeight")]
+    [InlineData("UIKit.UIView.AutoresizingMask")]
+    [InlineData("UIKit.UIView.AnimationCurve")]
     public void GetTypeRecordOrAnyType_NewAppleFrameworkValueType_ReturnsAnyType(string swiftType)
     {
         var typeDatabase = new TypeDatabase();
