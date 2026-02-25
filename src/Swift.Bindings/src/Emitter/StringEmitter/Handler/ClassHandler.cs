@@ -150,6 +150,8 @@ namespace BindingsGeneration
                 XmlDocCommentEmitter.EmitDocComment(csWriter, classDecl);
                 // Emit disposal remarks for class types
                 EmitDisposalRemarks(csWriter, classDecl);
+                if (classDecl.Name.StartsWith("_"))
+                    csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
                 var classDeclaration = $"public partial class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
                 if (!string.IsNullOrEmpty(whereClause))
                     classDeclaration += $" {whereClause}";

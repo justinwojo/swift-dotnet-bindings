@@ -63,6 +63,19 @@ namespace BindingsGeneration
         public bool IsModuleInternal { get; set; } = false;
 
         /// <summary>
+        /// Whether this type is annotated with @MainActor.
+        /// When true, generated Swift wrapper functions must include @MainActor annotation.
+        /// </summary>
+        public bool IsMainActorIsolated { get; set; } = false;
+
+        /// <summary>
+        /// Whether this type is declared with the 'actor' keyword (custom actor).
+        /// Custom actors dispatch to their own executor — wrappers do NOT get @MainActor,
+        /// but the existing async wrapper pattern (Task {}) already handles dispatch.
+        /// </summary>
+        public bool IsCustomActor { get; set; } = false;
+
+        /// <summary>
         /// Whether this type has a singleton pattern (static 'shared' property returning Self).
         /// Used for async method workarounds where passing self doesn't work correctly.
         /// </summary>

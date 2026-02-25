@@ -103,6 +103,16 @@ namespace BindingsGeneration
         public bool IsModuleInternal { get; set; } = false;
 
         /// <summary>
+        /// Whether this method is @MainActor-isolated (individually annotated, not inherited from type).
+        /// </summary>
+        public bool IsActorIsolated { get; set; } = false;
+
+        /// <summary>
+        /// Whether this method is declared nonisolated (opts out of containing type's isolation).
+        /// </summary>
+        public bool IsNonisolated { get; set; } = false;
+
+        /// <summary>
         /// When true, PInvokeEmitter uses the wrapper library (AsyncLibraryName) instead of the module library.
         /// Set by normalization emitters that generate Swift wrapper functions.
         /// </summary>

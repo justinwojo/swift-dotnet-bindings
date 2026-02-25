@@ -385,6 +385,8 @@ namespace BindingsGeneration
                 csWriter.WriteLine("    DiagnosticId = \"SB0004\",");
                 csWriter.WriteLine("    UrlFormat = \"https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md\")]");
             }
+            if (protocolDecl.Name.StartsWith("_"))
+                csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
             if (inheritedInterfaces.Count > 0)
             {
                 csWriter.WriteLine($"public interface {interfaceName} : {string.Join(", ", inheritedInterfaces)}");

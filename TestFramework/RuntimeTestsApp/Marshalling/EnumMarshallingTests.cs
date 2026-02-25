@@ -45,13 +45,13 @@ public class EnumMarshallingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestDirectionOpposite()
     {
-        // Test Direction.GetOpposite() method
+        // Test Direction.Opposite() method
         var north = Direction.North;
-        var opposite = north.GetOpposite();
+        var opposite = north.Opposite();
         AssertEqual(Direction.CaseTag.South, opposite.Tag, "Opposite of North is South");
 
         var east = Direction.East;
-        opposite = east.GetOpposite();
+        opposite = east.Opposite();
         AssertEqual(Direction.CaseTag.West, opposite.Tag, "Opposite of East is West");
 
         TestLogger.Info("Direction Opposite tests passed");

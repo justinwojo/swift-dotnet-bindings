@@ -677,6 +677,12 @@ namespace BindingsGeneration
             Dictionary<string, List<string>>? parameterNames = null;
             Dictionary<string, string>? typedThrowsErrors = null;
             Dictionary<string, List<string?>>? enumCaseLabels = null;
+            HashSet<string>? publicTypeNames = null;
+            HashSet<string>? mainActorTypes = null;
+            HashSet<string>? customActorTypes = null;
+            HashSet<string>? actorIsolatedMembers = null;
+            HashSet<string>? nonisolatedMembers = null;
+            Dictionary<string, List<string>>? markerProtocolConformances = null;
             if (!string.IsNullOrWhiteSpace(swiftInterfacePath) && File.Exists(swiftInterfacePath))
             {
                 internalMemberKeys = SwiftInterfaceAccessParser.GetInternalMembers(swiftInterfacePath);
@@ -687,6 +693,18 @@ namespace BindingsGeneration
                 logger.LogInformation("Loaded {Count} typed throws entries from swiftinterface", typedThrowsErrors.Count);
                 enumCaseLabels = SwiftInterfaceAccessParser.GetEnumCaseLabels(swiftInterfacePath);
                 logger.LogInformation("Loaded {Count} enum case label entries from swiftinterface", enumCaseLabels.Count);
+                publicTypeNames = SwiftInterfaceAccessParser.GetPublicTypeNames(swiftInterfacePath);
+                logger.LogInformation("Loaded {Count} public type names from swiftinterface", publicTypeNames.Count);
+                mainActorTypes = SwiftInterfaceAccessParser.GetMainActorTypes(swiftInterfacePath);
+                logger.LogInformation("Loaded {Count} @MainActor type names from swiftinterface", mainActorTypes.Count);
+                customActorTypes = SwiftInterfaceAccessParser.GetCustomActorTypes(swiftInterfacePath);
+                logger.LogInformation("Loaded {Count} custom actor type names from swiftinterface", customActorTypes.Count);
+                actorIsolatedMembers = SwiftInterfaceAccessParser.GetActorIsolatedMembers(swiftInterfacePath);
+                logger.LogInformation("Loaded {Count} actor-isolated member keys from swiftinterface", actorIsolatedMembers.Count);
+                nonisolatedMembers = SwiftInterfaceAccessParser.GetNonisolatedMembers(swiftInterfacePath);
+                logger.LogInformation("Loaded {Count} nonisolated member keys from swiftinterface", nonisolatedMembers.Count);
+                markerProtocolConformances = SwiftInterfaceAccessParser.GetMarkerProtocolConformances(swiftInterfacePath);
+                logger.LogInformation("Loaded {Count} marker protocol conformance entries from swiftinterface", markerProtocolConformances.Count);
             }
 
             // Parse symbol graph for doc comments (supplementary data)
@@ -705,7 +723,7 @@ namespace BindingsGeneration
             }
 
             // Initialize the Swift ABI parser
-            var swiftParser = new SwiftABIParser(swiftAbiPath, typeDatabase, demangledTbdFile, loggerFactory.CreateLogger<SwiftABIParser>(), internalMemberKeys, parameterNames, docComments, typedThrowsErrors, enumCaseLabels);
+            var swiftParser = new SwiftABIParser(swiftAbiPath, typeDatabase, demangledTbdFile, loggerFactory.CreateLogger<SwiftABIParser>(), internalMemberKeys, parameterNames, docComments, typedThrowsErrors, enumCaseLabels, publicTypeNames, mainActorTypes, customActorTypes, actorIsolatedMembers, nonisolatedMembers);
             var moduleName = swiftParser.GetModuleName();
             var frameworkName = InferFrameworkName(dylibPath, moduleName);
             var namespaceResolver = new NamespacePatternResolver(namespacePattern, frameworkName);
@@ -730,7 +748,7 @@ namespace BindingsGeneration
                 logger.LogDebug("Parsed Swift ABI file successfully.");
 
                 // Emit the C# bindings
-                var stringEmitter = new StringEmitter(outputDirectory, typeDatabase, loggerFactory, namespaceResolver, bridgeHintsPath);
+                var stringEmitter = new StringEmitter(outputDirectory, typeDatabase, loggerFactory, namespaceResolver, bridgeHintsPath, markerProtocolConformances);
                 stringEmitter.EmitModule(decl);
 
                 var report = ReportCollector.Complete();

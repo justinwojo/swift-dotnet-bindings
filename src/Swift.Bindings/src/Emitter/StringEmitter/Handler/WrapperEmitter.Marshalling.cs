@@ -82,6 +82,12 @@ namespace BindingsGeneration
                 ? string.Join("\n                ", opaqueDerefLines) + "\n                "
                 : "";
 
+            // Determine if wrapper needs @MainActor annotation
+            bool needsMainActor = ((_env.ParentDecl as TypeDecl)?.IsMainActorIsolated == true
+                || _env.MethodDecl.IsActorIsolated)
+                && !_env.MethodDecl.IsNonisolated;
+            var mainActorAttr = needsMainActor ? "@MainActor " : "";
+
             if (parentTypeName != null)
             {
                 if (isAccessor)
@@ -93,7 +99,7 @@ namespace BindingsGeneration
                     var staticModifier = !isInstanceMethod ? "static " : "";
                     swiftWriter.WriteLine($$"""
             extension {{parentTypeName.ModuleQualifiedName}} {
-                @_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
+                {{mainActorAttr}}@_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
                 public {{staticModifier}}var _sb_{{propertyName}}: {{anyReturnType}} {
                     return {{(!isInstanceMethod ? parentTypeName.ModuleQualifiedName + "." : "self.")}}{{propertyName}}
                 }
@@ -107,7 +113,7 @@ namespace BindingsGeneration
                     var callPrefix = !isInstanceMethod ? $"{parentTypeName.ModuleQualifiedName}." : "self.";
                     swiftWriter.WriteLine($$"""
             extension {{parentTypeName.ModuleQualifiedName}} {
-                @_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
+                {{mainActorAttr}}@_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
                 public {{staticModifier}}func {{NameProvider.GetPInvokeName(_env.MethodDecl)}}{{genericParams}}({{parameters}}) -> {{anyReturnType}}{{whereClause}} {
                     {{extDerefCode}}return {{callPrefix}}{{_env.MethodDecl.Name}}({{methodCallArgs}})
                 }
@@ -120,7 +126,7 @@ namespace BindingsGeneration
                 // Free function wrapper (module-level)
                 var moduleName = _env.MethodDecl.ModuleDecl?.Name ?? "";
                 swiftWriter.WriteLine($$"""
-            @_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
+            {{mainActorAttr}}@_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
             public func {{NameProvider.GetPInvokeName(_env.MethodDecl)}}{{genericParams}}({{parameters}}) -> {{anyReturnType}}{{whereClause}} {
                 {{freeDerefCode}}return {{(moduleName.Length > 0 ? moduleName + "." : "")}}{{_env.MethodDecl.Name}}({{methodCallArgs}})
             }

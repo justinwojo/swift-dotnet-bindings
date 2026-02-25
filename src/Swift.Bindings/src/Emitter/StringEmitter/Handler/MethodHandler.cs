@@ -648,6 +648,14 @@ namespace BindingsGeneration
                 TryEmitCompletionHandlerOverload(csWriter, methodEnv);
             }
 
+            // Emit typed convenience overloads for marker protocol parameters
+            if (!isAccessor && context.MarkerProtocolConformances != null)
+            {
+                MarkerProtocolOverloadEmitter.EmitOverloads(
+                    csWriter, swiftWriter, methodEnv.MethodDecl, methodEnv,
+                    methodEnv.ParentDecl as TypeDecl, context.MarkerProtocolConformances);
+            }
+
             csWriter.WriteLine();
         }
 

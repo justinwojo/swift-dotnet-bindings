@@ -570,6 +570,11 @@ namespace BindingsGeneration
             var staticModifier = isExtension && (_env.MethodDecl.MethodType == MethodType.Static || isAsyncConstructor) ? "static " : "";
             var catchBody = isExtension ? swiftCatchBodyExt : swiftCatchBody;
 
+            // Determine if wrapper needs @MainActor annotation
+            bool needsMainActor = ((_env.ParentDecl as TypeDecl)?.IsMainActorIsolated == true
+                || _env.MethodDecl.IsActorIsolated)
+                && !_env.MethodDecl.IsNonisolated;
+
             swiftWriter.WriteLine(BuildSwiftAsyncWrapperCode(
                 isExtension: isExtension,
                 parentTypeName: parentTypeName,
@@ -586,7 +591,8 @@ namespace BindingsGeneration
                 methodCallPrefix: methodCallPrefix,
                 stringMarshalCode: stringMarshalCode,
                 callbackResultArgs: callbackResultArgs,
-                catchBody: catchBody));
+                catchBody: catchBody,
+                needsMainActor: needsMainActor));
         }
 
         /// <summary>
@@ -1249,7 +1255,8 @@ namespace BindingsGeneration
             string methodCallPrefix,
             string stringMarshalCode,
             string callbackResultArgs,
-            string catchBody)
+            string catchBody,
+            bool needsMainActor = false)
         {
             var mangledName = NameProvider.GetMangledName(_env.MethodDecl);
             var pInvokeName = NameProvider.GetPInvokeName(_env.MethodDecl);
@@ -1279,8 +1286,10 @@ namespace BindingsGeneration
             if (readCodeBlock.Length > 0 && !readCodeBlock.EndsWith("\n"))
                 readCodeBlock += "\n";
 
+            var mainActorLine = needsMainActor ? $"{i}@MainActor\n" : "";
+
             var funcBody = $$"""
-            {{i}}@_silgen_name("{{mangledName}}")
+            {{mainActorLine}}{{i}}@_silgen_name("{{mangledName}}")
             {{i}}public {{staticModifier}}func {{pInvokeName}}{{genericParams}}({{parameters}}){{whereClause}}{
             {{readCodeBlock}}{{i}}    let _entry = _SBWTaskEntry()
             {{i}}    _sbwTaskLock.lock()

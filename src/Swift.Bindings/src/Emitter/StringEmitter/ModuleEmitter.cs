@@ -20,6 +20,7 @@ namespace BindingsGeneration
         private readonly Conductor _conductor;
         private readonly NamespacePatternResolver _namespacePatternResolver;
         private readonly string? _bridgeHintsPath;
+        private readonly Dictionary<string, List<string>>? _markerProtocolConformances;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="StringEmitter"/> class.
@@ -29,7 +30,8 @@ namespace BindingsGeneration
             ITypeDatabase typeDatabase,
             ILoggerFactory loggerFactory,
             NamespacePatternResolver? namespacePatternResolver = null,
-            string? bridgeHintsPath = null)
+            string? bridgeHintsPath = null,
+            Dictionary<string, List<string>>? markerProtocolConformances = null)
         {
             _outputDirectory = outputDirectory;
             _typeDatabase = typeDatabase;
@@ -37,6 +39,7 @@ namespace BindingsGeneration
             _namespacePatternResolver = namespacePatternResolver ?? new NamespacePatternResolver();
             _conductor = new Conductor(loggerFactory, _namespacePatternResolver);
             _bridgeHintsPath = bridgeHintsPath;
+            _markerProtocolConformances = markerProtocolConformances;
         }
 
         /// <summary>
@@ -58,7 +61,8 @@ namespace BindingsGeneration
                 try
                 {
                     var env = moduleHandler.Marshal(moduleDecl, _typeDatabase);
-                    moduleHandler.Emit(csWriter, swiftWriter, env, _conductor, TypeHandlerContext.Empty);
+                    var initialContext = new TypeHandlerContext(null, new(), null, MarkerProtocolConformances: _markerProtocolConformances);
+                    moduleHandler.Emit(csWriter, swiftWriter, env, _conductor, initialContext);
                     collectedViews = SwiftUIBridgeCollector.GetCollectedViews();
                 }
                 finally

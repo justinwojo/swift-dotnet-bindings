@@ -161,6 +161,66 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Sets actor isolation flags on a type declaration based on swiftinterface data.
+        /// </summary>
+        private void ApplyActorIsolation(TypeDecl typeDecl)
+        {
+            var qualifiedPath = BuildTypeQualifiedPath(typeDecl);
+
+            if (_mainActorTypes != null && _mainActorTypes.Contains(qualifiedPath))
+                typeDecl.IsMainActorIsolated = true;
+
+            if (_customActorTypes != null && _customActorTypes.Contains(qualifiedPath))
+                typeDecl.IsCustomActor = true;
+        }
+
+        /// <summary>
+        /// Sets actor isolation flags on a method declaration based on swiftinterface data.
+        /// Uses qualified type path + PrintedName (e.g., "Outer.Inner.foo(_:bar:)")
+        /// to distinguish overloads and avoid nested-type name collisions.
+        /// </summary>
+        private void ApplyMemberActorIsolation(MethodDecl methodDecl, TypeDecl parentTypeDecl, string printedName)
+        {
+            var qualifiedPath = BuildTypeQualifiedPath(parentTypeDecl);
+            var key = $"{qualifiedPath}.{printedName}";
+
+            if (_actorIsolatedMembers != null && _actorIsolatedMembers.Contains(key))
+                methodDecl.IsActorIsolated = true;
+
+            if (_nonisolatedMembers != null && _nonisolatedMembers.Contains(key))
+                methodDecl.IsNonisolated = true;
+        }
+
+        /// <summary>
+        /// Sets actor isolation flags on a property declaration based on swiftinterface data.
+        /// Uses qualified type path to avoid nested-type name collisions.
+        /// </summary>
+        private void ApplyPropertyActorIsolation(PropertyDecl propertyDecl, TypeDecl parentTypeDecl)
+        {
+            var qualifiedPath = BuildTypeQualifiedPath(parentTypeDecl);
+            var key = $"{qualifiedPath}.{propertyDecl.Name}";
+
+            if (_actorIsolatedMembers != null && _actorIsolatedMembers.Contains(key))
+                propertyDecl.IsActorIsolated = true;
+
+            if (_nonisolatedMembers != null && _nonisolatedMembers.Contains(key))
+                propertyDecl.IsNonisolated = true;
+        }
+
+        /// <summary>
+        /// Checks if a type is internal based on the public type names set from swiftinterface.
+        /// Returns true if the set is available, non-empty, and the type is NOT in it.
+        /// </summary>
+        private bool IsInternalFromPublicTypeNames(TypeDecl typeDecl)
+        {
+            if (_publicTypeNames == null || _publicTypeNames.Count == 0)
+                return false;
+
+            var qualifiedPath = BuildTypeQualifiedPath(typeDecl);
+            return !_publicTypeNames.Contains(qualifiedPath);
+        }
+
+        /// <summary>
         /// Checks if a member is marked as internal in the supplementary swiftinterface data.
         /// This catches @inlinable internal members with AccessControl in declAttributes,
         /// which are indistinguishable from @inlinable public in ABI JSON alone.
@@ -208,6 +268,32 @@ namespace BindingsGeneration
         /// </summary>
         private readonly Dictionary<string, List<string?>>? _enumCaseLabels;
 
+        /// <summary>
+        /// Optional set of public type names from swiftinterface parsing.
+        /// Types NOT in this set (when non-null and non-empty) are internal to the module.
+        /// </summary>
+        private readonly HashSet<string>? _publicTypeNames;
+
+        /// <summary>
+        /// Optional set of type names annotated with @MainActor from swiftinterface parsing.
+        /// </summary>
+        private readonly HashSet<string>? _mainActorTypes;
+
+        /// <summary>
+        /// Optional set of type names declared with the 'actor' keyword from swiftinterface parsing.
+        /// </summary>
+        private readonly HashSet<string>? _customActorTypes;
+
+        /// <summary>
+        /// Optional set of "TypeName.memberName" keys for @MainActor-annotated members.
+        /// </summary>
+        private readonly HashSet<string>? _actorIsolatedMembers;
+
+        /// <summary>
+        /// Optional set of "TypeName.memberName" keys for nonisolated members.
+        /// </summary>
+        private readonly HashSet<string>? _nonisolatedMembers;
+
         public SwiftABIParser(
             string filePath,
             ITypeDatabase typeDatabase,
@@ -217,7 +303,12 @@ namespace BindingsGeneration
             Dictionary<string, List<string>>? parameterNames = null,
             Dictionary<string, DocComment>? docComments = null,
             Dictionary<string, string>? typedThrowsErrors = null,
-            Dictionary<string, List<string?>>? enumCaseLabels = null)
+            Dictionary<string, List<string?>>? enumCaseLabels = null,
+            HashSet<string>? publicTypeNames = null,
+            HashSet<string>? mainActorTypes = null,
+            HashSet<string>? customActorTypes = null,
+            HashSet<string>? actorIsolatedMembers = null,
+            HashSet<string>? nonisolatedMembers = null)
         {
             _filePath = filePath;
             _typeDatabase = typeDatabase;
@@ -228,6 +319,11 @@ namespace BindingsGeneration
             _docComments = docComments;
             _typedThrowsErrors = typedThrowsErrors;
             _enumCaseLabels = enumCaseLabels;
+            _publicTypeNames = publicTypeNames;
+            _mainActorTypes = mainActorTypes;
+            _customActorTypes = customActorTypes;
+            _actorIsolatedMembers = actorIsolatedMembers;
+            _nonisolatedMembers = nonisolatedMembers;
 
             string jsonContent = File.ReadAllText(_filePath);
             _moduleRoot = JsonConvert.DeserializeObject<ABIRootNode>(jsonContent) ?? throw new InvalidOperationException("Invalid ABI structure.");
@@ -492,6 +588,9 @@ namespace BindingsGeneration
                 MetadataAccessor = _demangledTbd.GetMetadataAccessor(swiftTypeName),
                 IsModuleInternal = IsNodeModuleInternal(node)
             };
+            if (!decl.IsModuleInternal)
+                decl.IsModuleInternal = IsInternalFromPublicTypeNames(decl);
+            ApplyActorIsolation(decl);
             PopulateDocumentation(decl, node);
             return decl;
         }
@@ -528,6 +627,9 @@ namespace BindingsGeneration
                 RawValueTypeName = node.EnumRawTypeName,
                 IsModuleInternal = IsNodeModuleInternal(node)
             };
+            if (!decl.IsModuleInternal)
+                decl.IsModuleInternal = IsInternalFromPublicTypeNames(decl);
+            ApplyActorIsolation(decl);
             PopulateDocumentation(decl, node);
             return decl;
         }
@@ -709,6 +811,9 @@ namespace BindingsGeneration
                 InheritsConvenienceInitializers = node.inheritsConvenienceInitializers ?? false,
                 HasMissingDesignatedInitializers = node.hasMissingDesignatedInitializers ?? false,
             };
+            if (!decl.IsModuleInternal)
+                decl.IsModuleInternal = IsInternalFromPublicTypeNames(decl);
+            ApplyActorIsolation(decl);
             PopulateDocumentation(decl, node);
             return decl;
         }
@@ -773,8 +878,12 @@ namespace BindingsGeneration
                 GenericSignature = node.GenericSig,
                 IsClassBound = isClassBound,
                 ParentDecl = parentDecl,
-                ModuleDecl = moduleDecl
+                ModuleDecl = moduleDecl,
+                IsModuleInternal = IsNodeModuleInternal(node)
             };
+            if (!decl.IsModuleInternal)
+                decl.IsModuleInternal = IsInternalFromPublicTypeNames(decl);
+            ApplyActorIsolation(decl);
             PopulateDocumentation(decl, node);
             return decl;
         }
@@ -844,6 +953,10 @@ namespace BindingsGeneration
                     methodDecl.ThrownErrorType = TypeSpecParser.Parse(errorTypeName);
                 }
             }
+
+            // Apply member-level actor isolation from swiftinterface data
+            if (parentDecl is TypeDecl parentType)
+                ApplyMemberActorIsolation(methodDecl, parentType, node.PrintedName);
 
             PopulateDocumentation(methodDecl, node);
 
@@ -1035,6 +1148,10 @@ namespace BindingsGeneration
                 IsFinal = accessor.DeclAttributes?.Contains("Final") == true,
             };
 
+            // Apply member-level actor isolation to accessor methods
+            if (parentDecl is TypeDecl getParentType)
+                ApplyMemberActorIsolation(methodDecl, getParentType, fieldName);
+
             return new GetAccessorDecl { Method = methodDecl };
         }
 
@@ -1096,6 +1213,10 @@ namespace BindingsGeneration
                 IsFinal = accessor.DeclAttributes?.Contains("Final") == true,
             };
 
+            // Apply member-level actor isolation to accessor methods
+            if (parentDecl is TypeDecl setParentType)
+                ApplyMemberActorIsolation(methodDecl, setParentType, fieldName);
+
             return new SetAccessorDecl { Method = methodDecl };
         }
 
@@ -1118,6 +1239,8 @@ namespace BindingsGeneration
                 IsFinal = node.DeclAttributes?.Contains("Final") == true,
                 Accessors = HandleAccessors(node.Accessors, sanitizedName, parentDecl, moduleDecl)
             };
+            if (parentDecl is TypeDecl propParentType)
+                ApplyPropertyActorIsolation(decl, propParentType);
             PopulateDocumentation(decl, node);
             return decl;
         }

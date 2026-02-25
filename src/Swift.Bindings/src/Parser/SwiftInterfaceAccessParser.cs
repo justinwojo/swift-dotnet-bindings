@@ -53,6 +53,590 @@ public static class SwiftInterfaceAccessParser
         @"internal\s+(?:convenience\s+)?init\s*\(",
         RegexOptions.Compiled);
 
+    // Regex for public/open type declarations (excludes internal)
+    private static readonly Regex PublicTypeDeclRegex = new(
+        @"(?:public|open)\s+(?:final\s+)?(?:class|struct|enum|actor|protocol)\s+(\w+)",
+        RegexOptions.Compiled);
+
+    // Regex for @MainActor annotation (fully-qualified or bare)
+    private static readonly Regex MainActorAnnotationRegex = new(
+        @"@(?:_Concurrency\.)?MainActor",
+        RegexOptions.Compiled);
+
+    // Regex for actor declarations: "public actor Name" or "open actor Name"
+    private static readonly Regex ActorDeclRegex = new(
+        @"(?:public|open)\s+actor\s+(\w+)",
+        RegexOptions.Compiled);
+
+    // Regex for nonisolated member declarations
+    private static readonly Regex NonisolatedRegex = new(
+        @"nonisolated\s+(?:public|open|final|var|let|func|static|class)",
+        RegexOptions.Compiled);
+
+    // Regex for public/open func declarations (for member-level actor isolation detection)
+    private static readonly Regex PublicFuncRegex = new(
+        @"(?:public|open)\s+(?:final\s+)?(?:static\s+|class\s+)?(?:mutating\s+)?func\s+(\w+)\s*(?:<[^>]*>\s*)?\(",
+        RegexOptions.Compiled);
+
+    // Regex for public/open var/let declarations (for member-level actor isolation detection)
+    private static readonly Regex PublicVarRegex = new(
+        @"(?:public|open)\s+(?:final\s+)?(?:var|let)\s+(\w+)",
+        RegexOptions.Compiled);
+
+    // Regex for public/open init declarations
+    private static readonly Regex PublicInitRegex = new(
+        @"(?:public|open)\s+(?:convenience\s+)?init\s*\(",
+        RegexOptions.Compiled);
+
+    /// <summary>
+    /// Parses a .swiftinterface file and returns a set of dot-qualified type paths
+    /// declared as public or open (e.g., "OrderContainer.Status" for nested types,
+    /// "ConstraintMaker" for top-level types).
+    /// Types NOT in this set are internal to the module.
+    /// </summary>
+    /// <param name="swiftInterfacePath">Path to the .swiftinterface file.</param>
+    /// <returns>Set of public type names, or empty set if parsing fails.</returns>
+    public static HashSet<string> GetPublicTypeNames(string swiftInterfacePath)
+    {
+        var result = new HashSet<string>();
+
+        if (!File.Exists(swiftInterfacePath))
+            return result;
+
+        var lines = File.ReadAllLines(swiftInterfacePath);
+
+        var typeStack = new Stack<(string Name, int Depth)>();
+        int braceDepth = 0;
+
+        foreach (var line in lines)
+        {
+            var trimmed = line.TrimStart();
+
+            var (openBraces, closeBraces) = CountBraces(line);
+
+            // Check for public/open type declarations
+            bool pushedScope = false;
+            var publicTypeMatch = PublicTypeDeclRegex.Match(trimmed);
+            if (publicTypeMatch.Success && openBraces > 0)
+            {
+                var typeName = publicTypeMatch.Groups[1].Value;
+                typeStack.Push((typeName, braceDepth));
+                pushedScope = true;
+
+                // Build dot-qualified path from the type stack
+                var qualifiedPath = string.Join(".", typeStack.Reverse().Select(t => t.Name));
+                result.Add(qualifiedPath);
+            }
+
+            // Also track non-public type declarations (internal types that open a scope)
+            // so we can properly track brace depth and nesting
+            if (!pushedScope)
+            {
+                var anyTypeMatch = TypeDeclRegex.Match(trimmed);
+                if (anyTypeMatch.Success && openBraces > 0)
+                {
+                    typeStack.Push((anyTypeMatch.Groups[1].Value, braceDepth));
+                    pushedScope = true;
+                }
+            }
+
+            // Track extensions — but do NOT add extension targets to the public type set.
+            // Extensions are for external module types (e.g., "extension Swift.Int : ...")
+            // and should not be treated as types defined in this module.
+            if (!pushedScope)
+            {
+                var extMatch = ExtensionDeclRegex.Match(trimmed);
+                if (extMatch.Success && openBraces > 0)
+                {
+                    var qualifiedName = extMatch.Groups[1].Value;
+                    var dotIdx = qualifiedName.LastIndexOf('.');
+                    var typeName = dotIdx >= 0 ? qualifiedName.Substring(dotIdx + 1) : qualifiedName;
+                    typeStack.Push((typeName, braceDepth));
+                }
+            }
+
+            braceDepth += openBraces - closeBraces;
+
+            while (typeStack.Count > 0 && braceDepth <= typeStack.Peek().Depth)
+            {
+                typeStack.Pop();
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Returns a set of type names annotated with @MainActor / @_Concurrency.MainActor.
+    /// Does NOT include custom actor declarations (those need different wrapper treatment).
+    /// Type names use dot-qualified paths (e.g., "Outer.Inner" for nested types).
+    /// </summary>
+    public static HashSet<string> GetMainActorTypes(string swiftInterfacePath)
+    {
+        var result = new HashSet<string>();
+
+        if (!File.Exists(swiftInterfacePath))
+            return result;
+
+        var lines = File.ReadAllLines(swiftInterfacePath);
+
+        var typeStack = new Stack<(string Name, int Depth)>();
+        int braceDepth = 0;
+        bool pendingMainActor = false;
+
+        foreach (var line in lines)
+        {
+            var trimmed = line.TrimStart();
+
+            var (openBraces, closeBraces) = CountBraces(line);
+
+            // Check for @MainActor annotation on this line or pending from previous line
+            bool hasMainActor = pendingMainActor || MainActorAnnotationRegex.IsMatch(trimmed);
+            pendingMainActor = false;
+
+            // If this line has @MainActor but no declaration, it's a pending annotation
+            if (hasMainActor && !TypeDeclRegex.IsMatch(trimmed) && openBraces == 0)
+            {
+                pendingMainActor = true;
+                braceDepth += openBraces - closeBraces;
+                while (typeStack.Count > 0 && braceDepth <= typeStack.Peek().Depth)
+                    typeStack.Pop();
+                continue;
+            }
+
+            // Check for type declarations
+            bool pushedScope = false;
+            var typeMatch = TypeDeclRegex.Match(trimmed);
+            if (typeMatch.Success && openBraces > 0)
+            {
+                var typeName = typeMatch.Groups[1].Value;
+                typeStack.Push((typeName, braceDepth));
+                pushedScope = true;
+
+                // If this type has @MainActor and is NOT an actor keyword declaration
+                if (hasMainActor && !ActorDeclRegex.IsMatch(trimmed))
+                {
+                    var qualifiedPath = string.Join(".", typeStack.Reverse().Select(t => t.Name));
+                    result.Add(qualifiedPath);
+                }
+            }
+
+            if (!pushedScope)
+            {
+                var extMatch = ExtensionDeclRegex.Match(trimmed);
+                if (extMatch.Success && openBraces > 0)
+                {
+                    var qualifiedName = extMatch.Groups[1].Value;
+                    var dotIdx = qualifiedName.LastIndexOf('.');
+                    var typeName = dotIdx >= 0 ? qualifiedName.Substring(dotIdx + 1) : qualifiedName;
+                    typeStack.Push((typeName, braceDepth));
+                }
+            }
+
+            braceDepth += openBraces - closeBraces;
+
+            while (typeStack.Count > 0 && braceDepth <= typeStack.Peek().Depth)
+                typeStack.Pop();
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Returns a set of type names declared with the 'actor' keyword (custom actors).
+    /// Custom actors have implicit isolation to their own executor, NOT MainActor.
+    /// </summary>
+    public static HashSet<string> GetCustomActorTypes(string swiftInterfacePath)
+    {
+        var result = new HashSet<string>();
+
+        if (!File.Exists(swiftInterfacePath))
+            return result;
+
+        var lines = File.ReadAllLines(swiftInterfacePath);
+
+        var typeStack = new Stack<(string Name, int Depth)>();
+        int braceDepth = 0;
+
+        foreach (var line in lines)
+        {
+            var trimmed = line.TrimStart();
+
+            var (openBraces, closeBraces) = CountBraces(line);
+
+            bool pushedScope = false;
+            var actorMatch = ActorDeclRegex.Match(trimmed);
+            if (actorMatch.Success && openBraces > 0)
+            {
+                var typeName = actorMatch.Groups[1].Value;
+                typeStack.Push((typeName, braceDepth));
+                pushedScope = true;
+
+                var qualifiedPath = string.Join(".", typeStack.Reverse().Select(t => t.Name));
+                result.Add(qualifiedPath);
+            }
+
+            if (!pushedScope)
+            {
+                var typeMatch = TypeDeclRegex.Match(trimmed);
+                if (typeMatch.Success && openBraces > 0)
+                {
+                    typeStack.Push((typeMatch.Groups[1].Value, braceDepth));
+                    pushedScope = true;
+                }
+            }
+
+            if (!pushedScope)
+            {
+                var extMatch = ExtensionDeclRegex.Match(trimmed);
+                if (extMatch.Success && openBraces > 0)
+                {
+                    var qualifiedName = extMatch.Groups[1].Value;
+                    var dotIdx = qualifiedName.LastIndexOf('.');
+                    var typeName = dotIdx >= 0 ? qualifiedName.Substring(dotIdx + 1) : qualifiedName;
+                    typeStack.Push((typeName, braceDepth));
+                }
+            }
+
+            braceDepth += openBraces - closeBraces;
+
+            while (typeStack.Count > 0 && braceDepth <= typeStack.Peek().Depth)
+                typeStack.Pop();
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Returns a set of "QualifiedType.printedName" keys for members that are individually
+    /// @MainActor-annotated (when the containing type is NOT globally @MainActor).
+    /// Function keys use printed name format (e.g., "Outer.Inner.foo(_:bar:)") to distinguish overloads.
+    /// Property keys use "QualifiedType.propName".
+    /// Uses qualified type paths from the type stack to avoid nested-type name collisions.
+    /// Handles multi-line function signatures via continuation buffer.
+    /// </summary>
+    public static HashSet<string> GetActorIsolatedMembers(string swiftInterfacePath)
+    {
+        var result = new HashSet<string>();
+
+        if (!File.Exists(swiftInterfacePath))
+            return result;
+
+        var lines = File.ReadAllLines(swiftInterfacePath);
+
+        var typeStack = new Stack<(string Name, int Depth)>();
+        int braceDepth = 0;
+        bool pendingMainActor = false;
+        // Multi-line continuation: (accumulated line, wasMainActor)
+        (string Line, bool IsMainActor)? continuation = null;
+
+        foreach (var line in lines)
+        {
+            var trimmed = line.TrimStart();
+
+            // Handle multi-line signature continuation
+            if (continuation != null)
+            {
+                var accumulated = continuation.Value.Line + " " + trimmed;
+                if (!HasUnmatchedOpenParen(accumulated))
+                {
+                    // Signature complete — process the full line
+                    var wasMainActor = continuation.Value.IsMainActor;
+                    continuation = null;
+                    if (wasMainActor && typeStack.Count > 0)
+                        ProcessActorIsolatedMember(accumulated, typeStack, result);
+                }
+                else
+                {
+                    continuation = (accumulated, continuation.Value.IsMainActor);
+                }
+                continue;
+            }
+
+            var (openBraces, closeBraces) = CountBraces(line);
+
+            // Check for @MainActor annotation
+            bool hasMainActor = pendingMainActor || MainActorAnnotationRegex.IsMatch(trimmed);
+            pendingMainActor = false;
+
+            // Check for pending annotation (attribute on its own line)
+            if (hasMainActor && !TypeDeclRegex.IsMatch(trimmed) &&
+                !PublicFuncRegex.IsMatch(trimmed) && !PublicVarRegex.IsMatch(trimmed) &&
+                !PublicInitRegex.IsMatch(trimmed) && openBraces == 0)
+            {
+                pendingMainActor = true;
+                braceDepth += openBraces - closeBraces;
+                while (typeStack.Count > 0 && braceDepth <= typeStack.Peek().Depth)
+                    typeStack.Pop();
+                continue;
+            }
+
+            // Track type context
+            bool pushedScope = false;
+            var typeMatch = TypeDeclRegex.Match(trimmed);
+            if (typeMatch.Success && openBraces > 0)
+            {
+                typeStack.Push((typeMatch.Groups[1].Value, braceDepth));
+                pushedScope = true;
+            }
+
+            if (!pushedScope)
+            {
+                var extMatch = ExtensionDeclRegex.Match(trimmed);
+                if (extMatch.Success && openBraces > 0)
+                {
+                    var qualifiedName = extMatch.Groups[1].Value;
+                    var dotIdx = qualifiedName.LastIndexOf('.');
+                    var typeName = dotIdx >= 0 ? qualifiedName.Substring(dotIdx + 1) : qualifiedName;
+                    typeStack.Push((typeName, braceDepth));
+                }
+            }
+
+            // Check for member-level @MainActor (only within a type context)
+            if (hasMainActor && typeStack.Count > 0 && !pushedScope)
+            {
+                // Check for multi-line signature
+                if ((PublicFuncRegex.IsMatch(trimmed) || PublicInitRegex.IsMatch(trimmed)) &&
+                    HasUnmatchedOpenParen(trimmed))
+                {
+                    continuation = (trimmed, true);
+                }
+                else
+                {
+                    ProcessActorIsolatedMember(trimmed, typeStack, result);
+                }
+            }
+
+            braceDepth += openBraces - closeBraces;
+
+            while (typeStack.Count > 0 && braceDepth <= typeStack.Peek().Depth)
+                typeStack.Pop();
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Processes a single line for actor-isolated member detection and adds the key to the result set.
+    /// </summary>
+    private static void ProcessActorIsolatedMember(
+        string line, Stack<(string Name, int Depth)> typeStack, HashSet<string> result)
+    {
+        var qualifiedType = string.Join(".", typeStack.Reverse().Select(t => t.Name));
+
+        var funcMatch = PublicFuncRegex.Match(line);
+        if (funcMatch.Success)
+        {
+            var printedName = ExtractPrintedName(line, funcMatch.Groups[1].Value);
+            result.Add($"{qualifiedType}.{printedName}");
+            return;
+        }
+
+        var varMatch = PublicVarRegex.Match(line);
+        if (varMatch.Success)
+        {
+            result.Add($"{qualifiedType}.{varMatch.Groups[1].Value}");
+            return;
+        }
+
+        if (PublicInitRegex.IsMatch(line))
+        {
+            var printedName = ExtractPrintedName(line, "init");
+            result.Add($"{qualifiedType}.{printedName}");
+        }
+    }
+
+    /// <summary>
+    /// Returns a set of "QualifiedType.printedName" keys for members declared as nonisolated.
+    /// These members opt out of their containing type's actor isolation.
+    /// Function keys use printed name format (e.g., "Outer.Inner.foo(_:bar:)") to distinguish overloads.
+    /// Property keys use "QualifiedType.propName".
+    /// Uses qualified type paths from the type stack to avoid nested-type name collisions.
+    /// Handles multi-line function signatures via continuation buffer.
+    /// </summary>
+    public static HashSet<string> GetNonisolatedMembers(string swiftInterfacePath)
+    {
+        var result = new HashSet<string>();
+
+        if (!File.Exists(swiftInterfacePath))
+            return result;
+
+        var lines = File.ReadAllLines(swiftInterfacePath);
+
+        var typeStack = new Stack<(string Name, int Depth)>();
+        int braceDepth = 0;
+        string? continuationLine = null;
+
+        foreach (var line in lines)
+        {
+            var trimmed = line.TrimStart();
+
+            // Handle multi-line signature continuation
+            if (continuationLine != null)
+            {
+                continuationLine += " " + trimmed;
+                if (!HasUnmatchedOpenParen(continuationLine))
+                {
+                    var completeLine = continuationLine;
+                    continuationLine = null;
+                    ProcessNonisolatedMember(completeLine, typeStack, result);
+                }
+                continue;
+            }
+
+            var (openBraces, closeBraces) = CountBraces(line);
+
+            // Track type context
+            bool pushedScope = false;
+            var typeMatch = TypeDeclRegex.Match(trimmed);
+            if (typeMatch.Success && openBraces > 0)
+            {
+                typeStack.Push((typeMatch.Groups[1].Value, braceDepth));
+                pushedScope = true;
+            }
+
+            if (!pushedScope)
+            {
+                var extMatch = ExtensionDeclRegex.Match(trimmed);
+                if (extMatch.Success && openBraces > 0)
+                {
+                    var qualifiedName = extMatch.Groups[1].Value;
+                    var dotIdx = qualifiedName.LastIndexOf('.');
+                    var typeName = dotIdx >= 0 ? qualifiedName.Substring(dotIdx + 1) : qualifiedName;
+                    typeStack.Push((typeName, braceDepth));
+                }
+            }
+
+            // Check for nonisolated members (only within a type context)
+            if (typeStack.Count > 0 && NonisolatedRegex.IsMatch(trimmed))
+            {
+                // Check for multi-line signature
+                if ((AnyFuncRegex.IsMatch(trimmed) || AnyInitRegex.IsMatch(trimmed)) &&
+                    HasUnmatchedOpenParen(trimmed))
+                {
+                    continuationLine = trimmed;
+                }
+                else
+                {
+                    ProcessNonisolatedMember(trimmed, typeStack, result);
+                }
+            }
+
+            braceDepth += openBraces - closeBraces;
+
+            while (typeStack.Count > 0 && braceDepth <= typeStack.Peek().Depth)
+                typeStack.Pop();
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Processes a single line for nonisolated member detection and adds the key to the result set.
+    /// </summary>
+    private static void ProcessNonisolatedMember(
+        string line, Stack<(string Name, int Depth)> typeStack, HashSet<string> result)
+    {
+        var qualifiedType = string.Join(".", typeStack.Reverse().Select(t => t.Name));
+
+        var funcMatch = AnyFuncRegex.Match(line);
+        if (funcMatch.Success)
+        {
+            var printedName = ExtractPrintedName(line, funcMatch.Groups[1].Value);
+            result.Add($"{qualifiedType}.{printedName}");
+            return;
+        }
+
+        if (AnyInitRegex.IsMatch(line))
+        {
+            var printedName = ExtractPrintedName(line, "init");
+            result.Add($"{qualifiedType}.{printedName}");
+            return;
+        }
+
+        // Try var/let match
+        var varMatch = Regex.Match(line, @"nonisolated\s+(?:public\s+|open\s+)?(?:final\s+)?(?:var|let)\s+(\w+)");
+        if (varMatch.Success)
+            result.Add($"{qualifiedType}.{varMatch.Groups[1].Value}");
+    }
+
+    // Regex for conformance extension: "extension Module.Type : Module.Protocol {"
+    private static readonly Regex ConformanceExtensionRegex = new(
+        @"extension\s+([\w.]+)\s*:\s*([\w.,\s]+)\s*\{",
+        RegexOptions.Compiled);
+
+    /// <summary>
+    /// Parses a .swiftinterface file and returns a dictionary mapping protocol names
+    /// to their conforming type names, as declared in extension conformance blocks.
+    /// Only includes conformances from empty extension bodies (the conforming type
+    /// adds no new members — a signal of a marker protocol conformance).
+    /// Keys are unqualified protocol names (e.g., "ConstraintOffsetTarget").
+    /// Values are lists of fully-qualified Swift type names (e.g., "Swift.Int").
+    /// </summary>
+    public static Dictionary<string, List<string>> GetMarkerProtocolConformances(string swiftInterfacePath)
+    {
+        var result = new Dictionary<string, List<string>>();
+
+        if (!File.Exists(swiftInterfacePath))
+            return result;
+
+        var lines = File.ReadAllLines(swiftInterfacePath);
+
+        // Pass 1: Collect conformances from "extension Type : Protocol { }" blocks
+        // We look for extensions with an empty body (open+close on same line or next line is })
+        for (int lineIdx = 0; lineIdx < lines.Length; lineIdx++)
+        {
+            var trimmed = lines[lineIdx].TrimStart();
+            var match = ConformanceExtensionRegex.Match(trimmed);
+            if (!match.Success)
+                continue;
+
+            var conformingType = match.Groups[1].Value;
+            var protocolList = match.Groups[2].Value;
+
+            // Check for empty body: either "{ }" on same line or next non-empty line is "}"
+            var (openBraces, closeBraces) = CountBraces(lines[lineIdx]);
+            bool isEmptyBody = openBraces > 0 && closeBraces > 0; // "{ }" on same line
+
+            if (!isEmptyBody && openBraces > 0)
+            {
+                // Check if next non-whitespace line is "}"
+                for (int nextIdx = lineIdx + 1; nextIdx < lines.Length; nextIdx++)
+                {
+                    var nextTrimmed = lines[nextIdx].TrimStart();
+                    if (string.IsNullOrWhiteSpace(nextTrimmed))
+                        continue;
+                    if (nextTrimmed == "}")
+                        isEmptyBody = true;
+                    break;
+                }
+            }
+
+            if (!isEmptyBody)
+                continue;
+
+            // Parse protocol list (handles "Proto1, Proto2")
+            var protocols = protocolList.Split(',')
+                .Select(p => p.Trim())
+                .Where(p => !string.IsNullOrEmpty(p));
+
+            foreach (var proto in protocols)
+            {
+                // Use unqualified protocol name as key
+                var dotIdx = proto.LastIndexOf('.');
+                var unqualifiedName = dotIdx >= 0 ? proto.Substring(dotIdx + 1) : proto;
+
+                if (!result.ContainsKey(unqualifiedName))
+                    result[unqualifiedName] = new List<string>();
+
+                if (!result[unqualifiedName].Contains(conformingType))
+                    result[unqualifiedName].Add(conformingType);
+            }
+        }
+
+        return result;
+    }
+
     /// <summary>
     /// Parses a .swiftinterface file and returns a set of member keys that are
     /// declared as internal. Keys are formatted as "TypeName.printedName"

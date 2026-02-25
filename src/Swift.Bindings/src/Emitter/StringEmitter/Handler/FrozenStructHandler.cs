@@ -124,6 +124,8 @@ namespace BindingsGeneration
                     conformanceValidator);
 
                 XmlDocCommentEmitter.EmitDocComment(csWriter, structDecl);
+                if (structDecl.Name.StartsWith("_"))
+                    csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
                 if (isProjectedAsClass)
                 {
                     var classDeclaration = $"public partial class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";

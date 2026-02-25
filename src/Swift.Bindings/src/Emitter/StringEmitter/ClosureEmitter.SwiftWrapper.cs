@@ -597,7 +597,12 @@ public static partial class ClosureEmitter
         var callSuffix = methodDecl.IsConstructor ? ")" : ")";
         var tryPrefix = methodDecl.Throws ? "try " : "";
 
-        // Emit the wrapper
+        // Emit the wrapper — add @MainActor if the parent type is actor-isolated and method is not nonisolated
+        bool needsMainActor = (parentDecl?.IsMainActorIsolated == true
+            || methodDecl.IsActorIsolated)
+            && !methodDecl.IsNonisolated;
+        if (needsMainActor)
+            swiftWriter.WriteLine("@MainActor");
         swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
         swiftWriter.WriteLine($"public func {NameProvider.GetPInvokeName(methodDecl)}(");
         swiftWriter.WriteLine($"    {paramsStr}");

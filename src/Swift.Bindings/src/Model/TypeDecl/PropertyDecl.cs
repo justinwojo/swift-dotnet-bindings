@@ -46,5 +46,15 @@ namespace BindingsGeneration
         /// base class property exists in the emitted C# hierarchy (not just the parsed model).
         /// </summary>
         public bool WasEmitted { get; set; } = false;
+
+        /// <summary>
+        /// Whether this property is @MainActor-isolated (individually annotated, not inherited from type).
+        /// </summary>
+        public bool IsActorIsolated { get; set; } = false;
+
+        /// <summary>
+        /// Whether this property is declared nonisolated (opts out of containing type's isolation).
+        /// </summary>
+        public bool IsNonisolated { get; set; } = false;
     }
 }

@@ -126,6 +126,8 @@ namespace BindingsGeneration
                     env.TypeDatabase,
                     conformanceValidator);
                 XmlDocCommentEmitter.EmitDocComment(csWriter, enumDecl);
+                if (enumDecl.Name.StartsWith("_"))
+                    csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
                 var classDeclaration = $"public partial class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
                 if (!string.IsNullOrEmpty(whereClause))
                     classDeclaration += $" {whereClause}";

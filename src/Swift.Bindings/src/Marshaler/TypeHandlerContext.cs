@@ -25,7 +25,8 @@ namespace BindingsGeneration
         PInvokeHelperContext? PInvokeHelperContext,
         List<PInvokeHelperContext> DeferredPInvokeHelperContexts,
         Dictionary<string, string>? PropertyRenames,
-        SortedDictionary<string, List<string>>? CompositionCollector = null)
+        SortedDictionary<string, List<string>>? CompositionCollector = null,
+        Dictionary<string, List<string>>? MarkerProtocolConformances = null)
     {
         public static TypeHandlerContext Empty => new(null, new(), null);
     }
