@@ -52,6 +52,18 @@ public class ProtocolExtensionMethodDecl
     public required string PrintedName { get; set; }
 
     /// <summary>
+    /// Whether this property has a setter (var x: T { get set }).
+    /// Only meaningful when IsProperty is true.
+    /// </summary>
+    public bool HasSetter { get; set; }
+
+    /// <summary>
+    /// Whether the member is annotated with @available(*, deprecated, ...).
+    /// Used by ForeignTypeExtensionEmitter to skip deprecated members.
+    /// </summary>
+    public bool IsDeprecated { get; set; }
+
+    /// <summary>
     /// Where constraints from the extension header (e.g., "Self : SomeClass").
     /// Empty for unconstrained extensions. Used to filter out methods that
     /// don't apply to a given conforming type.

@@ -188,6 +188,10 @@ namespace BindingsGeneration
                 // Emit protocol extension method Swift wrappers (accumulated during InjectExtensionMethods)
                 ProtocolExtensionEmitter.EmitSwiftWrappers(swiftWriter);
 
+                // Emit foreign type extension Swift wrappers and C# extension classes
+                ForeignTypeExtensionEmitter.EmitSwiftWrappers(swiftWriter);
+                ForeignTypeExtensionEmitter.EmitCSharpExtensionClasses(csWriter, env.TypeDatabase, moduleDecl.Name);
+
                 // Emit composition interfaces (e.g., IAgeableAndNameable : IAgeable, INameable)
                 // These are collected during method/property emission when multi-protocol existentials are encountered.
                 // SortedDictionary ensures deterministic emission order regardless of encounter order.

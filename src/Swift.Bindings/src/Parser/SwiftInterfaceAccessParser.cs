@@ -917,6 +917,326 @@ public static class SwiftInterfaceAccessParser
         }
     }
 
+    // Regex for @available(*, deprecated, ...) annotation
+    private static readonly Regex DeprecatedAnnotationRegex = new(
+        @"@available\(\s*\*\s*,\s*deprecated",
+        RegexOptions.Compiled);
+
+    /// <summary>
+    /// Parses a .swiftinterface file and returns extension members on foreign types
+    /// (types not defined in this module and not protocols of this module).
+    /// Dictionary key is the fully-qualified foreign type name (e.g., "UIKit.UIView").
+    ///
+    /// Foreign extensions are detected when:
+    /// 1. The extended type has a module qualifier different from the current module
+    /// 2. The extended type is NOT in protocolNames (not a protocol extension)
+    /// 3. The extended type is NOT in moduleTypeNames (not an owned type)
+    /// </summary>
+    public static Dictionary<string, List<ProtocolExtensionMethodDecl>> GetForeignTypeExtensionMembers(
+        string swiftInterfacePath,
+        HashSet<string> protocolNames,
+        HashSet<string> moduleTypeNames,
+        string moduleName)
+    {
+        var result = new Dictionary<string, List<ProtocolExtensionMethodDecl>>();
+
+        if (!File.Exists(swiftInterfacePath))
+            return result;
+
+        var lines = File.ReadAllLines(swiftInterfacePath);
+
+        var typeStack = new Stack<(string Name, int Depth)>();
+        int braceDepth = 0;
+        string? currentForeignExtension = null; // fully-qualified name (e.g., "UIKit.UIView")
+        int foreignExtensionDepth = -1;
+        List<string> currentWhereConstraints = new();
+        bool pendingMainActor = false;
+        bool pendingDeprecated = false;
+        string? continuationLine = null;
+        bool continuationMainActor = false;
+        bool continuationDeprecated = false;
+        // Track property setter scope: when inside a var's brace block, look for "set" or "nonmutating set"
+        string? pendingPropertyLine = null;
+        bool pendingPropertyMainActor = false;
+        bool pendingPropertyDeprecated = false;
+        int propertyBraceDepth = -1;
+        bool propertyHasSetter = false;
+
+        foreach (var line in lines)
+        {
+            var trimmed = line.TrimStart();
+
+            // Handle multi-line signature continuation
+            if (continuationLine != null)
+            {
+                continuationLine += " " + trimmed;
+                if (!HasUnmatchedOpenParen(continuationLine))
+                {
+                    var completeLine = continuationLine;
+                    var wasMainActor = continuationMainActor;
+                    var wasDeprecated = continuationDeprecated;
+                    continuationLine = null;
+                    continuationMainActor = false;
+                    continuationDeprecated = false;
+                    if (currentForeignExtension != null)
+                    {
+                        ProcessForeignExtensionMember(completeLine, currentForeignExtension,
+                            currentWhereConstraints, wasMainActor, wasDeprecated, false, result);
+                    }
+                }
+                continue;
+            }
+
+            // Skip #if / #endif lines
+            if (trimmed.StartsWith("#if ") || trimmed.StartsWith("#endif") || trimmed.StartsWith("#else"))
+                continue;
+
+            var (openBraces, closeBraces) = CountBraces(line);
+
+            // Check for @MainActor and @available(*, deprecated) annotations
+            bool hasMainActor = pendingMainActor || MainActorAnnotationRegex.IsMatch(trimmed);
+            bool hasDeprecated = pendingDeprecated || DeprecatedAnnotationRegex.IsMatch(trimmed);
+            pendingMainActor = false;
+            pendingDeprecated = false;
+
+            // Pending annotation (attribute on its own line, no declaration)
+            if ((hasMainActor || hasDeprecated) && !TypeDeclRegex.IsMatch(trimmed) &&
+                !ExtensionFuncRegex.IsMatch(trimmed) && !ExtensionVarRegex.IsMatch(trimmed) &&
+                openBraces == 0)
+            {
+                pendingMainActor = hasMainActor;
+                pendingDeprecated = hasDeprecated;
+                braceDepth += openBraces - closeBraces;
+                while (typeStack.Count > 0 && braceDepth <= typeStack.Peek().Depth)
+                    typeStack.Pop();
+                continue;
+            }
+
+            // Handle property setter detection: track "set" inside property brace block
+            if (pendingPropertyLine != null)
+            {
+                if (trimmed == "set" || trimmed == "nonmutating set" ||
+                    trimmed.StartsWith("set ") || trimmed.StartsWith("nonmutating set") ||
+                    trimmed == "@objc set" || trimmed.StartsWith("@objc set"))
+                {
+                    propertyHasSetter = true;
+                }
+
+                // Check if property brace block is closing
+                var newDepth = braceDepth + openBraces - closeBraces;
+                if (newDepth <= propertyBraceDepth)
+                {
+                    // Property brace block ended — emit the property
+                    ProcessForeignExtensionMember(pendingPropertyLine, currentForeignExtension!,
+                        currentWhereConstraints, pendingPropertyMainActor, pendingPropertyDeprecated,
+                        propertyHasSetter, result);
+                    pendingPropertyLine = null;
+                    propertyBraceDepth = -1;
+                    propertyHasSetter = false;
+                }
+
+                // Still inside property brace block — update depth and continue
+                braceDepth += openBraces - closeBraces;
+                while (typeStack.Count > 0 && braceDepth <= typeStack.Peek().Depth)
+                    typeStack.Pop();
+                if (currentForeignExtension != null && braceDepth <= foreignExtensionDepth)
+                {
+                    currentForeignExtension = null;
+                    foreignExtensionDepth = -1;
+                    currentWhereConstraints = new();
+                }
+                continue;
+            }
+
+            // Check for extension declarations
+            bool pushedScope = false;
+            var extMatch = ExtensionDeclRegex.Match(trimmed);
+            if (extMatch.Success && openBraces > 0)
+            {
+                var qualifiedName = extMatch.Groups[1].Value;
+                var dotIdx = qualifiedName.LastIndexOf('.');
+                var unqualifiedName = dotIdx >= 0 ? qualifiedName.Substring(dotIdx + 1) : qualifiedName;
+                typeStack.Push((unqualifiedName, braceDepth));
+                pushedScope = true;
+
+                // Check if this is a foreign type extension:
+                // 1. Has module qualifier AND module != current module
+                // 2. NOT a protocol of this module
+                // 3. NOT a type of this module (unqualified fallback)
+                bool isForeign = false;
+                if (dotIdx >= 0)
+                {
+                    // Qualified name — check if module differs from current module
+                    var modulePrefix = qualifiedName.Substring(0, dotIdx);
+                    isForeign = !string.Equals(modulePrefix, moduleName, StringComparison.Ordinal);
+                }
+                else
+                {
+                    // Unqualified — foreign if not in this module's types or protocols
+                    isForeign = !moduleTypeNames.Contains(unqualifiedName) &&
+                                !protocolNames.Contains(unqualifiedName);
+                }
+
+                // Exclude protocol extensions (already handled by GetProtocolExtensionMethods)
+                if (isForeign && !protocolNames.Contains(unqualifiedName))
+                {
+                    currentForeignExtension = qualifiedName;
+                    foreignExtensionDepth = braceDepth;
+                    currentWhereConstraints = ParseWhereConstraints(trimmed);
+                }
+            }
+
+            // Track type declarations (class/struct/enum/actor/protocol)
+            if (!pushedScope)
+            {
+                var typeMatch = TypeDeclRegex.Match(trimmed);
+                if (typeMatch.Success && openBraces > 0)
+                {
+                    typeStack.Push((typeMatch.Groups[1].Value, braceDepth));
+                    pushedScope = true;
+                }
+            }
+
+            // If inside a foreign type extension, look for func/var declarations
+            if (!pushedScope && currentForeignExtension != null)
+            {
+                // Check for func declarations
+                if (ExtensionFuncRegex.IsMatch(trimmed))
+                {
+                    if (HasUnmatchedOpenParen(trimmed))
+                    {
+                        continuationLine = trimmed;
+                        continuationMainActor = hasMainActor;
+                        continuationDeprecated = hasDeprecated;
+                    }
+                    else
+                    {
+                        ProcessForeignExtensionMember(trimmed, currentForeignExtension,
+                            currentWhereConstraints, hasMainActor, hasDeprecated, false, result);
+                    }
+                }
+                // Check for var declarations — need to track property brace block for setter detection
+                else if (ExtensionVarRegex.IsMatch(trimmed))
+                {
+                    if (openBraces > 0)
+                    {
+                        // Property with brace block on same line — defer to detect setter
+                        pendingPropertyLine = trimmed;
+                        pendingPropertyMainActor = hasMainActor;
+                        pendingPropertyDeprecated = hasDeprecated;
+                        propertyBraceDepth = braceDepth;
+                        propertyHasSetter = false;
+                        // Check for inline "{ get set }" on same line
+                        if (trimmed.Contains(" set") && (trimmed.Contains("{ get set }") ||
+                            trimmed.Contains("{get set}") || trimmed.Contains("{ get set}")))
+                        {
+                            propertyHasSetter = true;
+                        }
+                        // Check if braces close on same line (single-line property like "var x: T { get }")
+                        if (closeBraces >= openBraces)
+                        {
+                            ProcessForeignExtensionMember(trimmed, currentForeignExtension,
+                                currentWhereConstraints, hasMainActor, hasDeprecated,
+                                propertyHasSetter, result);
+                            pendingPropertyLine = null;
+                            propertyBraceDepth = -1;
+                            propertyHasSetter = false;
+                        }
+                    }
+                    else
+                    {
+                        // No braces — computed property without inline body
+                        ProcessForeignExtensionMember(trimmed, currentForeignExtension,
+                            currentWhereConstraints, hasMainActor, hasDeprecated, false, result);
+                    }
+                }
+            }
+
+            braceDepth += openBraces - closeBraces;
+
+            // Pop scopes and check if we've left the foreign extension
+            while (typeStack.Count > 0 && braceDepth <= typeStack.Peek().Depth)
+            {
+                typeStack.Pop();
+            }
+            if (currentForeignExtension != null && braceDepth <= foreignExtensionDepth)
+            {
+                currentForeignExtension = null;
+                foreignExtensionDepth = -1;
+                currentWhereConstraints = new();
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Processes a single func/var line within a foreign type extension block.
+    /// Creates a ProtocolExtensionMethodDecl (reused for foreign extensions too).
+    /// </summary>
+    private static void ProcessForeignExtensionMember(
+        string line, string foreignTypeQualifiedName,
+        List<string> whereConstraints, bool isMainActorIsolated, bool isDeprecated,
+        bool hasSetter,
+        Dictionary<string, List<ProtocolExtensionMethodDecl>> result)
+    {
+        // Check for func
+        var funcMatch = ExtensionFuncRegex.Match(line);
+        if (funcMatch.Success)
+        {
+            var methodName = funcMatch.Groups[1].Value;
+            var printedName = ExtractPrintedName(line, methodName);
+            bool isStatic = line.Contains("static func ");
+            bool returnsSelf = DetectSelfReturn(line);
+
+            var decl = new ProtocolExtensionMethodDecl
+            {
+                ProtocolQualifiedName = foreignTypeQualifiedName,
+                MethodName = methodName,
+                RawSignature = line,
+                PrintedName = printedName,
+                ReturnsSelf = returnsSelf,
+                IsMainActorIsolated = isMainActorIsolated || MainActorAnnotationRegex.IsMatch(line),
+                IsStatic = isStatic,
+                IsProperty = false,
+                IsDeprecated = isDeprecated || DeprecatedAnnotationRegex.IsMatch(line),
+                WhereConstraints = new List<string>(whereConstraints)
+            };
+
+            if (!result.ContainsKey(foreignTypeQualifiedName))
+                result[foreignTypeQualifiedName] = new List<ProtocolExtensionMethodDecl>();
+            result[foreignTypeQualifiedName].Add(decl);
+            return;
+        }
+
+        // Check for var
+        var varMatch = ExtensionVarRegex.Match(line);
+        if (varMatch.Success)
+        {
+            var propertyName = varMatch.Groups[1].Value;
+            bool isStatic = line.Contains("static var ") || line.Contains("static let ");
+
+            var decl = new ProtocolExtensionMethodDecl
+            {
+                ProtocolQualifiedName = foreignTypeQualifiedName,
+                MethodName = propertyName,
+                RawSignature = line,
+                PrintedName = propertyName,
+                ReturnsSelf = false,
+                IsMainActorIsolated = isMainActorIsolated || MainActorAnnotationRegex.IsMatch(line),
+                IsStatic = isStatic,
+                IsProperty = true,
+                IsDeprecated = isDeprecated || DeprecatedAnnotationRegex.IsMatch(line),
+                HasSetter = hasSetter,
+                WhereConstraints = new List<string>(whereConstraints)
+            };
+
+            if (!result.ContainsKey(foreignTypeQualifiedName))
+                result[foreignTypeQualifiedName] = new List<ProtocolExtensionMethodDecl>();
+            result[foreignTypeQualifiedName].Add(decl);
+        }
+    }
+
     /// <summary>
     /// Detects whether a function signature returns Self.
     /// Looks for "-> Self" at the end of the signature (after the last ")").

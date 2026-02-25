@@ -752,18 +752,33 @@ namespace BindingsGeneration
                 // Must happen here, NOT in ModuleHandler.Emit(), because InjectExtensionMethods
                 // populates static state that ModuleHandler.Emit() later reads via EmitSwiftWrappers().
                 ProtocolExtensionEmitter.ResetForModule();
+                ForeignTypeExtensionEmitter.ResetForModule();
+
+                // Parse protocol names first — needed by both protocol and foreign extension paths
+                var protocolNames = !string.IsNullOrWhiteSpace(swiftInterfacePath) && File.Exists(swiftInterfacePath)
+                    ? SwiftInterfaceAccessParser.GetProtocolNames(swiftInterfacePath)
+                    : new HashSet<string>();
 
                 // Parse protocol extension methods from swiftinterface and inject onto conforming types
+                if (protocolNames.Count > 0)
+                {
+                    var extensionMethods = SwiftInterfaceAccessParser.GetProtocolExtensionMethods(swiftInterfacePath!, protocolNames);
+                    if (extensionMethods.Count > 0)
+                    {
+                        ProtocolExtensionEmitter.InjectExtensionMethods(decl, extensionMethods, typeDatabase, logger);
+                    }
+                }
+
+                // Parse foreign type extension members and process them
                 if (!string.IsNullOrWhiteSpace(swiftInterfacePath) && File.Exists(swiftInterfacePath))
                 {
-                    var protocolNames = SwiftInterfaceAccessParser.GetProtocolNames(swiftInterfacePath);
-                    if (protocolNames.Count > 0)
+                    var moduleTypeNames = new HashSet<string>(decl.Types.Select(t => t.Name));
+                    var foreignExtensions = SwiftInterfaceAccessParser.GetForeignTypeExtensionMembers(
+                        swiftInterfacePath, protocolNames, moduleTypeNames, moduleName);
+                    if (foreignExtensions.Count > 0)
                     {
-                        var extensionMethods = SwiftInterfaceAccessParser.GetProtocolExtensionMethods(swiftInterfacePath, protocolNames);
-                        if (extensionMethods.Count > 0)
-                        {
-                            ProtocolExtensionEmitter.InjectExtensionMethods(decl, extensionMethods, typeDatabase, logger);
-                        }
+                        ForeignTypeExtensionEmitter.ProcessForeignTypeExtensions(
+                            decl, foreignExtensions, typeDatabase, logger);
                     }
                 }
 

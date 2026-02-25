@@ -519,7 +519,7 @@ public static class ProtocolExtensionEmitter
     /// Checks if a raw swiftinterface signature represents an async method.
     /// Detects "async" keyword after the closing paren and before "->"/"{".
     /// </summary>
-    private static bool IsAsyncSignature(string rawSignature)
+    internal static bool IsAsyncSignature(string rawSignature)
     {
         // Find the closing paren of the parameter list
         int depth = 0;
@@ -558,7 +558,7 @@ public static class ProtocolExtensionEmitter
     /// Checks if a raw swiftinterface signature represents a throwing method.
     /// Detects "throws" keyword after the closing paren and before "->"/"{".
     /// </summary>
-    private static bool IsThrowingSignature(string rawSignature)
+    internal static bool IsThrowingSignature(string rawSignature)
     {
         // Find the closing paren of the parameter list
         int depth = 0;
@@ -596,7 +596,7 @@ public static class ProtocolExtensionEmitter
     /// <summary>
     /// Checks if a type name represents a Swift primitive type.
     /// </summary>
-    private static bool IsSwiftPrimitive(string typeName)
+    internal static bool IsSwiftPrimitive(string typeName)
     {
         return typeName switch
         {
