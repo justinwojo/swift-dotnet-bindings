@@ -46,8 +46,11 @@ namespace BindingsGeneration
         /// Emits a C# module based on the module declaration.
         /// </summary>
         /// <param name="moduleDecl">The module declaration.</param>
-        public void EmitModule(ModuleDecl moduleDecl)
+        /// <param name="emissionContext">Per-module emission context.</param>
+        public void EmitModule(ModuleDecl moduleDecl, ModuleEmissionContext? emissionContext = null)
         {
+            emissionContext ??= ModuleEmissionContext.Default;
+
             if (_conductor.TryGetModuleHandler(moduleDecl, out var moduleHandler))
             {
                 var csStringWriter = new StringWriter();
@@ -61,7 +64,7 @@ namespace BindingsGeneration
                 try
                 {
                     var env = moduleHandler.Marshal(moduleDecl, _typeDatabase);
-                    var initialContext = new TypeHandlerContext(null, new(), null, MarkerProtocolConformances: _markerProtocolConformances);
+                    var initialContext = new TypeHandlerContext(null, new(), null, MarkerProtocolConformances: _markerProtocolConformances, EmissionContext: emissionContext);
                     moduleHandler.Emit(csWriter, swiftWriter, env, _conductor, initialContext);
                     collectedViews = SwiftUIBridgeCollector.GetCollectedViews();
                 }

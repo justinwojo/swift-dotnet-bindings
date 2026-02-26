@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using Microsoft.Extensions.Logging;
+using static BindingsGeneration.ExtensionMarshallingHelper;
 
 namespace BindingsGeneration;
 
@@ -16,82 +17,7 @@ namespace BindingsGeneration;
 /// </summary>
 public static class ForeignTypeExtensionEmitter
 {
-    /// <summary>
-    /// Accumulated Swift wrapper source lines for the current module.
-    /// </summary>
-    private static readonly List<string> _swiftWrapperLines = new();
-
-    /// <summary>
-    /// Tracks emitted Swift wrapper symbols to prevent duplicate emission.
-    /// </summary>
-    private static readonly HashSet<string> _emittedSymbols = new();
-
-    /// <summary>
-    /// Count of emitted extension members for logging.
-    /// </summary>
-    private static int _emittedCount;
-
-    /// <summary>
-    /// Collected extension class info grouped by foreign type qualified name.
-    /// Key: foreign type qualified name (e.g., "UIKit.UIView")
-    /// Value: list of C# member emission actions
-    /// </summary>
-    private static readonly Dictionary<string, ExtensionClassInfo> _extensionClasses = new();
-
-    /// <summary>
-    /// Foreign modules that need to be imported in the Swift wrapper file.
-    /// </summary>
-    private static readonly HashSet<string> _neededImports = new();
-
-    /// <summary>
-    /// Info for a single C# extension class.
-    /// </summary>
-    private class ExtensionClassInfo
-    {
-        public string ForeignTypeQualifiedName { get; init; } = "";
-        public string ModuleName { get; init; } = "";
-        public List<ExtensionMemberInfo> Members { get; } = new();
-    }
-
-    /// <summary>
-    /// Info for a single extension member (method or property getter/setter).
-    /// </summary>
-    private class ExtensionMemberInfo
-    {
-        public required string SymbolName { get; init; }
-        public required string CSharpMethodName { get; init; }
-        public required ProtocolExtensionMethodDecl ExtMethod { get; init; }
-        public required List<(string label, TypeSpec typeSpec, string swiftType, bool hasDefault)> Parameters { get; init; }
-        public TypeSpec? ReturnTypeSpec { get; init; }
-        public required string ReturnTypeName { get; init; }
-        public required ReturnKind ReturnCategory { get; init; }
-        public bool IsPropertyGetter { get; init; }
-        public bool IsPropertySetter { get; init; }
-    }
-
-    /// <summary>
-    /// Categorizes return types for correct C# marshalling.
-    /// </summary>
-    private enum ReturnKind
-    {
-        Void,
-        Primitive,
-        ObjCClass,
-        SwiftClass,
-        NonFrozenStruct,
-    }
-
-    /// <summary>
-    /// Resets per-module state. Called from Program.cs before processing.
-    /// </summary>
-    public static void ResetForModule()
-    {
-        _swiftWrapperLines.Clear();
-        _emittedSymbols.Clear();
-        _emittedCount = 0;
-        _extensionClasses.Clear();
-        _neededImports.Clear();
-    }
+    // Note: ForeignExtensionClassInfo and ForeignExtensionMemberInfo types moved to ModuleEmissionContext.cs.
 
     /// <summary>
     /// Processes foreign type extensions: applies gates, generates Swift wrappers,
@@ -101,8 +27,10 @@ public static class ForeignTypeExtensionEmitter
         ModuleDecl moduleDecl,
         Dictionary<string, List<ProtocolExtensionMethodDecl>> foreignExtensions,
         ITypeDatabase typeDatabase,
-        ILogger logger)
+        ILogger logger,
+        ModuleEmissionContext? ctx = null)
     {
+        ctx ??= ModuleEmissionContext.Default;
         if (foreignExtensions.Count == 0)
             return;
 
@@ -119,18 +47,18 @@ public static class ForeignTypeExtensionEmitter
             var dotIdx = foreignTypeQualifiedName.IndexOf('.');
             if (dotIdx > 0)
             {
-                _neededImports.Add(foreignTypeQualifiedName.Substring(0, dotIdx));
+                ctx.AddForeignExtNeededImport(foreignTypeQualifiedName.Substring(0, dotIdx));
             }
 
             foreach (var extMethod in members)
             {
-                TryProcessMember(moduleDecl, foreignTypeQualifiedName, extMethod, typeDatabase, logger);
+                TryProcessMember(moduleDecl, foreignTypeQualifiedName, extMethod, typeDatabase, logger, ctx);
             }
         }
 
-        if (_emittedCount > 0)
+        if (ctx.ForeignExtEmittedCount > 0)
         {
-            logger.LogInformation("Emitted {Count} foreign type extension members", _emittedCount);
+            logger.LogInformation("Emitted {Count} foreign type extension members", ctx.ForeignExtEmittedCount);
         }
     }
 
@@ -138,23 +66,21 @@ public static class ForeignTypeExtensionEmitter
     /// Emits accumulated Swift wrapper functions to the SwiftWriter.
     /// Called from ModuleHandler.Emit() after all types have been processed.
     /// </summary>
-    public static void EmitSwiftWrappers(SwiftWriter swiftWriter)
+    public static void EmitSwiftWrappers(SwiftWriter swiftWriter, ModuleEmissionContext? ctx = null)
     {
-        if (_swiftWrapperLines.Count == 0)
+        ctx ??= ModuleEmissionContext.Default;
+        if (ctx.ForeignExtSwiftWrapperLines.Count == 0)
             return;
 
         // Emit any additional imports needed for foreign type modules
-        // These go before the wrappers but after the module's own imports.
-        // The SwiftWriter is already past the import section, but that's OK —
-        // Swift allows import statements anywhere at the top level.
-        foreach (var import in _neededImports.OrderBy(s => s))
+        foreach (var import in ctx.ForeignExtNeededImports.OrderBy(s => s))
         {
             swiftWriter.WriteLine($"import {import}");
         }
 
         swiftWriter.WriteLine();
         swiftWriter.WriteLine("// --- Foreign type extension method wrappers ---");
-        foreach (var line in _swiftWrapperLines)
+        foreach (var line in ctx.ForeignExtSwiftWrapperLines)
         {
             swiftWriter.WriteLine(line);
         }
@@ -164,12 +90,13 @@ public static class ForeignTypeExtensionEmitter
     /// Emits C# static extension classes for all processed foreign types.
     /// Called from ModuleHandler.Emit() after types have been emitted.
     /// </summary>
-    public static void EmitCSharpExtensionClasses(CSharpWriter csWriter, ITypeDatabase typeDatabase, string moduleName)
+    public static void EmitCSharpExtensionClasses(CSharpWriter csWriter, ITypeDatabase typeDatabase, string moduleName, ModuleEmissionContext? ctx = null)
     {
-        if (_extensionClasses.Count == 0)
+        ctx ??= ModuleEmissionContext.Default;
+        if (ctx.ForeignExtClasses.Count == 0)
             return;
 
-        foreach (var (foreignTypeQualifiedName, classInfo) in _extensionClasses.OrderBy(kv => kv.Key))
+        foreach (var (foreignTypeQualifiedName, classInfo) in ctx.ForeignExtClasses.OrderBy(kv => kv.Key))
         {
             EmitExtensionClass(csWriter, classInfo, typeDatabase, moduleName);
         }
@@ -184,7 +111,8 @@ public static class ForeignTypeExtensionEmitter
         string foreignTypeQualifiedName,
         ProtocolExtensionMethodDecl extMethod,
         ITypeDatabase typeDatabase,
-        ILogger logger)
+        ILogger logger,
+        ModuleEmissionContext ctx)
     {
         // Gate: skip constrained extensions
         if (extMethod.WhereConstraints.Count > 0)
@@ -208,11 +136,11 @@ public static class ForeignTypeExtensionEmitter
 
         if (extMethod.IsProperty)
         {
-            TryProcessProperty(moduleDecl, foreignTypeQualifiedName, extMethod, typeDatabase, logger);
+            TryProcessProperty(moduleDecl, foreignTypeQualifiedName, extMethod, typeDatabase, logger, ctx);
         }
         else
         {
-            TryProcessMethod(moduleDecl, foreignTypeQualifiedName, extMethod, typeDatabase, logger);
+            TryProcessMethod(moduleDecl, foreignTypeQualifiedName, extMethod, typeDatabase, logger, ctx);
         }
     }
 
@@ -224,7 +152,8 @@ public static class ForeignTypeExtensionEmitter
         string foreignTypeQualifiedName,
         ProtocolExtensionMethodDecl extMethod,
         ITypeDatabase typeDatabase,
-        ILogger logger)
+        ILogger logger,
+        ModuleEmissionContext ctx)
     {
         // Parse property type from raw signature: "public var name: Type { get [set] }"
         var colonIdx = extMethod.RawSignature.IndexOf($"{extMethod.MethodName}:", StringComparison.Ordinal);
@@ -269,16 +198,16 @@ public static class ForeignTypeExtensionEmitter
         var flatTypeName = FlattenQualifiedName(foreignTypeQualifiedName);
         var getterSymbol = $"SBW_{flatTypeName}_get_{extMethod.MethodName}";
 
-        if (!_emittedSymbols.Add(getterSymbol))
+        if (!ctx.TryAddForeignExtSymbol(getterSymbol))
             return;
 
         // Emit Swift getter wrapper
-        EmitSwiftPropertyGetter(foreignTypeQualifiedName, extMethod, propertyTypeSpec, getterSymbol, returnCategory.Value);
+        EmitSwiftPropertyGetter(foreignTypeQualifiedName, extMethod, propertyTypeSpec, getterSymbol, returnCategory.Value, ctx);
 
         // Collect C# getter info
         var csharpMethodName = $"Get{ToPascalCase(extMethod.MethodName)}";
-        var classInfo = GetOrCreateClassInfo(foreignTypeQualifiedName, moduleDecl.Name);
-        classInfo.Members.Add(new ExtensionMemberInfo
+        var classInfo = GetOrCreateClassInfo(foreignTypeQualifiedName, moduleDecl.Name, ctx);
+        classInfo.Members.Add(new ForeignExtensionMemberInfo
         {
             SymbolName = getterSymbol,
             CSharpMethodName = csharpMethodName,
@@ -289,20 +218,19 @@ public static class ForeignTypeExtensionEmitter
             ReturnCategory = returnCategory.Value,
             IsPropertyGetter = true,
         });
-        _emittedCount++;
+        ctx.ForeignExtEmittedCount++;
 
         // Emit setter if applicable (only for primitives)
         if (extMethod.HasSetter)
         {
-            var setterReturnCategory = ClassifyParameterForSetter(propertyTypeSpec, typeDatabase);
-            if (setterReturnCategory != null)
+            if (IsPrimitiveSetter(propertyTypeSpec, typeDatabase))
             {
                 var setterSymbol = $"SBW_{flatTypeName}_set_{extMethod.MethodName}";
-                if (_emittedSymbols.Add(setterSymbol))
+                if (ctx.TryAddForeignExtSymbol(setterSymbol))
                 {
-                    EmitSwiftPropertySetter(foreignTypeQualifiedName, extMethod, propertyTypeSpec, setterSymbol, afterColon);
+                    EmitSwiftPropertySetter(foreignTypeQualifiedName, extMethod, propertyTypeSpec, setterSymbol, afterColon, ctx);
 
-                    classInfo.Members.Add(new ExtensionMemberInfo
+                    classInfo.Members.Add(new ForeignExtensionMemberInfo
                     {
                         SymbolName = setterSymbol,
                         CSharpMethodName = $"Set{ToPascalCase(extMethod.MethodName)}",
@@ -313,7 +241,7 @@ public static class ForeignTypeExtensionEmitter
                         ReturnCategory = ReturnKind.Void,
                         IsPropertySetter = true,
                     });
-                    _emittedCount++;
+                    ctx.ForeignExtEmittedCount++;
                 }
             }
         }
@@ -327,7 +255,8 @@ public static class ForeignTypeExtensionEmitter
         string foreignTypeQualifiedName,
         ProtocolExtensionMethodDecl extMethod,
         ITypeDatabase typeDatabase,
-        ILogger logger)
+        ILogger logger,
+        ModuleEmissionContext ctx)
     {
         // Gate: skip generic methods
         if (extMethod.RawSignature.Contains($"func {extMethod.MethodName}<"))
@@ -387,16 +316,16 @@ public static class ForeignTypeExtensionEmitter
         var flatTypeName = FlattenQualifiedName(foreignTypeQualifiedName);
         var symbolName = BuildSymbolName(flatTypeName, extMethod.MethodName, compatibleParams);
 
-        if (!_emittedSymbols.Add(symbolName))
+        if (!ctx.TryAddForeignExtSymbol(symbolName))
             return;
 
         // Emit Swift wrapper
         EmitSwiftMethodWrapper(foreignTypeQualifiedName, extMethod, allParameters, compatibleParams,
-            returnTypeSpec, symbolName, returnCategory);
+            returnTypeSpec, symbolName, returnCategory, ctx);
 
         // Collect C# info
-        var classInfo = GetOrCreateClassInfo(foreignTypeQualifiedName, moduleDecl.Name);
-        classInfo.Members.Add(new ExtensionMemberInfo
+        var classInfo = GetOrCreateClassInfo(foreignTypeQualifiedName, moduleDecl.Name, ctx);
+        classInfo.Members.Add(new ForeignExtensionMemberInfo
         {
             SymbolName = symbolName,
             CSharpMethodName = ToPascalCase(extMethod.MethodName),
@@ -406,7 +335,7 @@ public static class ForeignTypeExtensionEmitter
             ReturnTypeName = returnTypeName,
             ReturnCategory = returnCategory,
         });
-        _emittedCount++;
+        ctx.ForeignExtEmittedCount++;
     }
 
     // ==================== Swift Wrapper Emission ====================
@@ -419,7 +348,8 @@ public static class ForeignTypeExtensionEmitter
         ProtocolExtensionMethodDecl extMethod,
         TypeSpec propertyTypeSpec,
         string symbolName,
-        ReturnKind returnCategory)
+        ReturnKind returnCategory,
+        ModuleEmissionContext ctx)
     {
         string swiftReturnType;
         bool wrapAsOpaque;
@@ -450,33 +380,33 @@ public static class ForeignTypeExtensionEmitter
 
         var returnArrow = string.IsNullOrEmpty(swiftReturnType) ? "" : $" -> {swiftReturnType}";
 
-        _swiftWrapperLines.Add("");
-        _swiftWrapperLines.Add($"@_silgen_name(\"{symbolName}\")");
+        ctx.AddForeignExtWrapperLine("");
+        ctx.AddForeignExtWrapperLine($"@_silgen_name(\"{symbolName}\")");
         if (extMethod.IsMainActorIsolated)
         {
-            _swiftWrapperLines.Add("@MainActor");
+            ctx.AddForeignExtWrapperLine("@MainActor");
         }
-        _swiftWrapperLines.Add($"public func {symbolName}(_ self_: UnsafeMutableRawPointer){returnArrow} {{");
-        _swiftWrapperLines.Add($"    let instance = Unmanaged<{foreignTypeQualifiedName}>.fromOpaque(self_).takeUnretainedValue()");
+        ctx.AddForeignExtWrapperLine($"public func {symbolName}(_ self_: UnsafeMutableRawPointer){returnArrow} {{");
+        ctx.AddForeignExtWrapperLine($"    let instance = Unmanaged<{foreignTypeQualifiedName}>.fromOpaque(self_).takeUnretainedValue()");
 
         if (wrapAsOpaque)
         {
-            _swiftWrapperLines.Add($"    let result = instance.{extMethod.MethodName}");
-            _swiftWrapperLines.Add($"    return Unmanaged.passUnretained(result).toOpaque()");
+            ctx.AddForeignExtWrapperLine($"    let result = instance.{extMethod.MethodName}");
+            ctx.AddForeignExtWrapperLine($"    return Unmanaged.passUnretained(result).toOpaque()");
         }
         else if (returnCategory == ReturnKind.NonFrozenStruct)
         {
-            _swiftWrapperLines.Add($"    return instance.{extMethod.MethodName}");
+            ctx.AddForeignExtWrapperLine($"    return instance.{extMethod.MethodName}");
         }
         else if (returnCategory == ReturnKind.Primitive)
         {
-            _swiftWrapperLines.Add($"    return instance.{extMethod.MethodName}");
+            ctx.AddForeignExtWrapperLine($"    return instance.{extMethod.MethodName}");
         }
         else
         {
-            _swiftWrapperLines.Add($"    instance.{extMethod.MethodName}");
+            ctx.AddForeignExtWrapperLine($"    instance.{extMethod.MethodName}");
         }
-        _swiftWrapperLines.Add("}");
+        ctx.AddForeignExtWrapperLine("}");
     }
 
     /// <summary>
@@ -487,20 +417,21 @@ public static class ForeignTypeExtensionEmitter
         ProtocolExtensionMethodDecl extMethod,
         TypeSpec propertyTypeSpec,
         string symbolName,
-        string swiftTypeName)
+        string swiftTypeName,
+        ModuleEmissionContext ctx)
     {
         var renderedType = ExistentialBypassEmitter.RenderSwiftTypeSpec(propertyTypeSpec);
 
-        _swiftWrapperLines.Add("");
-        _swiftWrapperLines.Add($"@_silgen_name(\"{symbolName}\")");
+        ctx.AddForeignExtWrapperLine("");
+        ctx.AddForeignExtWrapperLine($"@_silgen_name(\"{symbolName}\")");
         if (extMethod.IsMainActorIsolated)
         {
-            _swiftWrapperLines.Add("@MainActor");
+            ctx.AddForeignExtWrapperLine("@MainActor");
         }
-        _swiftWrapperLines.Add($"public func {symbolName}(_ self_: UnsafeMutableRawPointer, _ value: {renderedType}) {{");
-        _swiftWrapperLines.Add($"    let instance = Unmanaged<{foreignTypeQualifiedName}>.fromOpaque(self_).takeUnretainedValue()");
-        _swiftWrapperLines.Add($"    instance.{extMethod.MethodName} = value");
-        _swiftWrapperLines.Add("}");
+        ctx.AddForeignExtWrapperLine($"public func {symbolName}(_ self_: UnsafeMutableRawPointer, _ value: {renderedType}) {{");
+        ctx.AddForeignExtWrapperLine($"    let instance = Unmanaged<{foreignTypeQualifiedName}>.fromOpaque(self_).takeUnretainedValue()");
+        ctx.AddForeignExtWrapperLine($"    instance.{extMethod.MethodName} = value");
+        ctx.AddForeignExtWrapperLine("}");
     }
 
     /// <summary>
@@ -514,7 +445,8 @@ public static class ForeignTypeExtensionEmitter
         List<(string label, TypeSpec typeSpec, string swiftType, bool hasDefault)> compatibleParams,
         TypeSpec? returnTypeSpec,
         string symbolName,
-        ReturnKind returnCategory)
+        ReturnKind returnCategory,
+        ModuleEmissionContext ctx)
     {
         // Build Swift parameter list for wrapper
         var swiftParams = new List<string>();
@@ -561,14 +493,14 @@ public static class ForeignTypeExtensionEmitter
 
         var returnArrow = string.IsNullOrEmpty(swiftReturnType) ? "" : $" -> {swiftReturnType}";
 
-        _swiftWrapperLines.Add("");
-        _swiftWrapperLines.Add($"@_silgen_name(\"{symbolName}\")");
+        ctx.AddForeignExtWrapperLine("");
+        ctx.AddForeignExtWrapperLine($"@_silgen_name(\"{symbolName}\")");
         if (extMethod.IsMainActorIsolated)
         {
-            _swiftWrapperLines.Add("@MainActor");
+            ctx.AddForeignExtWrapperLine("@MainActor");
         }
-        _swiftWrapperLines.Add($"public func {symbolName}({string.Join(", ", swiftParams)}){returnArrow} {{");
-        _swiftWrapperLines.Add($"    let instance = Unmanaged<{foreignTypeQualifiedName}>.fromOpaque(self_).takeUnretainedValue()");
+        ctx.AddForeignExtWrapperLine($"public func {symbolName}({string.Join(", ", swiftParams)}){returnArrow} {{");
+        ctx.AddForeignExtWrapperLine($"    let instance = Unmanaged<{foreignTypeQualifiedName}>.fromOpaque(self_).takeUnretainedValue()");
 
         // Build call arguments — map compatible params into call, skip incompatible (use Swift defaults)
         var compatibleSet = new HashSet<int>();
@@ -599,7 +531,7 @@ public static class ForeignTypeExtensionEmitter
             {
                 var renderedType = ExistentialBypassEmitter.RenderSwiftTypeSpec(typeSpec);
                 var localName = $"__{paramName}";
-                _swiftWrapperLines.Add($"    let {localName} = Unmanaged<{renderedType}>.fromOpaque({paramName}).takeUnretainedValue()");
+                ctx.AddForeignExtWrapperLine($"    let {localName} = Unmanaged<{renderedType}>.fromOpaque({paramName}).takeUnretainedValue()");
                 callArgs.Add(label == "_" ? localName : $"{label}: {localName}");
             }
             else
@@ -612,19 +544,19 @@ public static class ForeignTypeExtensionEmitter
 
         if (returnIsClass)
         {
-            _swiftWrapperLines.Add($"    let result = {callStr}");
-            _swiftWrapperLines.Add($"    return Unmanaged.passUnretained(result).toOpaque()");
+            ctx.AddForeignExtWrapperLine($"    let result = {callStr}");
+            ctx.AddForeignExtWrapperLine($"    return Unmanaged.passUnretained(result).toOpaque()");
         }
         else if (string.IsNullOrEmpty(swiftReturnType))
         {
-            _swiftWrapperLines.Add($"    {callStr}");
+            ctx.AddForeignExtWrapperLine($"    {callStr}");
         }
         else
         {
-            _swiftWrapperLines.Add($"    return {callStr}");
+            ctx.AddForeignExtWrapperLine($"    return {callStr}");
         }
 
-        _swiftWrapperLines.Add("}");
+        ctx.AddForeignExtWrapperLine("}");
     }
 
     // ==================== C# Extension Class Emission ====================
@@ -632,7 +564,7 @@ public static class ForeignTypeExtensionEmitter
     /// <summary>
     /// Emits a single C# static extension class for a foreign type.
     /// </summary>
-    private static void EmitExtensionClass(CSharpWriter csWriter, ExtensionClassInfo classInfo,
+    private static void EmitExtensionClass(CSharpWriter csWriter, ForeignExtensionClassInfo classInfo,
         ITypeDatabase typeDatabase, string moduleName)
     {
         var foreignTypeName = classInfo.ForeignTypeQualifiedName;
@@ -679,7 +611,7 @@ public static class ForeignTypeExtensionEmitter
     /// <summary>
     /// Emits a single public extension method in the extension class.
     /// </summary>
-    private static void EmitExtensionMember(CSharpWriter csWriter, ExtensionMemberInfo member,
+    private static void EmitExtensionMember(CSharpWriter csWriter, ForeignExtensionMemberInfo member,
         string csharpSelfType, string wrapperLibPath, ITypeDatabase typeDatabase, string moduleName)
     {
         var csharpReturnType = ResolveCSharpReturnType(member, typeDatabase, moduleName);
@@ -713,7 +645,7 @@ public static class ForeignTypeExtensionEmitter
     /// <summary>
     /// Emits the method body with proper marshalling based on return type category.
     /// </summary>
-    private static void EmitMethodBody(CSharpWriter csWriter, ExtensionMemberInfo member,
+    private static void EmitMethodBody(CSharpWriter csWriter, ForeignExtensionMemberInfo member,
         ITypeDatabase typeDatabase, string moduleName)
     {
         // Build native call arguments
@@ -752,77 +684,14 @@ public static class ForeignTypeExtensionEmitter
 
         var nativeCall = $"NativeMethods.{member.SymbolName}({string.Join(", ", nativeArgs)})";
 
-        switch (member.ReturnCategory)
-        {
-            case ReturnKind.Void:
-                csWriter.WriteLine($"{nativeCall};");
-                break;
-
-            case ReturnKind.Primitive:
-                csWriter.WriteLine($"return {nativeCall};");
-                break;
-
-            case ReturnKind.ObjCClass:
-            {
-                var csharpType = ResolveCSharpReturnType(member, typeDatabase, moduleName);
-                csWriter.WriteLine($"var result = {nativeCall};");
-                csWriter.WriteLine($"return ObjCRuntime.Runtime.GetNSObject<{csharpType}>(result)!;");
-                break;
-            }
-
-            case ReturnKind.SwiftClass:
-            {
-                var csharpType = ResolveCSharpReturnType(member, typeDatabase, moduleName);
-                csWriter.WriteLines($$"""
-                    unsafe
-                    {
-                        var result = {{nativeCall}};
-                        var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));
-                        try
-                        {
-                            *(IntPtr*)classPayload = result;
-                            return ({{csharpType}})SwiftMarshal.MarshalFromSwift<{{csharpType}}>(new IntPtr(classPayload));
-                        }
-                        catch
-                        {
-                            NativeMemory.Free(classPayload);
-                            throw;
-                        }
-                    }
-                    """);
-                break;
-            }
-
-            case ReturnKind.NonFrozenStruct:
-            {
-                var csharpType = ResolveCSharpReturnType(member, typeDatabase, moduleName);
-                csWriter.WriteLines($$"""
-                    unsafe
-                    {
-                        var metadata = SwiftObjectHelper<{{csharpType}}>.GetTypeMetadata();
-                        IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
-                        try
-                        {
-                            var indirectResult = new SwiftIndirectResult((void*)buffer);
-                            {{nativeCall}};
-                            return SwiftMarshal.MarshalFromSwift<{{csharpType}}>(buffer);
-                        }
-                        catch
-                        {
-                            NativeMemory.Free((void*)buffer);
-                            throw;
-                        }
-                    }
-                    """);
-                break;
-            }
-        }
+        var csharpType = ResolveCSharpReturnType(member, typeDatabase, moduleName);
+        EmitReturnValueMarshalling(csWriter, member.ReturnCategory, nativeCall, csharpType);
     }
 
     /// <summary>
     /// Emits a P/Invoke declaration in the NativeMethods nested class.
     /// </summary>
-    private static void EmitNativeMethod(CSharpWriter csWriter, ExtensionMemberInfo member,
+    private static void EmitNativeMethod(CSharpWriter csWriter, ForeignExtensionMemberInfo member,
         string wrapperLibPath, ITypeDatabase typeDatabase)
     {
         var pinvokeParams = new List<string>();
@@ -838,20 +707,8 @@ public static class ForeignTypeExtensionEmitter
         }
         else
         {
-            pinvokeReturnType = member.ReturnCategory switch
-            {
-                ReturnKind.Void => "void",
-                ReturnKind.Primitive => ResolvePInvokeReturnType(member.ReturnTypeSpec!, typeDatabase),
-                ReturnKind.ObjCClass => "IntPtr",
-                ReturnKind.SwiftClass => "IntPtr",
-                _ => "void",
-            };
-
-            // Bool needs [MarshalAs(UnmanagedType.U1)] and uses bool type (not byte)
-            if (member.ReturnTypeSpec is NamedTypeSpec retNamed && retNamed.Name == "Swift.Bool")
-            {
-                pinvokeReturnType = "bool";
-            }
+            pinvokeReturnType = ExtensionMarshallingHelper.ResolvePInvokeReturnType(
+                member.ReturnTypeSpec, member.ReturnCategory, typeDatabase, usesIndirectResult: false);
         }
 
         // Self parameter
@@ -872,7 +729,7 @@ public static class ForeignTypeExtensionEmitter
             }
             else
             {
-                var pinvokeType = ResolvePInvokeParamType(typeSpec, typeDatabase);
+                var pinvokeType = ExtensionMarshallingHelper.ResolveCSharpTypeName(typeSpec, typeDatabase);
                 // Bool parameters need [MarshalAs(UnmanagedType.U1)]
                 if (typeSpec is NamedTypeSpec paramNamed && paramNamed.Name == "Swift.Bool")
                     pinvokeParams.Add($"[MarshalAs(UnmanagedType.U1)] bool {paramName}");
@@ -922,78 +779,18 @@ public static class ForeignTypeExtensionEmitter
     }
 
     /// <summary>
-    /// Classifies a return TypeSpec into a ReturnKind for marshalling.
-    /// Returns null if the type is not supported.
-    /// </summary>
-    private static ReturnKind? ClassifyReturnType(TypeSpec typeSpec, ITypeDatabase typeDatabase)
-    {
-        if (typeSpec is TupleTypeSpec tuple && tuple.IsEmptyTuple)
-            return ReturnKind.Void;
-
-        if (typeSpec is not NamedTypeSpec namedType)
-            return null;
-
-        if (namedType.ContainsGenericParameters)
-            return null;
-
-        if (MarshallingHelpers.IsSwiftPrimitive(namedType.Name))
-            return ReturnKind.Primitive;
-
-        if (MarshallingHelpers.TypeAliasToCSPrimitive.ContainsKey(namedType.Name))
-            return ReturnKind.Primitive;
-
-        // Check if it's an ObjC framework type
-        try
-        {
-            var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
-            if (TypeDatabaseExtensions.IsObjCModuleType(namedType))
-                return ReturnKind.ObjCClass;
-
-            // Check TypeDatabase for same-module types
-            if (typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord))
-            {
-                if (typeRecord.Kind == TypeRecordKind.Class)
-                    return ReturnKind.SwiftClass;
-                if (typeRecord.Kind == TypeRecordKind.Struct)
-                {
-                    // Frozen structs without ref-type fields are C# value types (Struct marshalling label).
-                    // Only non-frozen or memory-managed structs use SwiftIndirectResult + MarshalFromSwift.
-                    bool isFrozen = typeRecord.Flags.HasFlag(TypeRecordFlags.Frozen);
-                    bool hasRefFields = typeRecord.Flags.HasFlag(TypeRecordFlags.RequiresMemoryManagement);
-                    if (isFrozen && !hasRefFields)
-                    {
-                        // Frozen value-type struct — not currently supported as a return type
-                        // from foreign extension methods (would need blittable struct marshalling).
-                        return null;
-                    }
-                    return ReturnKind.NonFrozenStruct;
-                }
-            }
-        }
-        catch (ArgumentException)
-        {
-            return null;
-        }
-
-        return null;
-    }
-
-    /// <summary>
     /// Classifies a property type for setter emission. Only primitives are supported.
     /// </summary>
-    private static ReturnKind? ClassifyParameterForSetter(TypeSpec typeSpec, ITypeDatabase typeDatabase)
+    private static bool IsPrimitiveSetter(TypeSpec typeSpec, ITypeDatabase typeDatabase)
     {
-        if (typeSpec is not NamedTypeSpec namedType)
-            return null;
-        if (namedType.ContainsGenericParameters)
-            return null;
-        if (MarshallingHelpers.IsSwiftPrimitive(namedType.Name))
-            return ReturnKind.Primitive;
-        return null;
+        return ClassifyParameterType(typeSpec, typeDatabase) == ParamKind.Primitive;
     }
 
     /// <summary>
-    /// Checks if a TypeSpec is cdecl-compatible (same logic as ProtocolExtensionEmitter).
+    /// Checks if a TypeSpec is cdecl-compatible for foreign extension methods.
+    /// Uses ClassifyParameterType from ExtensionMarshallingHelper — a type is compatible
+    /// if it classifies to any ParamKind (primitives, ObjC classes, Swift classes, simple enums).
+    /// Also accepts empty tuples (Void).
     /// </summary>
     private static bool IsCdeclCompatibleType(TypeSpec typeSpec, ITypeDatabase typeDatabase)
     {
@@ -1007,31 +804,7 @@ public static class ForeignTypeExtensionEmitter
                 return false;
             }
 
-            if (MarshallingHelpers.IsSwiftPrimitive(namedType.Name))
-                return true;
-
-            // Handle known type aliases that resolve to primitives
-            if (MarshallingHelpers.TypeAliasToCSPrimitive.ContainsKey(namedType.Name))
-                return true;
-
-            try
-            {
-                if (typeDatabase.TryGetTypeRecord(
-                        SwiftTypeName.FromModuleQualifiedName(namedType.Name), out var typeRecord))
-                {
-                    return typeRecord.Kind == TypeRecordKind.Class;
-                }
-            }
-            catch (ArgumentException)
-            {
-                return false;
-            }
-
-            // Also accept ObjC class types (not in TypeDatabase but known as classes)
-            if (TypeDatabaseExtensions.IsObjCModuleType(namedType))
-                return true;
-
-            return false;
+            return ClassifyParameterType(typeSpec, typeDatabase) != null;
         }
 
         if (typeSpec is ClosureTypeSpec) return false;
@@ -1105,7 +878,7 @@ public static class ForeignTypeExtensionEmitter
     /// <summary>
     /// Resolves the C# return type for an extension member.
     /// </summary>
-    private static string ResolveCSharpReturnType(ExtensionMemberInfo member, ITypeDatabase typeDatabase, string moduleName)
+    private static string ResolveCSharpReturnType(ForeignExtensionMemberInfo member, ITypeDatabase typeDatabase, string moduleName)
     {
         if (member.ReturnCategory == ReturnKind.Void)
             return "void";
@@ -1113,7 +886,7 @@ public static class ForeignTypeExtensionEmitter
         if (member.ReturnTypeSpec == null)
             return "void";
 
-        return ResolveCSharpTypeName(member.ReturnTypeSpec, typeDatabase);
+        return ExtensionMarshallingHelper.ResolveCSharpTypeName(member.ReturnTypeSpec, typeDatabase);
     }
 
     /// <summary>
@@ -1121,12 +894,9 @@ public static class ForeignTypeExtensionEmitter
     /// </summary>
     private static string ResolveCSharpParameterType(TypeSpec typeSpec, ITypeDatabase typeDatabase)
     {
-        return ResolveCSharpTypeName(typeSpec, typeDatabase);
+        return ExtensionMarshallingHelper.ResolveCSharpTypeName(typeSpec, typeDatabase);
     }
 
-    /// <summary>
-    /// Resolves a TypeSpec to a C# type name.
-    /// </summary>
     /// <summary>
     /// Swift module → C# namespace overrides for ObjC framework types.
     /// </summary>
@@ -1134,97 +904,6 @@ public static class ForeignTypeExtensionEmitter
     {
         { "QuartzCore", "CoreAnimation" },
     };
-
-
-    private static string ResolveCSharpTypeName(TypeSpec typeSpec, ITypeDatabase typeDatabase)
-    {
-        if (typeSpec is NamedTypeSpec namedType)
-        {
-            // Check type aliases first
-            if (MarshallingHelpers.TypeAliasToCSPrimitive.TryGetValue(namedType.Name, out var aliasedType))
-                return aliasedType;
-
-            if (MarshallingHelpers.IsSwiftPrimitive(namedType.Name))
-            {
-                return namedType.Name switch
-                {
-                    "Swift.Int" => "nint",
-                    "Swift.UInt" => "nuint",
-                    "Swift.Int8" => "sbyte",
-                    "Swift.Int16" => "short",
-                    "Swift.Int32" => "int",
-                    "Swift.Int64" => "long",
-                    "Swift.UInt8" => "byte",
-                    "Swift.UInt16" => "ushort",
-                    "Swift.UInt32" => "uint",
-                    "Swift.UInt64" => "ulong",
-                    "Swift.Float" => "float",
-                    "Swift.Double" => "double",
-                    "Swift.Bool" => "bool",
-                    "CoreFoundation.CGFloat" => "nfloat",
-                    "CoreFoundation.CGSize" => "CoreGraphics.CGSize",
-                    "CoreFoundation.CGPoint" => "CoreGraphics.CGPoint",
-                    "CoreFoundation.CGRect" => "CoreGraphics.CGRect",
-                    _ => namedType.Name,
-                };
-            }
-
-            // Use NamedTypeSpec-based lookup which goes through CreateObjCBridgedTypeRecord
-            // for ObjC types, handling Apple framework class remappings correctly
-            if (typeDatabase.TryGetTypeRecord(namedType, out var typeRecord))
-            {
-                return typeRecord.CSharpTypeName.FullyQualifiedName;
-            }
-
-            return namedType.Name;
-        }
-
-        return "void";
-    }
-
-    /// <summary>
-    /// Resolves a primitive TypeSpec to P/Invoke type.
-    /// </summary>
-    private static string ResolvePInvokeReturnType(TypeSpec typeSpec, ITypeDatabase typeDatabase)
-    {
-        if (typeSpec is NamedTypeSpec namedType)
-        {
-            // Check type aliases first
-            if (namedType.Name == "Foundation.TimeInterval")
-                return "double";
-
-            return namedType.Name switch
-            {
-                "Swift.Int" => "nint",
-                "Swift.UInt" => "nuint",
-                "Swift.Int8" => "sbyte",
-                "Swift.Int16" => "short",
-                "Swift.Int32" => "int",
-                "Swift.Int64" => "long",
-                "Swift.UInt8" => "byte",
-                "Swift.UInt16" => "ushort",
-                "Swift.UInt32" => "uint",
-                "Swift.UInt64" => "ulong",
-                "Swift.Float" => "float",
-                "Swift.Double" => "double",
-                "Swift.Bool" => "byte", // Bool is marshalled as byte in P/Invoke
-                "CoreFoundation.CGFloat" => "nfloat",
-                "CoreFoundation.CGSize" => "CoreGraphics.CGSize",
-                "CoreFoundation.CGPoint" => "CoreGraphics.CGPoint",
-                "CoreFoundation.CGRect" => "CoreGraphics.CGRect",
-                _ => "IntPtr",
-            };
-        }
-        return "IntPtr";
-    }
-
-    /// <summary>
-    /// Resolves a TypeSpec to P/Invoke parameter type.
-    /// </summary>
-    private static string ResolvePInvokeParamType(TypeSpec typeSpec, ITypeDatabase typeDatabase)
-    {
-        return ResolvePInvokeReturnType(typeSpec, typeDatabase);
-    }
 
     // ==================== Parsing Helpers ====================
 
@@ -1511,17 +1190,12 @@ public static class ForeignTypeExtensionEmitter
         };
     }
 
-    private static ExtensionClassInfo GetOrCreateClassInfo(string foreignTypeQualifiedName, string moduleName)
+    private static ForeignExtensionClassInfo GetOrCreateClassInfo(string foreignTypeQualifiedName, string moduleName, ModuleEmissionContext ctx)
     {
-        if (!_extensionClasses.TryGetValue(foreignTypeQualifiedName, out var info))
+        return ctx.GetOrAddForeignExtClass(foreignTypeQualifiedName, () => new ForeignExtensionClassInfo
         {
-            info = new ExtensionClassInfo
-            {
-                ForeignTypeQualifiedName = foreignTypeQualifiedName,
-                ModuleName = moduleName,
-            };
-            _extensionClasses[foreignTypeQualifiedName] = info;
-        }
-        return info;
+            ForeignTypeQualifiedName = foreignTypeQualifiedName,
+            ModuleName = moduleName,
+        });
     }
 }

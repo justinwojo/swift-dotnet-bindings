@@ -70,17 +70,13 @@ namespace BindingsGeneration
             var moduleEnv = (ModuleEnvironment)env;
             var moduleDecl = moduleEnv.ModuleDecl;
 
-            // Reset per-module state for shared emitters
-            EnumHandler.ResetUtf8SliceTracking();
-            CancellationTaskEmitter.ResetForModule();
-            ErrorDescriptionEmitter.ResetForModule();
-            GenericClosureBridgeEmitter.ResetForModule();
+            // Per-module state is now on ModuleEmissionContext (no more static resets needed).
 
             // Emit Swift imports at the top of the Swift wrapper file
-            EmitSwiftImports(swiftWriter, moduleDecl);
+            EmitSwiftImports(swiftWriter, moduleDecl, context.GetEmissionContext());
 
             // Emit EveryProtocol class and protocol conformances for Swift side
-            EmitEveryProtocolConformances(swiftWriter, moduleDecl, env.TypeDatabase);
+            EmitEveryProtocolConformances(swiftWriter, moduleDecl, env.TypeDatabase, context.GetEmissionContext());
 
             var generatedNamespace = _namespacePatternResolver.ResolveNamespace(moduleDecl.Name);
 
@@ -186,11 +182,12 @@ namespace BindingsGeneration
                 base.HandleBaseDecl(csWriter, swiftWriter, moduleDecl.Types, conductor, env.TypeDatabase, context);
 
                 // Emit protocol extension method Swift wrappers (accumulated during InjectExtensionMethods)
-                ProtocolExtensionEmitter.EmitSwiftWrappers(swiftWriter);
+                var emissionCtx = context.GetEmissionContext();
+                ProtocolExtensionEmitter.EmitSwiftWrappers(swiftWriter, emissionCtx);
 
                 // Emit foreign type extension Swift wrappers and C# extension classes
-                ForeignTypeExtensionEmitter.EmitSwiftWrappers(swiftWriter);
-                ForeignTypeExtensionEmitter.EmitCSharpExtensionClasses(csWriter, env.TypeDatabase, moduleDecl.Name);
+                ForeignTypeExtensionEmitter.EmitSwiftWrappers(swiftWriter, emissionCtx);
+                ForeignTypeExtensionEmitter.EmitCSharpExtensionClasses(csWriter, env.TypeDatabase, moduleDecl.Name, emissionCtx);
 
                 // Emit composition interfaces (e.g., IAgeableAndNameable : IAgeable, INameable)
                 // These are collected during method/property emission when multi-protocol existentials are encountered.
@@ -272,7 +269,7 @@ namespace BindingsGeneration
         /// <summary>
         /// Emits Swift import statements to the wrapper file.
         /// </summary>
-        private void EmitSwiftImports(SwiftWriter swiftWriter, ModuleDecl moduleDecl)
+        private void EmitSwiftImports(SwiftWriter swiftWriter, ModuleDecl moduleDecl, ModuleEmissionContext? emissionCtx = null)
         {
             // Always import the module being bound
             swiftWriter.WriteLine($"import {moduleDecl.Name}");
@@ -320,14 +317,14 @@ namespace BindingsGeneration
             // Emitting unconditionally is safe - small structs/functions that do no harm if unused.
             // SBW_Free uses module-specific symbol name to avoid collisions if multiple modules
             // are linked into the same wrapper library.
-            Utf8SliceEmitter.EmitIfNeeded(swiftWriter);
-            Utf8SliceEmitter.EmitFreeIfNeeded(swiftWriter, moduleDecl.Name);
+            Utf8SliceEmitter.EmitIfNeeded(swiftWriter, emissionCtx);
+            Utf8SliceEmitter.EmitFreeIfNeeded(swiftWriter, moduleDecl.Name, emissionCtx);
 
             // Emit Swift Task cancellation infrastructure (cancel function + task dictionary)
-            CancellationTaskEmitter.EmitIfNeeded(swiftWriter, moduleDecl.Name);
+            CancellationTaskEmitter.EmitIfNeeded(swiftWriter, moduleDecl.Name, emissionCtx);
 
             // Emit Swift error description extraction infrastructure (for sync throwing methods)
-            ErrorDescriptionEmitter.EmitIfNeeded(swiftWriter, moduleDecl.Name);
+            ErrorDescriptionEmitter.EmitIfNeeded(swiftWriter, moduleDecl.Name, emissionCtx);
         }
 
         /// <summary>
@@ -469,7 +466,7 @@ namespace BindingsGeneration
         /// Emits the EveryProtocol class and protocol conformances for Swift side.
         /// This enables C# code to implement Swift protocols by providing vtable callbacks.
         /// </summary>
-        private void EmitEveryProtocolConformances(SwiftWriter swiftWriter, ModuleDecl moduleDecl, ITypeDatabase typeDatabase)
+        private void EmitEveryProtocolConformances(SwiftWriter swiftWriter, ModuleDecl moduleDecl, ITypeDatabase typeDatabase, ModuleEmissionContext? emissionCtx = null)
         {
             // Skip if there are no protocols to conform to
             var protocols = moduleDecl.Protocols;
@@ -497,7 +494,7 @@ namespace BindingsGeneration
                 return;
 
             var emitter = new EveryProtocolEmitter(typeDatabase, _logger, moduleDecl.Name);
-            var dispatchEmitter = new WitnessDispatchEmitter(typeDatabase, _logger, moduleDecl.Name);
+            var dispatchEmitter = new WitnessDispatchEmitter(typeDatabase, _logger, moduleDecl.Name, emissionCtx);
 
             // Emit the EveryProtocol class once
             emitter.EmitEveryProtocolClass(swiftWriter);

@@ -14,17 +14,7 @@ namespace BindingsGeneration;
 /// </summary>
 public static class GenericClosureBridgeEmitter
 {
-    private static bool _createErrorEmitted = false;
-    private static readonly HashSet<string> _createErrorPInvokeEmittedTypes = new();
-
-    /// <summary>
-    /// Resets the per-module tracking. Call at the start of each module emission.
-    /// </summary>
-    public static void ResetForModule()
-    {
-        _createErrorEmitted = false;
-        _createErrorPInvokeEmittedTypes.Clear();
-    }
+    // State is stored on ModuleEmissionContext (per-module instance).
 
     /// <summary>
     /// Attempts to emit a generic closure bridge for the given method.
@@ -35,8 +25,10 @@ public static class GenericClosureBridgeEmitter
         CSharpWriter csWriter,
         SwiftWriter swiftWriter,
         MethodEnvironment env,
-        TypeDecl? parentDecl)
+        TypeDecl? parentDecl,
+        ModuleEmissionContext? ctx = null)
     {
+        ctx ??= ModuleEmissionContext.Default;
         var methodDecl = env.MethodDecl;
         if (methodDecl.IsConstructor) return false;
         if (methodDecl.UsesWrapperLibrary) return false;
@@ -51,7 +43,7 @@ public static class GenericClosureBridgeEmitter
         var moduleName = methodDecl.ModuleDecl?.Name ?? "SwiftBindings";
 
         // Emit SBW_CreateError helper if needed
-        EmitCreateErrorHelperIfNeeded(swiftWriter, moduleName);
+        EmitCreateErrorHelperIfNeeded(swiftWriter, moduleName, ctx);
 
         // Emit Swift wrappers (returning + void)
         EmitSwiftWrappers(swiftWriter, env, parentDecl, closureArg, closureTypeSpec);
@@ -62,7 +54,7 @@ public static class GenericClosureBridgeEmitter
         methodDecl.UsesFreeFunctionWrapper = true;
 
         // Emit C# code (callbacks + P/Invokes + public methods)
-        EmitCSharp(csWriter, env, parentDecl, closureArg, closureTypeSpec, moduleName);
+        EmitCSharp(csWriter, env, parentDecl, closureArg, closureTypeSpec, moduleName, ctx);
 
         methodDecl.WasEmitted = true;
         return true;
@@ -149,9 +141,9 @@ public static class GenericClosureBridgeEmitter
 
     // ─── SBW_CreateError Helper ───────────────────────────────────────
 
-    private static void EmitCreateErrorHelperIfNeeded(SwiftWriter swiftWriter, string moduleName)
+    private static void EmitCreateErrorHelperIfNeeded(SwiftWriter swiftWriter, string moduleName, ModuleEmissionContext ctx)
     {
-        if (_createErrorEmitted) return;
+        if (ctx.GenericClosureBridgeCreateErrorEmitted) return;
 
         var symbol = $"SBW_CreateError_{moduleName}";
         swiftWriter.WriteLines($$"""
@@ -164,7 +156,7 @@ public static class GenericClosureBridgeEmitter
             }
 
             """);
-        _createErrorEmitted = true;
+        ctx.GenericClosureBridgeCreateErrorEmitted = true;
     }
 
     // ─── Swift Wrapper Generation ─────────────────────────────────────
@@ -386,7 +378,8 @@ public static class GenericClosureBridgeEmitter
         TypeDecl? parentDecl,
         ArgumentDecl closureArg,
         ClosureTypeSpec closureTypeSpec,
-        string moduleName)
+        string moduleName,
+        ModuleEmissionContext ctx)
     {
         var methodDecl = env.MethodDecl;
         var csClosureName = NameProvider.GetCSharpParameterName(closureArg);
@@ -421,8 +414,8 @@ public static class GenericClosureBridgeEmitter
         csWriter.WriteLine();
 
         // --- P/Invoke declarations ---
-        EmitCreateErrorPInvoke(csWriter, moduleName, asyncLibName, env);
-        EmitErrorHelperPInvokes(csWriter, moduleName, asyncLibName, env);
+        EmitCreateErrorPInvoke(csWriter, moduleName, asyncLibName, env, ctx);
+        EmitErrorHelperPInvokes(csWriter, moduleName, asyncLibName, env, ctx);
         EmitPInvokeDeclarations(csWriter, pInvokeName, returningSymbol, voidSymbol, asyncLibName,
             methodDecl, env, closureArg);
 
@@ -542,10 +535,10 @@ public static class GenericClosureBridgeEmitter
     }
 
     private static void EmitCreateErrorPInvoke(CSharpWriter csWriter, string moduleName, string asyncLibName,
-        MethodEnvironment env)
+        MethodEnvironment env, ModuleEmissionContext ctx)
     {
         var typeKey = (env.ParentDecl as TypeDecl)?.SwiftTypeName.ModuleQualifiedName ?? moduleName;
-        if (!_createErrorPInvokeEmittedTypes.Add(typeKey)) return;
+        if (!ctx.TryAddGenericClosureBridgeErrorPInvoke(typeKey)) return;
 
         PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
         {
@@ -561,15 +554,15 @@ public static class GenericClosureBridgeEmitter
     }
 
     private static void EmitErrorHelperPInvokes(CSharpWriter csWriter, string moduleName, string asyncLibName,
-        MethodEnvironment env)
+        MethodEnvironment env, ModuleEmissionContext ctx)
     {
         // Use ErrorDescriptionEmitter's per-type tracking to avoid duplicating P/Invokes
         // already emitted by the regular code path (WrapperEmitter.Marshalling).
         var typeKey = (env.ParentDecl as TypeDecl)?.SwiftTypeName.ModuleQualifiedName ?? moduleName;
 
-        if (!ErrorDescriptionEmitter.HasErrorPInvokeForType(typeKey))
+        if (!ErrorDescriptionEmitter.HasErrorPInvokeForType(typeKey, ctx))
         {
-            ErrorDescriptionEmitter.MarkErrorPInvokeEmittedForType(typeKey);
+            ErrorDescriptionEmitter.MarkErrorPInvokeEmittedForType(typeKey, ctx);
 
             var descSymbol = ErrorDescriptionEmitter.GetDescriptionSymbolName(moduleName);
             var releaseSymbol = ErrorDescriptionEmitter.GetReleaseSymbolName(moduleName);
@@ -584,9 +577,9 @@ public static class GenericClosureBridgeEmitter
                 """);
 
             // Emit SBW_Free if not already emitted by Utf8SliceEmitter for this type
-            if (!Utf8SliceEmitter.HasFreePInvokeForType(typeKey))
+            if (!Utf8SliceEmitter.HasFreePInvokeForType(typeKey, ctx))
             {
-                Utf8SliceEmitter.MarkFreePInvokeEmittedForType(typeKey);
+                Utf8SliceEmitter.MarkFreePInvokeEmittedForType(typeKey, ctx);
                 var freeSymbol = Utf8SliceEmitter.GetFreeSymbolName(moduleName);
 
                 csWriter.WriteLines($"""

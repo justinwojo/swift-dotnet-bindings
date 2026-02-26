@@ -6,6 +6,8 @@ namespace BindingsGeneration;
 /// <summary>
 /// Shared utility for emitting Swift Task cancellation infrastructure and C# cancel P/Invoke.
 /// Follows the same per-module singleton + per-type dedup pattern as <see cref="Utf8SliceEmitter"/>.
+///
+/// State is stored on <see cref="ModuleEmissionContext"/> (per-module instance).
 /// </summary>
 /// <remarks>
 /// Swift side: _SBWTaskEntry holder class, dictionary keyed by task Int64 (GCHandle), NSLock,
@@ -15,43 +17,20 @@ namespace BindingsGeneration;
 public static class CancellationTaskEmitter
 {
     /// <summary>
-    /// Tracks whether the Swift cancel infrastructure has been emitted for this module.
-    /// </summary>
-    private static bool _infrastructureEmitted = false;
-
-    /// <summary>
-    /// The module name for the current emission context. Used for module-specific symbol names.
-    /// </summary>
-    private static string? _currentModuleName = null;
-
-    /// <summary>
-    /// Tracks which C# types have had the SBW_CancelTask P/Invoke emitted (to avoid duplicates).
-    /// </summary>
-    private static readonly HashSet<string> _csharpTypesWithCancelPInvoke = new();
-
-    /// <summary>
-    /// Resets the tracking for a new module. Call at the start of each module emission.
-    /// </summary>
-    public static void ResetForModule()
-    {
-        _infrastructureEmitted = false;
-        _currentModuleName = null;
-        _csharpTypesWithCancelPInvoke.Clear();
-    }
-
-    /// <summary>
     /// Emits the Swift cancel infrastructure if not already emitted for this module.
     /// Includes: _SBWTaskEntry class, _sbwActiveTasks dictionary, _sbwTaskLock, and @_cdecl cancel function.
     /// </summary>
     /// <param name="swiftWriter">The Swift writer to emit to.</param>
     /// <param name="moduleName">The module name for symbol namespacing.</param>
+    /// <param name="ctx">The per-module emission context.</param>
     /// <returns>True if the infrastructure was emitted, false if it was already emitted.</returns>
-    public static bool EmitIfNeeded(SwiftWriter swiftWriter, string moduleName)
+    public static bool EmitIfNeeded(SwiftWriter swiftWriter, string moduleName, ModuleEmissionContext? ctx = null)
     {
-        if (_infrastructureEmitted)
+        ctx ??= ModuleEmissionContext.Default;
+        if (ctx.CancellationInfrastructureEmitted)
             return false;
 
-        _currentModuleName = moduleName;
+        ctx.CancellationCurrentModuleName = moduleName;
         var symbolName = GetCancelSymbolName(moduleName);
 
         swiftWriter.WriteLines($$"""
@@ -71,7 +50,7 @@ public static class CancellationTaskEmitter
             }
 
             """);
-        _infrastructureEmitted = true;
+        ctx.CancellationInfrastructureEmitted = true;
         return true;
     }
 
@@ -88,38 +67,52 @@ public static class CancellationTaskEmitter
     /// <summary>
     /// Gets the symbol name for the current module's SBW_CancelTask function.
     /// </summary>
+    /// <param name="ctx">The per-module emission context.</param>
     /// <returns>The symbol name, or null if no module has been set.</returns>
-    public static string? GetCurrentCancelSymbolName()
+    public static string? GetCurrentCancelSymbolName(ModuleEmissionContext? ctx = null)
     {
-        return _currentModuleName != null ? GetCancelSymbolName(_currentModuleName) : null;
+        ctx ??= ModuleEmissionContext.Default;
+        return ctx.CancellationCurrentModuleName != null ? GetCancelSymbolName(ctx.CancellationCurrentModuleName) : null;
     }
 
     /// <summary>
     /// Checks if the SBW_CancelTask P/Invoke has already been emitted for the specified C# type.
     /// </summary>
     /// <param name="typeName">The fully-qualified C# type name.</param>
+    /// <param name="ctx">The per-module emission context.</param>
     /// <returns>True if already emitted, false otherwise.</returns>
-    public static bool HasCancelPInvokeForType(string typeName)
+    public static bool HasCancelPInvokeForType(string typeName, ModuleEmissionContext? ctx = null)
     {
-        return _csharpTypesWithCancelPInvoke.Contains(typeName);
+        ctx ??= ModuleEmissionContext.Default;
+        return ctx.HasCancellationPInvoke(typeName);
     }
 
     /// <summary>
     /// Marks the SBW_CancelTask P/Invoke as emitted for the specified C# type.
     /// </summary>
     /// <param name="typeName">The fully-qualified C# type name.</param>
-    public static void MarkCancelPInvokeEmittedForType(string typeName)
+    /// <param name="ctx">The per-module emission context.</param>
+    public static void MarkCancelPInvokeEmittedForType(string typeName, ModuleEmissionContext? ctx = null)
     {
-        _csharpTypesWithCancelPInvoke.Add(typeName);
+        ctx ??= ModuleEmissionContext.Default;
+        ctx.TryAddCancellationPInvoke(typeName);
     }
 
     /// <summary>
     /// Checks if the cancel infrastructure has already been emitted for this module.
     /// </summary>
-    public static bool IsEmitted => _infrastructureEmitted;
+    public static bool IsEmitted(ModuleEmissionContext? ctx = null)
+    {
+        ctx ??= ModuleEmissionContext.Default;
+        return ctx.CancellationInfrastructureEmitted;
+    }
 
     /// <summary>
     /// Gets the current module name, if set.
     /// </summary>
-    public static string? CurrentModuleName => _currentModuleName;
+    public static string? GetCurrentModuleName(ModuleEmissionContext? ctx = null)
+    {
+        ctx ??= ModuleEmissionContext.Default;
+        return ctx.CancellationCurrentModuleName;
+    }
 }

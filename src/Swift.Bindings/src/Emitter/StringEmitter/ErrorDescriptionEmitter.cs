@@ -6,6 +6,8 @@ namespace BindingsGeneration;
 /// <summary>
 /// Shared utility for emitting Swift error description extraction and error release infrastructure.
 /// Follows the same per-module singleton + per-type dedup pattern as <see cref="CancellationTaskEmitter"/>.
+///
+/// State is stored on <see cref="ModuleEmissionContext"/> (per-module instance).
 /// </summary>
 /// <remarks>
 /// Swift side: SBW_GetErrorDescription extracts String(describing:) from a Swift error pointer,
@@ -15,45 +17,6 @@ namespace BindingsGeneration;
 public static class ErrorDescriptionEmitter
 {
     /// <summary>
-    /// Tracks whether the Swift error description infrastructure has been emitted for this module.
-    /// </summary>
-    private static bool _infrastructureEmitted = false;
-
-    /// <summary>
-    /// The module name for the current emission context. Used for module-specific symbol names.
-    /// </summary>
-    private static string? _currentModuleName = null;
-
-    /// <summary>
-    /// Tracks which C# types have had the error helper P/Invokes emitted (to avoid duplicates).
-    /// </summary>
-    private static readonly HashSet<string> _csharpTypesWithErrorPInvoke = new();
-
-    /// <summary>
-    /// Tracks which Swift error types have had the typed error extractor function emitted (per module).
-    /// Key is the Swift error type name (e.g., "SwiftBindingsTestLib.ParseError").
-    /// </summary>
-    private static readonly HashSet<string> _typedErrorExtractorsEmitted = new();
-
-    /// <summary>
-    /// Tracks which C# types have had the extractor P/Invoke emitted (to avoid duplicates).
-    /// Key is "{typeKey}:extractor:{swiftErrorTypeName}".
-    /// </summary>
-    private static readonly HashSet<string> _csharpTypesWithExtractorPInvoke = new();
-
-    /// <summary>
-    /// Resets the tracking for a new module. Call at the start of each module emission.
-    /// </summary>
-    public static void ResetForModule()
-    {
-        _infrastructureEmitted = false;
-        _currentModuleName = null;
-        _csharpTypesWithErrorPInvoke.Clear();
-        _typedErrorExtractorsEmitted.Clear();
-        _csharpTypesWithExtractorPInvoke.Clear();
-    }
-
-    /// <summary>
     /// Emits the Swift error description extraction and release functions if not already emitted.
     /// SBW_GetErrorDescription converts a Swift error pointer to a Swift-allocated C string via String(describing:).
     /// The returned buffer is allocated with UnsafeMutablePointer.allocate (freed by SBW_Free / deallocate).
@@ -61,13 +24,15 @@ public static class ErrorDescriptionEmitter
     /// </summary>
     /// <param name="swiftWriter">The Swift writer to emit to.</param>
     /// <param name="moduleName">The module name for symbol namespacing.</param>
+    /// <param name="ctx">The per-module emission context.</param>
     /// <returns>True if the infrastructure was emitted, false if it was already emitted.</returns>
-    public static bool EmitIfNeeded(SwiftWriter swiftWriter, string moduleName)
+    public static bool EmitIfNeeded(SwiftWriter swiftWriter, string moduleName, ModuleEmissionContext? ctx = null)
     {
-        if (_infrastructureEmitted)
+        ctx ??= ModuleEmissionContext.Default;
+        if (ctx.ErrorDescInfrastructureEmitted)
             return false;
 
-        _currentModuleName = moduleName;
+        ctx.ErrorDescCurrentModuleName = moduleName;
         var descSymbol = GetDescriptionSymbolName(moduleName);
         var releaseSymbol = GetReleaseSymbolName(moduleName);
 
@@ -115,7 +80,7 @@ public static class ErrorDescriptionEmitter
             }
 
             """);
-        _infrastructureEmitted = true;
+        ctx.ErrorDescInfrastructureEmitted = true;
         return true;
     }
 
@@ -138,44 +103,56 @@ public static class ErrorDescriptionEmitter
     /// <summary>
     /// Gets the description symbol name for the current module.
     /// </summary>
-    public static string? GetCurrentDescriptionSymbolName()
+    public static string? GetCurrentDescriptionSymbolName(ModuleEmissionContext? ctx = null)
     {
-        return _currentModuleName != null ? GetDescriptionSymbolName(_currentModuleName) : null;
+        ctx ??= ModuleEmissionContext.Default;
+        return ctx.ErrorDescCurrentModuleName != null ? GetDescriptionSymbolName(ctx.ErrorDescCurrentModuleName) : null;
     }
 
     /// <summary>
     /// Gets the release symbol name for the current module.
     /// </summary>
-    public static string? GetCurrentReleaseSymbolName()
+    public static string? GetCurrentReleaseSymbolName(ModuleEmissionContext? ctx = null)
     {
-        return _currentModuleName != null ? GetReleaseSymbolName(_currentModuleName) : null;
+        ctx ??= ModuleEmissionContext.Default;
+        return ctx.ErrorDescCurrentModuleName != null ? GetReleaseSymbolName(ctx.ErrorDescCurrentModuleName) : null;
     }
 
     /// <summary>
     /// Checks if the error helper P/Invokes have already been emitted for the specified C# type.
     /// </summary>
-    public static bool HasErrorPInvokeForType(string typeName)
+    public static bool HasErrorPInvokeForType(string typeName, ModuleEmissionContext? ctx = null)
     {
-        return _csharpTypesWithErrorPInvoke.Contains(typeName);
+        ctx ??= ModuleEmissionContext.Default;
+        return ctx.HasErrorDescPInvoke(typeName);
     }
 
     /// <summary>
     /// Marks the error helper P/Invokes as emitted for the specified C# type.
     /// </summary>
-    public static void MarkErrorPInvokeEmittedForType(string typeName)
+    public static void MarkErrorPInvokeEmittedForType(string typeName, ModuleEmissionContext? ctx = null)
     {
-        _csharpTypesWithErrorPInvoke.Add(typeName);
+        ctx ??= ModuleEmissionContext.Default;
+        ctx.TryAddErrorDescPInvoke(typeName);
     }
 
     /// <summary>
     /// Checks if the error description infrastructure has already been emitted for this module.
     /// </summary>
-    public static bool IsEmitted => _infrastructureEmitted;
+    public static bool IsEmitted(ModuleEmissionContext? ctx = null)
+    {
+        ctx ??= ModuleEmissionContext.Default;
+        return ctx.ErrorDescInfrastructureEmitted;
+    }
 
     /// <summary>
     /// Gets the current module name, if set.
     /// </summary>
-    public static string? CurrentModuleName => _currentModuleName;
+    public static string? GetCurrentModuleName(ModuleEmissionContext? ctx = null)
+    {
+        ctx ??= ModuleEmissionContext.Default;
+        return ctx.ErrorDescCurrentModuleName;
+    }
 
     /// <summary>
     /// Emits a Swift function that extracts a typed error value from an opaque error pointer.
@@ -186,9 +163,11 @@ public static class ErrorDescriptionEmitter
     /// <param name="swiftWriter">The Swift writer to emit to.</param>
     /// <param name="moduleName">The module name for symbol namespacing.</param>
     /// <param name="swiftErrorTypeName">The fully-qualified Swift error type (e.g., "SwiftBindingsTestLib.ParseError").</param>
-    public static void EmitTypedErrorExtractorIfNeeded(SwiftWriter swiftWriter, string moduleName, string swiftErrorTypeName)
+    /// <param name="ctx">The per-module emission context.</param>
+    public static void EmitTypedErrorExtractorIfNeeded(SwiftWriter swiftWriter, string moduleName, string swiftErrorTypeName, ModuleEmissionContext? ctx = null)
     {
-        if (!_typedErrorExtractorsEmitted.Add(swiftErrorTypeName))
+        ctx ??= ModuleEmissionContext.Default;
+        if (!ctx.TryAddTypedErrorExtractor(swiftErrorTypeName))
             return;
 
         var safeSuffix = MakeSafeSymbolSuffix(swiftErrorTypeName);
@@ -226,17 +205,19 @@ public static class ErrorDescriptionEmitter
     /// <summary>
     /// Checks if the extractor P/Invoke has already been emitted for the specified key.
     /// </summary>
-    public static bool HasExtractorPInvokeForType(string key)
+    public static bool HasExtractorPInvokeForType(string key, ModuleEmissionContext? ctx = null)
     {
-        return _csharpTypesWithExtractorPInvoke.Contains(key);
+        ctx ??= ModuleEmissionContext.Default;
+        return ctx.HasExtractorPInvoke(key);
     }
 
     /// <summary>
     /// Marks the extractor P/Invoke as emitted for the specified key.
     /// </summary>
-    public static void MarkExtractorPInvokeEmittedForType(string key)
+    public static void MarkExtractorPInvokeEmittedForType(string key, ModuleEmissionContext? ctx = null)
     {
-        _csharpTypesWithExtractorPInvoke.Add(key);
+        ctx ??= ModuleEmissionContext.Default;
+        ctx.TryAddExtractorPInvoke(key);
     }
 
     /// <summary>

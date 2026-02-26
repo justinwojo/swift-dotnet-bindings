@@ -8,26 +8,13 @@ namespace BindingsGeneration
 {
     public partial class EnumHandler
     {
-        /// <summary>
-        /// Tracks which Swift wrapper symbols have been emitted to avoid duplicates.
-        /// This is needed because nested enums may be processed multiple times.
-        /// </summary>
-        private static readonly HashSet<string> _emittedWrapperSymbols = new();
-
-        /// <summary>
-        /// Resets the UTF-8 slice emission tracking. Call at the start of each module.
-        /// </summary>
-        public static void ResetUtf8SliceTracking()
-        {
-            Utf8SliceEmitter.ResetForModule();
-            _emittedWrapperSymbols.Clear();
-        }
+        // Wrapper symbol dedup state stored on ModuleEmissionContext (per-module instance).
 
         /// <summary>
         /// Emits RawRepresentable support for enums with simple cases.
         /// This includes a FromRawValue method and static properties for each case.
         /// </summary>
-        private void EmitRawRepresentableSupport(CSharpWriter csWriter, SwiftWriter swiftWriter, EnumDecl enumDecl, List<EnumCaseDecl> simpleCases, ModuleDecl moduleDecl, ITypeDatabase typeDatabase, string enumTypeName, PInvokeHelperContext? pinvokeHelperContext, bool canCacheCases = false, Dictionary<string, string>? propertyRenames = null)
+        private void EmitRawRepresentableSupport(CSharpWriter csWriter, SwiftWriter swiftWriter, EnumDecl enumDecl, List<EnumCaseDecl> simpleCases, ModuleDecl moduleDecl, ITypeDatabase typeDatabase, string enumTypeName, PInvokeHelperContext? pinvokeHelperContext, bool canCacheCases = false, Dictionary<string, string>? propertyRenames = null, ModuleEmissionContext? ctx = null)
         {
             var rawTypeName = enumDecl.RawValueTypeName!;
             var libPath = typeDatabase.GetLibraryPath(moduleDecl.Name);
@@ -76,7 +63,7 @@ namespace BindingsGeneration
                 // e.g., BlinkID.Foo.ErrorType and BlinkID.Bar.ErrorType get unique symbols
                 var sanitizedName = enumDecl.SwiftTypeName.ModuleQualifiedName.Replace(".", "_");
                 wrapperSymbol = $"SBW_{sanitizedName}_InitWithRawValue";
-                EmitStringRawValueSwiftWrapper(swiftWriter, enumDecl, moduleDecl, wrapperSymbol);
+                EmitStringRawValueSwiftWrapper(swiftWriter, enumDecl, moduleDecl, wrapperSymbol, ctx);
                 EmitUtf8SliceStruct(csWriter);
             }
 
@@ -413,10 +400,11 @@ namespace BindingsGeneration
         /// Emits the Swift wrapper function for String-based enum init(rawValue:).
         /// The wrapper accepts SBW_Utf8Slice, decodes to String, and calls the real init.
         /// </summary>
-        private void EmitStringRawValueSwiftWrapper(SwiftWriter swiftWriter, EnumDecl enumDecl, ModuleDecl moduleDecl, string wrapperSymbol)
+        private void EmitStringRawValueSwiftWrapper(SwiftWriter swiftWriter, EnumDecl enumDecl, ModuleDecl moduleDecl, string wrapperSymbol, ModuleEmissionContext? ctx = null)
         {
+            ctx ??= ModuleEmissionContext.Default;
             // Skip if this wrapper has already been emitted (nested enums may be processed multiple times)
-            if (!_emittedWrapperSymbols.Add(wrapperSymbol))
+            if (!ctx.TryAddEnumRawRepWrapperSymbol(wrapperSymbol))
             {
                 return;
             }
@@ -425,7 +413,7 @@ namespace BindingsGeneration
             var enumFullName = enumDecl.SwiftTypeName.ModuleQualifiedName;
 
             // Emit SBW_Utf8Slice struct if not already done for this module
-            Utf8SliceEmitter.EmitIfNeeded(swiftWriter);
+            Utf8SliceEmitter.EmitIfNeeded(swiftWriter, ctx);
 
             // Determine if enum is frozen (affects return style)
             if (enumDecl.IsFrozen)

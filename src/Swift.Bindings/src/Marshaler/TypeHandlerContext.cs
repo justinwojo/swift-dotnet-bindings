@@ -5,10 +5,8 @@ namespace BindingsGeneration
 {
     /// <summary>
     /// Immutable context threaded through type handlers during emission.
-    /// Replaces mutable save/set/restore patterns on Conductor for:
-    /// - P/Invoke helper context (generic types → CS7042 avoidance)
-    /// - Deferred P/Invoke helper contexts (nested generic types)
-    /// - Property renames (property/nested-type name collision resolution)
+    /// Carries both marshaler-owned state (PInvokeHelperContext, PropertyRenames)
+    /// and emitter-owned state (EmissionContext) as a threading conduit.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -20,14 +18,25 @@ namespace BindingsGeneration
     /// pattern is required because nested generic types can't emit their P/Invoke helper
     /// classes inline (they'd still be inside the outer generic type → CS7042).
     /// </para>
+    /// <para>
+    /// <see cref="EmissionContext"/> is a per-module instance that replaces static mutable state
+    /// in infrastructure emitters (Utf8Slice, Cancellation, ErrorDescription, etc.) with
+    /// typed dedup APIs. Threaded from Program.cs → EmitModule → TypeHandlerContext → handlers.
+    /// </para>
     /// </remarks>
     public record TypeHandlerContext(
         PInvokeHelperContext? PInvokeHelperContext,
         List<PInvokeHelperContext> DeferredPInvokeHelperContexts,
         Dictionary<string, string>? PropertyRenames,
         SortedDictionary<string, List<string>>? CompositionCollector = null,
-        Dictionary<string, List<string>>? MarkerProtocolConformances = null)
+        Dictionary<string, List<string>>? MarkerProtocolConformances = null,
+        ModuleEmissionContext? EmissionContext = null)
     {
+        /// <summary>
+        /// Returns the emission context, falling back to the default singleton.
+        /// </summary>
+        public ModuleEmissionContext GetEmissionContext() => EmissionContext ?? ModuleEmissionContext.Default;
+
         public static TypeHandlerContext Empty => new(null, new(), null);
     }
 }

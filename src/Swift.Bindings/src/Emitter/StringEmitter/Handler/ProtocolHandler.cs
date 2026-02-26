@@ -314,7 +314,7 @@ namespace BindingsGeneration
             if (!ModuleHandler.HasMembersReferencingUnsupportedModule(protocolDecl))
             {
                 EmitProtocolProxy(csWriter, protocolDecl, env.TypeDatabase, skippedMethodKeys, skippedPropertyNames, skippedSubscriptIndices,
-                    closureSkippedMethodKeys, closureSkippedPropertyNames, existentialSkippedMethodKeys);
+                    closureSkippedMethodKeys, closureSkippedPropertyNames, existentialSkippedMethodKeys, context.GetEmissionContext());
             }
             else
             {
@@ -334,10 +334,10 @@ namespace BindingsGeneration
         private void EmitProtocolProxy(CSharpWriter csWriter, ProtocolDecl protocolDecl, ITypeDatabase typeDatabase,
             HashSet<string> skippedMethodKeys, HashSet<string> skippedPropertyNames, HashSet<int> skippedSubscriptIndices,
             HashSet<string> closureSkippedMethodKeys, HashSet<string> closureSkippedPropertyNames,
-            HashSet<string> existentialSkippedMethodKeys)
+            HashSet<string> existentialSkippedMethodKeys, ModuleEmissionContext? emissionCtx = null)
         {
             var moduleName = protocolDecl.ModuleDecl?.Name ?? "Swift";
-            var proxyEmitter = new ProtocolProxyEmitter(typeDatabase, _logger, moduleName);
+            var proxyEmitter = new ProtocolProxyEmitter(typeDatabase, _logger, moduleName, emissionCtx);
             proxyEmitter.EmitProxyClass(csWriter, protocolDecl, skippedMethodKeys, skippedPropertyNames, skippedSubscriptIndices,
                 closureSkippedMethodKeys, closureSkippedPropertyNames, existentialSkippedMethodKeys);
         }

@@ -610,9 +610,9 @@ namespace BindingsGeneration
             var wrapperLibPath = _env.TypeDatabase.AsyncLibraryName ?? moduleLibPath;
             var cancelSymbolName = CancellationTaskEmitter.GetCancelSymbolName(moduleDecl.Name);
             var typeKey = (_env.ParentDecl as TypeDecl)?.SwiftTypeName.ModuleQualifiedName ?? moduleDecl.Name;
-            if (!CancellationTaskEmitter.HasCancelPInvokeForType(typeKey))
+            if (!CancellationTaskEmitter.HasCancelPInvokeForType(typeKey, _emissionContext))
             {
-                CancellationTaskEmitter.MarkCancelPInvokeEmittedForType(typeKey);
+                CancellationTaskEmitter.MarkCancelPInvokeEmittedForType(typeKey, _emissionContext);
                 csWriter.WriteLines($"""
                     [System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{cancelSymbolName}")]
                     private static partial void SBW_CancelTask(long taskId);
@@ -1192,10 +1192,10 @@ namespace BindingsGeneration
             var wrapperLibPath = _env.TypeDatabase.AsyncLibraryName ?? moduleLibPath;
             var freeSymbolName = Utf8SliceEmitter.GetFreeSymbolName(moduleDecl.Name);
             var typeKey = (_env.ParentDecl as TypeDecl)?.SwiftTypeName.ModuleQualifiedName ?? moduleDecl.Name;
-            var needsFreePInvoke = !Utf8SliceEmitter.HasFreePInvokeForType(typeKey);
+            var needsFreePInvoke = !Utf8SliceEmitter.HasFreePInvokeForType(typeKey, _emissionContext);
             if (needsFreePInvoke)
             {
-                Utf8SliceEmitter.MarkFreePInvokeEmittedForType(typeKey);
+                Utf8SliceEmitter.MarkFreePInvokeEmittedForType(typeKey, _emissionContext);
             }
             return needsFreePInvoke
                 ? $"""

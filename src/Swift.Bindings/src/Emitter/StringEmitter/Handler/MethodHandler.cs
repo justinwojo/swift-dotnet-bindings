@@ -297,7 +297,7 @@ namespace BindingsGeneration
 
             MethodHandler.CheckExportedSymbol(methodEnv);
 
-            var wrapperEmitter = new WrapperEmitter(methodEnv, signatureHandler);
+            var wrapperEmitter = new WrapperEmitter(methodEnv, signatureHandler, emissionContext: context.GetEmissionContext());
 
             // C2: Emit Swift typed error extractor for ALL throwing constructors
             // (covers both failable EmitFailableFactory and non-failable EmitConstructor paths)
@@ -324,7 +324,7 @@ namespace BindingsGeneration
             ReportCollector.RecordMemberEmitted(BindingItemKind.Method, methodEnv.MethodDecl.Name, methodEnv.MethodDecl.ParentDecl);
 
             // Emit constructor overloads for trailing default parameters
-            DefaultParameterOverloadEmitter.TryEmitOverloads(csWriter, swiftWriter, methodEnv, _logger);
+            DefaultParameterOverloadEmitter.TryEmitOverloads(csWriter, swiftWriter, methodEnv, _logger, context.GetEmissionContext());
 
             csWriter.WriteLine();
         }
@@ -570,7 +570,7 @@ namespace BindingsGeneration
 
             // Try ArraySlice normalization — emits Swift wrapper + normalized C# method
             if (!isAccessor && ArraySliceNormalizationEmitter.TryEmitNormalizedMethod(
-                csWriter, swiftWriter, methodEnv, _logger))
+                csWriter, swiftWriter, methodEnv, _logger, context.GetEmissionContext()))
             {
                 ReportCollector.RecordMemberWrapped(
                     BindingItemKind.Method,
@@ -586,7 +586,7 @@ namespace BindingsGeneration
             // with generic closure parameters (e.g., func read<T>(_ block: (Database) throws -> T) -> T).
             // Must happen before SignatureHandler because generic closures produce placeholders.
             if (!isAccessor && GenericClosureBridgeEmitter.TryEmit(
-                csWriter, swiftWriter, methodEnv, methodEnv.ParentDecl as TypeDecl))
+                csWriter, swiftWriter, methodEnv, methodEnv.ParentDecl as TypeDecl, ctx: context.GetEmissionContext()))
             {
                 ReportCollector.RecordMemberWrapped(
                     BindingItemKind.Method,
@@ -687,7 +687,7 @@ namespace BindingsGeneration
                 }
             }
 
-            var wrapperEmitter = new WrapperEmitter(methodEnv, signatureHandler, fallbackInfo);
+            var wrapperEmitter = new WrapperEmitter(methodEnv, signatureHandler, fallbackInfo, context.GetEmissionContext());
             wrapperEmitter.EmitMethod(csWriter, swiftWriter);
             PInvokeEmitter.EmitPInvoke(csWriter, methodEnv, signatureHandler);
             methodEnv.MethodDecl.WasEmitted = true;
@@ -701,7 +701,7 @@ namespace BindingsGeneration
             }
 
             // Emit default parameter overloads (additional convenience methods)
-            DefaultParameterOverloadEmitter.TryEmitOverloads(csWriter, swiftWriter, methodEnv, _logger);
+            DefaultParameterOverloadEmitter.TryEmitOverloads(csWriter, swiftWriter, methodEnv, _logger, context.GetEmissionContext());
 
             // Emit Task-returning overload for callback-based methods (WU8)
             if (!isAccessor)

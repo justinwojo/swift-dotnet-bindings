@@ -223,7 +223,8 @@ public static class ArraySliceNormalizationEmitter
         CSharpWriter csWriter,
         SwiftWriter swiftWriter,
         MethodEnvironment env,
-        ILogger logger)
+        ILogger logger,
+        ModuleEmissionContext? emissionContext = null)
     {
         var methodDecl = env.MethodDecl;
 
@@ -300,7 +301,7 @@ public static class ArraySliceNormalizationEmitter
             }
         }
 
-        var wrapperEmitter = new WrapperEmitter(normalizedEnv, signatureHandler, fallbackInfo);
+        var wrapperEmitter = new WrapperEmitter(normalizedEnv, signatureHandler, fallbackInfo, emissionContext);
         wrapperEmitter.EmitMethod(csWriter, swiftWriter);
         PInvokeEmitter.EmitPInvoke(csWriter, normalizedEnv, signatureHandler);
 

@@ -17,6 +17,7 @@ public partial class ProtocolProxyEmitter
     private readonly ITypeDatabase _typeDatabase;
     private readonly ILogger _logger;
     private readonly string _moduleName;
+    private readonly ModuleEmissionContext _emissionContext;
     private static readonly TypeProjectionFactory s_projectionFactory = new();
     private HashSet<string> _skippedMethodKeys = new HashSet<string>();
     private HashSet<string> _skippedPropertyNames = new HashSet<string>();
@@ -25,11 +26,12 @@ public partial class ProtocolProxyEmitter
     private HashSet<string> _closureSkippedPropertyNames = new HashSet<string>();
     private HashSet<string> _existentialSkippedMethodKeys = new HashSet<string>();
 
-    public ProtocolProxyEmitter(ITypeDatabase typeDatabase, ILogger logger, string moduleName)
+    public ProtocolProxyEmitter(ITypeDatabase typeDatabase, ILogger logger, string moduleName, ModuleEmissionContext? ctx = null)
     {
         _typeDatabase = typeDatabase;
         _logger = logger;
         _moduleName = moduleName;
+        _emissionContext = ctx ?? ModuleEmissionContext.Default;
     }
 
     /// <summary>
@@ -130,7 +132,7 @@ public partial class ProtocolProxyEmitter
         EmitConstructors(writer, protocolDecl, interfaceNameWithGenerics);
 
         // Emit interface implementation (with witness dispatch for blittable members)
-        var dispatchEmitter = new WitnessDispatchEmitter(_typeDatabase, _logger, _moduleName);
+        var dispatchEmitter = new WitnessDispatchEmitter(_typeDatabase, _logger, _moduleName, _emissionContext);
         EmitInterfaceImplementation(writer, protocolDecl, interfaceNameWithGenerics, dispatchEmitter);
 
         // Emit ISwiftObject implementation

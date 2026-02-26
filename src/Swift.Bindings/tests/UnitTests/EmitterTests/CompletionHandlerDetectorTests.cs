@@ -329,7 +329,7 @@ public class CompletionHandlerDetectorTests
         // When a native async method is emitted first, its projected key now includes
         // CancellationToken. The completion handler overload also includes CancellationToken
         // in its key. So both keys match → overload is skipped → no CS0111.
-        CancellationTaskEmitter.ResetForModule();
+        // Context-based tracking: tests use default context (no parallelism)
 
         var moduleDecl = CreateModuleDecl();
         var parentDecl = CreateParentDecl(moduleDecl);
@@ -432,7 +432,7 @@ public class CompletionHandlerDetectorTests
     {
         // Without a pre-existing native async with the same name,
         // the completion handler overload should be emitted normally.
-        CancellationTaskEmitter.ResetForModule();
+        // Context-based tracking: tests use default context (no parallelism)
 
         var moduleDecl = CreateModuleDecl();
         var parentDecl = CreateParentDecl(moduleDecl);
@@ -700,7 +700,7 @@ public class CompletionHandlerDetectorTests
     /// </summary>
     private static string GenerateMethodWithCompletionHandler(ClosureTypeSpec closureSpec)
     {
-        CancellationTaskEmitter.ResetForModule();
+        // Context-based tracking: tests use default context (no parallelism)
 
         var moduleDecl = CreateModuleDecl();
         var parentDecl = CreateParentDecl(moduleDecl);

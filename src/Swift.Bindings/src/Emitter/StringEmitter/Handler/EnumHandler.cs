@@ -201,7 +201,7 @@ namespace BindingsGeneration
             {
                 if (enumDecl.IsRawRepresentable)
                 {
-                    EmitRawRepresentableSupport(csWriter, swiftWriter, enumDecl, simpleCases, moduleDecl, env.TypeDatabase, typeNameWithGenerics, pinvokeHelperContext, canCacheCases, propertyRenames);
+                    EmitRawRepresentableSupport(csWriter, swiftWriter, enumDecl, simpleCases, moduleDecl, env.TypeDatabase, typeNameWithGenerics, pinvokeHelperContext, canCacheCases, propertyRenames, ctx: context.GetEmissionContext());
                 }
                 else
                 {

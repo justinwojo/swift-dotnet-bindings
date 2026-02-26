@@ -31,15 +31,18 @@ namespace BindingsGeneration
         private readonly string? typedThrowsSwiftErrorType;  // e.g., "SwiftBindingsTestLib.ParseError"
         private readonly string? typedThrowsCSharpErrorType;  // e.g., "ParseError"
         private readonly SyncMethodPlan _syncPlan;
+        private readonly ModuleEmissionContext _emissionContext;
         private bool _needsUnsafeBody;
 
         internal WrapperEmitter(
             MethodEnvironment methodEnv,
             SignatureHandler signatureHandler,
-            TypeDatabaseExtensions.AnyTypeFallbackInfo? fallbackInfo = null)
+            TypeDatabaseExtensions.AnyTypeFallbackInfo? fallbackInfo = null,
+            ModuleEmissionContext? emissionContext = null)
         {
             _env = methodEnv;
             _fallbackInfo = fallbackInfo;
+            _emissionContext = emissionContext ?? ModuleEmissionContext.Default;
             _genericContext = methodEnv.ParentDecl is TypeDecl parentType
                 ? GenericContext.FromMethodInType(methodEnv.MethodDecl, parentType)
                 : GenericContext.FromMethod(methodEnv.MethodDecl);
@@ -302,7 +305,7 @@ namespace BindingsGeneration
             if (_syncPlan.SwiftError?.SwiftErrorTypeName == null) return;
             var moduleName = _env.MethodDecl.ModuleDecl?.Name ?? "";
             ErrorDescriptionEmitter.EmitTypedErrorExtractorIfNeeded(
-                swiftWriter, moduleName, _syncPlan.SwiftError.SwiftErrorTypeName);
+                swiftWriter, moduleName, _syncPlan.SwiftError.SwiftErrorTypeName, _emissionContext);
         }
 
         /// <summary>

@@ -747,12 +747,8 @@ namespace BindingsGeneration
 
                 logger.LogDebug("Parsed Swift ABI file successfully.");
 
-                // Reset protocol extension emitter state unconditionally (prevents stale
-                // wrappers leaking from a previous module when this module has no extensions).
-                // Must happen here, NOT in ModuleHandler.Emit(), because InjectExtensionMethods
-                // populates static state that ModuleHandler.Emit() later reads via EmitSwiftWrappers().
-                ProtocolExtensionEmitter.ResetForModule();
-                ForeignTypeExtensionEmitter.ResetForModule();
+                // Create per-module emission context (replaces static mutable state + ResetForModule)
+                var emissionContext = new ModuleEmissionContext();
 
                 // Parse protocol names first — needed by both protocol and foreign extension paths
                 var protocolNames = !string.IsNullOrWhiteSpace(swiftInterfacePath) && File.Exists(swiftInterfacePath)
@@ -765,7 +761,7 @@ namespace BindingsGeneration
                     var extensionMethods = SwiftInterfaceAccessParser.GetProtocolExtensionMethods(swiftInterfacePath!, protocolNames);
                     if (extensionMethods.Count > 0)
                     {
-                        ProtocolExtensionEmitter.InjectExtensionMethods(decl, extensionMethods, typeDatabase, logger);
+                        ProtocolExtensionEmitter.InjectExtensionMethods(decl, extensionMethods, typeDatabase, logger, emissionContext);
                     }
                 }
 
@@ -778,13 +774,13 @@ namespace BindingsGeneration
                     if (foreignExtensions.Count > 0)
                     {
                         ForeignTypeExtensionEmitter.ProcessForeignTypeExtensions(
-                            decl, foreignExtensions, typeDatabase, logger);
+                            decl, foreignExtensions, typeDatabase, logger, emissionContext);
                     }
                 }
 
                 // Emit the C# bindings
                 var stringEmitter = new StringEmitter(outputDirectory, typeDatabase, loggerFactory, namespaceResolver, bridgeHintsPath, markerProtocolConformances);
-                stringEmitter.EmitModule(decl);
+                stringEmitter.EmitModule(decl, emissionContext);
 
                 var report = ReportCollector.Complete();
                 if (report != null)

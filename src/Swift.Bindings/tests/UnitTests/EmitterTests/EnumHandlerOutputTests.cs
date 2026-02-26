@@ -675,7 +675,7 @@ public class EnumHandlerOutputTests
         enumDecl.Cases.Add(CreateCase("inactive"));
         enumDecl.Methods.Add(CreateStringRawValueInitializer(enumDecl, moduleDecl));
 
-        EnumHandler.ResetUtf8SliceTracking();
+        // Context-based tracking: tests use default context (no parallelism)
         var (_, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
 
         // Should use withUnsafePointer + copyMemory pattern
@@ -712,7 +712,7 @@ public class EnumHandlerOutputTests
         container2.Types.Add(enum2);
 
         // Reset shared state and emit both enums
-        EnumHandler.ResetUtf8SliceTracking();
+        // Context-based tracking: tests use default context (no parallelism)
         var (_, swiftOutput1) = EmitEnum(enum1, typeDatabase);
         var (_, swiftOutput2) = EmitEnum(enum2, typeDatabase);
 
@@ -737,7 +737,7 @@ public class EnumHandlerOutputTests
         enumDecl.Cases.Add(CreateCase("unknown"));
         enumDecl.Methods.Add(CreateStringRawValueInitializer(enumDecl, moduleDecl));
 
-        EnumHandler.ResetUtf8SliceTracking();
+        // Context-based tracking: tests use default context (no parallelism)
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         // Should be a C# enum with no wrapper P/Invokes
@@ -757,7 +757,7 @@ public class EnumHandlerOutputTests
         enumDecl.Cases.Add(CreateCase("unknown"));
         enumDecl.Methods.Add(CreateStringRawValueInitializer(enumDecl, moduleDecl));
 
-        EnumHandler.ResetUtf8SliceTracking();
+        // Context-based tracking: tests use default context (no parallelism)
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         // The wrapper P/Invoke (InitWithRawValue) should use AsyncLibraryName
@@ -777,7 +777,7 @@ public class EnumHandlerOutputTests
         enumDecl.Cases.Add(CreateCase("timeout"));
         enumDecl.Methods.Add(CreateStringRawValueInitializer(enumDecl, moduleDecl));
 
-        EnumHandler.ResetUtf8SliceTracking();
+        // Context-based tracking: tests use default context (no parallelism)
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         // Should emit C# enum with conversion extensions
@@ -800,7 +800,7 @@ public class EnumHandlerOutputTests
         enumDecl.Cases.Add(CreateCase("unknown"));
         enumDecl.Methods.Add(CreateStringRawValueInitializer(enumDecl, moduleDecl));
 
-        EnumHandler.ResetUtf8SliceTracking();
+        // Context-based tracking: tests use default context (no parallelism)
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         // Without AsyncLibraryName, wrapper P/Invoke falls back to module library path
@@ -976,7 +976,7 @@ public class EnumHandlerOutputTests
         enumDecl.Cases.Add(CreateCase("high"));
         enumDecl.Methods.Add(CreateStringRawValueInitializer(enumDecl, moduleDecl));
 
-        EnumHandler.ResetUtf8SliceTracking();
+        // Context-based tracking: tests use default context (no parallelism)
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         // Must emit ToRawValue extension method
@@ -996,7 +996,7 @@ public class EnumHandlerOutputTests
         enumDecl.Cases.Add(CreateCase("high"));
         enumDecl.Methods.Add(CreateStringRawValueInitializer(enumDecl, moduleDecl));
 
-        EnumHandler.ResetUtf8SliceTracking();
+        // Context-based tracking: tests use default context (no parallelism)
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         // Must emit FromRawValue extension method
@@ -1045,7 +1045,7 @@ public class EnumHandlerOutputTests
         };
         enumDecl.Methods.Add(describeMethod);
 
-        EnumHandler.ResetUtf8SliceTracking();
+        // Context-based tracking: tests use default context (no parallelism)
         var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
 
         // Should emit C# enum (not class)
@@ -1102,7 +1102,7 @@ public class EnumHandlerOutputTests
         };
         enumDecl.Methods.Add(factoryMethod);
 
-        EnumHandler.ResetUtf8SliceTracking();
+        // Context-based tracking: tests use default context (no parallelism)
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         // Should be class-based (not C# enum)
@@ -1166,7 +1166,7 @@ public class EnumHandlerOutputTests
             ModuleDecl = moduleDecl
         });
 
-        EnumHandler.ResetUtf8SliceTracking();
+        // Context-based tracking: tests use default context (no parallelism)
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         // Should be class-based (not C# enum)
@@ -1227,7 +1227,7 @@ public class EnumHandlerOutputTests
         };
         enumDecl.Methods.Add(hashMethod);
 
-        EnumHandler.ResetUtf8SliceTracking();
+        // Context-based tracking: tests use default context (no parallelism)
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         // Should be class-based because the instance method has an unsupported param type
@@ -1277,7 +1277,7 @@ public class EnumHandlerOutputTests
         };
         enumDecl.Methods.Add(toArrayMethod);
 
-        EnumHandler.ResetUtf8SliceTracking();
+        // Context-based tracking: tests use default context (no parallelism)
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         // Should be class-based because the instance method has an unsupported return type
@@ -1607,7 +1607,7 @@ public class EnumHandlerOutputTests
         enumDecl.Cases.Add(CreateCase("inactive"));
         enumDecl.Methods.Add(CreateStringRawValueInitializer(enumDecl, moduleDecl));
 
-        EnumHandler.ResetUtf8SliceTracking();
+        // Context-based tracking: tests use default context (no parallelism)
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         // Should emit Lazy<T> backing field for each case
@@ -1965,7 +1965,8 @@ public class EnumHandlerOutputTests
         var handler = new EnumHandler(new NullLogger<EnumHandler>());
         var env = handler.Marshal(enumDecl, typeDatabase);
         var conductor = new Conductor(new NullLoggerFactory());
-        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
+        var context = new TypeHandlerContext(null, new(), null, EmissionContext: new ModuleEmissionContext());
+        handler.Emit(csWriter, swiftWriter, env, conductor, context);
 
         return (csOutput.ToString(), swiftOutput.ToString());
     }

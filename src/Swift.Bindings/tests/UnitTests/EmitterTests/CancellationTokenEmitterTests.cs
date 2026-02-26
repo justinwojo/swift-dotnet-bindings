@@ -18,11 +18,11 @@ public class CancellationTokenEmitterTests
     [Fact]
     public void EmitIfNeeded_EmitsSwiftInfrastructureOnce()
     {
-        CancellationTaskEmitter.ResetForModule();
+        var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var writer = new SwiftWriter(sw);
 
-        var emitted = CancellationTaskEmitter.EmitIfNeeded(writer, "TestModule");
+        var emitted = CancellationTaskEmitter.EmitIfNeeded(writer, "TestModule", ctx);
         Assert.True(emitted);
 
         var output = sw.ToString();
@@ -35,12 +35,12 @@ public class CancellationTokenEmitterTests
     [Fact]
     public void EmitIfNeeded_SecondCallReturnsFalse()
     {
-        CancellationTaskEmitter.ResetForModule();
+        var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var writer = new SwiftWriter(sw);
 
-        CancellationTaskEmitter.EmitIfNeeded(writer, "TestModule");
-        var emittedSecond = CancellationTaskEmitter.EmitIfNeeded(writer, "TestModule");
+        CancellationTaskEmitter.EmitIfNeeded(writer, "TestModule", ctx);
+        var emittedSecond = CancellationTaskEmitter.EmitIfNeeded(writer, "TestModule", ctx);
 
         Assert.False(emittedSecond);
     }
@@ -48,11 +48,11 @@ public class CancellationTokenEmitterTests
     [Fact]
     public void EmitIfNeeded_TaskEntryIsFinalClass()
     {
-        CancellationTaskEmitter.ResetForModule();
+        var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var writer = new SwiftWriter(sw);
 
-        CancellationTaskEmitter.EmitIfNeeded(writer, "TestModule");
+        CancellationTaskEmitter.EmitIfNeeded(writer, "TestModule", ctx);
         var output = sw.ToString();
 
         Assert.Contains("private final class _SBWTaskEntry", output);
@@ -62,11 +62,11 @@ public class CancellationTokenEmitterTests
     [Fact]
     public void EmitIfNeeded_CancelFunctionLooksUpAndCancelsTask()
     {
-        CancellationTaskEmitter.ResetForModule();
+        var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var writer = new SwiftWriter(sw);
 
-        CancellationTaskEmitter.EmitIfNeeded(writer, "TestModule");
+        CancellationTaskEmitter.EmitIfNeeded(writer, "TestModule", ctx);
         var output = sw.ToString();
 
         Assert.Contains("_sbwTaskLock.lock()", output);
@@ -85,30 +85,31 @@ public class CancellationTokenEmitterTests
     [Fact]
     public void PerTypePInvokeDedup_TracksCorrectly()
     {
-        CancellationTaskEmitter.ResetForModule();
+        var ctx = new ModuleEmissionContext();
 
-        Assert.False(CancellationTaskEmitter.HasCancelPInvokeForType("TestModule.Pipeline"));
-        CancellationTaskEmitter.MarkCancelPInvokeEmittedForType("TestModule.Pipeline");
-        Assert.True(CancellationTaskEmitter.HasCancelPInvokeForType("TestModule.Pipeline"));
+        Assert.False(CancellationTaskEmitter.HasCancelPInvokeForType("TestModule.Pipeline", ctx));
+        CancellationTaskEmitter.MarkCancelPInvokeEmittedForType("TestModule.Pipeline", ctx);
+        Assert.True(CancellationTaskEmitter.HasCancelPInvokeForType("TestModule.Pipeline", ctx));
     }
 
     [Fact]
-    public void ResetForModule_ClearsAllState()
+    public void FreshContext_HasCleanState()
     {
-        CancellationTaskEmitter.ResetForModule();
+        var ctx1 = new ModuleEmissionContext();
         var sw = new StringWriter();
         var writer = new SwiftWriter(sw);
 
-        CancellationTaskEmitter.EmitIfNeeded(writer, "TestModule");
-        CancellationTaskEmitter.MarkCancelPInvokeEmittedForType("TestModule.Pipeline");
-        Assert.True(CancellationTaskEmitter.IsEmitted);
-        Assert.True(CancellationTaskEmitter.HasCancelPInvokeForType("TestModule.Pipeline"));
+        CancellationTaskEmitter.EmitIfNeeded(writer, "TestModule", ctx1);
+        CancellationTaskEmitter.MarkCancelPInvokeEmittedForType("TestModule.Pipeline", ctx1);
+        Assert.True(CancellationTaskEmitter.IsEmitted(ctx1));
+        Assert.True(CancellationTaskEmitter.HasCancelPInvokeForType("TestModule.Pipeline", ctx1));
 
-        CancellationTaskEmitter.ResetForModule();
+        // Fresh context should be clean
+        var ctx2 = new ModuleEmissionContext();
 
-        Assert.False(CancellationTaskEmitter.IsEmitted);
-        Assert.False(CancellationTaskEmitter.HasCancelPInvokeForType("TestModule.Pipeline"));
-        Assert.Null(CancellationTaskEmitter.CurrentModuleName);
+        Assert.False(CancellationTaskEmitter.IsEmitted(ctx2));
+        Assert.False(CancellationTaskEmitter.HasCancelPInvokeForType("TestModule.Pipeline", ctx2));
+        Assert.Null(CancellationTaskEmitter.GetCurrentModuleName(ctx2));
     }
 
     #endregion
@@ -199,7 +200,7 @@ public class CancellationTokenEmitterTests
     [Fact]
     public void AsyncMethod_EmitsSBWCancelTaskPInvoke()
     {
-        CancellationTaskEmitter.ResetForModule();
+        // Context-based tracking: tests use default context (no parallelism)
         var (csOutput, _) = GenerateAsyncMethod();
         Assert.Contains("[System.Runtime.InteropServices.LibraryImport(", csOutput);
         Assert.Contains("SBW_CancelTask_TestModule", csOutput);
@@ -504,7 +505,7 @@ public class CancellationTokenEmitterTests
     /// </summary>
     private static (string csOutput, string swiftOutput) GenerateAsyncMethod()
     {
-        CancellationTaskEmitter.ResetForModule();
+        // Context-based tracking: tests use default context (no parallelism)
 
         var moduleDecl = new ModuleDecl
         {
@@ -611,7 +612,7 @@ public class CancellationTokenEmitterTests
     /// </summary>
     private static (string csOutput, string swiftOutput) GenerateAsyncVoidMethod()
     {
-        CancellationTaskEmitter.ResetForModule();
+        // Context-based tracking: tests use default context (no parallelism)
 
         var moduleDecl = new ModuleDecl
         {
@@ -705,7 +706,7 @@ public class CancellationTokenEmitterTests
     /// </summary>
     private static (string csOutput, string swiftOutput) GenerateSyncMethod()
     {
-        CancellationTaskEmitter.ResetForModule();
+        // Context-based tracking: tests use default context (no parallelism)
 
         var moduleDecl = new ModuleDecl
         {
@@ -794,7 +795,7 @@ public class CancellationTokenEmitterTests
     /// </summary>
     private static (string csOutput, string swiftOutput) GenerateAsyncStaticMethod()
     {
-        CancellationTaskEmitter.ResetForModule();
+        // Context-based tracking: tests use default context (no parallelism)
 
         var moduleDecl = new ModuleDecl
         {
@@ -889,7 +890,7 @@ public class CancellationTokenEmitterTests
     /// </summary>
     private static (string csOutput, string swiftOutput) GenerateAsyncStringMethod()
     {
-        CancellationTaskEmitter.ResetForModule();
+        // Context-based tracking: tests use default context (no parallelism)
 
         var moduleDecl = new ModuleDecl
         {
@@ -977,7 +978,7 @@ public class CancellationTokenEmitterTests
     /// </summary>
     private static (string csOutput, string swiftOutput) GenerateAsyncComplexReturnMethod()
     {
-        CancellationTaskEmitter.ResetForModule();
+        // Context-based tracking: tests use default context (no parallelism)
 
         var moduleDecl = new ModuleDecl
         {
@@ -1074,7 +1075,7 @@ public class CancellationTokenEmitterTests
     /// </summary>
     private static (string csOutput, string swiftOutput) GenerateAsyncTypedThrowsMethod()
     {
-        CancellationTaskEmitter.ResetForModule();
+        // Context-based tracking: tests use default context (no parallelism)
 
         var moduleDecl = new ModuleDecl
         {
@@ -1190,7 +1191,8 @@ public class CancellationTokenEmitterTests
 
         var handler = new MethodHandler(new NullLogger<MethodHandler>());
         var env = handler.Marshal(methodDecl, typeDatabase);
-        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
+        var context = new TypeHandlerContext(null, new(), null, EmissionContext: new ModuleEmissionContext());
+        handler.Emit(csWriter, swiftWriter, env, conductor, context);
 
         return (csStringWriter.ToString(), swiftStringWriter.ToString());
     }

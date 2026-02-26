@@ -1,0 +1,203 @@
+// Copyright (c) 2026 Justin Wojciechowski.
+// Licensed under the MIT License.
+
+namespace BindingsGeneration;
+
+/// <summary>
+/// Per-module emission context replacing static mutable state across emitters.
+///
+/// Created fresh for each module in Program.cs. Provides typed dedup APIs
+/// (HasEmitted*/TryAdd*) instead of raw collection access, ensuring encapsulation
+/// and preventing callers from accidentally clearing or misusing state.
+///
+/// Resolves H3 (Static Mutable State With Manual Reset) from architectural-review-v2.md.
+/// </summary>
+public sealed class ModuleEmissionContext
+{
+    /// <summary>
+    /// Default singleton for use in tests and backward-compatible code paths.
+    /// Safe because unit tests disable xUnit parallelization via [Collection] attributes.
+    /// </summary>
+    public static ModuleEmissionContext Default { get; } = new();
+
+    // ==================== Protocol Extension ====================
+
+    private readonly List<string> _protocolExtWrapperLines = new();
+    private readonly HashSet<string> _protocolExtEmittedSymbols = new();
+
+    /// <summary>Count of injected protocol extension methods for logging.</summary>
+    public int ProtocolExtInjectedCount { get; set; }
+
+    /// <summary>Accumulated Swift wrapper source lines for protocol extensions.</summary>
+    public IReadOnlyList<string> ProtocolExtSwiftWrapperLines => _protocolExtWrapperLines;
+
+    /// <summary>Checks if a protocol extension Swift wrapper symbol was already emitted.</summary>
+    public bool HasEmittedProtocolExtSymbol(string symbol) => _protocolExtEmittedSymbols.Contains(symbol);
+
+    /// <summary>Adds a protocol extension symbol. Returns true if newly added.</summary>
+    public bool TryAddProtocolExtSymbol(string symbol) => _protocolExtEmittedSymbols.Add(symbol);
+
+    /// <summary>Adds a single Swift wrapper line for protocol extensions.</summary>
+    public void AddProtocolExtWrapperLine(string line) => _protocolExtWrapperLines.Add(line);
+
+    /// <summary>Adds multiple Swift wrapper lines for protocol extensions.</summary>
+    public void AddProtocolExtWrapperLines(IEnumerable<string> lines) => _protocolExtWrapperLines.AddRange(lines);
+
+    // ==================== Foreign Type Extension ====================
+
+    private readonly List<string> _foreignExtWrapperLines = new();
+    private readonly HashSet<string> _foreignExtEmittedSymbols = new();
+    private readonly Dictionary<string, ForeignExtensionClassInfo> _foreignExtClasses = new();
+    private readonly HashSet<string> _foreignExtNeededImports = new();
+
+    /// <summary>Count of emitted foreign extension members for logging.</summary>
+    public int ForeignExtEmittedCount { get; set; }
+
+    /// <summary>Accumulated Swift wrapper source lines for foreign type extensions.</summary>
+    public IReadOnlyList<string> ForeignExtSwiftWrapperLines => _foreignExtWrapperLines;
+
+    /// <summary>Foreign modules that need to be imported in the Swift wrapper file.</summary>
+    public IReadOnlyCollection<string> ForeignExtNeededImports => _foreignExtNeededImports;
+
+    /// <summary>Collected extension class info grouped by foreign type qualified name.</summary>
+    public IReadOnlyDictionary<string, ForeignExtensionClassInfo> ForeignExtClasses => _foreignExtClasses;
+
+    /// <summary>Checks if a foreign extension Swift wrapper symbol was already emitted.</summary>
+    public bool HasEmittedForeignExtSymbol(string symbol) => _foreignExtEmittedSymbols.Contains(symbol);
+
+    /// <summary>Adds a foreign extension symbol. Returns true if newly added.</summary>
+    public bool TryAddForeignExtSymbol(string symbol) => _foreignExtEmittedSymbols.Add(symbol);
+
+    /// <summary>Adds a single Swift wrapper line for foreign type extensions.</summary>
+    public void AddForeignExtWrapperLine(string line) => _foreignExtWrapperLines.Add(line);
+
+    /// <summary>Adds multiple Swift wrapper lines for foreign type extensions.</summary>
+    public void AddForeignExtWrapperLines(IEnumerable<string> lines) => _foreignExtWrapperLines.AddRange(lines);
+
+    /// <summary>Adds a foreign module import for the Swift wrapper file.</summary>
+    public void AddForeignExtNeededImport(string import) => _foreignExtNeededImports.Add(import);
+
+    /// <summary>Gets or creates extension class info for a foreign type.</summary>
+    public ForeignExtensionClassInfo GetOrAddForeignExtClass(string key, Func<ForeignExtensionClassInfo> factory)
+    {
+        if (!_foreignExtClasses.TryGetValue(key, out var info))
+        {
+            info = factory();
+            _foreignExtClasses[key] = info;
+        }
+        return info;
+    }
+
+    // ==================== Utf8Slice ====================
+
+    private readonly HashSet<string> _utf8SliceFreePInvokeTypes = new();
+
+    /// <summary>Whether the SBW_Utf8Slice struct has been emitted for this module.</summary>
+    public bool Utf8SliceStructEmitted { get; set; }
+
+    /// <summary>Whether the SBW_Utf8Slice_Free function has been emitted for this module.</summary>
+    public bool Utf8SliceFreeEmitted { get; set; }
+
+    /// <summary>The current module name for Utf8Slice symbol generation.</summary>
+    public string? Utf8SliceCurrentModuleName { get; set; }
+
+    /// <summary>Checks if a Utf8Slice free P/Invoke has been emitted for a type.</summary>
+    public bool HasUtf8SliceFreePInvoke(string typeKey) => _utf8SliceFreePInvokeTypes.Contains(typeKey);
+
+    /// <summary>Marks a Utf8Slice free P/Invoke as emitted. Returns true if newly added.</summary>
+    public bool TryAddUtf8SliceFreePInvoke(string typeKey) => _utf8SliceFreePInvokeTypes.Add(typeKey);
+
+    // ==================== Cancellation Task ====================
+
+    private readonly HashSet<string> _cancellationPInvokeTypes = new();
+
+    /// <summary>Whether the cancellation infrastructure has been emitted for this module.</summary>
+    public bool CancellationInfrastructureEmitted { get; set; }
+
+    /// <summary>The current module name for cancellation symbol generation.</summary>
+    public string? CancellationCurrentModuleName { get; set; }
+
+    /// <summary>Checks if a cancellation P/Invoke has been emitted for a type.</summary>
+    public bool HasCancellationPInvoke(string typeKey) => _cancellationPInvokeTypes.Contains(typeKey);
+
+    /// <summary>Marks a cancellation P/Invoke as emitted. Returns true if newly added.</summary>
+    public bool TryAddCancellationPInvoke(string typeKey) => _cancellationPInvokeTypes.Add(typeKey);
+
+    // ==================== Error Description ====================
+
+    private readonly HashSet<string> _errorDescPInvokeTypes = new();
+    private readonly HashSet<string> _errorDescExtractorsEmitted = new();
+    private readonly HashSet<string> _errorDescExtractorPInvokeTypes = new();
+
+    /// <summary>Whether the error description infrastructure has been emitted for this module.</summary>
+    public bool ErrorDescInfrastructureEmitted { get; set; }
+
+    /// <summary>The current module name for error description symbol generation.</summary>
+    public string? ErrorDescCurrentModuleName { get; set; }
+
+    /// <summary>Checks if an error description P/Invoke has been emitted for a type.</summary>
+    public bool HasErrorDescPInvoke(string typeKey) => _errorDescPInvokeTypes.Contains(typeKey);
+
+    /// <summary>Marks an error description P/Invoke as emitted. Returns true if newly added.</summary>
+    public bool TryAddErrorDescPInvoke(string typeKey) => _errorDescPInvokeTypes.Add(typeKey);
+
+    /// <summary>Marks a typed error extractor as emitted. Returns true if newly added.</summary>
+    public bool TryAddTypedErrorExtractor(string swiftErrorType) => _errorDescExtractorsEmitted.Add(swiftErrorType);
+
+    /// <summary>Checks if an extractor P/Invoke has been emitted for a key.</summary>
+    public bool HasExtractorPInvoke(string key) => _errorDescExtractorPInvokeTypes.Contains(key);
+
+    /// <summary>Marks an extractor P/Invoke as emitted. Returns true if newly added.</summary>
+    public bool TryAddExtractorPInvoke(string key) => _errorDescExtractorPInvokeTypes.Add(key);
+
+    // ==================== Generic Closure Bridge ====================
+
+    private readonly HashSet<string> _genericClosureBridgeTypes = new();
+
+    /// <summary>Whether the generic closure bridge CreateError helper has been emitted.</summary>
+    public bool GenericClosureBridgeCreateErrorEmitted { get; set; }
+
+    /// <summary>Checks if a generic closure bridge error P/Invoke has been emitted for a type.</summary>
+    public bool HasGenericClosureBridgeErrorPInvoke(string typeKey) => _genericClosureBridgeTypes.Contains(typeKey);
+
+    /// <summary>Marks a generic closure bridge error P/Invoke as emitted. Returns true if newly added.</summary>
+    public bool TryAddGenericClosureBridgeErrorPInvoke(string typeKey) => _genericClosureBridgeTypes.Add(typeKey);
+
+    // ==================== Enum Handler RawRepresentable ====================
+
+    private readonly HashSet<string> _enumRawRepSymbols = new();
+
+    /// <summary>Checks if an enum RawRepresentable wrapper symbol was already emitted.</summary>
+    public bool HasEnumRawRepWrapperSymbol(string symbol) => _enumRawRepSymbols.Contains(symbol);
+
+    /// <summary>Adds an enum RawRepresentable wrapper symbol. Returns true if newly added.</summary>
+    public bool TryAddEnumRawRepWrapperSymbol(string symbol) => _enumRawRepSymbols.Add(symbol);
+}
+
+/// <summary>
+/// Info for a single C# extension class for a foreign type.
+/// Moved from ForeignTypeExtensionEmitter to share via ModuleEmissionContext.
+/// </summary>
+public class ForeignExtensionClassInfo
+{
+    public string ForeignTypeQualifiedName { get; init; } = "";
+    public string ModuleName { get; init; } = "";
+    public List<ForeignExtensionMemberInfo> Members { get; } = new();
+}
+
+/// <summary>
+/// Info for a single extension member (method or property getter/setter).
+/// Moved from ForeignTypeExtensionEmitter to share via ModuleEmissionContext.
+/// </summary>
+public class ForeignExtensionMemberInfo
+{
+    public required string SymbolName { get; init; }
+    public required string CSharpMethodName { get; init; }
+    public required ProtocolExtensionMethodDecl ExtMethod { get; init; }
+    public required List<(string label, TypeSpec typeSpec, string swiftType, bool hasDefault)> Parameters { get; init; }
+    public TypeSpec? ReturnTypeSpec { get; init; }
+    public required string ReturnTypeName { get; init; }
+    public required ExtensionMarshallingHelper.ReturnKind ReturnCategory { get; init; }
+    public bool IsPropertyGetter { get; init; }
+    public bool IsPropertySetter { get; init; }
+}

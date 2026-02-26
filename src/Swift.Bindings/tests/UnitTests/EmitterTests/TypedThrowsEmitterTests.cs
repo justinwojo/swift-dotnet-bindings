@@ -232,8 +232,7 @@ public class TypedThrowsEmitterTests
         bool isFreeFunction = false)
     {
         // Reset static emitter state — these tests need clean dedup tracking
-        ErrorDescriptionEmitter.ResetForModule();
-        Utf8SliceEmitter.ResetForModule();
+        // Context-based tracking: tests use default context (no parallelism)
 
         var moduleDecl = new ModuleDecl
         {
@@ -377,7 +376,8 @@ public class TypedThrowsEmitterTests
         var handler = new MethodHandler(new NullLogger<MethodHandler>());
         var env = handler.Marshal(methodDecl, typeDatabase);
 
-        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
+        var context = new TypeHandlerContext(null, new(), null, EmissionContext: new ModuleEmissionContext());
+        handler.Emit(csWriter, swiftWriter, env, conductor, context);
 
         return (csStringWriter.ToString(), swiftStringWriter.ToString());
     }
@@ -387,8 +387,7 @@ public class TypedThrowsEmitterTests
         string errorTypeName = "TestModule.ParseError")
     {
         // Reset static emitter state — these tests need clean dedup tracking
-        ErrorDescriptionEmitter.ResetForModule();
-        Utf8SliceEmitter.ResetForModule();
+        // Context-based tracking: tests use default context (no parallelism)
 
         var moduleDecl = new ModuleDecl
         {
@@ -529,7 +528,8 @@ public class TypedThrowsEmitterTests
         var handler = new ConstructorHandler(new NullLogger<ConstructorHandler>(), new HashSet<string>());
         var env = new MethodEnvironment(constructorDecl, typeDatabase);
         var conductor = new Conductor(new NullLoggerFactory());
-        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
+        var context = new TypeHandlerContext(null, new(), null, EmissionContext: new ModuleEmissionContext());
+        handler.Emit(csWriter, swiftWriter, env, conductor, context);
 
         return (csStringWriter.ToString(), swiftStringWriter.ToString());
     }

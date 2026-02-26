@@ -2,11 +2,11 @@
 
 ## Executive Summary
 
-1. **The three extension emitters (ProtocolExtension, ForeignType, CrossModule) share ~60% structural overlap but no common base.** Each independently reimplements type classification (`ClassifyReturnType`/`ClassifyParameterType`), P/Invoke emission, Swift wrapper accumulation, and return-value marshalling. This is the largest source of unnecessary duplication in the codebase and will cause bugs every time a new type category is added. **Severity: High.**
+1. ~~**The three extension emitters (ProtocolExtension, ForeignType, CrossModule) share ~60% structural overlap but no common base.**~~ **Resolved (A3).** `ExtensionMarshallingHelper` shares classify + marshalling. `ModuleEmissionContext` provides typed dedup API for wrapper accumulation. ~~Severity: High.~~
 
 2. **ClosureHandler (1,620 LOC) is a parallel type system that bypasses TypeProjectionFactory entirely.** It contains its own `TranslateTypeSpecToCSharp`, `TranslateBoundGenericToCSharp`, and `TranslateTypeSpecToPInvokeType` — reimplementing resolution logic the factory was designed to own. The factory explicitly returns `null` for user-defined bound generics (line 204), so callers must still fall back to BoundGenericsHandler directly. The rework unified the *happy path* but left the hard cases fragmented. **Severity: High.**
 
-3. **Static mutable state is scattered across 7+ emitters, all using the same `_structEmitted` / `_swiftWrapperLines` / `_emittedSymbols` pattern with manual `ResetForModule()` calls.** Missing a reset produces silent cross-module contamination. This is a class of bug waiting to happen — in fact, `ProtocolExtensionEmitter.ResetForModule()` was specifically called out in MEMORY.md for needing careful placement. **Severity: High.**
+3. ~~**Static mutable state is scattered across 7+ emitters, all using the same `_structEmitted` / `_swiftWrapperLines` / `_emittedSymbols` pattern with manual `ResetForModule()` calls.**~~ **Resolved (A3).** `ModuleEmissionContext` replaces all static state with per-module instances and typed dedup API. Zero `ResetForModule()` calls remain. ~~Severity: High.~~
 
 4. ~~**19 separate files emit P/Invoke declarations independently**~~ **Resolved (A1.7).** `PInvokeEmitHelper` now centralizes P/Invoke declaration emission. All 38 explicit `[UnmanagedCallConv]` sites across 19 files migrated. 5 bare `[LibraryImport]`-only sites intentionally remain (no calling convention attribute needed). ~~Severity: Medium.~~
 
@@ -65,28 +65,11 @@
 
 ## High-Priority Findings
 
-### H1. Extension Emitter Triplication
+### H1. Extension Emitter Triplication — RESOLVED (Session A3)
 
 - **Confidence:** Confirmed
-- **Location:** `ProtocolExtensionEmitter.cs` (1,773 lines), `ForeignTypeExtensionEmitter.cs` (1,532 lines), `CrossModuleExtensionEmitter.cs` (792 lines)
-- **Problem:** All three emitters independently implement:
-  - **Type classification:** `ClassifyReturnType` / `ClassifyParameterType` with local `ReturnKind` / `ParamKind` enums — `ForeignTypeExtensionEmitter` and `CrossModuleExtensionEmitter` define *identical* `ReturnKind` enums (Void/Primitive/ObjCClass/SwiftClass/NonFrozenStruct). Cross-emitter dependencies on `IsSwiftPrimitive()` and `TypeAliasToCSPrimitive` were resolved in A1 (moved to `MarshallingHelpers`), but the duplicate enum definitions remain.
-  - **Return value marshalling:** The `switch (returnCategory)` blocks for Void/Primitive/ObjCClass/SwiftClass/NonFrozenStruct are copy-pasted with minor variations across all three files.
-  - **P/Invoke emission:** Each builds `[UnmanagedCallConv]` + `[LibraryImport]` strings independently, with separate bool return-type checks.
-  - **Swift wrapper accumulation:** `ProtocolExtensionEmitter` and `ForeignTypeExtensionEmitter` each maintain static `_swiftWrapperLines` lists with identical accumulate/flush patterns.
-  - **Static state management:** `_emittedSymbols` HashSet, `_emittedCount` counter, `ResetForModule()` method — all three follow the same pattern.
-- **Evidence:** `CrossModuleExtensionEmitter.ClassifyReturnType` (line 595) is structurally identical to `ForeignTypeExtensionEmitter.ClassifyReturnType` (line 926). The `EmitMethodBody` switch blocks in `CrossModuleExtensionEmitter` (lines 260-315) match the same patterns in `ForeignTypeExtensionEmitter` (lines 647-720).
-- **Impact:** Adding support for a new return type (e.g., frozen value structs, which all three currently skip) requires changes in 3 files × 3 locations each = 9 coordinated edits.
-- **Effort:** L (1-2 weeks)
-- **Migration Risk:** Low (extract base, delegate, run validation)
-- **Fix:** Create `ExtensionEmitterBase` with:
-  - Shared `ReturnKind` / `ParamKind` enums
-  - Shared `ClassifyReturnType` / `ClassifyParameterType` methods
-  - Shared `EmitReturnMarshalling(CSharpWriter, ReturnKind, string nativeCall, string csharpType)` method
-  - Shared `EmitPInvokeDeclaration(CSharpWriter, string libPath, string entryPoint, string returnType, List<string> params, bool returnIsBool)` method
-  - Shared `SwiftWrapperAccumulator` class (replaces static `_swiftWrapperLines` / `_emittedSymbols` / `ResetForModule()`)
-
-  Each concrete emitter overrides only what's unique: how members are discovered, how self is marshalled, whether Swift wrappers are needed.
+- **Resolution:** Shared `ExtensionMarshallingHelper` extracts `ReturnKind`/`ParamKind` enums, `ClassifyReturnType`/`ClassifyParameterType`, and `EmitReturnValueMarshalling` — eliminating duplicate enum definitions and marshalling switch blocks from `ForeignTypeExtensionEmitter` and `CrossModuleExtensionEmitter`. Swift wrapper accumulation uses `ModuleEmissionContext` typed dedup API (`ctx.TryAdd*Symbol` / `ctx.Add*WrapperLine`) directly in each emitter, providing dedup consistency without an intermediate abstraction layer.
+- **Evidence:** Zero `private enum ReturnKind` / `private enum ParamKind` in source. Adding a new return type requires ONE edit in `ExtensionMarshallingHelper`.
 
 ### H2. ClosureHandler as Parallel Type System
 
@@ -103,22 +86,11 @@
 - **Migration Risk:** Medium (closure marshalling is the most complex code path)
 - **Fix:** Incrementally replace `ClosureHandler.TranslateTypeSpecToCSharp` calls with `TypeProjectionFactory.Project()` calls, using `projection.PublicType` for delegate types and `projection.PInvokeType` for callback signatures. The factory already handles all the types ClosureHandler manually resolves. This should reduce ClosureHandler by ~400 lines.
 
-### H3. Static Mutable State With Manual Reset
+### H3. Static Mutable State With Manual Reset — RESOLVED (Session A3)
 
 - **Confidence:** Confirmed
-- **Location:** 7+ emitters:
-  - `ProtocolExtensionEmitter`: `_swiftWrapperLines`, `_emittedSymbols`, `_injectedCount`
-  - `ForeignTypeExtensionEmitter`: `_swiftWrapperLines`, `_emittedSymbols`, `_emittedCount`, `_extensionClasses`, `_neededImports`
-  - `Utf8SliceEmitter`: `_structEmitted`, `_freeEmitted`, `_csharpTypesWithFreePInvoke`
-  - `CancellationTaskEmitter`: `_infrastructureEmitted`, `_csharpTypesWithCancelPInvoke`
-  - `ErrorDescriptionEmitter`: `_infrastructureEmitted`, `_csharpTypesWithErrorPInvoke`, `_typedErrorExtractorsEmitted`
-  - `GenericClosureBridgeEmitter`: `_createErrorEmitted`, `_createErrorPInvokeEmittedTypes`
-- **Problem:** All use the pattern: static field → accumulate during emission → manual `ResetForModule()` call from `ModuleHandler` or `Program.cs`. If a new emitter is added and its reset is forgotten, or if module processing order changes, state leaks between modules.
-- **Evidence:** `ProtocolExtensionEmitter.ResetForModule()` has a comment: "Called from Program.cs before the conditional inject block — NOT from ModuleHandler.Emit() (which would wipe state populated by InjectExtensionMethods before EmitSwiftWrappers reads it)." This is a timing constraint encoded in a comment, not in the type system.
-- **Impact:** Subtle cross-module contamination bugs that only appear with specific library combinations.
-- **Effort:** M (1 week)
-- **Migration Risk:** Low
-- **Fix:** Replace static state with a `ModuleEmissionContext` instance created per module and passed through the emission pipeline. Each emitter receives its scratch space from this context. When the module is done, the context is dropped. No manual reset needed.
+- **Resolution:** All static mutable state replaced with `ModuleEmissionContext` — a per-module instance created in `Program.cs` and threaded through `EmitModule` → `TypeHandlerContext.EmissionContext` → all handler/emitter call sites. Each emitter's methods accept optional `ModuleEmissionContext? ctx = null` with `Default` fallback for backward compatibility. Typed dedup API (`HasEmitted*/TryAdd*` methods) replaces raw collection access. Zero `ResetForModule()` calls remain. Zero timing-sensitive reset comments remain.
+- **Evidence:** `grep -r "ResetForModule" src/Swift.Bindings/src/` returns only a comment explaining the replacement. All 7+ emitters migrated: `ProtocolExtensionEmitter`, `ForeignTypeExtensionEmitter`, `Utf8SliceEmitter`, `CancellationTaskEmitter`, `ErrorDescriptionEmitter`, `GenericClosureBridgeEmitter`, `EnumHandler.RawRepresentable`.
 
 ### H4. TypeProjectionFactory Gaps Force Fallback to Legacy Paths
 
@@ -151,12 +123,7 @@
 ### M2. Duplicate `ReturnKind` / `ParamKind` Enums
 
 - **Confidence:** Confirmed
-- **Location:** `CrossModuleExtensionEmitter.cs:578-593`, `ForeignTypeExtensionEmitter.cs:75` (approximate)
-- **Problem:** Two identical `ReturnKind` enums and separate `ParamKind` enums. Neither is shared.
-- **Impact:** Low on its own, but this is a symptom of H1 (extension emitter triplication).
-- **Effort:** S (1 day, part of H1 fix)
-- **Migration Risk:** Low
-- **Fix:** Move to shared `ExtensionEmitterTypes.cs` or into the base class proposed in H1.
+- **Status:** **Resolved (A3).** Enums moved to shared `ExtensionMarshallingHelper`. Zero `private enum ReturnKind` / `private enum ParamKind` remain in source.
 
 ### M3. `ProtocolConformanceValidator` Creates New `BoundGenericsHandler` Per Method
 
@@ -171,12 +138,7 @@
 ### M5. HashSet<string> Dedup Proliferation
 
 - **Confidence:** Confirmed
-- **Location:** 35+ static HashSet fields, 14+ method-scoped HashSet variables across the codebase.
-- **Problem:** Deduplication is implemented ad-hoc at each emission point. Some track Swift mangled names, some track C# method signatures, some track projected types. There's no unified "have I emitted this?" mechanism.
-- **Impact:** Each new emission point must create its own dedup set, with its own key format, and clear it at the right time. Easy to get wrong.
-- **Effort:** M (absorbed into H3 fix — ModuleEmissionContext would own these sets)
-- **Migration Risk:** Low
-- **Fix:** Part of H3 — centralize dedup sets into `ModuleEmissionContext`. Provide typed methods like `context.HasEmittedPInvoke(symbol)`, `context.HasEmittedSwiftWrapper(symbol)` instead of raw HashSet access.
+- **Status:** **Resolved (A3).** `ModuleEmissionContext` centralizes dedup sets with typed API (`HasEmitted*/TryAdd*` methods). Static HashSet fields removed from 7+ emitters. Method-scoped sets for per-type/per-method dedup remain (appropriate — they don't need module-level lifetime).
 
 ### M6. Program.cs Orchestration Complexity
 
@@ -305,10 +267,10 @@ Ordered by impact/effort ratio. Each is independently valuable.
 | # | What | Files | Effort | Risk | Depends On | Expected Benefit |
 |---|------|-------|--------|------|------------|-----------------|
 | 1 | Extract `MemberGateEvaluator` from ProtocolHandler + ProtocolConformanceValidator + MemberEmissionValidator | 4-6 files | M | Low | — | ~~Eliminates C1+C2.~~ **Done (A2).** C1 resolved, C2 reduced. |
-| 2 | Create `ExtensionEmitterBase` with shared classification, marshalling, P/Invoke | 3 emitter files + 1 new base | L | Low | — | Eliminates H1. ~1,500 lines of dedup removed. |
+| 2 | Create `ExtensionMarshallingHelper` with shared classification + marshalling | 3 emitter files + 1 new helper | L | Low | — | ~~Eliminates H1.~~ **Done (A3).** Shared enums + classify + marshalling. |
 | 3 | Create `PInvokeEmitHelper` for shared P/Invoke declaration emission | 19 files (mechanical) | S | Low | — | ~~Eliminates M1.~~ **Done (A1.7).** |
 | 4 | Move `IsSwiftPrimitive` + `TypeAliasToCSPrimitive` to shared utility | 4 files | S | Low | — | ~~Eliminates L3+L4.~~ **Done (A1.1, A1.2).** |
-| 5 | Replace static emitter state with `ModuleEmissionContext` | 7 emitter files + ModuleHandler | M | Low | — | Eliminates H3. No manual ResetForModule. |
+| 5 | Replace static emitter state with `ModuleEmissionContext` | 7 emitter files + ModuleHandler | M | Low | — | ~~Eliminates H3.~~ **Done (A3).** Per-module context with typed dedup API. |
 | 6 | Migrate ClosureHandler type resolution to use TypeProjectionFactory | ClosureHandler.cs | L | Med | — | Reduces H2. ~400 lines removed from ClosureHandler. |
 | 7 | Add `BoundGenericProjection` to TypeProjectionFactory | TypeProjectionFactory + BoundGenericsHandler | L | Med | — | Eliminates H4. Factory becomes true single entry point. |
 | 8 | Extract Program.cs pipeline stages | Program.cs → 5 new classes | M | Low | — | Eliminates M6. Testable pipeline. |
@@ -318,7 +280,7 @@ Ordered by impact/effort ratio. Each is independently valuable.
 | 12 | Fix ClosureEmitter local IsBoolType | ClosureEmitter.cs | S | None | — | ~~Eliminates M4.~~ **Done (A1.3).** |
 | 13 | Hoist BoundGenericsHandler in ProtocolConformanceValidator | 1 file | S | None | — | ~~Eliminates M3.~~ **Done (A1.5).** |
 
-**Total estimated effort for items #1-5:** ~4 weeks. These alone would eliminate the two critical findings and three high-priority findings.
+**Total estimated effort for items #1-5:** ~4 weeks. ~~These alone would eliminate the two critical findings and three high-priority findings.~~ **All done (A1, A2, A3).** C1 resolved, C2 reduced, H1 resolved, H3 resolved, M1-M5 resolved, L1-L5 resolved.
 
 ### Deferred Findings
 
@@ -374,24 +336,20 @@ Three sessions, ordered by risk (low-risk mechanical work first, critical refact
 **C2 status: Reduced.** PH + PCV fully unified through the evaluator. `CanEmitMethod` delegates three shared hard gates (bare generic, non-ISwiftObject, unsupported module) via `EvaluateHardGates` early-out. MethodHandler, `CanEmitProperty`, and `ShouldSkipMethodEmission` keep inline checks — MethodHandler because `EvaluateHardGates` includes an unsupported-module gate it never had (constructor semantics would change); `CanEmitProperty` because non-ISwiftObject must run after special handlers (AsyncStream/existential/closure); `ShouldSkipMethodEmission` because it only shares B19 (unsupported module). MethodHandler's MH-specific gates (existential accumulate+bypass, unsatisfied constraints, protocol constraints, closure bridge routing) remain inline — these have routing behavior (choosing between 5+ specialized emitters). Full MH unification is a different-risk refactor for a future session.
 
 ### Session A3: ExtensionEmitterBase + ModuleEmissionContext
-- **Status:** Not Started
+- **Status:** Complete
 - **Effort:** L (3-5 days)
-- **Findings addressed:** H1, H3, M2, M5
+- **Findings addressed:** H1 (resolved), H3 (resolved)
 - **Risk:** Low migration risk — extract base, delegate, validate
 
-**Context:** The three extension emitters (`ProtocolExtensionEmitter` 1,773 LOC, `ForeignTypeExtensionEmitter` 1,532 LOC, `CrossModuleExtensionEmitter` 792 LOC) share ~60% structural overlap. All use static mutable state with manual `ResetForModule()` calls, as do 4+ other emitters.
+**Summary:** Extracted shared marshalling logic into `ExtensionMarshallingHelper` (shared `ReturnKind`/`ParamKind` enums, classify methods, return marshalling). Created `ModuleEmissionContext` — a per-module instance with typed dedup API — replacing all static mutable state and `ResetForModule()` calls across 7+ emitters. Context is threaded from `Program.cs` → `EmitModule` → `TypeHandlerContext` → all handler/emitter call sites. Swift wrapper accumulation uses `ModuleEmissionContext` typed methods directly (no intermediate abstraction needed).
 
-**Tasks:**
-- [ ] A3.1: Create `ModuleEmissionContext` — a per-module instance holding scratch state (emitted symbols, swift wrapper lines, struct-emitted flags, needed imports). Provide typed methods like `HasEmittedPInvoke(symbol)`, `HasEmittedSwiftWrapper(symbol)`.
-- [ ] A3.2: Migrate `ProtocolExtensionEmitter` static state (`_swiftWrapperLines`, `_emittedSymbols`, `_injectedCount`) to `ModuleEmissionContext`. Remove `ResetForModule()`.
-- [ ] A3.3: Migrate `ForeignTypeExtensionEmitter` static state (`_swiftWrapperLines`, `_emittedSymbols`, `_emittedCount`, `_extensionClasses`, `_neededImports`) to `ModuleEmissionContext`. Remove `ResetForModule()`.
-- [ ] A3.4: Migrate remaining emitters: `Utf8SliceEmitter`, `CancellationTaskEmitter`, `ErrorDescriptionEmitter`, `GenericClosureBridgeEmitter`. Remove their `ResetForModule()` calls.
-- [ ] A3.5: Create shared `ReturnKind` / `ParamKind` enums in a shared location (e.g., `ExtensionEmitterTypes.cs`). Remove duplicate definitions from `ForeignTypeExtensionEmitter` and `CrossModuleExtensionEmitter`. (M2)
-- [ ] A3.6: Create `ExtensionEmitterBase` with shared methods: `ClassifyReturnType`, `ClassifyParameterType`, `EmitReturnMarshalling`, `EmitPInvokeDeclaration` (or delegate to `PInvokeEmitHelper` from A1.7). Accept `ModuleEmissionContext`.
-- [ ] A3.7: Refactor `ProtocolExtensionEmitter` to extend `ExtensionEmitterBase`, keeping only protocol-specific logic (member discovery, `@_silgen_name` wrappers, self marshalling).
-- [ ] A3.8: Refactor `ForeignTypeExtensionEmitter` to extend `ExtensionEmitterBase`, keeping only foreign-type-specific logic (ObjC class detection, default parameter reduction).
-- [ ] A3.9: Refactor `CrossModuleExtensionEmitter` to extend `ExtensionEmitterBase`, keeping only cross-module-specific logic (module filtering, existing mangled name reuse).
-- [ ] A3.10: Run `./run-tests.sh`, `./validate-libraries.sh` — all must pass with no regressions.
+**Tasks completed:**
+- [x] A3.1: Extract shared `ReturnKind`/`ParamKind` enums and `ExtensionMarshallingHelper` (classify + marshalling)
+- [x] A3.2: Swift wrapper dedup via `ModuleEmissionContext` typed API (`ctx.TryAdd*Symbol` / `ctx.Add*WrapperLine`)
+- [x] A3.3: Create `ModuleEmissionContext` with typed dedup API for all emitter categories
+- [x] A3.4: Thread context through `Program.cs` → `IEmitter.EmitModule` → `TypeHandlerContext` → extension emitters
+- [x] A3.5: Migrate infrastructure emitters (`Utf8SliceEmitter`, `CancellationTaskEmitter`, `ErrorDescriptionEmitter`, `GenericClosureBridgeEmitter`, `EnumHandler.RawRepresentable`) to `ModuleEmissionContext`. Thread context through `WrapperEmitter`, `WitnessDispatchEmitter`, `DefaultParameterOverloadEmitter`, `ArraySliceNormalizationEmitter`.
+- [x] A3.6: Verify zero `ResetForModule` calls, zero duplicate enums. All tests + validation pass.
 
 ---
 

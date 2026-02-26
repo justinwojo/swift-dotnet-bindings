@@ -687,12 +687,13 @@ public class WitnessDispatchEmitterTests
 
     private string EmitDispatch(ProtocolDecl protocolDecl)
     {
-        // Reset shared state before each emission to ensure test isolation
-        Utf8SliceEmitter.ResetForModule();
+        // Fresh context per test call ensures clean dedup state (no parallelism)
+        var ctx = new ModuleEmissionContext();
+        var emitter = new WitnessDispatchEmitter(_typeDatabase, NullLogger.Instance, "TestModule", ctx);
 
         var stringWriter = new StringWriter();
         var writer = new SwiftWriter(stringWriter);
-        _emitter.EmitWitnessDispatchFunctions(writer, protocolDecl);
+        emitter.EmitWitnessDispatchFunctions(writer, protocolDecl);
         return stringWriter.ToString();
     }
 

@@ -18,34 +18,6 @@ namespace BindingsGeneration;
 public static class ProtocolExtensionEmitter
 {
     /// <summary>
-    /// Accumulated Swift wrapper source lines for the current module.
-    /// Written by InjectExtensionMethods, consumed by EmitSwiftWrappers.
-    /// </summary>
-    private static readonly List<string> _swiftWrapperLines = new();
-
-    /// <summary>
-    /// Tracks emitted Swift wrapper symbols to prevent duplicate emission.
-    /// </summary>
-    private static readonly HashSet<string> _emittedSymbols = new();
-
-    /// <summary>
-    /// Count of injected extension methods for logging.
-    /// </summary>
-    private static int _injectedCount;
-
-    /// <summary>
-    /// Resets per-module state. Called from Program.cs before the conditional
-    /// inject block — NOT from ModuleHandler.Emit() (which would wipe state
-    /// populated by InjectExtensionMethods before EmitSwiftWrappers reads it).
-    /// </summary>
-    public static void ResetForModule()
-    {
-        _swiftWrapperLines.Clear();
-        _emittedSymbols.Clear();
-        _injectedCount = 0;
-    }
-
-    /// <summary>
     /// Scans the module's conforming types, matches them to parsed protocol extension methods,
     /// and injects synthetic MethodDecl entries with corresponding Swift wrapper code.
     /// </summary>
@@ -53,8 +25,10 @@ public static class ProtocolExtensionEmitter
         ModuleDecl moduleDecl,
         Dictionary<string, List<ProtocolExtensionMethodDecl>> protocolExtensionMethods,
         ITypeDatabase typeDatabase,
-        ILogger logger)
+        ILogger logger,
+        ModuleEmissionContext? ctx = null)
     {
+        ctx ??= ModuleEmissionContext.Default;
         if (protocolExtensionMethods.Count == 0)
             return;
 
@@ -97,14 +71,14 @@ public static class ProtocolExtensionEmitter
 
                 foreach (var conformingType in conformingTypes)
                 {
-                    TryInjectMethod(moduleDecl, conformingType, extMethod, typeDatabase, logger);
+                    TryInjectMethod(moduleDecl, conformingType, extMethod, typeDatabase, logger, ctx);
                 }
             }
         }
 
-        if (_injectedCount > 0)
+        if (ctx.ProtocolExtInjectedCount > 0)
         {
-            logger.LogInformation("Injected {Count} protocol extension methods across conforming types", _injectedCount);
+            logger.LogInformation("Injected {Count} protocol extension methods across conforming types", ctx.ProtocolExtInjectedCount);
         }
     }
 
@@ -112,14 +86,15 @@ public static class ProtocolExtensionEmitter
     /// Emits accumulated Swift wrapper functions to the SwiftWriter.
     /// Called from ModuleHandler.Emit() after all types have been processed.
     /// </summary>
-    public static void EmitSwiftWrappers(SwiftWriter swiftWriter)
+    public static void EmitSwiftWrappers(SwiftWriter swiftWriter, ModuleEmissionContext? ctx = null)
     {
-        if (_swiftWrapperLines.Count == 0)
+        ctx ??= ModuleEmissionContext.Default;
+        if (ctx.ProtocolExtSwiftWrapperLines.Count == 0)
             return;
 
         swiftWriter.WriteLine();
         swiftWriter.WriteLine("// --- Protocol extension method wrappers ---");
-        foreach (var line in _swiftWrapperLines)
+        foreach (var line in ctx.ProtocolExtSwiftWrapperLines)
         {
             swiftWriter.WriteLine(line);
         }
@@ -172,7 +147,8 @@ public static class ProtocolExtensionEmitter
         ClassDecl conformingType,
         ProtocolExtensionMethodDecl extMethod,
         ITypeDatabase typeDatabase,
-        ILogger logger)
+        ILogger logger,
+        ModuleEmissionContext ctx)
     {
         var typeName = conformingType.SwiftTypeName.ModuleQualifiedName;
         var flatTypeName = FlattenTypeName(conformingType.SwiftTypeName);
@@ -210,7 +186,7 @@ public static class ProtocolExtensionEmitter
         var symbolName = BuildSymbolName(flatTypeName, extMethod.MethodName, parameters);
 
         // Skip if already emitted (e.g., from a parent class conformance)
-        if (!_emittedSymbols.Add(symbolName))
+        if (!ctx.TryAddProtocolExtSymbol(symbolName))
             return;
 
         // Check for duplicate methods using reconstructed PrintedName (includes labels).
@@ -285,7 +261,7 @@ public static class ProtocolExtensionEmitter
 
             // Closure-bearing method: emit Swift wrapper with closure bridging
             EmitClosureSwiftWrapper(conformingType, extMethod, parameters, returnTypeSpec,
-                symbolName, closureTypeSpec!, closureParamIndex, methodLevelGenerics);
+                symbolName, closureTypeSpec!, closureParamIndex, methodLevelGenerics, ctx);
 
             // Build synthetic MethodDecl preserving ClosureTypeSpec
             var syntheticMethod = BuildClosureSyntheticMethodDecl(
@@ -293,18 +269,18 @@ public static class ProtocolExtensionEmitter
                 symbolName, closureTypeSpec!, methodLevelGenerics);
 
             conformingType.Methods.Add(syntheticMethod);
-            _injectedCount++;
+            ctx.ProtocolExtInjectedCount++;
         }
         else
         {
             // Non-closure method: existing path
-            EmitSwiftWrapper(conformingType, extMethod, parameters, returnTypeSpec, symbolName);
+            EmitSwiftWrapper(conformingType, extMethod, parameters, returnTypeSpec, symbolName, ctx);
 
             var syntheticMethod = BuildSyntheticMethodDecl(
                 moduleDecl, conformingType, extMethod, parameters, returnTypeSpec, returnTypeName, symbolName);
 
             conformingType.Methods.Add(syntheticMethod);
-            _injectedCount++;
+            ctx.ProtocolExtInjectedCount++;
         }
     }
 
@@ -851,7 +827,8 @@ public static class ProtocolExtensionEmitter
         ProtocolExtensionMethodDecl extMethod,
         List<(string label, TypeSpec typeSpec, string swiftType)> parameters,
         TypeSpec? returnTypeSpec,
-        string symbolName)
+        string symbolName,
+        ModuleEmissionContext ctx)
     {
         var typeName = conformingType.SwiftTypeName.ModuleQualifiedName;
         var isGenericConforming = conformingType.IsGeneric;
@@ -940,24 +917,24 @@ public static class ProtocolExtensionEmitter
         var returnArrow = string.IsNullOrEmpty(swiftReturnType) ? "" : $" -> {swiftReturnType}";
 
         // Emit the wrapper function
-        _swiftWrapperLines.Add("");
-        _swiftWrapperLines.Add($"@_silgen_name(\"{symbolName}\")");
+        ctx.AddProtocolExtWrapperLine("");
+        ctx.AddProtocolExtWrapperLine($"@_silgen_name(\"{symbolName}\")");
         if (extMethod.IsMainActorIsolated || conformingType.IsMainActorIsolated)
         {
-            _swiftWrapperLines.Add("@MainActor");
+            ctx.AddProtocolExtWrapperLine("@MainActor");
         }
-        _swiftWrapperLines.Add($"public func {symbolName}{genericClause}({string.Join(", ", swiftParams)}){returnArrow} {{");
+        ctx.AddProtocolExtWrapperLine($"public func {symbolName}{genericClause}({string.Join(", ", swiftParams)}){returnArrow} {{");
 
         // Emit self conversion
         if (isGenericConforming)
         {
             // Generic types use unsafeBitCast to cast the opaque pointer to the
             // parameterized type. Unmanaged<T>.fromOpaque requires non-generic T.
-            _swiftWrapperLines.Add($"    let instance = unsafeBitCast(self_, to: {qualifiedTypeName}.self)");
+            ctx.AddProtocolExtWrapperLine($"    let instance = unsafeBitCast(self_, to: {qualifiedTypeName}.self)");
         }
         else
         {
-            _swiftWrapperLines.Add($"    let instance = Unmanaged<{typeName}>.fromOpaque(self_).takeUnretainedValue()");
+            ctx.AddProtocolExtWrapperLine($"    let instance = Unmanaged<{typeName}>.fromOpaque(self_).takeUnretainedValue()");
         }
 
         // Emit parameter conversions
@@ -973,7 +950,7 @@ public static class ProtocolExtensionEmitter
                 // Class type: convert from opaque pointer
                 var renderedType = ExistentialBypassEmitter.RenderSwiftTypeSpec(typeSpec);
                 var localName = $"__{paramName}";
-                _swiftWrapperLines.Add($"    let {localName} = Unmanaged<{renderedType}>.fromOpaque({paramName}).takeUnretainedValue()");
+                ctx.AddProtocolExtWrapperLine($"    let {localName} = Unmanaged<{renderedType}>.fromOpaque({paramName}).takeUnretainedValue()");
                 callArgs.Add(label == "_" ? localName : $"{label}: {localName}");
             }
             else
@@ -991,19 +968,19 @@ public static class ProtocolExtensionEmitter
             // passRetained transfers +1 ownership to the caller so the object
             // stays alive after this wrapper returns. The C# SafeHandle calls
             // Arc.Release on Dispose to balance.
-            _swiftWrapperLines.Add($"    let result = {callStr}");
-            _swiftWrapperLines.Add($"    return Unmanaged.passRetained(result).toOpaque()");
+            ctx.AddProtocolExtWrapperLine($"    let result = {callStr}");
+            ctx.AddProtocolExtWrapperLine($"    return Unmanaged.passRetained(result).toOpaque()");
         }
         else if (string.IsNullOrEmpty(swiftReturnType))
         {
-            _swiftWrapperLines.Add($"    {callStr}");
+            ctx.AddProtocolExtWrapperLine($"    {callStr}");
         }
         else
         {
-            _swiftWrapperLines.Add($"    return {callStr}");
+            ctx.AddProtocolExtWrapperLine($"    return {callStr}");
         }
 
-        _swiftWrapperLines.Add("}");
+        ctx.AddProtocolExtWrapperLine("}");
     }
 
     /// <summary>
@@ -1019,7 +996,8 @@ public static class ProtocolExtensionEmitter
         string symbolName,
         ClosureTypeSpec closureTypeSpec,
         int closureParamIndex,
-        List<string> methodLevelGenerics)
+        List<string> methodLevelGenerics,
+        ModuleEmissionContext ctx)
     {
         var typeName = conformingType.SwiftTypeName.ModuleQualifiedName;
         var isGenericConforming = conformingType.IsGeneric;
@@ -1118,22 +1096,22 @@ public static class ProtocolExtensionEmitter
         var returnArrow = string.IsNullOrEmpty(swiftReturnType) ? "" : $" -> {swiftReturnType}";
 
         // Emit the wrapper function
-        _swiftWrapperLines.Add("");
-        _swiftWrapperLines.Add($"@_silgen_name(\"{symbolName}\")");
+        ctx.AddProtocolExtWrapperLine("");
+        ctx.AddProtocolExtWrapperLine($"@_silgen_name(\"{symbolName}\")");
         if (extMethod.IsMainActorIsolated || conformingType.IsMainActorIsolated)
         {
-            _swiftWrapperLines.Add("@MainActor");
+            ctx.AddProtocolExtWrapperLine("@MainActor");
         }
-        _swiftWrapperLines.Add($"public func {symbolName}{genericClause}({string.Join(", ", swiftParams)}){returnArrow} {{");
+        ctx.AddProtocolExtWrapperLine($"public func {symbolName}{genericClause}({string.Join(", ", swiftParams)}){returnArrow} {{");
 
         // Self conversion
         if (isGenericConforming)
         {
-            _swiftWrapperLines.Add($"    let instance = unsafeBitCast(self_, to: {qualifiedTypeName}.self)");
+            ctx.AddProtocolExtWrapperLine($"    let instance = unsafeBitCast(self_, to: {qualifiedTypeName}.self)");
         }
         else
         {
-            _swiftWrapperLines.Add($"    let instance = Unmanaged<{typeName}>.fromOpaque(self_).takeUnretainedValue()");
+            ctx.AddProtocolExtWrapperLine($"    let instance = Unmanaged<{typeName}>.fromOpaque(self_).takeUnretainedValue()");
         }
 
         // Build cdecl callback type
@@ -1155,7 +1133,7 @@ public static class ProtocolExtensionEmitter
         string cdeclReturnType = closureReturnIsBool ? "Bool" : "Void";
         var cdeclTypeStr = $"(@convention(c) ({string.Join(", ", cdeclArgTypes)}) -> {cdeclReturnType}).self";
 
-        _swiftWrapperLines.Add($"    let cdecl = unsafeBitCast({closureParamName}FuncPtr, to: {cdeclTypeStr})");
+        ctx.AddProtocolExtWrapperLine($"    let cdecl = unsafeBitCast({closureParamName}FuncPtr, to: {cdeclTypeStr})");
 
         // Build the inline closure that calls the cdecl callback
         var closureSwiftArgs = new List<string>();
@@ -1171,7 +1149,7 @@ public static class ProtocolExtensionEmitter
             ExistentialBypassEmitter.RenderSwiftTypeSpec(closureTypeSpec.ReturnType);
         var throwsKeyword = closureTypeSpec.Throws ? " throws" : "";
 
-        _swiftWrapperLines.Add($"    let __closure: ({string.Join(", ", closureSwiftArgs.Select(a => a.Split(':')[1].Trim()))}){throwsKeyword} -> {closureReturnStr} = {{ {string.Join(", ", Enumerable.Range(0, closureArgs.Count).Select(i => $"__arg{i}"))} in");
+        ctx.AddProtocolExtWrapperLine($"    let __closure: ({string.Join(", ", closureSwiftArgs.Select(a => a.Split(':')[1].Trim()))}){throwsKeyword} -> {closureReturnStr} = {{ {string.Join(", ", Enumerable.Range(0, closureArgs.Count).Select(i => $"__arg{i}"))} in");
 
         // For each arg: allocate buffer, copy, pass to cdecl
         for (int i = 0; i < closureArgs.Count; i++)
@@ -1186,9 +1164,9 @@ public static class ProtocolExtensionEmitter
             {
                 // Generic or class type: allocate buffer, copy bytes, pass pointer
                 var argType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg);
-                _swiftWrapperLines.Add($"        let __buf{i} = UnsafeMutableRawPointer.allocate(byteCount: max(MemoryLayout<{argType}>.size, 1), alignment: MemoryLayout<{argType}>.alignment)");
-                _swiftWrapperLines.Add($"        defer {{ __buf{i}.deallocate() }}");
-                _swiftWrapperLines.Add($"        withUnsafePointer(to: __arg{i}) {{ __buf{i}.copyMemory(from: UnsafeRawPointer($0), byteCount: MemoryLayout<{argType}>.size) }}");
+                ctx.AddProtocolExtWrapperLine($"        let __buf{i} = UnsafeMutableRawPointer.allocate(byteCount: max(MemoryLayout<{argType}>.size, 1), alignment: MemoryLayout<{argType}>.alignment)");
+                ctx.AddProtocolExtWrapperLine($"        defer {{ __buf{i}.deallocate() }}");
+                ctx.AddProtocolExtWrapperLine($"        withUnsafePointer(to: __arg{i}) {{ __buf{i}.copyMemory(from: UnsafeRawPointer($0), byteCount: MemoryLayout<{argType}>.size) }}");
             }
         }
 
@@ -1218,27 +1196,27 @@ public static class ProtocolExtensionEmitter
         {
             // Generic return: allocate result buffer, pass to cdecl, load from buffer
             var retType = ExistentialBypassEmitter.RenderSwiftTypeSpec(closureTypeSpec.ReturnType);
-            _swiftWrapperLines.Add($"        let __resultBuf = UnsafeMutableRawPointer.allocate(byteCount: max(MemoryLayout<{retType}>.size, 1), alignment: MemoryLayout<{retType}>.alignment)");
-            _swiftWrapperLines.Add($"        defer {{ __resultBuf.deallocate() }}");
+            ctx.AddProtocolExtWrapperLine($"        let __resultBuf = UnsafeMutableRawPointer.allocate(byteCount: max(MemoryLayout<{retType}>.size, 1), alignment: MemoryLayout<{retType}>.alignment)");
+            ctx.AddProtocolExtWrapperLine($"        defer {{ __resultBuf.deallocate() }}");
             cdeclCallArgs.Add("__resultBuf");
             cdeclCallArgs.Add($"{closureParamName}Context");
-            _swiftWrapperLines.Add($"        cdecl({string.Join(", ", cdeclCallArgs)})");
-            _swiftWrapperLines.Add($"        return __resultBuf.load(as: {retType}.self)");
+            ctx.AddProtocolExtWrapperLine($"        cdecl({string.Join(", ", cdeclCallArgs)})");
+            ctx.AddProtocolExtWrapperLine($"        return __resultBuf.load(as: {retType}.self)");
         }
         else if (closureReturnIsBool)
         {
             // Bool return: cdecl returns Bool directly
             cdeclCallArgs.Add($"{closureParamName}Context");
-            _swiftWrapperLines.Add($"        return cdecl({string.Join(", ", cdeclCallArgs)})");
+            ctx.AddProtocolExtWrapperLine($"        return cdecl({string.Join(", ", cdeclCallArgs)})");
         }
         else
         {
             // Void return
             cdeclCallArgs.Add($"{closureParamName}Context");
-            _swiftWrapperLines.Add($"        cdecl({string.Join(", ", cdeclCallArgs)})");
+            ctx.AddProtocolExtWrapperLine($"        cdecl({string.Join(", ", cdeclCallArgs)})");
         }
 
-        _swiftWrapperLines.Add("    }");
+        ctx.AddProtocolExtWrapperLine("    }");
 
         // Build method call arguments
         var callArgs = new List<string>();
@@ -1257,7 +1235,7 @@ public static class ProtocolExtensionEmitter
                 {
                     var renderedType = ExistentialBypassEmitter.RenderSwiftTypeSpec(typeSpec);
                     var localName = $"__{paramName}";
-                    _swiftWrapperLines.Add($"    let {localName} = Unmanaged<{renderedType}>.fromOpaque({paramName}).takeUnretainedValue()");
+                    ctx.AddProtocolExtWrapperLine($"    let {localName} = Unmanaged<{renderedType}>.fromOpaque({paramName}).takeUnretainedValue()");
                     callArgs.Add(label == "_" ? localName : $"{label}: {localName}");
                 }
                 else
@@ -1274,19 +1252,19 @@ public static class ProtocolExtensionEmitter
 
         if (extMethod.ReturnsSelf || returnIsClass)
         {
-            _swiftWrapperLines.Add($"    let result = {callStr}");
-            _swiftWrapperLines.Add($"    return Unmanaged.passRetained(result).toOpaque()");
+            ctx.AddProtocolExtWrapperLine($"    let result = {callStr}");
+            ctx.AddProtocolExtWrapperLine($"    return Unmanaged.passRetained(result).toOpaque()");
         }
         else if (string.IsNullOrEmpty(swiftReturnType))
         {
-            _swiftWrapperLines.Add($"    {callStr}");
+            ctx.AddProtocolExtWrapperLine($"    {callStr}");
         }
         else
         {
-            _swiftWrapperLines.Add($"    return {callStr}");
+            ctx.AddProtocolExtWrapperLine($"    return {callStr}");
         }
 
-        _swiftWrapperLines.Add("}");
+        ctx.AddProtocolExtWrapperLine("}");
     }
 
     /// <summary>

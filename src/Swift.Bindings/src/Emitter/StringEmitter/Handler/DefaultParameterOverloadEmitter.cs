@@ -27,7 +27,8 @@ public static class DefaultParameterOverloadEmitter
         CSharpWriter csWriter,
         SwiftWriter swiftWriter,
         MethodEnvironment env,
-        ILogger logger)
+        ILogger logger,
+        ModuleEmissionContext? emissionContext = null)
     {
         var methodDecl = env.MethodDecl;
 
@@ -119,7 +120,7 @@ public static class DefaultParameterOverloadEmitter
                 }
             }
 
-            var wrapperEmitter = new WrapperEmitter(overloadEnv, signatureHandler, fallbackInfo);
+            var wrapperEmitter = new WrapperEmitter(overloadEnv, signatureHandler, fallbackInfo, emissionContext);
             if (overloadDecl.IsConstructor && !overloadDecl.IsFailable && !overloadDecl.IsAsync)
             {
                 wrapperEmitter.EmitConstructor(csWriter);

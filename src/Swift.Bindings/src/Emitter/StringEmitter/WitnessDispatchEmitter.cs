@@ -20,6 +20,7 @@ public class WitnessDispatchEmitter
     private readonly ITypeDatabase _typeDatabase;
     private readonly ILogger _logger;
     private readonly string _moduleName;
+    private readonly ModuleEmissionContext _emissionContext;
 
     /// <summary>
     /// Set of C# type names that are blittable and can be safely marshalled via Unsafe.Read/Write.
@@ -90,11 +91,12 @@ public class WitnessDispatchEmitter
         ["double"] = "Double", ["System.Double"] = "Double",
     };
 
-    public WitnessDispatchEmitter(ITypeDatabase typeDatabase, ILogger logger, string moduleName)
+    public WitnessDispatchEmitter(ITypeDatabase typeDatabase, ILogger logger, string moduleName, ModuleEmissionContext? ctx = null)
     {
         _typeDatabase = typeDatabase;
         _logger = logger;
         _moduleName = moduleName;
+        _emissionContext = ctx ?? ModuleEmissionContext.Default;
     }
 
     /// <summary>
@@ -130,7 +132,7 @@ public class WitnessDispatchEmitter
                 }
                 if (NeedsUtf8Slice(protocolDecl))
                 {
-                    Utf8SliceEmitter.EmitIfNeeded(writer);
+                    Utf8SliceEmitter.EmitIfNeeded(writer, _emissionContext);
                 }
                 EmitPropertyGetterAccessor(writer, property, protocolDecl, moduleQualifiedName);
             }
@@ -153,7 +155,7 @@ public class WitnessDispatchEmitter
                 }
                 if (NeedsUtf8Slice(protocolDecl))
                 {
-                    Utf8SliceEmitter.EmitIfNeeded(writer);
+                    Utf8SliceEmitter.EmitIfNeeded(writer, _emissionContext);
                 }
                 EmitPropertySetterAccessor(writer, property, protocolDecl, moduleQualifiedName);
             }
@@ -181,7 +183,7 @@ public class WitnessDispatchEmitter
                 }
                 if (NeedsUtf8Slice(protocolDecl))
                 {
-                    Utf8SliceEmitter.EmitIfNeeded(writer);
+                    Utf8SliceEmitter.EmitIfNeeded(writer, _emissionContext);
                 }
                 EmitMethodAccessor(writer, method, protocolDecl, moduleQualifiedName, idx);
             }

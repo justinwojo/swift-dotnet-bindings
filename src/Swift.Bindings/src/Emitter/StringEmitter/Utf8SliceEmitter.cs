@@ -8,49 +8,22 @@ namespace BindingsGeneration;
 /// This struct is used for UTF-8 string marshalling between C# and Swift.
 /// WitnessDispatchEmitter, EnumHandler, and WrapperEmitter (async) may need this,
 /// so this class ensures each component is only emitted once per module.
+///
+/// State is stored on <see cref="ModuleEmissionContext"/> (per-module instance).
 /// </summary>
 public static class Utf8SliceEmitter
 {
-    /// <summary>
-    /// Tracks whether the SBW_Utf8Slice struct has been emitted for this module.
-    /// </summary>
-    private static bool _structEmitted = false;
-
-    /// <summary>
-    /// Tracks whether the SBW_Free function has been emitted for this module.
-    /// </summary>
-    private static bool _freeEmitted = false;
-
-    /// <summary>
-    /// The module name for the current emission context. Used for module-specific symbol names.
-    /// </summary>
-    private static string? _currentModuleName = null;
-
-    /// <summary>
-    /// Tracks which C# types have had the SBW_Free P/Invoke emitted (to avoid duplicates).
-    /// </summary>
-    private static readonly HashSet<string> _csharpTypesWithFreePInvoke = new();
-
-    /// <summary>
-    /// Resets the tracking for a new module. Call at the start of each module emission.
-    /// </summary>
-    public static void ResetForModule()
-    {
-        _structEmitted = false;
-        _freeEmitted = false;
-        _currentModuleName = null;
-        _csharpTypesWithFreePInvoke.Clear();
-    }
-
     /// <summary>
     /// Emits the SBW_Utf8Slice struct if not already emitted for this module.
     /// The ptr field is optional to support nil for empty strings.
     /// </summary>
     /// <param name="swiftWriter">The Swift writer to emit to.</param>
+    /// <param name="ctx">The per-module emission context.</param>
     /// <returns>True if the struct was emitted, false if it was already emitted.</returns>
-    public static bool EmitIfNeeded(SwiftWriter swiftWriter)
+    public static bool EmitIfNeeded(SwiftWriter swiftWriter, ModuleEmissionContext? ctx = null)
     {
-        if (_structEmitted)
+        ctx ??= ModuleEmissionContext.Default;
+        if (ctx.Utf8SliceStructEmitted)
             return false;
 
         // Use non-optional pointer for @convention(c) compatibility.
@@ -67,7 +40,7 @@ public static class Utf8SliceEmitter
             fileprivate var _sbw_emptyBuffer: UInt8 = 0
 
             """);
-        _structEmitted = true;
+        ctx.Utf8SliceStructEmitted = true;
         return true;
     }
 
@@ -80,13 +53,15 @@ public static class Utf8SliceEmitter
     /// </summary>
     /// <param name="swiftWriter">The Swift writer to emit to.</param>
     /// <param name="moduleName">The module name for symbol namespacing.</param>
+    /// <param name="ctx">The per-module emission context.</param>
     /// <returns>True if the function was emitted, false if it was already emitted.</returns>
-    public static bool EmitFreeIfNeeded(SwiftWriter swiftWriter, string moduleName)
+    public static bool EmitFreeIfNeeded(SwiftWriter swiftWriter, string moduleName, ModuleEmissionContext? ctx = null)
     {
-        if (_freeEmitted)
+        ctx ??= ModuleEmissionContext.Default;
+        if (ctx.Utf8SliceFreeEmitted)
             return false;
 
-        _currentModuleName = moduleName;
+        ctx.Utf8SliceCurrentModuleName = moduleName;
         var symbolName = GetFreeSymbolName(moduleName);
 
         swiftWriter.WriteLines(
@@ -94,7 +69,7 @@ public static class Utf8SliceEmitter
             "public func SBW_Free(_ ptr: UnsafeMutableRawPointer?) {\n" +
             "    ptr?.deallocate()\n" +
             "}\n");
-        _freeEmitted = true;
+        ctx.Utf8SliceFreeEmitted = true;
         return true;
     }
 
@@ -111,43 +86,61 @@ public static class Utf8SliceEmitter
     /// <summary>
     /// Gets the symbol name for the current module's SBW_Free function.
     /// </summary>
+    /// <param name="ctx">The per-module emission context.</param>
     /// <returns>The symbol name, or null if no module has been set.</returns>
-    public static string? GetCurrentFreeSymbolName()
+    public static string? GetCurrentFreeSymbolName(ModuleEmissionContext? ctx = null)
     {
-        return _currentModuleName != null ? GetFreeSymbolName(_currentModuleName) : null;
+        ctx ??= ModuleEmissionContext.Default;
+        return ctx.Utf8SliceCurrentModuleName != null ? GetFreeSymbolName(ctx.Utf8SliceCurrentModuleName) : null;
     }
 
     /// <summary>
     /// Checks if the SBW_Free P/Invoke has already been emitted for the specified C# type.
     /// </summary>
     /// <param name="typeName">The fully-qualified C# type name.</param>
+    /// <param name="ctx">The per-module emission context.</param>
     /// <returns>True if already emitted, false otherwise.</returns>
-    public static bool HasFreePInvokeForType(string typeName)
+    public static bool HasFreePInvokeForType(string typeName, ModuleEmissionContext? ctx = null)
     {
-        return _csharpTypesWithFreePInvoke.Contains(typeName);
+        ctx ??= ModuleEmissionContext.Default;
+        return ctx.HasUtf8SliceFreePInvoke(typeName);
     }
 
     /// <summary>
     /// Marks the SBW_Free P/Invoke as emitted for the specified C# type.
     /// </summary>
     /// <param name="typeName">The fully-qualified C# type name.</param>
-    public static void MarkFreePInvokeEmittedForType(string typeName)
+    /// <param name="ctx">The per-module emission context.</param>
+    public static void MarkFreePInvokeEmittedForType(string typeName, ModuleEmissionContext? ctx = null)
     {
-        _csharpTypesWithFreePInvoke.Add(typeName);
+        ctx ??= ModuleEmissionContext.Default;
+        ctx.TryAddUtf8SliceFreePInvoke(typeName);
     }
 
     /// <summary>
     /// Checks if the SBW_Utf8Slice struct has already been emitted for this module.
     /// </summary>
-    public static bool IsStructEmitted => _structEmitted;
+    public static bool IsStructEmitted(ModuleEmissionContext? ctx = null)
+    {
+        ctx ??= ModuleEmissionContext.Default;
+        return ctx.Utf8SliceStructEmitted;
+    }
 
     /// <summary>
     /// Checks if the SBW_Free function has already been emitted for this module.
     /// </summary>
-    public static bool IsFreeEmitted => _freeEmitted;
+    public static bool IsFreeEmitted(ModuleEmissionContext? ctx = null)
+    {
+        ctx ??= ModuleEmissionContext.Default;
+        return ctx.Utf8SliceFreeEmitted;
+    }
 
     /// <summary>
     /// Gets the current module name, if set.
     /// </summary>
-    public static string? CurrentModuleName => _currentModuleName;
+    public static string? CurrentModuleName(ModuleEmissionContext? ctx = null)
+    {
+        ctx ??= ModuleEmissionContext.Default;
+        return ctx.Utf8SliceCurrentModuleName;
+    }
 }

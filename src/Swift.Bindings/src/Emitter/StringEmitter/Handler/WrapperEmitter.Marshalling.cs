@@ -377,9 +377,9 @@ namespace BindingsGeneration
             var isGenericType = _env.PInvokeHelperContext != null;
 
             // Base error P/Invokes (GetErrorDescription, ReleaseError, Free) — one per C# type
-            if (!ErrorDescriptionEmitter.HasErrorPInvokeForType(typeKey))
+            if (!ErrorDescriptionEmitter.HasErrorPInvokeForType(typeKey, _emissionContext))
             {
-                ErrorDescriptionEmitter.MarkErrorPInvokeEmittedForType(typeKey);
+                ErrorDescriptionEmitter.MarkErrorPInvokeEmittedForType(typeKey, _emissionContext);
 
                 var moduleLibPath = _env.TypeDatabase.GetLibraryPath(moduleDecl.Name);
                 var wrapperLibPath = _env.TypeDatabase.AsyncLibraryName ?? moduleLibPath;
@@ -412,9 +412,9 @@ namespace BindingsGeneration
                         UsePrivateVisibility = false,
                     });
 
-                    if (!Utf8SliceEmitter.HasFreePInvokeForType(typeKey))
+                    if (!Utf8SliceEmitter.HasFreePInvokeForType(typeKey, _emissionContext))
                     {
-                        Utf8SliceEmitter.MarkFreePInvokeEmittedForType(typeKey);
+                        Utf8SliceEmitter.MarkFreePInvokeEmittedForType(typeKey, _emissionContext);
                         _env.PInvokeHelperContext!.AddDeclaration(new PInvokeDeclaration
                         {
                             LibraryPath = wrapperLibPath,
@@ -439,9 +439,9 @@ namespace BindingsGeneration
                         """);
 
                     // Emit SBW_Free if not already emitted by Utf8SliceEmitter for this type
-                    if (!Utf8SliceEmitter.HasFreePInvokeForType(typeKey))
+                    if (!Utf8SliceEmitter.HasFreePInvokeForType(typeKey, _emissionContext))
                     {
-                        Utf8SliceEmitter.MarkFreePInvokeEmittedForType(typeKey);
+                        Utf8SliceEmitter.MarkFreePInvokeEmittedForType(typeKey, _emissionContext);
                         csWriter.WriteLines($"""
                             [System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{freeSymbol}")]
                             private static partial void SBW_Free(IntPtr ptr);
@@ -457,9 +457,9 @@ namespace BindingsGeneration
             if (_syncPlan.SwiftError is { IsTypedThrows: true, SwiftErrorTypeName: not null, TypedErrorSafeSuffix: not null })
             {
                 var extractorKey = typeKey + ":extractor:" + _syncPlan.SwiftError.SwiftErrorTypeName;
-                if (!ErrorDescriptionEmitter.HasExtractorPInvokeForType(extractorKey))
+                if (!ErrorDescriptionEmitter.HasExtractorPInvokeForType(extractorKey, _emissionContext))
                 {
-                    ErrorDescriptionEmitter.MarkExtractorPInvokeEmittedForType(extractorKey);
+                    ErrorDescriptionEmitter.MarkExtractorPInvokeEmittedForType(extractorKey, _emissionContext);
                     var wrapperLibPath = _env.TypeDatabase.AsyncLibraryName ?? _env.TypeDatabase.GetLibraryPath(moduleDecl.Name);
                     var extractorSymbol = ErrorDescriptionEmitter.GetExtractorSymbolName(
                         moduleDecl.Name, _syncPlan.SwiftError.SwiftErrorTypeName);
