@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-02-26T04:57:49Z",
-  "git_sha": "ab65f18",
+  "timestamp": "2026-02-26T05:17:28Z",
+  "git_sha": "e44738b",
   "runtime_version": "0.1.0-preview.5",
   "compile_gate": {
     "total": 32,
@@ -12,14 +12,14 @@
         "compile": "ok",
         "errors": 0,
         "lines": 47321,
-        "gen_seconds": 2
+        "gen_seconds": 3
       },
       "BlinkID": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 52136,
-        "gen_seconds": 3
+        "gen_seconds": 2
       },
       "BlinkIDUX": {
         "generate": "fail",
@@ -54,14 +54,14 @@
         "compile": "ok",
         "errors": 0,
         "lines": 11534,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "Kingfisher": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 50106,
-        "gen_seconds": 3
+        "gen_seconds": 4
       },
       "Lottie": {
         "generate": "ok",
@@ -75,7 +75,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 51554,
-        "gen_seconds": 3
+        "gen_seconds": 2
       },
       "MicroblinkPlatform": {
         "generate": "ok",
@@ -110,7 +110,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 14326,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "SmartCardIO": {
         "generate": "ok",
@@ -138,21 +138,21 @@
         "compile": "ok",
         "errors": 0,
         "lines": 575,
-        "gen_seconds": 3
+        "gen_seconds": 2
       },
       "StripeApplePay": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 3007,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "StripeCameraCore": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 3857,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "StripeCardScan": {
         "generate": "ok",
@@ -201,7 +201,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 1616,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "StripePayments": {
         "generate": "fail",
