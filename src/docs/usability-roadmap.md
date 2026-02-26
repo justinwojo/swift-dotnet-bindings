@@ -1,7 +1,7 @@
 # Usability Roadmap
 
 **Created**: February 2026 (post-v2 binding review)
-**Revised**: February 2026 (post Codex + Claude correction pass)
+**Revised**: February 2026 (Session 10A/10B split — honest Full/Partial delivery labels)
 **Goal**: Make every validation library's critical workflow fully usable from C#
 **Scoring reference**: `binding-review-v2.md` — 18-library quality review, 10-category scorecards
 **Current baseline**: 3.45 avg (range: 2.40 RxSwift — 4.44 SmartCardIO)
@@ -25,23 +25,30 @@ Track two things in parallel:
 
 **2. Critical workflow pass matrix** (new):
 
-| Library | Critical Workflow | Compiles? | Runs? |
-|---------|------------------|:---------:|:-----:|
-| Alamofire | `Session.request(url).responseData { }` | | |
-| Kingfisher | `KF.Builder.setProcessor().setCache().set(imageView)` | | |
-| SnapKit | `view.snp.makeConstraints { make in make.top.equalTo(other) }` | ✅ | |
-| GRDB | `pool.read { db in db["table"] }` | | |
-| Mixpanel | `Mixpanel.track(event: "click", properties: dict)` | | |
-| RxSwift | `Observable.map { }.filter { }.subscribe { }` | | |
-| CryptoSwift | `try AES(key: key, blockMode: CBC(iv: iv)).encrypt(data)` | | |
-| Stripe | `STPAPIClient().confirmPaymentIntent(params) { result in }` | | |
-| Nuke | `ImagePipeline.shared.loadImage(ImageRequest(url:))` | | |
-| SkeletonView | `view.showSkeleton()` / `view.hideSkeleton()` | ✅ | |
-| Starscream | `WebSocket(request:)` + `IWebSocketDelegate` events | | |
-| KeychainAccess | `keychain["key"] = "value"` + fluent chain | | |
-| Lottie | `LottieAnimationView(name:).play { finished in }` | ✅ | ✅ |
-| BlinkID | `BlinkIdRecognizer()` + scan result access | ✅ | |
-| BlinkIDUX | `CaptureService` with async stream | | |
+| Library | Critical Workflow | Status | Compiles? | Runs? |
+|---------|------------------|:------:|:---------:|:-----:|
+| Alamofire | `Session.Request(url).SerializingData()` (async) | Skip¹ | | |
+| Kingfisher | `KF.Builder.setProcessor().setCache().set(imageView)` | Full | | |
+| SnapKit | `view.GetSnp().MakeConstraints { }` | Full | ✅ | |
+| GRDB | `pool.Read { db in ... }` | Full | | |
+| Mixpanel | `Mixpanel.Track(event:)` (no properties) | Partial² | | |
+| RxSwift | `Observable.Skip(n).Take(n).Publish()` (non-closure ops) | Partial³ | | |
+| CryptoSwift | `new AES(key, new CBC(iv))` | Full | | |
+| Stripe | `STPAPIClient().ConfirmPaymentIntent(params) { }` | Full | | |
+| Nuke | `ImagePipeline.Shared.LoadImage(new ImageRequest(url))` | Full | | |
+| SkeletonView | `view.ShowSkeleton()` / `view.HideSkeleton()` | Full | ✅ | |
+| Starscream | `IWebSocketDelegate` (interface, no runtime delivery) | Partial⁴ | | |
+| KeychainAccess | `keychain["key"] = "value"` + fluent chain | Full | | |
+| Lottie | `LottieAnimationView(name:).Play { finished in }` | Full | ✅ | ✅ |
+| BlinkID | `BlinkIdRecognizer()` + scan result access | Full | ✅ | |
+| BlinkIDUX | `CaptureService` with async stream | — | | |
+
+**Status legend**: **Full** = original roadmap workflow delivered. **Partial** = reduced or alternate pathway; original workflow still blocked. **Skip** = not fixable with current patterns.
+
+¹ Original `responseData { }` blocked by generic closure in callback param. Async `SerializingData()` also blocked — `DataTask<Data>` fails `HasNonSwiftObjectGenericArg` (Foundation.Data doesn't satisfy ISwiftObject). Neither pathway fixable with current bypass patterns.
+² `properties:` param requires `[String: any MixpanelType]` dict-existential projection (deferred structural work).
+³ Closure-based operators (`map`, `filter`, `subscribe`) deferred to Session 10B. 21 non-closure operators shipped (Session 7).
+⁴ Interface recovery + compile only. Runtime event delivery requires existential marshalling in `[UnmanagedCallersOnly]` callbacks.
 
 ---
 
@@ -296,23 +303,39 @@ Proved generic `@_silgen_name` ABI with explicit+implicit TypeMetadata passing (
 
 ---
 
-### Session 10: Library-Specific Patches
+### Session 10A: Targeted Bypass & Gate Fixes
 
-**Theme**: Targeted fixes for remaining critical workflow gaps
+**Theme**: Existential-bypass with default-param reduction + library-specific gate fixes
 **Effort**: 1 session
+**Status**: ✅ COMPLETE
 
-Pragmatic endgame. Sometimes the fastest path to "usable" is a targeted fix, not a general solution.
+Sessions 1-9 unlocked the general infrastructure. Session 10A is the "pragmatic endgame" — targeted fixes for remaining critical workflow gaps. Where the exact roadmap workflow can't be delivered by a targeted fix, we deliver the best available alternate pathway and label it honestly.
+
+**Core mechanism** (10a-10b): Extend `ExistentialBypassEmitter` to handle the case where ALL existential-containing params have default values. Emit a **reduced signature** (only non-existential params) with a `@_silgen_name` Swift wrapper that calls the full method/constructor and lets Swift fill in the defaults. Same pattern as `ForeignTypeExtensionEmitter`'s default parameter reduction (Session 6). (10c was investigated but blocked by a different gate — see table.)
+
+| Sub-task | Description | Delivery | Target Library |
+|----------|-------------|:--------:|---------------|
+| **10a. `ImageRequest(url:)` constructor** | Constructor has 5 params. Only `url: URL?` lacks a default. The other 4 contain existentials with defaults. Emit reduced constructor `ImageRequest(url:)` via `@_silgen_name` wrapper. | **Full** | Nuke |
+| **10b. Mixpanel `Track(event:)`** | `track(event:, properties:)` — `properties` is `Optional<Dict<String, any MixpanelType>>` with default `= nil`. Emit reduced `Track(event:)` omitting `properties`. Full `[String: Any]` projection deferred. | **Partial** | Mixpanel |
+| **10c. Alamofire `SerializingData()`** | Original callback `responseData {}` blocked by generic closure in param. Alternative: async `serializingData()` returns `DataTask<Data>` — blocked by `HasNonSwiftObjectGenericArg` (Foundation.Data doesn't satisfy ISwiftObject), not existential. Cannot fix with bypass pattern. | **Skip** | Alamofire |
+| **10d. KeychainAccess subscript** | Investigate why subscripts are skipped (likely `throws` on getter or type resolution). Fix specific gate. | **Full** | KeychainAccess |
+| **10e. Starscream `IWebSocketDelegate`** | Interface recovery — `DidReceive(WebSocketEvent, IWebSocketClient)` in interface, `NotSupportedException` proxy stub. Compile-time unlock (C# can declare `: IWebSocketDelegate`), NOT runtime event delivery. | **Partial** | Starscream |
+
+**Acceptance gate**: Each delivered workflow compiles (10c skipped — not fixable with current patterns). Critical workflow matrix updated. 32/32 validation maintained.
+
+---
+
+### Session 10B: Closure Operators in Protocol Extensions (pending)
+
+**Theme**: Bridge closure TypeSpec params in ProtocolExtensionEmitter's `@_silgen_name` wrappers
+**Effort**: 1 session
+**Depends on**: Session 7 (generic protocol extension ABI), Session 4 (GenericClosureBridgeEmitter pattern)
 
 | Sub-task | Description | Target Library |
 |----------|-------------|---------------|
-| **10a. `ImageRequest(url:)` constructor** | The primary Nuke constructor is missing — only `init(stringLiteral:)` exists. Investigate why `URL` parameter blocks emission and fix specifically. | Nuke |
-| **10b. Mixpanel `track()` exact pathway** | If Session 3's `[String: Any]` doesn't fully unlock `track(event:properties:)`, patch the specific gap. | Mixpanel |
-| **10c. Alamofire response handlers** | `DataRequest.responseData { }` / `responseString { }` — the response side of the request-response workflow. Likely needs closure + generic return. | Alamofire |
-| **10d. Keychain subscript** | The defining `keychain["key"]` pattern. Investigate why the subscript was skipped (likely complex index type or optional return). | KeychainAccess |
-| **10e. `IWebSocketDelegate` event delivery** | Starscream's primary event mechanism. The delegate has closure/enum parameters that block emission. Targeted fix for the specific closure signature. | Starscream |
-| **10f. RxSwift closure operators** | `map`, `filter`, `subscribe` on `Observable<T>`. Requires closure TypeSpec bridging in ProtocolExtensionEmitter's `@_silgen_name` wrappers — the ABI pattern is proven (Session 7 spike S2a/S3a) but needs emitter integration: func pointer + context params, `@_cdecl` callback generation, GCHandle lifecycle. | RxSwift |
+| **10f. RxSwift `map`, `filter`, `subscribe`** | Remove blanket `ClosureTypeSpec` rejection. Generate `@_cdecl` callback thunks in Swift wrapper for each closure param. Marshal C# delegates → func pointer + context `IntPtr` pairs. Reference: `GenericClosureBridgeEmitter.cs` + spike tests S2a/S2b/S3a/S3b. | RxSwift |
 
-**Acceptance gate**: Each targeted workflow compiles. Matrix updated.
+**Acceptance gate**: RxSwift `Observable<T>.Map(...)`, `.Filter(...)`, `.Subscribe(...)` appear in bindings and compile.
 
 ---
 
@@ -336,12 +359,18 @@ Session 1: Foundation + Quick Wins                    ✅ COMPLETE
            │         (SnapKit snp, SkeletonView)
            │
            └─► Session 7: Protocol Extensions — RxSwift  ✅ PARTIAL
-                         (21 non-closure operators shipped,
-                          closure operators → Session 10f)
+                │         (21 non-closure operators shipped,
+                │          closure operators → Session 10B)
+                │
+                └─► Session 10B: Closure Operators         (pending)
+                              (RxSwift map/filter/subscribe)
 
 Session 8: Naming + Polish + Cross-Module             ✅ COMPLETE (independent)
 Session 9: Safety & Hardening                         ✅ COMPLETE
-Session 10: Library-Specific Patches                  ← Endgame
+Session 10A: Targeted Bypass & Gate Fixes             ✅ COMPLETE
+           (Nuke constructor, Mixpanel Track,
+            KeychainAccess subscript, Starscream delegate;
+            Alamofire SerializingData skipped — not fixable)
 ```
 
 **If you only have 5 sessions**, do: 1, 2, 3, 4, 5 — best chance of moving critical workflows.
@@ -374,7 +403,7 @@ Session 10: Library-Specific Patches                  ← Endgame
 | RxSwift | 2.40 | 2.50 | +0.10 | High |
 | **Average** | **3.45** | **~3.57** | **+0.12** | |
 
-### After All 10 Sessions (realistic)
+### After Sessions 10A + 10B (realistic)
 
 | Library | Current | Projected | Delta | Key Session |
 |---------|:-------:|:---------:|:-----:|:----------:|
@@ -383,24 +412,24 @@ Session 10: Library-Specific Patches                  ← Endgame
 | Mappedin | 4.30 | 4.45 | +0.15 | 2, 8 |
 | Lottie | 4.10 | 4.30 | +0.20 | 3, 8 |
 | BlinkIDUX | 3.60 | 3.95 | +0.35 | 2, 5 |
-| Nuke | 3.60 | 3.90 | +0.30 | 2, 10 |
+| Nuke | 3.60 | 3.90 | +0.30 | 2, 10A |
 | Stripe | 3.55 | 3.95 | +0.40 | 1, 8 |
 | BlinkID | 3.55 | 3.80 | +0.25 | 1 |
-| KeychainAccess | 3.45 | 3.90 | +0.45 | 1, 8, 10 |
-| Starscream | 3.40 | 3.70 | +0.30 | 1, 10 |
+| KeychainAccess | 3.45 | 3.90 | +0.45 | 1, 8, 10A |
+| Starscream | 3.40 | 3.70 | +0.30 | 1, 10A |
 | CryptoSwift | 3.22 | 3.60 | +0.38 | 1 |
-| Alamofire | 3.10 | 3.65 | +0.55 | 1, 4, 10 |
+| Alamofire | 3.10 | 3.65 | +0.55 | 1, 4, 10A |
 | Kingfisher | 3.10 | 3.85 | +0.75 | 5 |
 | SnapKit | 3.10 | 3.75 | +0.65 | 2, 6 |
 | GRDB | 3.00 | 3.65 | +0.65 | 4 |
 | SkeletonView | 3.00 | 3.50 | +0.50 | 6 |
-| Mixpanel | 2.90 | 3.40 | +0.50 | 3, 10 |
-| RxSwift | 2.40 | 3.00 | +0.60 | 7 (partial), 10f |
-| **Average** | **3.45** | **~3.80** | **+0.35** | |
+| Mixpanel | 2.90 | 3.40 | +0.50 | 3, 10A |
+| RxSwift | 2.40 | 3.00 | +0.60 | 7 (partial), 10B |
+| **Average** | **3.45** | **~3.81** | **+0.36** | |
 
 **Realistic range**: 3.70–3.90 depending on how well protocol extension projection (Sessions 5-7) lands.
 
-**To reach 4.0+**: Would require Sessions 5-7 to land exceptionally well AND additional work beyond this roadmap (ObjC integration for NSObject hierarchy, deeper generic constraint support). Achievable but not in 10 sessions.
+**To reach 4.0+**: Would require additional work beyond this roadmap (ObjC integration for NSObject hierarchy, deeper generic constraint support, full existential dictionary projection). Achievable but not in the usability roadmap scope.
 
 ---
 
@@ -408,16 +437,18 @@ Session 10: Library-Specific Patches                  ← Endgame
 
 | Issue | Origin | Addressed In |
 |-------|--------|-------------|
-| `Method` suffix collision avoidance produces un-idiomatic names | Q1a (Get prefix fix) | Session 8a |
-| `Optional<Primitive/Enum>` in closures still blocked (different ABI) | Q3 (closure relaxation) | Session 4 follow-up |
-| Complex enums in closures still blocked (structural emitter change) | Q3 (closure relaxation) | Session 4 follow-up |
-| Concrete types don't get resolved Self-returning protocol methods | Q4 (Self returns) | Session 5 |
-| Closure interface recovery stubs — dispatch still impossible | Q4b | Session 5-7 |
-| SB0004 empty interfaces for genuinely-missing-implementation protocols | Q2 (diagnostics) | Session 5-7 |
-| Proxy `Dispose()` no-op — memory leak | New in v2 | Session 9a |
-| ExistentialContainer0 in tuple elements (Lottie edge case) | Pre-existing | Session 3 |
+| `Method` suffix collision avoidance produces un-idiomatic names | Q1a (Get prefix fix) | ✅ Session 8a |
+| `Optional<Primitive/Enum>` in closures still blocked (different ABI) | Q3 (closure relaxation) | Deferred |
+| Complex enums in closures still blocked (structural emitter change) | Q3 (closure relaxation) | Deferred |
+| Concrete types don't get resolved Self-returning protocol methods | Q4 (Self returns) | ✅ Session 5 |
+| Closure interface recovery stubs — dispatch still impossible | Q4b | ✅ Sessions 5-7 |
+| SB0004 empty interfaces for genuinely-missing-implementation protocols | Q2 (diagnostics) | ✅ Sessions 5-7 |
+| Proxy `Dispose()` no-op — memory leak | New in v2 | ✅ Session 9a |
+| ExistentialContainer0 in tuple elements (Lottie edge case) | Pre-existing | Deferred |
 | `async throws(ErrorType)` free functions: `_payload`/`this` in static context | Pre-existing, guarded | Low priority |
-| Bare `Any` in generic positions → AnyType | Pre-existing | Session 3 |
+| Bare `Any` in generic positions → AnyType | Pre-existing | ✅ Session 3 |
+| Existential params with defaults block method/constructor emission | Sessions 3, 10A | Session 10A (default-param reduction bypass) |
+| Closure TypeSpec rejection in protocol extensions | Session 7 | Session 10B |
 
 ---
 
@@ -425,10 +456,27 @@ Session 10: Library-Specific Patches                  ← Endgame
 
 | Item | Why |
 |------|-----|
-| Full RxSwift operator parity (all 76) | 21 non-closure operators shipped (Session 7). Closure operators (map/filter/subscribe) deferred to 10f. Diminishing returns after those. |
+| Full RxSwift operator parity (all 76) | 21 non-closure operators shipped (Session 7). Closure operators (map/filter/subscribe) in 10B. Diminishing returns after those. |
 | Cross-module unification as a standalone session | Narrow (Stripe only). Bundled into Session 8. |
 | Naming polish before workflow unlocks | Scores follow usability. Do naming last. |
 | Universal generic closure solution before targeted GRDB fix | General solution may take 2+ sessions. Get one library working first. |
+| `[String: Any]` full projection | New marshalling pipeline for existential dictionaries. Blocked Mixpanel `properties:` param. |
+| `any Protocol` → `object` parameters | Related to existential dictionary work. |
+| Full `responseData(completionHandler:)` | Generic closure bridging in method callbacks. Partially addressed by 10B (protocol extensions only). |
+
+---
+
+## Deferred Structural Work (beyond usability roadmap)
+
+| Item | Blocked Workflow | Effort |
+|------|-----------------|:------:|
+| `[String: any Protocol]` dict-existential projection | Mixpanel `track(event:, properties:)` full form | Multi-session |
+| `any Protocol` → `object` parameters | Various existential method params | Multi-session |
+| `Optional<Primitive/Enum>` in closures | Different ABI from pointer-based Optional | Medium |
+| Complex enums in closures | Structural emitter change | Medium |
+| ExistentialContainer0 in tuples | Lottie edge case | Small |
+| Existential marshalling in `[UnmanagedCallersOnly]` callbacks | Starscream runtime event delivery | Large |
+| Generic closure params in method callbacks (non-protocol-extension) | Alamofire `responseData {}`, Stripe callbacks | Large |
 
 ---
 

@@ -134,17 +134,19 @@ namespace BindingsGeneration
                         break;
                     }
 
-                    // Skip subscripts whose accessors would trigger Swift wrapper generation.
-                    // Swift wrappers (OptionalPointer, DebugParam, opaque return) use
-                    // `__self.methodName(...)` syntax which is invalid for subscript accessors
-                    // (should be `__self[index]`). Until wrapper emitters learn subscript syntax,
-                    // we skip these to avoid broken Swift wrapper compilation.
+                    // Skip subscripts whose accessors would trigger Swift wrapper generation
+                    // from emitters that don't yet support subscript syntax (`__self[index]`).
+                    // OptionalPointerWrapperEmitter now supports instance subscripts, so large Optional
+                    // params/returns are allowed through for instance accessors. Static subscripts
+                    // with large optionals are still blocked (emitter only handles instance syntax).
                     bool hasOpaqueReturn = accessor.Method.CSSignature.Count > 0 &&
                         accessor.Method.CSSignature[0].SwiftTypeSpec is ProtocolListTypeSpec { IsOpaque: true };
-                    if (accessorEnv.BoundGenericsHandler.HasLargeOptionalParams(accessor.Method) ||
-                        accessorEnv.BoundGenericsHandler.IsLargeOptionalReturn(accessor.Method) ||
-                        DefaultParameterOverloadEmitter.HasDebugParameters(accessor.Method) ||
+                    bool isStaticWithLargeOptional = accessor.Method.MethodType == MethodType.Static &&
+                        (accessorEnv.BoundGenericsHandler.HasLargeOptionalParams(accessor.Method) ||
+                         accessorEnv.BoundGenericsHandler.IsLargeOptionalReturn(accessor.Method));
+                    if (DefaultParameterOverloadEmitter.HasDebugParameters(accessor.Method) ||
                         hasOpaqueReturn ||
+                        isStaticWithLargeOptional ||
                         accessor.Method.IsAsync)
                     {
                         allAccessorsValid = false;

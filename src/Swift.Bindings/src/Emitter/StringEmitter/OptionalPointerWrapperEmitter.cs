@@ -96,6 +96,39 @@ public static class OptionalPointerWrapperEmitter
         bool needsThroughPointer = !isClass && (methodDecl.IsMutating || isSetter);
         var typeName = parentDecl?.SwiftTypeName?.ModuleQualifiedName ?? parentDecl?.Name ?? "";
 
+        // Detect subscript accessors — subscript methods are named "subscript_Get" / "subscript_Set"
+        bool isSubscriptAccessor = methodDecl.Name.StartsWith("subscript_");
+
+        // Build subscript-specific args with correct label conventions
+        // (unlabeled "indexN" params → no label, labeled params → "label: value")
+        string subscriptArgsStr = "";
+        string subscriptSetterValue = "";
+        if (isSubscriptAccessor)
+        {
+            var subscriptArgs = new List<string>();
+            bool isFirst = true;
+            foreach (var arg in methodDecl.CSSignature.Skip(1))
+            {
+                var csName = NameProvider.GetCSharpParameterName(arg);
+                var swiftName = NameProvider.EscapeSwiftKeyword(csName);
+                var valName = env.BoundGenericsHandler.IsLargeOptionalParam(arg.SwiftTypeSpec)
+                    ? $"{csName}Val" : swiftName;
+
+                // For setter, first param is newValue — capture separately for assignment RHS
+                if (isSetter && isFirst)
+                {
+                    subscriptSetterValue = valName;
+                    isFirst = false;
+                    continue;
+                }
+                isFirst = false;
+
+                var label = GetSubscriptArgLabel(arg);
+                subscriptArgs.Add($"{label}{valName}");
+            }
+            subscriptArgsStr = string.Join(", ", subscriptArgs);
+        }
+
         // Build the call expression and self conversion
         string callLine;
         string selfConversion = "";
@@ -103,6 +136,33 @@ public static class OptionalPointerWrapperEmitter
         if (methodDecl.IsConstructor)
         {
             callLine = $"{typeName}({callArgsStr})";
+        }
+        else if (isSubscriptAccessor && isSetter && isInstance)
+        {
+            // Subscript setter: __self[index] = value
+            if (isClass)
+            {
+                selfConversion = $"let __self = unsafeBitCast(OpaquePointer(_self), to: {typeName}.self)";
+                callLine = $"__self[{subscriptArgsStr}] = {subscriptSetterValue}";
+            }
+            else
+            {
+                callLine = $"_self.assumingMemoryBound(to: {typeName}.self).pointee[{subscriptArgsStr}] = {subscriptSetterValue}";
+            }
+        }
+        else if (isSubscriptAccessor && isGetter && isInstance)
+        {
+            // Subscript getter: __self[index]
+            if (isClass)
+            {
+                selfConversion = $"let __self = unsafeBitCast(OpaquePointer(_self), to: {typeName}.self)";
+                callLine = $"__self[{subscriptArgsStr}]";
+            }
+            else
+            {
+                selfConversion = $"let __self = _self.assumingMemoryBound(to: {typeName}.self).pointee";
+                callLine = $"__self[{subscriptArgsStr}]";
+            }
         }
         else if (isSetter && isInstance)
         {
@@ -270,6 +330,20 @@ public static class OptionalPointerWrapperEmitter
             return ""; // Unlabeled
         if (name.StartsWith("_"))
             return $"{name.Substring(1)}: "; // Strip leading underscore
+        return $"{name}: ";
+    }
+
+    /// <summary>
+    /// Gets the Swift subscript label for an index parameter.
+    /// Unlabeled subscript params are named "indexN" by the parser — these become unlabeled.
+    /// Labeled subscript params (e.g., "string", "data") keep their label.
+    /// </summary>
+    private static string GetSubscriptArgLabel(ArgumentDecl arg)
+    {
+        var name = arg.Name;
+        // Parser generates "index0", "index1" etc. for unlabeled subscript params
+        if (name.StartsWith("index") && name.Length > 5 && char.IsDigit(name[5]))
+            return "";
         return $"{name}: ";
     }
 }

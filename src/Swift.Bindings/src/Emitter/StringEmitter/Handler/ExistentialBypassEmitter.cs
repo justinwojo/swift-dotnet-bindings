@@ -46,7 +46,8 @@ public static class ExistentialBypassEmitter
         foreach (var arg in allArgs)
         {
             if (env.BoundGenericsHandler.IsBoundGeneric(arg) &&
-                env.BoundGenericsHandler.TryGetFirstExistentialTypeArgument(arg.SwiftTypeSpec, out _))
+                (env.BoundGenericsHandler.TryGetFirstExistentialTypeArgument(arg.SwiftTypeSpec, out _) ||
+                 env.BoundGenericsHandler.TryGetFirstUnsupportedExistentialTypeArgument(arg.SwiftTypeSpec, out _)))
             {
                 existentialArgs.Add(arg);
             }
@@ -82,51 +83,135 @@ public static class ExistentialBypassEmitter
             }
         }
 
-        // Build a reduced MethodDecl to check if passthrough args are marshallable
-        var reducedSignature = new List<ArgumentDecl>
-        {
-            methodDecl.CSSignature.First() // return type
-        };
-        reducedSignature.AddRange(passthroughArgs);
+        // Build a reduced MethodDecl to check if passthrough args are marshallable.
+        // If the full passthrough set fails signature validation, progressively remove
+        // passthrough args that have HasDefaultArg until we find a compatible subset.
+        var candidatePassthrough = new List<ArgumentDecl>(passthroughArgs);
+        Signature? reducedWrapperSig = null;
+        Signature? reducedPInvokeSig = null;
 
-        var reducedMethodDecl = new MethodDecl
+        // Use void return type for the probe MethodDecl. The bypass factory emits its own
+        // P/Invoke with IntPtr return (heap pointer), so we only validate parameter compatibility.
+        // Using the real return type (non-frozen struct) would inject SwiftIndirectResult into the
+        // P/Invoke parameter list, falsely failing the sig match.
+        var voidReturnArg = new ArgumentDecl
         {
-            Name = methodDecl.Name,
-            MangledName = methodDecl.MangledName,
-            MethodType = MethodType.Static,
-            IsConstructor = false, // Treat as static factory for signature building
-            CSSignature = reducedSignature,
-            GenericParameters = new List<GenericArgumentDecl>(),
+            SwiftTypeSpec = TupleTypeSpec.Empty,
+            Name = "",
+            PrivateName = "",
+            IsInOut = false,
+            IsGeneric = false,
             ParentDecl = methodDecl.ParentDecl,
-            ModuleDecl = methodDecl.ModuleDecl,
-            Throws = false,
-            IsAsync = false,
-            Visibility = methodDecl.Visibility
+            ModuleDecl = methodDecl.ModuleDecl
         };
 
-        var reducedEnv = new MethodEnvironment(reducedMethodDecl, env.TypeDatabase, compositionCollector: env.CompositionCollector);
-        var reducedSigHandler = new SignatureHandler(reducedEnv);
-        var reducedWrapperSig = reducedSigHandler.GetWrapperSignature();
-
-        if (reducedWrapperSig.ContainsPlaceholder)
+        while (true)
         {
-            logger.LogDebug("ExistentialBypassEmitter: reduced signature contains placeholder, cannot bypass.");
-            return false;
-        }
+            var reducedSignature = new List<ArgumentDecl> { voidReturnArg };
+            reducedSignature.AddRange(candidatePassthrough);
 
-        // Build P/Invoke signature after placeholder check, since GetPInvokeSignature
-        // may throw for types not in the database (those would show as placeholders above).
-        var reducedPInvokeSig = reducedSigHandler.GetPInvokeSignature();
+            var reducedMethodDecl = new MethodDecl
+            {
+                Name = methodDecl.Name,
+                MangledName = methodDecl.MangledName,
+                MethodType = MethodType.Static,
+                IsConstructor = false, // Treat as static factory for signature building
+                CSSignature = reducedSignature,
+                GenericParameters = new List<GenericArgumentDecl>(),
+                ParentDecl = methodDecl.ParentDecl,
+                ModuleDecl = methodDecl.ModuleDecl,
+                Throws = false,
+                IsAsync = false,
+                Visibility = methodDecl.Visibility
+            };
 
-        // Verify wrapper and P/Invoke signatures produce identical parameter lists.
-        // If they differ, the factory would need marshalling setup code we don't emit
-        // (e.g., SafeHandle extraction, idiomatic type conversion, indirect results).
-        // CallArgumentsString() may reference locals like {name}Handle, {name}Disposable,
-        // {name}Swift that WrapperEmitter normally sets up but the bypass factory doesn't.
-        if (reducedWrapperSig.ParametersString() != reducedPInvokeSig.PInvokeParametersString())
-        {
-            logger.LogDebug("ExistentialBypassEmitter: wrapper and P/Invoke parameter signatures differ, cannot bypass.");
-            return false;
+            var reducedEnv = new MethodEnvironment(reducedMethodDecl, env.TypeDatabase, compositionCollector: env.CompositionCollector);
+            var reducedSigHandler = new SignatureHandler(reducedEnv);
+            var candidateWrapperSig = reducedSigHandler.GetWrapperSignature();
+
+            if (candidateWrapperSig.ContainsPlaceholder)
+            {
+                // Try removing a passthrough arg with default, starting from the end
+                var removable = candidatePassthrough.FindLastIndex(a => a.HasDefaultArg);
+                if (removable >= 0)
+                {
+                    var removed = candidatePassthrough[removable];
+                    existentialArgs.Add(removed); // treat as omitted (Swift fills default)
+                    candidatePassthrough.RemoveAt(removable);
+                    logger.LogDebug("ExistentialBypassEmitter: removing passthrough param '{Name}' (has default) due to placeholder.", removed.Name);
+                    continue;
+                }
+                logger.LogDebug("ExistentialBypassEmitter: reduced signature contains placeholder, cannot bypass.");
+                return false;
+            }
+
+            // Build P/Invoke signature after placeholder check, since GetPInvokeSignature
+            // may throw for types not in the database (those would show as placeholders above).
+            Signature candidatePInvokeSig;
+            try
+            {
+                candidatePInvokeSig = reducedSigHandler.GetPInvokeSignature();
+            }
+            catch
+            {
+                var removable = candidatePassthrough.FindLastIndex(a => a.HasDefaultArg);
+                if (removable >= 0)
+                {
+                    var removed = candidatePassthrough[removable];
+                    existentialArgs.Add(removed);
+                    candidatePassthrough.RemoveAt(removable);
+                    logger.LogDebug("ExistentialBypassEmitter: removing passthrough param '{Name}' (has default) due to P/Invoke failure.", removed.Name);
+                    continue;
+                }
+                logger.LogDebug("ExistentialBypassEmitter: reduced P/Invoke signature failed, cannot bypass.");
+                return false;
+            }
+
+            // Verify each passthrough parameter is compatible between wrapper and P/Invoke.
+            // For simple types (int, IntPtr, etc.) the signatures must match exactly.
+            // For SafeHandle-based types (non-frozen structs, classes), the wrapper uses the
+            // specific class name while P/Invoke uses SafeHandle — these are compatible because
+            // the C# class inherits from SafeHandle and the runtime marshals automatically.
+            bool hasIncompatibleParam = false;
+            if (candidateWrapperSig.Parameters.Count == candidatePInvokeSig.Parameters.Count)
+            {
+                for (int i = 0; i < candidateWrapperSig.Parameters.Count; i++)
+                {
+                    var wp = candidateWrapperSig.Parameters[i];
+                    var pp = candidatePInvokeSig.Parameters[i];
+                    if (!IsParamCompatibleForBypass(wp, pp))
+                    {
+                        hasIncompatibleParam = true;
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                hasIncompatibleParam = true;
+            }
+
+            if (hasIncompatibleParam)
+            {
+                // Try removing a passthrough arg with default, starting from the end
+                var removable = candidatePassthrough.FindLastIndex(a => a.HasDefaultArg);
+                if (removable >= 0)
+                {
+                    var removed = candidatePassthrough[removable];
+                    existentialArgs.Add(removed); // treat as omitted (Swift fills default)
+                    candidatePassthrough.RemoveAt(removable);
+                    logger.LogDebug("ExistentialBypassEmitter: removing passthrough param '{Name}' (has default) due to sig incompatibility.", removed.Name);
+                    continue;
+                }
+                logger.LogDebug("ExistentialBypassEmitter: wrapper and P/Invoke parameter signatures differ, cannot bypass. Wrapper='{Wrapper}', PInvoke='{PInvoke}'.",
+                    candidateWrapperSig.ParametersString(), candidatePInvokeSig.PInvokeParametersString());
+                return false;
+            }
+
+            reducedWrapperSig = candidateWrapperSig;
+            reducedPInvokeSig = candidatePInvokeSig;
+            passthroughArgs = candidatePassthrough;
+            break;
         }
 
         // Everything checks out — emit the bypass
@@ -174,13 +259,22 @@ public static class ExistentialBypassEmitter
         MethodEnvironment env,
         ILogger logger)
     {
+        logger.LogDebug("ExistentialBypassEmitter: TryEmitMethodBypass called for '{Name}' on '{Parent}'.",
+            env.MethodDecl.Name, env.ParentDecl?.Name ?? "null");
+
         // Must be a class or struct parent
         if (env.ParentDecl is not TypeDecl parentTypeDecl)
+        {
+            logger.LogDebug("ExistentialBypassEmitter: rejected — parent is not TypeDecl.");
             return false;
+        }
         bool isClass = parentTypeDecl is ClassDecl;
         bool isStruct = parentTypeDecl is StructDecl;
         if (!isClass && !isStruct)
+        {
+            logger.LogDebug("ExistentialBypassEmitter: rejected — parent is neither class nor struct ({Type}).", parentTypeDecl.GetType().Name);
             return false;
+        }
 
         // For structs, only non-frozen structs are supported (they have _payload like classes).
         // Frozen structs are C# value types — passing 'this' as IntPtr requires pinning,
@@ -199,20 +293,32 @@ public static class ExistentialBypassEmitter
 
         // Only handle instance methods (not constructors, not static)
         if (methodDecl.IsConstructor || methodDecl.MethodType == MethodType.Static)
+        {
+            logger.LogDebug("ExistentialBypassEmitter: rejected — constructor={Ctor} static={Static}.", methodDecl.IsConstructor, methodDecl.MethodType == MethodType.Static);
             return false;
+        }
 
         // Only void return for now — non-void returns need result marshalling
         var returnType = methodDecl.CSSignature.First();
-        if (returnType.SwiftTypeSpec != TupleTypeSpec.Empty)
+        if (!returnType.SwiftTypeSpec.IsEmptyTuple)
+        {
+            logger.LogDebug("ExistentialBypassEmitter: rejected — non-void return: {ReturnType}.", returnType.SwiftTypeSpec);
             return false;
+        }
 
         // Throwing methods produce different Swift return shapes
         if (methodDecl.Throws)
+        {
+            logger.LogDebug("ExistentialBypassEmitter: rejected — throws.");
             return false;
+        }
 
         // Async methods need Task<T> return semantics — bypass emits synchronous void
         if (methodDecl.IsAsync)
+        {
+            logger.LogDebug("ExistentialBypassEmitter: rejected — async.");
             return false;
+        }
 
         // Classify params into existential vs passthrough
         var allArgs = methodDecl.CSSignature.Skip(1).ToList();
@@ -232,8 +338,14 @@ public static class ExistentialBypassEmitter
                 passthroughArgs.Add(arg);
         }
 
+        logger.LogDebug("ExistentialBypassEmitter: method '{Name}': {ExCount} existential, {PassCount} passthrough args.",
+            methodDecl.Name, existentialArgs.Count, passthroughArgs.Count);
+
         if (existentialArgs.Count == 0)
+        {
+            logger.LogDebug("ExistentialBypassEmitter: rejected — no existential args found.");
             return false;
+        }
 
         // ALL existential args must have HasDefaultArg
         foreach (var arg in existentialArgs)
@@ -256,45 +368,112 @@ public static class ExistentialBypassEmitter
         }
 
         // Build a reduced MethodDecl to check if passthrough args are marshallable.
-        // Use static method type so SignatureHandler doesn't expect self parameter.
-        var reducedSignature = new List<ArgumentDecl>
+        // If the full passthrough set fails signature validation, progressively remove
+        // passthrough args that have HasDefaultArg until we find a compatible subset.
+        var candidatePassthrough = new List<ArgumentDecl>(passthroughArgs);
+        Signature? reducedWrapperSig = null;
+        Signature? reducedPInvokeSig = null;
+
+        while (true)
         {
-            methodDecl.CSSignature.First() // return type (Void)
-        };
-        reducedSignature.AddRange(passthroughArgs);
+            var reducedSignature = new List<ArgumentDecl>
+            {
+                methodDecl.CSSignature.First() // return type (Void)
+            };
+            reducedSignature.AddRange(candidatePassthrough);
 
-        var reducedMethodDecl = new MethodDecl
-        {
-            Name = methodDecl.Name,
-            MangledName = methodDecl.MangledName,
-            MethodType = MethodType.Static,
-            IsConstructor = false,
-            CSSignature = reducedSignature,
-            GenericParameters = new List<GenericArgumentDecl>(),
-            ParentDecl = methodDecl.ParentDecl,
-            ModuleDecl = methodDecl.ModuleDecl,
-            Throws = false,
-            IsAsync = false,
-            Visibility = methodDecl.Visibility
-        };
+            var reducedMethodDecl = new MethodDecl
+            {
+                Name = methodDecl.Name,
+                MangledName = methodDecl.MangledName,
+                MethodType = MethodType.Static,
+                IsConstructor = false,
+                CSSignature = reducedSignature,
+                GenericParameters = new List<GenericArgumentDecl>(),
+                ParentDecl = methodDecl.ParentDecl,
+                ModuleDecl = methodDecl.ModuleDecl,
+                Throws = false,
+                IsAsync = false,
+                Visibility = methodDecl.Visibility
+            };
 
-        var reducedEnv = new MethodEnvironment(reducedMethodDecl, env.TypeDatabase, compositionCollector: env.CompositionCollector);
-        var reducedSigHandler = new SignatureHandler(reducedEnv);
-        var reducedWrapperSig = reducedSigHandler.GetWrapperSignature();
+            var reducedEnv = new MethodEnvironment(reducedMethodDecl, env.TypeDatabase, compositionCollector: env.CompositionCollector);
+            var reducedSigHandler = new SignatureHandler(reducedEnv);
+            var candidateWrapperSig = reducedSigHandler.GetWrapperSignature();
 
-        if (reducedWrapperSig.ContainsPlaceholder)
-        {
-            logger.LogDebug("ExistentialBypassEmitter: method bypass - reduced signature contains placeholder.");
-            return false;
-        }
+            if (candidateWrapperSig.ContainsPlaceholder)
+            {
+                logger.LogDebug("ExistentialBypassEmitter: method '{Name}': wrapper sig contains placeholder.", methodDecl.Name);
+                var removable = candidatePassthrough.FindLastIndex(a => a.HasDefaultArg);
+                if (removable >= 0)
+                {
+                    var removed = candidatePassthrough[removable];
+                    existentialArgs.Add(removed);
+                    candidatePassthrough.RemoveAt(removable);
+                    continue;
+                }
+                logger.LogDebug("ExistentialBypassEmitter: method bypass - reduced signature contains placeholder, no removable params.");
+                return false;
+            }
 
-        var reducedPInvokeSig = reducedSigHandler.GetPInvokeSignature();
+            Signature candidatePInvokeSig;
+            try
+            {
+                candidatePInvokeSig = reducedSigHandler.GetPInvokeSignature();
+            }
+            catch (Exception ex)
+            {
+                logger.LogDebug("ExistentialBypassEmitter: method '{Name}': P/Invoke sig failed: {Ex}.", methodDecl.Name, ex.Message);
+                var removable = candidatePassthrough.FindLastIndex(a => a.HasDefaultArg);
+                if (removable >= 0)
+                {
+                    var removed = candidatePassthrough[removable];
+                    existentialArgs.Add(removed);
+                    candidatePassthrough.RemoveAt(removable);
+                    continue;
+                }
+                logger.LogDebug("ExistentialBypassEmitter: method bypass - reduced P/Invoke signature failed.");
+                return false;
+            }
 
-        // Verify wrapper and P/Invoke signatures produce identical parameter lists
-        if (reducedWrapperSig.ParametersString() != reducedPInvokeSig.PInvokeParametersString())
-        {
-            logger.LogDebug("ExistentialBypassEmitter: method bypass - wrapper/P/Invoke param signatures differ.");
-            return false;
+            bool hasIncompatible = false;
+            if (candidateWrapperSig.Parameters.Count == candidatePInvokeSig.Parameters.Count)
+            {
+                for (int i = 0; i < candidateWrapperSig.Parameters.Count; i++)
+                {
+                    if (!IsParamCompatibleForBypass(candidateWrapperSig.Parameters[i], candidatePInvokeSig.Parameters[i]))
+                    {
+                        hasIncompatible = true;
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                hasIncompatible = true;
+            }
+
+            if (hasIncompatible)
+            {
+                logger.LogDebug("ExistentialBypassEmitter: method '{Name}': params incompatible. W='{Wrapper}', P='{PInvoke}'.",
+                    methodDecl.Name, candidateWrapperSig.ParametersString(), candidatePInvokeSig.PInvokeParametersString());
+                var removable = candidatePassthrough.FindLastIndex(a => a.HasDefaultArg);
+                if (removable >= 0)
+                {
+                    var removed = candidatePassthrough[removable];
+                    existentialArgs.Add(removed);
+                    candidatePassthrough.RemoveAt(removable);
+                    continue;
+                }
+                logger.LogDebug("ExistentialBypassEmitter: method bypass - wrapper/P/Invoke param signatures differ, no removable params.");
+                return false;
+            }
+
+            logger.LogDebug("ExistentialBypassEmitter: method '{Name}': signature check passed.", methodDecl.Name);
+            reducedWrapperSig = candidateWrapperSig;
+            reducedPInvokeSig = candidatePInvokeSig;
+            passthroughArgs = candidatePassthrough;
+            break;
         }
 
         // Everything checks out — emit the bypass
@@ -459,11 +638,8 @@ public static class ExistentialBypassEmitter
         var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(methodDecl);
         var methodName = NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: false, isSelfReturning: isSelfReturning);
 
-        // Emit public method (unsafe needed for class pointer dereference)
-        var unsafeModifier = isClass ? "unsafe " : "";
-        csWriter.WriteLine($"{accessModifier} {unsafeModifier}void {methodName}({paramString})");
-        csWriter.WriteLine("{");
-        csWriter.Indent++;
+        // Pre-compute marshalling to determine if unsafe is needed before emitting the method declaration.
+        var (marshalledArgs, setupLines, needsUnsafe) = GetBypassMarshalledCallArguments(reducedWrapperSig, reducedPInvokeSig);
 
         // Build call arguments: self handle + passthrough args.
         // Classes: _payload buffer contains the object reference at offset 0 — dereference.
@@ -472,11 +648,20 @@ public static class ExistentialBypassEmitter
         callArgsList.Add(isClass
             ? "*(IntPtr*)_payload.DangerousGetHandle()"
             : "_payload.DangerousGetHandle()");
-
-        var passthroughCallArgs = reducedPInvokeSig.CallArgumentsString();
+        var passthroughCallArgs = string.Join(", ", marshalledArgs);
         if (!string.IsNullOrEmpty(passthroughCallArgs))
             callArgsList.Add(passthroughCallArgs);
         var callArgs = string.Join(", ", callArgsList);
+
+        // Emit public method (unsafe needed for class pointer dereference or stackalloc marshalling)
+        var unsafeModifier = (isClass || needsUnsafe) ? "unsafe " : "";
+        csWriter.WriteLine($"{accessModifier} {unsafeModifier}void {methodName}({paramString})");
+        csWriter.WriteLine("{");
+        csWriter.Indent++;
+
+        // Emit marshalling setup lines (string conversions)
+        foreach (var line in setupLines)
+            csWriter.WriteLine(line);
 
         var wrapperCall = env.PInvokeHelperContext != null
             ? $"{env.PInvokeHelperContext.HelperClassName}.{wrapperSymbol}"
@@ -632,8 +817,9 @@ public static class ExistentialBypassEmitter
         csWriter.WriteLine("{");
         csWriter.Indent++;
 
-        // Call arguments use the P/Invoke signature's call format
-        var callArgs = reducedPInvokeSig.CallArgumentsString();
+        // Generate marshalling code for string params if needed
+        var (marshalledArgs, setupLines, _) = GetBypassMarshalledCallArguments(reducedWrapperSig, reducedPInvokeSig);
+        var callArgs = string.Join(", ", marshalledArgs);
 
         var wrapperCall = env.PInvokeHelperContext != null
             ? $"{env.PInvokeHelperContext.HelperClassName}.{wrapperSymbol}"
@@ -641,6 +827,10 @@ public static class ExistentialBypassEmitter
         var freeCall = env.PInvokeHelperContext != null
             ? $"{env.PInvokeHelperContext.HelperClassName}.{freeSymbol}"
             : freeSymbol;
+
+        // Emit marshalling setup lines (string conversions)
+        foreach (var line in setupLines)
+            csWriter.WriteLine(line);
 
         csWriter.WriteLine("IntPtr swiftPtr = IntPtr.Zero;");
         csWriter.WriteLine("try");
@@ -688,6 +878,154 @@ public static class ExistentialBypassEmitter
 
         csWriter.Indent--;
         csWriter.WriteLine("}");
+    }
+
+    /// <summary>
+    /// Generates call arguments for the bypass factory/method. Unlike CallArgumentsString()
+    /// which generates complex conversions (e.g., .Payload for SafeHandle), this generates
+    /// simple pass-through arguments suitable for the bypass pattern where the P/Invoke
+    /// declaration uses SafeHandle and the runtime handles marshalling.
+    /// </summary>
+    private static string GetBypassCallArguments(Signature pInvokeSig)
+    {
+        var args = new List<string>();
+        foreach (var p in pInvokeSig.Parameters)
+        {
+            // Preserve ref/out modifiers at the call site
+            var prefix = string.IsNullOrEmpty(p.modifier) ? "" : $"{p.modifier} ";
+            args.Add($"{prefix}{p.Name}");
+        }
+        return string.Join(", ", args);
+    }
+
+    /// <summary>
+    /// Checks whether a wrapper parameter and its corresponding P/Invoke parameter are
+    /// compatible for the bypass factory. Compatible means the factory can pass the wrapper
+    /// value directly to the P/Invoke (possibly with string marshalling code).
+    /// </summary>
+    private static bool IsParamCompatibleForBypass(Parameter wrapperParam, Parameter pInvokeParam)
+    {
+        // Exact string match — trivially compatible
+        if (wrapperParam.SignatureString() == pInvokeParam.PInvokeSignatureString())
+            return true;
+
+        // SafeHandle-based types: the wrapper uses the specific C# class name (e.g., "URLRequest")
+        // while P/Invoke uses "SafeHandle". These are compatible because the C# class inherits
+        // from SafeHandle and the runtime marshals automatically.
+        if (pInvokeParam.Type is MarshalledType.NonFrozenSafeHandleType or MarshalledType.NativeRemappedNonFrozenType)
+            return true;
+
+        // String marshalling: wrapper uses "string" but P/Invoke uses SwiftString (or similar).
+        // The bypass emitter handles the conversion.
+        if (IsStringMarshallingNeeded(wrapperParam, pInvokeParam))
+            return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// Returns true if the wrapper param is a string/string? type and the P/Invoke param
+    /// differs, requiring marshalling code in the bypass.
+    /// </summary>
+    private static bool IsStringMarshallingNeeded(Parameter wrapperParam, Parameter pInvokeParam)
+    {
+        var wrapperSig = wrapperParam.SignatureString().Trim();
+        var pInvokeSig = pInvokeParam.PInvokeSignatureString().Trim();
+
+        var wrapperType = wrapperSig.Replace(wrapperParam.Name, "").Trim();
+        var pInvokeType = pInvokeSig.Replace(pInvokeParam.Name, "").Trim();
+
+        // string → SwiftString.Buffer or similar Swift string type
+        if (wrapperType == "string" &&
+            (pInvokeType.Contains("SwiftString") || pInvokeType.Contains("Swift.SwiftString")))
+            return true;
+
+        // string? → IntPtr (large optional buffer) or SwiftOptional<SwiftString>
+        if (wrapperType == "string?" && wrapperType != pInvokeType)
+            return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// Emits marshalling setup code for bypass parameters that need string conversion.
+    /// Returns the list of variable names to use in the P/Invoke call (replacing param names
+    /// where marshalling is needed) and disposal lines for cleanup.
+    /// Also returns whether the call must be wrapped in an unsafe block.
+    /// </summary>
+    private static (List<string> callArgs, List<string> setupLines, bool needsUnsafe) GetBypassMarshalledCallArguments(
+        Signature wrapperSig, Signature pInvokeSig)
+    {
+        var callArgs = new List<string>();
+        var setupLines = new List<string>();
+        bool needsUnsafe = false;
+
+        for (int i = 0; i < pInvokeSig.Parameters.Count; i++)
+        {
+            var wParam = i < wrapperSig.Parameters.Count ? wrapperSig.Parameters[i] : null;
+            var pParam = pInvokeSig.Parameters[i];
+
+            if (wParam != null && IsStringMarshallingNeeded(wParam, pParam))
+            {
+                var wrapperType = wParam.SignatureString().Replace(wParam.Name, "").Trim();
+                var pInvokeType = pParam.PInvokeSignatureString().Replace(pParam.Name, "").Trim();
+
+                if (wrapperType == "string?" && pInvokeType == "IntPtr")
+                {
+                    // string? → IntPtr (large optional buffer for OptionalPointerWrapper)
+                    // Must allocate a buffer, write SwiftOptional<SwiftString> into it, pass the pointer.
+                    var bufName = $"__{pParam.Name}Buf";
+                    setupLines.Add(
+                        $"using var __{pParam.Name}Str = {wParam.Name} is {{}} __{pParam.Name}Val ? new SwiftString(__{pParam.Name}Val) : default;");
+                    setupLines.Add(
+                        $"var __{pParam.Name}Opt = {wParam.Name} is {{}} ? SwiftOptional<SwiftString>.NewSome(__{pParam.Name}Str) : SwiftOptional<SwiftString>.NewNone();");
+                    setupLines.Add(
+                        $"var __{pParam.Name}Size = (int)TypeMetadata.GetTypeMetadataOrThrow<SwiftOptional<SwiftString>>().Size;");
+                    setupLines.Add(
+                        $"byte* {bufName} = stackalloc byte[__{pParam.Name}Size];");
+                    setupLines.Add(
+                        $"var __{pParam.Name}Span = new Span<byte>({bufName}, __{pParam.Name}Size);");
+                    setupLines.Add(
+                        $"SwiftMarshal.MarshalToSwift(__{pParam.Name}Opt, ref __{pParam.Name}Span);");
+                    callArgs.Add($"new IntPtr({bufName})");
+                    needsUnsafe = true;
+                }
+                else if (wrapperType == "string?")
+                {
+                    // string? → SwiftOptional<SwiftString> (direct)
+                    var varName = $"__{pParam.Name}Opt";
+                    setupLines.Add(
+                        $"using var __{pParam.Name}Str = {wParam.Name} is {{}} __{pParam.Name}Val ? new SwiftString(__{pParam.Name}Val) : default;");
+                    setupLines.Add(
+                        $"var {varName} = {wParam.Name} is {{}} ? SwiftOptional<SwiftString>.NewSome(__{pParam.Name}Str) : SwiftOptional<SwiftString>.NewNone();");
+                    callArgs.Add(varName);
+                }
+                else
+                {
+                    // string → SwiftString → SwiftString.Buffer (P/Invoke takes the blittable Buffer type)
+                    var strVar = $"__{pParam.Name}Str";
+                    var dispVar = $"__{pParam.Name}Disposable";
+                    setupLines.Add($"using var {strVar} = new SwiftString({wParam.Name});");
+                    setupLines.Add($"using var {dispVar} = {strVar}.PayloadBuffer;");
+                    callArgs.Add($"{dispVar}.Buffer");
+                }
+            }
+            else if (pParam.Type is MarshalledType.NonFrozenSafeHandleType or MarshalledType.NativeRemappedNonFrozenType)
+            {
+                // Non-frozen struct/class: P/Invoke takes SafeHandle but wrapper takes the specific type.
+                // Extract the .Payload SafeHandle from the ISwiftObject.
+                var prefix = string.IsNullOrEmpty(pParam.modifier) ? "" : $"{pParam.modifier} ";
+                callArgs.Add($"{prefix}{pParam.Name}.Payload");
+            }
+            else
+            {
+                // Preserve ref/out modifiers at the call site
+                var prefix = string.IsNullOrEmpty(pParam.modifier) ? "" : $"{pParam.modifier} ";
+                callArgs.Add($"{prefix}{pParam.Name}");
+            }
+        }
+
+        return (callArgs, setupLines, needsUnsafe);
     }
 
     /// <summary>
