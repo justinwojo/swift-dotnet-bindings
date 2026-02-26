@@ -39,7 +39,7 @@ public static partial class ClosureEmitter
         var parameterListWithParens = parameters.Count == 1 ? parametersString : $"({parametersString})";
 
         var hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;
-        var returnIsBool = hasReturn && IsBoolType(closureTypeSpec.ReturnType);
+        var returnIsBool = hasReturn && MarshallingHelpers.IsBoolType(closureTypeSpec.ReturnType);
 
         // Start building the closure body with struct marshalling
         csWriter.WriteLines($$"""
@@ -74,7 +74,7 @@ public static partial class ClosureEmitter
                     """);
                 invokeArgs.Add($"_arg{i}Buffer");
             }
-            else if (IsBoolType(arg))
+            else if (MarshallingHelpers.IsBoolType(arg))
             {
                 // Bool conversion
                 invokeArgs.Add($"(byte)(_arg{i} ? 1 : 0)");
@@ -176,7 +176,7 @@ public static partial class ClosureEmitter
         var parameterListWithParens = parameters.Count == 1 ? parametersString : $"({parametersString})";
 
         var hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;
-        var returnIsBool = hasReturn && IsBoolType(closureTypeSpec.ReturnType);
+        var returnIsBool = hasReturn && MarshallingHelpers.IsBoolType(closureTypeSpec.ReturnType);
 
         // Start building the closure body with non-frozen struct marshalling
         csWriter.WriteLines($$"""
@@ -229,7 +229,7 @@ public static partial class ClosureEmitter
                     """);
                 invokeArgs.Add($"_arg{i}Buffer");
             }
-            else if (IsBoolType(arg))
+            else if (MarshallingHelpers.IsBoolType(arg))
             {
                 // Bool conversion
                 invokeArgs.Add($"(byte)(_arg{i} ? 1 : 0)");

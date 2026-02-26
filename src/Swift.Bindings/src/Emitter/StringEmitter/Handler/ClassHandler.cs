@@ -471,14 +471,17 @@ namespace BindingsGeneration
                 _writer.WriteLine("static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();");
                 _writer.WriteLine();
 
-                var newModifier = _isDerived ? "new " : "";
-                var pinvokeText = $$"""
-                [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-                [LibraryImport("{{libPath}}", EntryPoint = "{{metadataAccessor}}")]
-                internal static {{newModifier}}partial TypeMetadata PInvoke_getMetadata();
-                """;
-
-                _writer.WriteLines(pinvokeText);
+                foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
+                {
+                    LibraryPath = libPath,
+                    EntryPoint = metadataAccessor,
+                    MethodName = "PInvoke_getMetadata",
+                    ReturnType = "TypeMetadata",
+                    ParametersString = "",
+                    Visibility = PInvokeVisibility.Internal,
+                    HasNewModifier = _isDerived
+                }))
+                    _writer.WriteLine(line);
                 _writer.WriteLine();
             }
         }

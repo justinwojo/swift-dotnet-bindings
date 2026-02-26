@@ -518,7 +518,7 @@ public class ThemeBridgeEmitterTests : IDisposable
 
         Assert.Contains("[LibraryImport(", content);
         Assert.Contains("static partial void", content);
-        Assert.Contains("[UnmanagedCallConv(CallConvs = new[]", content);
+        Assert.Contains("[UnmanagedCallConv(CallConvs = new Type[]", content);
         Assert.Contains("typeof(CallConvCdecl)", content);
         // Must NOT use DllImport
         Assert.DoesNotContain("[DllImport(", content);

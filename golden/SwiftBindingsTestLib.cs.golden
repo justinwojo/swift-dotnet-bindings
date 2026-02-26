@@ -5086,10 +5086,11 @@ namespace Swift.SwiftBindingsTestLib
         #endregion
         private static partial class NativeMethods
         {
-            [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
             [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SetSummable_vtable")]
             public static partial void SetSummable_vtable(IntPtr vtable);
-            [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+            
+            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
             [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "Get_EveryProtocol_Summable_WitnessTable")]
             public static partial IntPtr GetWitnessTable();
         }
@@ -7723,8 +7724,8 @@ namespace Swift.SwiftBindingsTestLib
             return result;
         }
         
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib5ColorO8rawValueACSgs5Int32V_tcfC")]
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib5ColorO8rawValueACSgs5Int32V_tcfC")]
         private static partial IntPtr PInvoke_InitWithRawValue(int rawValue);
         
         private static readonly Lazy<Color> _lazy_red = new(() =>
@@ -8008,8 +8009,8 @@ namespace Swift.SwiftBindingsTestLib
         private static partial void PInvoke_InitWithRawValue_Wrapper(IntPtr resultPtr, IntPtr slicePtr);
         
         // SwiftOptional metadata accessor from Swift stdlib
-        [LibraryImport("/usr/lib/swift/libswiftCore.dylib", EntryPoint = "$sSqMa")]
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [LibraryImport("/usr/lib/swift/libswiftCore.dylib", EntryPoint = "$sSqMa")]
         private static partial TypeMetadata PInvokesForSwiftOptional_MetadataAccessor(TypeMetadataRequest request, TypeMetadata typeMetadata);
         
         private static readonly Lazy<StatusCode> _lazy_ok = new(() =>
@@ -8249,8 +8250,8 @@ namespace Swift.SwiftBindingsTestLib
             return result;
         }
         
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib5ShapeO6circleyACSd_tcACmF")]
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib5ShapeO6circleyACSd_tcACmF")]
         private static partial void PInvoke_Circle(SwiftIndirectResult result, double radius);
         
         /// <summary>
@@ -8267,8 +8268,8 @@ namespace Swift.SwiftBindingsTestLib
             return result;
         }
         
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib5ShapeO9rectangleyACSd_SdtcACmF")]
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib5ShapeO9rectangleyACSd_SdtcACmF")]
         private static partial void PInvoke_Rectangle(SwiftIndirectResult result, ValueTuple<double, double> width);
         
         /// <summary>
@@ -8285,8 +8286,8 @@ namespace Swift.SwiftBindingsTestLib
             return result;
         }
         
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib5ShapeO5pointyAcA11FrozenPointVcACmF")]
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib5ShapeO5pointyAcA11FrozenPointVcACmF")]
         private static partial void PInvoke_Point(SwiftIndirectResult result, Swift.SwiftBindingsTestLib.FrozenPoint frozenPoint);
         
         private static readonly Lazy<Shape> _lazy_empty = new(() =>
@@ -14476,8 +14477,8 @@ public partial class ParseError : ISwiftObject, IDisposable
         return result;
     }
     
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10ParseErrorO8overflowyACSS_tcACmF")]
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10ParseErrorO8overflowyACSS_tcACmF")]
     private static partial void PInvoke_Overflow(SwiftIndirectResult result, IntPtr value);
     
     private static readonly Lazy<ParseError> _lazy_invalidInput = new(() =>
@@ -14689,8 +14690,8 @@ public partial class RangeError : ISwiftObject, IDisposable
         return result;
     }
     
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10RangeErrorO12belowMinimumyACs5Int32V_AFtcACmF")]
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10RangeErrorO12belowMinimumyACs5Int32V_AFtcACmF")]
     private static partial void PInvoke_BelowMinimum(SwiftIndirectResult result, ValueTuple<int, int> value);
     
     /// <summary>
@@ -14707,8 +14708,8 @@ public partial class RangeError : ISwiftObject, IDisposable
         return result;
     }
     
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10RangeErrorO12aboveMaximumyACs5Int32V_AFtcACmF")]
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10RangeErrorO12aboveMaximumyACs5Int32V_AFtcACmF")]
     private static partial void PInvoke_AboveMaximum(SwiftIndirectResult result, ValueTuple<int, int> value);
     
     /// <summary>
@@ -15419,8 +15420,8 @@ public partial class ValidationError : ISwiftObject, IDisposable
         return result;
     }
     
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib15ValidationErrorO7tooLongyACs5Int32V_tcACmF")]
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib15ValidationErrorO7tooLongyACs5Int32V_tcACmF")]
     private static partial void PInvoke_TooLong(SwiftIndirectResult result, int maxLength);
     
     /// <summary>
@@ -15438,8 +15439,8 @@ public partial class ValidationError : ISwiftObject, IDisposable
         return result;
     }
     
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib15ValidationErrorO13invalidFormatyACSScACmF")]
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib15ValidationErrorO13invalidFormatyACSScACmF")]
     private static partial void PInvoke_InvalidFormat(SwiftIndirectResult result, IntPtr value0);
     
     private static readonly Lazy<ValidationError> _lazy_empty = new(() =>
@@ -17997,8 +17998,8 @@ public partial class AsyncStatus : ISwiftObject, IDisposable
         return result;
     }
     
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11AsyncStatusO10inProgressyACs5Int32V_tcACmF")]
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11AsyncStatusO10inProgressyACs5Int32V_tcACmF")]
     private static partial void PInvoke_InProgress(SwiftIndirectResult result, int progress);
     
     /// <summary>
@@ -18016,8 +18017,8 @@ public partial class AsyncStatus : ISwiftObject, IDisposable
         return result;
     }
     
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11AsyncStatusO9completedyACSS_tcACmF")]
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11AsyncStatusO9completedyACSS_tcACmF")]
     private static partial void PInvoke_Completed(SwiftIndirectResult result, IntPtr message);
     
     /// <summary>
@@ -18035,8 +18036,8 @@ public partial class AsyncStatus : ISwiftObject, IDisposable
         return result;
     }
     
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11AsyncStatusO6failedyACSS_tcACmF")]
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11AsyncStatusO6failedyACSS_tcACmF")]
     private static partial void PInvoke_Failed(SwiftIndirectResult result, IntPtr errorMessage);
     
     private static readonly Lazy<AsyncStatus> _lazy_pending = new(() =>
@@ -26623,8 +26624,8 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
         private static partial void PInvoke_InitWithRawValue_Wrapper(IntPtr resultPtr, IntPtr slicePtr);
         
         // SwiftOptional metadata accessor from Swift stdlib
-        [LibraryImport("/usr/lib/swift/libswiftCore.dylib", EntryPoint = "$sSqMa")]
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [LibraryImport("/usr/lib/swift/libswiftCore.dylib", EntryPoint = "$sSqMa")]
         private static partial TypeMetadata PInvokesForSwiftOptional_MetadataAccessor(TypeMetadataRequest request, TypeMetadata typeMetadata);
         
         private static readonly Lazy<HttpMethod> _lazy_get = new(() =>
@@ -26923,8 +26924,8 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
         private static partial void PInvoke_InitWithRawValue_Wrapper(IntPtr resultPtr, IntPtr slicePtr);
         
         // SwiftOptional metadata accessor from Swift stdlib
-        [LibraryImport("/usr/lib/swift/libswiftCore.dylib", EntryPoint = "$sSqMa")]
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [LibraryImport("/usr/lib/swift/libswiftCore.dylib", EntryPoint = "$sSqMa")]
         private static partial TypeMetadata PInvokesForSwiftOptional_MetadataAccessor(TypeMetadataRequest request, TypeMetadata typeMetadata);
         
         private static readonly Lazy<ContentType> _lazy_json = new(() =>
@@ -27396,8 +27397,8 @@ public partial class OrderContainer : ISwiftObject, IDisposable
         private static partial void PInvoke_InitWithRawValue_Wrapper(IntPtr resultPtr, IntPtr slicePtr);
         
         // SwiftOptional metadata accessor from Swift stdlib
-        [LibraryImport("/usr/lib/swift/libswiftCore.dylib", EntryPoint = "$sSqMa")]
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [LibraryImport("/usr/lib/swift/libswiftCore.dylib", EntryPoint = "$sSqMa")]
         private static partial TypeMetadata PInvokesForSwiftOptional_MetadataAccessor(TypeMetadataRequest request, TypeMetadata typeMetadata);
         
         private static readonly Lazy<Status> _lazy_pending = new(() =>
@@ -27882,8 +27883,8 @@ public partial class PaymentContainer : ISwiftObject, IDisposable
         private static partial void PInvoke_InitWithRawValue_Wrapper(IntPtr resultPtr, IntPtr slicePtr);
         
         // SwiftOptional metadata accessor from Swift stdlib
-        [LibraryImport("/usr/lib/swift/libswiftCore.dylib", EntryPoint = "$sSqMa")]
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [LibraryImport("/usr/lib/swift/libswiftCore.dylib", EntryPoint = "$sSqMa")]
         private static partial TypeMetadata PInvokesForSwiftOptional_MetadataAccessor(TypeMetadataRequest request, TypeMetadata typeMetadata);
         
         private static readonly Lazy<Status> _lazy_pending = new(() =>
@@ -28204,8 +28205,8 @@ public partial class LogLevel : ISwiftObject, IDisposable
     private static partial void PInvoke_InitWithRawValue_Wrapper(IntPtr resultPtr, IntPtr slicePtr);
     
     // SwiftOptional metadata accessor from Swift stdlib
-    [LibraryImport("/usr/lib/swift/libswiftCore.dylib", EntryPoint = "$sSqMa")]
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+    [LibraryImport("/usr/lib/swift/libswiftCore.dylib", EntryPoint = "$sSqMa")]
     private static partial TypeMetadata PInvokesForSwiftOptional_MetadataAccessor(TypeMetadataRequest request, TypeMetadata typeMetadata);
     
     private static readonly Lazy<LogLevel> _lazy_debug = new(() =>
@@ -28504,8 +28505,8 @@ public partial class Greeting : ISwiftObject, IDisposable
     private static partial void PInvoke_InitWithRawValue_Wrapper(IntPtr resultPtr, IntPtr slicePtr);
     
     // SwiftOptional metadata accessor from Swift stdlib
-    [LibraryImport("/usr/lib/swift/libswiftCore.dylib", EntryPoint = "$sSqMa")]
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+    [LibraryImport("/usr/lib/swift/libswiftCore.dylib", EntryPoint = "$sSqMa")]
     private static partial TypeMetadata PInvokesForSwiftOptional_MetadataAccessor(TypeMetadataRequest request, TypeMetadata typeMetadata);
     
     private static readonly Lazy<Greeting> _lazy_english = new(() =>
@@ -28804,8 +28805,8 @@ public partial class EdgeCaseStrings : ISwiftObject, IDisposable
     private static partial void PInvoke_InitWithRawValue_Wrapper(IntPtr resultPtr, IntPtr slicePtr);
     
     // SwiftOptional metadata accessor from Swift stdlib
-    [LibraryImport("/usr/lib/swift/libswiftCore.dylib", EntryPoint = "$sSqMa")]
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+    [LibraryImport("/usr/lib/swift/libswiftCore.dylib", EntryPoint = "$sSqMa")]
     private static partial TypeMetadata PInvokesForSwiftOptional_MetadataAccessor(TypeMetadataRequest request, TypeMetadata typeMetadata);
     
     private static readonly Lazy<EdgeCaseStrings> _lazy_empty = new(() =>
@@ -29117,8 +29118,8 @@ public partial class CaseSensitiveEnum : ISwiftObject, IDisposable
     private static partial void PInvoke_InitWithRawValue_Wrapper(IntPtr resultPtr, IntPtr slicePtr);
     
     // SwiftOptional metadata accessor from Swift stdlib
-    [LibraryImport("/usr/lib/swift/libswiftCore.dylib", EntryPoint = "$sSqMa")]
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+    [LibraryImport("/usr/lib/swift/libswiftCore.dylib", EntryPoint = "$sSqMa")]
     private static partial TypeMetadata PInvokesForSwiftOptional_MetadataAccessor(TypeMetadataRequest request, TypeMetadata typeMetadata);
     
     private static readonly Lazy<CaseSensitiveEnum> _lazy_lower = new(() =>
@@ -33534,24 +33535,27 @@ public unsafe partial class DescribableProxy : IDescribable, ISwiftObject, IDisp
     #endregion
     private static partial class NativeMethods
     {
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SetDescribable_vtable")]
         public static partial void SetDescribable_vtable(IntPtr vtable);
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "Get_EveryProtocol_Describable_WitnessTable")]
         public static partial IntPtr GetWitnessTable();
         
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Describable_get_description_0")]
         public static partial IntPtr SBW_Describable_get_description_0(IntPtr containerPtr);
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Describable_free_get_description_0")]
         public static partial void SBW_Describable_free_get_description_0(IntPtr ptr);
         
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Describable_method_describe_0")]
         public static partial IntPtr SBW_Describable_method_describe_0(IntPtr containerPtr);
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Describable_free_method_describe_0")]
         public static partial void SBW_Describable_free_method_describe_0(IntPtr ptr);
     }
@@ -33803,17 +33807,19 @@ public unsafe partial class TestIdentifiableProxy : ITestIdentifiable, ISwiftObj
     #endregion
     private static partial class NativeMethods
     {
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SetTestIdentifiable_vtable")]
         public static partial void SetTestIdentifiable_vtable(IntPtr vtable);
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "Get_EveryProtocol_TestIdentifiable_WitnessTable")]
         public static partial IntPtr GetWitnessTable();
         
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_TestIdentifiable_get_id_0")]
         public static partial IntPtr SBW_TestIdentifiable_get_id_0(IntPtr containerPtr);
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_TestIdentifiable_free_get_id_0")]
         public static partial void SBW_TestIdentifiable_free_get_id_0(IntPtr ptr);
     }
@@ -34063,17 +34069,19 @@ public unsafe partial class DisplayableProxy : IDisplayable, ISwiftObject, IDisp
     #endregion
     private static partial class NativeMethods
     {
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SetDisplayable_vtable")]
         public static partial void SetDisplayable_vtable(IntPtr vtable);
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "Get_EveryProtocol_Displayable_WitnessTable")]
         public static partial IntPtr GetWitnessTable();
         
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Displayable_method_display_0")]
         public static partial IntPtr SBW_Displayable_method_display_0(IntPtr containerPtr);
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Displayable_free_method_display_0")]
         public static partial void SBW_Displayable_free_method_display_0(IntPtr ptr);
     }
@@ -34402,32 +34410,35 @@ public unsafe partial class HasValueProxy : IHasValue, ISwiftObject, IDisposable
     #endregion
     private static partial class NativeMethods
     {
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SetHasValue_vtable")]
         public static partial void SetHasValue_vtable(IntPtr vtable);
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "Get_EveryProtocol_HasValue_WitnessTable")]
         public static partial IntPtr GetWitnessTable();
         
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_HasValue_get_value_0")]
         public static partial IntPtr SBW_HasValue_get_value_0(IntPtr containerPtr);
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_HasValue_free_get_value_0")]
         public static partial void SBW_HasValue_free_get_value_0(IntPtr ptr);
         
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_HasValue_set_value_0")]
         public static partial void SBW_HasValue_set_value_0(IntPtr containerPtr, IntPtr valuePtr);
         
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_HasValue_method_getValue_0")]
         public static partial IntPtr SBW_HasValue_method_getValue_0(IntPtr containerPtr);
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_HasValue_free_method_getValue_0")]
         public static partial void SBW_HasValue_free_method_getValue_0(IntPtr ptr);
         
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_HasValue_method_setValue_1")]
         public static partial void SBW_HasValue_method_setValue_1(IntPtr containerPtr, IntPtr arg0Ptr);
     }
@@ -35610,17 +35621,19 @@ public unsafe partial class NameableProxy : INameable, ISwiftObject, IDisposable
     #endregion
     private static partial class NativeMethods
     {
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SetNameable_vtable")]
         public static partial void SetNameable_vtable(IntPtr vtable);
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "Get_EveryProtocol_Nameable_WitnessTable")]
         public static partial IntPtr GetWitnessTable();
         
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Nameable_get_name_0")]
         public static partial IntPtr SBW_Nameable_get_name_0(IntPtr containerPtr);
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Nameable_free_get_name_0")]
         public static partial void SBW_Nameable_free_get_name_0(IntPtr ptr);
     }
@@ -35864,17 +35877,19 @@ public unsafe partial class AgeableProxy : IAgeable, ISwiftObject, IDisposable, 
     #endregion
     private static partial class NativeMethods
     {
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SetAgeable_vtable")]
         public static partial void SetAgeable_vtable(IntPtr vtable);
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "Get_EveryProtocol_Ageable_WitnessTable")]
         public static partial IntPtr GetWitnessTable();
         
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Ageable_get_age_0")]
         public static partial IntPtr SBW_Ageable_get_age_0(IntPtr containerPtr);
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Ageable_free_get_age_0")]
         public static partial void SBW_Ageable_free_get_age_0(IntPtr ptr);
     }
@@ -36120,17 +36135,19 @@ public unsafe partial class AddableProxy : IAddable, ISwiftObject, IDisposable, 
     #endregion
     private static partial class NativeMethods
     {
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SetAddable_vtable")]
         public static partial void SetAddable_vtable(IntPtr vtable);
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "Get_EveryProtocol_Addable_WitnessTable")]
         public static partial IntPtr GetWitnessTable();
         
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Addable_method_add_0")]
         public static partial IntPtr SBW_Addable_method_add_0(IntPtr containerPtr, IntPtr arg0Ptr);
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Addable_free_method_add_0")]
         public static partial void SBW_Addable_free_method_add_0(IntPtr ptr);
     }
@@ -36376,17 +36393,19 @@ public unsafe partial class SubtractableProxy : ISubtractable, ISwiftObject, IDi
     #endregion
     private static partial class NativeMethods
     {
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SetSubtractable_vtable")]
         public static partial void SetSubtractable_vtable(IntPtr vtable);
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "Get_EveryProtocol_Subtractable_WitnessTable")]
         public static partial IntPtr GetWitnessTable();
         
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Subtractable_method_subtract_0")]
         public static partial IntPtr SBW_Subtractable_method_subtract_0(IntPtr containerPtr, IntPtr arg0Ptr);
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Subtractable_free_method_subtract_0")]
         public static partial void SBW_Subtractable_free_method_subtract_0(IntPtr ptr);
     }
@@ -36632,17 +36651,19 @@ public unsafe partial class MultipliableProxy : IMultipliable, ISwiftObject, IDi
     #endregion
     private static partial class NativeMethods
     {
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SetMultipliable_vtable")]
         public static partial void SetMultipliable_vtable(IntPtr vtable);
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "Get_EveryProtocol_Multipliable_WitnessTable")]
         public static partial IntPtr GetWitnessTable();
         
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Multipliable_method_multiply_0")]
         public static partial IntPtr SBW_Multipliable_method_multiply_0(IntPtr containerPtr, IntPtr arg0Ptr);
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Multipliable_free_method_multiply_0")]
         public static partial void SBW_Multipliable_free_method_multiply_0(IntPtr ptr);
     }
@@ -36888,17 +36909,19 @@ public unsafe partial class DividableProxy : IDividable, ISwiftObject, IDisposab
     #endregion
     private static partial class NativeMethods
     {
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SetDividable_vtable")]
         public static partial void SetDividable_vtable(IntPtr vtable);
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "Get_EveryProtocol_Dividable_WitnessTable")]
         public static partial IntPtr GetWitnessTable();
         
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Dividable_method_divide_0")]
         public static partial IntPtr SBW_Dividable_method_divide_0(IntPtr containerPtr, IntPtr arg0Ptr);
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Dividable_free_method_divide_0")]
         public static partial void SBW_Dividable_free_method_divide_0(IntPtr ptr);
     }
@@ -37206,8 +37229,8 @@ public partial class TaskStatus : ISwiftObject, IDisposable
         return result;
     }
     
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10TaskStatusO8rawValueACSgs5Int32V_tcfC")]
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10TaskStatusO8rawValueACSgs5Int32V_tcfC")]
     private static partial IntPtr PInvoke_InitWithRawValue(int rawValue);
     
     private static readonly Lazy<TaskStatus> _lazy_pending = new(() =>
@@ -37491,8 +37514,8 @@ public partial class TaskPriority : ISwiftObject, IDisposable
     private static partial void PInvoke_InitWithRawValue_Wrapper(IntPtr resultPtr, IntPtr slicePtr);
     
     // SwiftOptional metadata accessor from Swift stdlib
-    [LibraryImport("/usr/lib/swift/libswiftCore.dylib", EntryPoint = "$sSqMa")]
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+    [LibraryImport("/usr/lib/swift/libswiftCore.dylib", EntryPoint = "$sSqMa")]
     private static partial TypeMetadata PInvokesForSwiftOptional_MetadataAccessor(TypeMetadataRequest request, TypeMetadata typeMetadata);
     
     private static readonly Lazy<TaskPriority> _lazy_low = new(() =>
@@ -37937,17 +37960,19 @@ public unsafe partial class NamedProxy : INamed, ISwiftObject, IDisposable, Swif
     #endregion
     private static partial class NativeMethods
     {
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SetNamed_vtable")]
         public static partial void SetNamed_vtable(IntPtr vtable);
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "Get_EveryProtocol_Named_WitnessTable")]
         public static partial IntPtr GetWitnessTable();
         
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Named_get_name_0")]
         public static partial IntPtr SBW_Named_get_name_0(IntPtr containerPtr);
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Named_free_get_name_0")]
         public static partial void SBW_Named_free_get_name_0(IntPtr ptr);
     }
@@ -38233,21 +38258,23 @@ public unsafe partial class MutableNamedProxy : IMutableNamed, ISwiftObject, IDi
     #endregion
     private static partial class NativeMethods
     {
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SetMutableNamed_vtable")]
         public static partial void SetMutableNamed_vtable(IntPtr vtable);
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "Get_EveryProtocol_MutableNamed_WitnessTable")]
         public static partial IntPtr GetWitnessTable();
         
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_MutableNamed_get_name_0")]
         public static partial IntPtr SBW_MutableNamed_get_name_0(IntPtr containerPtr);
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_MutableNamed_free_get_name_0")]
         public static partial void SBW_MutableNamed_free_get_name_0(IntPtr ptr);
         
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_MutableNamed_set_name_0")]
         public static partial void SBW_MutableNamed_set_name_0(IntPtr containerPtr, IntPtr valuePtr);
     }
@@ -38495,10 +38522,11 @@ public unsafe partial class PrioritizedProxy : IPrioritized, ISwiftObject, IDisp
     #endregion
     private static partial class NativeMethods
     {
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SetPrioritized_vtable")]
         public static partial void SetPrioritized_vtable(IntPtr vtable);
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "Get_EveryProtocol_Prioritized_WitnessTable")]
         public static partial IntPtr GetWitnessTable();
     }
@@ -38770,10 +38798,11 @@ public unsafe partial class MutablePrioritizedProxy : IMutablePrioritized, ISwif
     #endregion
     private static partial class NativeMethods
     {
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SetMutablePrioritized_vtable")]
         public static partial void SetMutablePrioritized_vtable(IntPtr vtable);
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "Get_EveryProtocol_MutablePrioritized_WitnessTable")]
         public static partial IntPtr GetWitnessTable();
     }
@@ -39087,17 +39116,19 @@ public unsafe partial class TaskDescriptorProxy : ITaskDescriptor, ISwiftObject,
     #endregion
     private static partial class NativeMethods
     {
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SetTaskDescriptor_vtable")]
         public static partial void SetTaskDescriptor_vtable(IntPtr vtable);
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "Get_EveryProtocol_TaskDescriptor_WitnessTable")]
         public static partial IntPtr GetWitnessTable();
         
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_TaskDescriptor_get_taskName_0")]
         public static partial IntPtr SBW_TaskDescriptor_get_taskName_0(IntPtr containerPtr);
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_TaskDescriptor_free_get_taskName_0")]
         public static partial void SBW_TaskDescriptor_free_get_taskName_0(IntPtr ptr);
     }
@@ -39402,24 +39433,27 @@ public unsafe partial class StringProcessorProxy : IStringProcessor, ISwiftObjec
     #endregion
     private static partial class NativeMethods
     {
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SetStringProcessor_vtable")]
         public static partial void SetStringProcessor_vtable(IntPtr vtable);
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "Get_EveryProtocol_StringProcessor_WitnessTable")]
         public static partial IntPtr GetWitnessTable();
         
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_StringProcessor_method_process_0")]
         public static partial IntPtr SBW_StringProcessor_method_process_0(IntPtr containerPtr, IntPtr arg0Ptr);
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_StringProcessor_free_method_process_0")]
         public static partial void SBW_StringProcessor_free_method_process_0(IntPtr ptr);
         
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_StringProcessor_method_getOutput_1")]
         public static partial IntPtr SBW_StringProcessor_method_getOutput_1(IntPtr containerPtr);
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_StringProcessor_free_method_getOutput_1")]
         public static partial void SBW_StringProcessor_free_method_getOutput_1(IntPtr ptr);
     }
@@ -39730,10 +39764,11 @@ public unsafe partial class StatusHandlerProxy : IStatusHandler, ISwiftObject, I
     #endregion
     private static partial class NativeMethods
     {
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SetStatusHandler_vtable")]
         public static partial void SetStatusHandler_vtable(IntPtr vtable);
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "Get_EveryProtocol_StatusHandler_WitnessTable")]
         public static partial IntPtr GetWitnessTable();
     }
@@ -40044,10 +40079,11 @@ public unsafe partial class PriorityHandlerProxy : IPriorityHandler, ISwiftObjec
     #endregion
     private static partial class NativeMethods
     {
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SetPriorityHandler_vtable")]
         public static partial void SetPriorityHandler_vtable(IntPtr vtable);
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "Get_EveryProtocol_PriorityHandler_WitnessTable")]
         public static partial IntPtr GetWitnessTable();
     }
@@ -41659,8 +41695,8 @@ public partial class AlertStyle : ISwiftObject, IDisposable
         return result;
     }
     
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10AlertStyleO8rawValueACSgs5Int32V_tcfC")]
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10AlertStyleO8rawValueACSgs5Int32V_tcfC")]
     private static partial IntPtr PInvoke_InitWithRawValue(int rawValue);
     
     private static readonly Lazy<AlertStyle> _lazy_info = new(() =>

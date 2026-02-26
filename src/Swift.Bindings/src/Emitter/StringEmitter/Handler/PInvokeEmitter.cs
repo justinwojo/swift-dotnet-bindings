@@ -681,14 +681,17 @@ namespace BindingsGeneration
             else
             {
                 // Emit directly (non-generic type)
-                csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
-                csWriter.WriteLine($"[LibraryImport(\"{libPath}\", EntryPoint = \"{entryPoint}\")]");
-                var pInvokeReturnType = methodDecl.IsAsync ? "void" : pInvokeSignature.ReturnType;
-                if (MarshallingHelpers.IsBoolType(pInvokeReturnType))
-                    csWriter.WriteLine("[return: MarshalAs(UnmanagedType.U1)]");
                 var pInvokeParams = pInvokeSignature.PInvokeParametersString();
-                var unsafeModifier = pInvokeParams.Contains("void*") || pInvokeParams.Contains("delegate*") ? "unsafe " : "";
-                csWriter.WriteLine($"private static {unsafeModifier}partial {pInvokeReturnType} {pInvokeName}({pInvokeParams});");
+                PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+                {
+                    LibraryPath = libPath,
+                    EntryPoint = entryPoint,
+                    MethodName = pInvokeName,
+                    ReturnType = pInvokeSignature.ReturnType,
+                    ParametersString = pInvokeParams,
+                    IsAsync = methodDecl.IsAsync,
+                    IsUnsafe = pInvokeParams.Contains("void*") || pInvokeParams.Contains("delegate*")
+                });
             }
         }
     }

@@ -125,7 +125,7 @@ public class ProtocolConformanceValidator
                 return false;  // CS0535: member will be skipped
 
             // Check type compatibility (CS0738)
-            var interfaceType = GetInterfacePropertyType(protoProperty, protocolDecl);
+            var interfaceType = GetInterfacePropertyType(protoProperty, protocolDecl, boundGenericsHandler);
             if (!AreTypesCompatible(interfaceType, concreteTypeProjected, conformingTypeName))
                 return false;  // CS0738: types don't match
         }
@@ -156,7 +156,7 @@ public class ProtocolConformanceValidator
                 return false;
 
             // Check return type compatibility (CS0738)
-            var interfaceReturnType = GetInterfaceSubscriptReturnType(protoSubscript, protocolDecl);
+            var interfaceReturnType = GetInterfaceSubscriptReturnType(protoSubscript, protocolDecl, boundGenericsHandler);
             if (!AreTypesCompatible(interfaceReturnType, concreteReturnType, conformingTypeName))
                 return false;
         }
@@ -230,7 +230,7 @@ public class ProtocolConformanceValidator
                 return false;  // CS0535: method names diverge due to collision resolution
 
             // Check return type compatibility (CS0738)
-            var interfaceReturnType = GetInterfaceMethodReturnType(protoMethod, protocolDecl);
+            var interfaceReturnType = GetInterfaceMethodReturnType(protoMethod, protocolDecl, boundGenericsHandler);
             if (!AreTypesCompatible(interfaceReturnType, concreteReturnType, conformingTypeName))
                 return false;
         }
@@ -256,10 +256,8 @@ public class ProtocolConformanceValidator
     /// <summary>
     /// Gets interface property type using SAME projection as ProtocolHandler.EmitInterfaceProperty.
     /// </summary>
-    private string GetInterfacePropertyType(PropertyDecl protoProperty, ProtocolDecl protocolContext)
+    private string GetInterfacePropertyType(PropertyDecl protoProperty, ProtocolDecl protocolContext, BoundGenericsHandler boundGenericsHandler)
     {
-        var boundGenericsHandler = new BoundGenericsHandler(_typeDatabase);
-
         if (protoProperty.SwiftTypeSpec is AssociatedTypeReferenceSpec)
             return "?";  // PAT - should have been filtered earlier
 
@@ -282,8 +280,7 @@ public class ProtocolConformanceValidator
         // Bound generic fallback: produce full type name with generic args
         if (protoProperty.SwiftTypeSpec is NamedTypeSpec propBoundGeneric && propBoundGeneric.ContainsGenericParameters)
         {
-            var bgh = new BoundGenericsHandler(_typeDatabase);
-            return bgh.TranslateBoundGenericTypeToCSharp(protoProperty.SwiftTypeSpec, genericContext);
+            return boundGenericsHandler.TranslateBoundGenericTypeToCSharp(protoProperty.SwiftTypeSpec, genericContext);
         }
 
         return _typeDatabase.GetTypeRecordOrAnyType(protoProperty.SwiftTypeSpec).CSharpTypeName.FullyQualifiedName;
@@ -292,9 +289,8 @@ public class ProtocolConformanceValidator
     /// <summary>
     /// Gets interface method return type using SAME projection as ProtocolHandler.EmitInterfaceMethod.
     /// </summary>
-    private string GetInterfaceMethodReturnType(MethodDecl protoMethod, ProtocolDecl protocolContext)
+    private string GetInterfaceMethodReturnType(MethodDecl protoMethod, ProtocolDecl protocolContext, BoundGenericsHandler boundGenericsHandler)
     {
-        var boundGenericsHandler = new BoundGenericsHandler(_typeDatabase);
         var returnType = "void";
 
         if (protoMethod.CSSignature.Count > 0)
@@ -325,8 +321,7 @@ public class ProtocolConformanceValidator
                 }
                 else if (returnArg.SwiftTypeSpec is NamedTypeSpec retBoundGeneric && retBoundGeneric.ContainsGenericParameters)
                 {
-                    var bgh = new BoundGenericsHandler(_typeDatabase);
-                    returnType = bgh.TranslateBoundGenericTypeToCSharp(returnArg.SwiftTypeSpec, genericContext);
+                    returnType = boundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg.SwiftTypeSpec, genericContext);
                 }
                 else
                 {
@@ -379,7 +374,7 @@ public class ProtocolConformanceValidator
     /// <summary>
     /// Gets interface subscript return type using SAME projection as ProtocolHandler.EmitInterfaceSubscript.
     /// </summary>
-    private string GetInterfaceSubscriptReturnType(SubscriptDecl protoSubscript, ProtocolDecl protocolContext)
+    private string GetInterfaceSubscriptReturnType(SubscriptDecl protoSubscript, ProtocolDecl protocolContext, BoundGenericsHandler boundGenericsHandler)
     {
         // Factory-based projection with GenericContext
         // For Self-requirement protocols, map τ_0_0 → TSelf
@@ -403,8 +398,7 @@ public class ProtocolConformanceValidator
         // Bound generic fallback
         if (protoSubscript.ReturnTypeSpec is NamedTypeSpec subBoundGeneric && subBoundGeneric.ContainsGenericParameters)
         {
-            var bgh = new BoundGenericsHandler(_typeDatabase);
-            return bgh.TranslateBoundGenericTypeToCSharp(protoSubscript.ReturnTypeSpec, genericContext);
+            return boundGenericsHandler.TranslateBoundGenericTypeToCSharp(protoSubscript.ReturnTypeSpec, genericContext);
         }
 
         return _typeDatabase.GetTypeRecordOrAnyType(protoSubscript.ReturnTypeSpec).CSharpTypeName.FullyQualifiedName;
@@ -561,7 +555,7 @@ public class ProtocolConformanceValidator
             return true;
 
         // Bare generic type in signature (e.g., SwiftDictionary without <K,V>)
-        if (HasBareGenericInMethodSignature(method, protocolDecl))
+        if (HasBareGenericInMethodSignature(method, protocolDecl, boundGenericsHandler))
             return true;
 
         // Existential parameters — now emitted in interface (proxy gets NotSupportedException stub).
@@ -584,9 +578,8 @@ public class ProtocolConformanceValidator
     /// Checks if a method signature contains bare generic usage.
     /// Mirrors ProtocolHandler.HasBareGenericInMethodSignature.
     /// </summary>
-    private bool HasBareGenericInMethodSignature(MethodDecl method, ProtocolDecl protocolDecl)
+    private bool HasBareGenericInMethodSignature(MethodDecl method, ProtocolDecl protocolDecl, BoundGenericsHandler boundGenericsHandler)
     {
-        var bgh = new BoundGenericsHandler(_typeDatabase);
         var moduleDecl = method.ModuleDecl ?? protocolDecl.ModuleDecl;
 
         if (method.CSSignature.Count > 0)
@@ -594,14 +587,14 @@ public class ProtocolConformanceValidator
             var returnArg = method.CSSignature[0];
             if (returnArg.SwiftTypeSpec is not TupleTypeSpec tuple || !tuple.IsEmptyTuple)
             {
-                if (bgh.HasBareGenericUsage(returnArg.SwiftTypeSpec, moduleDecl))
+                if (boundGenericsHandler.HasBareGenericUsage(returnArg.SwiftTypeSpec, moduleDecl))
                     return true;
             }
         }
 
         for (int i = 1; i < method.CSSignature.Count; i++)
         {
-            if (bgh.HasBareGenericUsage(method.CSSignature[i].SwiftTypeSpec, moduleDecl))
+            if (boundGenericsHandler.HasBareGenericUsage(method.CSSignature[i].SwiftTypeSpec, moduleDecl))
                 return true;
         }
 

@@ -198,5 +198,38 @@ namespace BindingsGeneration
         /// Used for both parameter and return type marshalling.
         /// </summary>
         public static bool IsBoolType(string type) => type == "bool";
+
+        /// <summary>
+        /// Checks if a Swift type spec represents Bool, which requires conversion in callbacks.
+        /// </summary>
+        public static bool IsBoolType(TypeSpec typeSpec)
+        {
+            return typeSpec is NamedTypeSpec namedType && namedType.Name == "Swift.Bool";
+        }
+
+        /// <summary>
+        /// Checks if a type name represents a Swift primitive type.
+        /// </summary>
+        public static bool IsSwiftPrimitive(string typeName)
+        {
+            return typeName switch
+            {
+                "Swift.Int" or "Swift.Int8" or "Swift.Int16" or "Swift.Int32" or "Swift.Int64" => true,
+                "Swift.UInt" or "Swift.UInt8" or "Swift.UInt16" or "Swift.UInt32" or "Swift.UInt64" => true,
+                "Swift.Float" or "Swift.Double" => true,
+                "Swift.Bool" => true,
+                "CoreFoundation.CGFloat" => true,
+                "CoreFoundation.CGSize" or "CoreFoundation.CGPoint" or "CoreFoundation.CGRect" => true,
+                _ => false,
+            };
+        }
+
+        /// <summary>
+        /// Swift type aliases that resolve to primitives.
+        /// </summary>
+        public static readonly Dictionary<string, string> TypeAliasToCSPrimitive = new(StringComparer.Ordinal)
+        {
+            { "Foundation.TimeInterval", "double" },
+        };
     }
 }

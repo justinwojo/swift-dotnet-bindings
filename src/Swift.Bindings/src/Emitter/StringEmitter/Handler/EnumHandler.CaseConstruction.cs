@@ -279,9 +279,14 @@ namespace BindingsGeneration
             }
             else
             {
-                csWriter.WriteLine($"[LibraryImport(\"{libPath}\", EntryPoint = \"{caseDecl.MangledName}\")]");
-                csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
-                csWriter.WriteLine($"private static partial void {pInvokeName}({string.Join(", ", pInvokeParams)});");
+                PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+                {
+                    LibraryPath = libPath,
+                    EntryPoint = caseDecl.MangledName,
+                    MethodName = pInvokeName,
+                    ReturnType = "void",
+                    ParametersString = string.Join(", ", pInvokeParams)
+                });
                 csWriter.WriteLine();
             }
             return true;

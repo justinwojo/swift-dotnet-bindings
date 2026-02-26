@@ -8,7 +8,7 @@
 
 3. **Static mutable state is scattered across 7+ emitters, all using the same `_structEmitted` / `_swiftWrapperLines` / `_emittedSymbols` pattern with manual `ResetForModule()` calls.** Missing a reset produces silent cross-module contamination. This is a class of bug waiting to happen — in fact, `ProtocolExtensionEmitter.ResetForModule()` was specifically called out in MEMORY.md for needing careful placement. **Severity: High.**
 
-4. **19 separate files emit P/Invoke declarations independently**, with no shared emission primitive beyond `PInvokeEmitter.EmitPInvoke` (which itself handles only the standard method case). Extension emitters, enum handlers, closure bridges, and operator handlers all build `[LibraryImport]`/`[UnmanagedCallConv]` strings inline. A change to P/Invoke attribute format requires touching all 19 files. **Severity: Medium.**
+4. ~~**19 separate files emit P/Invoke declarations independently**~~ **Resolved (A1.7).** `PInvokeEmitHelper` now centralizes P/Invoke declaration emission. All 38 explicit `[UnmanagedCallConv]` sites across 19 files migrated. 5 bare `[LibraryImport]`-only sites intentionally remain (no calling convention attribute needed). ~~Severity: Medium.~~
 
 5. **The gate/skip system uses 40+ independent `if` chains across 9+ files with no centralized policy.** `ProtocolConformanceValidator.IsMethodSkippedFromInterface` must mirror `ProtocolHandler`'s skip logic exactly — and the code literally says "mirrors ProtocolHandler" in comments. When they diverge (which they will), CS0535 errors appear in real libraries with no unit test to catch it. **Severity: Critical.**
 
@@ -20,7 +20,7 @@
 |---|-----------------|--------|-------|
 | 1 | Four divergent type conversion pipelines | **Partially Resolved** | `TypeProjectionFactory` with 16 `ITypeProjection` implementations now handles the *happy path* (simple types, stdlib containers, existentials, closures, tuples). `GetIdiomaticCSharpType` is only referenced in 2 files (ClosureHandler, TypeProjectionFactory itself). However, the factory returns `null` for user-defined bound generics (line 204), so `BoundGenericsHandler.TranslateBoundGenericTypeToCSharp` remains a parallel path called from 8+ sites. ClosureHandler maintains 3 independent translation methods. The *number* of paths decreased from 4 to ~3, but the fundamental problem — "can you call one function to get the C# type for a Swift type?" — still has answer "no" for generics and closures. |
 | 2 | Type information encoded in strings | **Resolved** | `MarshalledType` discriminated union (23 variants) replaced all string-encoded markers. `Parameter.Type` is now `MarshalledType` with pattern matching. No more `StartsWith("Existential:")` string parsing. This was a clean, complete fix. |
-| 3 | Scattered bool marshalling | **Resolved** | `MarshalledType.BoolType` carries the `[MarshalAs(UnmanagedType.U1)]` intrinsically. `MarshallingHelpers.IsBoolType()` centralizes the check. There are still 21 call sites, but they're all using the centralized helper (except 1 direct `== "bool"` in ProtocolExtensionClosureBridge.cs:518). This is acceptable — the check is centralized, just called from many places. |
+| 3 | Scattered bool marshalling | **Resolved** | `MarshalledType.BoolType` carries the `[MarshalAs(UnmanagedType.U1)]` intrinsically. `MarshallingHelpers.IsBoolType()` centralizes the check (both `string` and `TypeSpec` overloads). All call sites use the centralized helper — the last direct `== "bool"` in ProtocolExtensionClosureBridge.cs was fixed in A1.4. |
 | 4 | Cross-cutting state through Conductor | **Partially Resolved** | The `Conductor` class itself is now a clean factory/dispatcher (137 lines). The ThreadStatic `s_activeCompositionCollector` pattern still exists — but now it's injected via `TypeHandlerContext.CompositionCollector` and set on `ExistentialHandler` via `SetCompositionCollector()`. The injection is still temporal (set during `Emit()`, not at construction), but the flow is explicit and traced. `NestedTypeRenames` still flows through mutable context. `PInvokeHelperContext` still flows through mutable property. The *worst* ThreadStatic coupling is gone, but the architecture still depends on "set state before calling, clear after." |
 | 5 | Test architecture gap (no cross-path consistency tests) | **Moved** | The gap still exists. No cross-path consistency tests were added. Instead, the mitigation was making the factory the dominant path and adding golden-file tests for one library (SwiftBindingsTestLib). The 32/32 library validation serves as the de facto cross-path test, but it only catches compilation failures (CS0535/CS0738), not silent type disagreements that compile but produce wrong runtime behavior. |
 
@@ -84,7 +84,7 @@
 - **Confidence:** Confirmed
 - **Location:** `ProtocolExtensionEmitter.cs` (1,773 lines), `ForeignTypeExtensionEmitter.cs` (1,532 lines), `CrossModuleExtensionEmitter.cs` (792 lines)
 - **Problem:** All three emitters independently implement:
-  - **Type classification:** `ClassifyReturnType` / `ClassifyParameterType` with local `ReturnKind` / `ParamKind` enums — `ForeignTypeExtensionEmitter` and `CrossModuleExtensionEmitter` define *identical* `ReturnKind` enums (Void/Primitive/ObjCClass/SwiftClass/NonFrozenStruct). `CrossModuleExtensionEmitter` delegates to `ProtocolExtensionEmitter.IsSwiftPrimitive()` and `ForeignTypeExtensionEmitter.TypeAliasToCSPrimitive`, creating cross-emitter dependencies without a shared base.
+  - **Type classification:** `ClassifyReturnType` / `ClassifyParameterType` with local `ReturnKind` / `ParamKind` enums — `ForeignTypeExtensionEmitter` and `CrossModuleExtensionEmitter` define *identical* `ReturnKind` enums (Void/Primitive/ObjCClass/SwiftClass/NonFrozenStruct). Cross-emitter dependencies on `IsSwiftPrimitive()` and `TypeAliasToCSPrimitive` were resolved in A1 (moved to `MarshallingHelpers`), but the duplicate enum definitions remain.
   - **Return value marshalling:** The `switch (returnCategory)` blocks for Void/Primitive/ObjCClass/SwiftClass/NonFrozenStruct are copy-pasted with minor variations across all three files.
   - **P/Invoke emission:** Each builds `[UnmanagedCallConv]` + `[LibraryImport]` strings independently, with separate bool return-type checks.
   - **Swift wrapper accumulation:** `ProtocolExtensionEmitter` and `ForeignTypeExtensionEmitter` each maintain static `_swiftWrapperLines` lists with identical accumulate/flush patterns.
@@ -158,13 +158,9 @@
 ### M1. 19 Independent P/Invoke Emission Points
 
 - **Confidence:** Confirmed
-- **Location:** See inventory in analysis. Key offenders: `CrossModuleExtensionEmitter` (3 emission points: method, getter, setter), `ForeignTypeExtensionEmitter` (similar), `EnumHandler.CaseConstruction`, `EnumHandler.SimpleEnum`, `OperatorHandler`, `WrapperEmitter.Async`, `GenericClosureBridgeEmitter`.
-- **Problem:** Each builds the `[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]` + `[LibraryImport("...", EntryPoint = "...")]` pattern from scratch. The bool return-type check (`if returnIsBool → [return: MarshalAs(UnmanagedType.U1)]`) is repeated at each site.
-- **Evidence:** String `"[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]"` appears in 19 files.
-- **Impact:** Format change (e.g., adding a new calling convention attribute) requires 19 coordinated edits.
-- **Effort:** S (2-3 days)
-- **Migration Risk:** Low
-- **Fix:** Create `PInvokeEmitHelper.EmitDeclaration(CSharpWriter, PInvokeDeclarationInfo)` where `PInvokeDeclarationInfo` captures lib path, entry point, return type, parameters, calling convention, and return-is-bool. All 19 sites call this instead of emitting strings directly.
+- **Status:** **Resolved (A1.7).** `PInvokeEmitHelper` created with `PInvokeEmissionInfo` record, `EmitDeclaration(CSharpWriter)`, and `FormatDeclarationLines()`. All 38 explicit `[UnmanagedCallConv]` emission sites across 19 files migrated. 5 bare `[LibraryImport]`-only sites (no calling convention attribute) intentionally left as-is — they use `@_cdecl` wrappers or parameterless case constructors where no `[UnmanagedCallConv]` is needed. Existing `PInvokeDeclaration.Emit()` in `PInvokeHelperEmitter.cs` refactored to delegate to `PInvokeEmitHelper.EmitDeclaration()`.
+- **Location:** `PInvokeEmitHelper.cs` (new), 18 migrated files, `PInvokeHelperEmitter.cs` (refactored)
+- **Impact:** Format changes to P/Invoke attributes now require editing one file.
 
 ### M2. Duplicate `ReturnKind` / `ParamKind` Enums
 
@@ -179,22 +175,12 @@
 ### M3. `ProtocolConformanceValidator` Creates New `BoundGenericsHandler` Per Method
 
 - **Confidence:** Confirmed
-- **Location:** `ProtocolConformanceValidator.cs:97, 261, 286, 297, 328, 404, 524, 589`
-- **Problem:** The validator creates `new BoundGenericsHandler(_typeDatabase)` at 8+ callsites within a single `CanFullyImplementProtocol` invocation. `BoundGenericsHandler` constructor is lightweight (stores a reference), but it's still wasteful and noisy.
-- **Impact:** Minor performance concern. Mainly a code smell indicating the validator could be structured with a single handler instance per validation call.
-- **Effort:** S (1 hour)
-- **Migration Risk:** Low
-- **Fix:** Create the handler once at the top of `CanFullyImplementProtocol` and pass it to all helper methods. Already partially done at line 97 but not consistently used.
+- **Status:** **Resolved (A1.5).** Existing instance at line 97 now passed as parameter to `GetInterfacePropertyType`, `GetInterfaceMethodReturnType`, `GetInterfaceSubscriptReturnType`, and `HasBareGenericInMethodSignature`. 6 redundant `new BoundGenericsHandler(_typeDatabase)` allocations removed.
 
 ### M4. ClosureEmitter Has Its Own `IsBoolType(TypeSpec)` Method
 
 - **Confidence:** Confirmed
-- **Location:** `ClosureEmitter.cs:358`
-- **Problem:** `ClosureEmitter` defines a local `IsBoolType(TypeSpec)` that operates on `TypeSpec` while `MarshallingHelpers.IsBoolType(string)` operates on type name strings. The ClosureEmitter version is called from 6+ sites across ClosureEmitter partial files (ClosureEmitter.cs, ClosureEmitter.Throwing.cs, ClosureEmitter.StructParams.cs).
-- **Impact:** Low — both implementations are correct. But it's confusing to have two `IsBoolType` methods with different signatures.
-- **Effort:** S (1 hour)
-- **Migration Risk:** Low
-- **Fix:** Add `IsBoolType(TypeSpec)` overload to `MarshallingHelpers` and remove the local version from ClosureEmitter.
+- **Status:** **Resolved (A1.3).** `IsBoolType(TypeSpec)` overload added to `MarshallingHelpers`. Local version removed from `ClosureEmitter.cs`. 12 call sites updated across `ClosureEmitter.cs`, `ClosureEmitter.Throwing.cs`, `ClosureEmitter.StructParams.cs`.
 
 ### M5. HashSet<string> Dedup Proliferation
 
@@ -223,11 +209,7 @@
 ### L1. Single Direct `== "bool"` in ProtocolExtensionClosureBridge
 
 - **Confidence:** Confirmed
-- **Location:** `ProtocolExtensionClosureBridge.cs:518`
-- **Problem:** Uses `csharpType == "bool"` instead of `MarshallingHelpers.IsBoolType(csharpType)`. Functionally identical but inconsistent with the rest of the codebase.
-- **Effort:** S (5 minutes)
-- **Migration Risk:** None
-- **Fix:** Replace with `MarshallingHelpers.IsBoolType(csharpType)`.
+- **Status:** **Resolved (A1.4).** Replaced with `MarshallingHelpers.IsBoolType(csharpType)`.
 
 ### L2. ClosureHandler Creates ExistentialHandler Internally
 
@@ -241,29 +223,17 @@
 ### L3. `CrossModuleExtensionEmitter.TypeAliasToCSPrimitive` Delegates to ForeignTypeExtensionEmitter
 
 - **Confidence:** Confirmed
-- **Location:** `CrossModuleExtensionEmitter.cs:790-791`
-- **Problem:** `CrossModuleExtensionEmitter.TypeAliasToCSPrimitive` is defined as `= ForeignTypeExtensionEmitter.TypeAliasToCSPrimitive;` — a static field aliasing another emitter's static field. Works, but creates a hidden dependency between emitters.
-- **Effort:** S (30 minutes)
-- **Migration Risk:** None
-- **Fix:** Move the dictionary to a shared location (e.g., `TypeMappingConstants.TypeAliasToCSPrimitive`).
+- **Status:** **Resolved (A1.2).** Dictionary moved to `MarshallingHelpers.TypeAliasToCSPrimitive`. Alias field removed from `CrossModuleExtensionEmitter`. Original field removed from `ForeignTypeExtensionEmitter`.
 
 ### L4. `IsSwiftPrimitive` in ProtocolExtensionEmitter Is Used by Other Emitters
 
 - **Confidence:** Confirmed
-- **Location:** `ProtocolExtensionEmitter.IsSwiftPrimitive()` called from `CrossModuleExtensionEmitter.ClassifyReturnType` and `ClassifyParameterType`.
-- **Problem:** Same as L3 — hidden cross-emitter dependency. `IsSwiftPrimitive` is a general utility, not specific to protocol extensions.
-- **Effort:** S (30 minutes)
-- **Migration Risk:** None
-- **Fix:** Move to a shared utility class (e.g., `TypeMappingConstants` or `MarshallingHelpers`).
+- **Status:** **Resolved (A1.1).** Method moved to `MarshallingHelpers.IsSwiftPrimitive()`. Original removed from `ProtocolExtensionEmitter`. 25+ call sites updated across `ProtocolExtensionEmitter`, `ForeignTypeExtensionEmitter`, `CrossModuleExtensionEmitter`, `ProtocolExtensionClosureBridge`.
 
 ### L5. `ProtocolHandler` Creates `ClosureHandler` Per Property
 
 - **Confidence:** Confirmed
-- **Location:** `ProtocolHandler.cs:167` — `var closureHandlerProp = new ClosureHandler(env.TypeDatabase);`
-- **Problem:** Creates a new `ClosureHandler` instance inside the property loop. ClosureHandler is lightweight, but this is noisy.
-- **Effort:** S (5 minutes)
-- **Migration Risk:** None
-- **Fix:** Hoist to before the loop.
+- **Status:** **Resolved (A1.6).** Hoisted `ClosureHandler` creation before loops. Passed as parameter to `EmitInterfaceProperty`, `EmitInterfaceSubscript`, `EmitInterfaceMethod`. 5 redundant allocations removed.
 
 ---
 
@@ -350,17 +320,17 @@ Ordered by impact/effort ratio. Each is independently valuable.
 |---|------|-------|--------|------|------------|-----------------|
 | 1 | Extract `MemberGateEvaluator` from ProtocolHandler + ProtocolConformanceValidator + MemberEmissionValidator | 4-6 files | M | Low | — | Eliminates C1+C2. Single source of truth for skip decisions. |
 | 2 | Create `ExtensionEmitterBase` with shared classification, marshalling, P/Invoke | 3 emitter files + 1 new base | L | Low | — | Eliminates H1. ~1,500 lines of dedup removed. |
-| 3 | Create `PInvokeEmitHelper` for shared P/Invoke declaration emission | 19 files (mechanical) | S | Low | — | Eliminates M1. Single format for all P/Invoke attributes. |
-| 4 | Move `IsSwiftPrimitive` + `TypeAliasToCSPrimitive` to shared utility | 4 files | S | Low | — | Eliminates L3+L4. Clean dependency direction. |
+| 3 | Create `PInvokeEmitHelper` for shared P/Invoke declaration emission | 19 files (mechanical) | S | Low | — | ~~Eliminates M1.~~ **Done (A1.7).** |
+| 4 | Move `IsSwiftPrimitive` + `TypeAliasToCSPrimitive` to shared utility | 4 files | S | Low | — | ~~Eliminates L3+L4.~~ **Done (A1.1, A1.2).** |
 | 5 | Replace static emitter state with `ModuleEmissionContext` | 7 emitter files + ModuleHandler | M | Low | — | Eliminates H3. No manual ResetForModule. |
 | 6 | Migrate ClosureHandler type resolution to use TypeProjectionFactory | ClosureHandler.cs | L | Med | — | Reduces H2. ~400 lines removed from ClosureHandler. |
 | 7 | Add `BoundGenericProjection` to TypeProjectionFactory | TypeProjectionFactory + BoundGenericsHandler | L | Med | — | Eliminates H4. Factory becomes true single entry point. |
 | 8 | Extract Program.cs pipeline stages | Program.cs → 5 new classes | M | Low | — | Eliminates M6. Testable pipeline. |
 | 9 | Add cross-path consistency tests | New test file | M | Low | #1, #7 | Catches gate/type disagreements before they reach libraries. |
 | 10 | Add golden-file tests for all 32 validation libraries | New test infrastructure | M | Low | — | Catches any output change across generator modifications. |
-| 11 | Replace `CrossModuleExtensionEmitter == "bool"` check | 1 line | S | None | — | Consistency fix. |
-| 12 | Fix ClosureEmitter local IsBoolType | ClosureEmitter.cs | S | None | — | Eliminates M4. |
-| 13 | Hoist BoundGenericsHandler in ProtocolConformanceValidator | 1 file | S | None | — | Eliminates M3. |
+| 11 | Replace `ProtocolExtensionClosureBridge == "bool"` check | 1 line | S | None | — | ~~Consistency fix.~~ **Done (A1.4).** |
+| 12 | Fix ClosureEmitter local IsBoolType | ClosureEmitter.cs | S | None | — | ~~Eliminates M4.~~ **Done (A1.3).** |
+| 13 | Hoist BoundGenericsHandler in ProtocolConformanceValidator | 1 file | S | None | — | ~~Eliminates M3.~~ **Done (A1.5).** |
 
 **Total estimated effort for items #1-5:** ~4 weeks. These alone would eliminate the two critical findings and three high-priority findings.
 
@@ -380,20 +350,20 @@ The following findings are real architectural debt but carry Medium migration ri
 Three sessions, ordered by risk (low-risk mechanical work first, critical refactoring second, large structural extraction third). Each session ends with full 32-library validation.
 
 ### Session A1: Quick Wins + PInvokeEmitHelper
-- **Status:** Not Started
+- **Status:** Complete (February 26, 2026)
 - **Effort:** S (1 day)
 - **Findings addressed:** #3, #4, #11, #12, #13, L3, L4, L5
 - **Risk:** Low — mechanical moves, no behavioral changes
 
 **Tasks:**
-- [ ] A1.1: Move `IsSwiftPrimitive()` from `ProtocolExtensionEmitter` to shared utility (e.g., `MarshallingHelpers` or new `TypeMappingConstants`). Update call sites in `CrossModuleExtensionEmitter`. (L4)
-- [ ] A1.2: Move `TypeAliasToCSPrimitive` dictionary from `ForeignTypeExtensionEmitter` to the same shared location. Update `CrossModuleExtensionEmitter` alias. (L3)
-- [ ] A1.3: Add `IsBoolType(TypeSpec)` overload to `MarshallingHelpers`. Remove local version from `ClosureEmitter.cs:358`. Update 6+ call sites in ClosureEmitter partials. (#12 / M4)
-- [ ] A1.4: Replace `csharpType == "bool"` with `MarshallingHelpers.IsBoolType(csharpType)` in `ProtocolExtensionClosureBridge.cs:518`. (#11 / L1)
-- [ ] A1.5: Hoist `BoundGenericsHandler` creation in `ProtocolConformanceValidator.CanFullyImplementProtocol` — create once at top, pass to all helper methods. (#13 / M3)
-- [ ] A1.6: Hoist `ClosureHandler` creation out of the property loop in `ProtocolHandler.cs:167`. (L5)
-- [ ] A1.7: Create `PInvokeEmitHelper.EmitDeclaration(CSharpWriter, PInvokeDeclarationInfo)`. Replace inline `[UnmanagedCallConv]` + `[LibraryImport]` string construction across 19 files. (#3 / M1)
-- [ ] A1.8: Run `./run-tests.sh`, `./validate-libraries.sh` — all must pass with no regressions.
+- [x] A1.1: Move `IsSwiftPrimitive()` from `ProtocolExtensionEmitter` to `MarshallingHelpers`. Updated 25+ call sites across `ProtocolExtensionEmitter`, `ForeignTypeExtensionEmitter`, `CrossModuleExtensionEmitter`, `ProtocolExtensionClosureBridge`. (L4)
+- [x] A1.2: Move `TypeAliasToCSPrimitive` dictionary from `ForeignTypeExtensionEmitter` to `MarshallingHelpers`. Removed alias field from `CrossModuleExtensionEmitter`. (L3)
+- [x] A1.3: Added `IsBoolType(TypeSpec)` overload to `MarshallingHelpers`. Removed local version from `ClosureEmitter.cs`. Updated 12 call sites across `ClosureEmitter.cs`, `ClosureEmitter.Throwing.cs`, `ClosureEmitter.StructParams.cs`. (#12 / M4)
+- [x] A1.4: Replaced `csharpType == "bool"` with `MarshallingHelpers.IsBoolType(csharpType)` in `ProtocolExtensionClosureBridge.cs`. (#11 / L1)
+- [x] A1.5: Hoisted `BoundGenericsHandler` in `ProtocolConformanceValidator` — created once at top, passed as parameter to 4 helper methods. Removed 6 redundant allocations. (#13 / M3)
+- [x] A1.6: Hoisted `ClosureHandler` in `ProtocolHandler` — created once before loops, passed as parameter to 3 `EmitInterface*` methods. Removed 5 redundant allocations. (L5)
+- [x] A1.7: Created `PInvokeEmitHelper` with `PInvokeEmissionInfo` record, `EmitDeclaration(CSharpWriter)`, and `FormatDeclarationLines()`. All 38 planned P/Invoke emission sites (the explicit `[UnmanagedCallConv]` sites) were migrated across 19 files. 5 bare `[LibraryImport]`-only sites remain and were intentionally out of scope (no calling convention attribute needed). (#3 / M1)
+- [x] A1.8: Validation — 4303 unit tests (0 fail), 700 integration tests (0 fail), 32/32 library validation, golden files pass.
 
 ### Session A2: MemberGateEvaluator
 - **Status:** Not Started

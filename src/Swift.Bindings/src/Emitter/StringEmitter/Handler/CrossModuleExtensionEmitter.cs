@@ -489,11 +489,15 @@ public static class CrossModuleExtensionEmitter
 
         var nativeMethodName = GetNativeMethodName(method);
 
-        csWriter.WriteLine($"[UnmanagedCallConv(CallConvs = new Type[] {{ typeof(CallConvSwift) }})]");
-        csWriter.WriteLine($"[LibraryImport(\"{libPath}\", EntryPoint = \"{entryPoint}\")]");
-        if (returnIsBool)
-            csWriter.WriteLine("[return: MarshalAs(UnmanagedType.U1)]");
-        csWriter.WriteLine($"internal static partial {pinvokeReturnType} {nativeMethodName}({string.Join(", ", pinvokeParams)});");
+        PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+        {
+            LibraryPath = libPath,
+            EntryPoint = entryPoint,
+            MethodName = nativeMethodName,
+            ReturnType = pinvokeReturnType,
+            ParametersString = string.Join(", ", pinvokeParams),
+            Visibility = PInvokeVisibility.Internal
+        });
         csWriter.WriteLine();
     }
 
@@ -536,11 +540,15 @@ public static class CrossModuleExtensionEmitter
 
             var nativeMethodName = GetNativeMethodName(method);
 
-            csWriter.WriteLine($"[UnmanagedCallConv(CallConvs = new Type[] {{ typeof(CallConvSwift) }})]");
-            csWriter.WriteLine($"[LibraryImport(\"{libPath}\", EntryPoint = \"{entryPoint}\")]");
-            if (returnIsBool)
-                csWriter.WriteLine("[return: MarshalAs(UnmanagedType.U1)]");
-            csWriter.WriteLine($"internal static partial {pinvokeReturnType} {nativeMethodName}({string.Join(", ", pinvokeParams)});");
+            PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+            {
+                LibraryPath = libPath,
+                EntryPoint = entryPoint,
+                MethodName = nativeMethodName,
+                ReturnType = pinvokeReturnType,
+                ParametersString = string.Join(", ", pinvokeParams),
+                Visibility = PInvokeVisibility.Internal
+            });
             csWriter.WriteLine();
         }
 
@@ -566,9 +574,15 @@ public static class CrossModuleExtensionEmitter
 
             var nativeMethodName = GetNativeMethodName(method);
 
-            csWriter.WriteLine($"[UnmanagedCallConv(CallConvs = new Type[] {{ typeof(CallConvSwift) }})]");
-            csWriter.WriteLine($"[LibraryImport(\"{libPath}\", EntryPoint = \"{entryPoint}\")]");
-            csWriter.WriteLine($"internal static partial void {nativeMethodName}({string.Join(", ", pinvokeParams)});");
+            PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+            {
+                LibraryPath = libPath,
+                EntryPoint = entryPoint,
+                MethodName = nativeMethodName,
+                ReturnType = "void",
+                ParametersString = string.Join(", ", pinvokeParams),
+                Visibility = PInvokeVisibility.Internal
+            });
             csWriter.WriteLine();
         }
     }
@@ -607,10 +621,10 @@ public static class CrossModuleExtensionEmitter
         if (namedType.ContainsGenericParameters)
             return null;
 
-        if (ProtocolExtensionEmitter.IsSwiftPrimitive(namedType.Name))
+        if (MarshallingHelpers.IsSwiftPrimitive(namedType.Name))
             return ReturnKind.Primitive;
 
-        if (ForeignTypeExtensionEmitter.TypeAliasToCSPrimitive.ContainsKey(namedType.Name))
+        if (MarshallingHelpers.TypeAliasToCSPrimitive.ContainsKey(namedType.Name))
             return ReturnKind.Primitive;
 
         try
@@ -651,10 +665,10 @@ public static class CrossModuleExtensionEmitter
         if (namedType.ContainsGenericParameters)
             return null;
 
-        if (ProtocolExtensionEmitter.IsSwiftPrimitive(namedType.Name))
+        if (MarshallingHelpers.IsSwiftPrimitive(namedType.Name))
             return ParamKind.Primitive;
 
-        if (ForeignTypeExtensionEmitter.TypeAliasToCSPrimitive.ContainsKey(namedType.Name))
+        if (MarshallingHelpers.TypeAliasToCSPrimitive.ContainsKey(namedType.Name))
             return ParamKind.Primitive;
 
         try
@@ -696,10 +710,10 @@ public static class CrossModuleExtensionEmitter
         if (typeSpec is not NamedTypeSpec namedType)
             return "void";
 
-        if (ForeignTypeExtensionEmitter.TypeAliasToCSPrimitive.TryGetValue(namedType.Name, out var aliased))
+        if (MarshallingHelpers.TypeAliasToCSPrimitive.TryGetValue(namedType.Name, out var aliased))
             return aliased;
 
-        if (ProtocolExtensionEmitter.IsSwiftPrimitive(namedType.Name))
+        if (MarshallingHelpers.IsSwiftPrimitive(namedType.Name))
         {
             return namedType.Name switch
             {
@@ -784,9 +798,4 @@ public static class CrossModuleExtensionEmitter
         return NameProvider.GetPInvokeName(method);
     }
 
-    /// <summary>
-    /// TypeAliasToCSPrimitive exposed for reuse. Delegates to ForeignTypeExtensionEmitter.
-    /// </summary>
-    internal static readonly Dictionary<string, string> TypeAliasToCSPrimitive =
-        ForeignTypeExtensionEmitter.TypeAliasToCSPrimitive;
 }

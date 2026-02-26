@@ -273,12 +273,18 @@ public static class ProtocolExtensionClosureBridge
         // Return type — class returns IntPtr, otherwise void
         var returnSpec = method.CSSignature[0].SwiftTypeSpec;
         bool returnsClass = returnSpec is NamedTypeSpec rn && !returnSpec.IsEmptyTuple &&
-            !ProtocolExtensionEmitter.IsSwiftPrimitive(rn.Name);
+            !MarshallingHelpers.IsSwiftPrimitive(rn.Name);
         string pinvokeReturnType = returnsClass ? "IntPtr" : "void";
 
-        csWriter.WriteLine($"[LibraryImport(\"{asyncLibName}\", EntryPoint = \"{method.MangledName}\")]");
-        csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
-        csWriter.WriteLine($"internal static partial {pinvokeReturnType} {pInvokeName}({string.Join(", ", pinvokeParams)});");
+        PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+        {
+            LibraryPath = asyncLibName,
+            EntryPoint = method.MangledName,
+            MethodName = pInvokeName,
+            ReturnType = pinvokeReturnType,
+            ParametersString = string.Join(", ", pinvokeParams),
+            Visibility = PInvokeVisibility.Internal
+        });
         csWriter.WriteLine();
     }
 
@@ -515,7 +521,7 @@ public static class ProtocolExtensionClosureBridge
     {
         // For class types that implement ISwiftObject, use SwiftMarshal
         // For primitive types like bool, use direct conversion
-        if (csharpType == "bool")
+        if (MarshallingHelpers.IsBoolType(csharpType))
         {
             csWriter.WriteLine($"var __a{index} = __p{index} != IntPtr.Zero;");
         }

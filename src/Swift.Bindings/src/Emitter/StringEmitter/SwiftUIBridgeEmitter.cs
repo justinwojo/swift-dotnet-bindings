@@ -757,10 +757,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine($"        private const string BridgeLib = \"{bridgeLib}\";");
         sb.AppendLine();
 
-        // Create P/Invoke
-        sb.AppendLine($"        [LibraryImport(BridgeLib, EntryPoint = \"{prefix}_Create\")]");
-        sb.AppendLine($"        [UnmanagedCallConv(CallConvs = new[] {{ typeof(CallConvCdecl) }})]");
-
+        // Create P/Invoke — build params first
         var createPInvokeParams = new List<string>();
         foreach (var param in bridgeParams)
         {
@@ -792,19 +789,45 @@ public static partial class SwiftUIBridgeEmitter
                 createPInvokeParams.Add($"{param.CSharpPInvokeType} {param.Name}");
             }
         }
-        sb.AppendLine($"        internal static partial IntPtr Create({string.Join(", ", createPInvokeParams)});");
+        foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
+        {
+            LibraryPath = bridgeLib,
+            EntryPoint = $"{prefix}_Create",
+            MethodName = "Create",
+            ReturnType = "IntPtr",
+            ParametersString = string.Join(", ", createPInvokeParams),
+            CallingConvention = PInvokeCallingConvention.Cdecl,
+            Visibility = PInvokeVisibility.Internal
+        }))
+            sb.AppendLine($"        {line}");
         sb.AppendLine();
 
         // GetViewController P/Invoke
-        sb.AppendLine($"        [LibraryImport(BridgeLib, EntryPoint = \"{prefix}_GetViewController\")]");
-        sb.AppendLine($"        [UnmanagedCallConv(CallConvs = new[] {{ typeof(CallConvCdecl) }})]");
-        sb.AppendLine($"        internal static partial IntPtr GetViewController(IntPtr handle);");
+        foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
+        {
+            LibraryPath = bridgeLib,
+            EntryPoint = $"{prefix}_GetViewController",
+            MethodName = "GetViewController",
+            ReturnType = "IntPtr",
+            ParametersString = "IntPtr handle",
+            CallingConvention = PInvokeCallingConvention.Cdecl,
+            Visibility = PInvokeVisibility.Internal
+        }))
+            sb.AppendLine($"        {line}");
         sb.AppendLine();
 
         // Free P/Invoke
-        sb.AppendLine($"        [LibraryImport(BridgeLib, EntryPoint = \"{prefix}_Free\")]");
-        sb.AppendLine($"        [UnmanagedCallConv(CallConvs = new[] {{ typeof(CallConvCdecl) }})]");
-        sb.AppendLine($"        internal static partial void Free(IntPtr handle);");
+        foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
+        {
+            LibraryPath = bridgeLib,
+            EntryPoint = $"{prefix}_Free",
+            MethodName = "Free",
+            ReturnType = "void",
+            ParametersString = "IntPtr handle",
+            CallingConvention = PInvokeCallingConvention.Cdecl,
+            Visibility = PInvokeVisibility.Internal
+        }))
+            sb.AppendLine($"        {line}");
         sb.AppendLine("    }");
         sb.AppendLine();
 

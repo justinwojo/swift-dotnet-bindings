@@ -628,9 +628,14 @@ public static class ExistentialBypassEmitter
         }
         else
         {
-            csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
-            csWriter.WriteLine($"[LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{wrapperSymbol}\")]");
-            csWriter.WriteLine($"private static partial void {wrapperSymbol}({pInvokeParams});");
+            PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+            {
+                LibraryPath = wrapperLibPath,
+                EntryPoint = wrapperSymbol,
+                MethodName = wrapperSymbol,
+                ReturnType = "void",
+                ParametersString = pInvokeParams
+            });
             csWriter.WriteLine();
         }
 
@@ -802,13 +807,23 @@ public static class ExistentialBypassEmitter
         else
         {
             // Non-generic type: emit inline
-            csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
-            csWriter.WriteLine($"[LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{wrapperSymbol}\")]");
-            csWriter.WriteLine($"private static partial IntPtr {wrapperSymbol}({pInvokeParams});");
+            PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+            {
+                LibraryPath = wrapperLibPath,
+                EntryPoint = wrapperSymbol,
+                MethodName = wrapperSymbol,
+                ReturnType = "IntPtr",
+                ParametersString = pInvokeParams
+            });
             csWriter.WriteLine();
-            csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
-            csWriter.WriteLine($"[LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{freeSymbol}\")]");
-            csWriter.WriteLine($"private static partial void {freeSymbol}(IntPtr ptr);");
+            PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+            {
+                LibraryPath = wrapperLibPath,
+                EntryPoint = freeSymbol,
+                MethodName = freeSymbol,
+                ReturnType = "void",
+                ParametersString = "IntPtr ptr"
+            });
             csWriter.WriteLine();
         }
 

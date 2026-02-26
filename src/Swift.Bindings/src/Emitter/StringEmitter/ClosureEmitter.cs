@@ -62,7 +62,7 @@ public static partial class ClosureEmitter
         var invokeArgsString = string.Join(", ", invokeArgs);
 
         var hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;
-        var returnIsBool = hasReturn && IsBoolType(closureTypeSpec.ReturnType);
+        var returnIsBool = hasReturn && MarshallingHelpers.IsBoolType(closureTypeSpec.ReturnType);
 
         // For bool returns, we need to convert: (byte)(result ? 1 : 0)
         // For well-known protocol returns (AnyError), unwrap to ExistentialContainer for P/Invoke
@@ -273,7 +273,7 @@ public static partial class ClosureEmitter
         var invokeArgsString = string.Join(", ", invokeArgs);
 
         var hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;
-        var returnIsBool = hasReturn && IsBoolType(closureTypeSpec.ReturnType);
+        var returnIsBool = hasReturn && MarshallingHelpers.IsBoolType(closureTypeSpec.ReturnType);
 
         // Generate the closure body
         // For well-known protocol returns (ExistentialContainer1 from P/Invoke → AnyError for delegate)
@@ -353,14 +353,6 @@ public static partial class ClosureEmitter
     }
 
     /// <summary>
-    /// Checks if the Swift type is Bool, which requires conversion in callbacks.
-    /// </summary>
-    private static bool IsBoolType(TypeSpec typeSpec)
-    {
-        return typeSpec is NamedTypeSpec namedType && namedType.Name == "Swift.Bool";
-    }
-
-    /// <summary>
     /// Generates the expression to pass an argument when invoking the delegate.
     /// Handles type conversions:
     /// - byte -> bool for Swift.Bool
@@ -373,7 +365,7 @@ public static partial class ClosureEmitter
     private static string GetInvokeArgExpression(TypeSpec typeSpec, int argIndex, ClosureHandler closureHandler)
     {
         // Bool requires byte->bool conversion
-        if (IsBoolType(typeSpec))
+        if (MarshallingHelpers.IsBoolType(typeSpec))
             return $"arg{argIndex} != 0";
 
         // Simple enum: callback receives underlying integer, delegate expects C# enum → cast
@@ -490,7 +482,7 @@ public static partial class ClosureEmitter
         if (closureTypeSpec.ReturnType.IsEmptyTuple)
             return "void";
 
-        if (IsBoolType(closureTypeSpec.ReturnType))
+        if (MarshallingHelpers.IsBoolType(closureTypeSpec.ReturnType))
             return "byte";
 
         // Simple enum returns use their underlying integer type (blittable)
@@ -579,7 +571,7 @@ public static partial class ClosureEmitter
     private static string GetSwiftInvokeArgExpression(TypeSpec typeSpec, int argIndex, ClosureHandler? closureHandler = null)
     {
         // Bool requires bool -> byte conversion
-        if (IsBoolType(typeSpec))
+        if (MarshallingHelpers.IsBoolType(typeSpec))
             return $"(byte)(_arg{argIndex} ? 1 : 0)";
 
         // Simple enum: delegate passes C# enum, Swift function pointer expects underlying int

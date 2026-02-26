@@ -212,26 +212,17 @@ public class PInvokeDeclaration
     /// <param name="csWriter">The C# code writer.</param>
     public void Emit(CSharpWriter csWriter)
     {
-        if (!OmitCallingConvention)
-            csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
-        csWriter.WriteLine($"[LibraryImport(\"{LibraryPath}\", EntryPoint = \"{EntryPoint}\")]");
-
-        var returnTypeStr = IsAsync ? "void" : ReturnType;
-        if (MarshallingHelpers.IsBoolType(returnTypeStr))
-            csWriter.WriteLine("[return: MarshalAs(UnmanagedType.U1)]");
-        var paramsStr = ParametersString;
-
-        // Add metadata parameters if present
-        if (MetadataParameters != null && MetadataParameters.Count > 0)
+        PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
         {
-            var metadataParams = string.Join(", ", MetadataParameters);
-            if (!string.IsNullOrEmpty(paramsStr))
-                paramsStr = $"{paramsStr}, {metadataParams}";
-            else
-                paramsStr = metadataParams;
-        }
-
-        var visibility = UsePrivateVisibility ? "private" : "internal";
-        csWriter.WriteLine($"{visibility} static partial {returnTypeStr} {MethodName}({paramsStr});");
+            LibraryPath = LibraryPath,
+            EntryPoint = EntryPoint,
+            MethodName = MethodName,
+            ReturnType = ReturnType,
+            ParametersString = ParametersString,
+            CallingConvention = OmitCallingConvention ? PInvokeCallingConvention.Cdecl : PInvokeCallingConvention.Swift,
+            Visibility = UsePrivateVisibility ? PInvokeVisibility.Private : PInvokeVisibility.Internal,
+            IsAsync = IsAsync,
+            MetadataParameters = MetadataParameters
+        });
     }
 }

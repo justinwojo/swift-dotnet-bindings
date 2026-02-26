@@ -598,21 +598,22 @@ public static class ThemeBridgeEmitter
         {
             var funcName = $"SBW_{info.ClassName}_set_{prop.Name}";
 
-            sb.AppendLine($"            [LibraryImport(\"{bridgeLib}\",");
-            sb.AppendLine($"                EntryPoint = \"{funcName}\")]");
-            sb.AppendLine($"            [UnmanagedCallConv(CallConvs = new[] {{ typeof(CallConvCdecl) }})]");
+            var setterParams = IsColorKind(prop.Kind)
+                ? "double r, double g, double b, double a"
+                : "byte* namePtr, nint nameLen, double size, int weight, int design, int isSystem";
 
-            if (IsColorKind(prop.Kind))
+            foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
             {
-                sb.AppendLine($"            internal static partial void {funcName}(");
-                sb.AppendLine($"                double r, double g, double b, double a);");
-            }
-            else // Font or UIKitFont
-            {
-                sb.AppendLine($"            internal static unsafe partial void {funcName}(");
-                sb.AppendLine($"                byte* namePtr, nint nameLen,");
-                sb.AppendLine($"                double size, int weight, int design, int isSystem);");
-            }
+                LibraryPath = bridgeLib,
+                EntryPoint = funcName,
+                MethodName = funcName,
+                ReturnType = "void",
+                ParametersString = setterParams,
+                CallingConvention = PInvokeCallingConvention.Cdecl,
+                Visibility = PInvokeVisibility.Internal,
+                IsUnsafe = !IsColorKind(prop.Kind)
+            }))
+                sb.AppendLine($"            {line}");
             sb.AppendLine();
         }
 
@@ -621,11 +622,18 @@ public static class ThemeBridgeEmitter
         {
             var funcName = $"SBW_{info.ClassName}_get_{prop.Name}";
 
-            sb.AppendLine($"            [LibraryImport(\"{bridgeLib}\",");
-            sb.AppendLine($"                EntryPoint = \"{funcName}\")]");
-            sb.AppendLine($"            [UnmanagedCallConv(CallConvs = new[] {{ typeof(CallConvCdecl) }})]");
-            sb.AppendLine($"            internal static unsafe partial void {funcName}(");
-            sb.AppendLine($"                double* r, double* g, double* b, double* a);");
+            foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
+            {
+                LibraryPath = bridgeLib,
+                EntryPoint = funcName,
+                MethodName = funcName,
+                ReturnType = "void",
+                ParametersString = "double* r, double* g, double* b, double* a",
+                CallingConvention = PInvokeCallingConvention.Cdecl,
+                Visibility = PInvokeVisibility.Internal,
+                IsUnsafe = true
+            }))
+                sb.AppendLine($"            {line}");
             sb.AppendLine();
         }
 

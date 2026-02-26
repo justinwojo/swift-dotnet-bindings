@@ -547,9 +547,16 @@ public static class GenericClosureBridgeEmitter
         var typeKey = (env.ParentDecl as TypeDecl)?.SwiftTypeName.ModuleQualifiedName ?? moduleName;
         if (!_createErrorPInvokeEmittedTypes.Add(typeKey)) return;
 
-        csWriter.WriteLine($"[LibraryImport(\"{asyncLibName}\", EntryPoint = \"SBW_CreateError_{moduleName}\")]");
-        csWriter.WriteLine($"[UnmanagedCallConv(CallConvs = new Type[] {{ typeof(CallConvCdecl) }})]");
-        csWriter.WriteLine($"internal static partial IntPtr SBW_CreateError_{moduleName}([MarshalAs(UnmanagedType.LPUTF8Str)] string message);");
+        PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+        {
+            LibraryPath = asyncLibName,
+            EntryPoint = $"SBW_CreateError_{moduleName}",
+            MethodName = $"SBW_CreateError_{moduleName}",
+            ReturnType = "IntPtr",
+            ParametersString = "[MarshalAs(UnmanagedType.LPUTF8Str)] string message",
+            CallingConvention = PInvokeCallingConvention.Cdecl,
+            Visibility = PInvokeVisibility.Internal
+        });
         csWriter.WriteLine();
     }
 
@@ -610,9 +617,16 @@ public static class GenericClosureBridgeEmitter
         if (methodDecl.Throws)
             retParams.Add("out SwiftError error");
 
-        csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
-        csWriter.WriteLine($"[LibraryImport(\"{asyncLibName}\", EntryPoint = \"{returningSymbol}\")]");
-        csWriter.WriteLine($"internal static unsafe partial void {pInvokeName}_XC({string.Join(", ", retParams)});");
+        PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+        {
+            LibraryPath = asyncLibName,
+            EntryPoint = returningSymbol,
+            MethodName = $"{pInvokeName}_XC",
+            ReturnType = "void",
+            ParametersString = string.Join(", ", retParams),
+            Visibility = PInvokeVisibility.Internal,
+            IsUnsafe = true
+        });
         csWriter.WriteLine();
 
         // --- Void variant P/Invoke ---
@@ -623,9 +637,16 @@ public static class GenericClosureBridgeEmitter
         if (methodDecl.Throws)
             voidParams.Add("out SwiftError error");
 
-        csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
-        csWriter.WriteLine($"[LibraryImport(\"{asyncLibName}\", EntryPoint = \"{voidSymbol}\")]");
-        csWriter.WriteLine($"internal static unsafe partial void {pInvokeName}_XC_void({string.Join(", ", voidParams)});");
+        PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+        {
+            LibraryPath = asyncLibName,
+            EntryPoint = voidSymbol,
+            MethodName = $"{pInvokeName}_XC_void",
+            ReturnType = "void",
+            ParametersString = string.Join(", ", voidParams),
+            Visibility = PInvokeVisibility.Internal,
+            IsUnsafe = true
+        });
         csWriter.WriteLine();
     }
 

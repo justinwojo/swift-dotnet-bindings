@@ -160,9 +160,15 @@ namespace BindingsGeneration
 
                 var pInvokeReturnType = isVoidReturn ? "void" : "global::System.IntPtr";
 
-                csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvSwift) })]");
-                csWriter.WriteLine($"[global::System.Runtime.InteropServices.LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{wrapperMangledName}\")]");
-                csWriter.WriteLine($"private static partial {pInvokeReturnType} {wrapperPInvokeName}({string.Join(", ", pInvokeParams)});");
+                PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+                {
+                    LibraryPath = wrapperLibPath,
+                    EntryPoint = wrapperMangledName,
+                    MethodName = wrapperPInvokeName,
+                    ReturnType = pInvokeReturnType,
+                    ParametersString = string.Join(", ", pInvokeParams),
+                    UseFullyQualifiedNames = true
+                });
                 csWriter.WriteLine();
 
                 // --- Emit C# overload ---

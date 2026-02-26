@@ -524,7 +524,7 @@ public static class ForeignTypeExtensionEmitter
         {
             var paramName = SanitizeSwiftParamName(label == "_" ? GetParamNameFromType(swiftType) : label);
             if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&
-                !ProtocolExtensionEmitter.IsSwiftPrimitive(namedType.Name))
+                !MarshallingHelpers.IsSwiftPrimitive(namedType.Name))
             {
                 swiftParams.Add($"_ {paramName}: UnsafeMutableRawPointer");
             }
@@ -595,7 +595,7 @@ public static class ForeignTypeExtensionEmitter
             var paramName = SanitizeSwiftParamName(label == "_" ? GetParamNameFromType(swiftType) : label);
 
             if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&
-                !ProtocolExtensionEmitter.IsSwiftPrimitive(namedType.Name))
+                !MarshallingHelpers.IsSwiftPrimitive(namedType.Name))
             {
                 var renderedType = ExistentialBypassEmitter.RenderSwiftTypeSpec(typeSpec);
                 var localName = $"__{paramName}";
@@ -735,8 +735,8 @@ public static class ForeignTypeExtensionEmitter
                 paramName = "value";
 
             if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&
-                !ProtocolExtensionEmitter.IsSwiftPrimitive(namedType.Name) &&
-                !TypeAliasToCSPrimitive.ContainsKey(namedType.Name))
+                !MarshallingHelpers.IsSwiftPrimitive(namedType.Name) &&
+                !MarshallingHelpers.TypeAliasToCSPrimitive.ContainsKey(namedType.Name))
             {
                 // Distinguish ObjC classes (.Handle) from same-module Swift classes (.Payload.DangerousGetHandle())
                 if (IsSameModuleSwiftClass(namedType, typeDatabase))
@@ -830,7 +830,6 @@ public static class ForeignTypeExtensionEmitter
         // Non-frozen struct returns use SwiftIndirectResult as first param
         bool usesIndirectResult = member.ReturnCategory == ReturnKind.NonFrozenStruct;
         string pinvokeReturnType;
-        bool returnIsBool = false;
 
         if (usesIndirectResult)
         {
@@ -852,7 +851,6 @@ public static class ForeignTypeExtensionEmitter
             if (member.ReturnTypeSpec is NamedTypeSpec retNamed && retNamed.Name == "Swift.Bool")
             {
                 pinvokeReturnType = "bool";
-                returnIsBool = true;
             }
         }
 
@@ -867,8 +865,8 @@ public static class ForeignTypeExtensionEmitter
                 paramName = "value";
 
             if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&
-                !ProtocolExtensionEmitter.IsSwiftPrimitive(namedType.Name) &&
-                !TypeAliasToCSPrimitive.ContainsKey(namedType.Name))
+                !MarshallingHelpers.IsSwiftPrimitive(namedType.Name) &&
+                !MarshallingHelpers.TypeAliasToCSPrimitive.ContainsKey(namedType.Name))
             {
                 pinvokeParams.Add($"IntPtr {paramName}");
             }
@@ -883,11 +881,15 @@ public static class ForeignTypeExtensionEmitter
             }
         }
 
-        csWriter.WriteLine($"[UnmanagedCallConv(CallConvs = new Type[] {{ typeof(CallConvSwift) }})]");
-        csWriter.WriteLine($"[LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{member.SymbolName}\")]");
-        if (returnIsBool)
-            csWriter.WriteLine("[return: MarshalAs(UnmanagedType.U1)]");
-        csWriter.WriteLine($"internal static partial {pinvokeReturnType} {member.SymbolName}({string.Join(", ", pinvokeParams)});");
+        PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+        {
+            LibraryPath = wrapperLibPath,
+            EntryPoint = member.SymbolName,
+            MethodName = member.SymbolName,
+            ReturnType = pinvokeReturnType,
+            ParametersString = string.Join(", ", pinvokeParams),
+            Visibility = PInvokeVisibility.Internal
+        });
         csWriter.WriteLine();
     }
 
@@ -934,10 +936,10 @@ public static class ForeignTypeExtensionEmitter
         if (namedType.ContainsGenericParameters)
             return null;
 
-        if (ProtocolExtensionEmitter.IsSwiftPrimitive(namedType.Name))
+        if (MarshallingHelpers.IsSwiftPrimitive(namedType.Name))
             return ReturnKind.Primitive;
 
-        if (TypeAliasToCSPrimitive.ContainsKey(namedType.Name))
+        if (MarshallingHelpers.TypeAliasToCSPrimitive.ContainsKey(namedType.Name))
             return ReturnKind.Primitive;
 
         // Check if it's an ObjC framework type
@@ -985,7 +987,7 @@ public static class ForeignTypeExtensionEmitter
             return null;
         if (namedType.ContainsGenericParameters)
             return null;
-        if (ProtocolExtensionEmitter.IsSwiftPrimitive(namedType.Name))
+        if (MarshallingHelpers.IsSwiftPrimitive(namedType.Name))
             return ReturnKind.Primitive;
         return null;
     }
@@ -1005,11 +1007,11 @@ public static class ForeignTypeExtensionEmitter
                 return false;
             }
 
-            if (ProtocolExtensionEmitter.IsSwiftPrimitive(namedType.Name))
+            if (MarshallingHelpers.IsSwiftPrimitive(namedType.Name))
                 return true;
 
             // Handle known type aliases that resolve to primitives
-            if (TypeAliasToCSPrimitive.ContainsKey(namedType.Name))
+            if (MarshallingHelpers.TypeAliasToCSPrimitive.ContainsKey(namedType.Name))
                 return true;
 
             try
@@ -1133,23 +1135,16 @@ public static class ForeignTypeExtensionEmitter
         { "QuartzCore", "CoreAnimation" },
     };
 
-    /// <summary>
-    /// Swift type aliases that resolve to primitives.
-    /// </summary>
-    internal static readonly Dictionary<string, string> TypeAliasToCSPrimitive = new(StringComparer.Ordinal)
-    {
-        { "Foundation.TimeInterval", "double" },
-    };
 
     private static string ResolveCSharpTypeName(TypeSpec typeSpec, ITypeDatabase typeDatabase)
     {
         if (typeSpec is NamedTypeSpec namedType)
         {
             // Check type aliases first
-            if (TypeAliasToCSPrimitive.TryGetValue(namedType.Name, out var aliasedType))
+            if (MarshallingHelpers.TypeAliasToCSPrimitive.TryGetValue(namedType.Name, out var aliasedType))
                 return aliasedType;
 
-            if (ProtocolExtensionEmitter.IsSwiftPrimitive(namedType.Name))
+            if (MarshallingHelpers.IsSwiftPrimitive(namedType.Name))
             {
                 return namedType.Name switch
                 {

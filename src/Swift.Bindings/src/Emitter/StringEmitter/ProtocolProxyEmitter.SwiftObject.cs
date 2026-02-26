@@ -135,15 +135,27 @@ public partial class ProtocolProxyEmitter
         writer.WriteLine("{");
         writer.Indent++;
 
-        writer.WriteLines($$"""
-            [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-            [LibraryImport("{{wrapperLibPath}}", EntryPoint = "{{mangledName}}")]
-            public static partial void {{setVtableName}}(IntPtr vtable);
-
-            [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-            [LibraryImport("{{wrapperLibPath}}", EntryPoint = "Get_EveryProtocol_{{protocolDecl.Name}}_WitnessTable")]
-            public static partial IntPtr GetWitnessTable();
-            """);
+        PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+        {
+            LibraryPath = wrapperLibPath,
+            EntryPoint = mangledName,
+            MethodName = setVtableName,
+            ReturnType = "void",
+            ParametersString = "IntPtr vtable",
+            CallingConvention = PInvokeCallingConvention.Cdecl,
+            Visibility = PInvokeVisibility.Public
+        });
+        writer.WriteLine();
+        PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+        {
+            LibraryPath = wrapperLibPath,
+            EntryPoint = $"Get_EveryProtocol_{protocolDecl.Name}_WitnessTable",
+            MethodName = "GetWitnessTable",
+            ReturnType = "IntPtr",
+            ParametersString = "",
+            CallingConvention = PInvokeCallingConvention.Cdecl,
+            Visibility = PInvokeVisibility.Public
+        });
 
         // Emit P/Invoke declarations for witness dispatch accessors
         EmitWitnessDispatchPInvokes(writer, protocolDecl, dispatchEmitter, wrapperLibPath);
@@ -182,15 +194,27 @@ public partial class ProtocolProxyEmitter
                 var freeSymbol = WitnessDispatchEmitter.GetFreeSymbol(protocolName, "get", property.Name, 0);
 
                 writer.WriteLine();
-                writer.WriteLines($$"""
-                    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-                    [LibraryImport("{{wrapperLibPath}}", EntryPoint = "{{accessorSymbol}}")]
-                    public static partial IntPtr {{accessorSymbol}}(IntPtr containerPtr);
-
-                    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-                    [LibraryImport("{{wrapperLibPath}}", EntryPoint = "{{freeSymbol}}")]
-                    public static partial void {{freeSymbol}}(IntPtr ptr);
-                    """);
+                PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+                {
+                    LibraryPath = wrapperLibPath,
+                    EntryPoint = accessorSymbol,
+                    MethodName = accessorSymbol,
+                    ReturnType = "IntPtr",
+                    ParametersString = "IntPtr containerPtr",
+                    CallingConvention = PInvokeCallingConvention.Cdecl,
+                    Visibility = PInvokeVisibility.Public
+                });
+                writer.WriteLine();
+                PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+                {
+                    LibraryPath = wrapperLibPath,
+                    EntryPoint = freeSymbol,
+                    MethodName = freeSymbol,
+                    ReturnType = "void",
+                    ParametersString = "IntPtr ptr",
+                    CallingConvention = PInvokeCallingConvention.Cdecl,
+                    Visibility = PInvokeVisibility.Public
+                });
             }
         }
 
@@ -214,11 +238,16 @@ public partial class ProtocolProxyEmitter
                     continue;
 
                 writer.WriteLine();
-                writer.WriteLines($$"""
-                    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-                    [LibraryImport("{{wrapperLibPath}}", EntryPoint = "{{setterSymbol}}")]
-                    public static partial void {{setterSymbol}}(IntPtr containerPtr, IntPtr valuePtr);
-                    """);
+                PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+                {
+                    LibraryPath = wrapperLibPath,
+                    EntryPoint = setterSymbol,
+                    MethodName = setterSymbol,
+                    ReturnType = "void",
+                    ParametersString = "IntPtr containerPtr, IntPtr valuePtr",
+                    CallingConvention = PInvokeCallingConvention.Cdecl,
+                    Visibility = PInvokeVisibility.Public
+                });
             }
         }
 
@@ -262,21 +291,31 @@ public partial class ProtocolProxyEmitter
                 var returnTypeStr = hasReturn ? "IntPtr" : "void";
 
                 writer.WriteLine();
-                writer.WriteLines($$"""
-                    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-                    [LibraryImport("{{wrapperLibPath}}", EntryPoint = "{{accessorSymbol}}")]
-                    public static partial {{returnTypeStr}} {{accessorSymbol}}({{pInvokeParamsString}});
-                    """);
+                PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+                {
+                    LibraryPath = wrapperLibPath,
+                    EntryPoint = accessorSymbol,
+                    MethodName = accessorSymbol,
+                    ReturnType = returnTypeStr,
+                    ParametersString = pInvokeParamsString,
+                    CallingConvention = PInvokeCallingConvention.Cdecl,
+                    Visibility = PInvokeVisibility.Public
+                });
 
                 if (hasReturn)
                 {
                     var freeSymbol = WitnessDispatchEmitter.GetFreeSymbol(protocolName, "method", method.Name, idx);
-                    writer.WriteLines($$"""
-
-                        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-                        [LibraryImport("{{wrapperLibPath}}", EntryPoint = "{{freeSymbol}}")]
-                        public static partial void {{freeSymbol}}(IntPtr ptr);
-                        """);
+                    writer.WriteLine();
+                    PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+                    {
+                        LibraryPath = wrapperLibPath,
+                        EntryPoint = freeSymbol,
+                        MethodName = freeSymbol,
+                        ReturnType = "void",
+                        ParametersString = "IntPtr ptr",
+                        CallingConvention = PInvokeCallingConvention.Cdecl,
+                        Visibility = PInvokeVisibility.Public
+                    });
                 }
             }
         }

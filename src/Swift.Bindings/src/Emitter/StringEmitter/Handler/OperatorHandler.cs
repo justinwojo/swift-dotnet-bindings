@@ -459,11 +459,14 @@ namespace BindingsGeneration
             else
             {
                 // Emit directly for non-generic types
-                csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
-                csWriter.WriteLine($"[LibraryImport(\"{libPath}\", EntryPoint = \"{methodDecl.MangledName}\")]");
-                if (MarshallingHelpers.IsBoolType(pInvokeSignature.ReturnType))
-                    csWriter.WriteLine("[return: MarshalAs(UnmanagedType.U1)]");
-                csWriter.WriteLine($"private static partial {pInvokeSignature.ReturnType} {pinvokeName}({pInvokeSignature.PInvokeParametersString()});");
+                PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+                {
+                    LibraryPath = libPath,
+                    EntryPoint = methodDecl.MangledName,
+                    MethodName = pinvokeName,
+                    ReturnType = pInvokeSignature.ReturnType,
+                    ParametersString = pInvokeSignature.PInvokeParametersString()
+                });
             }
         }
 

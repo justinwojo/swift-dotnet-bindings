@@ -523,7 +523,7 @@ public static class ProtocolExtensionEmitter
             }
 
             // Check built-in Swift primitives
-            if (IsSwiftPrimitive(namedType.Name))
+            if (MarshallingHelpers.IsSwiftPrimitive(namedType.Name))
                 return true;
 
             // Check TypeDatabase for class types only
@@ -627,7 +627,7 @@ public static class ProtocolExtensionEmitter
         // Primitives are NOT bridgeable — the Swift cdecl callback type uses
         // UnsafeMutableRawPointer for all args, but the primitive path passes values
         // directly (__arg{i}) instead of through a pointer buffer.
-        if (IsSwiftPrimitive(namedArg.Name)) return false;
+        if (MarshallingHelpers.IsSwiftPrimitive(namedArg.Name)) return false;
 
         // Bound generic (e.g., Event<Self.Element>) — check base type is class
         if (namedArg.ContainsGenericParameters)
@@ -829,23 +829,6 @@ public static class ProtocolExtensionEmitter
     }
 
     /// <summary>
-    /// Checks if a type name represents a Swift primitive type.
-    /// </summary>
-    internal static bool IsSwiftPrimitive(string typeName)
-    {
-        return typeName switch
-        {
-            "Swift.Int" or "Swift.Int8" or "Swift.Int16" or "Swift.Int32" or "Swift.Int64" => true,
-            "Swift.UInt" or "Swift.UInt8" or "Swift.UInt16" or "Swift.UInt32" or "Swift.UInt64" => true,
-            "Swift.Float" or "Swift.Double" => true,
-            "Swift.Bool" => true,
-            "CoreFoundation.CGFloat" => true,
-            "CoreFoundation.CGSize" or "CoreFoundation.CGPoint" or "CoreFoundation.CGRect" => true,
-            _ => false,
-        };
-    }
-
-    /// <summary>
     /// Checks if a Swift primitive type should be passed as UnsafeMutableRawPointer in the wrapper.
     /// CGSize/CGPoint/CGRect are struct types that need pointer passing.
     /// </summary>
@@ -899,7 +882,7 @@ public static class ProtocolExtensionEmitter
         {
             var paramName = SanitizeSwiftParamName(label == "_" ? GetParamNameFromType(swiftType) : label);
             if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&
-                !IsSwiftPrimitive(namedType.Name))
+                !MarshallingHelpers.IsSwiftPrimitive(namedType.Name))
             {
                 // Class/ObjC types: pass as UnsafeMutableRawPointer
                 swiftParams.Add($"_ {paramName}: UnsafeMutableRawPointer");
@@ -942,7 +925,7 @@ public static class ProtocolExtensionEmitter
         }
         else
         {
-            if (returnTypeSpec is NamedTypeSpec retNamedType && !IsSwiftPrimitive(retNamedType.Name))
+            if (returnTypeSpec is NamedTypeSpec retNamedType && !MarshallingHelpers.IsSwiftPrimitive(retNamedType.Name))
             {
                 swiftReturnType = "UnsafeMutableRawPointer";
                 returnIsClass = true;
@@ -985,7 +968,7 @@ public static class ProtocolExtensionEmitter
             var paramName = SanitizeSwiftParamName(label == "_" ? GetParamNameFromType(swiftType) : label);
 
             if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&
-                !IsSwiftPrimitive(namedType.Name))
+                !MarshallingHelpers.IsSwiftPrimitive(namedType.Name))
             {
                 // Class type: convert from opaque pointer
                 var renderedType = ExistentialBypassEmitter.RenderSwiftTypeSpec(typeSpec);
@@ -1090,7 +1073,7 @@ public static class ProtocolExtensionEmitter
             {
                 var paramName = SanitizeSwiftParamName(label == "_" ? GetParamNameFromType(swiftType) : label);
                 if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&
-                    !IsSwiftPrimitive(namedType.Name))
+                    !MarshallingHelpers.IsSwiftPrimitive(namedType.Name))
                 {
                     swiftParams.Add($"_ {paramName}: UnsafeMutableRawPointer");
                 }
@@ -1121,7 +1104,7 @@ public static class ProtocolExtensionEmitter
             swiftReturnType = "";
             returnIsClass = false;
         }
-        else if (returnTypeSpec is NamedTypeSpec retNamedType && !IsSwiftPrimitive(retNamedType.Name))
+        else if (returnTypeSpec is NamedTypeSpec retNamedType && !MarshallingHelpers.IsSwiftPrimitive(retNamedType.Name))
         {
             swiftReturnType = "UnsafeMutableRawPointer";
             returnIsClass = true;
@@ -1197,9 +1180,9 @@ public static class ProtocolExtensionEmitter
             bool isGenericArg = arg is NamedTypeSpec gn &&
                 (TypeSpecHelpers.IsGenericTypeParameter(gn.Name) ||
                  gn.Name.StartsWith("Self.") ||
-                 (gn.ContainsGenericParameters && !IsSwiftPrimitive(gn.Name)));
+                 (gn.ContainsGenericParameters && !MarshallingHelpers.IsSwiftPrimitive(gn.Name)));
 
-            if (isGenericArg || (arg is NamedTypeSpec na && !IsSwiftPrimitive(na.Name)))
+            if (isGenericArg || (arg is NamedTypeSpec na && !MarshallingHelpers.IsSwiftPrimitive(na.Name)))
             {
                 // Generic or class type: allocate buffer, copy bytes, pass pointer
                 var argType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg);
@@ -1217,9 +1200,9 @@ public static class ProtocolExtensionEmitter
             bool isGenericArg = arg is NamedTypeSpec gn2 &&
                 (TypeSpecHelpers.IsGenericTypeParameter(gn2.Name) ||
                  gn2.Name.StartsWith("Self.") ||
-                 (gn2.ContainsGenericParameters && !IsSwiftPrimitive(gn2.Name)));
+                 (gn2.ContainsGenericParameters && !MarshallingHelpers.IsSwiftPrimitive(gn2.Name)));
 
-            if (isGenericArg || (arg is NamedTypeSpec na2 && !IsSwiftPrimitive(na2.Name)))
+            if (isGenericArg || (arg is NamedTypeSpec na2 && !MarshallingHelpers.IsSwiftPrimitive(na2.Name)))
             {
                 cdeclCallArgs.Add($"__buf{i}");
             }
@@ -1270,7 +1253,7 @@ public static class ProtocolExtensionEmitter
             {
                 var paramName = SanitizeSwiftParamName(label == "_" ? GetParamNameFromType(swiftType) : label);
                 if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&
-                    !IsSwiftPrimitive(namedType.Name))
+                    !MarshallingHelpers.IsSwiftPrimitive(namedType.Name))
                 {
                     var renderedType = ExistentialBypassEmitter.RenderSwiftTypeSpec(typeSpec);
                     var localName = $"__{paramName}";

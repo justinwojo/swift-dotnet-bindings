@@ -95,13 +95,16 @@ namespace BindingsGeneration
                 _writer.WriteLine("static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();");
                 _writer.WriteLine();
 
-                var pinvokeText = $$"""
-                [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-                [LibraryImport("{{libPath}}", EntryPoint = "{{_structDecl.MetadataAccessor}}")]
-                internal static partial TypeMetadata PInvoke_getMetadata();
-                """;
-
-                _writer.WriteLines(pinvokeText);
+                foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
+                {
+                    LibraryPath = libPath,
+                    EntryPoint = _structDecl.MetadataAccessor,
+                    MethodName = "PInvoke_getMetadata",
+                    ReturnType = "TypeMetadata",
+                    ParametersString = "",
+                    Visibility = PInvokeVisibility.Internal
+                }))
+                    _writer.WriteLine(line);
                 _writer.WriteLine();
             }
         }

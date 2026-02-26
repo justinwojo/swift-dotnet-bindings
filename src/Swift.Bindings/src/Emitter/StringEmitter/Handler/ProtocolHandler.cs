@@ -96,6 +96,7 @@ namespace BindingsGeneration
             var emittedResolvedSignatures = new HashSet<string>(StringComparer.Ordinal);
             var emittedSubscripts = new HashSet<string>();
             var boundGenericsHandler = new BoundGenericsHandler(env.TypeDatabase);
+            var closureHandler = new ClosureHandler(env.TypeDatabase);
 
             // Emit properties as interface members
             var skippedPropertyNames = new HashSet<string>();
@@ -164,8 +165,7 @@ namespace BindingsGeneration
                 // Closure-typed properties: emit in interface for concrete type implementation,
                 // but track for proxy NotSupportedException stub.
                 // Protocol proxy receivers use MarshalFromSwift<T> which can't handle closures.
-                var closureHandlerProp = new ClosureHandler(env.TypeDatabase);
-                if (closureHandlerProp.IsClosure(propertyDecl))
+                if (closureHandler.IsClosure(propertyDecl))
                 {
                     skippedPropertyNames.Add(propertyDecl.Name);
                     closureSkippedPropertyNames.Add(propertyDecl.Name);
@@ -173,7 +173,7 @@ namespace BindingsGeneration
                     // Fall through to emit in interface — concrete types can implement it
                 }
 
-                EmitInterfaceProperty(bodyWriter, propertyDecl, env.TypeDatabase, protocolDecl);
+                EmitInterfaceProperty(bodyWriter, propertyDecl, env.TypeDatabase, closureHandler, protocolDecl);
                 emittedInterfaceMemberCount++;
                 ReportCollector.RecordMemberEmitted(BindingItemKind.Property, propertyDecl.Name, protocolDecl);
             }
@@ -234,7 +234,7 @@ namespace BindingsGeneration
                     continue;
                 }
 
-                EmitInterfaceSubscript(bodyWriter, subscriptDecl, env.TypeDatabase, protocolDecl);
+                EmitInterfaceSubscript(bodyWriter, subscriptDecl, env.TypeDatabase, closureHandler, protocolDecl);
                 emittedInterfaceMemberCount++;
                 ReportCollector.RecordMemberEmitted(BindingItemKind.Subscript, "subscript", protocolDecl);
                 subscriptIndex++;
@@ -320,9 +320,8 @@ namespace BindingsGeneration
                 // closures can't be marshalled this way — the ABI type for Optional<() -> Void>
                 // falls through to AnyType, causing CS1503 (AnyType vs Action?).
                 // Even "supported" closures (IsSupportedClosure=true) can't be received.
-                var closureHandlerSkip = new ClosureHandler(env.TypeDatabase);
                 bool hasClosureParam = methodDecl.CSSignature.Skip(1).Any(arg =>
-                    closureHandlerSkip.IsClosure(arg));
+                    closureHandler.IsClosure(arg));
                 if (hasClosureParam)
                 {
                     skippedMethodKeys.Add(methodKey);
@@ -367,7 +366,7 @@ namespace BindingsGeneration
                 if (hasExistentialParam)
                     existentialSkippedMethodKeys.Add(methodKey);
 
-                EmitInterfaceMethod(bodyWriter, methodDecl, env.TypeDatabase, protocolDecl);
+                EmitInterfaceMethod(bodyWriter, methodDecl, env.TypeDatabase, closureHandler, protocolDecl);
                 emittedInterfaceMemberCount++;
                 ReportCollector.RecordMemberEmitted(BindingItemKind.Method, methodDecl.Name, protocolDecl);
             }
@@ -494,7 +493,7 @@ namespace BindingsGeneration
         /// <summary>
         /// Emits a property declaration for an interface.
         /// </summary>
-        private void EmitInterfaceProperty(CSharpWriter csWriter, PropertyDecl propertyDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext = null)
+        private void EmitInterfaceProperty(CSharpWriter csWriter, PropertyDecl propertyDecl, ITypeDatabase typeDatabase, ClosureHandler closureHandler, ProtocolDecl? protocolContext = null)
         {
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
 
@@ -527,7 +526,6 @@ namespace BindingsGeneration
             var propertyName = NameProvider.GetPropertyName(propertyDecl.Name);
 
             // Emit [UnsupportedSwiftType] if the property type falls back to AnyType
-            var closureHandler = new ClosureHandler(typeDatabase);
             if (UnsupportedSwiftTypeSupport.TryFindFallbackInfo(typeDatabase, closureHandler, propertyDecl.SwiftTypeSpec, out var fallbackInfo))
             {
                 UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, fallbackInfo);
@@ -542,7 +540,7 @@ namespace BindingsGeneration
         /// Swift: subscript(key: ImageCacheKey) -> ImageContainer? { get set }
         /// C#:   SwiftOptional<ImageContainer> this[ImageCacheKey key] { get; set; }
         /// </summary>
-        private void EmitInterfaceSubscript(CSharpWriter csWriter, SubscriptDecl subscriptDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext = null)
+        private void EmitInterfaceSubscript(CSharpWriter csWriter, SubscriptDecl subscriptDecl, ITypeDatabase typeDatabase, ClosureHandler closureHandler, ProtocolDecl? protocolContext = null)
         {
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
             NameProvider.DeduplicateParameterNamesForParameterList(subscriptDecl.IndexParameters);
@@ -583,7 +581,6 @@ namespace BindingsGeneration
             }
 
             // Emit [UnsupportedSwiftType] if the return type or any parameter falls back to AnyType
-            var closureHandler = new ClosureHandler(typeDatabase);
             if (UnsupportedSwiftTypeSupport.TryFindFallbackInfo(typeDatabase, closureHandler, subscriptDecl.ReturnTypeSpec, out var subscriptFallbackInfo))
             {
                 UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, subscriptFallbackInfo);
@@ -606,7 +603,7 @@ namespace BindingsGeneration
         /// <summary>
         /// Emits a method declaration for an interface.
         /// </summary>
-        private void EmitInterfaceMethod(CSharpWriter csWriter, MethodDecl methodDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext = null)
+        private void EmitInterfaceMethod(CSharpWriter csWriter, MethodDecl methodDecl, ITypeDatabase typeDatabase, ClosureHandler closureHandler, ProtocolDecl? protocolContext = null)
         {
             // Note: Constructor, static, duplicate, and AnyType generic arg checks
             // are handled at the loop level in Emit(). This method is only called
@@ -659,7 +656,6 @@ namespace BindingsGeneration
             }
 
             // Emit [UnsupportedSwiftType] if the return type or any parameter falls back to AnyType
-            var closureHandler = new ClosureHandler(typeDatabase);
             bool emittedAttribute = false;
             if (methodDecl.CSSignature.Count > 0)
             {

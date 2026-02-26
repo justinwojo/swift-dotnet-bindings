@@ -161,9 +161,14 @@ namespace BindingsGeneration
                     }
                     else
                     {
-                        csWriter.WriteLine($"[LibraryImport(\"{libPath}\", EntryPoint = \"{initRawValueMethod.MangledName}\")]");
-                        csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
-                        csWriter.WriteLine($"private static partial IntPtr PInvoke_InitWithRawValue({csharpRawType} rawValue);");
+                        PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+                        {
+                            LibraryPath = libPath,
+                            EntryPoint = initRawValueMethod.MangledName,
+                            MethodName = "PInvoke_InitWithRawValue",
+                            ReturnType = "IntPtr",
+                            ParametersString = $"{csharpRawType} rawValue"
+                        });
                         csWriter.WriteLine();
                     }
                 }
@@ -291,9 +296,14 @@ namespace BindingsGeneration
                 }
                 else
                 {
-                    csWriter.WriteLine($"[LibraryImport(\"{libPath}\", EntryPoint = \"{initRawValueMethod.MangledName}\")]");
-                    csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
-                    csWriter.WriteLine($"private static partial void PInvoke_InitWithRawValue(SwiftIndirectResult result, {csharpRawType} rawValue);");
+                    PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+                    {
+                        LibraryPath = libPath,
+                        EntryPoint = initRawValueMethod.MangledName,
+                        MethodName = "PInvoke_InitWithRawValue",
+                        ReturnType = "void",
+                        ParametersString = $"SwiftIndirectResult result, {csharpRawType} rawValue"
+                    });
                     csWriter.WriteLine();
                 }
 
@@ -313,9 +323,14 @@ namespace BindingsGeneration
                 else
                 {
                     csWriter.WriteLine("// SwiftOptional metadata accessor from Swift stdlib");
-                    csWriter.WriteLine("[LibraryImport(\"/usr/lib/swift/libswiftCore.dylib\", EntryPoint = \"$sSqMa\")]");
-                    csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
-                    csWriter.WriteLine("private static partial TypeMetadata PInvokesForSwiftOptional_MetadataAccessor(TypeMetadataRequest request, TypeMetadata typeMetadata);");
+                    PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+                    {
+                        LibraryPath = "/usr/lib/swift/libswiftCore.dylib",
+                        EntryPoint = "$sSqMa",
+                        MethodName = "PInvokesForSwiftOptional_MetadataAccessor",
+                        ReturnType = "TypeMetadata",
+                        ParametersString = "TypeMetadataRequest request, TypeMetadata typeMetadata"
+                    });
                     csWriter.WriteLine();
                 }
             }
