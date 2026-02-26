@@ -339,6 +339,38 @@ Sessions 1-9 unlocked the general infrastructure. Session 10A is the "pragmatic 
 
 ---
 
+### Unplanned Future Sessions
+
+The following are concrete, scoped sessions that would unlock additional workflows. They are listed in rough priority order (highest-impact first). None are currently scheduled — revisit after 10B to prioritize.
+
+#### Foundation.Data Projection
+
+**What**: Add `Data` as a first-class C# runtime type (like `SwiftString`, `SwiftArray`) implementing `ISwiftObject`. Marshalling between `Foundation.Data` and `byte[]`/`NSData`.
+**Unlocks**: Alamofire `serializingData()` (currently Skip — `DataTask<Data>` fails `HasNonSwiftObjectGenericArg`), KeychainAccess `getData`/`allKeys`, and any method where `Data` appears in a bound generic.
+**Scope**: Runtime type + marshalling + tests. ~1 session.
+**Note**: Alamofire's *original* critical workflow (`responseData { }`) remains blocked by generic closure params in method callbacks — a separate, larger effort.
+
+#### Generic Closure Params in Method Callbacks
+
+**What**: Bridge closure TypeSpec params in regular method P/Invoke (not just protocol extensions). Requires generating `@_cdecl` callback thunks for arbitrary method signatures, not just `@_silgen_name` protocol extension wrappers.
+**Unlocks**: Alamofire `responseData(completionHandler:)`, various Stripe callbacks, `MixpanelOptions.init(deviceIdProvider:)`.
+**Scope**: Extends the 10B pattern to method emission. ~1-2 sessions.
+**Depends on**: Session 10B (proves the closure bridging pattern in protocol extensions first).
+
+#### Existential Dict/Array Values
+
+**What**: Marshal existential containers inside generic collections (`[String: any Protocol]`). The existential container layout varies by protocol, and `SwiftDictionary<K,V>` requires `V: ISwiftObject`.
+**Unlocks**: Mixpanel full `track(event:, properties:)`, `set(properties:)`, `registerSuperProperties`, and similar methods across People and Group.
+**Scope**: Deep structural work — new marshalling pipeline. ~2+ sessions.
+
+#### Existential Marshalling in Unmanaged Callbacks
+
+**What**: Marshal existential containers in `[UnmanagedCallersOnly]` callback functions (proxy dispatch from Swift to C#).
+**Unlocks**: Starscream runtime event delivery (`IWebSocketDelegate.DidReceive` actually called from Swift). Currently compile-only.
+**Scope**: ~1-2 sessions. Intersects with proxy architecture.
+
+---
+
 ## Sequencing & Dependencies
 
 ```
@@ -364,6 +396,10 @@ Session 1: Foundation + Quick Wins                    ✅ COMPLETE
                 │
                 └─► Session 10B: Closure Operators         (pending)
                               (RxSwift map/filter/subscribe)
+                     │
+                     └─► Generic Closure Params              (unplanned)
+                                   (Alamofire responseData,
+                                    Stripe callbacks)
 
 Session 8: Naming + Polish + Cross-Module             ✅ COMPLETE (independent)
 Session 9: Safety & Hardening                         ✅ COMPLETE
@@ -371,6 +407,10 @@ Session 10A: Targeted Bypass & Gate Fixes             ✅ COMPLETE
            (Nuke constructor, Mixpanel Track,
             KeychainAccess subscript, Starscream delegate;
             Alamofire SerializingData skipped — not fixable)
+
+Foundation.Data Projection                            (unplanned, independent)
+Existential Dict/Array Values                         (unplanned, independent)
+Existential Marshalling in Callbacks                  (unplanned, independent)
 ```
 
 **If you only have 5 sessions**, do: 1, 2, 3, 4, 5 — best chance of moving critical workflows.
