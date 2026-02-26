@@ -59,22 +59,22 @@
 
 ## Session Plan
 
-### Session 1: Ergonomic Polish
+### Session 1: Ergonomic Polish ✅ COMPLETE
 
 **Theme**: Small naming/noise fixes with broad impact across many libraries
 **Effort**: 1 session | **Libraries improved**: 10+
-**Priority**: Highest — best effort-to-impact ratio
+**Status**: Complete — all 4 sub-tasks implemented, all acceptance gates met, 32/32 validation, 2 Codex review rounds (5 findings addressed)
 
-| Sub-task | Description | Classification |
-|----------|-------------|----------------|
-| **1a. `nint` → `int` convenience overloads** | Swift `Int` maps to `nint` (correct for pointer-sized), but C# developers expect `int`. Emit an `int` overload that delegates to the `nint` overload for methods taking `Int` parameters. Affects `Skip(nint)`, `Take(nint)`, `Row[nint]`, etc. | Generator gap (ergonomics) |
-| **1b. `Get` prefix refinement** | Only apply `Get` prefix for actual property getters (0 non-self parameters). Named methods with arguments should keep their original name: `GetEqualTo(view)` → `EqualTo(view)`, `GetSkip(nint)` → `Skip(nint)`. Refine the heuristic in `GetPublicMethodName`. | Generator bug (naming) |
-| **1c. Async detection false positives** | Closure-only methods (`MakeConstraints(Action<...>)`, `ShowSkeleton(...)`) get spurious `Async` variants. Detect "all params are closures and method is synchronous" and suppress async generation. | Generator bug |
-| **1d. `_event` parameter naming** | `Track(string? _event)` — the `_` prefix persists on some keyword-like params. Ensure `DeriveParameterNameFromType` runs before falling back to `_` prefix for remaining cases. Check `_event`, `_string`, `_data`. | Generator bug (naming) |
+| Sub-task | Description | Status |
+|----------|-------------|--------|
+| **1a. `nint` → `int` convenience overloads** | New `NativeIntOverloadEmitter` emits pure C# delegation overloads for methods/indexers with `nint`/`nuint` params. Handles generic parent types (Observable), protocol extension methods (unqualified `Int`/`UInt`), generic return types. Two-pass indexer emission ensures primary indexers take precedence. 19 unit tests. | ✅ |
+| **1b. `Get` prefix refinement** | Added `parameterCount` parameter to `GetPublicMethodName` — only 0-param noun methods get "Get" prefix. Updated all 14 call sites. `EqualTo(view)` instead of `GetEqualTo(view)`. | ✅ |
+| **1c. Async detection false positives** | Extracted `typeAttributes` from ABI JSON. `noescape` closures (builder/DSL pattern) are not treated as completion handlers. `MakeConstraints` no longer gets spurious `Async` variant. | ✅ |
+| **1d. `@event` parameter naming** | C# keyword params use `@` verbatim prefix (`@event`, `@string`, `@object`) instead of `_` prefix. `StripVerbatimPrefix` for compound names. `GetBoundGenericBufferName` strips `@` for buffer variables. | ✅ |
 
-**Projected impact**: Naming 3.61→~3.80, Noise 3.28→~3.40, Overall +0.05-0.10 across board. Avg +0.10-0.15.
+**Acceptance gate results**: `Skip(int)` overload on RxSwift Observable ✅. SnapKit `EqualTo(view)` (no `Get`) ✅. No `MakeConstraintsAsync` ✅. Mixpanel `Track(string? @event)` ✅. 32/32 validation ✅.
 
-**Acceptance gate**: `Skip(int)` overload exists on RxSwift Observable. SnapKit `EqualTo(view)` (no `Get` prefix). No `MakeConstraintsAsync` in SnapKit output. Mixpanel `Track(string? event)` (no `_` prefix). 32/32 validation maintained.
+**Key files**: `NativeIntOverloadEmitter.cs` (new), `NameProvider.cs` (1b, 1d), `SwiftABIParser.cs` (1c), `CompletionHandlerDetector.cs` (1c), `SubscriptHandler.cs` (1a indexers)
 
 ---
 

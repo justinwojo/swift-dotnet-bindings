@@ -487,7 +487,7 @@ public static partial class ClosureEmitter
 
         foreach (var arg in methodDecl.CSSignature.Skip(1))
         {
-            var csName = NameProvider.GetCSharpParameterName(arg);
+            var csName = NameProvider.StripVerbatimPrefix(NameProvider.GetCSharpParameterName(arg));
             // Escape Swift keywords with backticks for use in generated Swift code
             var swiftName = NameProvider.EscapeSwiftKeyword(csName);
             var closureTypeSpec = closureHandler.GetClosureTypeSpec(arg);

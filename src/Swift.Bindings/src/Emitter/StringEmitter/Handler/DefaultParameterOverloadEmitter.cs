@@ -431,7 +431,8 @@ public static class DefaultParameterOverloadEmitter
         var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(overloadDecl);
         var methodName = overloadDecl.IsConstructor
             ? "ctor"
-            : NameProvider.GetPublicMethodName(overloadDecl.Name, overloadDecl.IsAsync, hasReturnValue: hasReturnValue, isSelfReturning: isSelfReturning, parentTypeName: (overloadDecl.ParentDecl as TypeDecl)?.Name);
+            : NameProvider.GetPublicMethodName(overloadDecl.Name, overloadDecl.IsAsync, hasReturnValue: hasReturnValue, isSelfReturning: isSelfReturning, parentTypeName: (overloadDecl.ParentDecl as TypeDecl)?.Name,
+                parameterCount: overloadDecl.CSSignature.Skip(1).Count(a => !IsDebugParameter(a)));
 
         var paramTypes = new List<string>();
         for (int i = 1; i < overloadDecl.CSSignature.Count; i++)

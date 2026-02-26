@@ -187,6 +187,19 @@ public class CompletionHandlerDetectorTests
     }
 
     [Fact]
+    public void IsCompletionHandler_NoescapeClosure_ReturnsFalse()
+    {
+        // Non-escaping closures (builder/DSL pattern) should not generate Task overloads
+        var (methodDecl, closureParam, closureHandler) = BuildMethodWithTrailingClosure(
+            isAsync: false,
+            returnVoid: true,
+            closureSpec: new ClosureTypeSpec(new NamedTypeSpec("TestModule.ConstraintMaker"), TupleTypeSpec.Empty),
+            isEscaping: false);
+
+        Assert.False(CompletionHandlerDetector.IsCompletionHandler(methodDecl, closureParam, closureHandler));
+    }
+
+    [Fact]
     public void IsCompletionHandler_ClosureWithReturn_ReturnsFalse()
     {
         // (Int) -> String — closure has non-void return
@@ -373,6 +386,7 @@ public class CompletionHandlerDetectorTests
 
         // Now emit a completion handler method that would produce the same Async overload
         var closureSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+        closureSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
         var completionMethod = new MethodDecl
         {
             Name = "presentPaymentOptions",
@@ -439,6 +453,7 @@ public class CompletionHandlerDetectorTests
         var typeDatabase = CreateTypeDatabase(parentDecl);
 
         var closureSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+        closureSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
         var method = new MethodDecl
         {
             Name = "loadData",
@@ -641,8 +656,13 @@ public class CompletionHandlerDetectorTests
     private static (MethodDecl methodDecl, ArgumentDecl closureParam, ClosureHandler closureHandler) BuildMethodWithTrailingClosure(
         bool isAsync,
         bool returnVoid,
-        ClosureTypeSpec closureSpec)
+        ClosureTypeSpec closureSpec,
+        bool isEscaping = true)
     {
+        // Mark as escaping by default (completion handlers are escaping closures)
+        if (isEscaping && !closureSpec.IsEscaping)
+            closureSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
+
         var moduleDecl = CreateModuleDecl();
         var parentDecl = CreateParentDecl(moduleDecl);
 
@@ -700,6 +720,10 @@ public class CompletionHandlerDetectorTests
     /// </summary>
     private static string GenerateMethodWithCompletionHandler(ClosureTypeSpec closureSpec)
     {
+        // Mark as escaping (completion handlers are escaping closures)
+        if (!closureSpec.IsEscaping)
+            closureSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
+
         // Context-based tracking: tests use default context (no parallelism)
 
         var moduleDecl = CreateModuleDecl();

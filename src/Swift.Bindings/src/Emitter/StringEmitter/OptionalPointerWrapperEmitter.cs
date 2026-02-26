@@ -35,7 +35,7 @@ public static class OptionalPointerWrapperEmitter
 
         foreach (var arg in methodDecl.CSSignature.Skip(1))
         {
-            var csName = NameProvider.GetCSharpParameterName(arg);
+            var csName = NameProvider.StripVerbatimPrefix(NameProvider.GetCSharpParameterName(arg));
             // Escape Swift keywords with backticks for use in generated Swift code
             var swiftName = NameProvider.EscapeSwiftKeyword(csName);
 

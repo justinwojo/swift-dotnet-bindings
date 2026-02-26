@@ -353,7 +353,8 @@ namespace BindingsGeneration
             var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(methodDecl);
             var methodName = methodDecl.IsConstructor
                 ? "ctor"
-                : NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: hasReturnValue, isSelfReturning: isSelfReturning, parentTypeName: (methodDecl.ParentDecl as TypeDecl)?.Name);
+                : NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: hasReturnValue, isSelfReturning: isSelfReturning, parentTypeName: (methodDecl.ParentDecl as TypeDecl)?.Name,
+                    parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a)));
 
             var paramTypes = new List<string>();
             for (int i = 1; i < methodDecl.CSSignature.Count; i++)

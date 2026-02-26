@@ -52,7 +52,7 @@ namespace BindingsGeneration.FunctionalTests
 
                 // Swift pointer types (UnsafeMutableRawPointer, UnsafeMutablePointer<T>, etc.)
                 // are projected to IntPtr in the generated bindings
-                int result = Swift.UnsafePointerTests.Functions.GetAppleCryptoNative_ChaCha20Poly1305Encrypt(
+                int result = Swift.UnsafePointerTests.Functions.AppleCryptoNative_ChaCha20Poly1305Encrypt(
                                     (nint)keyPtr, key.Length,
                                     (nint)noncePtr, nonce.Length,
                                     (nint)plaintextPtr, plaintext.Length,
@@ -87,7 +87,7 @@ namespace BindingsGeneration.FunctionalTests
                 const int AuthTagMismatch = -1;
 
                 // Swift pointer types are projected to IntPtr in the generated bindings
-                int result = Swift.UnsafePointerTests.Functions.GetAppleCryptoNative_ChaCha20Poly1305Decrypt(
+                int result = Swift.UnsafePointerTests.Functions.AppleCryptoNative_ChaCha20Poly1305Decrypt(
                     (nint)keyPtr, key.Length,
                     (nint)noncePtr, nonce.Length,
                     (nint)ciphertextPtr, ciphertext.Length,

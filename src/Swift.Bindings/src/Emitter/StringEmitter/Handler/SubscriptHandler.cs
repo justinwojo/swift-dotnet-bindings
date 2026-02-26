@@ -33,6 +33,10 @@ namespace BindingsGeneration
 
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
             var emittedKeys = new HashSet<string>();
+            // Collect convenience indexer overload candidates during the primary loop,
+            // then emit them after all primary indexers are processed. This ensures
+            // primary indexers always take precedence over convenience nint→int overloads.
+            var convenienceCandidates = new List<(SubscriptDecl decl, string returnTypeName, List<(string typeName, string paramName, ITypeProjection? projection)> paramInfos)>();
 
             foreach (var subscriptDecl in subscripts)
             {
@@ -180,7 +184,19 @@ namespace BindingsGeneration
 
                 // Emit indexer declaration
                 EmitIndexer(csWriter, subscriptDecl, typeDatabase, returnTypeName, paramInfos);
+
+                // Collect candidate for convenience int/uint overload (deferred to second pass)
+                convenienceCandidates.Add((subscriptDecl, returnTypeName, paramInfos));
+
                 ReportCollector.RecordMemberEmitted(BindingItemKind.Subscript, "subscript", typeDecl);
+            }
+
+            // Second pass: emit convenience int/uint indexer overloads for nint/nuint params.
+            // Deferred so primary indexers always take precedence — a real this[int] primary
+            // indexer won't be shadowed by a convenience nint→int overload from an earlier subscript.
+            foreach (var (decl, retType, pInfos) in convenienceCandidates)
+            {
+                NativeIntOverloadEmitter.TryEmitIndexerOverload(csWriter, decl, retType, pInfos, emittedKeys);
             }
         }
 
@@ -337,15 +353,16 @@ namespace BindingsGeneration
 
             foreach (var (_, paramName, proj) in paramInfos)
             {
+                var bareName = NameProvider.StripVerbatimPrefix(paramName);
                 if (proj is StringProjection)
                 {
-                    var convertedName = $"__{paramName}Swift";
+                    var convertedName = $"__{bareName}Swift";
                     usingLines.Add($"using var {convertedName} = new SwiftString({paramName});");
                     argParts.Add(convertedName);
                 }
                 else if (proj is NativeRemappedProjection nrp)
                 {
-                    var convertedName = $"__{paramName}Swift";
+                    var convertedName = $"__{bareName}Swift";
                     var convExpr = nrp.FromFactoryMethod != null
                         ? $"{nrp.SwiftWrapperType}.{nrp.FromFactoryMethod}({paramName})"
                         : $"new {nrp.SwiftWrapperType}({paramName})";

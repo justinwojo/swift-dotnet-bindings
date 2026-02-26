@@ -717,6 +717,10 @@ namespace BindingsGeneration
                     methodEnv.ParentDecl as TypeDecl, context.MarkerProtocolConformances);
             }
 
+            // Emit int/uint convenience overloads for nint/nuint parameters
+            if (!isAccessor)
+                NativeIntOverloadEmitter.TryEmitOverload(csWriter, methodEnv);
+
             csWriter.WriteLine();
         }
 

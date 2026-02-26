@@ -62,6 +62,11 @@ public static class CompletionHandlerDetector
         if (closureSpec == null)
             return false;
 
+        // Non-escaping closures execute synchronously (builder/DSL pattern).
+        // They are NOT completion handlers and should not get Task overloads.
+        if (!closureSpec.IsEscaping)
+            return false;
+
         // Closure must return Void
         if (closureSpec.HasReturn())
             return false;

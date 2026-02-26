@@ -89,7 +89,8 @@ internal static class ProtocolSignatureHelper
         bool hasReturnValue = returnTypeSpec != null && !returnTypeSpec.IsEmptyTuple;
         // Capture hasReturnValue BEFORE async conversion turns void→Task
         var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(methodDecl);
-        var methodName = NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: hasReturnValue, isSelfReturning: isSelfReturning);
+        var methodName = NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: hasReturnValue, isSelfReturning: isSelfReturning,
+            parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a)));
 
         var paramTypes = new List<string>();
         for (int i = 1; i < methodDecl.CSSignature.Count; i++)

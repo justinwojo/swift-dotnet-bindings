@@ -245,4 +245,32 @@ public class NameProviderMethodNamingTests
     }
 
     #endregion
+
+    #region parameterCount-aware Get prefix
+
+    [Fact]
+    public void NounOnly_WithParams_SkipsGetPrefix()
+    {
+        // "equalTo(view)" with 1 param → "EqualTo", not "GetEqualTo"
+        var result = NameProvider.GetPublicMethodName("equalTo", isAsync: false, hasReturnValue: true, parameterCount: 1);
+        Assert.Equal("EqualTo", result);
+    }
+
+    [Fact]
+    public void NounOnly_ZeroParams_GetsGetPrefix()
+    {
+        // "count()" with 0 params → "GetCount"
+        var result = NameProvider.GetPublicMethodName("count", isAsync: false, hasReturnValue: true, parameterCount: 0);
+        Assert.Equal("GetCount", result);
+    }
+
+    [Fact]
+    public void NounOnly_MultipleParams_SkipsGetPrefix()
+    {
+        // "offset(dx, dy)" with 2 params → "Offset", not "GetOffset"
+        var result = NameProvider.GetPublicMethodName("offset", isAsync: false, hasReturnValue: true, parameterCount: 2);
+        Assert.Equal("Offset", result);
+    }
+
+    #endregion
 }

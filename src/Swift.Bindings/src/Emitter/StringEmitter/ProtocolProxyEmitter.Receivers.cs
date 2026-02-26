@@ -331,7 +331,8 @@ public partial class ProtocolProxyEmitter
         var argsString = string.Join(", ", argNames);
 
         var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(method);
-        var pascalMethodName = NameProvider.GetPublicMethodName(method.Name, method.IsAsync, hasReturn, isSelfReturning: isSelfReturning);
+        var pascalMethodName = NameProvider.GetPublicMethodName(method.Name, method.IsAsync, hasReturn, isSelfReturning: isSelfReturning,
+            parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a)));
 
         if (hasReturn)
         {

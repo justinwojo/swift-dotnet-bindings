@@ -57,7 +57,7 @@ namespace BindingsGeneration.FunctionalTests
                 UnsafeMutableBufferPointer<Byte> tagBuffer = new UnsafeMutableBufferPointer<Byte>(tagPtr, tag.Length);
                 UnsafeRawBufferPointer aadBuffer = new UnsafeRawBufferPointer(aadPtr, aad.Length);
 
-                int result = Swift.UnsafeBufferPointerTests.Functions.GetAppleCryptoNative_ChaCha20Poly1305Encrypt(
+                int result = Swift.UnsafeBufferPointerTests.Functions.AppleCryptoNative_ChaCha20Poly1305Encrypt(
                                     keyBuffer,
                                     nonceBuffer,
                                     plaintextBuffer,
@@ -98,7 +98,7 @@ namespace BindingsGeneration.FunctionalTests
                 UnsafeMutableBufferPointer<Byte> plaintextBuffer = new UnsafeMutableBufferPointer<Byte>(plaintextPtr, plaintext.Length);
                 UnsafeRawBufferPointer aadBuffer = new UnsafeRawBufferPointer(aadPtr, aad.Length);
 
-                int result = Swift.UnsafeBufferPointerTests.Functions.GetAppleCryptoNative_ChaCha20Poly1305Decrypt(
+                int result = Swift.UnsafeBufferPointerTests.Functions.AppleCryptoNative_ChaCha20Poly1305Decrypt(
                     keyBuffer,
                     nonceBuffer,
                     ciphertextBuffer,

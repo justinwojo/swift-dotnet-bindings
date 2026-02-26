@@ -54,6 +54,7 @@ public class MethodHandlerOutputTests
         var closureSpec = new ClosureTypeSpec(
             arguments: new NamedTypeSpec("Swift.String"), // (String) -> Void
             returnType: TupleTypeSpec.Empty);
+        closureSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
 
         var method = new MethodDecl
         {
@@ -104,6 +105,7 @@ public class MethodHandlerOutputTests
         var closureSpec = new ClosureTypeSpec(
             arguments: new NamedTypeSpec("Swift.String"),
             returnType: TupleTypeSpec.Empty);
+        closureSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
 
         var method = new MethodDecl
         {

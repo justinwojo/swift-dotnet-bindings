@@ -169,7 +169,7 @@ public static class GenericClosureBridgeEmitter
         ClosureTypeSpec closureTypeSpec)
     {
         var methodDecl = env.MethodDecl;
-        var csClosureName = NameProvider.GetCSharpParameterName(closureArg);
+        var csClosureName = NameProvider.StripVerbatimPrefix(NameProvider.GetCSharpParameterName(closureArg));
 
         // Determine instance/self handling
         bool isInstance = methodDecl.MethodType != MethodType.Static && parentDecl != null;

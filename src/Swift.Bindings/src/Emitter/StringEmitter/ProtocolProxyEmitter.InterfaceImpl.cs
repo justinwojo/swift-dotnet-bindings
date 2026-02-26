@@ -51,6 +51,17 @@ public partial class ProtocolProxyEmitter
             subscriptIndex++;
         }
 
+        // Collect emitted C# property names for method/property collision detection.
+        // Include closure-skipped properties: they ARE emitted in the interface (proxy gets
+        // NotSupportedException stubs), so proxy methods must match interface collision renames.
+        var emittedCSharpPropertyNames = new HashSet<string>();
+        foreach (var property in protocolDecl.Properties)
+        {
+            if (!property.IsStatic &&
+                (!_skippedPropertyNames.Contains(property.Name) || _closureSkippedPropertyNames.Contains(property.Name)))
+                emittedCSharpPropertyNames.Add(NameProvider.GetPropertyName(property.Name));
+        }
+
         // Methods - track by signature to handle overloads
         int methodIndex = 0;
         var methodIndices = new Dictionary<string, int>();
@@ -73,7 +84,7 @@ public partial class ProtocolProxyEmitter
                         var projectedKeySkipped = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
                         if (!emittedCSharpKeys.Add(projectedKeySkipped))
                             continue;
-                        EmitNotSupportedMethodStub(writer, method, "Closure parameters cannot be marshalled in protocol proxy.");
+                        EmitNotSupportedMethodStub(writer, method, "Closure parameters cannot be marshalled in protocol proxy.", emittedCSharpPropertyNames);
                     }
                     // Existential-skipped methods are now in the interface — emit NotSupported stub
                     else if (_existentialSkippedMethodKeys.Contains(methodKey))
@@ -81,14 +92,14 @@ public partial class ProtocolProxyEmitter
                         var projectedKeySkipped = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
                         if (!emittedCSharpKeys.Add(projectedKeySkipped))
                             continue;
-                        EmitNotSupportedMethodStub(writer, method, "Existential parameters cannot be marshalled in protocol proxy.");
+                        EmitNotSupportedMethodStub(writer, method, "Existential parameters cannot be marshalled in protocol proxy.", emittedCSharpPropertyNames);
                     }
                     continue;
                 }
                 var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
                 if (!emittedCSharpKeys.Add(projectedKey))
                     continue;
-                EmitMethodImplementation(writer, method, protocolDecl, dispatchEmitter, idx);
+                EmitMethodImplementation(writer, method, protocolDecl, dispatchEmitter, idx, emittedCSharpPropertyNames);
             }
         }
 
@@ -361,7 +372,7 @@ public partial class ProtocolProxyEmitter
         writer.WriteLine();
     }
 
-    private void EmitMethodImplementation(CSharpWriter writer, MethodDecl method, ProtocolDecl protocolDecl, WitnessDispatchEmitter dispatchEmitter, int methodIndex)
+    private void EmitMethodImplementation(CSharpWriter writer, MethodDecl method, ProtocolDecl protocolDecl, WitnessDispatchEmitter dispatchEmitter, int methodIndex, IReadOnlySet<string>? propertyNames = null)
     {
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
@@ -404,7 +415,9 @@ public partial class ProtocolProxyEmitter
         var argsString = string.Join(", ", argNames);
 
         var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(method);
-        var methodName = NameProvider.GetPublicMethodName(method.Name, method.IsAsync, hasReturn, isSelfReturning: isSelfReturning);
+        var methodName = NameProvider.GetPublicMethodName(method.Name, method.IsAsync, hasReturn,
+            propertyNames: propertyNames, isSelfReturning: isSelfReturning,
+            parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a)));
         var isDispatchable = dispatchEmitter.IsMethodDispatchable(method);
 
         // Validate that the projected return type matches the dispatch strategy.
@@ -779,7 +792,7 @@ public partial class ProtocolProxyEmitter
     /// Emits a NotSupportedException stub for a method that is in the interface
     /// but can't be dispatched by the proxy (e.g. closure or existential parameter marshalling).
     /// </summary>
-    private void EmitNotSupportedMethodStub(CSharpWriter writer, MethodDecl method, string reason)
+    private void EmitNotSupportedMethodStub(CSharpWriter writer, MethodDecl method, string reason, IReadOnlySet<string>? propertyNames = null)
     {
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
@@ -809,7 +822,9 @@ public partial class ProtocolProxyEmitter
         var argsString = string.Join(", ", argNames);
 
         var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(method);
-        var methodName = NameProvider.GetPublicMethodName(method.Name, method.IsAsync, hasReturn, isSelfReturning: isSelfReturning);
+        var methodName = NameProvider.GetPublicMethodName(method.Name, method.IsAsync, hasReturn,
+            propertyNames: propertyNames, isSelfReturning: isSelfReturning,
+            parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a)));
 
         writer.WriteLine($"[Obsolete(\"{reason} (SB0003)\",");
         writer.WriteLine("    DiagnosticId = \"SB0003\",");

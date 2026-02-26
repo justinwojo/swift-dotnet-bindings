@@ -54,7 +54,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Creates a SpikeBox containing an Int value.
         /// </summary>
-        public static System.IntPtr GetSBW_Spike_createIntBox( nint value)
+        public static System.IntPtr SBW_Spike_createIntBox( nint value)
         {
             try
             {
@@ -106,7 +106,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Creates an NSError from a C string message. Used by C# callbacks to propagate errors.
         /// </summary>
-        public static System.IntPtr GetSBW_Spike_createError( System.IntPtr message)
+        public static System.IntPtr SBW_Spike_createError( System.IntPtr message)
         {
             try
             {
@@ -132,7 +132,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Gets the error description as a C string (caller must free with free()).
         /// </summary>
-        public static System.IntPtr? GetSBW_Spike_getErrorDescription( System.IntPtr errorPtr)
+        public static System.IntPtr? SBW_Spike_getErrorDescription( System.IntPtr errorPtr)
         {
             unsafe
             {
@@ -231,7 +231,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Generic function with multiple where clauses.
         /// </summary>
-        public static string GetDescribeConstrained<T>( T item)
+        public static string DescribeConstrained<T>( T item)
             where T : ISwiftObject, IDescribable, ITestIdentifiable
         {
             unsafe
@@ -385,7 +385,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Accepts an existential array.
         /// </summary>
-        public static IReadOnlyList<string> GetDescribeAll([global::Swift.OriginalSwiftType("any SwiftBindingsTestLib.Describable")]  IEnumerable<IDescribable> items)
+        public static IReadOnlyList<string> DescribeAll([global::Swift.OriginalSwiftType("any SwiftBindingsTestLib.Describable")]  IEnumerable<IDescribable> items)
         {
             unsafe
             {
@@ -474,7 +474,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Unconstrained generic identity function.
         /// </summary>
-        public static T GetIdentity<T>( T value)
+        public static T Identity<T>( T value)
             where T : ISwiftObject
         {
             unsafe
@@ -513,7 +513,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Generic function returning a tuple pair.
         /// </summary>
-        public static (T, U) GetPair<T, U>( T first,  U second)
+        public static (T, U) Pair<T, U>( T first,  U second)
             where T : ISwiftObject
             where U : ISwiftObject
         {
@@ -559,7 +559,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Generic function with a single protocol constraint.
         /// </summary>
-        public static string GetConstrained<T>( T item)
+        public static string Constrained<T>( T item)
             where T : ISwiftObject, IDescribable
         {
             unsafe
@@ -596,7 +596,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Generic function with multiple protocol constraints.
         /// </summary>
-        public static string GetMultiConstrained<T>( T item)
+        public static string MultiConstrained<T>( T item)
             where T : ISwiftObject, IDescribable, ITestIdentifiable
         {
             unsafe
@@ -680,7 +680,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Takes ownership of a UniqueResource and returns its id.
         /// </summary>
-        public static int GetTransferOwnership( Swift.SwiftBindingsTestLib.UniqueResource resource)
+        public static int TransferOwnership( Swift.SwiftBindingsTestLib.UniqueResource resource)
         {
             try
             {
@@ -705,7 +705,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Borrows a UniqueResource to inspect it without taking ownership.
         /// </summary>
-        public static int GetBorrowResource( Swift.SwiftBindingsTestLib.UniqueResource resource)
+        public static int BorrowResource( Swift.SwiftBindingsTestLib.UniqueResource resource)
         {
             try
             {
@@ -820,7 +820,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Free function returning an enum.
         /// </summary>
-        public static Swift.SwiftBindingsTestLib.Color GetColorForIndex( int index)
+        public static Swift.SwiftBindingsTestLib.Color ColorForIndex( int index)
         {
             try
             {
@@ -887,7 +887,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Free function accepting a frozen struct.
         /// </summary>
-        public static string GetDescribePoint( Swift.SwiftBindingsTestLib.FrozenPoint point)
+        public static string DescribePoint( Swift.SwiftBindingsTestLib.FrozenPoint point)
         {
             try
             {
@@ -940,7 +940,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Free function accepting and returning a non-frozen struct.
         /// </summary>
-        public static Swift.SwiftBindingsTestLib.NonFrozenPoint GetScalePoint( Swift.SwiftBindingsTestLib.NonFrozenPoint point,  double factor)
+        public static Swift.SwiftBindingsTestLib.NonFrozenPoint ScalePoint( Swift.SwiftBindingsTestLib.NonFrozenPoint point,  double factor)
         {
             unsafe
             {
@@ -972,7 +972,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Describe a batch config for display.
         /// </summary>
-        public static string GetDescribeConfig( Swift.SwiftBindingsTestLib.BatchConfig config)
+        public static string DescribeConfig( Swift.SwiftBindingsTestLib.BatchConfig config)
         {
             using PayloadBuffer<Swift.SwiftBindingsTestLib.BatchConfig.Buffer> configDisposable = config.PayloadBuffer;
             try
@@ -1234,7 +1234,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Divides two Int32 values; throws on division by zero.
         /// </summary>
-        public static int GetDivide( int a,  int b)
+        public static int Divide( int a,  int b)
         {
             unsafe
             {
@@ -1376,7 +1376,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Returns quotient and remainder as a tuple.
         /// </summary>
-        public static (int quotient, int remainder) GetDivmod( int a,  int b)
+        public static (int quotient, int remainder) Divmod( int a,  int b)
         {
             try
             {
@@ -1401,7 +1401,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Returns min and max of two values.
         /// </summary>
-        public static (int min, int max) GetMinmax( int a,  int b)
+        public static (int min, int max) Minmax( int a,  int b)
         {
             try
             {
@@ -2445,7 +2445,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Function with a default parameter.
         /// </summary>
-        public static string GetGreet( string name,  string greeting)
+        public static string Greet( string name,  string greeting)
         {
             try
             {
@@ -2472,7 +2472,7 @@ namespace Swift.SwiftBindingsTestLib
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib5greet4name8greetingS2S_SStF")]
         private static partial Swift.SwiftString.Buffer PInvoke_greet_9565AC13( Swift.SwiftString.Buffer name,  Swift.SwiftString.Buffer greeting);
-        public static string GetGreet( string name)
+        public static string Greet( string name)
         {
             try
             {
@@ -2502,7 +2502,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Function with multiple default parameters.
         /// </summary>
-        public static string GetSearch( string query,  int limit,  int offset)
+        public static string Search( string query,  int limit,  int offset)
         {
             try
             {
@@ -2527,7 +2527,7 @@ namespace Swift.SwiftBindingsTestLib
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib6search5query5limit6offsetS2S_s5Int32VAGtF")]
         private static partial Swift.SwiftString.Buffer PInvoke_search_47BEAA63( Swift.SwiftString.Buffer query,  int limit,  int offset);
-        public static string GetSearch( string query)
+        public static string Search( string query)
         {
             try
             {
@@ -2552,7 +2552,7 @@ namespace Swift.SwiftBindingsTestLib
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "DBW_Global_search_47BEAA63_2")]
         private static partial Swift.SwiftString.Buffer PInvoke_search_70BEA3CC( Swift.SwiftString.Buffer query);
-        public static string GetSearch( string query,  int limit)
+        public static string Search( string query,  int limit)
         {
             try
             {
@@ -2729,7 +2729,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Describes an optional Int32, returning &quot;nil&quot; or the string value.
         /// </summary>
-        public static string GetDescribeOptionalInt( int? value)
+        public static string DescribeOptionalInt( int? value)
         {
             unsafe
             {
@@ -2761,7 +2761,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Describes an optional String, returning &quot;nil&quot; or the value.
         /// </summary>
-        public static string GetDescribeOptionalString( string? value)
+        public static string DescribeOptionalString( string? value)
         {
             unsafe
             {
@@ -2951,7 +2951,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Reads an Int32 from a raw pointer (assumes proper alignment).
         /// </summary>
-        public static int GetRawPointerToInt32( System.IntPtr ptr)
+        public static int RawPointerToInt32( System.IntPtr ptr)
         {
             try
             {
@@ -3026,7 +3026,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Returns true if the opaque pointer is non-null (always true for non-optional OpaquePointer).
         /// </summary>
-        public static bool GetOpaquePointerIsValid( System.IntPtr ptr)
+        public static bool OpaquePointerIsValid( System.IntPtr ptr)
         {
             try
             {
@@ -3052,7 +3052,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Returns true if the optional opaque pointer is non-nil.
         /// </summary>
-        public static bool GetOptionalOpaquePointer( System.IntPtr? ptr)
+        public static bool OptionalOpaquePointer( System.IntPtr? ptr)
         {
             unsafe
             {
@@ -3377,13 +3377,13 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Returns an adder closure.
         /// </summary>
-        public static Func<int, int> MakeAdder( int _base)
+        public static Func<int, int> MakeAdder( int @base)
         {
             try
             {
                 
                 
-                var result = PInvoke_makeAdder_A6DA40C1(_base);
+                var result = PInvoke_makeAdder_A6DA40C1(@base);
                 
                 // Wrap Swift closure in SwiftEscapingClosure for ARC management
                 var _closureWrapper = SwiftEscapingClosure<Func<int, int>>.FromSwift(result.FunctionPointer, result.Context);
@@ -3408,7 +3408,7 @@ namespace Swift.SwiftBindingsTestLib
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib9makeAdderys5Int32VADcADF")]
-        private static partial SwiftClosureData PInvoke_makeAdder_A6DA40C1( int _base);
+        private static partial SwiftClosureData PInvoke_makeAdder_A6DA40C1( int @base);
         
         
         /// <summary>
@@ -3692,7 +3692,7 @@ namespace Swift.SwiftBindingsTestLib
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Global_sumArraySlice_9A8BB3E2")]
         private static partial int PInvoke_sumArraySlice_5DE0C301( IntPtr sliceBuffer);
         
-        public static int GetArraySliceCount( IEnumerable<byte> slice)
+        public static int ArraySliceCount( IEnumerable<byte> slice)
         {
             unsafe
             {
@@ -3749,7 +3749,7 @@ namespace Swift.SwiftBindingsTestLib
         [return: MarshalAs(UnmanagedType.U1)]
         private static partial bool PInvoke_isEmptyArraySlice_508A726D( IntPtr sliceBuffer);
         
-        public static int GetCombinedSliceCount( IEnumerable<byte> first,  IEnumerable<byte> second)
+        public static int CombinedSliceCount( IEnumerable<byte> first,  IEnumerable<byte> second)
         {
             unsafe
             {
@@ -3781,7 +3781,7 @@ namespace Swift.SwiftBindingsTestLib
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Global_combinedSliceCount_383DCB26")]
         private static partial int PInvoke_combinedSliceCount_5BDE9010( IntPtr firstBuffer,  IntPtr secondBuffer);
         
-        public static byte GetFirstOrThrow( IEnumerable<byte> slice)
+        public static byte FirstOrThrow( IEnumerable<byte> slice)
         {
             unsafe
             {
@@ -3831,7 +3831,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Returns the count of elements in the array.
         /// </summary>
-        public static int GetArrayCount( IEnumerable<int> array)
+        public static int ArrayCount( IEnumerable<int> array)
         {
             unsafe
             {
@@ -4020,7 +4020,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Describes each animal in the array, returning an array of descriptions.
         /// </summary>
-        public static IReadOnlyList<string> GetDescribeAnimals( IEnumerable<Swift.SwiftBindingsTestLib.Animal> animals)
+        public static IReadOnlyList<string> DescribeAnimals( IEnumerable<Swift.SwiftBindingsTestLib.Animal> animals)
         {
             unsafe
             {
@@ -4085,7 +4085,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Free function accepting a protocol composition type.
         /// </summary>
-        public static string GetDescribeEntity( IAgeableAndNameable entity)
+        public static string DescribeEntity( IAgeableAndNameable entity)
         {
             try
             {
@@ -4247,7 +4247,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Function accepting Named protocol.
         /// </summary>
-        public static string GetDescribeName<T0>( T0 named)
+        public static string DescribeName<T0>( T0 named)
             where T0 : ISwiftObject, INamed
         {
             unsafe
@@ -4284,7 +4284,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Function accepting Prioritized protocol.
         /// </summary>
-        public static string GetDescribePriority<T0>( T0 prioritized)
+        public static string DescribePriority<T0>( T0 prioritized)
             where T0 : ISwiftObject, IPrioritized
         {
             unsafe
@@ -4321,7 +4321,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Function accepting TaskDescriptor protocol.
         /// </summary>
-        public static string GetDescribeTask<T0>( T0 task)
+        public static string DescribeTask<T0>( T0 task)
             where T0 : ISwiftObject, ITaskDescriptor
         {
             unsafe
@@ -4397,7 +4397,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Function accepting StatusHandler protocol.
         /// </summary>
-        public static Swift.SwiftBindingsTestLib.TaskStatus GetAdvanceStatus<T0>(ref T0 handler)
+        public static Swift.SwiftBindingsTestLib.TaskStatus AdvanceStatus<T0>(ref T0 handler)
             where T0 : ISwiftObject, IStatusHandler
         {
             unsafe
@@ -4436,7 +4436,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Existential function accepting any Named - forces witness table dispatch for String property.
         /// </summary>
-        public static string GetDescribeNameExistential([global::Swift.OriginalSwiftType("any SwiftBindingsTestLib.Named")]  INamed named)
+        public static string DescribeNameExistential([global::Swift.OriginalSwiftType("any SwiftBindingsTestLib.Named")]  INamed named)
         {
             try
             {
@@ -4465,7 +4465,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Existential function accepting any Prioritized - forces witness table dispatch for enum property.
         /// </summary>
-        public static string GetDescribePriorityExistential([global::Swift.OriginalSwiftType("any SwiftBindingsTestLib.Prioritized")]  IPrioritized prioritized)
+        public static string DescribePriorityExistential([global::Swift.OriginalSwiftType("any SwiftBindingsTestLib.Prioritized")]  IPrioritized prioritized)
         {
             try
             {
@@ -4494,7 +4494,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Existential function accepting any TaskDescriptor - forces witness dispatch for multiple non-blittable properties.
         /// </summary>
-        public static string GetDescribeTaskExistential([global::Swift.OriginalSwiftType("any SwiftBindingsTestLib.TaskDescriptor")]  ITaskDescriptor task)
+        public static string DescribeTaskExistential([global::Swift.OriginalSwiftType("any SwiftBindingsTestLib.TaskDescriptor")]  ITaskDescriptor task)
         {
             try
             {
@@ -4555,7 +4555,7 @@ namespace Swift.SwiftBindingsTestLib
         /// Returns an existential Named (any Named) from a concrete type. Tests existential container creation with String property.
         /// </summary>
         [return: global::Swift.OriginalSwiftType("any SwiftBindingsTestLib.Named")]
-        public static INamed GetAsNamedExistential( Swift.SwiftBindingsTestLib.NamedItem item)
+        public static INamed AsNamedExistential( Swift.SwiftBindingsTestLib.NamedItem item)
         {
             try
             {
@@ -4582,7 +4582,7 @@ namespace Swift.SwiftBindingsTestLib
         /// Returns an existential Prioritized (any Prioritized) from a concrete type. Tests existential container creation with enum property.
         /// </summary>
         [return: global::Swift.OriginalSwiftType("any SwiftBindingsTestLib.Prioritized")]
-        public static IPrioritized GetAsPrioritizedExistential( Swift.SwiftBindingsTestLib.PrioritizedItem item)
+        public static IPrioritized AsPrioritizedExistential( Swift.SwiftBindingsTestLib.PrioritizedItem item)
         {
             try
             {
@@ -4608,7 +4608,7 @@ namespace Swift.SwiftBindingsTestLib
         /// <summary>
         /// Accepts an array of existential Named and describes all. Tests witness dispatch in a loop - exercises repeated witness table lookups. NOTE: Renamed from describeAll to avoid collision with Existentials.swift which has a similar function taking [any Describable]. Both would marshal to the same C# signature.
         /// </summary>
-        public static IReadOnlyList<string> GetDescribeAllNamed([global::Swift.OriginalSwiftType("any SwiftBindingsTestLib.Named")]  IEnumerable<INamed> items)
+        public static IReadOnlyList<string> DescribeAllNamed([global::Swift.OriginalSwiftType("any SwiftBindingsTestLib.Named")]  IEnumerable<INamed> items)
         {
             unsafe
             {
@@ -5461,7 +5461,7 @@ namespace Swift.SwiftBindingsTestLib
     public interface IContainer<TElement>
     {
         int Count { get; }
-        Swift.AnyType GetElement(int index);
+        Swift.AnyType Element(int index);
     }
     
     
@@ -5609,7 +5609,7 @@ namespace Swift.SwiftBindingsTestLib
         private static partial void PInvoke_init_7729F485( SwiftIndirectResult swiftIndirectResult,  IntPtr itemsBuffer);
         
         
-        public int GetElement( int index)
+        public int Element( int index)
         {
             unsafe
             {
@@ -12907,7 +12907,7 @@ public partial class Registry : ISwiftObject, IDisposable
     /// <summary>
     /// Lookup an animal by ID; returns nil if not found.
     /// </summary>
-    public Swift.SwiftBindingsTestLib.Animal? GetLookup( int id)
+    public Swift.SwiftBindingsTestLib.Animal? Lookup( int id)
     {
         unsafe
         {
@@ -13360,7 +13360,7 @@ public partial class EventHandler : ISwiftObject, IDisposable
     /// <summary>
     /// Fire the callback if present; returns false if no callback is set.
     /// </summary>
-    public bool GetFire( int value)
+    public bool Fire( int value)
     {
         unsafe
         {
@@ -13598,7 +13598,7 @@ public unsafe partial struct Transformer : ISwiftObject, IDisposable
     /// <summary>
     /// Chain two transforms into one.
     /// </summary>
-    public static Func<int, int> GetChain( Func<int, int> value,  Func<int, int> value1)
+    public static Func<int, int> Chain( Func<int, int> value,  Func<int, int> value1)
     {
         unsafe
         {
@@ -16063,7 +16063,7 @@ public partial class ThrowingStruct : ISwiftObject, IDisposable
     /// <summary>
     /// Instance throwing method.
     /// </summary>
-    public int GetDivideBy( int divisor)
+    public int DivideBy( int divisor)
     {
         unsafe
         {
@@ -16169,7 +16169,7 @@ public partial class ThrowingStruct : ISwiftObject, IDisposable
     /// <summary>
     /// Static throwing method.
     /// </summary>
-    public static int GetSafeDivide( int a,  int b)
+    public static int SafeDivide( int a,  int b)
     {
         unsafe
         {
@@ -32194,7 +32194,7 @@ public partial class PointerWorker : ISwiftObject, IDisposable
     /// <summary>
     /// Reads the value at the pointer and returns a description.
     /// </summary>
-    public string GetDescribeValue( System.IntPtr ptr)
+    public string DescribeValue( System.IntPtr ptr)
     {
         unsafe
         {
@@ -32653,7 +32653,7 @@ public partial class HandleWrapper : ISwiftObject, IDisposable
     /// <summary>
     /// Returns a description of the handle wrapper with the pointer's validity.
     /// </summary>
-    public string GetDescribe( System.IntPtr ptr)
+    public string Describe( System.IntPtr ptr)
     {
         unsafe
         {
@@ -32981,11 +32981,11 @@ public unsafe partial struct ClosureFactory : ISwiftObject, IDisposable
     
     public void Dispose() { }
     
-    public ClosureFactory( int _base)
+    public ClosureFactory( int @base)
     {
         unsafe
         {
-            var result = PInvoke_init_E5F46D0A(_base);
+            var result = PInvoke_init_E5F46D0A(@base);
             
             this = result;
         }
@@ -32993,7 +32993,7 @@ public unsafe partial struct ClosureFactory : ISwiftObject, IDisposable
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib14ClosureFactoryV4baseACs5Int32V_tcfC")]
-    private static partial Swift.SwiftBindingsTestLib.ClosureFactory PInvoke_init_E5F46D0A( int _base);
+    private static partial Swift.SwiftBindingsTestLib.ClosureFactory PInvoke_init_E5F46D0A( int @base);
     
     
     /// <summary>
@@ -33224,7 +33224,7 @@ public partial class SliceProcessor : ISwiftObject, IDisposable
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SliceProcessor_processSlice_E9797EFB")]
     private static partial int PInvoke_processSlice_6B267883( IntPtr dataBuffer,  SwiftSelf self);
     
-    public static int GetTotalSlice( IEnumerable<int> data)
+    public static int TotalSlice( IEnumerable<int> data)
     {
         unsafe
         {
@@ -36160,7 +36160,7 @@ public unsafe partial class AddableProxy : IAddable, ISwiftObject, IDisposable, 
 /// </summary>
 public interface ISubtractable
 {
-    int GetSubtract(int other);
+    int Subtract(int other);
 }
 
 #pragma warning disable SB0003, SB0004
@@ -36235,7 +36235,7 @@ public unsafe partial class SubtractableProxy : ISubtractable, ISwiftObject, IDi
         var container = *(ExistentialContainer1*)selfContainer;
         var proxy = SwiftObjectRegistry.GetProxyFromContainer<SubtractableProxy>(container);
         var param0 = MarshalFromSwift<int>(rawArg0);
-        var result = proxy._csharpImpl!.GetSubtract(param0);
+        var result = proxy._csharpImpl!.Subtract(param0);
         return MarshalToSwiftBuffer(result);
     }
     
@@ -36276,11 +36276,11 @@ public unsafe partial class SubtractableProxy : ISubtractable, ISwiftObject, IDi
     }
     #region Interface Implementation
     
-    public int GetSubtract(int other)
+    public int Subtract(int other)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().Name);
         if (_csharpImpl != null)
-            return _csharpImpl.GetSubtract(other);
+            return _csharpImpl.Subtract(other);
         fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
         {
             var arg0Slice = other;
@@ -36418,7 +36418,7 @@ public unsafe partial class SubtractableProxy : ISubtractable, ISwiftObject, IDi
 /// </summary>
 public interface IMultipliable
 {
-    int GetMultiply(int other);
+    int Multiply(int other);
 }
 
 #pragma warning disable SB0003, SB0004
@@ -36493,7 +36493,7 @@ public unsafe partial class MultipliableProxy : IMultipliable, ISwiftObject, IDi
         var container = *(ExistentialContainer1*)selfContainer;
         var proxy = SwiftObjectRegistry.GetProxyFromContainer<MultipliableProxy>(container);
         var param0 = MarshalFromSwift<int>(rawArg0);
-        var result = proxy._csharpImpl!.GetMultiply(param0);
+        var result = proxy._csharpImpl!.Multiply(param0);
         return MarshalToSwiftBuffer(result);
     }
     
@@ -36534,11 +36534,11 @@ public unsafe partial class MultipliableProxy : IMultipliable, ISwiftObject, IDi
     }
     #region Interface Implementation
     
-    public int GetMultiply(int other)
+    public int Multiply(int other)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().Name);
         if (_csharpImpl != null)
-            return _csharpImpl.GetMultiply(other);
+            return _csharpImpl.Multiply(other);
         fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
         {
             var arg0Slice = other;
@@ -36676,7 +36676,7 @@ public unsafe partial class MultipliableProxy : IMultipliable, ISwiftObject, IDi
 /// </summary>
 public interface IDividable
 {
-    int GetDivide(int other);
+    int Divide(int other);
 }
 
 #pragma warning disable SB0003, SB0004
@@ -36751,7 +36751,7 @@ public unsafe partial class DividableProxy : IDividable, ISwiftObject, IDisposab
         var container = *(ExistentialContainer1*)selfContainer;
         var proxy = SwiftObjectRegistry.GetProxyFromContainer<DividableProxy>(container);
         var param0 = MarshalFromSwift<int>(rawArg0);
-        var result = proxy._csharpImpl!.GetDivide(param0);
+        var result = proxy._csharpImpl!.Divide(param0);
         return MarshalToSwiftBuffer(result);
     }
     
@@ -36792,11 +36792,11 @@ public unsafe partial class DividableProxy : IDividable, ISwiftObject, IDisposab
     }
     #region Interface Implementation
     
-    public int GetDivide(int other)
+    public int Divide(int other)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().Name);
         if (_csharpImpl != null)
-            return _csharpImpl.GetDivide(other);
+            return _csharpImpl.Divide(other);
         fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
         {
             var arg0Slice = other;
@@ -37101,7 +37101,7 @@ public unsafe partial struct MultiConformingValue : ISwiftObject, IDisposable, I
     private static partial int PInvoke_add_F104C5CA( int other,  SwiftSelf<MultiConformingValue> self);
     
     
-    public int GetSubtract( int other)
+    public int Subtract( int other)
     {
         unsafe
         {
@@ -37128,7 +37128,7 @@ public unsafe partial struct MultiConformingValue : ISwiftObject, IDisposable, I
     private static partial int PInvoke_subtract_6913418E( int other,  SwiftSelf<MultiConformingValue> self);
     
     
-    public int GetMultiply( int other)
+    public int Multiply( int other)
     {
         unsafe
         {
@@ -37155,7 +37155,7 @@ public unsafe partial struct MultiConformingValue : ISwiftObject, IDisposable, I
     private static partial int PInvoke_multiply_D260C76A( int other,  SwiftSelf<MultiConformingValue> self);
     
     
-    public int GetDivide( int other)
+    public int Divide( int other)
     {
         unsafe
         {
@@ -39477,7 +39477,7 @@ public interface IStatusHandler
     /// <summary>
     /// Method with enum parameter and return.
     /// </summary>
-    Swift.SwiftBindingsTestLib.TaskStatus GetTransitionStatus(Swift.SwiftBindingsTestLib.TaskStatus from);
+    Swift.SwiftBindingsTestLib.TaskStatus TransitionStatus(Swift.SwiftBindingsTestLib.TaskStatus from);
 }
 
 #pragma warning disable SB0003, SB0004
@@ -39578,7 +39578,7 @@ public unsafe partial class StatusHandlerProxy : IStatusHandler, ISwiftObject, I
         var container = *(ExistentialContainer1*)selfContainer;
         var proxy = SwiftObjectRegistry.GetProxyFromContainer<StatusHandlerProxy>(container);
         var param0 = MarshalFromSwift<Swift.SwiftBindingsTestLib.TaskStatus>(rawArg0);
-        var result = proxy._csharpImpl!.GetTransitionStatus(param0);
+        var result = proxy._csharpImpl!.TransitionStatus(param0);
         return MarshalToSwiftBuffer(result);
     }
     
@@ -39654,13 +39654,13 @@ public unsafe partial class StatusHandlerProxy : IStatusHandler, ISwiftObject, I
         "when called on a Swift-backed existential container (SB0003).",
         DiagnosticId = "SB0003",
         UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
-    public Swift.SwiftBindingsTestLib.TaskStatus GetTransitionStatus(Swift.SwiftBindingsTestLib.TaskStatus from)
+    public Swift.SwiftBindingsTestLib.TaskStatus TransitionStatus(Swift.SwiftBindingsTestLib.TaskStatus from)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().Name);
         if (_csharpImpl != null)
-            return _csharpImpl.GetTransitionStatus(from);
+            return _csharpImpl.TransitionStatus(from);
         throw new NotSupportedException(
-            "Cannot call method 'GetTransitionStatus' on a Swift-backed existential container. " +
+            "Cannot call method 'TransitionStatus' on a Swift-backed existential container. " +
             "Protocol member access is only supported when wrapping a C# implementation.");
     }
     
@@ -41387,7 +41387,7 @@ public partial class SimpleStatusHandler : ISwiftObject, IDisposable, IStatusHan
     /// <summary>
     /// Method with enum parameter and return.
     /// </summary>
-    public Swift.SwiftBindingsTestLib.TaskStatus GetTransitionStatus( Swift.SwiftBindingsTestLib.TaskStatus from)
+    public Swift.SwiftBindingsTestLib.TaskStatus TransitionStatus( Swift.SwiftBindingsTestLib.TaskStatus from)
     {
         unsafe
         {

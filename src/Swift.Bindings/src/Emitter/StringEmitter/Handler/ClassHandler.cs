@@ -258,10 +258,13 @@ namespace BindingsGeneration
 
                 ToStringHelper.EmitToStringIfDescriptionExists(csWriter, classDecl, propertyRenames);
 
-                // Collect property names (post-rename) for method/property collision detection
+                // Collect property and nested type names for method/member collision detection
                 var propertyNames = new HashSet<string>(classDecl.Properties.Select(p =>
                     NameProvider.GetFinalMemberName(
                         NameProvider.GetPropertyName(p.Name, classDecl.Name), propertyRenames)));
+                // Nested type names collide with method names in C# (CS0102)
+                foreach (var nestedType in classDecl.Types)
+                    propertyNames.Add(NameProvider.ToPascalCase(nestedType.Name));
 
                 SubscriptHandler.EmitSubscripts(csWriter, swiftWriter, classDecl, env.TypeDatabase, conductor, childContext, _logger);
 

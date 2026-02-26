@@ -135,7 +135,8 @@ namespace BindingsGeneration
             hasReturnValue: !MethodDecl.IsAccessor && MethodDecl.CSSignature.Count > 0 && !MethodDecl.CSSignature.First().SwiftTypeSpec.IsEmptyTuple,
             SiblingPropertyNames,
             isSelfReturning: IsSelfReturning,
-            parentTypeName: (MethodDecl.ParentDecl as TypeDecl)?.Name);
+            parentTypeName: (MethodDecl.ParentDecl as TypeDecl)?.Name,
+            parameterCount: MethodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a)));
 
         /// <summary>
         /// Returns true if the method returns its declaring type (fluent/builder pattern).

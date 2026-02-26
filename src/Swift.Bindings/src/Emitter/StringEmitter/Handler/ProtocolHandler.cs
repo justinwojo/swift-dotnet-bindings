@@ -146,6 +146,21 @@ namespace BindingsGeneration
                 ReportCollector.RecordMemberEmitted(BindingItemKind.Property, propertyDecl.Name, protocolDecl);
             }
 
+            // Collect actually-emitted C# property names for method/property collision detection.
+            // Only include properties that passed all gates and were emitted in the interface
+            // (not properties that were seen for dedup but gate-skipped).
+            var emittedCSharpPropertyNames = new HashSet<string>();
+            foreach (var propKey in emittedProperties)
+            {
+                if (!skippedPropertyNames.Contains(propKey))
+                    emittedCSharpPropertyNames.Add(NameProvider.GetPropertyName(propKey));
+            }
+            // Also include closure properties that ARE emitted in the interface
+            // (they're in skippedPropertyNames for proxy tracking, but they're still
+            // interface members that can collide with method names).
+            foreach (var closurePropName in closureSkippedPropertyNames)
+                emittedCSharpPropertyNames.Add(NameProvider.GetPropertyName(closurePropName));
+
             // Emit subscripts as interface indexers
             var skippedSubscriptIndices = new HashSet<int>();
             int subscriptIndex = 0;
@@ -240,7 +255,7 @@ namespace BindingsGeneration
                 }
 
                 // M11: Emitted signature collision (stays inline — uses stateful HashSet)
-                var emittedSignature = BuildEmittedSignature(methodDecl, env.TypeDatabase, protocolDecl);
+                var emittedSignature = BuildEmittedSignature(methodDecl, env.TypeDatabase, protocolDecl, emittedCSharpPropertyNames);
                 if (!emittedResolvedSignatures.Add(emittedSignature))
                 {
                     skippedMethodKeys.Add(methodKey);
@@ -259,7 +274,7 @@ namespace BindingsGeneration
                         existentialSkippedMethodKeys.Add(methodKey);
                 }
 
-                EmitInterfaceMethod(bodyWriter, methodDecl, env.TypeDatabase, closureHandler, protocolDecl);
+                EmitInterfaceMethod(bodyWriter, methodDecl, env.TypeDatabase, closureHandler, protocolDecl, emittedCSharpPropertyNames);
                 emittedInterfaceMemberCount++;
                 ReportCollector.RecordMemberEmitted(BindingItemKind.Method, methodDecl.Name, protocolDecl);
             }
@@ -496,7 +511,7 @@ namespace BindingsGeneration
         /// <summary>
         /// Emits a method declaration for an interface.
         /// </summary>
-        private void EmitInterfaceMethod(CSharpWriter csWriter, MethodDecl methodDecl, ITypeDatabase typeDatabase, ClosureHandler closureHandler, ProtocolDecl? protocolContext = null)
+        private void EmitInterfaceMethod(CSharpWriter csWriter, MethodDecl methodDecl, ITypeDatabase typeDatabase, ClosureHandler closureHandler, ProtocolDecl? protocolContext = null, IReadOnlySet<string>? propertyNames = null)
         {
             // Note: Constructor, static, duplicate, and AnyType generic arg checks
             // are handled at the loop level in Emit(). This method is only called
@@ -575,7 +590,9 @@ namespace BindingsGeneration
             }
 
             var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(methodDecl);
-            var methodName = NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: hasReturnValue, isSelfReturning: isSelfReturning);
+            var methodName = NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: hasReturnValue,
+                propertyNames: propertyNames, isSelfReturning: isSelfReturning,
+                parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a)));
             XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl);
             csWriter.WriteLine($"{returnType} {methodName}({string.Join(", ", parameters)});");
         }
@@ -694,14 +711,16 @@ namespace BindingsGeneration
             return $"({string.Join(", ", elements)})";
         }
 
-        private string BuildEmittedSignature(MethodDecl methodDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext)
+        private string BuildEmittedSignature(MethodDecl methodDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext, IReadOnlySet<string>? propertyNames = null)
         {
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
 
             var returnTypeSpec = methodDecl.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
             bool hasReturnValue = returnTypeSpec != null && !returnTypeSpec.IsEmptyTuple;
             var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(methodDecl);
-            var methodName = NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: hasReturnValue, isSelfReturning: isSelfReturning);
+            var methodName = NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: hasReturnValue,
+                propertyNames: propertyNames, isSelfReturning: isSelfReturning,
+                parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a)));
 
             var paramTypes = new List<string>();
             for (int i = 1; i < methodDecl.CSSignature.Count; i++)

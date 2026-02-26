@@ -301,9 +301,9 @@ public static class NameProvider
     /// Prefers the internal Swift name (PrivateName) from swiftinterface data.
     /// For generated names (arg0, arg1), derives a meaningful name from the type.
     ///
-    /// The returned name is safe for use in string interpolation for derived
-    /// variable names (e.g., {name}Handle, {name}Swift). It does NOT use @
-    /// verbatim identifiers because those break concatenation patterns.
+    /// Uses @ verbatim identifiers for C# keywords (e.g., @event, @string).
+    /// This is safe in string interpolation: $"{name}Handle" produces "@eventHandle"
+    /// which is a valid C# identifier (redundant @ is harmless).
     /// </summary>
     /// <param name="arg">The argument declaration.</param>
     /// <returns>A valid C# parameter name.</returns>
@@ -345,13 +345,11 @@ public static class NameProvider
             if (arg.Name == "_value")
                 return "value";
 
-            // For true keywords, try type-derived name
-            var derived = DeriveParameterNameFromType(arg.SwiftTypeSpec);
-            if (derived != null && !IsCSharpKeyword(derived))
-                return derived;
-
-            // Fallback: keep _ prefix
-            return arg.Name;
+            // Use @ verbatim identifier for C# keywords.
+            // @event, @string, @object are valid C# parameter names and
+            // work in all reference positions. For derived variable names
+            // (e.g., __{name}Swift), use StripVerbatimPrefix to get the bare name.
+            return $"@{arg.Name.Substring(1)}";
         }
 
         return arg.Name;
@@ -473,8 +471,9 @@ public static class NameProvider
 
     /// <summary>
     /// Sanitizes a Swift internal parameter name for use as a C# identifier.
-    /// Uses _ prefix (not @ verbatim) because derived names ({name}Handle, {name}Swift)
-    /// must also be valid identifiers.
+    /// Uses @ verbatim prefix for C# keywords. This is safe in string interpolation:
+    /// $"{name}Handle" produces "@eventHandle" which is a valid C# identifier
+    /// (redundant @ is harmless).
     /// </summary>
     private static string SanitizeForCSharp(string name)
     {
@@ -486,9 +485,9 @@ public static class NameProvider
         if (name == "value")
             return name;
 
-        // Handle C# keywords with _ prefix (not @ because derived names like {name}Handle break)
+        // C# keywords — use @ verbatim prefix
         if (IsCSharpKeyword(name))
-            return $"_{name}";
+            return $"@{name}";
 
         // Handle names starting with digits (rare but possible)
         if (char.IsDigit(name[0]))
@@ -557,6 +556,23 @@ public static class NameProvider
     /// Checks if a name is a Swift keyword.
     /// </summary>
     public static bool IsSwiftKeyword(string name) => _swiftKeywords.Contains(name);
+
+    /// <summary>
+    /// Applies the C# verbatim identifier prefix (@) if the name is a C# keyword.
+    /// GetCSharpParameterName already returns @-prefixed names, so this is mainly
+    /// useful for names from other sources (e.g., type-derived names).
+    /// </summary>
+    public static string EscapeForCSharpSignature(string name)
+        => IsCSharpKeyword(name) && name != "value" ? $"@{name}" : name;
+
+    /// <summary>
+    /// Strips the C# verbatim identifier prefix (@) from a name.
+    /// Use when building compound variable names (e.g., __{name}Swift) where
+    /// the @ prefix would appear mid-identifier and be invalid.
+    /// Also use when passing C# parameter names into Swift code generation.
+    /// </summary>
+    public static string StripVerbatimPrefix(string name)
+        => name.StartsWith("@") ? name.Substring(1) : name;
 
     /// <summary>
     /// Escapes a name with backticks if it is a Swift keyword.
@@ -745,7 +761,7 @@ public static class NameProvider
     /// <summary>
     /// Gets the C# variable name for the buffer of a bound generic type.
     /// </summary>
-    public static string GetBoundGenericBufferName(string typeName) => $"{typeName}Buffer";
+    public static string GetBoundGenericBufferName(string typeName) => $"{StripVerbatimPrefix(typeName)}Buffer";
 
     /// <summary>
     /// Gets the name of the async callback delegate field for a method.
@@ -896,7 +912,7 @@ public static class NameProvider
     /// <param name="hasReturnValue">Whether the method has a non-void return value.</param>
     /// <param name="propertyNames">Set of property names in the same type (already in PascalCase).</param>
     /// <returns>The public-facing method name.</returns>
-    public static string GetPublicMethodName(string methodName, bool isAsync, bool hasReturnValue = false, IReadOnlySet<string>? propertyNames = null, bool isSelfReturning = false, string? parentTypeName = null)
+    public static string GetPublicMethodName(string methodName, bool isAsync, bool hasReturnValue = false, IReadOnlySet<string>? propertyNames = null, bool isSelfReturning = false, string? parentTypeName = null, int parameterCount = 0)
     {
         // 1. Strip leading async/Async prefix (Swift convention → .NET suffix convention)
         //    Only strip for actual async methods — a sync property named "asyncInstance"
@@ -909,7 +925,7 @@ public static class NameProvider
         // 3. Add "Get" prefix for noun-only names with a return value
         //    Do this BEFORE property collision check so "Data" → "GetData" no longer collides
         //    Skip for self-returning methods (fluent/builder pattern: EqualTo(), Accessibility(), etc.)
-        if (hasReturnValue && !StartsWithVerb(name) && !isAsync && !isSelfReturning)
+        if (hasReturnValue && !StartsWithVerb(name) && !isAsync && !isSelfReturning && parameterCount == 0)
             name = $"Get{name}";
 
         // 4. Property collision resolution (only if still colliding after verb prefix)

@@ -66,6 +66,7 @@ namespace BindingsGeneration
         public string[]? superclassNames { get; set; }
         public bool? inheritsConvenienceInitializers { get; set; }
         public bool? hasMissingDesignatedInitializers { get; set; }
+        public string[]? typeAttributes { get; set; }
         public required IEnumerable<Node> Children { get; set; } = Enumerable.Empty<Node>();
         public required IEnumerable<Node> Conformances { get; set; } = Enumerable.Empty<Node>();
         public required IEnumerable<Node> Accessors { get; set; } = Enumerable.Empty<Node>();
@@ -1501,6 +1502,18 @@ namespace BindingsGeneration
                     if (spec is null)
                     {
                         throw new Exception($"Error parsing type from \"{node.PrintedName}\"");
+                    }
+                    // Propagate escaping attribute from ABI JSON typeAttributes.
+                    // Swift public API convention: closures are @escaping unless
+                    // explicitly marked noescape. TypeSpecParser doesn't parse
+                    // @escaping from PrintedName, so we set it from ABI data.
+                    if (spec is ClosureTypeSpec closureSpec)
+                    {
+                        bool isNoescape = node.typeAttributes?.Contains("noescape") == true;
+                        if (!isNoescape && !closureSpec.IsEscaping)
+                        {
+                            closureSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
+                        }
                     }
                     return spec;
                 case kGenericTypeParam:

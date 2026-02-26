@@ -215,7 +215,8 @@ public class ProtocolConformanceValidator
                 hasReturnValue: concreteHasReturn,
                 propertyNames: concretePropertyNames,
                 isSelfReturning: concreteIsSelfReturning,
-                parentTypeName: concreteParentTypeName);
+                parentTypeName: concreteParentTypeName,
+                parameterCount: concreteMethod.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a)));
 
             // Compare with the interface method name (computed without property collision context)
             var protoReturnTypeSpec = protoMethod.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
@@ -224,7 +225,8 @@ public class ProtocolConformanceValidator
             var interfaceMethodName = NameProvider.GetPublicMethodName(
                 protoMethod.Name, protoMethod.IsAsync,
                 hasReturnValue: protoHasReturn,
-                isSelfReturning: protoIsSelfReturning);
+                isSelfReturning: protoIsSelfReturning,
+                parameterCount: protoMethod.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a)));
 
             if (concreteEmittedName != interfaceMethodName)
                 return false;  // CS0535: method names diverge due to collision resolution
@@ -347,7 +349,8 @@ public class ProtocolConformanceValidator
         var returnTypeSpec = protoMethod.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         bool hasReturnValue = returnTypeSpec != null && !returnTypeSpec.IsEmptyTuple;
         var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(protoMethod);
-        var methodName = NameProvider.GetPublicMethodName(protoMethod.Name, protoMethod.IsAsync, hasReturnValue: hasReturnValue, isSelfReturning: isSelfReturning);
+        var methodName = NameProvider.GetPublicMethodName(protoMethod.Name, protoMethod.IsAsync, hasReturnValue: hasReturnValue, isSelfReturning: isSelfReturning,
+            parameterCount: protoMethod.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a)));
 
         var parameterTypes = new List<string>();
         for (int i = 1; i < protoMethod.CSSignature.Count; i++)

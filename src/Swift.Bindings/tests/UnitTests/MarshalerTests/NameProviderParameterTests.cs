@@ -43,19 +43,19 @@ public class NameProviderParameterTests
     }
 
     [Fact]
-    public void GetCSharpParameterName_KeywordEscapedNamePreserved()
+    public void GetCSharpParameterName_KeywordEscapedName_UsesVerbatimPrefix()
     {
-        // _for stays as _for (not @for) because derived names like _forHandle must be valid
+        // _for → @for (verbatim identifier, valid in C# signatures and references)
         var arg = MakeArg("_for");
-        Assert.Equal("_for", NameProvider.GetCSharpParameterName(arg));
+        Assert.Equal("@for", NameProvider.GetCSharpParameterName(arg));
     }
 
     [Fact]
     public void GetCSharpParameterName_PrivateNameKeywordSanitized()
     {
-        // If the internal Swift name is a C# keyword, prefix with _
+        // If the internal Swift name is a C# keyword, use @ verbatim prefix
         var arg = MakeArg("arg0", "class");
-        Assert.Equal("_class", NameProvider.GetCSharpParameterName(arg));
+        Assert.Equal("@class", NameProvider.GetCSharpParameterName(arg));
     }
 
     [Fact]
@@ -92,6 +92,22 @@ public class NameProviderParameterTests
     {
         var arg = MakeArg("_", "count");
         Assert.Equal("count", NameProvider.GetCSharpParameterName(arg));
+    }
+
+    [Fact]
+    public void GetCSharpParameterName_Event_UsesVerbatimPrefix()
+    {
+        // Mixpanel: Track(string? @event) — not _event
+        var arg = MakeArg("_event");
+        Assert.Equal("@event", NameProvider.GetCSharpParameterName(arg));
+    }
+
+    [Fact]
+    public void GetCSharpParameterName_Value_ContextualKeyword()
+    {
+        // "value" is a contextual keyword — safe as parameter name
+        var arg = MakeArg("_value");
+        Assert.Equal("value", NameProvider.GetCSharpParameterName(arg));
     }
 
     [Fact]
@@ -263,9 +279,9 @@ public class NameProviderParameterTests
     [Fact]
     public void Arg0_CSharpKeyword_Sanitized()
     {
-        // Type that would derive a C# keyword (e.g., "Object" → "object" → "_object")
+        // Type that would derive a C# keyword (e.g., "Object" → "object" → "@object")
         var arg = MakeArgWithType("arg0", "Swift.Object");
-        Assert.Equal("_object", NameProvider.GetCSharpParameterName(arg));
+        Assert.Equal("@object", NameProvider.GetCSharpParameterName(arg));
     }
 
     [Fact]
@@ -296,6 +312,41 @@ public class NameProviderParameterTests
         var result = NameProvider.GetCSharpParameterName(arg);
         Assert.Equal("inner", result);
         Assert.DoesNotContain(".", result);
+    }
+
+    #endregion
+
+    #region EscapeForCSharpSignature Tests
+
+    [Theory]
+    [InlineData("event", "@event")]
+    [InlineData("for", "@for")]
+    [InlineData("class", "@class")]
+    [InlineData("object", "@object")]
+    [InlineData("string", "@string")]
+    public void EscapeForCSharpSignature_Keyword_AddsVerbatimPrefix(string input, string expected)
+    {
+        Assert.Equal(expected, NameProvider.EscapeForCSharpSignature(input));
+    }
+
+    [Theory]
+    [InlineData("count")]
+    [InlineData("name")]
+    [InlineData("value")]
+    [InlineData("image")]
+    public void EscapeForCSharpSignature_NonKeyword_PassesThrough(string input)
+    {
+        Assert.Equal(input, NameProvider.EscapeForCSharpSignature(input));
+    }
+
+    [Fact]
+    public void EscapeForCSharpSignature_EndToEnd_EventParam()
+    {
+        // Full pipeline: _event → GetCSharpParameterName → "event" → EscapeForCSharpSignature → "@event"
+        var arg = MakeArg("_event");
+        var bare = NameProvider.GetCSharpParameterName(arg);
+        var escaped = NameProvider.EscapeForCSharpSignature(bare);
+        Assert.Equal("@event", escaped);
     }
 
     #endregion
