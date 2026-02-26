@@ -360,6 +360,12 @@ namespace BindingsGeneration
                     usingLines.Add($"using var {convertedName} = new SwiftString({paramName});");
                     argParts.Add(convertedName);
                 }
+                else if (proj is DataProjection)
+                {
+                    var convertedName = $"__{bareName}Swift";
+                    setupLines.Add($"var {convertedName} = Swift.Data.FromByteArray({paramName});");
+                    argParts.Add(convertedName);
+                }
                 else if (proj is NativeRemappedProjection nrp)
                 {
                     var convertedName = $"__{bareName}Swift";
@@ -418,6 +424,7 @@ namespace BindingsGeneration
             return projection switch
             {
                 StringProjection => ($"{resultExpr}.ToString()", true),
+                DataProjection => ($"{resultExpr}.ToByteArray()", false),
                 NativeRemappedProjection nrp => ($"{resultExpr}.{nrp.ToConversionMethod}()", nrp.RequiresDisposal),
                 OptionalProjection opt => GetOptionalAccessorGetterConversion(opt, resultExpr),
                 ArrayProjection arr => GetArrayAccessorGetterConversion(arr, resultExpr),
@@ -433,6 +440,7 @@ namespace BindingsGeneration
             return inner switch
             {
                 StringProjection => ($"((SwiftString?){resultExpr})?.ToString()", true),
+                DataProjection => ($"((Swift.Data?){resultExpr})?.ToByteArray()", true),
                 ArrayProjection arr => GetOptionalContainerGetterConversion(arr, resultExpr),
                 DictionaryProjection dict => GetOptionalContainerGetterConversion(dict, resultExpr),
                 NativeRemappedProjection nrp => ($"(({nrp.SwiftWrapperType}?){resultExpr})?.{nrp.ToConversionMethod}()", true),
@@ -486,6 +494,7 @@ namespace BindingsGeneration
             return projection switch
             {
                 StringProjection => ($"new SwiftString({valueExpr})", true),
+                DataProjection => ($"Swift.Data.FromByteArray({valueExpr})", false),
                 NativeRemappedProjection nrp => (
                     nrp.FromFactoryMethod != null
                         ? $"{nrp.SwiftWrapperType}.{nrp.FromFactoryMethod}({valueExpr})"

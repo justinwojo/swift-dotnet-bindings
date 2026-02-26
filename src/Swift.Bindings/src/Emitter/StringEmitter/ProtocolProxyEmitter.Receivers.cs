@@ -410,6 +410,7 @@ public partial class ProtocolProxyEmitter
         return projection switch
         {
             StringProjection => $"new SwiftString({varName})",
+            DataProjection => $"Swift.Data.FromByteArray({varName})",
             NativeRemappedProjection nrp => nrp.FromFactoryMethod != null
                 ? $"{nrp.SwiftWrapperType}.{nrp.FromFactoryMethod}({varName})"
                 : $"new {nrp.SwiftWrapperType}({varName})",
@@ -462,6 +463,7 @@ public partial class ProtocolProxyEmitter
         return inner switch
         {
             StringProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome(new SwiftString({varName}Val)) : SwiftOptional<{optType}>.NewNone())",
+            DataProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome(Swift.Data.FromByteArray({varName}Val)) : SwiftOptional<{optType}>.NewNone())",
             NativeRemappedProjection nrp => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome({(nrp.FromFactoryMethod != null ? $"{nrp.SwiftWrapperType}.{nrp.FromFactoryMethod}({varName}Val)" : $"new {nrp.SwiftWrapperType}({varName}Val)")}) : SwiftOptional<{optType}>.NewNone())",
             ObjCBridgedProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome({varName}Val.Handle) : SwiftOptional<{optType}>.NewNone())",
             ArrayProjection arr => BuildOptionalContainerGetterConversion(arr, varName, optType,
@@ -510,6 +512,7 @@ public partial class ProtocolProxyEmitter
         return projection switch
         {
             StringProjection => $"{varName}.ToString()",
+            DataProjection => $"{varName}.ToByteArray()",
             NativeRemappedProjection nrp => $"{varName}.{nrp.ToConversionMethod}()",
             ObjCBridgedProjection objc => $"ObjCRuntime.Runtime.GetNSObject<{objc.PublicType}>({varName})!",
             ArrayProjection arr => GetReceiverArraySetterConversion(arr, varName),
@@ -556,6 +559,7 @@ public partial class ProtocolProxyEmitter
         return inner switch
         {
             StringProjection => $"((SwiftString?){varName})?.ToString()",
+            DataProjection => $"((Swift.Data?){varName})?.ToByteArray()",
             NativeRemappedProjection nrp => $"(({nrp.SwiftWrapperType}?){varName})?.{nrp.ToConversionMethod}()",
             ObjCBridgedProjection objc => $"({varName}.Case == Swift.SwiftOptionalCases.None ? null : ObjCRuntime.Runtime.GetNSObject<{objc.PublicType}>({varName}.Some)!)",
             ArrayProjection arr => GetReceiverOptionalContainerSetterConversion(arr, varName, arr.PublicType),

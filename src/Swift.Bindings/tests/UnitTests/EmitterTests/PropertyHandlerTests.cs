@@ -456,7 +456,7 @@ public class PropertyHandlerTests
     }
 
     [Fact]
-    public void Emit_DataProperty_EmitsNSDataWithoutDisposal()
+    public void Emit_DataProperty_EmitsByteArrayWithoutDisposal()
     {
         var typeDatabase = CreateTypeDatabaseWithFoundationTypes();
         var moduleDecl = CreateModuleDeclForEmission("TestModule");
@@ -466,13 +466,13 @@ public class PropertyHandlerTests
 
         var (csOutput, _) = EmitProperty(property, typeDatabase);
 
-        // Property type should be Foundation.NSData (native remapped)
-        Assert.Contains("Foundation.NSData", csOutput);
+        // Property type should be byte[] (DataProjection)
+        Assert.Contains("byte[]", csOutput);
         // Getter: Data is a struct (NOT IDisposable) — expression-bodied, no using
-        Assert.Contains("get => Payload_Get().ToNSData();", csOutput);
+        Assert.Contains("get => Payload_Get().ToByteArray();", csOutput);
         Assert.DoesNotContain("using var __ret", csOutput);
         // Setter: Data is a struct — expression-bodied, no using
-        Assert.Contains("set => Payload_Set(Swift.Data.FromNSData(value));", csOutput);
+        Assert.Contains("set => Payload_Set(Swift.Data.FromByteArray(value));", csOutput);
         Assert.DoesNotContain("using var __val", csOutput);
     }
 

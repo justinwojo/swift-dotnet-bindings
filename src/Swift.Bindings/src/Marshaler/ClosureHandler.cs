@@ -1061,10 +1061,15 @@ public class ClosureHandler
             if (MarshallingHelpers.IsSwiftString(namedType))
                 return "string";
 
+            // Foundation.Data projects to byte[] to match DataProjection's output.
+            // Without this, closures use Foundation.NSData while methods use byte[] → CS0029.
+            if (namedType.Name == "Foundation.Data")
+                return "byte[]";
+
             var typeRecord = _typeDatabase.GetTypeRecordOrAnyType(namedType);
-            // Native remapped types (e.g., Foundation.Data → Foundation.NSData, Foundation.URL → Foundation.NSUrl)
+            // Native remapped types (e.g., Foundation.URL → Foundation.NSUrl)
             // must use NativeTypeName to match GetIdiomaticCSharpType's output for property types.
-            // Without this, closures use Swift.Data while properties use Foundation.NSData → CS0029.
+            // Without this, closures use Swift.URL while properties use Foundation.NSUrl → CS0029.
             if (typeRecord.NativeTypeName != null)
                 return typeRecord.NativeTypeName.FullyQualifiedName;
             return typeRecord.CSharpTypeName.FullyQualifiedName;

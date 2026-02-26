@@ -274,14 +274,71 @@ public class SimpleProjectionTests
 
     #endregion
 
+    #region DataProjection
+
+    [Fact]
+    public void DataProjection_PublicType_IsByteArray()
+    {
+        var proj = new DataProjection();
+        Assert.Equal("byte[]", proj.PublicType);
+        Assert.Equal("Swift.Data", proj.PInvokeType);
+    }
+
+    [Fact]
+    public void DataProjection_ParameterPlan_CreatesFromByteArray()
+    {
+        var proj = new DataProjection();
+        var plan = proj.GetParameterPlan("data");
+
+        Assert.Equal("dataSwift", plan.PInvokeExpression);
+        Assert.Single(plan.SetupStatements);
+
+        var setup = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
+        Assert.Contains("Swift.Data.FromByteArray(data)", setup.Code);
+    }
+
+    [Fact]
+    public void DataProjection_ReturnPlan_Direct_ToByteArray()
+    {
+        var proj = new DataProjection();
+        var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
+        Assert.Equal("result.ToByteArray()", plan.PInvokeExpression);
+    }
+
+    [Fact]
+    public void DataProjection_ReturnPlan_IndirectResult_MarshalFromSwift()
+    {
+        var proj = new DataProjection();
+        var plan = proj.GetReturnPlan("result", ReturnStrategy.IndirectResult);
+        Assert.Equal("SwiftMarshal.MarshalFromSwift<Swift.Data>(result).ToByteArray()", plan.PInvokeExpression);
+    }
+
+    [Fact]
+    public void DataProjection_ElementConversions()
+    {
+        var proj = new DataProjection();
+        Assert.Equal("Swift.Data.FromByteArray(e)", proj.GetParameterElementConversion("e"));
+        Assert.Equal("e.ToByteArray()", proj.GetReturnElementConversion("e"));
+        Assert.False(proj.ElementRequiresDisposal);
+    }
+
+    [Fact]
+    public void DataProjection_DoesNotRequireSwiftWrapper()
+    {
+        var proj = new DataProjection();
+        Assert.False(proj.RequiresSwiftWrapper);
+    }
+
+    #endregion
+
     #region NativeRemappedProjection
 
     [Fact]
     public void NativeRemapped_Frozen_Types()
     {
-        var proj = new NativeRemappedProjection("NSData", "SwiftData", isFrozen: true, toConversionMethod: "ToNSData");
-        Assert.Equal("NSData", proj.PublicType);
-        Assert.Equal("SwiftData", proj.PInvokeType);
+        var proj = new NativeRemappedProjection("NSUrl", "SwiftURL", isFrozen: true, toConversionMethod: "ToNSUrl");
+        Assert.Equal("NSUrl", proj.PublicType);
+        Assert.Equal("SwiftURL", proj.PInvokeType);
     }
 
     [Fact]
@@ -295,16 +352,16 @@ public class SimpleProjectionTests
     [Fact]
     public void NativeRemapped_Frozen_ParameterPlan_UsesVarNotUsing()
     {
-        var proj = new NativeRemappedProjection("NSData", "SwiftData", isFrozen: true, toConversionMethod: "ToNSData");
-        var plan = proj.GetParameterPlan("data");
+        var proj = new NativeRemappedProjection("NSUrl", "SwiftURL", isFrozen: true, toConversionMethod: "ToNSUrl");
+        var plan = proj.GetParameterPlan("url");
 
-        Assert.Equal("dataSwift", plan.PInvokeExpression);
+        Assert.Equal("urlSwift", plan.PInvokeExpression);
         Assert.Single(plan.SetupStatements);
 
         // Frozen types use var (no using) — no disposal needed for value types
         var setup = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
-        Assert.Contains("dataSwift", setup.Code);
-        Assert.Contains("new SwiftData(data)", setup.Code);
+        Assert.Contains("urlSwift", setup.Code);
+        Assert.Contains("new SwiftURL(url)", setup.Code);
     }
 
     [Fact]
@@ -323,15 +380,15 @@ public class SimpleProjectionTests
     [Fact]
     public void NativeRemapped_ReturnPlan_ConvertsBack()
     {
-        var proj = new NativeRemappedProjection("NSData", "SwiftData", isFrozen: true, toConversionMethod: "ToNSData");
+        var proj = new NativeRemappedProjection("NSUrl", "SwiftURL", isFrozen: true, toConversionMethod: "ToNSUrl");
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
-        Assert.Equal("result.ToNSData()", plan.PInvokeExpression);
+        Assert.Equal("result.ToNSUrl()", plan.PInvokeExpression);
     }
 
     [Fact]
     public void NativeRemapped_DoesNotRequireSwiftWrapper()
     {
-        var proj = new NativeRemappedProjection("NSData", "SwiftData", isFrozen: true, toConversionMethod: "ToNSData");
+        var proj = new NativeRemappedProjection("NSUrl", "SwiftURL", isFrozen: true, toConversionMethod: "ToNSUrl");
         Assert.False(proj.RequiresSwiftWrapper);
     }
 

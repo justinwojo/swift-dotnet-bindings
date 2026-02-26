@@ -191,7 +191,7 @@ public class MarshalPlanRegressionTests
     [Fact]
     public void NativeRemapped_NonFrozen_ParameterPlan_UsesPayload()
     {
-        var proj = new NativeRemappedProjection("Foundation.NSData", "SwiftData", isFrozen: false, toConversionMethod: "ToNSData");
+        var proj = new NativeRemappedProjection("Foundation.NSDate", "SwiftTimestamp", isFrozen: false, toConversionMethod: "ToNSDate");
         var plan = proj.GetParameterPlan("data");
 
         Assert.Contains("Payload", plan.PInvokeExpression);
@@ -211,12 +211,12 @@ public class MarshalPlanRegressionTests
     [Fact]
     public void NativeRemapped_NonFrozen_ReturnPlan_ConvertsToPublicType()
     {
-        // Factory passes toConversionMethod from the short name (e.g., "ToNSData")
-        var proj = new NativeRemappedProjection("Foundation.NSData", "SwiftData", isFrozen: false,
-            toConversionMethod: "ToNSData");
+        // Factory passes toConversionMethod from the short name (e.g., "ToNSDate")
+        var proj = new NativeRemappedProjection("Foundation.NSDate", "SwiftTimestamp", isFrozen: false,
+            toConversionMethod: "ToNSDate");
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
 
-        Assert.Contains("new SwiftData(result).ToNSData()", plan.PInvokeExpression);
+        Assert.Contains("new SwiftTimestamp(result).ToNSDate()", plan.PInvokeExpression);
     }
 
     #endregion

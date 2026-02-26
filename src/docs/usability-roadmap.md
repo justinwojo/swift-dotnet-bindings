@@ -50,7 +50,7 @@
 | Library | Workflow | Blocker | Fixable In |
 |---------|----------|---------|:----------:|
 | Alamofire | `Session.request(url).responseData { }` | Generic closure in callback param | Session 3 |
-| Alamofire | `Session.request(url).serializingData()` | `Foundation.Data` not `ISwiftObject` | Session 2 |
+| ~~Alamofire~~ | ~~`Session.request(url).serializingData()`~~ | ~~`Foundation.Data` not `ISwiftObject`~~ | ~~Session 2~~ ✅ |
 | Mixpanel | `Track(event:, properties:)` full form | `[String: any MixpanelType]` dict-existential | Session 5 |
 | Starscream | Runtime event delivery via `IWebSocketDelegate` | Existential marshalling in callbacks | Session 6 |
 | RxSwift | `observable.Subscribe { }` | `any Disposable` existential return | Session 4 |
@@ -78,21 +78,25 @@
 
 ---
 
-### Session 2: Foundation.Data Projection
+### Session 2: Foundation.Data Projection ✅ COMPLETE
 
-**Theme**: Add `Foundation.Data` as first-class runtime type
-**Effort**: 1 session | **Libraries improved**: Alamofire, KeychainAccess, others with `Data` in APIs
-**Priority**: High — unlocks Alamofire's async pathway and unblocks `Data` in bound generics everywhere
+**Theme**: Project `Foundation.Data` as `byte[]` in public APIs, unblock bound generics
+**Effort**: 1 session | **Libraries improved**: Alamofire, Kingfisher, Nuke, Starscream, others with `Data` in APIs
+**Status**: Complete — all sub-tasks implemented, 3 regressions found and fixed (enum case + async tuple edge cases), 32/32 validation (3 improved: Kingfisher, Nuke, Starscream)
 
-| Sub-task | Description | Classification |
-|----------|-------------|----------------|
-| **2a. `SwiftData` runtime type** | New C# type implementing `ISwiftObject`, wrapping `Foundation.Data`. Similar pattern to `SwiftString` and `SwiftArray<T>`. Implement `byte[]` / `ReadOnlySpan<byte>` / `NSData` marshalling. | Runtime |
-| **2b. Generator projection** | Register `Foundation.Data` → `SwiftData` in type database. Project as `byte[]` in public APIs (like `SwiftString` → `string`). Handle `Optional<Data>` → `byte[]?`. | Generator gap |
-| **2c. Bound generic unblock** | `DataTask<Data>` should pass `HasNonSwiftObjectGenericArg` now that `Data` implements `ISwiftObject`. Verify Alamofire `serializingData()` emits. | Generator gap |
+| Sub-task | Description | Status |
+|----------|-------------|--------|
+| **2a. `Data.FromByteArray()` runtime method** | Added `Data.FromByteArray(byte[])` static factory on existing `Swift.Data` struct, mirroring `FromNSData`. Fixed/unsafe pinning for byte array → native pointer. | ✅ |
+| **2b. `DataProjection` class** | New `DataProjection : ITypeProjection` modeled on `StringProjection`. `PublicType="byte[]"`, `PInvokeType="Swift.Data"`, parameter via `FromByteArray()`, return via `ToByteArray()`, `ElementRequiresDisposal=false`. | ✅ |
+| **2c. Factory wiring** | `Foundation.Data` early-exit in `TypeProjectionFactory.ProjectNamedType` before `NativeTypeName` triggers `NativeRemappedProjection`. `FoundationDatabase.xml` unchanged (ABI gate still needed). | ✅ |
+| **2d. Bound generics unblock** | Early return in `BoundGenericsHandler.IsNonSwiftObjectMappedType` for `Foundation.Data`. Unblocks `DataTask<Data>`, `Array<Data>`, `Optional<Data>`. Alamofire `serializingData()` now emits. | ✅ |
+| **2e. Emitter pattern matches** | DataProjection branches in PropertyHandler (3), SubscriptHandler (4), ProtocolProxyEmitter.Receivers (4), EnumHandler.CaseConstruction (3), EnumHandler.CaseInspection (2), EnumHandler.Marshalling (1), WrapperEmitter.Return (2), ClosureHandler (1). Total: 20 locations across 8 files. | ✅ |
+| **2f. TypeConversionHandler** | `FromNSData` → `FromByteArray`, `ToNSData` → `ToByteArray` in backup conversion paths. | ✅ |
+| **2g. Tests** | Updated 7 test files. Added 10 new DataProjection tests. Existing NativeRemapped tests redirected to URL. | ✅ |
 
-**Projected impact**: Alamofire +0.20-0.30 (Completeness + Overall), KeychainAccess +0.10. Avg +0.03-0.05.
+**Acceptance gate results**: Alamofire `serializingData()` emits and compiles ✅. `Foundation.Data` params project as `byte[]` ✅. 32/32 validation ✅. 3 libraries improved (Kingfisher, Nuke, Starscream — enum/tuple Data edge cases now correct).
 
-**Acceptance gate**: Alamofire `serializingData()` method appears in generated bindings and compiles. `Foundation.Data` parameters project as `byte[]`. 32/32 validation maintained.
+**Key files**: `DataProjection.cs` (new), `Data.cs` (FromByteArray), `TypeProjectionFactory.cs`, `BoundGenericsHandler.cs`, `EnumHandler.CaseConstruction.cs`, `EnumHandler.CaseInspection.cs`, `EnumHandler.Marshalling.cs`, `WrapperEmitter.Return.cs`
 
 **Note**: This does NOT fix Alamofire's callback-style `responseData {}` — that requires Session 3.
 

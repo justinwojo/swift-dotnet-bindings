@@ -127,6 +127,22 @@ public struct Data : ISwiftObject
     public static unsafe extern void PInvoke_CopyBytes(UnsafeMutablePointer<byte> buffer, nint count, Data data);
 
     /// <summary>
+    /// Creates a Swift.Data from a byte array.
+    /// </summary>
+    /// <param name="bytes">The byte array to convert.</param>
+    /// <returns>A Swift.Data representation of the byte array.</returns>
+    /// <exception cref="ArgumentNullException">Thrown if bytes is null.</exception>
+    public static unsafe Data FromByteArray(byte[] bytes)
+    {
+        if (bytes == null) throw new ArgumentNullException(nameof(bytes));
+        if (bytes.Length == 0) return new Data(new UnsafeRawPointer(null), 0);
+        fixed (byte* ptr = bytes)
+        {
+            return new Data(new UnsafeRawPointer(ptr), bytes.Length);
+        }
+    }
+
+    /// <summary>
     /// Converts this Swift.Data to a byte array.
     /// </summary>
     /// <returns>A byte array containing the data.</returns>

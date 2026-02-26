@@ -265,8 +265,8 @@ public class TypeConversionHandler
 
         if (IsFoundationData(typeSpec))
         {
-            // Foundation.NSData -> Swift.Data
-            return $"Swift.Data.FromNSData({paramName})";
+            // byte[] -> Swift.Data
+            return $"Swift.Data.FromByteArray({paramName})";
         }
 
         return null;
@@ -289,8 +289,8 @@ public class TypeConversionHandler
 
         if (IsFoundationData(typeSpec))
         {
-            // Swift.Data -> Foundation.NSData
-            return $"{resultVar}.ToNSData()";
+            // Swift.Data -> byte[]
+            return $"{resultVar}.ToByteArray()";
         }
 
         return null;

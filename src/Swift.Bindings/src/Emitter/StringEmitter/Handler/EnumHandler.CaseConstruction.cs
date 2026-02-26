@@ -111,6 +111,10 @@ namespace BindingsGeneration
                 {
                     csWriter.WriteLine($"using var __{name} = new SwiftString({name});");
                 }
+                else if (typeSpec is NamedTypeSpec dataSpec && dataSpec.Name == "Foundation.Data")
+                {
+                    csWriter.WriteLine($"var __{name} = Swift.Data.FromByteArray({name});");
+                }
                 else if (typeSpec is TupleTypeSpec tupleSpec && publicType != type)
                 {
                     // Tuple with projected elements — emit per-element conversion.
@@ -143,6 +147,13 @@ namespace BindingsGeneration
                             var elemVarName = $"__{name}_e{j}";
                             csWriter.WriteLine($"using var {elemVarName} = new SwiftString({elementAccess});");
                             elementExprs.Add(GetPInvokeArgument(elemVarName, element, typeDatabase));
+                        }
+                        else if (proj is DataProjection)
+                        {
+                            // Data: convert byte[] → Swift.Data for P/Invoke tuple element.
+                            var elemVarName = $"__{name}_e{j}";
+                            csWriter.WriteLine($"var {elemVarName} = Swift.Data.FromByteArray({elementAccess});");
+                            elementExprs.Add(elemVarName);
                         }
                         else if (proj is NativeRemappedProjection nrp)
                         {
@@ -229,7 +240,9 @@ namespace BindingsGeneration
                 }
                 else
                 {
-                    var argName = typeConversionHandler.IsSwiftString(typeSpec) ? $"__{name}" : name;
+                    var isConvertedToLocal = typeConversionHandler.IsSwiftString(typeSpec) ||
+                        (typeSpec is NamedTypeSpec ds && ds.Name == "Foundation.Data");
+                    var argName = isConvertedToLocal ? $"__{name}" : name;
                     argList.Add(GetPInvokeArgument(argName, typeSpec, typeDatabase));
                 }
             }
@@ -388,6 +401,10 @@ namespace BindingsGeneration
             // Handle SwiftString → string for public API
             if (typeConversionHandler.IsSwiftString(typeSpec))
                 return "string";
+
+            // Handle Foundation.Data → byte[] for public API
+            if (typeSpec is NamedTypeSpec dataType && dataType.Name == "Foundation.Data")
+                return "byte[]";
 
             // Handle bound generics (Optional<T>, Array<T>, Dictionary<K,V>) via factory
             // The factory produces idiomatic public types (string?, IReadOnlyList<T>, IReadOnlyDictionary<K,V>).

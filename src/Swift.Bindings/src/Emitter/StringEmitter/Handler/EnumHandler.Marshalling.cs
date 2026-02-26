@@ -215,6 +215,14 @@ namespace BindingsGeneration
                 }
             }
 
+            // Foundation.Data → byte[]: marshal as Swift.Data, then convert
+            if (typeSpec is NamedTypeSpec dataOffset && dataOffset.Name == "Foundation.Data")
+            {
+                csWriter.WriteLine($"var _{varName}_raw = SwiftMarshal.MarshalFromSwift<Swift.Data>(new IntPtr({sourcePtr} + (int){offsetVar}));");
+                csWriter.WriteLine($"{varName} = _{varName}_raw.ToByteArray();");
+                return;
+            }
+
             // For bound generics, check if public type differs (needs conversion after marshal).
             // Skip closures — delegate* can't be used as generic type arguments in MarshalFromSwift<T>.
             if (typeSpec is NamedTypeSpec namedOffset && namedOffset.ContainsGenericParameters

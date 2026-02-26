@@ -167,9 +167,9 @@ public class TypeProjectionConsistencyTests
         yield return new object[] { "NativeRemapped(frozen)", N("TestModule.SwiftURL"), false,
             "Foundation.NSUrl", "Swift.TestModule.SwiftURL", typeof(NativeRemappedProjection) };
 
-        // Native remapped (non-frozen)
-        yield return new object[] { "NativeRemapped(non-frozen)", N("TestModule.SwiftData"), false,
-            "Foundation.NSData", "SafeHandle", typeof(NativeRemappedProjection) };
+        // Native remapped (non-frozen) — uses a non-Data type since Data now gets DataProjection
+        yield return new object[] { "NativeRemapped(non-frozen)", N("TestModule.SwiftTimestamp"), false,
+            "Foundation.NSDate", "SafeHandle", typeof(NativeRemappedProjection) };
     }
 
     public static IEnumerable<object[]> ContainerParamTypes()
@@ -553,9 +553,9 @@ public class TypeProjectionConsistencyTests
     [Fact]
     public void SignatureAgreement_NativeRemapped_NonFrozen_ReturnsSafeHandle()
     {
-        var proj = new NativeRemappedProjection("Foundation.NSData", "SwiftData", isFrozen: false, toConversionMethod: "ToNSData");
+        var proj = new NativeRemappedProjection("Foundation.NSDate", "SwiftTimestamp", isFrozen: false, toConversionMethod: "ToNSDate");
 
-        Assert.Equal("Foundation.NSData", proj.PublicType);
+        Assert.Equal("Foundation.NSDate", proj.PublicType);
         Assert.Equal("SafeHandle", proj.PInvokeType);
     }
 
@@ -570,7 +570,8 @@ public class TypeProjectionConsistencyTests
         yield return new object[] { "Class", new ClassProjection("MyViewController") };
         yield return new object[] { "FrozenWithMemory", new FrozenWithMemoryProjection("ManagedFrozen") };
         yield return new object[] { "NativeRemapped(frozen)", new NativeRemappedProjection("Foundation.NSUrl", "SwiftURL", true, "ToNSUrl") };
-        yield return new object[] { "NativeRemapped(non-frozen)", new NativeRemappedProjection("Foundation.NSData", "SwiftData", false, "ToNSData") };
+        yield return new object[] { "NativeRemapped(non-frozen)", new NativeRemappedProjection("Foundation.NSDate", "SwiftTimestamp", false, "ToNSDate") };
+        yield return new object[] { "Data", new DataProjection() };
         yield return new object[] { "Array<String>", new ArrayProjection(new StringProjection(), false) };
         yield return new object[] { "Dict<String,String>", new DictionaryProjection(new StringProjection(), new StringProjection(), false) };
         yield return new object[] { "Optional<String>", new OptionalProjection(new StringProjection()) };
@@ -734,12 +735,12 @@ public class TypeProjectionConsistencyTests
             Kind = TypeRecordKind.Struct
         });
 
-        // Native remapped (non-frozen)
-        db.AddType("TestModule.SwiftData", new TypeRecord
+        // Native remapped (non-frozen) — uses a non-Data type since Data now gets DataProjection
+        db.AddType("TestModule.SwiftTimestamp", new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "SwiftData"),
-            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.SwiftData"),
-            NativeTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSData"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "SwiftTimestamp"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.SwiftTimestamp"),
+            NativeTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSDate"),
             MetadataAccessor = "",
             Flags = TypeRecordFlags.None,
             Kind = TypeRecordKind.Struct

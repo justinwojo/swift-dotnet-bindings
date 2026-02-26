@@ -641,6 +641,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         return projection switch
         {
             StringProjection => ($"{resultExpr}.ToString()", true),
+            DataProjection => ($"{resultExpr}.ToByteArray()", false),
             NativeRemappedProjection nrp => ($"{resultExpr}.{nrp.ToConversionMethod}()", nrp.RequiresDisposal),
             OptionalProjection opt => GetOptionalAccessorGetterConversion(opt, resultExpr),
             ArrayProjection arr => GetArrayAccessorGetterConversion(arr, resultExpr),
@@ -701,6 +702,8 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         {
             // Optional<String>: ((SwiftString?)result)?.ToString()
             StringProjection => ($"((SwiftString?){resultExpr})?.ToString()", true),
+            // Optional<Data>: ((Swift.Data?)result)?.ToByteArray()
+            DataProjection => ($"((Swift.Data?){resultExpr})?.ToByteArray()", true),
             // Optional<Array<T>>: discriminant check + inner array conversion or .Some passthrough
             ArrayProjection arr =>
                 GetOptionalContainerGetterConversion(arr, resultExpr),
@@ -751,6 +754,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         return projection switch
         {
             StringProjection => ($"new SwiftString({valueExpr})", true),
+            DataProjection => ($"Swift.Data.FromByteArray({valueExpr})", false),
             NativeRemappedProjection nrp => (
                 nrp.FromFactoryMethod != null
                     ? $"{nrp.SwiftWrapperType}.{nrp.FromFactoryMethod}({valueExpr})"

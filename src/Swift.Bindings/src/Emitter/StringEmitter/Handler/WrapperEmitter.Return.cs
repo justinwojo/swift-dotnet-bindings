@@ -539,6 +539,10 @@ namespace BindingsGeneration
                 if (applyIdiomaticConversion && MarshallingHelpers.IsSwiftString(named))
                     return "string";
 
+                // Foundation.Data → byte[] (only at top level, not inside generics)
+                if (applyIdiomaticConversion && named.Name == "Foundation.Data")
+                    return "byte[]";
+
                 var typeRecord = _env.TypeDatabase.GetTypeRecordOrAnyType(named);
                 return typeRecord.CSharpTypeName.FullyQualifiedName;
             }
@@ -660,6 +664,10 @@ namespace BindingsGeneration
             {
                 return $"var {resultName} = ({csharpType}){itemName};";
             }
+
+            // Foundation.Data → byte[] conversion
+            if (element is NamedTypeSpec dataElement && dataElement.Name == "Foundation.Data")
+                return $"var {resultName} = {itemName}.ToByteArray();";
 
             // Frozen blittable primitives — use directly
             return $"var {resultName} = {itemName};";

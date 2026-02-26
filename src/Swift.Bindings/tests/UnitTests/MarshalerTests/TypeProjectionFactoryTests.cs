@@ -97,28 +97,20 @@ public class TypeProjectionFactoryTests
     }
 
     [Fact]
-    public void Project_NativeRemappedFrozen_ReturnsNativeRemappedProjection()
+    public void Project_FoundationData_ReturnsDataProjection()
     {
-        // Foundation.Data → frozen, NativeTypeName = NSData, CSharpTypeName = SwiftData
+        // Foundation.Data → DataProjection with byte[] public type
+        // Factory short-circuits before type database lookup
         var db = new MockTypeDatabase();
-        db.AddType("Foundation.Data", new TypeRecord
-        {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftData"),
-            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.Data"),
-            MetadataAccessor = "",
-            Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
-            Kind = TypeRecordKind.Struct,
-            NativeTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSData")
-        });
         var ctx = CreateContext(db);
         var typeSpec = new NamedTypeSpec("Foundation.Data");
 
         var projection = _factory.Project(typeSpec, ctx);
 
         Assert.NotNull(projection);
-        Assert.IsType<NativeRemappedProjection>(projection);
-        Assert.Equal("Foundation.NSData", projection.PublicType);
-        Assert.Equal("Swift.SwiftData", projection.PInvokeType);
+        Assert.IsType<DataProjection>(projection);
+        Assert.Equal("byte[]", projection.PublicType);
+        Assert.Equal("Swift.Data", projection.PInvokeType);
     }
 
     [Fact]

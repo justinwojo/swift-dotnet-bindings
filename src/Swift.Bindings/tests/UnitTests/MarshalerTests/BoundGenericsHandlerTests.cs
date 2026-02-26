@@ -626,6 +626,16 @@ public class BoundGenericsHandlerTests
     }
 
     [Fact]
+    public void HasNonSwiftObjectGenericArg_WithDataArg_ReturnsFalse()
+    {
+        // Foundation.Data implements ISwiftObject at runtime — should NOT be blocked
+        var generic = new NamedTypeSpec("TestModule.DataTask");
+        generic.GenericParameters.Add(new NamedTypeSpec("Foundation.Data"));
+
+        Assert.False(_handler.HasNonSwiftObjectGenericArg(generic));
+    }
+
+    [Fact]
     public void HasNonSwiftObjectGenericArg_WithObjCBridgedArg_ReturnsTrue()
     {
         var generic = new NamedTypeSpec("TestModule.Future");

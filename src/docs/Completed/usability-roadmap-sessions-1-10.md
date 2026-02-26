@@ -15,7 +15,7 @@
 
 | Library | Critical Workflow | Status | Compiles? | Runs? |
 |---------|------------------|:------:|:---------:|:-----:|
-| Alamofire | `Session.Request(url).SerializingData()` (async) | Skip¹ | | |
+| Alamofire | `Session.Request(url).SerializingData()` (async) | ~~Skip¹~~ Full (EP2) | ✅ | |
 | Kingfisher | `KF.Builder.setProcessor().setCache().set(imageView)` | Full | ✅ | |
 | SnapKit | `view.GetSnp().MakeConstraints { }` | Full | ✅ | ✅ |
 | GRDB | `pool.Read { db in ... }` | Full | ✅ | |
@@ -30,11 +30,11 @@
 | Lottie | `LottieAnimationView(name:).Play { finished in }` | Full | ✅ | ✅ |
 | BlinkID | `BlinkIdRecognizer()` + scan result access | Full | ✅ | |
 
-¹ `DataTask<Data>` fails `HasNonSwiftObjectGenericArg` (Foundation.Data not ISwiftObject). Not fixable with bypass patterns.
+¹ `DataTask<Data>` failed `HasNonSwiftObjectGenericArg` — **fixed in Ergonomic Polish Session 2** (DataProjection + bound generics unblock).
 ² `properties:` param requires `[String: any MixpanelType]` dict-existential projection.
 ⁴ Interface recovery + compile only. Runtime event delivery requires existential marshalling.
 
-**Final: 11 Full, 2 Partial, 1 Skip.**
+**Final: 11 Full, 2 Partial, 1 Skip.** (Updated post-EP2: 12 Full, 2 Partial, 0 Skip.)
 
 ---
 

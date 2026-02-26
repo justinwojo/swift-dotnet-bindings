@@ -228,6 +228,11 @@ namespace BindingsGeneration
                     EmitPayloadMarshalWithDeclaration(csWriter, typeSpec, "__value_raw", "enumCopy", typeDatabase, marshalGenericParams);
                     csWriter.WriteLine("value = __value_raw.ToString();");
                 }
+                else if (typeSpec is NamedTypeSpec dataSpec && dataSpec.Name == "Foundation.Data")
+                {
+                    EmitPayloadMarshalWithDeclaration(csWriter, typeSpec, "__value_raw", "enumCopy", typeDatabase, marshalGenericParams);
+                    csWriter.WriteLine("value = __value_raw.ToByteArray();");
+                }
                 else
                 {
                     EmitPayloadMarshal(csWriter, typeSpec, "value", "enumCopy", typeDatabase, marshalGenericParams);
@@ -251,6 +256,11 @@ namespace BindingsGeneration
                     {
                         EmitPayloadMarshalWithDeclaration(csWriter, typeSpec, $"{valueName}_raw", "enumCopy", typeDatabase, marshalGenericParams);
                         csWriter.WriteLine($"var {valueName} = {valueName}_raw.ToString();");
+                    }
+                    else if (typeSpec is NamedTypeSpec dataMultiSpec && dataMultiSpec.Name == "Foundation.Data")
+                    {
+                        EmitPayloadMarshalWithDeclaration(csWriter, typeSpec, $"{valueName}_raw", "enumCopy", typeDatabase, marshalGenericParams);
+                        csWriter.WriteLine($"var {valueName} = {valueName}_raw.ToByteArray();");
                     }
                     else if (i == 0)
                     {

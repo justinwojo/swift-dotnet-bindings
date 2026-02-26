@@ -192,6 +192,9 @@ public class TypeProjectionFactory
         if (name == "Swift.String")
             return new StringProjection();
 
+        if (name == "Foundation.Data")
+            return new DataProjection();
+
         // Pointer types are always mapped to System.IntPtr
         if (IsPointerType(name))
             return new BlittableProjection("System.IntPtr");

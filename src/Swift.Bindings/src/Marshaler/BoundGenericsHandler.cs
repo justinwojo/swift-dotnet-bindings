@@ -900,6 +900,10 @@ public class BoundGenericsHandler
         if (!typeSpec.HasModule())
             return false;
 
+        // Foundation.Data implements ISwiftObject at runtime — don't block from generics
+        if (typeSpec.Name == "Foundation.Data")
+            return false;
+
         if (_typeDatabase.TryGetTypeRecord(typeSpec, out var record))
         {
             if (record.NativeTypeName != null)
