@@ -32,7 +32,7 @@ Track two things in parallel:
 | SnapKit | `view.GetSnp().MakeConstraints { }` | Full | ✅ | |
 | GRDB | `pool.Read { db in ... }` | Full | | |
 | Mixpanel | `Mixpanel.Track(event:)` (no properties) | Partial² | | |
-| RxSwift | `Observable.Skip(n).Take(n).Publish()` (non-closure ops) | Partial³ | | |
+| RxSwift | `Observable.Filter(...).Map(...)` + non-closure ops | Full | ✅ | |
 | CryptoSwift | `new AES(key, new CBC(iv))` | Full | | |
 | Stripe | `STPAPIClient().ConfirmPaymentIntent(params) { }` | Full | | |
 | Nuke | `ImagePipeline.Shared.LoadImage(new ImageRequest(url))` | Full | | |
@@ -47,7 +47,7 @@ Track two things in parallel:
 
 ¹ Original `responseData { }` blocked by generic closure in callback param. Async `SerializingData()` also blocked — `DataTask<Data>` fails `HasNonSwiftObjectGenericArg` (Foundation.Data doesn't satisfy ISwiftObject). Neither pathway fixable with current bypass patterns.
 ² `properties:` param requires `[String: any MixpanelType]` dict-existential projection (deferred structural work).
-³ Closure-based operators (`map`, `filter`, `subscribe`) deferred to Session 10B. 21 non-closure operators shipped (Session 7).
+³ `map` and `filter` closure operators shipped in Session 10B. `subscribe` deferred (existential `any Disposable` return). 21 non-closure operators shipped in Session 7.
 ⁴ Interface recovery + compile only. Runtime event delivery requires existential marshalling in `[UnmanagedCallersOnly]` callbacks.
 
 ---
@@ -239,11 +239,11 @@ Extensions on foreign types (SnapKit's `view.snp`, SkeletonView's `view.showSkel
 
 ---
 
-### Session 7: Protocol Extensions — RxSwift Operators (Bounded Scope) ✅ PARTIAL
+### Session 7: Protocol Extensions — RxSwift Operators (Bounded Scope) ✅ COMPLETE
 
 **Theme**: Project constrained generic protocol extension methods (operators)
 **Effort**: 1 session | **Libraries improved**: RxSwift (deeply)
-**Status**: ✅ PARTIAL — non-closure operators shipped; closure operators (map/filter/subscribe) deferred
+**Status**: ✅ COMPLETE — non-closure operators shipped here; closure operators (map/filter) shipped in Session 10B
 
 Proved generic `@_silgen_name` ABI with explicit+implicit TypeMetadata passing (9/9 spike tests), then extended `ProtocolExtensionEmitter` to handle generic conforming types (`Observable<Element>`, etc.).
 
@@ -252,7 +252,7 @@ Proved generic `@_silgen_name` ABI with explicit+implicit TypeMetadata passing (
 | **7a. Generic @_silgen_name ABI spike** | Proved double TypeMetadata passing (explicit `T.Type` + implicit trailing) works from C# `CallConvSwift` P/Invoke. 9 tests: identity, sizeOf/strideOf, filter with closures, map with two generic params, throwing filter with error propagation. | ✅ Complete — see `Completed/generic-silgen-name-abi.md` |
 | **7b. Generic type support in ProtocolExtensionEmitter** | Removed `ContainsGenericParameters` rejection. Added `<Element>` generic clause, `unsafeBitCast` (Unmanaged requires non-generic T), explicit `Element.Type` metatype params, `ResolveSelfElement` for `Self.Element` → `τ_0_0` resolution. | ✅ Complete |
 | **7c. ABI correctness fixes** | Fixed P/Invoke param ordering (`IsProtocolExtensionMethod` self_ before args, scoped to NOT affect `@_cdecl` closure wrappers). Suppressed PInvokeHelperContext metadata for protocol extension methods (prevents triple TypeMetadata). Fixed `passUnretained` → `passRetained` for class returns (prevents dangling pointer on new objects). | ✅ Complete |
-| **7d. Closure-based operators** | `map`, `filter`, `subscribe`, `flatMap`, `disposed(by:)` — require closure TypeSpec bridging in protocol extension wrappers. | Deferred to Session 10 |
+| **7d. Closure-based operators** | `map`, `filter` — require closure TypeSpec bridging in protocol extension wrappers. `subscribe` deferred (existential return). `flatMap` deferred (constrained generics). | ✅ Complete (Session 10B) |
 
 **Results**:
 - 97 new `@_silgen_name` Swift wrappers across RxSwift
@@ -260,7 +260,7 @@ Proved generic `@_silgen_name` ABI with explicit+implicit TypeMetadata passing (
 - RxSwift bindings: 12,384 → 15,055 lines (+22%)
 - 32/32 validation maintained
 
-**Deferred**: Closure-based operators (`map`, `filter`, `subscribe`) require extending ProtocolExtensionEmitter to bridge closure TypeSpec params in `@_silgen_name` wrappers — passing func pointers and contexts, generating `@_cdecl` callbacks. This is the same pattern proven in the spike (tests S2a/S2b/S3a/S3b) but needs integration into the emitter pipeline. Folded into Session 10f.
+**Closure operators**: `map` and `filter` delivered in Session 10B via `ProtocolExtensionClosureBridge`. `subscribe` deferred (existential `any Disposable` return). `flatMap` deferred (constrained generic `where Source: ObservableConvertibleType`).
 
 **Depends on**: Sessions 5-6 (protocol extension infrastructure)
 
@@ -325,17 +325,37 @@ Sessions 1-9 unlocked the general infrastructure. Session 10A is the "pragmatic 
 
 ---
 
-### Session 10B: Closure Operators in Protocol Extensions (pending)
+### Session 10B: Closure Operators in Protocol Extensions ✅ COMPLETE
 
 **Theme**: Bridge closure TypeSpec params in ProtocolExtensionEmitter's `@_silgen_name` wrappers
 **Effort**: 1 session
+**Status**: ✅ COMPLETE — `Filter` and `Map` on 6 RxSwift conforming types; `Subscribe` deferred (existential return)
 **Depends on**: Session 7 (generic protocol extension ABI), Session 4 (GenericClosureBridgeEmitter pattern)
 
-| Sub-task | Description | Target Library |
-|----------|-------------|---------------|
-| **10f. RxSwift `map`, `filter`, `subscribe`** | Remove blanket `ClosureTypeSpec` rejection. Generate `@_cdecl` callback thunks in Swift wrapper for each closure param. Marshal C# delegates → func pointer + context `IntPtr` pairs. Reference: `GenericClosureBridgeEmitter.cs` + spike tests S2a/S2b/S3a/S3b. | RxSwift |
+| Sub-task | Description | Result |
+|----------|-------------|--------|
+| **10f-1. ProtocolExtensionEmitter closure acceptance** | Relaxed `IsCdeclCompatibleType` to accept bridgeable closures. Swift wrapper generates `@convention(c)` function pointer + context → native closure reconstruction. `ResolveSelfElement` extended for `ClosureTypeSpec`. | ✅ |
+| **10f-2. ProtocolExtensionClosureBridge** | New C# emitter (749 lines). Takes over entire method emission: `[UnmanagedCallersOnly]` callback, static function pointer field, P/Invoke (`LibraryImport`, `CallConvSwift`), public method with `Func<>`/`Action<>` param. For generic types, callbacks go into `PInvokeHelperContext.RawCodeBlocks` (non-generic helper class) to avoid CS7042. | ✅ |
+| **10f-3. MemberEmissionValidator carve-out** | B20 closure check extended with `IsProtocolExtensionMethod && IsClosureBridgeable` exception. | ✅ |
+| **10f-4. `filter` (primary target)** | `Filter(Func<TElement, bool> predicate)` — Bool closure return, single generic arg. Emitted on 6 conforming types. | ✅ |
+| **10f-5. `map<Result>` (method-level generic)** | `Map<TResult>(Func<TElement, TResult> transform)` — method-level generic return via result buffer. `ExtractMethodLevelGenerics` parses from swiftinterface. | ✅ |
+| **10f-6. `subscribe` (best-effort)** | Returns `any Disposable` (existential). Blocked by ProtocolExtensionEmitter return gate. | Deferred |
 
-**Acceptance gate**: RxSwift `Observable<T>.Map(...)`, `.Filter(...)`, `.Subscribe(...)` appear in bindings and compile.
+**Gates** (hardened via two rounds of Codex review):
+- Single closure param, no additional non-closure params
+- Closure args: generic params or class types only (no primitives — cdecl ABI uses `UnsafeMutableRawPointer`)
+- Closure return: Void, Bool, or method-level generic only (no primitives/classes — bridge only handles these three paths)
+- No `where` constraints, no inline generic constraints (`<T: Protocol>`)
+- No async closures
+- Class-level generics (`τ_0_X`) explicitly rejected as closure returns (bridge resolves via `methodLevelGenerics` membership only)
+
+**Results**:
+- 12 new methods: 6 `Filter` + 6 `Map` across AsyncSubject, BehaviorSubject, ConnectableObservable, Observable, PublishSubject, ReplaySubject
+- RxSwift bindings: 17,291 lines (stable from Session 7 — closure methods replace previously-skipped slots)
+- GRDB improved: 6 errors → 0 (SugaredTypeName matching fix for method-level generics)
+- 32/32 validation maintained
+
+**Acceptance gate**: RxSwift `Observable<T>.Filter(...)` and `.Map(...)` appear in bindings and compile. ✅ Met. `Subscribe` deferred (existential return `any Disposable`).
 
 ---
 

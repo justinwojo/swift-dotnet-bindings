@@ -812,6 +812,14 @@ public static class MemberEmissionValidator
                         // Allow through — GenericClosureBridgeEmitter will handle this
                         continue;
                     }
+
+                    // Allow protocol extension methods with bridgeable closures through —
+                    // ProtocolExtensionClosureBridge handles them in MethodHandler.
+                    if (method.IsProtocolExtensionMethod &&
+                        ProtocolExtensionEmitter.IsClosureBridgeable(closureTypeSpec, typeDatabase))
+                    {
+                        continue;
+                    }
                     skipDetails = $"Parameter '{arg.Name}' has unsupported closure type that cannot be marshalled.";
                     return SkipReason.UnsupportedClosure;
                 }

@@ -396,7 +396,9 @@ namespace BindingsGeneration
 
             // Skip methods that need [UnmanagedCallersOnly] callbacks in generic types.
             // DllImport is handled by PInvokeHelperContext hoisting, but callbacks can't be hoisted.
-            if (methodEnv.PInvokeHelperContext != null)
+            // Exception: protocol extension closure methods — ProtocolExtensionClosureBridge emits
+            // the callback in a non-generic NativeMethods helper class.
+            if (methodEnv.PInvokeHelperContext != null && !methodEnv.MethodDecl.IsProtocolExtensionMethod)
             {
                 bool hasThunkClosure = methodEnv.MethodDecl.CSSignature.Skip(1)
                     .Where(arg => methodEnv.ClosureHandler.IsClosure(arg))
@@ -589,6 +591,22 @@ namespace BindingsGeneration
                     methodEnv.MethodDecl.ParentDecl,
                     "GenericClosureBridge",
                     "Generic closure parameter bridged via monomorphized Swift wrapper.");
+                return;
+            }
+
+            // Try protocol extension closure bridge — emits Swift wrapper with closure bridging
+            // + C# callbacks + P/Invoke + public method for protocol extension methods with
+            // closure parameters (e.g., Observable.filter, Observable.map).
+            if (!isAccessor && ProtocolExtensionClosureBridge.TryEmit(
+                csWriter, swiftWriter, methodEnv, methodEnv.ParentDecl as TypeDecl))
+            {
+                ReportCollector.RecordMemberWrapped(
+                    BindingItemKind.Method,
+                    methodEnv.MethodDecl.Name,
+                    methodEnv.MethodDecl.MangledName,
+                    methodEnv.MethodDecl.ParentDecl,
+                    "ProtocolExtensionClosureBridge",
+                    "Protocol extension closure parameter bridged via @_silgen_name wrapper.");
                 return;
             }
 

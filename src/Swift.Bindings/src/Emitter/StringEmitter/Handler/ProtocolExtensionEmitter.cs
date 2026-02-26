@@ -227,15 +227,85 @@ public static class ProtocolExtensionEmitter
 
         // --- All gates passed: emit Swift wrapper and synthetic MethodDecl ---
 
-        // Build Swift wrapper
-        EmitSwiftWrapper(conformingType, extMethod, parameters, returnTypeSpec, symbolName);
+        // Detect closure parameters
+        int closureCount = 0;
+        ClosureTypeSpec? closureTypeSpec = null;
+        int closureParamIndex = -1;
+        for (int i = 0; i < parameters.Count; i++)
+        {
+            if (parameters[i].typeSpec is ClosureTypeSpec cts)
+            {
+                closureCount++;
+                closureTypeSpec = cts;
+                closureParamIndex = i;
+            }
+        }
 
-        // Build synthetic MethodDecl
-        var syntheticMethod = BuildSyntheticMethodDecl(
-            moduleDecl, conformingType, extMethod, parameters, returnTypeSpec, returnTypeName, symbolName);
+        // Only one closure param supported initially
+        if (closureCount > 1)
+        {
+            logger.LogDebug("Skipping extension method {Type}.{Method}: multiple closure params not supported",
+                typeName, extMethod.MethodName);
+            return;
+        }
 
-        conformingType.Methods.Add(syntheticMethod);
-        _injectedCount++;
+        if (closureCount == 1)
+        {
+            // Only closure-only methods are supported (no additional non-closure params).
+            // The C# bridge public method signature only emits the closure delegate param;
+            // non-closure params would produce undeclared variable references in the P/Invoke call.
+            if (parameters.Count > 1)
+            {
+                logger.LogDebug("Skipping extension method {Type}.{Method}: closure + additional params not supported",
+                    typeName, extMethod.MethodName);
+                return;
+            }
+
+            // Skip methods with where constraints on method-level generics (e.g., flatMap<Source> where Source : ObservableConvertibleType)
+            // These have associated types (Source.Element) we can't represent in C#
+            if (HasMethodLevelWhereClause(extMethod.RawSignature))
+            {
+                logger.LogDebug("Skipping extension method {Type}.{Method}: method-level where constraints not supported",
+                    typeName, extMethod.MethodName);
+                return;
+            }
+
+            // Detect method-level generic params (e.g., <Result> in map<Result>)
+            var methodLevelGenerics = ExtractMethodLevelGenerics(extMethod.RawSignature, extMethod.MethodName);
+
+            // Reject methods with inline generic constraints (e.g., <T: Protocol>)
+            // ExtractMethodLevelGenerics would parse "T: Protocol" as a generic name,
+            // producing invalid Swift/C# code.
+            if (methodLevelGenerics.Any(g => g.Contains(':')))
+            {
+                logger.LogDebug("Skipping extension method {Type}.{Method}: inline generic constraints not supported",
+                    typeName, extMethod.MethodName);
+                return;
+            }
+
+            // Closure-bearing method: emit Swift wrapper with closure bridging
+            EmitClosureSwiftWrapper(conformingType, extMethod, parameters, returnTypeSpec,
+                symbolName, closureTypeSpec!, closureParamIndex, methodLevelGenerics);
+
+            // Build synthetic MethodDecl preserving ClosureTypeSpec
+            var syntheticMethod = BuildClosureSyntheticMethodDecl(
+                moduleDecl, conformingType, extMethod, parameters, returnTypeSpec, returnTypeName,
+                symbolName, closureTypeSpec!, methodLevelGenerics);
+
+            conformingType.Methods.Add(syntheticMethod);
+            _injectedCount++;
+        }
+        else
+        {
+            // Non-closure method: existing path
+            EmitSwiftWrapper(conformingType, extMethod, parameters, returnTypeSpec, symbolName);
+
+            var syntheticMethod = BuildSyntheticMethodDecl(
+                moduleDecl, conformingType, extMethod, parameters, returnTypeSpec, returnTypeName, symbolName);
+
+            conformingType.Methods.Add(syntheticMethod);
+            _injectedCount++;
+        }
     }
 
     /// <summary>
@@ -476,8 +546,8 @@ public static class ProtocolExtensionEmitter
             return false;
         }
 
-        if (typeSpec is ClosureTypeSpec)
-            return false; // Closures not supported in protocol extension wrappers
+        if (typeSpec is ClosureTypeSpec closureSpec)
+            return IsClosureBridgeable(closureSpec, typeDatabase);
 
         if (typeSpec is TupleTypeSpec tuple)
             return tuple.IsEmptyTuple; // Only empty tuple (Void) is ok
@@ -513,6 +583,171 @@ public static class ProtocolExtensionEmitter
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Checks if a closure TypeSpec can be bridged via the protocol extension closure bridge.
+    /// Requirements: not async, all args are generic params or classes (no primitives),
+    /// return is Void, Bool, or method-level generic param (no primitive/class returns).
+    /// </summary>
+    internal static bool IsClosureBridgeable(ClosureTypeSpec closure, ITypeDatabase typeDatabase)
+    {
+        if (closure.IsAsync) return false;
+
+        foreach (var arg in closure.EachArgument())
+        {
+            if (!IsClosureArgBridgeable(arg, typeDatabase))
+                return false;
+        }
+
+        if (!closure.ReturnType.IsEmptyTuple)
+        {
+            if (!IsClosureReturnBridgeable(closure.ReturnType, typeDatabase))
+                return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Checks if a closure argument type is bridgeable (can be passed as raw pointer).
+    /// Only generic type parameters and class types are supported — primitives are NOT
+    /// supported because the cdecl callback ABI hardcodes UnsafeMutableRawPointer for all args.
+    /// </summary>
+    private static bool IsClosureArgBridgeable(TypeSpec argType, ITypeDatabase typeDatabase)
+    {
+        if (argType is not NamedTypeSpec namedArg) return false;
+
+        // Generic type parameters (τ_0_0 etc.) — passed as UnsafeMutableRawPointer
+        if (TypeSpecHelpers.IsGenericTypeParameter(namedArg.Name)) return true;
+
+        // Self.Element — resolved to generic param later
+        if (namedArg.Name.StartsWith("Self.")) return true;
+
+        // Primitives are NOT bridgeable — the Swift cdecl callback type uses
+        // UnsafeMutableRawPointer for all args, but the primitive path passes values
+        // directly (__arg{i}) instead of through a pointer buffer.
+        if (IsSwiftPrimitive(namedArg.Name)) return false;
+
+        // Bound generic (e.g., Event<Self.Element>) — check base type is class
+        if (namedArg.ContainsGenericParameters)
+        {
+            try
+            {
+                if (typeDatabase.TryGetTypeRecord(
+                    SwiftTypeName.FromModuleQualifiedName(namedArg.Name), out var record))
+                    return record.Kind == TypeRecordKind.Class;
+            }
+            catch (ArgumentException) { }
+            return false;
+        }
+
+        // Non-generic named type — check if class
+        try
+        {
+            if (typeDatabase.TryGetTypeRecord(
+                SwiftTypeName.FromModuleQualifiedName(namedArg.Name), out var record))
+                return record.Kind == TypeRecordKind.Class;
+        }
+        catch (ArgumentException) { }
+        return false;
+    }
+
+    /// <summary>
+    /// Checks if a closure return type is bridgeable.
+    /// Only Void, Bool, and method-level generic type parameters are supported.
+    /// Primitive and class closure returns are NOT supported — the C# bridge only
+    /// implements closureReturnIsVoid, closureReturnIsBool, and closureReturnIsMethodGeneric
+    /// paths. Other shapes would produce malformed delegate types (Func&lt;..., &gt;).
+    /// </summary>
+    private static bool IsClosureReturnBridgeable(TypeSpec returnType, ITypeDatabase typeDatabase)
+    {
+        // Void — always bridgeable
+        if (returnType.IsEmptyTuple) return true;
+        if (returnType is not NamedTypeSpec namedRet) return false;
+
+        // Bool — directly supported
+        if (namedRet.Name == "Swift.Bool") return true;
+
+        // Reject τ_X_X generic type parameters — these are class-level generics
+        // resolved by ResolveSelfElement (e.g., Self.Element → τ_0_0). The bridge
+        // only supports method-level generics, which appear as unqualified sugared
+        // names (e.g., "Result") from swiftinterface parsing, handled below.
+        if (namedRet.Name.StartsWith("τ_")) return false;
+
+        // Reject Swift keywords that appear as opaque type placeholders
+        if (namedRet.Name is "some" or "any" or "Self" or "Error" or "Never")
+            return false;
+
+        // Unqualified name not in DB → likely a method-level generic (e.g., "Result" in map<Result>)
+        if (!namedRet.Name.Contains('.'))
+        {
+            try
+            {
+                // If it's a known concrete type, reject — we only support generics here
+                if (typeDatabase.TryGetTypeRecord(
+                    SwiftTypeName.FromModuleQualifiedName(namedRet.Name), out _))
+                    return false;
+            }
+            catch (ArgumentException) { }
+            // Not in DB + no module → probably a method-level generic
+            return true;
+        }
+
+        // Module-qualified types (primitives, classes) are not bridgeable as closure returns
+        return false;
+    }
+
+    /// <summary>
+    /// Detects method-level generic type parameter names from a raw swiftinterface signature.
+    /// e.g., "func map&lt;Result&gt;(...)" → ["Result"]
+    /// </summary>
+    internal static List<string> ExtractMethodLevelGenerics(string rawSignature, string methodName)
+    {
+        var result = new List<string>();
+        var funcIdx = rawSignature.IndexOf($"func {methodName}", StringComparison.Ordinal);
+        if (funcIdx < 0) return result;
+
+        var afterMethodName = funcIdx + $"func {methodName}".Length;
+        if (afterMethodName >= rawSignature.Length) return result;
+
+        if (rawSignature[afterMethodName] == '<')
+        {
+            var closeAngle = rawSignature.IndexOf('>', afterMethodName);
+            if (closeAngle > afterMethodName)
+            {
+                var genericStr = rawSignature.Substring(afterMethodName + 1, closeAngle - afterMethodName - 1);
+                result.AddRange(genericStr.Split(',').Select(g => g.Trim()));
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Checks if the method's raw signature contains a method-level where clause
+    /// (e.g., "where Source : ObservableConvertibleType"). These constrained generics
+    /// often have associated types (Source.Element) that can't be represented in C#.
+    /// </summary>
+    private static bool HasMethodLevelWhereClause(string rawSignature)
+    {
+        // Find the outermost closing paren of the parameter list
+        int depth = 0;
+        int closeParen = -1;
+        for (int i = 0; i < rawSignature.Length; i++)
+        {
+            if (rawSignature[i] == '(') depth++;
+            if (rawSignature[i] == ')')
+            {
+                depth--;
+                if (depth == 0) { closeParen = i; break; }
+            }
+        }
+        if (closeParen < 0) return false;
+
+        // Check for "where" after the closing paren
+        var afterParen = rawSignature.Substring(closeParen + 1);
+        return afterParen.Contains(" where ", StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -789,6 +1024,410 @@ public static class ProtocolExtensionEmitter
     }
 
     /// <summary>
+    /// Emits a Swift wrapper that bridges a closure parameter via @convention(c) function pointer + context.
+    /// The wrapper constructs a native Swift closure from the cdecl callback, handling generic type
+    /// marshalling via buffer allocation.
+    /// </summary>
+    private static void EmitClosureSwiftWrapper(
+        ClassDecl conformingType,
+        ProtocolExtensionMethodDecl extMethod,
+        List<(string label, TypeSpec typeSpec, string swiftType)> parameters,
+        TypeSpec? returnTypeSpec,
+        string symbolName,
+        ClosureTypeSpec closureTypeSpec,
+        int closureParamIndex,
+        List<string> methodLevelGenerics)
+    {
+        var typeName = conformingType.SwiftTypeName.ModuleQualifiedName;
+        var isGenericConforming = conformingType.IsGeneric;
+
+        // Build generic parameter names for the wrapper function
+        var genericParamNames = new List<string>();
+        if (isGenericConforming)
+        {
+            foreach (var gp in conformingType.GenericParameters)
+            {
+                genericParamNames.Add(gp.SugaredTypeName ?? $"T{genericParamNames.Count}");
+            }
+        }
+        // Add method-level generics
+        genericParamNames.AddRange(methodLevelGenerics);
+
+        var genericClause = genericParamNames.Count > 0
+            ? $"<{string.Join(", ", genericParamNames)}>"
+            : "";
+
+        // Build the qualified type name with generic parameters for unsafeBitCast
+        var qualifiedTypeName = isGenericConforming
+            ? $"{typeName}<{string.Join(", ", genericParamNames.Take(conformingType.GenericParameters.Count))}>"
+            : typeName;
+
+        // Analyze closure
+        var closureArgs = closureTypeSpec.EachArgument().ToList();
+        var closureReturnIsVoid = closureTypeSpec.ReturnType.IsEmptyTuple;
+        var closureReturnIsBool = closureTypeSpec.ReturnType is NamedTypeSpec retNamed &&
+            retNamed.Name == "Swift.Bool";
+        var closureReturnIsGeneric = !closureReturnIsVoid && !closureReturnIsBool &&
+            closureTypeSpec.ReturnType is NamedTypeSpec retGenNamed &&
+            (TypeSpecHelpers.IsGenericTypeParameter(retGenNamed.Name) ||
+             methodLevelGenerics.Contains(retGenNamed.Name));
+
+        // Build Swift parameter list
+        var swiftParams = new List<string>();
+        swiftParams.Add("_ self_: UnsafeMutableRawPointer");
+
+        for (int i = 0; i < parameters.Count; i++)
+        {
+            var (label, typeSpec, swiftType) = parameters[i];
+            if (i == closureParamIndex)
+            {
+                // Replace closure with funcPtr + context
+                var paramName = SanitizeSwiftParamName(label == "_" ? GetParamNameFromType(swiftType) : label);
+                swiftParams.Add($"_ {paramName}FuncPtr: UnsafeMutableRawPointer");
+                swiftParams.Add($"_ {paramName}Context: UnsafeMutableRawPointer?");
+            }
+            else
+            {
+                var paramName = SanitizeSwiftParamName(label == "_" ? GetParamNameFromType(swiftType) : label);
+                if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&
+                    !IsSwiftPrimitive(namedType.Name))
+                {
+                    swiftParams.Add($"_ {paramName}: UnsafeMutableRawPointer");
+                }
+                else
+                {
+                    var renderedType = ExistentialBypassEmitter.RenderSwiftTypeSpec(typeSpec);
+                    swiftParams.Add($"_ {paramName}: {renderedType}");
+                }
+            }
+        }
+
+        // Add explicit T.Type metatype params for ALL generic params (class-level + method-level)
+        foreach (var gpName in genericParamNames)
+        {
+            swiftParams.Add($"_ __{gpName.ToLowerInvariant()}Type: {gpName}.Type");
+        }
+
+        // Build return type
+        string swiftReturnType;
+        bool returnIsClass;
+        if (extMethod.ReturnsSelf)
+        {
+            swiftReturnType = "UnsafeMutableRawPointer";
+            returnIsClass = true;
+        }
+        else if (returnTypeSpec == null || returnTypeSpec.IsEmptyTuple)
+        {
+            swiftReturnType = "";
+            returnIsClass = false;
+        }
+        else if (returnTypeSpec is NamedTypeSpec retNamedType && !IsSwiftPrimitive(retNamedType.Name))
+        {
+            swiftReturnType = "UnsafeMutableRawPointer";
+            returnIsClass = true;
+        }
+        else
+        {
+            swiftReturnType = ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec);
+            returnIsClass = false;
+        }
+
+        var returnArrow = string.IsNullOrEmpty(swiftReturnType) ? "" : $" -> {swiftReturnType}";
+
+        // Emit the wrapper function
+        _swiftWrapperLines.Add("");
+        _swiftWrapperLines.Add($"@_silgen_name(\"{symbolName}\")");
+        if (extMethod.IsMainActorIsolated || conformingType.IsMainActorIsolated)
+        {
+            _swiftWrapperLines.Add("@MainActor");
+        }
+        _swiftWrapperLines.Add($"public func {symbolName}{genericClause}({string.Join(", ", swiftParams)}){returnArrow} {{");
+
+        // Self conversion
+        if (isGenericConforming)
+        {
+            _swiftWrapperLines.Add($"    let instance = unsafeBitCast(self_, to: {qualifiedTypeName}.self)");
+        }
+        else
+        {
+            _swiftWrapperLines.Add($"    let instance = Unmanaged<{typeName}>.fromOpaque(self_).takeUnretainedValue()");
+        }
+
+        // Build cdecl callback type
+        var closureParamLabel = parameters[closureParamIndex].label;
+        var closureParamName = SanitizeSwiftParamName(
+            closureParamLabel == "_" ? GetParamNameFromType(parameters[closureParamIndex].swiftType) : closureParamLabel);
+
+        var cdeclArgTypes = new List<string>();
+        foreach (var arg in closureArgs)
+        {
+            cdeclArgTypes.Add("UnsafeMutableRawPointer"); // All args as raw pointers
+        }
+        if (closureReturnIsGeneric)
+        {
+            cdeclArgTypes.Add("UnsafeMutableRawPointer"); // Result buffer for generic return
+        }
+        cdeclArgTypes.Add("UnsafeMutableRawPointer?"); // Context
+
+        string cdeclReturnType = closureReturnIsBool ? "Bool" : "Void";
+        var cdeclTypeStr = $"(@convention(c) ({string.Join(", ", cdeclArgTypes)}) -> {cdeclReturnType}).self";
+
+        _swiftWrapperLines.Add($"    let cdecl = unsafeBitCast({closureParamName}FuncPtr, to: {cdeclTypeStr})");
+
+        // Build the inline closure that calls the cdecl callback
+        var closureSwiftArgs = new List<string>();
+        int argIdx = 0;
+        foreach (var arg in closureArgs)
+        {
+            var renderedType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg);
+            closureSwiftArgs.Add($"__arg{argIdx}: {renderedType}");
+            argIdx++;
+        }
+
+        var closureReturnStr = closureReturnIsVoid ? "Void" :
+            ExistentialBypassEmitter.RenderSwiftTypeSpec(closureTypeSpec.ReturnType);
+        var throwsKeyword = closureTypeSpec.Throws ? " throws" : "";
+
+        _swiftWrapperLines.Add($"    let __closure: ({string.Join(", ", closureSwiftArgs.Select(a => a.Split(':')[1].Trim()))}){throwsKeyword} -> {closureReturnStr} = {{ {string.Join(", ", Enumerable.Range(0, closureArgs.Count).Select(i => $"__arg{i}"))} in");
+
+        // For each arg: allocate buffer, copy, pass to cdecl
+        for (int i = 0; i < closureArgs.Count; i++)
+        {
+            var arg = closureArgs[i];
+            bool isGenericArg = arg is NamedTypeSpec gn &&
+                (TypeSpecHelpers.IsGenericTypeParameter(gn.Name) ||
+                 gn.Name.StartsWith("Self.") ||
+                 (gn.ContainsGenericParameters && !IsSwiftPrimitive(gn.Name)));
+
+            if (isGenericArg || (arg is NamedTypeSpec na && !IsSwiftPrimitive(na.Name)))
+            {
+                // Generic or class type: allocate buffer, copy bytes, pass pointer
+                var argType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg);
+                _swiftWrapperLines.Add($"        let __buf{i} = UnsafeMutableRawPointer.allocate(byteCount: max(MemoryLayout<{argType}>.size, 1), alignment: MemoryLayout<{argType}>.alignment)");
+                _swiftWrapperLines.Add($"        defer {{ __buf{i}.deallocate() }}");
+                _swiftWrapperLines.Add($"        withUnsafePointer(to: __arg{i}) {{ __buf{i}.copyMemory(from: UnsafeRawPointer($0), byteCount: MemoryLayout<{argType}>.size) }}");
+            }
+        }
+
+        // Build cdecl call arguments
+        var cdeclCallArgs = new List<string>();
+        for (int i = 0; i < closureArgs.Count; i++)
+        {
+            var arg = closureArgs[i];
+            bool isGenericArg = arg is NamedTypeSpec gn2 &&
+                (TypeSpecHelpers.IsGenericTypeParameter(gn2.Name) ||
+                 gn2.Name.StartsWith("Self.") ||
+                 (gn2.ContainsGenericParameters && !IsSwiftPrimitive(gn2.Name)));
+
+            if (isGenericArg || (arg is NamedTypeSpec na2 && !IsSwiftPrimitive(na2.Name)))
+            {
+                cdeclCallArgs.Add($"__buf{i}");
+            }
+            else
+            {
+                // Unreachable: IsClosureArgBridgeable rejects primitives.
+                // Defensive fallback — pass value directly.
+                cdeclCallArgs.Add($"__arg{i}");
+            }
+        }
+
+        if (closureReturnIsGeneric)
+        {
+            // Generic return: allocate result buffer, pass to cdecl, load from buffer
+            var retType = ExistentialBypassEmitter.RenderSwiftTypeSpec(closureTypeSpec.ReturnType);
+            _swiftWrapperLines.Add($"        let __resultBuf = UnsafeMutableRawPointer.allocate(byteCount: max(MemoryLayout<{retType}>.size, 1), alignment: MemoryLayout<{retType}>.alignment)");
+            _swiftWrapperLines.Add($"        defer {{ __resultBuf.deallocate() }}");
+            cdeclCallArgs.Add("__resultBuf");
+            cdeclCallArgs.Add($"{closureParamName}Context");
+            _swiftWrapperLines.Add($"        cdecl({string.Join(", ", cdeclCallArgs)})");
+            _swiftWrapperLines.Add($"        return __resultBuf.load(as: {retType}.self)");
+        }
+        else if (closureReturnIsBool)
+        {
+            // Bool return: cdecl returns Bool directly
+            cdeclCallArgs.Add($"{closureParamName}Context");
+            _swiftWrapperLines.Add($"        return cdecl({string.Join(", ", cdeclCallArgs)})");
+        }
+        else
+        {
+            // Void return
+            cdeclCallArgs.Add($"{closureParamName}Context");
+            _swiftWrapperLines.Add($"        cdecl({string.Join(", ", cdeclCallArgs)})");
+        }
+
+        _swiftWrapperLines.Add("    }");
+
+        // Build method call arguments
+        var callArgs = new List<string>();
+        for (int i = 0; i < parameters.Count; i++)
+        {
+            var (label, typeSpec, swiftType) = parameters[i];
+            if (i == closureParamIndex)
+            {
+                callArgs.Add(label == "_" ? "__closure" : $"{label}: __closure");
+            }
+            else
+            {
+                var paramName = SanitizeSwiftParamName(label == "_" ? GetParamNameFromType(swiftType) : label);
+                if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&
+                    !IsSwiftPrimitive(namedType.Name))
+                {
+                    var renderedType = ExistentialBypassEmitter.RenderSwiftTypeSpec(typeSpec);
+                    var localName = $"__{paramName}";
+                    _swiftWrapperLines.Add($"    let {localName} = Unmanaged<{renderedType}>.fromOpaque({paramName}).takeUnretainedValue()");
+                    callArgs.Add(label == "_" ? localName : $"{label}: {localName}");
+                }
+                else
+                {
+                    callArgs.Add(label == "_" ? paramName : $"{label}: {paramName}");
+                }
+            }
+        }
+
+        // Use try! for @escaping closures (evaluated lazily, won't throw here)
+        var callStr = $"instance.{extMethod.MethodName}({string.Join(", ", callArgs)})";
+        if (closureTypeSpec.Throws)
+            callStr = $"try! {callStr}";
+
+        if (extMethod.ReturnsSelf || returnIsClass)
+        {
+            _swiftWrapperLines.Add($"    let result = {callStr}");
+            _swiftWrapperLines.Add($"    return Unmanaged.passRetained(result).toOpaque()");
+        }
+        else if (string.IsNullOrEmpty(swiftReturnType))
+        {
+            _swiftWrapperLines.Add($"    {callStr}");
+        }
+        else
+        {
+            _swiftWrapperLines.Add($"    return {callStr}");
+        }
+
+        _swiftWrapperLines.Add("}");
+    }
+
+    /// <summary>
+    /// Builds a synthetic MethodDecl for a closure-bearing protocol extension method.
+    /// Preserves the ClosureTypeSpec in CSSignature so ProtocolExtensionClosureBridge
+    /// can detect and handle it in MethodHandler.
+    /// </summary>
+    private static MethodDecl BuildClosureSyntheticMethodDecl(
+        ModuleDecl moduleDecl,
+        ClassDecl conformingType,
+        ProtocolExtensionMethodDecl extMethod,
+        List<(string label, TypeSpec typeSpec, string swiftType)> parameters,
+        TypeSpec? returnTypeSpec,
+        string returnTypeName,
+        string symbolName,
+        ClosureTypeSpec closureTypeSpec,
+        List<string> methodLevelGenerics)
+    {
+        var csSignature = new List<ArgumentDecl>();
+
+        // Resolve Self.Element → τ_0_0 in return type
+        if (conformingType.IsGeneric && returnTypeSpec != null)
+        {
+            returnTypeSpec = ResolveSelfElement(returnTypeSpec, conformingType);
+        }
+
+        // Return type
+        TypeSpec resolvedReturnTypeSpec;
+        if (extMethod.ReturnsSelf || returnTypeName == "Self")
+        {
+            resolvedReturnTypeSpec = new NamedTypeSpec(conformingType.SwiftTypeName.ModuleQualifiedName);
+        }
+        else if (returnTypeSpec != null)
+        {
+            resolvedReturnTypeSpec = returnTypeSpec;
+        }
+        else
+        {
+            resolvedReturnTypeSpec = TupleTypeSpec.Empty;
+        }
+
+        csSignature.Add(new ArgumentDecl
+        {
+            Name = "",
+            PrivateName = "",
+            SwiftTypeSpec = resolvedReturnTypeSpec,
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        });
+
+        // Parameters — preserve ClosureTypeSpec (resolve Self.Element inside it)
+        foreach (var (label, typeSpec, _) in parameters)
+        {
+            var resolvedTypeSpec = typeSpec;
+            if (conformingType.IsGeneric)
+            {
+                resolvedTypeSpec = ResolveSelfElement(typeSpec, conformingType);
+            }
+
+            string internalName;
+            if (typeSpec is ClosureTypeSpec)
+            {
+                // For closure params, use a sensible name based on closure shape
+                // (GetParamNameFromType can't handle ClosureTypeSpec.ToString() output)
+                internalName = label != "_" ? label : GetClosureParamName(closureTypeSpec);
+            }
+            else
+            {
+                internalName = label == "_" ? GetParamNameFromType(typeSpec.ToString()) : label;
+            }
+            csSignature.Add(new ArgumentDecl
+            {
+                Name = label,
+                PrivateName = internalName,
+                SwiftTypeSpec = resolvedTypeSpec,
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = conformingType,
+                ModuleDecl = moduleDecl
+            });
+        }
+
+        // Build generic parameters: class-level + method-level
+        var genericParams = conformingType.IsGeneric
+            ? new List<GenericArgumentDecl>(conformingType.GenericParameters)
+            : new List<GenericArgumentDecl>();
+
+        // Add method-level generics (e.g., Result in map<Result>)
+        for (int i = 0; i < methodLevelGenerics.Count; i++)
+        {
+            var methodGenericName = methodLevelGenerics[i];
+            // Use τ_1_X naming for method-level generics (depth 1)
+            var typeParamName = $"τ_1_{i}";
+            genericParams.Add(new GenericArgumentDecl(
+                TypeName: typeParamName,
+                SugaredTypeName: methodGenericName,
+                GenericConformances: new List<GenericParameterConformance>(),
+                AssosiatedTypeConformances: new List<GenericParameterConformance>()
+            ));
+        }
+
+        return new MethodDecl
+        {
+            Name = extMethod.MethodName,
+            MangledName = symbolName,
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = csSignature,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = genericParams,
+            Visibility = Visibility.Public,
+            ParentDecl = conformingType,
+            ModuleDecl = moduleDecl,
+            UsesWrapperLibrary = true,
+            UsesFreeFunctionWrapper = true,
+            IsProtocolExtensionMethod = true,
+            IsActorIsolated = extMethod.IsMainActorIsolated || conformingType.IsMainActorIsolated,
+        };
+    }
+
+    /// <summary>
     /// Builds a synthetic MethodDecl that the existing MethodHandler → PInvokeEmitter pipeline
     /// will process like any other method. Sets UsesWrapperLibrary + UsesFreeFunctionWrapper
     /// so PInvokeEmitter routes to the wrapper library with explicit IntPtr self.
@@ -933,6 +1572,39 @@ public static class ProtocolExtensionEmitter
             }
         }
 
+        // Recurse into closure arguments and return type
+        if (typeSpec is ClosureTypeSpec closureType)
+        {
+            bool changed = false;
+
+            // Resolve closure arguments
+            TypeSpec resolvedArgs;
+            if (closureType.HasArguments())
+            {
+                resolvedArgs = ResolveSelfElement(closureType.Arguments, conformingType);
+                if (!ReferenceEquals(resolvedArgs, closureType.Arguments))
+                    changed = true;
+            }
+            else
+            {
+                resolvedArgs = closureType.Arguments;
+            }
+
+            // Resolve closure return type
+            var resolvedReturn = ResolveSelfElement(closureType.ReturnType, conformingType);
+            if (!ReferenceEquals(resolvedReturn, closureType.ReturnType))
+                changed = true;
+
+            if (changed)
+            {
+                return new ClosureTypeSpec(resolvedArgs, resolvedReturn)
+                {
+                    Throws = closureType.Throws,
+                    IsAsync = closureType.IsAsync,
+                };
+            }
+        }
+
         return typeSpec;
     }
 
@@ -953,9 +1625,13 @@ public static class ProtocolExtensionEmitter
                 var label = p.label == "_" ? "" : p.label;
                 // Also append a short type suffix for same-label overloads
                 var typeSpec = p.typeSpec;
-                var typeSuffix = typeSpec is NamedTypeSpec named
-                    ? named.Name.Substring(named.Name.LastIndexOf('.') + 1)
-                    : "";
+                string typeSuffix;
+                if (typeSpec is NamedTypeSpec named)
+                    typeSuffix = named.Name.Substring(named.Name.LastIndexOf('.') + 1);
+                else if (typeSpec is ClosureTypeSpec)
+                    typeSuffix = "closure";
+                else
+                    typeSuffix = "";
                 return string.IsNullOrEmpty(label) ? typeSuffix : $"{label}{typeSuffix}";
             }));
             baseName += $"_{labels}";
@@ -1014,6 +1690,20 @@ public static class ProtocolExtensionEmitter
             return char.ToLowerInvariant(typeName[0]) + typeName.Substring(1);
 
         return "arg";
+    }
+
+    /// <summary>
+    /// Derives a reasonable C# parameter name for a closure parameter.
+    /// ClosureTypeSpec.ToString() produces the full closure type (e.g., "(Element) throws -> Bool")
+    /// which can't be used as a parameter name — use closure shape to pick a standard name.
+    /// </summary>
+    private static string GetClosureParamName(ClosureTypeSpec closure)
+    {
+        if (closure.ReturnType is NamedTypeSpec retNamed && retNamed.Name == "Swift.Bool")
+            return "predicate";
+        if (closure.ReturnType.IsEmptyTuple)
+            return "handler";
+        return "transform";
     }
 
     /// <summary>

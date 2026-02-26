@@ -25,6 +25,12 @@ public class PInvokeHelperContext
     public List<PInvokeDeclaration> Declarations { get; } = new();
 
     /// <summary>
+    /// Raw code blocks to emit before P/Invoke declarations (e.g., [UnmanagedCallersOnly] callbacks
+    /// for protocol extension closure bridges that can't be in a generic context).
+    /// </summary>
+    public List<string> RawCodeBlocks { get; } = new();
+
+    /// <summary>
     /// Creates a new P/Invoke helper context for a generic type.
     /// </summary>
     /// <param name="typeName">The name of the containing generic type.</param>
@@ -119,12 +125,22 @@ public class PInvokeHelperContext
     /// <param name="csWriter">The C# code writer.</param>
     public void EmitHelperClass(CSharpWriter csWriter)
     {
-        if (Declarations.Count == 0)
+        if (Declarations.Count == 0 && RawCodeBlocks.Count == 0)
             return;
 
         csWriter.WriteLine($"internal static partial class {HelperClassName}");
         csWriter.WriteLine("{");
         csWriter.Indent++;
+
+        // Emit raw code blocks (e.g., [UnmanagedCallersOnly] callbacks for closure bridges)
+        foreach (var block in RawCodeBlocks)
+        {
+            foreach (var line in block.Split('\n'))
+            {
+                csWriter.WriteLine(line);
+            }
+            csWriter.WriteLine();
+        }
 
         foreach (var decl in Declarations)
         {
