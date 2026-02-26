@@ -10,7 +10,7 @@
 
 4. ~~**19 separate files emit P/Invoke declarations independently**~~ **Resolved (A1.7).** `PInvokeEmitHelper` now centralizes P/Invoke declaration emission. All 38 explicit `[UnmanagedCallConv]` sites across 19 files migrated. 5 bare `[LibraryImport]`-only sites intentionally remain (no calling convention attribute needed). ~~Severity: Medium.~~
 
-5. **The gate/skip system uses 40+ independent `if` chains across 9+ files with no centralized policy.** `ProtocolConformanceValidator.IsMethodSkippedFromInterface` must mirror `ProtocolHandler`'s skip logic exactly — and the code literally says "mirrors ProtocolHandler" in comments. When they diverge (which they will), CS0535 errors appear in real libraries with no unit test to catch it. **Severity: Critical.**
+5. ~~**The gate/skip system uses 40+ independent `if` chains across 9+ files with no centralized policy.**~~ **Partially Resolved (A2).** `MemberGateEvaluator` centralizes shared type-resolution gates. PH + PCV fully unified (C1 resolved). `CanEmitMethod` delegates via evaluator early-out. MethodHandler, `CanEmitProperty`, and `ShouldSkipMethodEmission` keep inline checks to preserve gate ordering and constructor semantics (C2 reduced). ~~Severity: Critical.~~
 
 ---
 
@@ -49,31 +49,17 @@
 ### C1. Gate Logic Duplication Between ProtocolHandler and ProtocolConformanceValidator
 
 - **Confidence:** Confirmed
-- **Location:** `ProtocolHandler.cs:100-162` (property gates), `ProtocolConformanceValidator.cs:521-581` (`IsPropertySkippedFromInterface`, `IsMethodSkippedFromInterface`)
-- **Problem:** `ProtocolConformanceValidator` contains comments like "Mirrors the skipping logic in ProtocolHandler.Emit for properties" (line 519) and "Mirrors the skipping logic in ProtocolHandler.Emit for methods" (line 553). This is not an abstraction — it's a synchronized copy. When `ProtocolHandler` adds a new gate (and it has, repeatedly, across sessions), `ProtocolConformanceValidator` must be updated in lockstep. If they diverge:
-  - Validator says "yes, can implement" → type declares conformance → CS0535 at compile time
-  - Validator says "no, skip" → type omits conformance it could have implemented → reduced binding quality
-- **Evidence:** The property gates in ProtocolHandler check: (1) static, (2) bare generic, (3) AnyType generic arg, (4) unsupported module, (5) non-ISwiftObject bound generic, (6) closure (fall-through). `IsPropertySkippedFromInterface` checks the same 5 conditions (skipping static since it's pre-filtered). The method gates check: (1) non-ISwiftObject bound generic, (2) bare generic, (3) AnyType generic arg, (4) unsupported module. `IsMethodSkippedFromInterface` checks the same 4. But the *order* differs, the *exact logic* differs slightly (validator creates a new `BoundGenericsHandler` per call; handler uses one from the environment), and there's no test that enforces they agree.
-- **Impact:** Will cause CS0535 errors in real libraries when a new gate is added to one but not the other. This has likely already happened during development and been caught only by full validation.
-- **Effort:** M (2-3 days)
-- **Migration Risk:** Low
-- **Fix:** Extract a `MemberGateEvaluator` class that both ProtocolHandler and ProtocolConformanceValidator call. The evaluator takes a member + type database + protocol context and returns a `GateResult` (Emit / Skip / SkipButInInterface). ProtocolHandler uses it to decide emission; ProtocolConformanceValidator uses it to decide conformance. One source of truth, one set of tests.
+- **Status:** **Resolved (A2).** `MemberGateEvaluator` created with `EvaluateProperty`, `EvaluateMethod`, `EvaluateSubscript` for protocol-context evaluation. Both `ProtocolHandler.Emit()` and `ProtocolConformanceValidator.IsPropertySkippedFromInterface()`/`IsMethodSkippedFromInterface()` now delegate to the evaluator. 10 private helper methods (7 from PH, 3 from PCV) removed. 31 unit tests added. Adding a new gate now requires editing one file.
+- ~~**Location:**~~ `MemberGateEvaluator.cs` (new, ~360 lines)
+- ~~**Impact:**~~ Eliminated. Single source of truth for skip decisions.
 
 ### C2. MemberEmissionValidator / ProtocolHandler / MethodHandler Gate Triplication
 
 - **Confidence:** Confirmed
-- **Location:** `MemberEmissionValidator.cs` (1,056 lines), `ProtocolHandler.cs:200-500` (method gates), `MethodHandler.cs:200-500` (method gates)
-- **Problem:** Three systems independently decide whether a method can be emitted:
-  1. `MemberEmissionValidator.CanEmitMethod()` — used by `ProtocolConformanceValidator` and `DefaultParameterOverloadEmitter`
-  2. `ProtocolHandler.Emit()` — inline gates during interface emission
-  3. `MethodHandler.Emit()` — inline gates during method emission
-
-  Each has its own combination of: existential detection, closure detection, bound-generic validation, unsupported-module filtering, bare-generic checking, AnyType fallback detection. When `MemberEmissionValidator` says a method can be emitted but `MethodHandler` actually skips it, the conformance validator produces a false positive → CS0535.
-- **Evidence:** `MemberEmissionValidator.CanEmitMethod` has 20 gates (B1-B20) enumerated in comments. `MethodHandler.Emit` has its own gate chain with a different structure (accumulate-then-decide for existentials, early-return for others). The gate labeled B20 in `MemberEmissionValidator` has a special carve-out for `IsProtocolExtensionMethod && IsClosureBridgeable` — this kind of conditional logic is exactly what diverges.
-- **Impact:** Every new gate added to any of the three systems must be mirrored in the other two. This is the definition of fragile architecture.
-- **Effort:** L (1-2 weeks to unify)
-- **Migration Risk:** Medium
-- **Fix:** Same as C1 — a single `MemberGateEvaluator` that returns structured decisions. All three consumers call it. This is the single highest-impact refactoring in the codebase.
+- **Status:** **Reduced (A2).** PH + PCV fully delegate to `MemberGateEvaluator` (C1 resolved). `MemberEmissionValidator.CanEmitMethod` delegates via `EvaluateHardGates()` early-out (safe — original had all three gates at top before special handling). MethodHandler, `CanEmitProperty`, and `ShouldSkipMethodEmission` keep inline checks to preserve semantics: MethodHandler never had unsupported-module gate (adding it changes constructor behavior); `CanEmitProperty`'s non-ISwiftObject must run after special handlers (AsyncStream/existential/closure could claim the type first); `ShouldSkipMethodEmission` only shares B19 (unsupported module).
+- **Remaining:** MethodHandler's bare-generic + non-ISwiftObject checks are inline (could be unified if `EvaluateHardGates` supported an opt-out for the unsupported-module gate). MH-specific routing gates also remain inline: existential accumulate+bypass (routing to `ExistentialBypassEmitter`), unsatisfied generic constraints, protocol constraints, closure bridge routing (5+ specialized emitters). These have *routing* behavior (choosing between emitters), not just skip/emit — unifying them requires a different design (pluggable emitter strategies). Future session A2b/A4.
+- ~~**Effort:**~~ Reduced to M (1 week) for remaining MH gates
+- ~~**Migration Risk:**~~ Medium for remaining MH gates (touches the most complex emission paths)
 
 ---
 
@@ -318,7 +304,7 @@ Ordered by impact/effort ratio. Each is independently valuable.
 
 | # | What | Files | Effort | Risk | Depends On | Expected Benefit |
 |---|------|-------|--------|------|------------|-----------------|
-| 1 | Extract `MemberGateEvaluator` from ProtocolHandler + ProtocolConformanceValidator + MemberEmissionValidator | 4-6 files | M | Low | — | Eliminates C1+C2. Single source of truth for skip decisions. |
+| 1 | Extract `MemberGateEvaluator` from ProtocolHandler + ProtocolConformanceValidator + MemberEmissionValidator | 4-6 files | M | Low | — | ~~Eliminates C1+C2.~~ **Done (A2).** C1 resolved, C2 reduced. |
 | 2 | Create `ExtensionEmitterBase` with shared classification, marshalling, P/Invoke | 3 emitter files + 1 new base | L | Low | — | Eliminates H1. ~1,500 lines of dedup removed. |
 | 3 | Create `PInvokeEmitHelper` for shared P/Invoke declaration emission | 19 files (mechanical) | S | Low | — | ~~Eliminates M1.~~ **Done (A1.7).** |
 | 4 | Move `IsSwiftPrimitive` + `TypeAliasToCSPrimitive` to shared utility | 4 files | S | Low | — | ~~Eliminates L3+L4.~~ **Done (A1.1, A1.2).** |
@@ -366,23 +352,26 @@ Three sessions, ordered by risk (low-risk mechanical work first, critical refact
 - [x] A1.8: Validation — 4303 unit tests (0 fail), 700 integration tests (0 fail), 32/32 library validation, golden files pass.
 
 ### Session A2: MemberGateEvaluator
-- **Status:** Not Started
-- **Effort:** M (2-3 days)
-- **Findings addressed:** C1, C2
-- **Risk:** Low migration risk, high impact — eliminates both Critical findings
+- **Status:** Complete (February 26, 2026)
+- **Effort:** M (1 day)
+- **Findings addressed:** C1 (resolved), C2 (reduced)
+- **Risk:** Low migration risk, high impact
 
-**Context:** Three systems independently decide whether a method/property should be emitted: `ProtocolHandler.Emit()` (inline gates), `MemberEmissionValidator.CanEmitMethod()` (20 gates B1-B20), and `ProtocolConformanceValidator.IsMethodSkippedFromInterface()` / `IsPropertySkippedFromInterface()` (mirrored copies). When they diverge, CS0535 or silent binding quality loss results.
+**Context:** Four systems independently decided whether a method/property should be emitted: `ProtocolHandler.Emit()` (inline gates P1-P7, M1-M11, S1-S5), `ProtocolConformanceValidator.IsMethodSkippedFromInterface()` / `IsPropertySkippedFromInterface()` (mirrored copies with 9 private helpers), `MethodHandler.Emit()` (bare generic, non-ISwiftObject inline checks), and `MemberEmissionValidator` (B19 unsupported module, bare generic, non-ISwiftObject). When they diverged, CS0535 or silent binding quality loss resulted.
+
+**Result:** Created `MemberGateEvaluator` with `GateResult` (Emit/InterfaceOnly/Skip) and two evaluation modes: full protocol-context evaluation (soft gates for closures/existentials → InterfaceOnly) and hard-gate-only evaluation (concrete context → Skip or Emit only). ProtocolHandler and ProtocolConformanceValidator fully delegate to the evaluator (C1 resolved). `MemberEmissionValidator.CanEmitMethod` delegates via `EvaluateHardGates` early-out. MethodHandler, `CanEmitProperty`, and `ShouldSkipMethodEmission` keep their original inline checks to preserve gate ordering and constructor semantics.
 
 **Tasks:**
-- [ ] A2.1: Audit all gates in `ProtocolHandler.Emit()` (property gates lines ~100-162, method gates lines ~200-500). Document each gate with its condition and skip reason.
-- [ ] A2.2: Audit all gates in `MemberEmissionValidator.CanEmitMethod()` (B1-B20). Map each to the corresponding ProtocolHandler gate.
-- [ ] A2.3: Audit `ProtocolConformanceValidator.IsPropertySkippedFromInterface()` and `IsMethodSkippedFromInterface()`. Identify any divergences from ProtocolHandler.
-- [ ] A2.4: Design `MemberGateEvaluator` class with `GateResult Evaluate(MemberDecl, TypeDecl, context)` returning `Emit / Skip(reason) / EmitInInterfaceOnly / EmitWithStub`.
-- [ ] A2.5: Implement `MemberGateEvaluator` with all gates from the audit. Add unit tests for each gate.
-- [ ] A2.6: Migrate `ProtocolHandler.Emit()` to call `MemberGateEvaluator` instead of inline gates.
-- [ ] A2.7: Migrate `ProtocolConformanceValidator` to call `MemberGateEvaluator` instead of `IsMethodSkippedFromInterface` / `IsPropertySkippedFromInterface`.
-- [ ] A2.8: Migrate `MemberEmissionValidator.CanEmitMethod()` to delegate to `MemberGateEvaluator` (or replace entirely if redundant).
-- [ ] A2.9: Run `./run-tests.sh`, `./validate-libraries.sh` — all must pass. Pay special attention to CS0535 errors which indicate gate divergence.
+- [x] A2.1: Created `MemberGateEvaluator.cs` with `GateDisposition` enum, `SoftGateFlags` flags, `GateResult` class, and evaluator with `EvaluateProperty`, `EvaluateMethod`, `EvaluateSubscript` (protocol context), `EvaluateHardGates`, `EvaluatePropertyHardGates` (concrete context). Static utility `ContainsAnyTypeGenericArg`. 31 unit tests in `MemberGateEvaluatorTests.cs`.
+- [x] A2.2: Migrated `ProtocolConformanceValidator` — `IsPropertySkippedFromInterface` and `IsMethodSkippedFromInterface` delegate to evaluator. Removed 3 duplicated private helpers.
+- [x] A2.3: Migrated `ProtocolHandler.Emit()` — replaced inline gates P3-P7, M5-M10, S3-S5 with evaluator calls. InterfaceOnly populates tracking sets (`closureSkippedMethodKeys`, `existentialSkippedMethodKeys`) via `SoftGateFlags`. Removed 7 private helpers.
+- [x] A2.4: MethodHandler — bare-generic and non-ISwiftObject checks remain inline (not delegated to evaluator) because `EvaluateHardGates` includes an unsupported-module gate that MethodHandler never had, and adding it would change constructor semantics (`ShouldSkipMethodEmission` skips B19 for constructors). MethodHandler's gates are MH-specific by nature.
+- [x] A2.5: Wired `MemberEmissionValidator.CanEmitMethod()` — added early-out `EvaluateHardGates()` (safe because original code had B19 + bare-generic + non-ISwiftObject all at top before special handling). `CanEmitProperty` and `ShouldSkipMethodEmission` keep their original gate ordering to avoid changing semantics (non-ISwiftObject must run after special handlers in properties; B19 is the only shared gate in `ShouldSkipMethodEmission`). Kept emission-specific gates (B18, B20 with carve-outs, AsyncStream, tuple, etc.) in MEV.
+- [x] A2.6: Validation — 4334 unit tests (0 fail, 31 new), 700 integration tests (0 fail), 32/32 library validation, golden files pass.
+
+**C1 status: Resolved.** ProtocolHandler and ProtocolConformanceValidator now use the single evaluator. No more mirrored copies with "Mirrors the skipping logic" comments.
+
+**C2 status: Reduced.** PH + PCV fully unified through the evaluator. `CanEmitMethod` delegates three shared hard gates (bare generic, non-ISwiftObject, unsupported module) via `EvaluateHardGates` early-out. MethodHandler, `CanEmitProperty`, and `ShouldSkipMethodEmission` keep inline checks — MethodHandler because `EvaluateHardGates` includes an unsupported-module gate it never had (constructor semantics would change); `CanEmitProperty` because non-ISwiftObject must run after special handlers (AsyncStream/existential/closure); `ShouldSkipMethodEmission` because it only shares B19 (unsupported module). MethodHandler's MH-specific gates (existential accumulate+bypass, unsatisfied constraints, protocol constraints, closure bridge routing) remain inline — these have routing behavior (choosing between 5+ specialized emitters). Full MH unification is a different-risk refactor for a future session.
 
 ### Session A3: ExtensionEmitterBase + ModuleEmissionContext
 - **Status:** Not Started

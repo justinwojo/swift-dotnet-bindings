@@ -72,7 +72,7 @@ public static class MemberEmissionValidator
         var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
 
         // B19: Skip properties referencing SwiftUI/Combine types
-        if (ReferencesUnsupportedModule(property.SwiftTypeSpec))
+        if (MemberEmissionValidator.ReferencesUnsupportedModule(property.SwiftTypeSpec))
         {
             skipDetails = "Property type references unsupported module (SwiftUI/Combine).";
             return SkipReason.SwiftUIConstraint;
@@ -366,14 +366,14 @@ public static class MemberEmissionValidator
         if (method.IsConstructor)
             return null;
 
-        // B19: Skip methods whose return type or parameters reference SwiftUI/Combine types
-        foreach (var arg in method.CSSignature)
+        // Early-out: shared hard gates via MemberGateEvaluator
+        // Checks bare generic, non-ISwiftObject bound generic, unsupported module (SwiftUI/Combine)
+        var gateEvaluator = new MemberGateEvaluator(typeDatabase);
+        var hardGateResult = gateEvaluator.EvaluateHardGates(method, method.ModuleDecl);
+        if (hardGateResult.IsSkipped)
         {
-            if (ReferencesUnsupportedModule(arg.SwiftTypeSpec))
-            {
-                skipDetails = $"Method signature references unsupported module (SwiftUI/Combine) in '{arg.SwiftTypeSpec}'.";
-                return SkipReason.SwiftUIConstraint;
-            }
+            skipDetails = hardGateResult.Details;
+            return hardGateResult.Reason!.Value;
         }
 
         var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
@@ -401,23 +401,12 @@ public static class MemberEmissionValidator
             }
         }
 
-        // Check bound generic arguments for issues
+        // Check bound generic arguments for emission-specific issues (unsatisfied constraints, existentials)
+        // Note: bare generic and non-ISwiftObject checks are handled by EvaluateHardGates above
         foreach (var argument in method.CSSignature)
         {
-            if (boundGenericsHandler.HasBareGenericUsage(argument.SwiftTypeSpec, method.ModuleDecl))
-            {
-                skipDetails = $"Type '{argument.SwiftTypeSpec}' contains generic declaration used without type arguments.";
-                return SkipReason.UnsupportedSignature;
-            }
-
             if (!boundGenericsHandler.IsBoundGeneric(argument))
                 continue;
-
-            if (boundGenericsHandler.HasNonSwiftObjectGenericArg(argument.SwiftTypeSpec))
-            {
-                skipDetails = "Bound generic contains type argument that cannot satisfy C# ISwiftObject constraint.";
-                return SkipReason.UnsatisfiedGenericConstraint;
-            }
 
             if (boundGenericsHandler.TryGetFirstUnsatisfiedConstraint(argument.SwiftTypeSpec, method, out var constraintDetails))
             {

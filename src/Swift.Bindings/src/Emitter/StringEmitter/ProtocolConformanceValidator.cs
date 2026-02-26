@@ -510,135 +510,27 @@ public class ProtocolConformanceValidator
 
     /// <summary>
     /// Checks if a protocol property would be skipped from the interface.
-    /// Mirrors the skipping logic in ProtocolHandler.Emit for properties.
+    /// Delegates to MemberGateEvaluator for unified gate logic.
     /// </summary>
     private bool IsPropertySkippedFromInterface(PropertyDecl property, BoundGenericsHandler boundGenericsHandler, ProtocolDecl protocolDecl)
     {
-        // Bare generic usage (e.g., SwiftDictionary without <K,V>)
-        if (boundGenericsHandler.HasBareGenericUsage(property.SwiftTypeSpec, property.ModuleDecl ?? _moduleDecl))
-            return true;
-
-        // AnyType as a generic type argument (resolved C# name may contain AnyType
-        // even if TypeSpec doesn't look generic — e.g., unknown inner types in TypeDatabase).
-        // Pass protocolDecl so Self-requirement protocols resolve τ_0_0 → TSelf instead of AnyType.
-        var projected = ProtocolSignatureHelper.ProjectTypeToCSharp(property.SwiftTypeSpec, _typeDatabase, protocolDecl);
-        if (ContainsAnyTypeGenericArg(projected) ||
-            TypeDatabaseExtensions.IsBareGenericTypeName(projected))
-            return true;
-
-        // Unsupported module references (SwiftUI, Combine)
-        if (MemberEmissionValidator.ReferencesUnsupportedModule(property.SwiftTypeSpec))
-            return true;
-
-        // Bound generic properties with non-ISwiftObject args are skipped from interface
-        if (property.SwiftTypeSpec is NamedTypeSpec propNamedType &&
-            propNamedType.ContainsGenericParameters &&
-            boundGenericsHandler.HasNonSwiftObjectGenericArg(property.SwiftTypeSpec))
-            return true;
-
-        return false;
+        var evaluator = new MemberGateEvaluator(_typeDatabase);
+        var result = evaluator.EvaluateProperty(property, _moduleDecl, protocolDecl);
+        // InterfaceOnly (closure properties) → NOT skipped from interface (they ARE in the interface)
+        return result.IsSkipped;
     }
 
     /// <summary>
     /// Checks if a protocol method would be skipped from the interface.
-    /// Mirrors the skipping logic in ProtocolHandler.Emit for methods.
+    /// Delegates to MemberGateEvaluator for unified gate logic.
     /// Does NOT skip closure methods (they are emitted in the interface with stubs).
     /// Does NOT skip existential methods (they are emitted in the interface with stubs).
     /// </summary>
     private bool IsMethodSkippedFromInterface(MethodDecl method, BoundGenericsHandler boundGenericsHandler, ProtocolDecl protocolDecl)
     {
-        // Bound generic args that can't satisfy ISwiftObject
-        bool hasNonSwiftObjectArg = method.CSSignature.Any(arg =>
-            boundGenericsHandler.IsBoundGeneric(arg) &&
-            boundGenericsHandler.HasNonSwiftObjectGenericArg(arg.SwiftTypeSpec));
-        if (hasNonSwiftObjectArg)
-            return true;
-
-        // Bare generic type in signature (e.g., SwiftDictionary without <K,V>)
-        if (HasBareGenericInMethodSignature(method, protocolDecl, boundGenericsHandler))
-            return true;
-
-        // Existential parameters — now emitted in interface (proxy gets NotSupportedException stub).
-        // Not skipped from interface. Fall through.
-
-        // AnyType as a generic type argument in return or params
-        if (HasAnyTypeGenericArgInSignature(method, protocolDecl))
-            return true;
-
-        // Unsupported module references (SwiftUI, Combine)
-        bool hasUnsupportedModuleRef = method.CSSignature.Any(arg =>
-            MemberEmissionValidator.ReferencesUnsupportedModule(arg.SwiftTypeSpec));
-        if (hasUnsupportedModuleRef)
-            return true;
-
-        return false;
-    }
-
-    /// <summary>
-    /// Checks if a method signature contains bare generic usage.
-    /// Mirrors ProtocolHandler.HasBareGenericInMethodSignature.
-    /// </summary>
-    private bool HasBareGenericInMethodSignature(MethodDecl method, ProtocolDecl protocolDecl, BoundGenericsHandler boundGenericsHandler)
-    {
-        var moduleDecl = method.ModuleDecl ?? protocolDecl.ModuleDecl;
-
-        if (method.CSSignature.Count > 0)
-        {
-            var returnArg = method.CSSignature[0];
-            if (returnArg.SwiftTypeSpec is not TupleTypeSpec tuple || !tuple.IsEmptyTuple)
-            {
-                if (boundGenericsHandler.HasBareGenericUsage(returnArg.SwiftTypeSpec, moduleDecl))
-                    return true;
-            }
-        }
-
-        for (int i = 1; i < method.CSSignature.Count; i++)
-        {
-            if (boundGenericsHandler.HasBareGenericUsage(method.CSSignature[i].SwiftTypeSpec, moduleDecl))
-                return true;
-        }
-
-        return false;
-    }
-
-    /// <summary>
-    /// Checks if a method signature contains AnyType as a generic type argument.
-    /// Mirrors ProtocolHandler.HasAnyTypeGenericArgInSignature.
-    /// </summary>
-    private bool HasAnyTypeGenericArgInSignature(MethodDecl method, ProtocolDecl protocolDecl)
-    {
-        if (method.CSSignature.Count > 0)
-        {
-            var returnArg = method.CSSignature[0];
-            if (returnArg.SwiftTypeSpec is not TupleTypeSpec tuple || !tuple.IsEmptyTuple)
-            {
-                var projected = ProtocolSignatureHelper.ProjectTypeToCSharp(returnArg.SwiftTypeSpec, _typeDatabase, protocolDecl);
-                if (ContainsAnyTypeGenericArg(projected))
-                    return true;
-            }
-        }
-
-        for (int i = 1; i < method.CSSignature.Count; i++)
-        {
-            var projected = ProtocolSignatureHelper.ProjectTypeToCSharp(method.CSSignature[i].SwiftTypeSpec, _typeDatabase, protocolDecl);
-            if (ContainsAnyTypeGenericArg(projected))
-                return true;
-        }
-
-        return false;
-    }
-
-    /// <summary>
-    /// Checks if a type name contains AnyType as a generic type argument (not as the whole type).
-    /// E.g., "BatchedCollection&lt;AnyType&gt;" → true, "AnyType" → false.
-    /// </summary>
-    private static bool ContainsAnyTypeGenericArg(string typeName)
-    {
-        // Only check for AnyType INSIDE generic brackets, not the top-level type
-        var angleIdx = typeName.IndexOf('<');
-        if (angleIdx < 0)
-            return false;
-        var genericPart = typeName.Substring(angleIdx);
-        return System.Text.RegularExpressions.Regex.IsMatch(genericPart, @"\bAnyType\b");
+        var evaluator = new MemberGateEvaluator(_typeDatabase);
+        var result = evaluator.EvaluateMethod(method, _moduleDecl, protocolDecl);
+        // InterfaceOnly (closure/existential methods) → NOT skipped from interface (they ARE in the interface)
+        return result.IsSkipped;
     }
 }

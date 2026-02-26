@@ -95,7 +95,6 @@ namespace BindingsGeneration
             var emittedCSharpKeys = new HashSet<string>();
             var emittedResolvedSignatures = new HashSet<string>(StringComparer.Ordinal);
             var emittedSubscripts = new HashSet<string>();
-            var boundGenericsHandler = new BoundGenericsHandler(env.TypeDatabase);
             var closureHandler = new ClosureHandler(env.TypeDatabase);
 
             // Emit properties as interface members
@@ -122,53 +121,22 @@ namespace BindingsGeneration
                 }
                 emittedProperties.Add(propertyKey);
 
-                // Check for bare generic usage in property type (e.g., SwiftDictionary without <K,V>)
-                if (boundGenericsHandler.HasBareGenericUsage(propertyDecl.SwiftTypeSpec, propertyDecl.ModuleDecl ?? protocolDecl.ModuleDecl))
+                // Evaluate property gates via centralized evaluator (P3-P7)
+                var gateEvaluator = new MemberGateEvaluator(env.TypeDatabase);
+                var propertyGate = gateEvaluator.EvaluateProperty(propertyDecl, protocolDecl.ModuleDecl, protocolDecl);
+                if (propertyGate.IsSkipped)
                 {
                     skippedPropertyNames.Add(propertyDecl.Name);
-                    _logger.LogDebug($"Skipping property '{propertyDecl.Name}' in interface {protocolDecl.Name} - type uses generic declaration without type arguments.");
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, protocolDecl, SkipReason.UnsupportedSignature, "Property type uses generic type without type arguments.");
+                    _logger.LogDebug($"Skipping property '{propertyDecl.Name}' in interface {protocolDecl.Name} - {propertyGate.Details}");
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, protocolDecl, propertyGate.Reason!.Value, propertyGate.Details!);
                     continue;
                 }
-
-                // Check for AnyType as a generic type argument in the property type
-                if (HasAnyTypeGenericArgInPropertyType(propertyDecl, env.TypeDatabase, protocolDecl))
+                if (propertyGate.IsInterfaceOnly)
                 {
+                    // Closure property: emit in interface, track for proxy NotSupportedException stub
                     skippedPropertyNames.Add(propertyDecl.Name);
-                    _logger.LogDebug($"Skipping property '{propertyDecl.Name}' in interface {protocolDecl.Name} - type contains AnyType as generic type argument.");
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, protocolDecl, SkipReason.AnyTypeFallback, "Property type contains AnyType as a generic type argument, which violates generic constraints.");
-                    continue;
-                }
-
-                // Skip properties referencing unsupported modules (SwiftUI, Combine) — these types
-                // have no C# representation and would produce CS0246 in the emitted interface.
-                if (MemberEmissionValidator.ReferencesUnsupportedModule(propertyDecl.SwiftTypeSpec))
-                {
-                    skippedPropertyNames.Add(propertyDecl.Name);
-                    _logger.LogDebug($"Skipping property '{propertyDecl.Name}' in interface {protocolDecl.Name} - type references unsupported module.");
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, protocolDecl, SkipReason.SwiftUIConstraint, "Property type references unsupported module (SwiftUI/Combine).");
-                    continue;
-                }
-
-                // Skip properties whose type is a bound generic with non-ISwiftObject args
-                // (e.g., Delegate<T, SwiftVoid> — SwiftVoid doesn't implement ISwiftObject).
-                if (propertyDecl.SwiftTypeSpec is NamedTypeSpec propNamedType &&
-                    propNamedType.ContainsGenericParameters &&
-                    boundGenericsHandler.HasNonSwiftObjectGenericArg(propertyDecl.SwiftTypeSpec))
-                {
-                    skippedPropertyNames.Add(propertyDecl.Name);
-                    _logger.LogDebug($"Skipping property '{propertyDecl.Name}' in interface {protocolDecl.Name} - bound generic argument cannot satisfy ISwiftObject.");
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, protocolDecl, SkipReason.UnsatisfiedGenericConstraint, "Bound generic contains type argument that cannot satisfy C# ISwiftObject constraint.");
-                    continue;
-                }
-
-                // Closure-typed properties: emit in interface for concrete type implementation,
-                // but track for proxy NotSupportedException stub.
-                // Protocol proxy receivers use MarshalFromSwift<T> which can't handle closures.
-                if (closureHandler.IsClosure(propertyDecl))
-                {
-                    skippedPropertyNames.Add(propertyDecl.Name);
-                    closureSkippedPropertyNames.Add(propertyDecl.Name);
+                    if (propertyGate.SoftFlags.HasFlag(SoftGateFlags.HasClosureProperty))
+                        closureSkippedPropertyNames.Add(propertyDecl.Name);
                     _logger.LogDebug($"Property '{propertyDecl.Name}' in interface {protocolDecl.Name} has closure type - proxy will use NotSupportedException stub.");
                     // Fall through to emit in interface — concrete types can implement it
                 }
@@ -203,33 +171,14 @@ namespace BindingsGeneration
                 }
                 emittedSubscripts.Add(subscriptKey);
 
-                // Check for bare generic usage in subscript signature
-                if (HasBareGenericInSubscriptSignature(subscriptDecl, env.TypeDatabase, protocolDecl))
+                // Evaluate subscript gates via centralized evaluator (S3-S5)
+                var subscriptGateEvaluator = new MemberGateEvaluator(env.TypeDatabase);
+                var subscriptGate = subscriptGateEvaluator.EvaluateSubscript(subscriptDecl, protocolDecl.ModuleDecl, protocolDecl);
+                if (subscriptGate.IsSkipped)
                 {
                     skippedSubscriptIndices.Add(subscriptIndex);
-                    _logger.LogDebug($"Skipping subscript in interface {protocolDecl.Name} - signature uses generic declaration without type arguments.");
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Subscript, "subscript", protocolDecl, SkipReason.UnsupportedSignature, "Subscript type uses generic type without type arguments.");
-                    subscriptIndex++;
-                    continue;
-                }
-
-                // Check for AnyType as a generic type argument in the subscript signature
-                if (HasAnyTypeGenericArgInSubscriptSignature(subscriptDecl, env.TypeDatabase, protocolDecl))
-                {
-                    skippedSubscriptIndices.Add(subscriptIndex);
-                    _logger.LogDebug($"Skipping subscript in interface {protocolDecl.Name} - signature contains AnyType as generic type argument.");
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Subscript, "subscript", protocolDecl, SkipReason.AnyTypeFallback, "Subscript type contains AnyType as a generic type argument, which violates generic constraints.");
-                    subscriptIndex++;
-                    continue;
-                }
-
-                // Skip subscripts referencing unsupported modules (SwiftUI, Combine)
-                if (MemberEmissionValidator.ReferencesUnsupportedModule(subscriptDecl.ReturnTypeSpec) ||
-                    subscriptDecl.IndexParameters.Any(p => MemberEmissionValidator.ReferencesUnsupportedModule(p.SwiftTypeSpec)))
-                {
-                    skippedSubscriptIndices.Add(subscriptIndex);
-                    _logger.LogDebug($"Skipping subscript in interface {protocolDecl.Name} - signature references unsupported module.");
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Subscript, "subscript", protocolDecl, SkipReason.SwiftUIConstraint, "Subscript signature references unsupported module (SwiftUI/Combine).");
+                    _logger.LogDebug($"Skipping subscript in interface {protocolDecl.Name} - {subscriptGate.Details}");
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Subscript, "subscript", protocolDecl, subscriptGate.Reason!.Value, subscriptGate.Details!);
                     subscriptIndex++;
                     continue;
                 }
@@ -279,78 +228,18 @@ namespace BindingsGeneration
                     continue;
                 }
 
-                bool hasNonSwiftObjectArg = methodDecl.CSSignature.Any(arg =>
-                    boundGenericsHandler.IsBoundGeneric(arg) &&
-                    boundGenericsHandler.HasNonSwiftObjectGenericArg(arg.SwiftTypeSpec));
-                if (hasNonSwiftObjectArg)
+                // Evaluate method gates via centralized evaluator (M5-M10)
+                var methodGateEvaluator = new MemberGateEvaluator(env.TypeDatabase);
+                var methodGate = methodGateEvaluator.EvaluateMethod(methodDecl, protocolDecl.ModuleDecl, protocolDecl);
+                if (methodGate.IsSkipped)
                 {
                     skippedMethodKeys.Add(methodKey);
-                    _logger.LogDebug($"Skipping method '{methodDecl.Name}' in interface {protocolDecl.Name} - bound generic argument cannot satisfy ISwiftObject.");
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, SkipReason.UnsatisfiedGenericConstraint, "Bound generic contains type argument that cannot satisfy C# ISwiftObject constraint.");
+                    _logger.LogDebug($"Skipping method '{methodDecl.Name}' in interface {protocolDecl.Name} - {methodGate.Details}");
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, methodGate.Reason!.Value, methodGate.Details!);
                     continue;
                 }
 
-                // Check for bare generic usage in method signature (e.g., SwiftDictionary without <K,V>)
-                if (HasBareGenericInMethodSignature(methodDecl, env.TypeDatabase, protocolDecl))
-                {
-                    skippedMethodKeys.Add(methodKey);
-                    _logger.LogDebug($"Skipping method '{methodDecl.Name}' in interface {protocolDecl.Name} - signature uses generic declaration without type arguments.");
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, SkipReason.UnsupportedSignature, "Method signature uses generic type without type arguments.");
-                    continue;
-                }
-
-                // B9: Methods with existential parameters — the receiver can't marshal
-                // ExistentialContainer types to/from interface types in [UnmanagedCallersOnly] callbacks.
-                // Emit in interface for concrete type implementation, but track for proxy NotSupportedException stub.
-                var existentialHandlerB9 = new ExistentialHandler(env.TypeDatabase);
-                bool hasExistentialParam = methodDecl.CSSignature.Skip(1).Any(arg =>
-                    existentialHandlerB9.IsExistential(arg.SwiftTypeSpec) ||
-                    existentialHandlerB9.IsOptionalExistential(arg.SwiftTypeSpec));
-                if (hasExistentialParam)
-                {
-                    skippedMethodKeys.Add(methodKey);
-                    _logger.LogDebug($"Method '{methodDecl.Name}' in interface {protocolDecl.Name} has existential parameter - proxy will use NotSupportedException stub.");
-                    // Fall through to emit in interface — concrete types can implement it
-                    // existentialSkippedMethodKeys is populated below, after all remaining gates pass
-                }
-
-                // Methods with closure parameters: emit in interface for concrete type
-                // implementation, but track for proxy NotSupportedException stub.
-                // Protocol proxy receivers use MarshalFromSwift<T> for each parameter, but
-                // closures can't be marshalled this way — the ABI type for Optional<() -> Void>
-                // falls through to AnyType, causing CS1503 (AnyType vs Action?).
-                // Even "supported" closures (IsSupportedClosure=true) can't be received.
-                bool hasClosureParam = methodDecl.CSSignature.Skip(1).Any(arg =>
-                    closureHandler.IsClosure(arg));
-                if (hasClosureParam)
-                {
-                    skippedMethodKeys.Add(methodKey);
-                    _logger.LogDebug($"Method '{methodDecl.Name}' in interface {protocolDecl.Name} has closure parameter - proxy will use NotSupportedException stub.");
-                    // Fall through to emit in interface — concrete types can implement it
-                    // closureSkippedMethodKeys is populated below, after all remaining gates pass
-                }
-
-                // Check for AnyType as a generic type argument in the method signature
-                // (e.g., BatchedCollection<AnyType> violates where T0 : ISwiftCollection)
-                if (HasAnyTypeGenericArgInSignature(methodDecl, env.TypeDatabase, protocolDecl))
-                {
-                    skippedMethodKeys.Add(methodKey);
-                    _logger.LogDebug($"Skipping method '{methodDecl.Name}' in interface {protocolDecl.Name} - resolved type contains AnyType as generic argument.");
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, SkipReason.AnyTypeFallback, "Method return type or parameter contains AnyType as a generic type argument.");
-                    continue;
-                }
-
-                // Skip methods referencing unsupported modules (SwiftUI, Combine)
-                bool hasUnsupportedModuleRef = methodDecl.CSSignature.Any(arg =>
-                    MemberEmissionValidator.ReferencesUnsupportedModule(arg.SwiftTypeSpec));
-                if (hasUnsupportedModuleRef)
-                {
-                    skippedMethodKeys.Add(methodKey);
-                    _logger.LogDebug($"Skipping method '{methodDecl.Name}' in interface {protocolDecl.Name} - signature references unsupported module.");
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, SkipReason.SwiftUIConstraint, "Method signature references unsupported module (SwiftUI/Combine).");
-                    continue;
-                }
-
+                // M11: Emitted signature collision (stays inline — uses stateful HashSet)
                 var emittedSignature = BuildEmittedSignature(methodDecl, env.TypeDatabase, protocolDecl);
                 if (!emittedResolvedSignatures.Add(emittedSignature))
                 {
@@ -361,10 +250,14 @@ namespace BindingsGeneration
                 }
 
                 // Track closure/existential methods that passed all gates and are emitted in interface
-                if (hasClosureParam)
-                    closureSkippedMethodKeys.Add(methodKey);
-                if (hasExistentialParam)
-                    existentialSkippedMethodKeys.Add(methodKey);
+                if (methodGate.IsInterfaceOnly)
+                {
+                    skippedMethodKeys.Add(methodKey);
+                    if (methodGate.SoftFlags.HasFlag(SoftGateFlags.HasClosureParam))
+                        closureSkippedMethodKeys.Add(methodKey);
+                    if (methodGate.SoftFlags.HasFlag(SoftGateFlags.HasExistentialParam))
+                        existentialSkippedMethodKeys.Add(methodKey);
+                }
 
                 EmitInterfaceMethod(bodyWriter, methodDecl, env.TypeDatabase, closureHandler, protocolDecl);
                 emittedInterfaceMemberCount++;
@@ -801,143 +694,6 @@ namespace BindingsGeneration
             return $"({string.Join(", ", elements)})";
         }
 
-        /// <summary>
-        /// Checks if a method signature contains bare generic usage (e.g., SwiftDictionary without type arguments).
-        /// </summary>
-        private static bool HasBareGenericInMethodSignature(MethodDecl methodDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext)
-        {
-            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
-            var moduleDecl = methodDecl.ModuleDecl ?? protocolContext?.ModuleDecl;
-
-            if (methodDecl.CSSignature.Count > 0)
-            {
-                var returnArg = methodDecl.CSSignature[0];
-                if (returnArg.SwiftTypeSpec is not TupleTypeSpec tuple || !tuple.IsEmptyTuple)
-                {
-                    if (boundGenericsHandler.HasBareGenericUsage(returnArg.SwiftTypeSpec, moduleDecl))
-                        return true;
-                }
-            }
-
-            for (int i = 1; i < methodDecl.CSSignature.Count; i++)
-            {
-                if (boundGenericsHandler.HasBareGenericUsage(methodDecl.CSSignature[i].SwiftTypeSpec, moduleDecl))
-                    return true;
-            }
-
-            return false;
-        }
-
-        /// <summary>
-        /// Checks if a subscript signature contains bare generic usage (e.g., SwiftDictionary without type arguments).
-        /// </summary>
-        private static bool HasBareGenericInSubscriptSignature(SubscriptDecl subscriptDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext)
-        {
-            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
-            var moduleDecl = subscriptDecl.ModuleDecl ?? protocolContext?.ModuleDecl;
-
-            if (boundGenericsHandler.HasBareGenericUsage(subscriptDecl.ReturnTypeSpec, moduleDecl))
-                return true;
-
-            foreach (var param in subscriptDecl.IndexParameters)
-            {
-                if (boundGenericsHandler.HasBareGenericUsage(param.SwiftTypeSpec, moduleDecl))
-                    return true;
-            }
-
-            return false;
-        }
-
-        /// <summary>
-        /// Checks if a property's resolved C# type contains AnyType as a generic type argument.
-        /// Uses the same resolution chain as EmitInterfaceProperty.
-        /// </summary>
-        private bool HasAnyTypeGenericArgInPropertyType(PropertyDecl propertyDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext)
-        {
-            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
-            var csharpTypeName = GetCSharpTypeName(propertyDecl.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext, isParameter: false);
-
-            // IsBareGenericTypeName is a safety net for resolved C# names that slipped through
-            // TypeSpec-level HasBareGenericUsage (checked upstream in emit loop).
-            return ContainsAnyTypeGenericArg(csharpTypeName) ||
-                   TypeDatabaseExtensions.IsBareGenericTypeName(csharpTypeName);
-        }
-
-        /// <summary>
-        /// Checks if a subscript's resolved C# return type or index parameter types contain
-        /// AnyType as a generic type argument. Uses the same resolution chain as EmitInterfaceSubscript.
-        /// </summary>
-        private bool HasAnyTypeGenericArgInSubscriptSignature(SubscriptDecl subscriptDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext)
-        {
-            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
-
-            // Check return type
-            var returnTypeName = GetCSharpTypeName(subscriptDecl.ReturnTypeSpec, typeDatabase, boundGenericsHandler, protocolContext, isParameter: false);
-
-            if (ContainsAnyTypeGenericArg(returnTypeName) ||
-                TypeDatabaseExtensions.IsBareGenericTypeName(returnTypeName))
-                return true;
-
-            // Check index parameters
-            foreach (var param in subscriptDecl.IndexParameters)
-            {
-                var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext);
-                if (ContainsAnyTypeGenericArg(paramTypeName) ||
-                    TypeDatabaseExtensions.IsBareGenericTypeName(paramTypeName))
-                    return true;
-            }
-
-            return false;
-        }
-
-        /// <summary>
-        /// Checks if a protocol method's resolved C# signature contains AnyType or a bare
-        /// generic type name as a generic type argument (e.g., BatchedCollection&lt;AnyType&gt;), which would
-        /// violate generic constraints and produce uncompilable code.
-        /// </summary>
-        private bool HasAnyTypeGenericArgInSignature(MethodDecl methodDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext)
-        {
-            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
-
-            // Check return type
-            if (methodDecl.CSSignature.Count > 0)
-            {
-                var returnArg = methodDecl.CSSignature[0];
-                if (returnArg.SwiftTypeSpec is not TupleTypeSpec tuple || !tuple.IsEmptyTuple)
-                {
-                    var returnType = ResolveMethodTypeName(returnArg.SwiftTypeSpec, isParameter: false,
-                        typeDatabase, boundGenericsHandler, protocolContext);
-                    if (ContainsAnyTypeGenericArg(returnType) ||
-                        TypeDatabaseExtensions.IsBareGenericTypeName(returnType))
-                        return true;
-                }
-            }
-
-            // Check parameters
-            for (int i = 1; i < methodDecl.CSSignature.Count; i++)
-            {
-                var arg = methodDecl.CSSignature[i];
-                var paramType = ResolveMethodTypeName(arg.SwiftTypeSpec, isParameter: true,
-                    typeDatabase, boundGenericsHandler, protocolContext);
-                if (ContainsAnyTypeGenericArg(paramType) ||
-                    TypeDatabaseExtensions.IsBareGenericTypeName(paramType))
-                    return true;
-            }
-
-            return false;
-        }
-
-        /// <summary>
-        /// Resolves a Swift type spec to its C# type name for a protocol method signature,
-        /// using the same resolution chain as EmitInterfaceMethod.
-        /// </summary>
-        private string ResolveMethodTypeName(TypeSpec swiftTypeSpec, bool isParameter,
-            ITypeDatabase typeDatabase, BoundGenericsHandler boundGenericsHandler,
-            ProtocolDecl? protocolContext)
-        {
-            return GetCSharpTypeName(swiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext, isParameter: isParameter);
-        }
-
         private string BuildEmittedSignature(MethodDecl methodDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext)
         {
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
@@ -951,42 +707,13 @@ namespace BindingsGeneration
             for (int i = 1; i < methodDecl.CSSignature.Count; i++)
             {
                 var arg = methodDecl.CSSignature[i];
-                var paramType = ResolveMethodTypeName(arg.SwiftTypeSpec, isParameter: true,
-                    typeDatabase, boundGenericsHandler, protocolContext);
+                var paramType = GetCSharpTypeName(arg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext, isParameter: true);
                 paramType = ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity(paramType, arg.SwiftTypeSpec, typeDatabase);
                 paramTypes.Add(paramType);
             }
 
             return $"{methodName}({string.Join(",", paramTypes)})";
         }
-
-        /// <summary>
-        /// Checks if a resolved C# type name contains AnyType as a generic type argument
-        /// (inside angle brackets). Plain AnyType as a standalone type is NOT flagged —
-        /// it's degraded but compilable. Only AnyType within a bound generic (e.g.,
-        /// BatchedCollection&lt;Swift.AnyType&gt;) is problematic because it violates
-        /// generic constraints.
-        /// </summary>
-        internal static bool ContainsAnyTypeGenericArg(string csharpTypeName)
-        {
-            int angleBracketStart = csharpTypeName.IndexOf('<');
-            if (angleBracketStart < 0) return false;
-            var genericPart = csharpTypeName.Substring(angleBracketStart);
-            // Token-aware match: ensure "AnyType" is a standalone type identifier,
-            // not part of a larger name (e.g., reject "MyAnyTypeModel")
-            int idx = 0;
-            while ((idx = genericPart.IndexOf("AnyType", idx, StringComparison.Ordinal)) >= 0)
-            {
-                bool startOk = idx == 0 || !IsIdentifierChar(genericPart[idx - 1]);
-                int end = idx + "AnyType".Length;
-                bool endOk = end >= genericPart.Length || !IsIdentifierChar(genericPart[end]);
-                if (startOk && endOk) return true;
-                idx++;
-            }
-            return false;
-        }
-
-        private static bool IsIdentifierChar(char c) => char.IsLetterOrDigit(c) || c == '_';
 
         /// <summary>
         /// Post-emission fixup: recomputes EmittedMemberCount for all protocol TypeRecords

@@ -513,7 +513,7 @@ public class ProtocolHandlerOutputTests
     [InlineData("Container<AnyType_>", false)]          // underscore suffix guard
     public void ContainsAnyTypeGenericArg_DetectsCorrectly(string typeName, bool expected)
     {
-        Assert.Equal(expected, ProtocolHandler.ContainsAnyTypeGenericArg(typeName));
+        Assert.Equal(expected, MemberGateEvaluator.ContainsAnyTypeGenericArg(typeName));
     }
 
     [Fact]

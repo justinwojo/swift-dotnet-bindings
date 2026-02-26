@@ -116,21 +116,24 @@ namespace BindingsGeneration
 
             var isAccessor = methodEnv.MethodDecl.IsAccessor;
 
+            // MH-specific gates: bare generic, non-ISwiftObject, unsatisfied constraints, existential accumulate+bypass
+            // Note: unsupported-module gate intentionally NOT here — MethodHandler never had it,
+            // and ShouldSkipMethodEmission skips B19 for constructors. Adding it would change behavior.
             bool hasExistentialArg = false;
             string? firstExistentialType = null;
 
             foreach (var argument in methodEnv.MethodDecl.CSSignature)
             {
+                // Bare generic usage
                 if (methodEnv.BoundGenericsHandler.HasBareGenericUsage(argument.SwiftTypeSpec, methodEnv.MethodDecl.ModuleDecl))
                 {
-                    var details = $"Type '{argument.SwiftTypeSpec}' contains generic declaration used without type arguments.";
-                    _logger.LogWarning($"Skipping constructor {methodEnv.MethodDecl.Name}: {details}");
+                    _logger.LogWarning($"Skipping constructor {methodEnv.MethodDecl.Name}: bare generic usage in signature");
                     ReportCollector.RecordMemberSkipped(
                         BindingItemKind.Method,
                         methodEnv.MethodDecl.Name,
                         methodEnv.MethodDecl.ParentDecl,
                         SkipReason.UnsupportedSignature,
-                        details);
+                        $"Type '{argument.SwiftTypeSpec}' contains generic declaration used without type arguments.");
                     return;
                 }
 
@@ -139,16 +142,16 @@ namespace BindingsGeneration
                     continue;
                 }
 
+                // Non-ISwiftObject bound generic
                 if (methodEnv.BoundGenericsHandler.HasNonSwiftObjectGenericArg(argument.SwiftTypeSpec))
                 {
-                    var details = "Bound generic contains type argument that cannot satisfy C# ISwiftObject constraint.";
-                    _logger.LogWarning($"Skipping constructor {methodEnv.MethodDecl.Name}: {details}");
+                    _logger.LogWarning($"Skipping constructor {methodEnv.MethodDecl.Name}: non-ISwiftObject bound generic arg");
                     ReportCollector.RecordMemberSkipped(
                         BindingItemKind.Method,
                         methodEnv.MethodDecl.Name,
                         methodEnv.MethodDecl.ParentDecl,
                         SkipReason.UnsatisfiedGenericConstraint,
-                        details);
+                        "Bound generic contains type argument that cannot satisfy C# ISwiftObject constraint.");
                     return;
                 }
 
@@ -432,23 +435,24 @@ namespace BindingsGeneration
 
             if (!isAccessor)
             {
-                // Track existential args across the loop for bypass attempt after all args are checked.
-                // Mirrors the constructor path (lines 130-225) which also accumulates before deciding.
+                // MH-specific gates: bare generic, non-ISwiftObject, unsatisfied constraints, existential accumulate+bypass
+                // Note: unsupported-module gate intentionally NOT here — MethodHandler never had it.
+                // ShouldSkipMethodEmission handles B19 for non-constructors; adding it here would change semantics.
                 bool hasMethodExistentialArg = false;
                 string? firstMethodExistentialType = null;
 
                 foreach (var argument in methodEnv.MethodDecl.CSSignature)
                 {
+                    // Bare generic usage
                     if (methodEnv.BoundGenericsHandler.HasBareGenericUsage(argument.SwiftTypeSpec, methodEnv.MethodDecl.ModuleDecl))
                     {
-                        var details = $"Type '{argument.SwiftTypeSpec}' contains generic declaration used without type arguments.";
-                        _logger.LogWarning($"Skipping method {methodEnv.MethodDecl.Name}: {details}");
+                        _logger.LogWarning($"Skipping method {methodEnv.MethodDecl.Name}: bare generic usage in signature");
                         ReportCollector.RecordMemberSkipped(
                             BindingItemKind.Method,
                             methodEnv.MethodDecl.Name,
                             methodEnv.MethodDecl.ParentDecl,
                             SkipReason.UnsupportedSignature,
-                            details);
+                            $"Type '{argument.SwiftTypeSpec}' contains generic declaration used without type arguments.");
                         return;
                     }
 
@@ -457,16 +461,16 @@ namespace BindingsGeneration
                         continue;
                     }
 
+                    // Non-ISwiftObject bound generic
                     if (methodEnv.BoundGenericsHandler.HasNonSwiftObjectGenericArg(argument.SwiftTypeSpec))
                     {
-                        var details = "Bound generic contains type argument that cannot satisfy C# ISwiftObject constraint.";
-                        _logger.LogWarning($"Skipping method {methodEnv.MethodDecl.Name}: {details}");
+                        _logger.LogWarning($"Skipping method {methodEnv.MethodDecl.Name}: non-ISwiftObject bound generic arg");
                         ReportCollector.RecordMemberSkipped(
                             BindingItemKind.Method,
                             methodEnv.MethodDecl.Name,
                             methodEnv.MethodDecl.ParentDecl,
                             SkipReason.UnsatisfiedGenericConstraint,
-                            details);
+                            "Bound generic contains type argument that cannot satisfy C# ISwiftObject constraint.");
                         return;
                     }
 
