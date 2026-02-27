@@ -107,7 +107,7 @@ public static class AsyncStreamEmitter
                 context: Int64
             ) {
                 Task {
-                    for await element in {{selfAccess}}.{{propertyDecl.Name}} {
+                    for await element in {{selfAccess}}.{{NameProvider.EscapeSwiftKeyword(propertyDecl.Name)}} {
                         let shouldContinue = withUnsafePointer(to: element) { ptr in
                             elementCallback(UnsafeRawPointer(ptr), context)
                         }

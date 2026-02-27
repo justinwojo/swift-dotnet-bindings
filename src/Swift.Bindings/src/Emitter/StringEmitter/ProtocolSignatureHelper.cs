@@ -191,7 +191,13 @@ internal static class ProtocolSignatureHelper
             if (innerRecord.Kind == TypeRecordKind.Class ||
                 innerRecord.Kind == TypeRecordKind.Protocol ||
                 innerRecord.Kind == TypeRecordKind.Existential ||
-                (innerRecord.Kind == TypeRecordKind.Enum && !innerRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum)))
+                (innerRecord.Kind == TypeRecordKind.Enum && !innerRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum)) ||
+                // Non-frozen structs are emitted as C# classes (ClassWithOpaquePayload),
+                // making nullable annotation irrelevant for overload resolution.
+                (innerRecord.Kind == TypeRecordKind.Struct && !innerRecord.Flags.HasFlag(TypeRecordFlags.Frozen)) ||
+                // Frozen structs with reference-type fields are emitted as C# classes (ClassWithBufferStruct),
+                // so nullable annotation is also irrelevant for overload resolution.
+                MarshallingHelpers.IsFrozenStructProjectedAsClass(innerRecord))
                 return projectedType.TrimEnd('?');
 
             // Swift value types that project to C# reference types (e.g., Swift.String → string).

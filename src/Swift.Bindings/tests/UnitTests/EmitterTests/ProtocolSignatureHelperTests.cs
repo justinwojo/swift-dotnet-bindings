@@ -371,6 +371,163 @@ public class ProtocolSignatureHelperTests
         Assert.Equal("object", result);
     }
 
+    [Fact]
+    public void NormalizeParamType_OptionalNonFrozenStruct_StripsNullable()
+    {
+        // Non-frozen structs are emitted as C# classes (ClassWithOpaquePayload),
+        // so Optional<NonFrozenStruct> and NonFrozenStruct are the same CLR type.
+        // Reproduces: Parchment PageBuilder.BuildExpression(Page) vs BuildExpression(Page?)
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Page"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Page"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Page"),
+                MetadataAccessor = "$s10TestModule4PageVMa",
+                Flags = TypeRecordFlags.None, // NOT frozen — emits as C# class
+                Kind = TypeRecordKind.Struct,
+            });
+        typeDatabase.AddModuleDatabase(module);
+
+        var optionalType = new NamedTypeSpec("Swift.Optional");
+        optionalType.GenericParameters.Add(new NamedTypeSpec("TestModule.Page"));
+
+        var result = ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity(
+            "Page?", optionalType, typeDatabase);
+
+        // Non-frozen struct → C# class → nullable annotation stripped
+        Assert.Equal("Page", result);
+    }
+
+    [Fact]
+    public void NormalizeParamType_OptionalFrozenStruct_PreservesNullable()
+    {
+        // Frozen structs are emitted as C# structs, where T? and T are different
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Point"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
+                MetadataAccessor = "$s10TestModule5PointVMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+            });
+        typeDatabase.AddModuleDatabase(module);
+
+        var optionalType = new NamedTypeSpec("Swift.Optional");
+        optionalType.GenericParameters.Add(new NamedTypeSpec("TestModule.Point"));
+
+        var result = ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity(
+            "Point?", optionalType, typeDatabase);
+
+        // Frozen struct → C# value type → nullable preserved
+        Assert.Equal("Point?", result);
+    }
+
+    [Fact]
+    public void NormalizeParamType_OptionalFrozenStructProjectedAsClass_StripsNullable()
+    {
+        // Frozen structs with RequiresMemoryManagement are emitted as C# classes (ClassWithBufferStruct),
+        // so Optional<T> and T produce the same CLR type — nullable must be stripped.
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Widget"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Widget"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Widget"),
+                MetadataAccessor = "$s10TestModule6WidgetVMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct,
+            });
+        typeDatabase.AddModuleDatabase(module);
+
+        var optionalType = new NamedTypeSpec("Swift.Optional");
+        optionalType.GenericParameters.Add(new NamedTypeSpec("TestModule.Widget"));
+
+        var result = ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity(
+            "Widget?", optionalType, typeDatabase);
+
+        // Frozen + RequiresMemoryManagement → C# class → nullable annotation stripped
+        Assert.Equal("Widget", result);
+    }
+
+    #endregion
+
+    #region NormalizeContainerForOverloadKey Tests
+
+    [Fact]
+    public void NormalizeContainer_ArrayWithGenericParam_ReturnsIEnumerable()
+    {
+        var typeDatabase = new TypeDatabase();
+        var arrayType = new NamedTypeSpec("Swift.Array");
+        arrayType.GenericParameters.Add(new NamedTypeSpec("τ_0_0"));
+
+        var result = BaseHandler.NormalizeContainerForOverloadKey(arrayType, typeDatabase);
+
+        Assert.Equal("IEnumerable<τ_0_0>", result);
+    }
+
+    [Fact]
+    public void NormalizeContainer_SetWithGenericParam_ReturnsIEnumerable()
+    {
+        var typeDatabase = new TypeDatabase();
+        var setType = new NamedTypeSpec("Swift.Set");
+        setType.GenericParameters.Add(new NamedTypeSpec("τ_0_0"));
+
+        var result = BaseHandler.NormalizeContainerForOverloadKey(setType, typeDatabase);
+
+        Assert.Equal("IEnumerable<τ_0_0>", result);
+    }
+
+    [Fact]
+    public void NormalizeContainer_ArrayAndSet_ProduceSameKey()
+    {
+        // Reproduces: ObjectMapper Mapper.toJSONString(Array<N>) vs toJSONString(Set<N>)
+        // Both project to IEnumerable<N> — must produce same dedup key
+        var typeDatabase = new TypeDatabase();
+        var arrayType = new NamedTypeSpec("Swift.Array");
+        arrayType.GenericParameters.Add(new NamedTypeSpec("τ_0_0"));
+        var setType = new NamedTypeSpec("Swift.Set");
+        setType.GenericParameters.Add(new NamedTypeSpec("τ_0_0"));
+
+        var arrayResult = BaseHandler.NormalizeContainerForOverloadKey(arrayType, typeDatabase);
+        var setResult = BaseHandler.NormalizeContainerForOverloadKey(setType, typeDatabase);
+
+        Assert.Equal(arrayResult, setResult);
+    }
+
+    [Fact]
+    public void NormalizeContainer_DictionaryWithGenericParams_ReturnsIReadOnlyDictionary()
+    {
+        var typeDatabase = new TypeDatabase();
+        var dictType = new NamedTypeSpec("Swift.Dictionary");
+        dictType.GenericParameters.Add(new NamedTypeSpec("τ_0_0"));
+        dictType.GenericParameters.Add(new NamedTypeSpec("τ_0_1"));
+
+        var result = BaseHandler.NormalizeContainerForOverloadKey(dictType, typeDatabase);
+
+        Assert.Equal("IReadOnlyDictionary<τ_0_0,τ_0_1>", result);
+    }
+
+    [Fact]
+    public void NormalizeContainer_NonContainerType_FallsToDbLookup()
+    {
+        var typeDatabase = new TypeDatabase();
+        var namedType = new NamedTypeSpec("TestModule.Widget");
+
+        var result = BaseHandler.NormalizeContainerForOverloadKey(namedType, typeDatabase);
+
+        // No DB record → AnyType
+        Assert.Equal("Swift.AnyType", result);
+    }
+
     #endregion
 
     #region Helper Methods

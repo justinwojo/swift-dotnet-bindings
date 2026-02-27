@@ -61,7 +61,7 @@ for k, v in lib.get('buildSettings', {}).items():
 }
 
 # Expand manifest to flat list of validation targets.
-# Output: one line per target: "framework|library_name|xcfw_path|mode|knownErrors"
+# Output: one line per target: "framework|library_name|xcfw_path|mode|knownErrors|tier"
 manifest_expand_targets() {
     local libraries_dir="${1:-.libraries}"
     python3 -c "
@@ -70,14 +70,20 @@ libs = json.load(open('$MANIFEST'))['libraries']
 for lib in libs:
     name = lib['name']
     mode = lib['mode']
+    tier = lib.get('tier', 1)
     for prod in lib['products']:
         fw = prod['framework']
         known = prod.get('knownErrors', 0)
-        print(f'{fw}|{name}|$libraries_dir/{name}/{fw}.xcframework|{mode}|{known}')
+        print(f'{fw}|{name}|$libraries_dir/{name}/{fw}.xcframework|{mode}|{known}|{tier}')
 "
 }
 
 matches_filter() {
     [[ -z "${FILTER:-}" ]] && return 0
     echo "$1" | grep -qi "$FILTER"
+}
+
+matches_tier() {
+    [[ "${TIER:-all}" == "all" ]] && return 0
+    [[ "$1" == "${TIER:-1}" ]]
 }

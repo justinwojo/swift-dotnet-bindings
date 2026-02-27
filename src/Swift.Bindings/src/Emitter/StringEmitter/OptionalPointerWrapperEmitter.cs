@@ -208,32 +208,33 @@ public static class OptionalPointerWrapperEmitter
         }
         else if (isInstance)
         {
+            var escapedName = NameProvider.ParserNameToSwift(methodDecl);
             if (isClass)
             {
                 selfConversion = $"let __self = unsafeBitCast(OpaquePointer(_self), to: {typeName}.self)";
-                callLine = $"__self.{methodDecl.Name}({callArgsStr})";
+                callLine = $"__self.{escapedName}({callArgsStr})";
             }
             else if (needsThroughPointer)
             {
                 // Mutating value type: through-pointer to preserve mutations
-                callLine = $"_self.assumingMemoryBound(to: {typeName}.self).pointee.{methodDecl.Name}({callArgsStr})";
+                callLine = $"_self.assumingMemoryBound(to: {typeName}.self).pointee.{escapedName}({callArgsStr})";
             }
             else
             {
                 // Non-mutating value type: copy is safe
                 selfConversion = $"let __self = _self.assumingMemoryBound(to: {typeName}.self).pointee";
-                callLine = $"__self.{methodDecl.Name}({callArgsStr})";
+                callLine = $"__self.{escapedName}({callArgsStr})";
             }
         }
         else if (parentDecl != null)
         {
-            callLine = $"{typeName}.{methodDecl.Name}({callArgsStr})";
+            callLine = $"{typeName}.{NameProvider.ParserNameToSwift(methodDecl)}({callArgsStr})";
         }
         else
         {
             var moduleName = methodDecl.ModuleDecl?.Name ?? "";
             var prefix = moduleName.Length > 0 ? $"{moduleName}." : "";
-            callLine = $"{prefix}{methodDecl.Name}({callArgsStr})";
+            callLine = $"{prefix}{NameProvider.ParserNameToSwift(methodDecl)}({callArgsStr})";
         }
 
         var tryPrefix = methodDecl.Throws ? "try " : "";
@@ -308,14 +309,20 @@ public static class OptionalPointerWrapperEmitter
 
     /// <summary>
     /// Gets the Swift property name from an accessor method name by stripping the _Get or _Set suffix.
+    /// Accessor field names come from SanitizePropertyWrapperName (raw Swift names, NOT parser-escaped),
+    /// so we use EscapeSwiftKeyword directly — not ParserNameToSwift which would wrongly strip
+    /// leading underscores from genuine Swift identifiers like _class.
     /// </summary>
     private static string GetPropertyNameFromAccessor(string methodName)
     {
+        string baseName;
         if (methodName.EndsWith("_Set"))
-            return methodName.Substring(0, methodName.Length - 4);
-        if (methodName.EndsWith("_Get"))
-            return methodName.Substring(0, methodName.Length - 4);
-        return methodName;
+            baseName = methodName.Substring(0, methodName.Length - 4);
+        else if (methodName.EndsWith("_Get"))
+            baseName = methodName.Substring(0, methodName.Length - 4);
+        else
+            baseName = methodName;
+        return NameProvider.EscapeSwiftKeyword(baseName);
     }
 
     /// <summary>

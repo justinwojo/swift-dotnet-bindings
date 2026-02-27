@@ -60,6 +60,9 @@ namespace BindingsGeneration
             var enumName = enumDecl.Name;
             var csUnderlyingType = GetCSharpEnumUnderlyingType(enumDecl.RawValueTypeName);
 
+            // Compute case name map for case-insensitive collision avoidance
+            var caseNameMap = NameProvider.ComputeCaseNameMap(enumDecl.Cases);
+
             // Emit the C# enum declaration
             XmlDocCommentEmitter.EmitDocComment(csWriter, enumDecl);
             if (enumDecl.Name.StartsWith("_"))
@@ -71,7 +74,7 @@ namespace BindingsGeneration
             // Emit enum members
             foreach (var caseDecl in enumDecl.Cases)
             {
-                var casePascalName = NameProvider.ToPascalCase(caseDecl.Name);
+                var casePascalName = NameProvider.GetCaseName(caseDecl.Name, caseNameMap);
                 int tagValue;
 
                 if (enumDecl.IsStringRawValue)
@@ -101,7 +104,7 @@ namespace BindingsGeneration
             // For String-raw-value enums, emit ToRawValue/FromRawValue extension methods
             if (enumDecl.IsStringRawValue)
             {
-                EmitStringRawValueExtensions(csWriter, enumDecl, enumName);
+                EmitStringRawValueExtensions(csWriter, enumDecl, enumName, caseNameMap);
             }
 
             // Emit extension methods class if there are instance methods or properties
@@ -186,7 +189,7 @@ namespace BindingsGeneration
         /// These are pure C# (no Swift P/Invoke needed) since the mapping is known at codegen time.
         /// Note: Uses case names as raw values (known limitation — ABI JSON lacks individual case raw values).
         /// </summary>
-        private static void EmitStringRawValueExtensions(CSharpWriter csWriter, EnumDecl enumDecl, string enumName)
+        private static void EmitStringRawValueExtensions(CSharpWriter csWriter, EnumDecl enumDecl, string enumName, Dictionary<string, string>? caseNameMap = null)
         {
             csWriter.WriteLine($"public static partial class {enumName}Extensions");
             csWriter.WriteLine("{");
@@ -201,7 +204,7 @@ namespace BindingsGeneration
             csWriter.Indent++;
             foreach (var caseDecl in enumDecl.Cases)
             {
-                var casePascalName = NameProvider.ToPascalCase(caseDecl.Name);
+                var casePascalName = NameProvider.GetCaseName(caseDecl.Name, caseNameMap);
                 csWriter.WriteLine($"{enumName}.{casePascalName} => \"{caseDecl.Name}\",");
             }
             csWriter.WriteLine($"_ => throw new ArgumentOutOfRangeException(nameof(value), value, null),");
@@ -220,7 +223,7 @@ namespace BindingsGeneration
             csWriter.Indent++;
             foreach (var caseDecl in enumDecl.Cases)
             {
-                var casePascalName = NameProvider.ToPascalCase(caseDecl.Name);
+                var casePascalName = NameProvider.GetCaseName(caseDecl.Name, caseNameMap);
                 csWriter.WriteLine($"\"{caseDecl.Name}\" => {enumName}.{casePascalName},");
             }
             csWriter.WriteLine("_ => null,");
@@ -391,8 +394,8 @@ namespace BindingsGeneration
             }
 
             var callStr = callArgs.Count > 0
-                ? $"value.{methodDecl.Name}({string.Join(", ", callArgs)})"
-                : $"value.{methodDecl.Name}()";
+                ? $"value.{NameProvider.ParserNameToSwift(methodDecl)}({string.Join(", ", callArgs)})"
+                : $"value.{NameProvider.ParserNameToSwift(methodDecl)}()";
 
             if (returnsEnum)
             {
@@ -428,7 +431,7 @@ namespace BindingsGeneration
             foreach (var caseDecl in enumDecl.Cases)
             {
                 var tag = enumDecl.GetCaseTag(caseDecl);
-                swiftWriter.WriteLine($"case {tag}: value = .{caseDecl.Name}");
+                swiftWriter.WriteLine($"case {tag}: value = .{NameProvider.EscapeSwiftKeyword(caseDecl.Name)}");
             }
             swiftWriter.WriteLine($"default: fatalError(\"Invalid enum tag\")");
             swiftWriter.WriteLine("}");
@@ -444,7 +447,7 @@ namespace BindingsGeneration
             foreach (var caseDecl in enumDecl.Cases)
             {
                 var tag = enumDecl.GetCaseTag(caseDecl);
-                swiftWriter.WriteLine($"case .{caseDecl.Name}: return {tag}");
+                swiftWriter.WriteLine($"case .{NameProvider.EscapeSwiftKeyword(caseDecl.Name)}: return {tag}");
             }
             swiftWriter.WriteLine("}");
         }

@@ -502,6 +502,9 @@ public class EnumHandlerOutputTests
     }
 
     private static MethodDecl CreateRawValueInitializer(EnumDecl enumDecl, ModuleDecl moduleDecl)
+        => CreateTypedRawValueInitializer(enumDecl, moduleDecl, "Swift.Int");
+
+    private static MethodDecl CreateTypedRawValueInitializer(EnumDecl enumDecl, ModuleDecl moduleDecl, string swiftRawType)
     {
         return new MethodDecl
         {
@@ -523,7 +526,7 @@ public class EnumHandlerOutputTests
                 },
                 new()
                 {
-                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    SwiftTypeSpec = new NamedTypeSpec(swiftRawType),
                     Name = "rawValue",
                     PrivateName = "rawValue",
                     IsInOut = false,
@@ -1953,6 +1956,50 @@ public class EnumHandlerOutputTests
         // UInt8-backed simple enum should use byte metadata, not nint
         Assert.Contains("TypeMetadata.GetTypeMetadataOrThrow<byte>()", csOutput);
         Assert.DoesNotContain("SwiftObjectHelper<OtherModule.SmallEnum>", csOutput);
+    }
+
+    [Theory]
+    [InlineData("CGFloat", "double")]
+    [InlineData("Double", "double")]
+    [InlineData("Float", "float")]
+    public void Emit_FloatingPointRawValueEnum_EmitsCorrectCSharpType(string swiftRawType, string expectedCSharpType)
+    {
+        // CGFloat/Double/Float raw value enums must map to the correct C# type
+        // in FromRawValue signatures (not fall through to the Swift name).
+        // Reproduces: Lottie CAKeyframeAnimation.RotationMode has CGFloat raw value.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("RotationMode", moduleDecl, isFrozen: false);
+        enumDecl.RawValueTypeName = swiftRawType;
+        enumDecl.Cases.Add(CreateCase("auto"));
+        enumDecl.Cases.Add(CreateCase("manual"));
+        enumDecl.Methods.Add(CreateTypedRawValueInitializer(enumDecl, moduleDecl, $"Swift.{swiftRawType}"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // FromRawValue must use the C# type, not the Swift name
+        Assert.Contains($"FromRawValue({expectedCSharpType} rawValue)", csOutput);
+        Assert.DoesNotContain($"FromRawValue({swiftRawType} rawValue)", csOutput);
+    }
+
+    [Fact]
+    public void Emit_CGFloatRawValueEnum_DoesNotEmitAsSimpleEnum()
+    {
+        // CGFloat is not integral — must NOT emit as C# enum value type
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("RotationMode", moduleDecl, isFrozen: true);
+        enumDecl.RawValueTypeName = "CGFloat";
+        enumDecl.Cases.Add(CreateCase("auto"));
+        enumDecl.Cases.Add(CreateCase("manual"));
+        enumDecl.Methods.Add(CreateTypedRawValueInitializer(enumDecl, moduleDecl, "Swift.CGFloat"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // Must NOT be a C# enum (CGFloat is not integral)
+        Assert.DoesNotContain("public enum RotationMode", csOutput);
+        // Must be class-based
+        Assert.Contains("class RotationMode", csOutput);
     }
 
     private static (string csOutput, string swiftOutput) EmitEnum(EnumDecl enumDecl, TypeDatabase typeDatabase)

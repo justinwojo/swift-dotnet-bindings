@@ -4,7 +4,8 @@
 # Reads validation-libraries.json and builds xcframeworks into .libraries/
 #
 # Usage:
-#   scripts/fetch-libraries.sh                    # Build all public libraries
+#   scripts/fetch-libraries.sh                    # Build all libraries (all tiers)
+#   scripts/fetch-libraries.sh --tier 1           # Build tier 1 only
 #   scripts/fetch-libraries.sh --filter Nuke      # Build matching libraries only
 #   scripts/fetch-libraries.sh --force            # Rebuild even if cached
 #   scripts/fetch-libraries.sh --list             # Show library status
@@ -21,12 +22,19 @@ LIBRARIES_DIR="$ROOT_DIR/.libraries"
 FILTER=""
 FORCE=false
 LIST_ONLY=false
+TIER="all"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         --filter) FILTER="$2"; shift 2 ;;
         --force) FORCE=true; shift ;;
         --list) LIST_ONLY=true; shift ;;
+        --tier)
+            case "$2" in
+                1|2|all) TIER="$2"; shift 2 ;;
+                *) echo "Invalid tier: $2 (must be 1, 2, or all)"; exit 1 ;;
+            esac
+            ;;
         -h|--help)
             echo "Usage: scripts/fetch-libraries.sh [flags]"
             echo ""
@@ -34,10 +42,11 @@ while [[ $# -gt 0 ]]; do
             echo "Reads from validation-libraries.json, outputs to .libraries/"
             echo ""
             echo "Flags:"
-            echo "  --filter <pat>  Only libraries matching pattern (case-insensitive)"
-            echo "  --force         Rebuild even if cached"
-            echo "  --list          Show library status without building"
-            echo "  -h, --help      Show this help"
+            echo "  --tier <1|2|all>  Library tier to fetch (default: all)"
+            echo "  --filter <pat>    Only libraries matching pattern (case-insensitive)"
+            echo "  --force           Rebuild even if cached"
+            echo "  --list            Show library status without building"
+            echo "  -h, --help        Show this help"
             exit 0
             ;;
         *) echo "Unknown flag: $1"; exit 1 ;;
@@ -350,8 +359,12 @@ for ((i=0; i<LIB_COUNT; i++)); do
     NAME=$(manifest_lib_field "$i" name)
     MODE=$(manifest_lib_field "$i" mode)
     VERSION=$(manifest_lib_field "$i" version "manual")
+    LIB_TIER=$(manifest_lib_field "$i" tier "1")
 
     if ! matches_filter "$NAME"; then
+        continue
+    fi
+    if ! matches_tier "$LIB_TIER"; then
         continue
     fi
 

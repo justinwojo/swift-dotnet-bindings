@@ -39,7 +39,9 @@ cd TestFramework
 
 # Real-world library validation:
 scripts/fetch-libraries.sh              # Fetch xcframeworks (first time)
-./validate-libraries.sh                 # Compile gate (all libraries)
+./validate-libraries.sh                 # Compile gate (tier 1, 32 targets)
+./validate-libraries.sh --tier 2        # Tier 2 only (21 targets)
+./validate-libraries.sh --tier all      # Both tiers
 ./validate-libraries.sh --filter Nuke   # Validate one library
 ```
 
@@ -84,7 +86,7 @@ Mutually exclusive with `--xcframework`. Does NOT emit `.csproj`/`.targets`.
 
 ## Validating Third-Party Libraries
 
-Track binding errors in `src/docs/Completed/binding-errors.md`. All 31 validation libraries are declared in `validation-libraries.json`.
+Track binding errors in `src/docs/Completed/binding-errors.md`. All validation libraries are declared in `validation-libraries.json`.
 
 ### Quick start
 
@@ -92,8 +94,14 @@ Track binding errors in `src/docs/Completed/binding-errors.md`. All 31 validatio
 # First time: fetch all public libraries (~30-60 min, builds xcframeworks)
 scripts/fetch-libraries.sh
 
-# Run compile gate
+# Run compile gate (tier 1 by default)
 ./validate-libraries.sh
+
+# Tier 2 (additional coverage libraries)
+./validate-libraries.sh --tier 2
+
+# Both tiers
+./validate-libraries.sh --tier all
 
 # Validate a single library
 ./validate-libraries.sh --filter Nuke --verbose
@@ -102,17 +110,18 @@ scripts/fetch-libraries.sh
 ./validate-libraries.sh --fetch --filter Nuke
 ```
 
-### Validation profiles
+### Validation tiers
 
-- **public** (27 targets): Auto-fetchable via SPM. Any contributor can run `scripts/fetch-libraries.sh`.
-- **full** (31 targets): Includes 4 proprietary/manual libraries (BRLMPrinterKit, Mappedin, MicroblinkPlatform, SmartCardIO). Place xcframeworks in `.libraries/<name>/`.
+- **Tier 1** (32 targets): Established baseline libraries (Alamofire, Nuke, Kingfisher, RxSwift, Stripe, etc.). Default for `./validate-libraries.sh`. Baseline updates only on full tier-1 runs.
+- **Tier 2** (21 targets): Additional coverage libraries (DeviceKit, ObjectMapper, SVGView, etc.). Use `--tier 2` or `--tier all`.
+- **Manual** (4 targets within tier 1): Proprietary libraries (BRLMPrinterKit, Mappedin, MicroblinkPlatform, SmartCardIO). Place xcframeworks in `.libraries/<name>/`.
 
 ### Adding a new library
 
-1. Add entry to `validation-libraries.json` (repo URL, version, mode)
+1. Add entry to `validation-libraries.json` (repo URL, version, mode, tier)
 2. `scripts/fetch-libraries.sh --filter NewLib`
 3. `./validate-libraries.sh --filter NewLib`
-4. Run full validation to update `.validation-baseline.json`
+4. Run full tier-1 validation to update `.validation-baseline.json`
 
 ### Known non-binding failures (not generator bugs)
 

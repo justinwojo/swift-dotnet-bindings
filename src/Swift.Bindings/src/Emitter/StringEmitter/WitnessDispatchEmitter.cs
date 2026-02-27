@@ -590,7 +590,7 @@ public class WitnessDispatchEmitter
             if (isStringReturn)
             {
                 // String return: convert to UTF-8 bytes via SBW_Utf8Slice
-                writer.WriteLine($"let result: String = existential.{method.Name}({callArgsString})");
+                writer.WriteLine($"let result: String = existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
                 writer.WriteLine("let utf8 = Array(result.utf8)");
                 writer.WriteLine("let bufferPtr = UnsafeMutablePointer<UInt8>.allocate(capacity: max(utf8.count, 1))");
                 writer.WriteLine("if !utf8.isEmpty {");
@@ -611,7 +611,7 @@ public class WitnessDispatchEmitter
                 // Blittable return: direct pointer allocation
                 var csharpReturnType = GetCSharpTypeName(returnType!);
                 var swiftReturnType = GetSwiftPrimitiveType(csharpReturnType);
-                writer.WriteLine($"let result = existential.{method.Name}({callArgsString})");
+                writer.WriteLine($"let result = existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
                 writer.WriteLine($"let ptr = UnsafeMutablePointer<{swiftReturnType}>.allocate(capacity: 1)");
                 writer.WriteLine("ptr.initialize(to: result)");
                 writer.WriteLine("return UnsafeMutableRawPointer(ptr)");
@@ -619,7 +619,7 @@ public class WitnessDispatchEmitter
         }
         else
         {
-            writer.WriteLine($"existential.{method.Name}({callArgsString})");
+            writer.WriteLine($"existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
         }
 
         writer.Indent--;

@@ -754,6 +754,18 @@ public class TypeDatabaseExtensionsTests
     [InlineData("UIKit.UIView.AnimationOptions")]
     [InlineData("Foundation.NSData.WritingOptions")]
     [InlineData("Photos.PHImageContentMode")]
+    // Bug 4+5: UIKit value-type enums that were misclassified as ObjC classes
+    [InlineData("UIKit.UITableView.Style")]
+    [InlineData("UIKit.UITextField.DidEndEditingReason")]
+    [InlineData("UIKit.UISwipeGestureRecognizer.Direction")]
+    [InlineData("UIKit.UICollectionView.ScrollDirection")]
+    // Additional UIKit nested enums for coverage
+    [InlineData("UIKit.UITableViewCell.CellStyle")]
+    [InlineData("UIKit.UIGestureRecognizer.State")]
+    [InlineData("UIKit.UIAlertController.Style")]
+    [InlineData("UIKit.UIAlertAction.Style")]
+    [InlineData("UIKit.UIStackView.Alignment")]
+    [InlineData("UIKit.UIBarButtonItem.SystemItem")]
     public void IsObjCModuleType_NestedAppleEnumValueType_ReturnsFalse(string swiftType)
     {
         var result = TypeDatabaseExtensions.IsObjCModuleType(new NamedTypeSpec(swiftType));
@@ -1172,4 +1184,39 @@ public class TypeDatabaseExtensionsTests
 
         Assert.False(result);
     }
+
+    #region ConcatWithOverlapDedup
+
+    [Theory]
+    [InlineData("UITableViewCell", "CellStyle", "UITableViewCellStyle")]
+    [InlineData("UIView", "ContentMode", "UIViewContentMode")]
+    [InlineData("UIScrollView", "IndicatorStyle", "UIScrollViewIndicatorStyle")]
+    [InlineData("UIStackView", "Alignment", "UIStackViewAlignment")]
+    [InlineData("ABC", "CDE", "ABCDE")]
+    [InlineData("Hello", "World", "HelloWorld")]
+    public void ConcatWithOverlapDedup_VariousCases_ProducesCorrectResult(string first, string second, string expected)
+    {
+        var result = TypeDatabaseExtensions.ConcatWithOverlapDedup(first, second);
+
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void ConcatWithOverlapDedup_FullOverlap_DeduplicatesCompletely()
+    {
+        // If second is entirely a suffix of first, second is consumed
+        var result = TypeDatabaseExtensions.ConcatWithOverlapDedup("UITableViewCell", "Cell");
+
+        Assert.Equal("UITableViewCell", result);
+    }
+
+    [Fact]
+    public void ConcatWithOverlapDedup_NoOverlap_SimpleConcatenation()
+    {
+        var result = TypeDatabaseExtensions.ConcatWithOverlapDedup("UIImage", "RenderingMode");
+
+        Assert.Equal("UIImageRenderingMode", result);
+    }
+
+    #endregion
 }

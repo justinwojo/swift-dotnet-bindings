@@ -576,13 +576,13 @@ public static class ExistentialBypassEmitter
             // Non-frozen struct: dereference pointer to get value, call method.
             // Use 'var' to support mutating methods (though most bypass candidates are non-mutating).
             swiftWriter.WriteLine($"var __selfTyped = __self.assumingMemoryBound(to: {swiftTypeName}.self).pointee");
-            swiftWriter.WriteLine($"__selfTyped.{methodDecl.Name}({callArgString})");
+            swiftWriter.WriteLine($"__selfTyped.{NameProvider.ParserNameToSwift(methodDecl)}({callArgString})");
             // Write back for mutating methods
             swiftWriter.WriteLine($"__self.assumingMemoryBound(to: {swiftTypeName}.self).pointee = __selfTyped");
         }
         else
         {
-            swiftWriter.WriteLine($"__self.{methodDecl.Name}({callArgString})");
+            swiftWriter.WriteLine($"__self.{NameProvider.ParserNameToSwift(methodDecl)}({callArgString})");
         }
 
         swiftWriter.Indent--;

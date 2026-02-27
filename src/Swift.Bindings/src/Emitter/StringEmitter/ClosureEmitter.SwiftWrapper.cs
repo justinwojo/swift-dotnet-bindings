@@ -579,19 +579,20 @@ public static partial class ClosureEmitter
             {
                 selfConversion = $"let __self = _self.assumingMemoryBound(to: {typeName}.self).pointee";
             }
-            callPrefix = $"__self.{methodDecl.Name}(";
+            callPrefix = $"__self.{NameProvider.ParserNameToSwift(methodDecl)}(";
         }
         else if (parentDecl != null)
         {
             // Static method
             var typeName = parentDecl.SwiftTypeName?.ModuleQualifiedName ?? parentDecl.Name;
-            callPrefix = $"{typeName}.{methodDecl.Name}(";
+            callPrefix = $"{typeName}.{NameProvider.ParserNameToSwift(methodDecl)}(";
         }
         else
         {
             // Free function
             var moduleName = methodDecl.ModuleDecl?.Name ?? "";
-            callPrefix = moduleName.Length > 0 ? $"{moduleName}.{methodDecl.Name}(" : $"{methodDecl.Name}(";
+            var escapedName = NameProvider.ParserNameToSwift(methodDecl);
+            callPrefix = moduleName.Length > 0 ? $"{moduleName}.{escapedName}(" : $"{escapedName}(";
         }
 
         var callSuffix = methodDecl.IsConstructor ? ")" : ")";

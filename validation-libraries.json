@@ -8,8 +8,12 @@
       "mode": "source",
       "minIOS": "15.0",
       "products": [
-        { "scheme": "Alamofire", "framework": "Alamofire" }
-      ]
+        {
+          "scheme": "Alamofire",
+          "framework": "Alamofire"
+        }
+      ],
+      "tier": 1
     },
     {
       "name": "BlinkID",
@@ -19,24 +23,33 @@
       "mode": "binary",
       "minIOS": "15.0",
       "products": [
-        { "framework": "BlinkID" }
-      ]
+        {
+          "framework": "BlinkID"
+        }
+      ],
+      "tier": 1
     },
     {
       "name": "BlinkIDUX",
       "mode": "manual",
       "products": [
-        { "framework": "BlinkIDUX" }
+        {
+          "framework": "BlinkIDUX"
+        }
       ],
-      "note": "BlinkIDUX SDK — place xcframework in .libraries/BlinkIDUX/"
+      "note": "BlinkIDUX SDK \u2014 place xcframework in .libraries/BlinkIDUX/",
+      "tier": 1
     },
     {
       "name": "BRLMPrinterKit",
       "mode": "manual",
       "products": [
-        { "framework": "BRLMPrinterKit" }
+        {
+          "framework": "BRLMPrinterKit"
+        }
       ],
-      "note": "Brother Print SDK — place xcframework in .libraries/BRLMPrinterKit/"
+      "note": "Brother Print SDK \u2014 place xcframework in .libraries/BRLMPrinterKit/",
+      "tier": 1
     },
     {
       "name": "CryptoSwift",
@@ -46,8 +59,12 @@
       "mode": "source",
       "minIOS": "15.0",
       "products": [
-        { "scheme": "CryptoSwift", "framework": "CryptoSwift" }
-      ]
+        {
+          "scheme": "CryptoSwift",
+          "framework": "CryptoSwift"
+        }
+      ],
+      "tier": 1
     },
     {
       "name": "GRDB",
@@ -61,8 +78,12 @@
         "SWIFT_TREAT_WARNINGS_AS_ERRORS": "NO"
       },
       "products": [
-        { "scheme": "GRDB", "framework": "GRDB" }
-      ]
+        {
+          "scheme": "GRDB",
+          "framework": "GRDB"
+        }
+      ],
+      "tier": 1
     },
     {
       "name": "KeychainAccess",
@@ -72,8 +93,12 @@
       "mode": "source",
       "minIOS": "15.0",
       "products": [
-        { "scheme": "KeychainAccess", "framework": "KeychainAccess" }
-      ]
+        {
+          "scheme": "KeychainAccess",
+          "framework": "KeychainAccess"
+        }
+      ],
+      "tier": 1
     },
     {
       "name": "Kingfisher",
@@ -87,8 +112,12 @@
         "SWIFT_TREAT_WARNINGS_AS_ERRORS": "NO"
       },
       "products": [
-        { "scheme": "Kingfisher", "framework": "Kingfisher" }
-      ]
+        {
+          "scheme": "Kingfisher",
+          "framework": "Kingfisher"
+        }
+      ],
+      "tier": 1
     },
     {
       "name": "Lottie",
@@ -98,24 +127,34 @@
       "mode": "source",
       "minIOS": "15.0",
       "products": [
-        { "scheme": "Lottie (iOS)", "framework": "Lottie" }
-      ]
+        {
+          "scheme": "Lottie (iOS)",
+          "framework": "Lottie"
+        }
+      ],
+      "tier": 1
     },
     {
       "name": "Mappedin",
       "mode": "manual",
       "products": [
-        { "framework": "Mappedin" }
+        {
+          "framework": "Mappedin"
+        }
       ],
-      "note": "Proprietary SDK — place xcframework in .libraries/Mappedin/"
+      "note": "Proprietary SDK \u2014 place xcframework in .libraries/Mappedin/",
+      "tier": 1
     },
     {
       "name": "MicroblinkPlatform",
       "mode": "manual",
       "products": [
-        { "framework": "MicroblinkPlatform" }
+        {
+          "framework": "MicroblinkPlatform"
+        }
       ],
-      "note": "Proprietary SDK — place xcframework in .libraries/MicroblinkPlatform/"
+      "note": "Proprietary SDK \u2014 place xcframework in .libraries/MicroblinkPlatform/",
+      "tier": 1
     },
     {
       "name": "Mixpanel",
@@ -125,8 +164,12 @@
       "mode": "source",
       "minIOS": "15.0",
       "products": [
-        { "scheme": "Mixpanel", "framework": "Mixpanel" }
-      ]
+        {
+          "scheme": "Mixpanel",
+          "framework": "Mixpanel"
+        }
+      ],
+      "tier": 1
     },
     {
       "name": "Nuke",
@@ -136,8 +179,12 @@
       "mode": "source",
       "minIOS": "15.0",
       "products": [
-        { "scheme": "Nuke", "framework": "Nuke" }
-      ]
+        {
+          "scheme": "Nuke",
+          "framework": "Nuke"
+        }
+      ],
+      "tier": 1
     },
     {
       "name": "RxSwift",
@@ -151,8 +198,12 @@
         "SWIFT_TREAT_WARNINGS_AS_ERRORS": "NO"
       },
       "products": [
-        { "scheme": "RxSwift", "framework": "RxSwift" }
-      ]
+        {
+          "scheme": "RxSwift",
+          "framework": "RxSwift"
+        }
+      ],
+      "tier": 1
     },
     {
       "name": "SkeletonView",
@@ -162,16 +213,23 @@
       "mode": "source",
       "minIOS": "15.0",
       "products": [
-        { "scheme": "SkeletonView", "framework": "SkeletonView" }
-      ]
+        {
+          "scheme": "SkeletonView",
+          "framework": "SkeletonView"
+        }
+      ],
+      "tier": 1
     },
     {
       "name": "SmartCardIO",
       "mode": "manual",
       "products": [
-        { "framework": "SmartCardIO" }
+        {
+          "framework": "SmartCardIO"
+        }
       ],
-      "note": "Proprietary SDK — place xcframework in .libraries/SmartCardIO/"
+      "note": "Proprietary SDK \u2014 place xcframework in .libraries/SmartCardIO/",
+      "tier": 1
     },
     {
       "name": "SnapKit",
@@ -181,8 +239,12 @@
       "mode": "source",
       "minIOS": "15.0",
       "products": [
-        { "scheme": "SnapKit", "framework": "SnapKit" }
-      ]
+        {
+          "scheme": "SnapKit",
+          "framework": "SnapKit"
+        }
+      ],
+      "tier": 1
     },
     {
       "name": "Starscream",
@@ -192,8 +254,12 @@
       "mode": "source",
       "minIOS": "15.0",
       "products": [
-        { "scheme": "Starscream", "framework": "Starscream" }
-      ]
+        {
+          "scheme": "Starscream",
+          "framework": "Starscream"
+        }
+      ],
+      "tier": 1
     },
     {
       "name": "Stripe",
@@ -207,21 +273,370 @@
         "SWIFT_TREAT_WARNINGS_AS_ERRORS": "NO"
       },
       "products": [
-        { "scheme": "StripeiOS", "framework": "Stripe" },
-        { "scheme": "StripeApplePay", "framework": "StripeApplePay" },
-        { "scheme": "StripeCameraCore", "framework": "StripeCameraCore" },
-        { "scheme": "StripeCardScan", "framework": "StripeCardScan" },
-        { "scheme": "StripeConnect", "framework": "StripeConnect" },
-        { "scheme": "StripeCore", "framework": "StripeCore" },
-        { "scheme": "StripeCryptoOnramp", "framework": "StripeCryptoOnramp" },
-        { "scheme": "StripeFinancialConnections", "framework": "StripeFinancialConnections" },
-        { "scheme": "StripeIdentity", "framework": "StripeIdentity" },
-        { "scheme": "StripeIssuing", "framework": "StripeIssuing" },
-        { "scheme": "StripePayments", "framework": "StripePayments" },
-        { "scheme": "StripePaymentSheet", "framework": "StripePaymentSheet" },
-        { "scheme": "StripePaymentsUI", "framework": "StripePaymentsUI" },
-        { "scheme": "StripeUICore", "framework": "StripeUICore" }
-      ]
+        {
+          "scheme": "StripeiOS",
+          "framework": "Stripe"
+        },
+        {
+          "scheme": "StripeApplePay",
+          "framework": "StripeApplePay"
+        },
+        {
+          "scheme": "StripeCameraCore",
+          "framework": "StripeCameraCore"
+        },
+        {
+          "scheme": "StripeCardScan",
+          "framework": "StripeCardScan"
+        },
+        {
+          "scheme": "StripeConnect",
+          "framework": "StripeConnect"
+        },
+        {
+          "scheme": "StripeCore",
+          "framework": "StripeCore"
+        },
+        {
+          "scheme": "StripeCryptoOnramp",
+          "framework": "StripeCryptoOnramp"
+        },
+        {
+          "scheme": "StripeFinancialConnections",
+          "framework": "StripeFinancialConnections"
+        },
+        {
+          "scheme": "StripeIdentity",
+          "framework": "StripeIdentity"
+        },
+        {
+          "scheme": "StripeIssuing",
+          "framework": "StripeIssuing"
+        },
+        {
+          "scheme": "StripePayments",
+          "framework": "StripePayments"
+        },
+        {
+          "scheme": "StripePaymentSheet",
+          "framework": "StripePaymentSheet"
+        },
+        {
+          "scheme": "StripePaymentsUI",
+          "framework": "StripePaymentsUI"
+        },
+        {
+          "scheme": "StripeUICore",
+          "framework": "StripeUICore"
+        }
+      ],
+      "tier": 1
+    },
+    {
+      "name": "DeviceKit",
+      "repository": "https://github.com/devicekit/DeviceKit.git",
+      "version": "5.7.0",
+      "mode": "source",
+      "minIOS": "15.0",
+      "products": [
+        {
+          "scheme": "DeviceKit",
+          "framework": "DeviceKit"
+        }
+      ],
+      "tier": 2
+    },
+    {
+      "name": "Swinject",
+      "repository": "https://github.com/Swinject/Swinject.git",
+      "version": "v2.10.0",
+      "mode": "source",
+      "minIOS": "15.0",
+      "products": [
+        {
+          "scheme": "Swinject-iOS",
+          "framework": "Swinject"
+        }
+      ],
+      "tier": 2
+    },
+    {
+      "name": "PhoneNumberKit",
+      "repository": "https://github.com/marmelroy/PhoneNumberKit.git",
+      "version": "4.2.7",
+      "mode": "source",
+      "minIOS": "15.0",
+      "products": [
+        {
+          "scheme": "PhoneNumberKit",
+          "framework": "PhoneNumberKit"
+        }
+      ],
+      "tier": 2
+    },
+    {
+      "name": "Valet",
+      "repository": "https://github.com/square/Valet.git",
+      "version": "5.1.0",
+      "mode": "source",
+      "minIOS": "15.0",
+      "products": [
+        {
+          "scheme": "Valet iOS",
+          "framework": "Valet"
+        }
+      ],
+      "tier": 2
+    },
+    {
+      "name": "SwiftyBeaver",
+      "repository": "https://github.com/SwiftyBeaver/SwiftyBeaver.git",
+      "version": "2.1.1",
+      "mode": "source",
+      "minIOS": "15.0",
+      "buildSettings": {
+        "GCC_TREAT_WARNINGS_AS_ERRORS": "NO",
+        "SWIFT_TREAT_WARNINGS_AS_ERRORS": "NO"
+      },
+      "products": [
+        {
+          "scheme": "SwiftyBeaver-Package",
+          "framework": "SwiftyBeaver"
+        }
+      ],
+      "tier": 2
+    },
+    {
+      "name": "Reachability",
+      "repository": "https://github.com/ashleymills/Reachability.swift.git",
+      "version": "v5.2.4",
+      "mode": "source",
+      "minIOS": "15.0",
+      "products": [
+        {
+          "scheme": "Reachability",
+          "framework": "Reachability"
+        }
+      ],
+      "tier": 2
+    },
+    {
+      "name": "NVActivityIndicatorView",
+      "repository": "https://github.com/ninjaprox/NVActivityIndicatorView.git",
+      "version": "5.2.0",
+      "mode": "source",
+      "minIOS": "15.0",
+      "products": [
+        {
+          "scheme": "NVActivityIndicatorView-Package",
+          "framework": "NVActivityIndicatorView"
+        }
+      ],
+      "tier": 2
+    },
+    {
+      "name": "ObjectMapper",
+      "repository": "https://github.com/tristanhimmelman/ObjectMapper.git",
+      "version": "4.4.3",
+      "mode": "source",
+      "minIOS": "15.0",
+      "products": [
+        {
+          "scheme": "ObjectMapper-iOS",
+          "framework": "ObjectMapper"
+        }
+      ],
+      "tier": 2
+    },
+    {
+      "name": "BonMot",
+      "repository": "https://github.com/Rightpoint/BonMot.git",
+      "version": "6.1.3",
+      "mode": "source",
+      "minIOS": "15.0",
+      "products": [
+        {
+          "scheme": "BonMot-iOS",
+          "framework": "BonMot"
+        }
+      ],
+      "tier": 2
+    },
+    {
+      "name": "Parchment",
+      "repository": "https://github.com/rechsteiner/Parchment.git",
+      "version": "v4.1.0",
+      "mode": "source",
+      "minIOS": "15.0",
+      "products": [
+        {
+          "scheme": "Parchment",
+          "framework": "Parchment"
+        }
+      ],
+      "tier": 2
+    },
+    {
+      "name": "KeychainSwift",
+      "repository": "https://github.com/evgenyneu/keychain-swift.git",
+      "version": "9.0.2",
+      "mode": "source",
+      "minIOS": "15.0",
+      "products": [
+        {
+          "scheme": "KeychainSwift",
+          "framework": "KeychainSwift"
+        }
+      ],
+      "tier": 2
+    },
+    {
+      "name": "SwipeCellKit",
+      "repository": "https://github.com/SwipeCellKit/SwipeCellKit.git",
+      "version": "2.7.1",
+      "mode": "source",
+      "minIOS": "15.0",
+      "products": [
+        {
+          "scheme": "SwipeCellKit",
+          "framework": "SwipeCellKit"
+        }
+      ],
+      "tier": 2
+    },
+    {
+      "name": "FSPagerView",
+      "repository": "https://github.com/WenchaoD/FSPagerView.git",
+      "version": "0.8.3",
+      "mode": "source",
+      "minIOS": "15.0",
+      "products": [
+        {
+          "scheme": "FSPagerView",
+          "framework": "FSPagerView"
+        }
+      ],
+      "tier": 2
+    },
+    {
+      "name": "SwiftyGif",
+      "repository": "https://github.com/kirualex/SwiftyGif.git",
+      "version": "5.4.5",
+      "mode": "source",
+      "minIOS": "15.0",
+      "products": [
+        {
+          "scheme": "SwiftyGif",
+          "framework": "SwiftyGif"
+        }
+      ],
+      "tier": 2
+    },
+    {
+      "name": "Quick",
+      "repository": "https://github.com/Quick/Quick.git",
+      "version": "v7.6.2",
+      "mode": "source",
+      "minIOS": "15.0",
+      "buildSettings": {
+        "GCC_TREAT_WARNINGS_AS_ERRORS": "NO",
+        "SWIFT_TREAT_WARNINGS_AS_ERRORS": "NO"
+      },
+      "products": [
+        {
+          "scheme": "Quick",
+          "framework": "Quick"
+        }
+      ],
+      "tier": 2
+    },
+    {
+      "name": "DifferenceKit",
+      "repository": "https://github.com/ra1028/DifferenceKit.git",
+      "version": "1.3.0",
+      "mode": "source",
+      "minIOS": "15.0",
+      "products": [
+        {
+          "scheme": "DifferenceKit",
+          "framework": "DifferenceKit"
+        }
+      ],
+      "tier": 2
+    },
+    {
+      "name": "TinyConstraints",
+      "repository": "https://github.com/roberthein/TinyConstraints.git",
+      "version": "4.0.2",
+      "mode": "source",
+      "minIOS": "15.0",
+      "products": [
+        {
+          "scheme": "TinyConstraints",
+          "framework": "TinyConstraints"
+        }
+      ],
+      "tier": 2
+    },
+    {
+      "name": "AMPopTip",
+      "repository": "https://github.com/andreamazz/AMPopTip.git",
+      "version": "4.7.0",
+      "mode": "source",
+      "minIOS": "15.0",
+      "products": [
+        {
+          "scheme": "AMPopTip",
+          "framework": "AMPopTip"
+        }
+      ],
+      "tier": 2
+    },
+    {
+      "name": "XMLCoder",
+      "repository": "https://github.com/MaxDesiatov/XMLCoder.git",
+      "version": "0.17.1",
+      "mode": "source",
+      "minIOS": "15.0",
+      "buildSettings": {
+        "GCC_TREAT_WARNINGS_AS_ERRORS": "NO",
+        "SWIFT_TREAT_WARNINGS_AS_ERRORS": "NO"
+      },
+      "products": [
+        {
+          "scheme": "XMLCoder",
+          "framework": "XMLCoder"
+        }
+      ],
+      "tier": 2
+    },
+    {
+      "name": "AnimatedCollectionViewLayout",
+      "repository": "https://github.com/KelvinJin/AnimatedCollectionViewLayout.git",
+      "version": "1.1.0",
+      "mode": "source",
+      "minIOS": "15.0",
+      "products": [
+        {
+          "scheme": "AnimatedCollectionViewLayout",
+          "framework": "AnimatedCollectionViewLayout"
+        }
+      ],
+      "tier": 2
+    },
+    {
+      "name": "SVGView",
+      "repository": "https://github.com/exyte/SVGView.git",
+      "version": "1.0.6",
+      "mode": "source",
+      "minIOS": "15.0",
+      "products": [
+        {
+          "scheme": "SVGView",
+          "framework": "SVGView"
+        }
+      ],
+      "tier": 2
     }
   ]
 }

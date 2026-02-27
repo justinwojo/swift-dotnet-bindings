@@ -1051,7 +1051,7 @@ public static class ProtocolExtensionEmitter
         }
 
         // Emit method call
-        var callStr = $"instance.{extMethod.MethodName}({string.Join(", ", callArgs)})";
+        var callStr = $"instance.{NameProvider.EscapeSwiftKeyword(extMethod.MethodName)}({string.Join(", ", callArgs)})";
 
         if (extMethod.ReturnsSelf || returnIsClass)
         {
@@ -1348,7 +1348,7 @@ public static class ProtocolExtensionEmitter
         }
 
         // Use try! for @escaping closures (evaluated lazily, won't throw here)
-        var callStr = $"instance.{extMethod.MethodName}({string.Join(", ", callArgs)})";
+        var callStr = $"instance.{NameProvider.EscapeSwiftKeyword(extMethod.MethodName)}({string.Join(", ", callArgs)})";
         if (closureTypeSpec.Throws)
             callStr = $"try! {callStr}";
 

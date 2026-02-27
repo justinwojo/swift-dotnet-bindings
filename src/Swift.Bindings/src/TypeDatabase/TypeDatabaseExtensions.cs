@@ -625,6 +625,40 @@ public static class TypeDatabaseExtensions
         "UIKit.UITextSpellCheckingType",
         "UIKit.UIReturnKeyType",
         "UIKit.UIDataDetectorTypes",
+        "UIKit.UITableView.Style",
+        "UIKit.UITextField.DidEndEditingReason",
+        "UIKit.UISwipeGestureRecognizer.Direction",
+        "UIKit.UICollectionView.ScrollDirection",
+        "UIKit.UICollectionView.ScrollPosition",
+        "UIKit.UITableViewCell.CellStyle",
+        "UIKit.UITableViewCell.SelectionStyle",
+        "UIKit.UITableViewCell.AccessoryType",
+        "UIKit.UITableViewCell.EditingStyle",
+        "UIKit.UITableView.RowAnimation",
+        "UIKit.UITableView.ScrollPosition",
+        "UIKit.UIScrollView.IndicatorStyle",
+        "UIKit.UIScrollView.KeyboardDismissMode",
+        "UIKit.UIScrollView.ContentInsetAdjustmentBehavior",
+        "UIKit.UIStackView.Alignment",
+        "UIKit.UIStackView.Distribution",
+        "UIKit.UINavigationController.Operation",
+        "UIKit.UINavigationItem.LargeTitleDisplayMode",
+        "UIKit.UIPageViewController.NavigationDirection",
+        "UIKit.UIPageViewController.NavigationOrientation",
+        "UIKit.UIPageViewController.SpineLocation",
+        "UIKit.UIPageViewController.TransitionStyle",
+        "UIKit.UIGestureRecognizer.State",
+        "UIKit.UIModalPresentationStyle",
+        "UIKit.UIModalTransitionStyle",
+        "UIKit.UIStatusBarStyle",
+        "UIKit.UIStatusBarAnimation",
+        "UIKit.UIBarPosition",
+        "UIKit.UITabBarItem.SystemItem",
+        "UIKit.UIBarButtonItem.SystemItem",
+        "UIKit.UIBarButtonItem.Style",
+        "UIKit.UIDatePicker.Mode",
+        "UIKit.UIAlertController.Style",
+        "UIKit.UIAlertAction.Style",
         // AVFoundation enums (value types)
         "AVFoundation.AVMediaType",
         "AVFoundation.AVFileType",
@@ -876,7 +910,14 @@ public static class TypeDatabaseExtensions
         if (parts.Length > 2)
         {
             // parts[0] = module, parts[1..n-1] = parent types, parts[n] = leaf
-            csharpName = string.Concat(parts.Skip(1));
+            // Concatenate with overlap deduplication: if a parent ends with a substring
+            // that the next part starts with, strip the overlap. Example:
+            //   UITableViewCell + CellStyle → UITableViewCellStyle (not UITableViewCellCellStyle)
+            csharpName = parts[1];
+            for (int i = 2; i < parts.Length; i++)
+            {
+                csharpName = ConcatWithOverlapDedup(csharpName, parts[i]);
+            }
         }
 
         return new TypeRecord
@@ -887,6 +928,26 @@ public static class TypeDatabaseExtensions
             Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,
             Kind = TypeRecordKind.Class,
         };
+    }
+
+    /// <summary>
+    /// Concatenates two name parts with overlap deduplication. If the first part ends with
+    /// a substring that the second part starts with (case-sensitive), the overlapping portion
+    /// is removed from the second part before concatenation.
+    /// Example: "UITableViewCell" + "CellStyle" → "UITableViewCellStyle" (overlap: "Cell")
+    /// </summary>
+    internal static string ConcatWithOverlapDedup(string first, string second)
+    {
+        // Find the longest suffix of first that matches a prefix of second
+        var maxOverlap = Math.Min(first.Length, second.Length);
+        for (int len = maxOverlap; len > 0; len--)
+        {
+            if (first.AsSpan(first.Length - len).SequenceEqual(second.AsSpan(0, len)))
+            {
+                return first + second.Substring(len);
+            }
+        }
+        return first + second;
     }
 
     /// <summary>

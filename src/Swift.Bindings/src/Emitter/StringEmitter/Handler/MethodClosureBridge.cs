@@ -337,7 +337,7 @@ public static class MethodClosureBridge
             var methodCallArgs = new List<string>(nonClosureCallArgs);
             methodCallArgs.Add($"{callLabel}{{ {closureParamStr} in {cdeclCall} }}");
 
-            swiftWriter.WriteLine($"    {returnPrefix}{callTarget}.{method.Name}({string.Join(", ", methodCallArgs)})");
+            swiftWriter.WriteLine($"    {returnPrefix}{callTarget}.{NameProvider.ParserNameToSwift(method)}({string.Join(", ", methodCallArgs)})");
         }
 
         swiftWriter.WriteLine("}");
@@ -368,7 +368,7 @@ public static class MethodClosureBridge
             : "";
 
         // Open the method call with trailing closure syntax
-        swiftWriter.WriteLine($"{indent}{returnPrefix}{callTarget}.{method.Name}({prefixStr}{callLabel}{{ {closureParamStr} in");
+        swiftWriter.WriteLine($"{indent}{returnPrefix}{callTarget}.{NameProvider.ParserNameToSwift(method)}({prefixStr}{callLabel}{{ {closureParamStr} in");
 
         // Nest withUnsafePointer calls
         var currentIndent = indent + indent;

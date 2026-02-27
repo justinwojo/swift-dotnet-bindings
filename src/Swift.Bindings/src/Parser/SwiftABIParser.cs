@@ -912,9 +912,11 @@ namespace BindingsGeneration
                 node.Children.Any() &&
                 node.Children.First().Name == "Optional";
 
+            var (methodCSharpName, methodOriginalSwiftName) = ExtractUniqueNameWithOriginal(node.Name);
             var methodDecl = new MethodDecl
             {
-                Name = ExtractUniqueName(node.Name),
+                Name = methodCSharpName,
+                OriginalSwiftName = methodOriginalSwiftName,
                 // Constructors for structs are named with a trailing 'C' instead of 'c'
                 // because a constructor wrapper is missing in the library.
                 MangledName = mangledName,
@@ -1634,17 +1636,33 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Check if the name is a keyword and prefix it with "_".
+        /// Returns a tuple: (csharpSafeName, originalSwiftName).
+        /// originalSwiftName is non-null only when the name was modified (C# keyword prefix added).
+        /// </summary>
+        private static (string CSharpName, string? OriginalSwiftName) ExtractUniqueNameWithOriginal(string name)
+        {
+            // Strip Swift backtick escaping (e.g., `default` → default).
+            // Backticks are used in Swift to escape keywords as identifiers;
+            // they are not part of the identifier itself.
+            if (name.Length >= 2 && name[0] == '`' && name[name.Length - 1] == '`')
+                name = name.Substring(1, name.Length - 2);
+
+            if (SyntaxFacts.GetKeywordKind(name) != SyntaxKind.None)
+            {
+                return ($"_{name}", name);
+            }
+
+            return (name, null);
+        }
+
+        /// <summary>
+        /// Check if the name is a keyword and prefix it with "_".
         /// </summary>
         /// <param name="name">The name to check.</param>
         /// <returns>The processed name.</returns>
         private static string ExtractUniqueName(string name)
         {
-            if (SyntaxFacts.GetKeywordKind(name) != SyntaxKind.None)
-            {
-                return $"_{name}";
-            }
-
-            return name;
+            return ExtractUniqueNameWithOriginal(name).CSharpName;
         }
 
         /// <summary>

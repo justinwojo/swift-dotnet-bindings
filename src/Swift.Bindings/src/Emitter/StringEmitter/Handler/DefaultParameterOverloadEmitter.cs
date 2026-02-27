@@ -315,7 +315,7 @@ public static class DefaultParameterOverloadEmitter
         bool isVoid = returnTypeSpec is TupleTypeSpec tupleTypeSpec && tupleTypeSpec == TupleTypeSpec.Empty;
         bool throws = originalMethodDecl.Throws;
 
-        var originalMethodName = originalMethodDecl.Name;
+        var originalMethodName = NameProvider.ParserNameToSwift(originalMethodDecl);
         var asyncKeyword = originalMethodDecl.IsAsync ? " async" : "";
         var awaitPrefix = originalMethodDecl.IsAsync ? "await " : "";
         var throwsClause = throws ? " throws" : "";
@@ -463,17 +463,15 @@ public static class DefaultParameterOverloadEmitter
             {
                 paramType = projection.PublicType;
             }
-            else if (typeSpecForKey is NamedTypeSpec dpBoundGeneric && dpBoundGeneric.ContainsGenericParameters)
-            {
-                var bgh = new BoundGenericsHandler(typeDatabase);
-                paramType = bgh.TranslateBoundGenericTypeToCSharp(typeSpecForKey, GenericContext.Empty);
-            }
             else
             {
                 try
                 {
-                    var typeRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpecForKey);
-                    paramType = typeRecord.CSharpTypeName.FullyQualifiedName;
+                    // Normalize container types whose element projection failed
+                    // (e.g., Array<τ_0_0> where τ_0_0 can't be resolved without GenericContext).
+                    // Must match IHandler.GetProjectedCSharpMethodKey normalization.
+                    // This handles both generic containers AND other unresolved types.
+                    paramType = BaseHandler.NormalizeContainerForOverloadKey(typeSpecForKey, typeDatabase);
                 }
                 catch
                 {
@@ -634,7 +632,8 @@ public static class DefaultParameterOverloadEmitter
             swiftWriter.WriteLine($"public func {swiftFuncName}({swiftParamString}){asyncKeyword}{throwsClause}{returnClause} {{");
             swiftWriter.Indent++;
             foreach (var line in derefLines) swiftWriter.WriteLine(line);
-            var callExpr = $"{tryPrefix}{awaitPrefix}{callPrefix}{methodDecl.Name}({callArgString})";
+            var escapedMethodName = NameProvider.ParserNameToSwift(methodDecl);
+            var callExpr = $"{tryPrefix}{awaitPrefix}{callPrefix}{escapedMethodName}({callArgString})";
             if (hasLargeOptionalReturn)
                 foreach (var bufLine in OptionalPointerWrapperEmitter.GetReturnBufferCode(callExpr, returnType))
                     swiftWriter.WriteLine(bufLine);
@@ -677,7 +676,7 @@ public static class DefaultParameterOverloadEmitter
             swiftWriter.WriteLine($"public {staticKeyword}func {swiftFuncName}({swiftParamString}){asyncKeyword}{throwsClause}{returnClause} {{");
             swiftWriter.Indent++;
             foreach (var line in derefLines) swiftWriter.WriteLine(line);
-            var callExpr = $"{tryPrefix}{awaitPrefix}{selfPrefix}.{methodDecl.Name}({callArgString})";
+            var callExpr = $"{tryPrefix}{awaitPrefix}{selfPrefix}.{NameProvider.ParserNameToSwift(methodDecl)}({callArgString})";
             if (hasLargeOptionalReturn)
                 foreach (var bufLine in OptionalPointerWrapperEmitter.GetReturnBufferCode(callExpr, returnType))
                     swiftWriter.WriteLine(bufLine);

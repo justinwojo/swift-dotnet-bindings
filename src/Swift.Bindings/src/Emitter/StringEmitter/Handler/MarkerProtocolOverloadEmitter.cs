@@ -274,7 +274,7 @@ namespace BindingsGeneration
             }
 
             var callPrefix = isInstance ? "__self." : (parentTypeName != null ? $"{parentTypeName.ModuleQualifiedName}." : "");
-            var callExpr = $"{callPrefix}{methodDecl.Name}({string.Join(", ", callArgs)})";
+            var callExpr = $"{callPrefix}{NameProvider.ParserNameToSwift(methodDecl)}({string.Join(", ", callArgs)})";
 
             if (isVoid)
                 swiftWriter.WriteLine($"    {callExpr}");

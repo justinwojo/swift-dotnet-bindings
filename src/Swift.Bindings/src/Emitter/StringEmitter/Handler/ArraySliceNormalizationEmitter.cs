@@ -504,7 +504,7 @@ public static class ArraySliceNormalizationEmitter
         bool isVoid = returnTypeSpec is TupleTypeSpec tupleTypeSpec && tupleTypeSpec == TupleTypeSpec.Empty;
         bool throws = originalMethodDecl.Throws;
 
-        var originalMethodName = originalMethodDecl.Name;
+        var originalMethodName = NameProvider.ParserNameToSwift(originalMethodDecl);
         var throwsClause = throws ? " throws" : "";
         var returnClause = (isVoid || hasLargeOptionalReturn) ? "" : $" -> {returnType}";
         var tryPrefix = throws ? "try " : "";

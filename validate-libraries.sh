@@ -5,12 +5,14 @@
 # compiles them, and tracks results against a baseline for regression detection.
 #
 # Usage:
-#   ./validate-libraries.sh                         # Full compile gate
+#   ./validate-libraries.sh                         # Tier 1 compile gate (default)
+#   ./validate-libraries.sh --tier 2                # Tier 2 only
+#   ./validate-libraries.sh --tier all              # Both tiers
 #   ./validate-libraries.sh --quick                 # Reuse existing /tmp output
 #   ./validate-libraries.sh --filter Nuke           # Only matching libraries
 #   ./validate-libraries.sh --verbose               # Show errors detail
 #   ./validate-libraries.sh --fetch                 # Run fetch script first
-#   ./validate-libraries.sh --filter Nuke --verbose # Combine flags
+#   ./validate-libraries.sh --tier 2 --filter SVGView --verbose # Combine flags
 
 set -o pipefail
 
@@ -31,6 +33,7 @@ QUICK=false
 FILTER=""
 VERBOSE=false
 FETCH=false
+TIER="1"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -38,10 +41,20 @@ while [[ $# -gt 0 ]]; do
         --filter) FILTER="$2"; shift 2 ;;
         --verbose) VERBOSE=true; shift ;;
         --fetch) FETCH=true; shift ;;
+        --tier)
+            case "$2" in
+                1|2|all) TIER="$2"; shift 2 ;;
+                *) echo "Invalid tier: $2 (must be 1, 2, or all)"; exit 1 ;;
+            esac
+            ;;
         -h|--help)
             echo "Usage: ./validate-libraries.sh [flags]"
             echo ""
             echo "Flags:"
+            echo "  --tier <1|2|all>  Library tier to validate (default: 1)"
+            echo "                      1 = established libraries (32 targets)"
+            echo "                      2 = additional coverage libraries (21 targets)"
+            echo "                      all = both tiers"
             echo "  --quick           Recompile from existing /tmp/binding-validation/"
             echo "  --filter <pat>    Only libraries matching pattern (case-insensitive)"
             echo "  --verbose         Show generator warnings and first 10 compile errors"
@@ -78,6 +91,7 @@ write_fallback_csproj() {
   <PropertyGroup>
     <OutputType>Library</OutputType>
     <TargetFramework>net10.0-ios</TargetFramework>
+    <SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Nullable>enable</Nullable>
     <NoWarn>0169;CA1420</NoWarn>
@@ -119,6 +133,7 @@ if [[ -z "$RUNTIME_VERSION" ]]; then
 fi
 echo -e "${DIM}Runtime version: $RUNTIME_VERSION${NC}"
 echo -e "${DIM}Git SHA: $(git -C "$SCRIPT_DIR" rev-parse --short HEAD)${NC}"
+echo -e "${DIM}Tier: $TIER${NC}"
 
 # --- Fetch if requested ---
 
@@ -146,8 +161,11 @@ fi
 TARGETS=()
 MANUAL_TARGETS=()
 
-while IFS='|' read -r fw lib_name xcfw_path mode known_errors; do
+while IFS='|' read -r fw lib_name xcfw_path mode known_errors tier; do
     if ! matches_filter "$fw"; then
+        continue
+    fi
+    if ! matches_tier "$tier"; then
         continue
     fi
     if $QUICK; then
@@ -352,9 +370,10 @@ echo ""
 
 GIT_SHA=$(git -C "$SCRIPT_DIR" rev-parse --short HEAD)
 
-# Determine if this is a full run (no filter) — only full runs update the baseline
+# Determine if this is a full run (tier 1, no filter) — only full runs update the baseline
 IS_FULL_RUN=true
 [[ -n "$FILTER" ]] && IS_FULL_RUN=false
+[[ "$TIER" != "1" ]] && IS_FULL_RUN=false
 
 # Load previous baseline for regression comparison
 PREV_BASELINE=""
@@ -525,16 +544,18 @@ fi
 
 # --- Profile Summary ---
 
-# Count public vs manual targets
-PROFILE_INFO=$(python3 -c "
+# Count targets by tier
+TIER_INFO=$(python3 -c "
 import json
 libs = json.load(open('$MANIFEST'))['libraries']
-public_targets = sum(len(lib['products']) for lib in libs if lib['mode'] != 'manual')
-manual_targets = sum(len(lib['products']) for lib in libs if lib['mode'] == 'manual')
-print(f'{public_targets}|{manual_targets}')
+t1 = sum(len(lib['products']) for lib in libs if lib.get('tier', 1) == 1)
+t2 = sum(len(lib['products']) for lib in libs if lib.get('tier', 1) == 2)
+manual = sum(len(lib['products']) for lib in libs if lib['mode'] == 'manual')
+print(f'{t1}|{t2}|{manual}')
 ")
-PUBLIC_TARGET_COUNT="${PROFILE_INFO%%|*}"
-MANUAL_TARGET_COUNT="${PROFILE_INFO#*|}"
+TIER1_TARGET_COUNT="${TIER_INFO%%|*}"
+TIER2_TARGET_COUNT="$(echo "$TIER_INFO" | cut -d'|' -f2)"
+MANUAL_TARGET_COUNT="${TIER_INFO##*|}"
 
 echo -e "${BOLD}=== Summary ===${NC}"
 if [[ ${COMPILE_FAILED:-0} -eq 0 && ${COMPILE_NO_OUTPUT:-0} -eq 0 ]]; then
@@ -545,22 +566,22 @@ else
     echo -e "  Compile: ${RED}${COMPILE_PASSED:-0}/$TOTAL passed, $COMPILE_FAILED failed${NC}${COMPILE_NO_OUTPUT:+, ${DIM}${COMPILE_NO_OUTPUT} no output${NC}}"
 fi
 
-# Determine which profile was achieved
+# Show tier and profile info
 TOTAL_TARGETS_IN_RUN=${#TARGETS[@]}
-if [[ $TOTAL_TARGETS_IN_RUN -ge $((PUBLIC_TARGET_COUNT + MANUAL_TARGET_COUNT)) ]]; then
-    echo -e "  Profile: ${GREEN}full${NC} ($PUBLIC_TARGET_COUNT public + $MANUAL_TARGET_COUNT manual)"
-elif [[ $TOTAL_TARGETS_IN_RUN -ge $PUBLIC_TARGET_COUNT ]]; then
-    echo -e "  Profile: ${GREEN}public${NC} ($PUBLIC_TARGET_COUNT targets)"
-elif [[ -n "$FILTER" ]]; then
-    echo -e "  Profile: ${DIM}filtered${NC} ($TOTAL_TARGETS_IN_RUN targets matching '$FILTER')"
+if [[ -n "$FILTER" ]]; then
+    echo -e "  Tier: ${DIM}$TIER${NC} (filtered: $TOTAL_TARGETS_IN_RUN targets matching '$FILTER')"
+elif [[ "$TIER" == "all" ]]; then
+    echo -e "  Tier: ${GREEN}all${NC} ($TIER1_TARGET_COUNT tier-1 + $TIER2_TARGET_COUNT tier-2)"
+elif [[ "$TIER" == "2" ]]; then
+    echo -e "  Tier: ${CYAN}2${NC} ($TIER2_TARGET_COUNT targets)"
 else
-    echo -e "  Profile: ${YELLOW}partial${NC} ($TOTAL_TARGETS_IN_RUN of $PUBLIC_TARGET_COUNT public targets)"
+    echo -e "  Tier: ${GREEN}1${NC} ($TIER1_TARGET_COUNT targets)"
 fi
 
 if $IS_FULL_RUN; then
     echo -e "  Baseline: ${DIM}$BASELINE_FILE (updated)${NC}"
 else
-    echo -e "  Baseline: ${DIM}$BASELINE_FILE (not updated — filtered run)${NC}"
+    echo -e "  Baseline: ${DIM}$BASELINE_FILE (not updated — filtered/tier-2 run)${NC}"
 fi
 echo ""
 

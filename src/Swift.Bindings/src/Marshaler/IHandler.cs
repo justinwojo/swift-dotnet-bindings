@@ -389,8 +389,11 @@ namespace BindingsGeneration
                     }
                     else
                     {
-                        var typeRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpecForKey);
-                        paramType = typeRecord.CSharpTypeName.FullyQualifiedName;
+                        // Normalize container types whose element projection failed
+                        // (e.g., Array<τ_0_0> where τ_0_0 can't be resolved without GenericContext).
+                        // Array and Set both project to IEnumerable<T> as parameters, so their
+                        // keys must match to prevent CS0111 collisions.
+                        paramType = NormalizeContainerForOverloadKey(typeSpecForKey, typeDatabase);
                     }
                 }
                 catch (Exception ex)
@@ -411,6 +414,35 @@ namespace BindingsGeneration
             }
 
             return $"{methodName}({string.Join(",", paramTypes)})";
+        }
+
+        /// <summary>
+        /// Normalizes container type specs for overload key generation.
+        /// Array and Set both project to IEnumerable&lt;T&gt; as parameters, but when the element
+        /// type is an unresolved generic parameter (τ_0_0), TypeProjectionFactory returns null
+        /// and DB lookup returns different names (SwiftArray vs SwiftSet). This method ensures
+        /// both produce the same key by using a canonical container name.
+        /// </summary>
+        internal static string NormalizeContainerForOverloadKey(TypeSpec typeSpecForKey, ITypeDatabase typeDatabase)
+        {
+            if (typeSpecForKey is NamedTypeSpec namedSpec)
+            {
+                // Array<T> and Set<T> both project to IEnumerable<T> as parameters
+                if (namedSpec.Name is "Swift.Array" or "Swift.Set" && namedSpec.GenericParameters.Count == 1)
+                {
+                    var elemKey = namedSpec.GenericParameters[0].ToString();
+                    return $"IEnumerable<{elemKey}>";
+                }
+                // Dictionary<K,V> projects to IReadOnlyDictionary<K,V> as parameters
+                if (namedSpec.Name == "Swift.Dictionary" && namedSpec.GenericParameters.Count == 2)
+                {
+                    var keyKey = namedSpec.GenericParameters[0].ToString();
+                    var valueKey = namedSpec.GenericParameters[1].ToString();
+                    return $"IReadOnlyDictionary<{keyKey},{valueKey}>";
+                }
+            }
+            var typeRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpecForKey);
+            return typeRecord.CSharpTypeName.FullyQualifiedName;
         }
 
         /// <summary>

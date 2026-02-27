@@ -122,6 +122,16 @@ public static class NameProvider
         if (string.IsNullOrEmpty(camelCase))
             return camelCase;
 
+        // Strip any remaining backticks (belt+suspenders — parser also strips them)
+        camelCase = camelCase.Replace("`", "");
+        if (string.IsNullOrEmpty(camelCase))
+            return "_";
+
+        // Sanitize characters that are invalid in C# identifiers (emoji, symbols, etc.)
+        camelCase = SanitizeIdentifierChars(camelCase);
+        if (string.IsNullOrEmpty(camelCase))
+            return "_";
+
         // SCREAMING_CASE → PascalCase (e.g., "CAMERA_DIRECTION" → "CameraDirection")
         if (IsScreamingCase(camelCase))
             return ScreamingCaseToPascalCase(camelCase);
@@ -131,6 +141,45 @@ public static class NameProvider
             return camelCase;
 
         return char.ToUpperInvariant(camelCase[0]) + camelCase.Substring(1);
+    }
+
+    /// <summary>
+    /// Replaces characters that are invalid in C# identifiers with underscores.
+    /// Valid C# identifier characters: letters, digits, and underscores.
+    /// Unicode letters (e.g., CJK characters) are allowed by C#, but emoji and
+    /// other non-letter/non-digit Unicode characters are not.
+    /// </summary>
+    public static string SanitizeIdentifierChars(string name)
+    {
+        bool needsSanitization = false;
+        foreach (var c in name)
+        {
+            if (!char.IsLetterOrDigit(c) && c != '_')
+            {
+                needsSanitization = true;
+                break;
+            }
+        }
+
+        if (!needsSanitization)
+            return name;
+
+        var sb = new System.Text.StringBuilder(name.Length);
+        foreach (var c in name)
+        {
+            if (char.IsLetterOrDigit(c) || c == '_')
+                sb.Append(c);
+            else
+                sb.Append('_');
+        }
+
+        var result = sb.ToString();
+
+        // Ensure starts with letter or underscore
+        if (result.Length > 0 && char.IsDigit(result[0]))
+            result = "_" + result;
+
+        return result;
     }
 
     /// <summary>
@@ -576,10 +625,39 @@ public static class NameProvider
 
     /// <summary>
     /// Escapes a name with backticks if it is a Swift keyword.
-    /// Use this when emitting Swift code that uses C# parameter names as Swift identifiers.
+    /// Use for names NOT from the ABI parser (e.g., swiftinterface method names,
+    /// parameter names, enum case names). For parser-escaped names, use
+    /// <see cref="ParserNameToSwift"/> instead.
     /// </summary>
     public static string EscapeSwiftKeyword(string name)
         => IsSwiftKeyword(name) ? $"`{name}`" : name;
+
+    /// <summary>
+    /// Gets the correct Swift identifier for a declaration, with backtick escaping
+    /// if it is a Swift keyword. Uses <see cref="BaseDecl.OriginalSwiftName"/> when
+    /// available (set by the parser when the name was modified for C# safety),
+    /// eliminating ambiguity between parser-escaped names and genuine leading-underscore
+    /// identifiers.
+    /// </summary>
+    public static string ParserNameToSwift(BaseDecl decl)
+    {
+        var swiftName = decl.GetSwiftName();
+        return EscapeSwiftKeyword(swiftName);
+    }
+
+    /// <summary>
+    /// Overload for cases where only the string name is available (e.g., derived names
+    /// from accessor stripping). Falls back to <see cref="StripCSharpKeywordPrefix"/>
+    /// heuristic which cannot distinguish parser-escaped names from genuine underscore-prefixed
+    /// identifiers. Prefer <see cref="ParserNameToSwift(BaseDecl)"/> (provenance-aware) or
+    /// <see cref="EscapeSwiftKeyword"/> (for raw Swift names) instead.
+    /// </summary>
+    [Obsolete("Ambiguous without provenance. Use ParserNameToSwift(BaseDecl) or EscapeSwiftKeyword(string) instead.")]
+    public static string ParserNameToSwift(string name)
+    {
+        var stripped = StripCSharpKeywordPrefix(name);
+        return IsSwiftKeyword(stripped) ? $"`{stripped}`" : stripped;
+    }
 
     /// <summary>
     /// Protocol names whose C# interfaces are defined in the runtime (ISwift{Name})
@@ -670,6 +748,63 @@ public static class NameProvider
         => renames?.TryGetValue(name, out var renamed) == true ? renamed : name;
 
     /// <summary>
+    /// Computes a case-insensitive-collision-safe mapping from Swift enum case names to unique
+    /// C# PascalCase identifiers. Swift is case-sensitive (M vs m are distinct), but C# is not —
+    /// both become "M" via ToPascalCase. This method detects such collisions and appends numeric
+    /// suffixes to later occurrences (e.g., M → "M", m → "M2").
+    /// Returns null if no collisions exist (caller can use ToPascalCase directly).
+    /// </summary>
+    public static Dictionary<string, string>? ComputeCaseNameMap(IReadOnlyList<EnumCaseDecl> cases)
+    {
+        // First pass: detect if any collisions exist (fast path — most enums have none)
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        bool hasCollision = false;
+        foreach (var caseDecl in cases)
+        {
+            var pascalName = ToPascalCase(caseDecl.Name);
+            if (!seen.Add(pascalName))
+            {
+                hasCollision = true;
+                break;
+            }
+        }
+
+        if (!hasCollision)
+            return null;
+
+        // Second pass: build collision-free mapping
+        var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var map = new Dictionary<string, string>();
+        foreach (var caseDecl in cases)
+        {
+            var pascalName = ToPascalCase(caseDecl.Name);
+            if (usedNames.Add(pascalName))
+            {
+                map[caseDecl.Name] = pascalName;
+            }
+            else
+            {
+                // Collision: append numeric suffix
+                int suffix = 2;
+                string candidate;
+                do
+                {
+                    candidate = $"{pascalName}{suffix}";
+                    suffix++;
+                } while (!usedNames.Add(candidate));
+                map[caseDecl.Name] = candidate;
+            }
+        }
+        return map;
+    }
+
+    /// <summary>
+    /// Gets the PascalCase name for an enum case, using the collision map if available.
+    /// </summary>
+    public static string GetCaseName(string swiftCaseName, Dictionary<string, string>? caseNameMap)
+        => caseNameMap?.TryGetValue(swiftCaseName, out var mapped) == true ? mapped : ToPascalCase(swiftCaseName);
+
+    /// <summary>
     /// Computes property/member renames needed to avoid property/nested-type name collisions.
     /// When a member name collides with a nested type name, the member is renamed with a "Value" suffix.
     /// </summary>
@@ -727,12 +862,13 @@ public static class NameProvider
             .Select(p => GetPropertyName(p.Name, typeDecl.Name));
         memberNames = memberNames.Concat(asyncStreamPropertyNames);
 
-        // For enums, include PascalCase'd case names in the collision set.
+        // For enums, include collision-safe case names in the collision set.
         // Enum cases produce factory methods (e.g., case "pong" → static method "Pong()"),
         // which collide with nested types of the same PascalCase name (CS0102).
         if (typeDecl is EnumDecl enumDecl)
         {
-            var caseNames = enumDecl.Cases.Select(c => ToPascalCase(c.Name));
+            var caseNameMap = ComputeCaseNameMap(enumDecl.Cases);
+            var caseNames = enumDecl.Cases.Select(c => GetCaseName(c.Name, caseNameMap));
             memberNames = memberNames.Concat(caseNames);
         }
 

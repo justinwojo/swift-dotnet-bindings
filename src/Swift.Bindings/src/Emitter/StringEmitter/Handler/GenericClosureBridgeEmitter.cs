@@ -277,7 +277,7 @@ public static class GenericClosureBridgeEmitter
             // ending with }) which closes both the closure brace and the method call paren.
             var closureOpening = $"{{ ({closureParamStr}){throwsInClosure} -> UnsafeMutableRawPointer in";
             var callLine = fullCallArgs.Replace("__CLOSURE__", closureOpening);
-            swiftWriter.WriteLine($"    let _: UnsafeMutableRawPointer = {tryPrefix}{callTarget}.{methodDecl.Name}({callLine}");
+            swiftWriter.WriteLine($"    let _: UnsafeMutableRawPointer = {tryPrefix}{callTarget}.{NameProvider.ParserNameToSwift(methodDecl)}({callLine}");
             swiftWriter.WriteLine($"        var innerError: UnsafeMutableRawPointer? = nil");
             swiftWriter.WriteLine($"        cdecl({string.Join(", ", cdeclCallArgsFull)})");
             swiftWriter.WriteLine($"        if let err = innerError {{");
@@ -327,7 +327,7 @@ public static class GenericClosureBridgeEmitter
 
             var closureOpening = $"{{ ({closureParamStr}){throwsInClosure} -> Void in";
             var callLine = fullCallArgs.Replace("__CLOSURE__", closureOpening);
-            swiftWriter.WriteLine($"    {tryPrefix}{callTarget}.{methodDecl.Name}({callLine}");
+            swiftWriter.WriteLine($"    {tryPrefix}{callTarget}.{NameProvider.ParserNameToSwift(methodDecl)}({callLine}");
             swiftWriter.WriteLine($"        var innerError: UnsafeMutableRawPointer? = nil");
             swiftWriter.WriteLine($"        cdecl({string.Join(", ", cdeclCallArgsFull)})");
             swiftWriter.WriteLine($"        if let err = innerError {{");

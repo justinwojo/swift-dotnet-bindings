@@ -14,7 +14,7 @@ namespace BindingsGeneration
         /// Tag values follow Swift's ordering: payload cases first (in declaration order),
         /// then no-payload cases (in declaration order).
         /// </summary>
-        private void EmitCaseTagEnum(CSharpWriter csWriter, EnumDecl enumDecl)
+        private void EmitCaseTagEnum(CSharpWriter csWriter, EnumDecl enumDecl, Dictionary<string, string>? caseNameMap = null)
         {
             csWriter.WriteLine("/// <summary>");
             csWriter.WriteLine($"/// Enum representing the possible cases of {enumDecl.Name}.");
@@ -27,7 +27,7 @@ namespace BindingsGeneration
             // Emit payload cases first (in declaration order)
             foreach (var caseDecl in enumDecl.PayloadCases)
             {
-                var capitalizedName = NameProvider.ToPascalCase(caseDecl.Name);
+                var capitalizedName = NameProvider.GetCaseName(caseDecl.Name, caseNameMap);
                 var tag = enumDecl.GetCaseTag(caseDecl);
                 csWriter.WriteLine($"{capitalizedName} = {tag},");
             }
@@ -35,7 +35,7 @@ namespace BindingsGeneration
             // Then emit no-payload cases
             foreach (var caseDecl in enumDecl.NoPayloadCases)
             {
-                var capitalizedName = NameProvider.ToPascalCase(caseDecl.Name);
+                var capitalizedName = NameProvider.GetCaseName(caseDecl.Name, caseNameMap);
                 var tag = enumDecl.GetCaseTag(caseDecl);
                 csWriter.WriteLine($"{capitalizedName} = {tag},");
             }
@@ -99,17 +99,17 @@ namespace BindingsGeneration
         /// Emits a TryGet method for an enum case with associated values.
         /// The method extracts the associated value(s) if the enum is in the specified case.
         /// </summary>
-        private void EmitTryGetMethod(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, ITypeDatabase typeDatabase, string typeNameWithGenerics)
+        private void EmitTryGetMethod(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, ITypeDatabase typeDatabase, string typeNameWithGenerics, Dictionary<string, string>? caseNameMap = null)
         {
             var caseName = caseDecl.Name;
-            var capitalizedName = NameProvider.ToPascalCase(caseName);
+            var capitalizedName = NameProvider.GetCaseName(caseName, caseNameMap);
 
             // Swift represents multi-value associated types as a single tuple type.
             // Check if the single associated value is a tuple (multi-element extraction).
             if (caseDecl.AssociatedValues.Count == 1 && caseDecl.AssociatedValues[0] is TupleTypeSpec tupleSpec && tupleSpec.Elements.Count > 1)
             {
                 // Delegate to tuple-specific TryGet emission
-                EmitTryGetMethodForTuple(csWriter, enumDecl, caseDecl, tupleSpec, typeDatabase, typeNameWithGenerics);
+                EmitTryGetMethodForTuple(csWriter, enumDecl, caseDecl, tupleSpec, typeDatabase, typeNameWithGenerics, caseNameMap);
                 return;
             }
 
@@ -293,10 +293,10 @@ namespace BindingsGeneration
         /// Generates multiple out parameters, one for each tuple element.
         /// Uses TupleTypeMetadata to get element offsets at runtime.
         /// </summary>
-        private void EmitTryGetMethodForTuple(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, TupleTypeSpec tupleSpec, ITypeDatabase typeDatabase, string typeNameWithGenerics)
+        private void EmitTryGetMethodForTuple(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, TupleTypeSpec tupleSpec, ITypeDatabase typeDatabase, string typeNameWithGenerics, Dictionary<string, string>? caseNameMap = null)
         {
             var caseName = caseDecl.Name;
-            var capitalizedName = NameProvider.ToPascalCase(caseName);
+            var capitalizedName = NameProvider.GetCaseName(caseName, caseNameMap);
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
             var tupleHandler = new TupleHandler(typeDatabase);
 

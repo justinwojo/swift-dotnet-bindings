@@ -391,20 +391,20 @@ public static class ForeignTypeExtensionEmitter
 
         if (wrapAsOpaque)
         {
-            ctx.AddForeignExtWrapperLine($"    let result = instance.{extMethod.MethodName}");
+            ctx.AddForeignExtWrapperLine($"    let result = instance.{NameProvider.EscapeSwiftKeyword(extMethod.MethodName)}");
             ctx.AddForeignExtWrapperLine($"    return Unmanaged.passUnretained(result).toOpaque()");
         }
         else if (returnCategory == ReturnKind.NonFrozenStruct)
         {
-            ctx.AddForeignExtWrapperLine($"    return instance.{extMethod.MethodName}");
+            ctx.AddForeignExtWrapperLine($"    return instance.{NameProvider.EscapeSwiftKeyword(extMethod.MethodName)}");
         }
         else if (returnCategory == ReturnKind.Primitive)
         {
-            ctx.AddForeignExtWrapperLine($"    return instance.{extMethod.MethodName}");
+            ctx.AddForeignExtWrapperLine($"    return instance.{NameProvider.EscapeSwiftKeyword(extMethod.MethodName)}");
         }
         else
         {
-            ctx.AddForeignExtWrapperLine($"    instance.{extMethod.MethodName}");
+            ctx.AddForeignExtWrapperLine($"    instance.{NameProvider.EscapeSwiftKeyword(extMethod.MethodName)}");
         }
         ctx.AddForeignExtWrapperLine("}");
     }
@@ -430,7 +430,7 @@ public static class ForeignTypeExtensionEmitter
         }
         ctx.AddForeignExtWrapperLine($"public func {symbolName}(_ self_: UnsafeMutableRawPointer, _ value: {renderedType}) {{");
         ctx.AddForeignExtWrapperLine($"    let instance = Unmanaged<{foreignTypeQualifiedName}>.fromOpaque(self_).takeUnretainedValue()");
-        ctx.AddForeignExtWrapperLine($"    instance.{extMethod.MethodName} = value");
+        ctx.AddForeignExtWrapperLine($"    instance.{NameProvider.EscapeSwiftKeyword(extMethod.MethodName)} = value");
         ctx.AddForeignExtWrapperLine("}");
     }
 
@@ -540,7 +540,7 @@ public static class ForeignTypeExtensionEmitter
             }
         }
 
-        var callStr = $"instance.{extMethod.MethodName}({string.Join(", ", callArgs)})";
+        var callStr = $"instance.{NameProvider.EscapeSwiftKeyword(extMethod.MethodName)}({string.Join(", ", callArgs)})";
 
         if (returnIsClass)
         {
