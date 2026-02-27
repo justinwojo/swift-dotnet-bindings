@@ -106,11 +106,11 @@ public class ExistentialOptionalGuardTests
     }
 
     [Fact]
-    public void Method_WithDictionaryExistentialParam_StillSkipped()
+    public void Method_WithDictionaryExistentialParam_KnownProtocol_Allowed()
     {
         var typeDatabase = CreateTypeDatabaseWithProtocolAndDictionary("TestModule.ImageProcessing");
 
-        // Dictionary<String, any ImageProcessing> — not Array or Optional, still blocked
+        // Dictionary<String, any ImageProcessing> — known protocol, now allowed
         var existentialInner = new NamedTypeSpec("TestModule.ImageProcessing") { IsAny = true };
         var dictTypeSpec = new NamedTypeSpec("Swift.Dictionary");
         dictTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
@@ -121,8 +121,7 @@ public class ExistentialOptionalGuardTests
 
         var result = MemberEmissionValidator.CanEmitMethod(method, typeDatabase, out var details, out _);
 
-        Assert.NotNull(result);
-        Assert.Equal(SkipReason.UnsupportedExistential, result);
+        Assert.Null(result);
     }
 
     [Fact]

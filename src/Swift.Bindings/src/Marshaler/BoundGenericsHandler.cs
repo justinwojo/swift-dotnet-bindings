@@ -167,6 +167,74 @@ public class BoundGenericsHandler
     }
 
     /// <summary>
+    /// Returns true when the type is a supported container with existential elements that can
+    /// be marshalled. Handles direct containers (Array, Dictionary) and Optional-wrapped containers
+    /// (Optional&lt;Array&lt;any P&gt;&gt;, Optional&lt;Dictionary&lt;K, any P&gt;&gt;). Also handles
+    /// direct Optional&lt;any P&gt; as a supported pattern. All existential elements are validated
+    /// for TypeRecord availability, non-object public type, and ObjC filter parity.
+    /// </summary>
+    public bool IsContainerWithSupportedDirectExistential(TypeSpec typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec outerNamedType || !outerNamedType.ContainsGenericParameters)
+            return false;
+
+        // Optional wrapping: unwrap one layer and check if inner is a supported container
+        if (MarshallingHelpers.IsSwiftOptional(outerNamedType) &&
+            outerNamedType.GenericParameters.Count > 0)
+        {
+            var inner = outerNamedType.GenericParameters[0];
+            // Optional<any P> — direct existential in optional
+            if (_existentialHandler.IsExistential(inner))
+                return IsValidExistentialForContainer(inner);
+            // Optional<Array<any P>> or Optional<Dictionary<K, any P>>
+            return IsContainerWithSupportedDirectExistential(inner);
+        }
+
+        // Array<any P> — element must be directly existential
+        if (MarshallingHelpers.IsSwiftArray(outerNamedType) &&
+            outerNamedType.GenericParameters.Count > 0 &&
+            _existentialHandler.IsExistential(outerNamedType.GenericParameters[0]))
+        {
+            return IsValidExistentialForContainer(outerNamedType.GenericParameters[0]);
+        }
+
+        // Dictionary<K, any P> — only VALUE position (GenericParameters[1]) may be existential.
+        // Key position (GenericParameters[0]) is not allowed (Swift requires Hashable,
+        // ExistentialContainer is not Hashable). Reject if key is also existential.
+        if (MarshallingHelpers.IsSwiftDictionary(outerNamedType) &&
+            outerNamedType.GenericParameters.Count > 1 &&
+            _existentialHandler.IsExistential(outerNamedType.GenericParameters[1]) &&
+            !_existentialHandler.IsExistential(outerNamedType.GenericParameters[0]))
+        {
+            return IsValidExistentialForContainer(outerNamedType.GenericParameters[1]);
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Validates that an existential TypeSpec is supported for use inside a container:
+    /// resolvable protocols, supported count (≤8), non-object public type, and ObjC filter parity.
+    /// </summary>
+    private bool IsValidExistentialForContainer(TypeSpec existentialTypeSpec)
+    {
+        var protocolList = _existentialHandler.ToProtocolListTypeSpec(existentialTypeSpec);
+        if (protocolList == null || !_existentialHandler.IsSupportedExistential(protocolList))
+            return false;
+        if (!_existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
+            return false;
+        if (_existentialHandler.GetPublicExistentialType(protocolList) == "object")
+            return false;
+        // P1 fix: Mixed compositions where ObjC filtering drops protocols
+        // would produce proxy/container size mismatch at runtime.
+        var filteredCount = protocolList.Protocols.Keys
+            .Count(p => !TypeDatabaseExtensions.IsObjCModuleType(p));
+        if (filteredCount != protocolList.Protocols.Count)
+            return false;
+        return true;
+    }
+
+    /// <summary>
     /// Tries to find the first existential type argument within a bound generic type.
     /// </summary>
     /// <param name="typeSpec">The type specification to inspect.</param>
@@ -515,11 +583,21 @@ public class BoundGenericsHandler
     /// </summary>
     private string TranslateTypeSpecToCSharp(TypeSpec typeSpec, GenericContext genericContext, ModuleDecl? moduleDecl)
     {
-        // Handle existential types (including bare 'Any' with 0 protocols and 'any Protocol' syntax)
-        // Always return AnyType for existential type arguments — ExistentialContainer{N} doesn't
-        // implement ISwiftObject constraint required by generic type parameters.
+        // Handle existential types (including bare 'Any' with 0 protocols and 'any Protocol' syntax).
+        // For fully supported existentials (resolvable, known protocols, non-object), return
+        // ExistentialContainer{N} — the correct ABI type for containers like
+        // SwiftDictionary<SwiftString, ExistentialContainer1>.
+        // For unsupported/unresolvable existentials, return AnyType (blocked by B6 gate anyway).
         if (_existentialHandler.IsExistential(typeSpec))
         {
+            var protocolList = _existentialHandler.ToProtocolListTypeSpec(typeSpec);
+            if (protocolList != null &&
+                _existentialHandler.IsSupportedExistential(protocolList) &&
+                _existentialHandler.AllProtocolsHaveTypeRecords(protocolList) &&
+                _existentialHandler.GetPublicExistentialType(protocolList) != "object")
+            {
+                return _existentialHandler.GetCSharpExistentialType(protocolList);
+            }
             return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
         }
 

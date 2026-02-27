@@ -51,7 +51,7 @@
 |---------|----------|---------|:----------:|
 | ~~Alamofire~~ | ~~`Session.request(url).responseData { }`~~ | ~~Generic closure in callback param~~ | ~~Session 3~~ ✅ |
 | ~~Alamofire~~ | ~~`Session.request(url).serializingData()`~~ | ~~`Foundation.Data` not `ISwiftObject`~~ | ~~Session 2~~ ✅ |
-| Mixpanel | `Track(event:, properties:)` full form | `[String: any MixpanelType]` dict-existential | Session 5 |
+| ~~Mixpanel~~ | ~~`Track(event:, properties:)` full form~~ | ~~`[String: any MixpanelType]` dict-existential~~ | ~~Session 5~~ ✅ |
 | Starscream | Runtime event delivery via `IWebSocketDelegate` | Existential marshalling in callbacks | Session 6 |
 
 ---
@@ -152,21 +152,24 @@ C# structs: ExistentialContainer0 (32 bytes) .. ExistentialContainer8 (96 bytes)
 
 ---
 
-### Session 5: Existential Dictionary/Collection Values
+### Session 5: Existential Dictionary/Collection Values ✅ COMPLETE
 
 **Theme**: Marshal existential containers inside generic collections
-**Effort**: 1-2 sessions | **Libraries improved**: Mixpanel (deeply), various config APIs
+**Effort**: 1 session | **Libraries improved**: Mixpanel (+1360 lines, 18% increase)
 **Depends on**: Session 4 (existential container layout understanding)
-**Priority**: High — Mixpanel is a realistic .NET iOS library
+**Status**: Complete — B6 gate lifted for Dict<K, any P>, all acceptance gates met, 32/32 validation, 1 Codex review round (1 P1 finding addressed)
 
-| Sub-task | Description | Classification |
-|----------|-------------|----------------|
-| **5a. Dict-existential marshalling pipeline** | New marshalling path for `[String: any Protocol]` → `Dictionary<string, object>` or `Dictionary<string, IProtocol>`. Build on Session 4's container layout. May require per-element existential unwrapping from `SwiftDictionary<K,V>` internal storage. | Design gap |
-| **5b. Mixpanel full API** | `track(event:, properties:)`, `set(properties:)`, `registerSuperProperties` with `[String: any MixpanelType]` parameters. | Validation |
+| Sub-task | Description | Status |
+|----------|-------------|--------|
+| **5a. `IsContainerWithSupportedDirectExistential` helper** | Centralized container+existential validation in `BoundGenericsHandler`. Handles `Array<any P>`, `Dictionary<K, any P>`, `Optional<any P>`, and Optional-wrapped containers. Validates existential protocol count (≤8), TypeRecord availability, non-object public type, ObjC filter parity. Rejects existential dict keys (not Hashable). Replaces 5 inline gate implementations (MethodHandler ×2, MemberEmissionValidator ×2, PropertyHandler ×1). | ✅ |
+| **5b. `TranslateTypeSpecToCSharp` fix** | Returns `ExistentialContainer{N}` for fully supported existentials (resolvable + non-object) instead of `AnyType`. Enables correct raw ABI types like `SwiftDictionary<SwiftString, ExistentialContainer1>` for property accessors. Unsupported/bare-Any existentials still return `AnyType`. | ✅ |
+| **5c. `IReadOnlyDictionary` invariance fix** | `ExistentialProjection.GetReturnElementConversion` casts proxy to interface type: `(IProtocol)new ProtocolProxy(v)`. Required because `IReadOnlyDictionary<K,V>` is invariant in `V` (unlike `IReadOnlyList<T>` which is covariant). Without cast, `AsProjected` lambda produces CS0029. | ✅ |
+| **5d. Mixpanel validation** | `Track(event:, properties:)`, `TrackWithGroups`, `OptInTracking`, `TrackCharge`, `Initialize`, `SuperProperties` getter, and ~15 other dict-existential methods now emit and compile. +1360 lines (18% increase). | ✅ |
+| **5e. Codex review (P1 fix)** | `Dictionary<any K, any V>` edge case: added `!IsExistential(key)` guard in dictionary branch. Without it, both-existential dicts could slip through despite key not being Hashable. | ✅ |
 
-**Projected impact**: Mixpanel 3.25 → 3.70+ (Completeness +1, Overall +0.5). Avg +0.03.
+**Acceptance gate results**: Mixpanel `Track(event:, properties:)` with `IDictionary<string, IMixpanelType>` parameter compiles ✅. `SuperProperties` getter returns `IReadOnlyDictionary<string, IMixpanelType>?` ✅. 32/32 validation ✅. 4432 unit tests (+12 new), 700 integration ✅.
 
-**Acceptance gate**: Mixpanel `Track(event:, properties:)` with `Dictionary<string, IMixpanelType>` parameter compiles. 32/32 validation maintained.
+**Key files**: `BoundGenericsHandler.cs` (helper + TranslateTypeSpecToCSharp), `ExistentialProjection.cs` (invariance cast), `MethodHandler.cs` (2 gates simplified), `MemberEmissionValidator.cs` (2 gates simplified), `PropertyHandler.cs` (1 gate simplified)
 
 ---
 
@@ -214,17 +217,14 @@ Session 3: Closure Bridge Generalization        ✅ COMPLETE (depended on S2)
 
 Session 4: Existential Foundation + Returns     ✅ COMPLETE (foundation for S5, S6)
 
-Session 5: Dict-Existential Values              (depends on S4 layout work)
+Session 5: Dict-Existential Values              ✅ COMPLETE (depended on S4)
            (Mixpanel full API)
 
 Session 6: Callback Existential Marshalling     (depends on S4 layout work)
            (Starscream runtime events)
 ```
 
-Sessions 1-4 are complete. Session 5 is the recommended next session — it builds on Session 4's existential container layout to handle dict-existential values (Mixpanel).
-
-**If you only have 1 session**: Do 5 — covers Mixpanel, the most realistic .NET iOS use case.
-**If you have 2 sessions**: Do 5 + 6 — covers all remaining critical workflows.
+Sessions 1-5 are complete. Session 6 is the recommended next session — it enables runtime existential delivery in callbacks (Starscream).
 
 ---
 

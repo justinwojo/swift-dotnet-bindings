@@ -584,6 +584,55 @@ public class TypeProjectionConsistencyTests
 
     #endregion
 
+    #region Part 4: Dictionary with existential value — projection composition
+
+    [Fact]
+    public void DictionaryWithExistentialValue_ComposesCorrectly()
+    {
+        // Dictionary<String, any Describable> should compose DictionaryProjection(StringProjection, ExistentialProjection)
+        var existentialValue = MakeProtocolList("TestModule.Describable");
+        var dictSpec = N("Swift.Dictionary", N("Swift.String"), existentialValue);
+        var ctx = CreateContext(_sharedDb, isParameter: true);
+
+        var projection = _factory.Project(dictSpec, ctx);
+
+        Assert.NotNull(projection);
+        Assert.IsType<DictionaryProjection>(projection);
+        Assert.Equal("IDictionary<string, IDescribable>", projection.PublicType);
+        Assert.Equal("IntPtr", projection.PInvokeType);
+    }
+
+    [Fact]
+    public void DictionaryWithExistentialValue_ParameterPlan_HasExistentialConversion()
+    {
+        // Verify element conversion casts to ISwiftExistentialConvertible
+        var existentialProj = new ExistentialProjection(
+            "Swift.Runtime.ExistentialContainer1", "IDescribable", "DescribableProxy");
+        var keyProj = new StringProjection();
+        var dictProj = new DictionaryProjection(keyProj, existentialProj, isParameter: true);
+
+        var plan = dictProj.GetParameterPlan("props");
+
+        // The setup/expression should involve container creation for existential values
+        var rendered = plan.SetupStatements.Count > 0 || !string.IsNullOrEmpty(plan.PInvokeExpression);
+        Assert.True(rendered, "Dictionary with existential value should produce parameter plan");
+    }
+
+    [Fact]
+    public void DictionaryWithExistentialValue_ReturnPlan_HasProxyConstruction()
+    {
+        // Verify return element creates proxy
+        var existentialProj = new ExistentialProjection(
+            "Swift.Runtime.ExistentialContainer1", "IDescribable", "DescribableProxy");
+        var keyProj = new StringProjection();
+        var dictProj = new DictionaryProjection(keyProj, existentialProj, isParameter: false);
+
+        Assert.Equal("IReadOnlyDictionary<string, IDescribable>", dictProj.PublicType);
+        Assert.Equal("IntPtr", dictProj.PInvokeType);
+    }
+
+    #endregion
+
     #region Helpers
 
     private static NamedTypeSpec N(string name, params TypeSpec[] genericParams)

@@ -201,8 +201,11 @@ public static class MemberEmissionValidator
 
                 if (boundGenericsHandler.TryGetFirstExistentialTypeArgument(property.SwiftTypeSpec, out var existentialType))
                 {
-                    skipDetails = $"Bound generic contains existential type argument '{existentialType}'.";
-                    return SkipReason.UnsupportedExistential;
+                    if (!boundGenericsHandler.IsContainerWithSupportedDirectExistential(property.SwiftTypeSpec))
+                    {
+                        skipDetails = $"Bound generic contains existential type argument '{existentialType}'.";
+                        return SkipReason.UnsupportedExistential;
+                    }
                 }
 
                 var boundGenericContext = property.ParentDecl is TypeDecl boundParentType && boundParentType.IsGeneric
@@ -414,45 +417,13 @@ public static class MemberEmissionValidator
                 return SkipReason.UnsatisfiedGenericConstraint;
             }
 
-            // B6: Catch existentials in non-Array/non-Optional bound generics (Dictionary, Set, etc.).
-            // Allow through if the outermost bound generic is Array or Optional with direct
-            // existential element. WrapperEmitter.Marshalling has dedicated existential handling
-            // for both Array<any Protocol> and Optional<any Protocol>.
+            // B6: Catch existentials in non-container bound generics.
+            // Allow through containers with supported direct existential elements:
+            // Array<any P>, Dictionary<K, any P>, Optional<any P>, and Optional-wrapped containers.
             // This matches the same check in MethodHandler.Emit() to keep validator and emitter consistent.
             if (boundGenericsHandler.TryGetFirstExistentialTypeArgument(argument.SwiftTypeSpec, out var existentialType))
             {
-                var outerNamedType = argument.SwiftTypeSpec as NamedTypeSpec;
-                var typeConversionChecker = new TypeConversionHandler(typeDatabase);
-                var existentialChecker = new ExistentialHandler(typeDatabase);
-                bool isArrayWithDirectExistentialElement = outerNamedType != null &&
-                    typeConversionChecker.IsSwiftArray(outerNamedType) &&
-                    outerNamedType.GenericParameters.Count > 0 &&
-                    existentialChecker.IsExistential(outerNamedType.GenericParameters[0]);
-
-                // Allow Optional<any Protocol> when all protocols have TypeRecords and
-                // the public type is a known interface (not "object" from ObjC/metatype fallback).
-                // P1 fix: Also require filteredCount == originalCount — mixed compositions
-                // where ObjC filtering drops protocols would produce container size mismatch.
-                bool isOptionalWithDirectExistentialElement = false;
-                if (outerNamedType != null &&
-                    typeConversionChecker.IsSwiftOptional(outerNamedType) &&
-                    outerNamedType.GenericParameters.Count > 0 &&
-                    existentialChecker.IsExistential(outerNamedType.GenericParameters[0]))
-                {
-                    var innerProtocolList = existentialChecker.ToProtocolListTypeSpec(outerNamedType.GenericParameters[0]);
-                    isOptionalWithDirectExistentialElement = innerProtocolList != null &&
-                        existentialChecker.AllProtocolsHaveTypeRecords(innerProtocolList) &&
-                        existentialChecker.GetPublicExistentialType(innerProtocolList) != "object";
-                    if (isOptionalWithDirectExistentialElement && innerProtocolList != null)
-                    {
-                        var filteredCount = innerProtocolList.Protocols.Keys
-                            .Count(p => !TypeDatabaseExtensions.IsObjCModuleType(p));
-                        if (filteredCount != innerProtocolList.Protocols.Count)
-                            isOptionalWithDirectExistentialElement = false;
-                    }
-                }
-
-                if (!isArrayWithDirectExistentialElement && !isOptionalWithDirectExistentialElement)
+                if (!boundGenericsHandler.IsContainerWithSupportedDirectExistential(argument.SwiftTypeSpec))
                 {
                     skipDetails = $"Bound generic contains existential type argument '{existentialType}'.";
                     return SkipReason.UnsupportedExistential;

@@ -82,7 +82,7 @@ public class ComplexProjectionTests
 
         var retConv = proj.GetReturnElementConversion("e");
         Assert.NotNull(retConv);
-        Assert.Equal("new DescribableProxy(e)", retConv);
+        Assert.Equal("(IDescribable)new DescribableProxy(e)", retConv);
     }
 
     [Fact]

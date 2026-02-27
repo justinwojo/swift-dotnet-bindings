@@ -66,7 +66,9 @@ public class ExistentialProjection : ITypeProjection
 
     public string? GetReturnElementConversion(string elementVar) =>
         _proxyClassName != null
-            ? $"new {_proxyClassName}({elementVar})"
+            // Cast to interface type for invariant container compatibility (IReadOnlyDictionary<K,V>
+            // is invariant in V, so Func<EC, Proxy> won't match Func<EC, IProtocol>).
+            ? $"({_publicType})new {_proxyClassName}({elementVar})"
             : _publicType == "object"
                 ? $"(object){elementVar}"
                 : $"new {_publicType}({elementVar})";

@@ -169,31 +169,9 @@ namespace BindingsGeneration
 
                 if (methodEnv.BoundGenericsHandler.TryGetFirstExistentialTypeArgument(argument.SwiftTypeSpec, out var existentialType))
                 {
-                    // Allow Optional<any Protocol> with known protocols through to normal emission
-                    // (WrapperEmitter.Marshalling handles Optional existential marshalling correctly).
-                    var outerNamedType = argument.SwiftTypeSpec as NamedTypeSpec;
-                    bool isOptionalWithKnownExistential = outerNamedType != null &&
-                        MarshallingHelpers.IsSwiftOptional(outerNamedType) &&
-                        outerNamedType.GenericParameters.Count > 0 &&
-                        methodEnv.ExistentialHandler.IsExistential(outerNamedType.GenericParameters[0]);
-                    if (isOptionalWithKnownExistential)
-                    {
-                        var innerProtocolList = methodEnv.ExistentialHandler.ToProtocolListTypeSpec(outerNamedType!.GenericParameters[0]);
-                        isOptionalWithKnownExistential = innerProtocolList != null &&
-                            methodEnv.ExistentialHandler.AllProtocolsHaveTypeRecords(innerProtocolList) &&
-                            methodEnv.ExistentialHandler.GetPublicExistentialType(innerProtocolList) != "object";
-                        // P1 fix: Mixed compositions where ObjC filtering drops protocols
-                        // would produce proxy/container size mismatch at runtime.
-                        if (isOptionalWithKnownExistential && innerProtocolList != null)
-                        {
-                            var filteredCount = innerProtocolList.Protocols.Keys
-                                .Count(p => !TypeDatabaseExtensions.IsObjCModuleType(p));
-                            if (filteredCount != innerProtocolList.Protocols.Count)
-                                isOptionalWithKnownExistential = false;
-                        }
-                    }
-
-                    if (!isOptionalWithKnownExistential)
+                    // Allow containers with supported existential elements through to normal emission.
+                    // Array<any P>, Dictionary<K, any P>, Optional<any P> all have dedicated handling.
+                    if (!methodEnv.BoundGenericsHandler.IsContainerWithSupportedDirectExistential(argument.SwiftTypeSpec))
                     {
                         hasExistentialArg = true;
                         firstExistentialType ??= existentialType;
@@ -500,44 +478,13 @@ namespace BindingsGeneration
                         continue;
                     }
 
-                    // B6: Catch supported existentials in non-Array/non-Optional bound generics.
-                    // Array<any Protocol> has dedicated existential handling in WrapperEmitter.Marshalling
-                    // (line 276-285) that correctly converts interface→container.
-                    // Optional<any Protocol> is handled by WrapperEmitter.Marshalling (line 311-326).
-                    // Dictionary, Set, and other non-Array/non-Optional types fall to generic
-                    // marshalling which produces a type mismatch between public interface and ABI container.
+                    // B6: Catch supported existentials in non-container bound generics.
+                    // Array<any Protocol>, Dictionary<K, any Protocol>, and Optional<any Protocol>
+                    // have dedicated existential handling via TypeProjectionFactory → ExistentialProjection.
+                    // Other types fall to generic marshalling which produces a type mismatch.
                     if (methodEnv.BoundGenericsHandler.TryGetFirstExistentialTypeArgument(argument.SwiftTypeSpec, out var supportedExistentialType))
                     {
-                        var outerNamedType = argument.SwiftTypeSpec as NamedTypeSpec;
-                        bool isArrayWithDirectExistentialElement = outerNamedType != null &&
-                            MarshallingHelpers.IsSwiftArray(outerNamedType) &&
-                            outerNamedType.GenericParameters.Count > 0 &&
-                            methodEnv.ExistentialHandler.IsExistential(outerNamedType.GenericParameters[0]);
-
-                        // Allow Optional<any Protocol> when all protocols have TypeRecords and
-                        // the public type is a known interface (not "object" from ObjC/metatype fallback).
-                        // P1 fix: Also require filteredCount == originalCount — mixed compositions
-                        // where ObjC filtering drops protocols would produce container size mismatch.
-                        bool isOptionalWithDirectExistentialElement = false;
-                        if (outerNamedType != null &&
-                            MarshallingHelpers.IsSwiftOptional(outerNamedType) &&
-                            outerNamedType.GenericParameters.Count > 0 &&
-                            methodEnv.ExistentialHandler.IsExistential(outerNamedType.GenericParameters[0]))
-                        {
-                            var innerProtocolList = methodEnv.ExistentialHandler.ToProtocolListTypeSpec(outerNamedType.GenericParameters[0]);
-                            isOptionalWithDirectExistentialElement = innerProtocolList != null &&
-                                methodEnv.ExistentialHandler.AllProtocolsHaveTypeRecords(innerProtocolList) &&
-                                methodEnv.ExistentialHandler.GetPublicExistentialType(innerProtocolList) != "object";
-                            if (isOptionalWithDirectExistentialElement && innerProtocolList != null)
-                            {
-                                var filteredCount = innerProtocolList.Protocols.Keys
-                                    .Count(p => !TypeDatabaseExtensions.IsObjCModuleType(p));
-                                if (filteredCount != innerProtocolList.Protocols.Count)
-                                    isOptionalWithDirectExistentialElement = false;
-                            }
-                        }
-
-                        if (!isArrayWithDirectExistentialElement && !isOptionalWithDirectExistentialElement)
+                        if (!methodEnv.BoundGenericsHandler.IsContainerWithSupportedDirectExistential(argument.SwiftTypeSpec))
                         {
                             // Accumulate for bypass attempt instead of returning immediately
                             hasMethodExistentialArg = true;

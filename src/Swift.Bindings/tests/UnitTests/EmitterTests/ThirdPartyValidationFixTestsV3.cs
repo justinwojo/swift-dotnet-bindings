@@ -450,11 +450,31 @@ public class ThirdPartyValidationFixTestsV3
 
     #endregion
 
-    #region B6 — Dictionary existential generic arg
+    #region B6 — Dictionary/container existential generic arg
 
     [Fact]
-    public void CanEmitMethod_DictionaryWithExistentialArg_ReturnsUnsupportedExistential()
+    public void CanEmitMethod_DictionaryWithKnownExistentialArg_Allowed()
     {
+        // Dictionary<String, any MixpanelType> with known protocol → now allowed
+        var typeDatabase = CreateTypeDatabaseWithDictionaryAndProtocol();
+        var existentialParam = new NamedTypeSpec("TestModule.MixpanelType") { IsAny = true };
+        var dictTypeSpec = new NamedTypeSpec("Swift.Dictionary");
+        dictTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        dictTypeSpec.GenericParameters.Add(existentialParam);
+
+        var method = CreateMethodDecl("process", "TestModule.TestType",
+            returnType: TupleTypeSpec.Empty,
+            parameters: new[] { ("data", dictTypeSpec as TypeSpec) });
+
+        var result = MemberEmissionValidator.CanEmitMethod(method, typeDatabase, out _, out _);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void CanEmitMethod_DictionaryWithUnknownExistentialArg_ReturnsUnsupportedExistential()
+    {
+        // Dictionary<String, any UnknownProtocol> with no TypeRecord → still skipped
         var typeDatabase = CreateTypeDatabaseWithDictionary();
         var existentialParam = new NamedTypeSpec("TestModule.MixpanelType") { IsAny = true };
         var dictTypeSpec = new NamedTypeSpec("Swift.Dictionary");
@@ -470,6 +490,167 @@ public class ThirdPartyValidationFixTestsV3
         Assert.NotNull(result);
         Assert.Equal(SkipReason.UnsupportedExistential, result);
         Assert.Contains("existential", details!);
+    }
+
+    [Fact]
+    public void CanEmitMethod_DictionaryWithObjectExistentialArg_ReturnsUnsupportedExistential()
+    {
+        // Dictionary<String, any UnknownProtocol> where protocol resolves to "object" → still skipped
+        var typeDatabase = CreateTypeDatabaseWithDictionary();
+        // Use a protocol that has no TypeRecord → GetPublicExistentialType returns "object"
+        var existentialParam = new NamedTypeSpec("TestModule.UnknownProto") { IsAny = true };
+        var dictTypeSpec = new NamedTypeSpec("Swift.Dictionary");
+        dictTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        dictTypeSpec.GenericParameters.Add(existentialParam);
+
+        var method = CreateMethodDecl("process", "TestModule.TestType",
+            returnType: TupleTypeSpec.Empty,
+            parameters: new[] { ("data", dictTypeSpec as TypeSpec) });
+
+        var result = MemberEmissionValidator.CanEmitMethod(method, typeDatabase, out var details, out _);
+
+        Assert.NotNull(result);
+        Assert.Equal(SkipReason.UnsupportedExistential, result);
+    }
+
+    [Fact]
+    public void CanEmitMethod_DictionaryKeyExistential_ReturnsUnsupportedExistential()
+    {
+        // Dictionary<any P, String> — existential as dict KEY → still skipped
+        // Swift requires Hashable, ExistentialContainer is not Hashable.
+        var typeDatabase = CreateTypeDatabaseWithDictionaryAndProtocol();
+        var existentialParam = new NamedTypeSpec("TestModule.MixpanelType") { IsAny = true };
+        var dictTypeSpec = new NamedTypeSpec("Swift.Dictionary");
+        dictTypeSpec.GenericParameters.Add(existentialParam);
+        dictTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        var method = CreateMethodDecl("process", "TestModule.TestType",
+            returnType: TupleTypeSpec.Empty,
+            parameters: new[] { ("data", dictTypeSpec as TypeSpec) });
+
+        var result = MemberEmissionValidator.CanEmitMethod(method, typeDatabase, out var details, out _);
+
+        Assert.NotNull(result);
+        Assert.Equal(SkipReason.UnsupportedExistential, result);
+    }
+
+    [Fact]
+    public void CanEmitMethod_DictionaryKeyAndValueExistential_ReturnsUnsupportedExistential()
+    {
+        // Dictionary<any P, any P> — both key AND value existential → still skipped
+        // Key position requires Hashable; ExistentialContainer is not Hashable.
+        var typeDatabase = CreateTypeDatabaseWithDictionaryAndProtocol();
+        var existentialKey = new NamedTypeSpec("TestModule.MixpanelType") { IsAny = true };
+        var existentialValue = new NamedTypeSpec("TestModule.MixpanelType") { IsAny = true };
+        var dictTypeSpec = new NamedTypeSpec("Swift.Dictionary");
+        dictTypeSpec.GenericParameters.Add(existentialKey);
+        dictTypeSpec.GenericParameters.Add(existentialValue);
+
+        var method = CreateMethodDecl("process", "TestModule.TestType",
+            returnType: TupleTypeSpec.Empty,
+            parameters: new[] { ("data", dictTypeSpec as TypeSpec) });
+
+        var result = MemberEmissionValidator.CanEmitMethod(method, typeDatabase, out var details, out _);
+
+        Assert.NotNull(result);
+        Assert.Equal(SkipReason.UnsupportedExistential, result);
+    }
+
+    [Fact]
+    public void CanEmitMethod_OptionalDictWithExistentialValue_Allowed()
+    {
+        // Optional<Dictionary<String, any MixpanelType>> → allowed
+        var typeDatabase = CreateTypeDatabaseWithDictionaryAndProtocol();
+        var existentialParam = new NamedTypeSpec("TestModule.MixpanelType") { IsAny = true };
+        var dictTypeSpec = new NamedTypeSpec("Swift.Dictionary");
+        dictTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        dictTypeSpec.GenericParameters.Add(existentialParam);
+        var optionalDict = new NamedTypeSpec("Swift.Optional");
+        optionalDict.GenericParameters.Add(dictTypeSpec);
+
+        var method = CreateMethodDecl("process", "TestModule.TestType",
+            returnType: TupleTypeSpec.Empty,
+            parameters: new[] { ("data", optionalDict as TypeSpec) });
+
+        var result = MemberEmissionValidator.CanEmitMethod(method, typeDatabase, out _, out _);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void CanEmitProperty_DictionaryWithKnownExistentialValue_Allowed()
+    {
+        // Property with Dict<String, any MixpanelType> type → now allowed
+        var typeDatabase = CreateTypeDatabaseWithDictionaryAndProtocol();
+        var existentialParam = new NamedTypeSpec("TestModule.MixpanelType") { IsAny = true };
+        var dictTypeSpec = new NamedTypeSpec("Swift.Dictionary");
+        dictTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        dictTypeSpec.GenericParameters.Add(existentialParam);
+
+        var parentDecl = CreateStructDecl("Owner");
+        var moduleDecl = CreateModuleDecl();
+        var accessor = CreateGetAccessor(dictTypeSpec);
+        accessor.Method.ParentDecl = parentDecl;
+        accessor.Method.ModuleDecl = moduleDecl;
+
+        var property = new PropertyDecl
+        {
+            Name = "properties",
+            SwiftTypeSpec = dictTypeSpec,
+            IsStatic = false,
+            HasStorage = true,
+            Accessors = new List<AccessorDecl> { accessor },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var result = MemberEmissionValidator.CanEmitProperty(property, typeDatabase, out _, out _);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void CanEmitConstructor_DictionaryWithKnownExistentialValue_Allowed()
+    {
+        // Constructor with Dict<String, any MixpanelType> parameter → now allowed
+        var typeDatabase = CreateTypeDatabaseWithDictionaryAndProtocol();
+        var existentialParam = new NamedTypeSpec("TestModule.MixpanelType") { IsAny = true };
+        var dictTypeSpec = new NamedTypeSpec("Swift.Dictionary");
+        dictTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        dictTypeSpec.GenericParameters.Add(existentialParam);
+
+        var method = CreateMethodDecl("init", "TestModule.TestType",
+            returnType: TupleTypeSpec.Empty,
+            parameters: new[] { ("properties", dictTypeSpec as TypeSpec) });
+        method.IsConstructor = true;
+
+        var result = MemberEmissionValidator.CanEmitMethod(method, typeDatabase, out _, out _);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void CanEmitMethod_DictionaryWithOver8ProtocolExistentialArg_ReturnsUnsupportedExistential()
+    {
+        // Dictionary<String, any P1 & P2 & ... & P9> — >8 protocol composition → still skipped
+        // (no ExistentialContainer9 exists)
+        var typeDatabase = CreateTypeDatabaseWithDictionaryAndProtocol();
+        var protocols = Enumerable.Range(1, 9)
+            .Select(i => new NamedTypeSpec($"TestModule.Proto{i}"))
+            .ToArray();
+        var existentialParam = new ProtocolListTypeSpec(protocols);
+        var dictTypeSpec = new NamedTypeSpec("Swift.Dictionary");
+        dictTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        dictTypeSpec.GenericParameters.Add(existentialParam);
+
+        var method = CreateMethodDecl("process", "TestModule.TestType",
+            returnType: TupleTypeSpec.Empty,
+            parameters: new[] { ("data", dictTypeSpec as TypeSpec) });
+
+        var result = MemberEmissionValidator.CanEmitMethod(method, typeDatabase, out var details, out _);
+
+        Assert.NotNull(result);
+        Assert.Equal(SkipReason.UnsupportedExistential, result);
     }
 
     [Fact]
@@ -496,10 +677,8 @@ public class ThirdPartyValidationFixTestsV3
     public void TryGetFirstExistentialTypeArgument_DictionaryExistential_CaughtButArrayExistential_Allowed()
     {
         // P1 regression test: MethodHandler.Emit() now has a targeted B6 check that catches
-        // supported existentials in non-Array bound generics (Dictionary, Set, etc.) while
-        // allowing Array<any Protocol> through (which has dedicated existential handling).
-        // TryGetFirstUnsupportedExistentialTypeArgument (line 422) only catches 9+ protocol
-        // compositions; the new B6 check after it catches the rest for non-Array types.
+        // supported existentials in non-container bound generics while allowing Array<any Protocol>
+        // and Dictionary<K, any Protocol> through (which have dedicated existential handling).
         var typeDatabase = CreateTypeDatabaseWithDictionary();
         var handler = new BoundGenericsHandler(typeDatabase);
 
@@ -527,14 +706,10 @@ public class ThirdPartyValidationFixTestsV3
     public void ArrayException_NestedExistential_StillSkipped()
     {
         // Array<Dictionary<String, any P>> has a nested existential inside the Dictionary element.
-        // The dedicated Array existential handling in WrapperEmitter.Marshalling only covers direct
-        // Array<any Protocol> elements. Nested cases must still be skipped.
-        var typeDatabase = CreateTypeDatabaseWithDictionary();
+        // The dedicated Array existential handling only covers direct elements. Nested cases still skipped.
+        var typeDatabase = CreateTypeDatabaseWithDictionaryAndProtocol();
         var handler = new BoundGenericsHandler(typeDatabase);
-        var typeConversionHandler = new TypeConversionHandler(typeDatabase);
-        var existentialHandler = new ExistentialHandler(typeDatabase);
 
-        // Build Array<Dictionary<String, any MixpanelType>>
         var existentialParam = new NamedTypeSpec("TestModule.MixpanelType") { IsAny = true };
         var innerDict = new NamedTypeSpec("Swift.Dictionary");
         innerDict.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
@@ -543,36 +718,47 @@ public class ThirdPartyValidationFixTestsV3
         arrayOfDict.GenericParameters.Add(innerDict);
 
         // TryGetFirstExistentialTypeArgument detects the nested existential
-        Assert.True(handler.TryGetFirstExistentialTypeArgument(arrayOfDict, out var existentialType));
-        Assert.Contains("MixpanelType", existentialType);
+        Assert.True(handler.TryGetFirstExistentialTypeArgument(arrayOfDict, out var existentialFound));
+        Assert.Contains("MixpanelType", existentialFound);
 
-        // Outer IS an Array...
-        Assert.True(typeConversionHandler.IsSwiftArray(arrayOfDict));
-
-        // ...but the element (Dictionary) is NOT itself an existential — it contains one nested.
-        // The allowlist uses IsExistential(element) which correctly rejects this.
-        Assert.False(existentialHandler.IsExistential(arrayOfDict.GenericParameters[0]));
-        // Therefore: isArrayWithDirectExistentialElement = false → method gets skipped.
+        // But IsContainerWithSupportedDirectExistential rejects it — element is Dict, not existential
+        Assert.False(handler.IsContainerWithSupportedDirectExistential(arrayOfDict));
     }
 
     [Fact]
     public void ArrayException_DirectExistential_Allowed()
     {
         // Array<any Protocol> has a direct existential element — dedicated marshalling handles it.
-        var typeDatabase = CreateTypeDatabaseWithDictionary();
+        var typeDatabase = CreateTypeDatabaseWithDictionaryAndProtocol();
         var handler = new BoundGenericsHandler(typeDatabase);
-        var typeConversionHandler = new TypeConversionHandler(typeDatabase);
-        var existentialHandler = new ExistentialHandler(typeDatabase);
 
         var existentialParam = new NamedTypeSpec("TestModule.MixpanelType") { IsAny = true };
         var arrayTypeSpec = new NamedTypeSpec("Swift.Array");
         arrayTypeSpec.GenericParameters.Add(existentialParam);
 
         Assert.True(handler.TryGetFirstExistentialTypeArgument(arrayTypeSpec, out _));
-        Assert.True(typeConversionHandler.IsSwiftArray(arrayTypeSpec));
-        // Element IS directly an existential (IsAny = true)
-        Assert.True(existentialHandler.IsExistential(arrayTypeSpec.GenericParameters[0]));
-        // Therefore: isArrayWithDirectExistentialElement = true → method is allowed through.
+        Assert.True(handler.IsContainerWithSupportedDirectExistential(arrayTypeSpec));
+    }
+
+    [Fact]
+    public void TranslateTypeSpecToCSharp_ExistentialInDictValue_ReturnsExistentialContainer()
+    {
+        // Verify that TranslateTypeSpecToCSharp returns ExistentialContainer1 (not AnyType)
+        // for supported existentials, enabling correct raw ABI types like
+        // SwiftDictionary<SwiftString, ExistentialContainer1>.
+        var typeDatabase = CreateTypeDatabaseWithDictionaryAndProtocol();
+        var handler = new BoundGenericsHandler(typeDatabase);
+
+        var existentialParam = new NamedTypeSpec("TestModule.MixpanelType") { IsAny = true };
+        var dictTypeSpec = new NamedTypeSpec("Swift.Dictionary");
+        dictTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        dictTypeSpec.GenericParameters.Add(existentialParam);
+
+        var csType = handler.TranslateBoundGenericTypeToCSharp(dictTypeSpec, GenericContext.Empty);
+
+        // Should contain ExistentialContainer1, not AnyType
+        Assert.Contains("ExistentialContainer1", csType);
+        Assert.DoesNotContain("AnyType", csType);
     }
 
     #endregion
@@ -1167,6 +1353,77 @@ public class ThirdPartyValidationFixTestsV3
         typeDatabase.AddModuleDatabase(swiftModule);
 
         var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        typeDatabase.AddModuleDatabase(testModule);
+        return typeDatabase;
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithDictionaryAndProtocol()
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftString"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+                MetadataAccessor = "$sSSMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Dictionary"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftDictionary"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Dictionary"),
+                MetadataAccessor = "$sSDMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Array"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftArray"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Array"),
+                MetadataAccessor = "$sSaMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftOptional"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+                MetadataAccessor = "$sSqMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Enum
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.MixpanelType"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "MixpanelType"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MixpanelType"),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol
+            });
         typeDatabase.AddModuleDatabase(testModule);
         return typeDatabase;
     }
