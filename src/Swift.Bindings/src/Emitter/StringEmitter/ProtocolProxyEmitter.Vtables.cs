@@ -234,7 +234,9 @@ public partial class ProtocolProxyEmitter
         if (!emittedFields.Add(fieldName))
             return;
 
-        var paramCount = method.CSSignature.Count - 1; // Exclude return type
+        // Exclude return type, debug params, and empty tuple () params — must match receiver signature
+        var paramCount = method.CSSignature.Skip(1)
+            .Count(p => !DefaultParameterOverloadEmitter.IsDebugParameter(p) && !p.SwiftTypeSpec.IsEmptyTuple);
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
 

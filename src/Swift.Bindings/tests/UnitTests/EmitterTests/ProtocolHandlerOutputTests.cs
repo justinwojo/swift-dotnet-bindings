@@ -175,7 +175,7 @@ public class ProtocolHandlerOutputTests
 
         Assert.Contains("public interface ICacheable : ISwiftHashable", csOutput);
         Assert.Contains("long Count { get; }", csOutput);
-        Assert.Contains("Task<long> FetchAsync(long key, System.Threading.CancellationToken cancellationToken = default);", csOutput);
+        Assert.Contains("Task<long> FetchAsync(long key, global::System.Threading.CancellationToken cancellationToken = default);", csOutput);
         Assert.Contains("public unsafe partial class CacheableProxy : ICacheable, ISwiftObject, IDisposable", csOutput);
     }
 
@@ -987,7 +987,7 @@ public class ProtocolHandlerOutputTests
         Assert.Contains("FlushAsync(", csOutput);
         Assert.DoesNotContain("GetFlushAsync", csOutput);
         // Return type should be Task, not Task<void>; async methods include CancellationToken
-        Assert.Contains("Task FlushAsync(System.Threading.CancellationToken cancellationToken = default)", csOutput);
+        Assert.Contains("Task FlushAsync(global::System.Threading.CancellationToken cancellationToken = default)", csOutput);
     }
 
     [Fact]
@@ -1037,7 +1037,7 @@ public class ProtocolHandlerOutputTests
         var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
 
         // Non-void return + noun name → DataAsync (async methods skip Get prefix)
-        Assert.Contains("DataAsync(System.Threading.CancellationToken cancellationToken = default)", csOutput);
+        Assert.Contains("DataAsync(global::System.Threading.CancellationToken cancellationToken = default)", csOutput);
     }
 
     #endregion
@@ -1584,9 +1584,9 @@ public class ProtocolHandlerOutputTests
         var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
 
         // Interface method must have CancellationToken
-        Assert.Contains("System.Threading.CancellationToken cancellationToken = default", csOutput);
+        Assert.Contains("global::System.Threading.CancellationToken cancellationToken = default", csOutput);
         // Should be on the interface line
-        Assert.Contains("GenerateKeyAsync(System.Threading.CancellationToken cancellationToken = default)", csOutput);
+        Assert.Contains("GenerateKeyAsync(global::System.Threading.CancellationToken cancellationToken = default)", csOutput);
     }
 
     [Fact]

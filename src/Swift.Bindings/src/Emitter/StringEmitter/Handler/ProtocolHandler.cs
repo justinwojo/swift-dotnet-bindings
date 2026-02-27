@@ -539,6 +539,11 @@ namespace BindingsGeneration
             for (int i = 1; i < methodDecl.CSSignature.Count; i++)
             {
                 var arg = methodDecl.CSSignature[i];
+                // Skip debug params (#file, #line, etc.) and empty tuple () params (zero-sized Void)
+                if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
+                    continue;
+                if (arg.SwiftTypeSpec.IsEmptyTuple)
+                    continue;
                 var argTypeName = GetCSharpTypeName(arg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext);
                 var argName = NameProvider.GetCSharpParameterName(arg);
                 parameters.Add($"{argTypeName} {argName}");
@@ -563,7 +568,7 @@ namespace BindingsGeneration
             // Add CancellationToken to async interface methods (matches WrapperEmitter emission)
             if (methodDecl.IsAsync)
             {
-                parameters.Add("System.Threading.CancellationToken cancellationToken = default");
+                parameters.Add("global::System.Threading.CancellationToken cancellationToken = default");
             }
 
             // Emit [UnsupportedSwiftType] if the return type or any parameter falls back to AnyType
@@ -595,7 +600,7 @@ namespace BindingsGeneration
             var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(methodDecl);
             var methodName = NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: hasReturnValue,
                 propertyNames: propertyNames, isSelfReturning: isSelfReturning,
-                parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a)));
+                parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
             XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl);
             csWriter.WriteLine($"{returnType} {methodName}({string.Join(", ", parameters)});");
         }
@@ -723,12 +728,16 @@ namespace BindingsGeneration
             var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(methodDecl);
             var methodName = NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: hasReturnValue,
                 propertyNames: propertyNames, isSelfReturning: isSelfReturning,
-                parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a)));
+                parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
 
             var paramTypes = new List<string>();
             for (int i = 1; i < methodDecl.CSSignature.Count; i++)
             {
                 var arg = methodDecl.CSSignature[i];
+                if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
+                    continue;
+                if (arg.SwiftTypeSpec.IsEmptyTuple)
+                    continue;
                 var paramType = GetCSharpTypeName(arg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext, isParameter: true);
                 paramType = ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity(paramType, arg.SwiftTypeSpec, typeDatabase);
                 paramTypes.Add(paramType);

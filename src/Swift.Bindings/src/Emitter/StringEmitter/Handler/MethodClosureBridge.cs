@@ -646,7 +646,7 @@ public static class MethodClosureBridge
             env.SiblingPropertyNames,
             isSelfReturning: MethodEnvironment.IsSelfReturningMethod(method),
             parentTypeName: (method.ParentDecl as TypeDecl)?.Name,
-            parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a)));
+            parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
 
         var isStatic = method.MethodType == MethodType.Static;
         var staticKeyword = isStatic ? "static " : "";

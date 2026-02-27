@@ -568,10 +568,10 @@ public static class GenericClosureBridgeEmitter
             var releaseSymbol = ErrorDescriptionEmitter.GetReleaseSymbolName(moduleName);
 
             csWriter.WriteLines($"""
-                [System.Runtime.InteropServices.LibraryImport("{asyncLibName}", EntryPoint = "{descSymbol}")]
+                [global::System.Runtime.InteropServices.LibraryImport("{asyncLibName}", EntryPoint = "{descSymbol}")]
                 private static partial IntPtr SBW_GetErrorDescription(IntPtr error);
 
-                [System.Runtime.InteropServices.LibraryImport("{asyncLibName}", EntryPoint = "{releaseSymbol}")]
+                [global::System.Runtime.InteropServices.LibraryImport("{asyncLibName}", EntryPoint = "{releaseSymbol}")]
                 private static partial void SBW_ReleaseError(IntPtr error);
 
                 """);
@@ -583,7 +583,7 @@ public static class GenericClosureBridgeEmitter
                 var freeSymbol = Utf8SliceEmitter.GetFreeSymbolName(moduleName);
 
                 csWriter.WriteLines($"""
-                    [System.Runtime.InteropServices.LibraryImport("{asyncLibName}", EntryPoint = "{freeSymbol}")]
+                    [global::System.Runtime.InteropServices.LibraryImport("{asyncLibName}", EntryPoint = "{freeSymbol}")]
                     private static partial void SBW_Free(IntPtr ptr);
 
                     """);
@@ -741,7 +741,7 @@ public static class GenericClosureBridgeEmitter
             csWriter.Indent++;
             csWriter.WriteLine("_errorMessage = _descPtr != IntPtr.Zero");
             csWriter.Indent++;
-            csWriter.WriteLine("? System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? \"Unknown Swift error\"");
+            csWriter.WriteLine("? global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? \"Unknown Swift error\"");
             csWriter.WriteLine(": \"Unknown Swift error\";");
             csWriter.Indent--;
             csWriter.Indent--;
@@ -837,7 +837,7 @@ public static class GenericClosureBridgeEmitter
             csWriter.Indent++;
             csWriter.WriteLine("_errorMessage = _descPtr != IntPtr.Zero");
             csWriter.Indent++;
-            csWriter.WriteLine("? System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? \"Unknown Swift error\"");
+            csWriter.WriteLine("? global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? \"Unknown Swift error\"");
             csWriter.WriteLine(": \"Unknown Swift error\";");
             csWriter.Indent--;
             csWriter.Indent--;

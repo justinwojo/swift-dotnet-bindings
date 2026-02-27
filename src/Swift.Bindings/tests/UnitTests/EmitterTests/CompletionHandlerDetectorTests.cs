@@ -231,7 +231,7 @@ public class CompletionHandlerDetectorTests
         var csOutput = GenerateMethodWithCompletionHandler(
             new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty));
 
-        Assert.Contains("System.Threading.CancellationToken cancellationToken = default", csOutput);
+        Assert.Contains("global::System.Threading.CancellationToken cancellationToken = default", csOutput);
     }
 
     [Fact]

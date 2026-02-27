@@ -1427,7 +1427,7 @@ public static partial class SwiftUIBridgeEmitter
                     sb.AppendLine($"                {a.CSharpTypeName} arg{i}Obj;");
                     sb.AppendLine($"                unsafe");
                     sb.AppendLine($"                {{");
-                    sb.AppendLine($"                    var classPayload{i} = System.Runtime.InteropServices.NativeMemory.Alloc((nuint)sizeof(IntPtr));");
+                    sb.AppendLine($"                    var classPayload{i} = global::System.Runtime.InteropServices.NativeMemory.Alloc((nuint)sizeof(IntPtr));");
                     sb.AppendLine($"                    *(IntPtr*)classPayload{i} = arg{i};");
                     sb.AppendLine($"                    try");
                     sb.AppendLine($"                    {{");
@@ -1435,7 +1435,7 @@ public static partial class SwiftUIBridgeEmitter
                     sb.AppendLine($"                    }}");
                     sb.AppendLine($"                    catch");
                     sb.AppendLine($"                    {{");
-                    sb.AppendLine($"                        System.Runtime.InteropServices.NativeMemory.Free(classPayload{i});");
+                    sb.AppendLine($"                        global::System.Runtime.InteropServices.NativeMemory.Free(classPayload{i});");
                     sb.AppendLine($"                        throw;");
                     sb.AppendLine($"                    }}");
                     sb.AppendLine($"                }}");

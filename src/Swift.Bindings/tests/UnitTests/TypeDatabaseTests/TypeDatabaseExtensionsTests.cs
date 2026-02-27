@@ -1185,6 +1185,28 @@ public class TypeDatabaseExtensionsTests
         Assert.False(result);
     }
 
+    // --- XMLParser → AnyType (AppleFrameworkValueTypes exclusion) ---
+    // NSXMLParser is not bound in .NET iOS — excluded from ObjC bridging
+
+    [Fact]
+    public void GetTypeRecordOrAnyType_XMLParser_ReturnsAnyType()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec("Foundation.XMLParser"));
+
+        Assert.Equal(TypeDatabaseExtensions.AnyType, record);
+    }
+
+    [Fact]
+    public void IsObjCModuleType_XMLParser_ReturnsFalse()
+    {
+        // XMLParser is in AppleFrameworkValueTypes → not treated as ObjC class
+        var result = TypeDatabaseExtensions.IsObjCModuleType(new NamedTypeSpec("Foundation.XMLParser"));
+
+        Assert.False(result);
+    }
+
     #region ConcatWithOverlapDedup
 
     [Theory]

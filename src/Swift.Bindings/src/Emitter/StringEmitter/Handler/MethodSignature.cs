@@ -367,8 +367,21 @@ namespace BindingsGeneration
                 });
                 if (projection != null && !ShouldSkipProjectionForAccessor(argument.SwiftTypeSpec))
                 {
-                    SetReturnType(projection.PublicType);
-                    return;
+                    // Guard: unsupported closure returns must use AnyType to match P/Invoke.
+                    // The factory can project closures with existential args (any P → object)
+                    // but the P/Invoke falls back to AnyType when IsSupportedClosure is false.
+                    // Check both direct ClosureTypeSpec and Optional<Closure> (P/Invoke uses
+                    // IsClosure() which unwraps Optional, so we must match that behavior).
+                    if (_env.ClosureHandler.IsClosure(argument) &&
+                        !_env.ClosureHandler.IsSupportedClosure(_env.ClosureHandler.GetClosureTypeSpec(argument)!))
+                    {
+                        // Fall through to legacy path which produces AnyType
+                    }
+                    else
+                    {
+                        SetReturnType(projection.PublicType);
+                        return;
+                    }
                 }
             }
 
@@ -455,6 +468,11 @@ namespace BindingsGeneration
             {
                 // Strip Swift compiler-injected debug params (#file, #line, #column, #function)
                 if (DefaultParameterOverloadEmitter.IsDebugParameter(argument))
+                    continue;
+
+                // Skip empty tuple () parameters — Swift's Void type is zero-sized and carries no value.
+                // Common in ExpressibleByNilLiteral conformances: init(nilLiteral: ()).
+                if (argument.SwiftTypeSpec.IsEmptyTuple)
                     continue;
 
                 var csParamName = NameProvider.GetCSharpParameterName(argument);

@@ -561,7 +561,7 @@ public static class ThemeBridgeEmitter
                 sb.AppendLine($"        public static unsafe void {methodName}(Swift.SwiftFont value)");
                 sb.AppendLine("        {");
                 sb.AppendLine($"            var nameBytes = value.FontName != null");
-                sb.AppendLine($"                ? System.Text.Encoding.UTF8.GetBytes(value.FontName) : null;");
+                sb.AppendLine($"                ? global::System.Text.Encoding.UTF8.GetBytes(value.FontName) : null;");
                 sb.AppendLine($"            fixed (byte* namePtr = nameBytes)");
                 sb.AppendLine("            {");
                 sb.AppendLine($"                ThemeBridgeNativeMethods.{funcName}(");

@@ -436,7 +436,7 @@ public static class DefaultParameterOverloadEmitter
         var methodName = overloadDecl.IsConstructor
             ? "ctor"
             : NameProvider.GetPublicMethodName(overloadDecl.Name, overloadDecl.IsAsync, hasReturnValue: hasReturnValue, isSelfReturning: isSelfReturning, parentTypeName: (overloadDecl.ParentDecl as TypeDecl)?.Name,
-                parameterCount: overloadDecl.CSSignature.Skip(1).Count(a => !IsDebugParameter(a)));
+                parameterCount: overloadDecl.CSSignature.Skip(1).Count(a => !IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
 
         var paramTypes = new List<string>();
         for (int i = 1; i < overloadDecl.CSSignature.Count; i++)
@@ -444,6 +444,9 @@ public static class DefaultParameterOverloadEmitter
             var arg = overloadDecl.CSSignature[i];
             // Debug params (#file, #line, etc.) are stripped from the public signature
             if (IsDebugParameter(arg))
+                continue;
+            // Empty tuple () params are stripped from the C# signature (zero-sized Void)
+            if (arg.SwiftTypeSpec.IsEmptyTuple)
                 continue;
             // P1: Unwrap Optional<Closure> to bare Closure, matching the main pass (C11 in IHandler.cs).
             // Nullable reference types don't affect C# overload resolution — Action<T>? and Action<T>

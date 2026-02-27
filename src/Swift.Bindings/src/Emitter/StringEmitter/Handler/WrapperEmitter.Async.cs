@@ -200,7 +200,7 @@ namespace BindingsGeneration
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
-                        var (tcs, token, id) = ((TaskCompletionSource{{tcsTypeParam}}, System.Threading.CancellationToken, long))state!;
+                        var (tcs, token, id) = ((TaskCompletionSource{{tcsTypeParam}}, global::System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
@@ -614,7 +614,7 @@ namespace BindingsGeneration
             {
                 CancellationTaskEmitter.MarkCancelPInvokeEmittedForType(typeKey, _emissionContext);
                 csWriter.WriteLines($"""
-                    [System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{cancelSymbolName}")]
+                    [global::System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{cancelSymbolName}")]
                     private static partial void SBW_CancelTask(long taskId);
 
                     """);
@@ -837,7 +837,7 @@ namespace BindingsGeneration
                                 }
                                 else
                                 {
-                                    result = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(slicePtr, (int)sliceLen)!;
+                                    result = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(slicePtr, (int)sliceLen)!;
                                 }
 
                                 // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
@@ -935,7 +935,7 @@ namespace BindingsGeneration
                                             int strLen = (int)lengthsPtr[i];
                                             string s = strLen == 0
                                                 ? string.Empty
-                                                : System.Runtime.InteropServices.Marshal.PtrToStringUTF8(bufferPtr + dataOffset, strLen)!;
+                                                : global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(bufferPtr + dataOffset, strLen)!;
                                             result.Add(s);
                                             dataOffset += strLen;
                                         }
@@ -1067,7 +1067,7 @@ namespace BindingsGeneration
                                     if (isCancellation != 0)
                                     {
                                         // Swift reported CancellationError — find token and cancel the Task
-                                        System.Threading.CancellationToken cancelToken = default;
+                                        global::System.Threading.CancellationToken cancelToken = default;
                                         for (int i = 1; i < holder.Length; i++)
                                         {
                                             if (holder[i] is CancellationRegistrationHolder cancelReg)
@@ -1199,7 +1199,7 @@ namespace BindingsGeneration
             }
             return needsFreePInvoke
                 ? $"""
-                        [System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{freeSymbolName}")]
+                        [global::System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{freeSymbolName}")]
                         private static partial void SBW_Free(IntPtr ptr);
 
                 """

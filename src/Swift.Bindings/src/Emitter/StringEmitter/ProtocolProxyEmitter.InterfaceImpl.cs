@@ -176,7 +176,7 @@ public partial class ProtocolProxyEmitter
                             {
                                 var slice = *(Utf8Slice*)resultPtr;
                                 var str = slice.Len > 0
-                                    ? System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)
+                                    ? global::System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)
                                     : string.Empty;
                                 return {{returnExpr}};
                             }
@@ -242,7 +242,7 @@ public partial class ProtocolProxyEmitter
                         fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
                         {
                             var str = value?.ToString() ?? string.Empty;
-                            var utf8Bytes = System.Text.Encoding.UTF8.GetBytes(str);
+                            var utf8Bytes = global::System.Text.Encoding.UTF8.GetBytes(str);
                             fixed (byte* utf8Ptr = utf8Bytes)
                             {
                                 var slice = new Utf8Slice { Ptr = (IntPtr)utf8Ptr, Len = (nint)utf8Bytes.Length };
@@ -388,6 +388,11 @@ public partial class ProtocolProxyEmitter
         int argIndex = 0;
         foreach (var param in method.CSSignature.Skip(1))
         {
+            // Skip debug params and empty tuple () params (zero-sized Void)
+            if (DefaultParameterOverloadEmitter.IsDebugParameter(param))
+                continue;
+            if (param.SwiftTypeSpec.IsEmptyTuple)
+                continue;
             var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, isParameter: true);
             var paramName = NameProvider.GetCSharpParameterName(param);
             parameters.Add($"{paramTypeName} {paramName}");
@@ -399,7 +404,7 @@ public partial class ProtocolProxyEmitter
         // Add CancellationToken to async proxy methods (matches interface + WrapperEmitter emission)
         if (method.IsAsync)
         {
-            parameters.Add("System.Threading.CancellationToken cancellationToken = default");
+            parameters.Add("global::System.Threading.CancellationToken cancellationToken = default");
             argNames.Add("cancellationToken");
         }
 
@@ -409,7 +414,7 @@ public partial class ProtocolProxyEmitter
         var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(method);
         var methodName = NameProvider.GetPublicMethodName(method.Name, method.IsAsync, hasReturn,
             propertyNames: propertyNames, isSelfReturning: isSelfReturning,
-            parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a)));
+            parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
         var isDispatchable = dispatchEmitter.IsMethodDispatchable(method);
 
         // Validate that the projected return type matches the dispatch strategy.
@@ -516,7 +521,7 @@ public partial class ProtocolProxyEmitter
                         {
                             var slice = *(Utf8Slice*)resultPtr;
                             return slice.Len > 0
-                                ? System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)
+                                ? global::System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)
                                 : string.Empty;
                         }
                         finally
@@ -680,7 +685,7 @@ public partial class ProtocolProxyEmitter
             {
                 // String parameter: encode to UTF-8, pin via GCHandle, wrap in Utf8Slice
                 var handleName = $"arg{i}Handle";
-                writer.WriteLine($"var arg{i}Bytes = System.Text.Encoding.UTF8.GetBytes({argNames[i]} ?? string.Empty);");
+                writer.WriteLine($"var arg{i}Bytes = global::System.Text.Encoding.UTF8.GetBytes({argNames[i]} ?? string.Empty);");
                 writer.WriteLine($"{handleName} = GCHandle.Alloc(arg{i}Bytes, GCHandleType.Pinned);");
                 writer.WriteLine($"var arg{i}Slice = new Utf8Slice {{ Ptr = {handleName}.AddrOfPinnedObject(), Len = (nint)arg{i}Bytes.Length }};");
             }
@@ -799,6 +804,11 @@ public partial class ProtocolProxyEmitter
         var argNames = new List<string>();
         foreach (var param in method.CSSignature.Skip(1))
         {
+            // Skip debug params and empty tuple () params (zero-sized Void)
+            if (DefaultParameterOverloadEmitter.IsDebugParameter(param))
+                continue;
+            if (param.SwiftTypeSpec.IsEmptyTuple)
+                continue;
             var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, isParameter: true);
             var paramName = NameProvider.GetCSharpParameterName(param);
             parameters.Add($"{paramTypeName} {paramName}");
@@ -806,7 +816,7 @@ public partial class ProtocolProxyEmitter
         }
         if (method.IsAsync)
         {
-            parameters.Add("System.Threading.CancellationToken cancellationToken = default");
+            parameters.Add("global::System.Threading.CancellationToken cancellationToken = default");
             argNames.Add("cancellationToken");
         }
 
@@ -816,7 +826,7 @@ public partial class ProtocolProxyEmitter
         var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(method);
         var methodName = NameProvider.GetPublicMethodName(method.Name, method.IsAsync, hasReturn,
             propertyNames: propertyNames, isSelfReturning: isSelfReturning,
-            parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a)));
+            parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
 
         writer.WriteLine($"[Obsolete(\"{reason} (SB0003)\",");
         writer.WriteLine("    DiagnosticId = \"SB0003\",");

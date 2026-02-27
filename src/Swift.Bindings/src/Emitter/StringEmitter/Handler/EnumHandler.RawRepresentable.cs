@@ -85,7 +85,7 @@ namespace BindingsGeneration
                     csWriter.WriteLine($"public static unsafe {enumTypeName}? FromRawValue({csharpRawType} rawValue)");
                     csWriter.WriteLine("{");
                     csWriter.Indent++;
-                    csWriter.WriteLine("var utf8Bytes = System.Text.Encoding.UTF8.GetBytes(rawValue ?? string.Empty);");
+                    csWriter.WriteLine("var utf8Bytes = global::System.Text.Encoding.UTF8.GetBytes(rawValue ?? string.Empty);");
                     csWriter.WriteLine("fixed (byte* utf8Ptr = utf8Bytes)");
                     csWriter.WriteLine("{");
                     csWriter.Indent++;
@@ -204,7 +204,7 @@ namespace BindingsGeneration
                 if (isStringRawType)
                 {
                     // String raw type: encode to UTF-8 and use wrapper
-                    csWriter.WriteLine("var utf8Bytes = System.Text.Encoding.UTF8.GetBytes(rawValue ?? string.Empty);");
+                    csWriter.WriteLine("var utf8Bytes = global::System.Text.Encoding.UTF8.GetBytes(rawValue ?? string.Empty);");
                     csWriter.WriteLine("fixed (byte* utf8Ptr = utf8Bytes)");
                     csWriter.WriteLine("{");
                     csWriter.Indent++;
@@ -481,7 +481,7 @@ namespace BindingsGeneration
         private static void EmitUtf8SliceStruct(CSharpWriter csWriter)
         {
             csWriter.WriteLines("""
-                [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+                [global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Sequential)]
                 private struct Utf8Slice
                 {
                     public IntPtr Ptr;

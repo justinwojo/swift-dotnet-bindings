@@ -203,6 +203,10 @@ namespace BindingsGeneration
                 if (DefaultParameterOverloadEmitter.IsDebugParameter(argument))
                     continue;
 
+                // Skip empty tuple () parameters — Swift's Void type is zero-sized, no ABI-level value.
+                if (argument.SwiftTypeSpec.IsEmptyTuple)
+                    continue;
+
                 var csName = NameProvider.GetCSharpParameterName(argument);
 
                 if (_env.BoundGenericsHandler.IsBoundGeneric(argument))

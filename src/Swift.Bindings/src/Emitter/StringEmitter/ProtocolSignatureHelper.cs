@@ -90,12 +90,18 @@ internal static class ProtocolSignatureHelper
         // Capture hasReturnValue BEFORE async conversion turns void→Task
         var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(methodDecl);
         var methodName = NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: hasReturnValue, isSelfReturning: isSelfReturning,
-            parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a)));
+            parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
 
         var paramTypes = new List<string>();
         for (int i = 1; i < methodDecl.CSSignature.Count; i++)
         {
             var arg = methodDecl.CSSignature[i];
+            // Debug params (#file, #line, etc.) are stripped from the public signature
+            if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
+                continue;
+            // Empty tuple () params are stripped from the C# signature (zero-sized Void)
+            if (arg.SwiftTypeSpec.IsEmptyTuple)
+                continue;
             var projected = ProjectTypeToCSharp(arg.SwiftTypeSpec, typeDatabase, protocolContext, isParameter: true);
             projected = NormalizeParamTypeForOverloadIdentity(projected, arg.SwiftTypeSpec, typeDatabase);
             paramTypes.Add(projected);

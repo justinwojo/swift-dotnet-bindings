@@ -642,7 +642,7 @@ public static class ExistentialBypassEmitter
         // Build C# method name
         var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(methodDecl);
         var methodName = NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: false, isSelfReturning: isSelfReturning,
-            parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a)));
+            parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
 
         // Pre-compute marshalling to determine if unsafe is needed before emitting the method declaration.
         var (marshalledArgs, setupLines, needsUnsafe) = GetBypassMarshalledCallArguments(reducedWrapperSig, reducedPInvokeSig);

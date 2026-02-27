@@ -33,7 +33,7 @@ public class MethodHandlerOutputTests
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
         Assert.Contains("[LibraryImport(\"/tmp/AsyncWrapper.dylib\"", csOutput);
-        Assert.Contains("public virtual Task<long> FetchAsync(System.Threading.CancellationToken cancellationToken = default)", csOutput);
+        Assert.Contains("public virtual Task<long> FetchAsync(global::System.Threading.CancellationToken cancellationToken = default)", csOutput);
         Assert.Contains("return _tcs.Task;", csOutput);
     }
 

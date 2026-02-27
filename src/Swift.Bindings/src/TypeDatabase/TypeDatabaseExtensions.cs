@@ -583,6 +583,7 @@ public static class TypeDatabaseExtensions
         "Foundation.JSONDecoder",
         "Foundation.NSNotification.Name",
         "Foundation.objc_AssociationPolicy",
+        "Foundation.XMLParser",              // NSXMLParser — not bound in .NET iOS
         // Foundation nested enums with remapped .NET names
         "Foundation.URLSessionWebSocketTask.CloseCode",
         // Foundation nested ObjC enums (NS_OPTIONS) — value types, not NSObject subclasses

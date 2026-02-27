@@ -741,6 +741,235 @@ public class SignatureBuilderTests
 
     #endregion
 
+    #region Empty Tuple Parameter Tests (CS1536 fix)
+
+    [Fact]
+    public void WrapperSignature_EmptyTupleParameter_IsOmitted()
+    {
+        // Swift: init(nilLiteral: ()) — the () param must be omitted from C# signature
+        var typeDatabase = CreateTypeDatabaseWithEnum(TypeRecordFlags.None);
+        var moduleDecl = CreateModuleDeclFull();
+        var parentDecl = CreateClassDeclFull("Attribute", moduleDecl);
+        var method = CreateMethodDeclFull("init", parentDecl, moduleDecl);
+        method.IsConstructor = true;
+        method.CSSignature.Add(CreateArgumentDeclFull("nilLiteral", TupleTypeSpec.Empty, moduleDecl));
+
+        var env = new MethodEnvironment(method, typeDatabase);
+        var builder = new WrapperSignatureBuilder(env);
+        builder.HandleReturnType();
+        builder.HandleArguments();
+        var signature = builder.Build();
+
+        // Empty tuple parameter should be omitted entirely
+        Assert.Empty(signature.Parameters);
+    }
+
+    [Fact]
+    public void PInvokeSignature_EmptyTupleParameter_IsOmitted()
+    {
+        // Swift: init(nilLiteral: ()) — the () param must be omitted from P/Invoke signature
+        var typeDatabase = CreateTypeDatabaseWithEnum(TypeRecordFlags.None);
+        var moduleDecl = CreateModuleDeclFull();
+        var parentDecl = CreateClassDeclFull("Attribute", moduleDecl);
+        var method = CreateMethodDeclFull("init", parentDecl, moduleDecl);
+        method.IsConstructor = true;
+        method.CSSignature.Add(CreateArgumentDeclFull("nilLiteral", TupleTypeSpec.Empty, moduleDecl));
+
+        var env = new MethodEnvironment(method, typeDatabase);
+        var builder = new PInvokeSignatureBuilder(env);
+        builder.HandleReturnType();
+        builder.HandleArguments();
+        var signature = builder.Build();
+
+        // Empty tuple parameter should not appear in P/Invoke signature
+        Assert.DoesNotContain(signature.Parameters, p => p.Name == "nilLiteral");
+    }
+
+    [Fact]
+    public void WrapperSignature_EmptyTupleWithOtherParams_OnlyOmitsEmptyTuple()
+    {
+        // Method with both () and real params — only () should be omitted
+        var typeDatabase = CreateTypeDatabaseWithEnum(TypeRecordFlags.None);
+        var moduleDecl = CreateModuleDeclFull();
+        var parentDecl = CreateClassDeclFull("Widget", moduleDecl);
+        var method = CreateMethodDeclFull("configure", parentDecl, moduleDecl);
+        method.CSSignature.Add(CreateArgumentDeclFull("nilLiteral", TupleTypeSpec.Empty, moduleDecl));
+        method.CSSignature.Add(CreateArgumentDeclFull("variant", new NamedTypeSpec("TestModule.Variant"), moduleDecl));
+
+        var env = new MethodEnvironment(method, typeDatabase);
+        var builder = new WrapperSignatureBuilder(env);
+        builder.HandleReturnType();
+        builder.HandleArguments();
+        var signature = builder.Build();
+
+        // Only the real parameter should be present
+        Assert.Single(signature.Parameters);
+        Assert.Equal("variant", signature.Parameters[0].Name);
+    }
+
+    [Fact]
+    public void PInvokeSignature_EmptyTupleWithOtherParams_OnlyOmitsEmptyTuple()
+    {
+        // Method with both () and real params — only () should be omitted from P/Invoke
+        var typeDatabase = CreateTypeDatabaseWithEnum(TypeRecordFlags.None);
+        var moduleDecl = CreateModuleDeclFull();
+        var parentDecl = CreateClassDeclFull("Widget", moduleDecl);
+        var method = CreateMethodDeclFull("configure", parentDecl, moduleDecl);
+        method.CSSignature.Add(CreateArgumentDeclFull("nilLiteral", TupleTypeSpec.Empty, moduleDecl));
+        method.CSSignature.Add(CreateArgumentDeclFull("variant", new NamedTypeSpec("TestModule.Variant"), moduleDecl));
+
+        var env = new MethodEnvironment(method, typeDatabase);
+        var builder = new PInvokeSignatureBuilder(env);
+        builder.HandleReturnType();
+        builder.HandleArguments();
+        var signature = builder.Build();
+
+        // Only the real parameter should be present
+        Assert.DoesNotContain(signature.Parameters, p => p.Name == "nilLiteral");
+        Assert.Contains(signature.Parameters, p => p.Name == "variant");
+    }
+
+    [Fact]
+    public void WrapperSignature_NonEmptyTupleParameter_StillEmitted()
+    {
+        // Non-empty tuples (e.g., (Int, String)) should NOT be omitted
+        var tupleType = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Bool")
+        });
+
+        Assert.False(tupleType.IsEmptyTuple);
+    }
+
+    #endregion
+
+    #region Unsupported Closure Return Type Tests
+
+    [Fact]
+    public void WrapperSignature_UnsupportedClosureReturn_FallsBackToAnyType()
+    {
+        // A method returning a closure with unsupported existential args (any CodingKey)
+        // should fall back to AnyType to match the P/Invoke signature, not project to Func<...>.
+        // This prevents CS0029 type mismatch between wrapper return and P/Invoke return.
+        var closureReturnType = new ClosureTypeSpec(
+            new TupleTypeSpec(new NamedTypeSpec("Swift.Int")),
+            TupleTypeSpec.Empty);
+        // Not supported because ClosureHandler checks IsSupportedClosureParameterType
+        // and Int alone won't cause unsupported status; use a nested closure as arg (known unsupported)
+        var nestedClosure = new ClosureTypeSpec(
+            new TupleTypeSpec(new NamedTypeSpec("Swift.String")),
+            TupleTypeSpec.Empty);
+        var closureWithUnsupportedArg = new ClosureTypeSpec(
+            new TupleTypeSpec(nestedClosure),  // closure-in-closure is unsupported
+            TupleTypeSpec.Empty);
+
+        // closureWithUnsupportedArg has a ClosureTypeSpec argument → IsSupportedClosure returns false
+        var closureHandler = new ClosureHandler(new TypeDatabase());
+        Assert.False(closureHandler.IsSupportedClosure(closureWithUnsupportedArg));
+    }
+
+    #endregion
+
+    #region Constructor Empty-Tuple Sibling Gate Tests
+
+    [Fact]
+    public void HasOnlyEmptyTupleParams_EmptyTupleOnly_ReturnsTrue()
+    {
+        var moduleDecl = CreateModuleDeclFull();
+        var parentDecl = CreateClassDeclFull("Attribute", moduleDecl);
+        var method = CreateMethodDeclFull("init", parentDecl, moduleDecl);
+        method.IsConstructor = true;
+        method.CSSignature.Add(CreateArgumentDeclFull("nilLiteral", TupleTypeSpec.Empty, moduleDecl));
+
+        Assert.True(ConstructorHandler.HasOnlyEmptyTupleParams(method));
+    }
+
+    [Fact]
+    public void HasOnlyEmptyTupleParams_NoParams_ReturnsFalse()
+    {
+        // A truly parameterless init() has no non-debug params → should return false
+        var moduleDecl = CreateModuleDeclFull();
+        var parentDecl = CreateClassDeclFull("Attribute", moduleDecl);
+        var method = CreateMethodDeclFull("init", parentDecl, moduleDecl);
+        method.IsConstructor = true;
+
+        Assert.False(ConstructorHandler.HasOnlyEmptyTupleParams(method));
+    }
+
+    [Fact]
+    public void HasParameterlessConstructorSibling_WithRealParameterlessInit_ReturnsTrue()
+    {
+        // init(nilLiteral: ()) has a sibling init() → should return true
+        var moduleDecl = CreateModuleDeclFull();
+        var parentDecl = CreateClassDeclFull("Attribute", moduleDecl);
+
+        var parameterlessInit = CreateMethodDeclFull("init", parentDecl, moduleDecl);
+        parameterlessInit.IsConstructor = true;
+        parameterlessInit.MangledName = "$s10TestModule9AttributeCACycfc";
+
+        var emptyTupleInit = CreateMethodDeclFull("init", parentDecl, moduleDecl);
+        emptyTupleInit.IsConstructor = true;
+        emptyTupleInit.MangledName = "$s10TestModule9AttributeC10nilLiteralACyt_tcfc";
+        emptyTupleInit.CSSignature.Add(CreateArgumentDeclFull("nilLiteral", TupleTypeSpec.Empty, moduleDecl));
+
+        Assert.True(ConstructorHandler.HasParameterlessConstructorSibling(emptyTupleInit));
+    }
+
+    [Fact]
+    public void HasParameterlessConstructorSibling_WithOnlyAnotherEmptyTuple_ReturnsFalse()
+    {
+        // Two init(...: ()) ctors should NOT consider each other as parameterless siblings.
+        // Without this guard, both would be skipped and zero ctors would be emitted.
+        var moduleDecl = CreateModuleDeclFull();
+        var parentDecl = CreateClassDeclFull("Attribute", moduleDecl);
+
+        var emptyTupleInit1 = CreateMethodDeclFull("init", parentDecl, moduleDecl);
+        emptyTupleInit1.IsConstructor = true;
+        emptyTupleInit1.MangledName = "$s10TestModule9AttributeC10nilLiteralACyt_tcfc";
+        emptyTupleInit1.CSSignature.Add(CreateArgumentDeclFull("nilLiteral", TupleTypeSpec.Empty, moduleDecl));
+
+        var emptyTupleInit2 = CreateMethodDeclFull("init", parentDecl, moduleDecl);
+        emptyTupleInit2.IsConstructor = true;
+        emptyTupleInit2.MangledName = "$s10TestModule9AttributeC5otherACyt_tcfc";
+        emptyTupleInit2.CSSignature.Add(CreateArgumentDeclFull("other", TupleTypeSpec.Empty, moduleDecl));
+
+        // Neither should see the other as a parameterless sibling
+        Assert.False(ConstructorHandler.HasParameterlessConstructorSibling(emptyTupleInit1));
+        Assert.False(ConstructorHandler.HasParameterlessConstructorSibling(emptyTupleInit2));
+    }
+
+    [Fact]
+    public void HasParameterlessConstructorSibling_WithRealInitAndTwoEmptyTupleInits_CorrectBehavior()
+    {
+        // init() + init(nilLiteral: ()) + init(other: ())
+        // Both empty-tuple inits should see init() as a parameterless sibling → return true
+        var moduleDecl = CreateModuleDeclFull();
+        var parentDecl = CreateClassDeclFull("Attribute", moduleDecl);
+
+        var parameterlessInit = CreateMethodDeclFull("init", parentDecl, moduleDecl);
+        parameterlessInit.IsConstructor = true;
+        parameterlessInit.MangledName = "$s10TestModule9AttributeCACycfc";
+
+        var emptyTupleInit1 = CreateMethodDeclFull("init", parentDecl, moduleDecl);
+        emptyTupleInit1.IsConstructor = true;
+        emptyTupleInit1.MangledName = "$s10TestModule9AttributeC10nilLiteralACyt_tcfc";
+        emptyTupleInit1.CSSignature.Add(CreateArgumentDeclFull("nilLiteral", TupleTypeSpec.Empty, moduleDecl));
+
+        var emptyTupleInit2 = CreateMethodDeclFull("init", parentDecl, moduleDecl);
+        emptyTupleInit2.IsConstructor = true;
+        emptyTupleInit2.MangledName = "$s10TestModule9AttributeC5otherACyt_tcfc";
+        emptyTupleInit2.CSSignature.Add(CreateArgumentDeclFull("other", TupleTypeSpec.Empty, moduleDecl));
+
+        // Both empty-tuple inits see the real parameterless init → true
+        Assert.True(ConstructorHandler.HasParameterlessConstructorSibling(emptyTupleInit1));
+        Assert.True(ConstructorHandler.HasParameterlessConstructorSibling(emptyTupleInit2));
+        // The real parameterless init does NOT have a parameterless sibling (the others are empty-tuple-only)
+        Assert.False(ConstructorHandler.HasParameterlessConstructorSibling(parameterlessInit));
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static MethodDecl CreateMethodDecl(

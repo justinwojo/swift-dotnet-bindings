@@ -306,6 +306,41 @@ namespace BindingsGeneration
 
             csWriter.WriteLine();
         }
+
+        /// <summary>
+        /// Returns true if the method's only non-return, non-debug parameters are empty tuples ().
+        /// </summary>
+        internal static bool HasOnlyEmptyTupleParams(MethodDecl method)
+        {
+            var realParams = method.CSSignature.Skip(1)
+                .Where(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a));
+            return realParams.Any() && realParams.All(a => a.SwiftTypeSpec.IsEmptyTuple);
+        }
+
+        /// <summary>
+        /// Returns true if the same type has another constructor that is truly parameterless
+        /// (zero non-debug params), i.e. a sibling that won't itself be skipped by the
+        /// empty-tuple gate. Excludes siblings that have only empty tuple params because
+        /// those will also be skipped (avoiding mutual exclusion where both get dropped).
+        /// </summary>
+        internal static bool HasParameterlessConstructorSibling(MethodDecl method)
+        {
+            var siblingMethods = method.ParentDecl switch
+            {
+                TypeDecl typeDecl => typeDecl.Methods,
+                _ => method.ModuleDecl?.Methods
+            };
+            if (siblingMethods == null)
+                return false;
+
+            return siblingMethods.Any(m =>
+                m.IsConstructor &&
+                m.MangledName != method.MangledName &&
+                !HasOnlyEmptyTupleParams(m) &&
+                !m.CSSignature.Skip(1)
+                    .Where(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a))
+                    .Any(a => !a.SwiftTypeSpec.IsEmptyTuple));
+        }
     }
 
     /// <summary>
@@ -828,7 +863,7 @@ namespace BindingsGeneration
                     paramType = p.SwiftTypeSpec.ToString();
                 overloadParams.Add($"{paramType} {csName}");
             }
-            overloadParams.Add("System.Threading.CancellationToken cancellationToken = default");
+            overloadParams.Add("global::System.Threading.CancellationToken cancellationToken = default");
 
             var paramString = string.Join(", ", overloadParams);
             var accessModifier = NameProvider.GetAccessModifier(methodDecl.Visibility);

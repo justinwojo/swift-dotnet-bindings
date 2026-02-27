@@ -430,10 +430,10 @@ namespace BindingsGeneration
                 else
                 {
                     csWriter.WriteLines($"""
-                        [System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{descSymbol}")]
+                        [global::System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{descSymbol}")]
                         private static partial IntPtr SBW_GetErrorDescription(IntPtr error);
 
-                        [System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{releaseSymbol}")]
+                        [global::System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{releaseSymbol}")]
                         private static partial void SBW_ReleaseError(IntPtr error);
 
                         """);
@@ -443,7 +443,7 @@ namespace BindingsGeneration
                     {
                         Utf8SliceEmitter.MarkFreePInvokeEmittedForType(typeKey, _emissionContext);
                         csWriter.WriteLines($"""
-                            [System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{freeSymbol}")]
+                            [global::System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{freeSymbol}")]
                             private static partial void SBW_Free(IntPtr ptr);
 
                             """);
@@ -480,7 +480,7 @@ namespace BindingsGeneration
                     else
                     {
                         csWriter.WriteLines($"""
-                            [System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{extractorSymbol}")]
+                            [global::System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{extractorSymbol}")]
                             private static partial IntPtr SBW_ExtractTypedError_{_syncPlan.SwiftError.TypedErrorSafeSuffix}(IntPtr error);
 
                             """);

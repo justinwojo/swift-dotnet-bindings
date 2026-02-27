@@ -251,9 +251,11 @@ public partial class ProtocolProxyEmitter
         var existentialHandler = new ExistentialHandler(_typeDatabase);
         bool hasOptionalExistentialReturn = hasReturn && existentialHandler.IsOptionalExistential(returnType!);
 
-        var paramCount = method.CSSignature.Count - 1;
+        var nonEmptyParams = method.CSSignature.Skip(1)
+            .Where(p => !DefaultParameterOverloadEmitter.IsDebugParameter(p) && !p.SwiftTypeSpec.IsEmptyTuple)
+            .ToList();
         var paramTypes = "IntPtr vtHandle, IntPtr selfContainer" + string.Concat(
-            method.CSSignature.Skip(1).Select((p, i) => $", IntPtr rawArg{i}"));
+            nonEmptyParams.Select((p, i) => $", IntPtr rawArg{i}"));
 
         var csharpReturnType = hasReturn ? "IntPtr" : "void";
 
@@ -295,7 +297,7 @@ public partial class ProtocolProxyEmitter
         // P0: Use ABI types for MarshalFromSwift — idiomatic types (string, bool?) can't read Swift memory.
         var argNames = new List<string>();
         int argIndex = 0;
-        foreach (var param in method.CSSignature.Skip(1))
+        foreach (var param in nonEmptyParams)
         {
             var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, forAbiMarshalling: true);
             var rawArgName = $"rawParam{argIndex}";
@@ -332,7 +334,7 @@ public partial class ProtocolProxyEmitter
 
         var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(method);
         var pascalMethodName = NameProvider.GetPublicMethodName(method.Name, method.IsAsync, hasReturn, isSelfReturning: isSelfReturning,
-            parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a)));
+            parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
 
         if (hasReturn)
         {

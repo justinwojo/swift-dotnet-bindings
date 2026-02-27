@@ -281,6 +281,21 @@ namespace BindingsGeneration
                     }
                     emittedMethodSignatures.Add(signatureKey);
 
+                    // Skip constructors that become parameterless after empty tuple () params are
+                    // stripped (e.g., init(nilLiteral: ()) from ExpressibleByNilLiteral) when a
+                    // parameterless constructor already exists. Must be checked BEFORE projected key
+                    // reservation to avoid the empty-tuple ctor reserving ctor() and blocking the
+                    // real parameterless constructor.
+                    if (methodDecl.IsConstructor &&
+                        ConstructorHandler.HasOnlyEmptyTupleParams(methodDecl) &&
+                        ConstructorHandler.HasParameterlessConstructorSibling(methodDecl))
+                    {
+                        _logger.LogDebug($"Skipping constructor '{methodDecl.Name}': becomes parameterless after empty tuple removal, collides with existing constructor.");
+                        ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, methodDecl.ParentDecl,
+                            SkipReason.UnsupportedSignature, "Constructor has only empty tuple () parameters; would duplicate existing parameterless constructor.");
+                        continue;
+                    }
+
                     // B15: Secondary dedup based on projected C# public method signature.
                     // Different Swift overloads (e.g., secret: vs clientSecret:) can produce
                     // identical C# method names after async normalization and parameter projection.
@@ -354,7 +369,7 @@ namespace BindingsGeneration
             var methodName = methodDecl.IsConstructor
                 ? "ctor"
                 : NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: hasReturnValue, isSelfReturning: isSelfReturning, parentTypeName: (methodDecl.ParentDecl as TypeDecl)?.Name,
-                    parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a)));
+                    parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
 
             var paramTypes = new List<string>();
             for (int i = 1; i < methodDecl.CSSignature.Count; i++)
@@ -362,6 +377,9 @@ namespace BindingsGeneration
                 var arg = methodDecl.CSSignature[i];
                 // Debug params (#file, #line, etc.) are stripped from the public signature
                 if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
+                    continue;
+                // Empty tuple () params are stripped from the C# signature (zero-sized Void)
+                if (arg.SwiftTypeSpec.IsEmptyTuple)
                     continue;
                 // C11: Optional<Closure> and bare Closure are the same overload in C#
                 // (nullable reference types don't affect overload resolution).

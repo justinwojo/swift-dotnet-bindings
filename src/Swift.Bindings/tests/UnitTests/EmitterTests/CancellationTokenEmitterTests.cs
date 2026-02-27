@@ -120,14 +120,14 @@ public class CancellationTokenEmitterTests
     public void AsyncMethod_HasCancellationTokenParam()
     {
         var (csOutput, _) = GenerateAsyncMethod();
-        Assert.Contains("System.Threading.CancellationToken cancellationToken = default", csOutput);
+        Assert.Contains("global::System.Threading.CancellationToken cancellationToken = default", csOutput);
     }
 
     [Fact]
     public void AsyncVoidMethod_HasCancellationTokenParam()
     {
         var (csOutput, _) = GenerateAsyncVoidMethod();
-        Assert.Contains("System.Threading.CancellationToken cancellationToken = default", csOutput);
+        Assert.Contains("global::System.Threading.CancellationToken cancellationToken = default", csOutput);
     }
 
     [Fact]
@@ -141,7 +141,7 @@ public class CancellationTokenEmitterTests
     public void AsyncStaticMethod_HasCancellationTokenParam()
     {
         var (csOutput, _) = GenerateAsyncStaticMethod();
-        Assert.Contains("System.Threading.CancellationToken cancellationToken = default", csOutput);
+        Assert.Contains("global::System.Threading.CancellationToken cancellationToken = default", csOutput);
     }
 
     #endregion
@@ -202,7 +202,7 @@ public class CancellationTokenEmitterTests
     {
         // Context-based tracking: tests use default context (no parallelism)
         var (csOutput, _) = GenerateAsyncMethod();
-        Assert.Contains("[System.Runtime.InteropServices.LibraryImport(", csOutput);
+        Assert.Contains("[global::System.Runtime.InteropServices.LibraryImport(", csOutput);
         Assert.Contains("SBW_CancelTask_TestModule", csOutput);
         Assert.Contains("private static partial void SBW_CancelTask(long taskId)", csOutput);
     }

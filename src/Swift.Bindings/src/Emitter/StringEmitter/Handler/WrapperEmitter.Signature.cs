@@ -86,7 +86,7 @@ namespace BindingsGeneration
             var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.Visibility);
             // Async methods get CancellationToken as the last parameter
             var cancellationTokenParam = _requiresSwiftAsync
-                ? $"{(_wrapperSignature.Parameters.Count > 0 ? ", " : "")}System.Threading.CancellationToken cancellationToken = default"
+                ? $"{(_wrapperSignature.Parameters.Count > 0 ? ", " : "")}global::System.Threading.CancellationToken cancellationToken = default"
                 : "";
             csWriter.WriteLine($"{accessModifier} {staticKeyword}{dispatchModifier}{returnType} {methodName}{genericParams}({_wrapperSignature.ParametersString(BuildOriginalSwiftTypeAttributes())}{cancellationTokenParam})");
 
@@ -317,7 +317,7 @@ namespace BindingsGeneration
             bool isSelfReturning = MethodEnvironment.IsSelfReturningMethod(ancestorMethod);
 
             int parameterCount = ancestorMethod.CSSignature.Skip(1)
-                .Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a));
+                .Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple);
 
             var ancestorCSharpName = NameProvider.GetPublicMethodName(
                 ancestorMethod.Name, ancestorMethod.IsAsync,

@@ -216,7 +216,7 @@ public class ProtocolConformanceValidator
                 propertyNames: concretePropertyNames,
                 isSelfReturning: concreteIsSelfReturning,
                 parentTypeName: concreteParentTypeName,
-                parameterCount: concreteMethod.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a)));
+                parameterCount: concreteMethod.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
 
             // Compare with the interface method name (computed without property collision context)
             var protoReturnTypeSpec = protoMethod.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
@@ -226,7 +226,7 @@ public class ProtocolConformanceValidator
                 protoMethod.Name, protoMethod.IsAsync,
                 hasReturnValue: protoHasReturn,
                 isSelfReturning: protoIsSelfReturning,
-                parameterCount: protoMethod.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a)));
+                parameterCount: protoMethod.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
 
             if (concreteEmittedName != interfaceMethodName)
                 return false;  // CS0535: method names diverge due to collision resolution
@@ -350,12 +350,17 @@ public class ProtocolConformanceValidator
         bool hasReturnValue = returnTypeSpec != null && !returnTypeSpec.IsEmptyTuple;
         var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(protoMethod);
         var methodName = NameProvider.GetPublicMethodName(protoMethod.Name, protoMethod.IsAsync, hasReturnValue: hasReturnValue, isSelfReturning: isSelfReturning,
-            parameterCount: protoMethod.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a)));
+            parameterCount: protoMethod.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
 
         var parameterTypes = new List<string>();
         for (int i = 1; i < protoMethod.CSSignature.Count; i++)
         {
             var arg = protoMethod.CSSignature[i];
+            // Skip debug params and empty tuple () params (zero-sized Void) — must match ProtocolHandler emission
+            if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
+                continue;
+            if (arg.SwiftTypeSpec.IsEmptyTuple)
+                continue;
             var projected = ResolveInterfaceMethodTypeName(arg.SwiftTypeSpec, isParameter: true, protocolContext);
             parameterTypes.Add(ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity(projected, arg.SwiftTypeSpec, _typeDatabase));
         }
