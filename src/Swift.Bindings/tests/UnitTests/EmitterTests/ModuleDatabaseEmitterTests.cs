@@ -297,6 +297,77 @@ namespace BindingsGeneration.Tests
             finally { Directory.Delete(dir, true); }
         }
 
+        [Fact]
+        public async Task Emit_ProtocolWithInheritedRequirementsOnly_RoundTrips()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var module = new ModuleTypeDatabase("MyLib", "/fake/MyLib.dylib");
+                var swiftName = SwiftTypeName.FromModuleQualifiedName("MyLib.Describable");
+                var record = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.MyLib", "IDescribable"),
+                    SwiftTypeName = swiftName,
+                    MetadataAccessor = "",
+                    Flags = TypeRecordFlags.InheritedRequirementsOnly,
+                    Kind = TypeRecordKind.Protocol
+                };
+                module.RegisterType(swiftName, record);
+
+                var path = ModuleDatabaseEmitter.Emit(module, dir, NullLogger.Instance);
+                Assert.NotNull(path);
+
+                // Verify the XML contains the attribute
+                var xml = File.ReadAllText(path!);
+                Assert.Contains("inheritedRequirementsOnly=\"true\"", xml);
+
+                // Round-trip: load and verify flag survives
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(path);
+
+                Assert.True(typeDatabase.TryGetTypeRecord(swiftName, out var loaded));
+                Assert.Equal(TypeRecordKind.Protocol, loaded!.Kind);
+                Assert.True(loaded.Flags.HasFlag(TypeRecordFlags.InheritedRequirementsOnly));
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public async Task Emit_ProtocolWithoutInheritedRequirementsOnly_DoesNotSetFlag()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var module = new ModuleTypeDatabase("MyLib", "/fake/MyLib.dylib");
+                var swiftName = SwiftTypeName.FromModuleQualifiedName("MyLib.Renderable");
+                var record = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.MyLib", "IRenderable"),
+                    SwiftTypeName = swiftName,
+                    MetadataAccessor = "",
+                    Flags = TypeRecordFlags.None,
+                    Kind = TypeRecordKind.Protocol
+                };
+                module.RegisterType(swiftName, record);
+
+                var path = ModuleDatabaseEmitter.Emit(module, dir, NullLogger.Instance);
+                Assert.NotNull(path);
+
+                // Verify the XML does NOT contain the attribute
+                var xml = File.ReadAllText(path!);
+                Assert.DoesNotContain("inheritedRequirementsOnly", xml);
+
+                // Round-trip: flag should not be set
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(path);
+
+                Assert.True(typeDatabase.TryGetTypeRecord(swiftName, out var loaded));
+                Assert.False(loaded!.Flags.HasFlag(TypeRecordFlags.InheritedRequirementsOnly));
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
         private static string CreateTempDir()
         {
             var dir = Path.Combine(Path.GetTempPath(), $"mdb_emit_{Guid.NewGuid():N}");

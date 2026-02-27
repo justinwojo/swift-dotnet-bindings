@@ -38,6 +38,10 @@ public enum TypeRecordFlags
     // Such protocols generate generic C# interfaces (e.g., IFoo<TSelf>) and cannot be used
     // as non-generic constraints or in conformance dictionaries.
     HasSelfRequirement = 1 << 5,
+    // This flag indicates a protocol has no own instance members but inherits from
+    // protocols with requirements. ProtocolProxyEmitter skips proxy emission for these
+    // (would produce CS0535 — missing inherited interface members).
+    InheritedRequirementsOnly = 1 << 6,
 }
 
 /// <summary>

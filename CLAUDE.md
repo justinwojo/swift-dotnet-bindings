@@ -166,6 +166,7 @@ Use `<SwiftFrameworkDependency>` when your library imports another Swift framewo
 
 ## Working Guidelines
 
+- **All work must have tests.** Every session, feature, bug fix, and regression fix must include targeted unit or integration tests that exercise the specific behavior. Library validation passing alone is not sufficient — write tests that would catch a regression if the fix were reverted. If fixing a validation regression, add a test case that reproduces the specific pattern that broke.
 - When fixing a bug pattern, grep the entire codebase for ALL instances before finishing.
 - After code gen changes, verify generated output compiles — don't assume correctness.
 - Use exact file paths verified by reading the filesystem. Don't guess paths.

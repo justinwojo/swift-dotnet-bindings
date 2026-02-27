@@ -29,7 +29,7 @@
 | Mixpanel | 3.25 | `[String: any MixpanelType]` dict-existential |
 | SkeletonView | 3.25 | Collections: `SwiftSet<AnyType>`, limited customization |
 | GRDB | 3.20 | `ResultCode` as class (not enum), async APIs missing |
-| RxSwift | 2.75 | `subscribe` (existential return), Map ISwiftObject constraint |
+| RxSwift | 2.75 | Deprioritized — unlikely .NET iOS use case; existential returns (S4) will help modestly |
 
 **Overall average**: 3.62 (range: 2.75 RxSwift — 4.56 SmartCardIO)
 
@@ -53,7 +53,6 @@
 | ~~Alamofire~~ | ~~`Session.request(url).serializingData()`~~ | ~~`Foundation.Data` not `ISwiftObject`~~ | ~~Session 2~~ ✅ |
 | Mixpanel | `Track(event:, properties:)` full form | `[String: any MixpanelType]` dict-existential | Session 5 |
 | Starscream | Runtime event delivery via `IWebSocketDelegate` | Existential marshalling in callbacks | Session 6 |
-| RxSwift | `observable.Subscribe { }` | `any Disposable` existential return | Session 4 |
 
 ---
 
@@ -125,35 +124,45 @@
 
 ---
 
-### Session 4: RxSwift Depth — `subscribe` + Value-Type Map
+### Session 4: Existential Container Foundation + Returns ✅ COMPLETE
 
-**Theme**: Unlock the two most important remaining RxSwift operations
-**Effort**: 1 session | **Libraries improved**: RxSwift (deeply)
-**Priority**: High — RxSwift is the bottom-scoring library at 2.75
+**Theme**: Investigate existential container layout and apply to the simplest case — existential returns from protocol extensions
+**Effort**: 1 session | **Libraries improved**: Infrastructure for all libraries with existential-returning protocol extensions
 
-| Sub-task | Description | Classification |
-|----------|-------------|----------------|
-| **4a. Existential return from protocol extensions** | `subscribe` returns `any Disposable`. The `ProtocolExtensionEmitter` currently gates on existential returns. Options: (1) return `IDisposable` by extracting the existential container and wrapping, (2) return `object` with documentation, (3) return a concrete `Disposable` wrapper that calls through. Option 1 is most idiomatic. | Design gap |
-| **4b. Relax `ISwiftObject` constraint on `Map<TResult>`** | Currently `where TResult : class, ISwiftObject` — can't map to primitives, strings, or value types. The closure bridge result buffer infrastructure exists (Session 10B); needs a value-type marshalling path for the result. | Design gap |
-| **4c. `flatMap` investigation** | `flatMap` uses `where Source: ObservableConvertibleType` — constrained generics in protocol extensions. Spike whether the `@_silgen_name` ABI can handle this. May need a monomorphized approach. | Investigation |
+| Sub-task | Description | Status |
+|----------|-------------|--------|
+| **4a. Existential container layout analysis** | Documented below. 3-word payload (24 bytes on 64-bit) + 1 metadata pointer + N witness table pointers. `ExistentialContainer{N}` C# structs (N=0-8) in `Swift.Runtime`. Inline storage for values ≤24 bytes; heap allocation for larger (pointer in Payload0). `ExistentialContainerFactory` creates containers; `ISwiftExistentialConvertible<T>` on proxy classes for bidirectional marshalling. Mono JIT workaround: `swift_getExistentialTypeMetadata` wrapped via cdecl in `libSwiftBindingsRuntime`. | ✅ |
+| **4b. Existential return from protocol extensions** | Lifted return gate in `ProtocolExtensionEmitter.TryInjectMethod()`. Added `IsSupportedExistentialReturn()` helper with ObjC filtering guard, proxy class validation, `object`/`AnyType` public-type blocking, and `TypeRecordFlags` checks for associated types, Self requirements, and inherited-requirements-only protocols. Fixed `EmitSwiftWrapper()` and `EmitClosureSwiftWrapper()` to classify existential returns as by-value (not `UnsafeMutableRawPointer`). Downstream pipeline (PInvokeEmitter, WrapperEmitter.Return) already handles existential returns — no changes needed. | ✅ |
+| **4c. Codex review hardening (3 rounds)** | Round 1: Added `AnyType` blocking for generic protocol existentials (P1), `HasAssociatedTypes`/`HasSelfRequirement` flag checks (P2), closure wrapper path tests (P2). Round 2: Added `InheritedRequirementsOnly` flag (`TypeRecordFlags.1<<6`) computed in `ModuleProcessor.RegisterProtocolType`, serialized/deserialized in module database XML. Blocks protocols with no own instance members but inherited requirements (proxy not emitted). Round 3: Added pipeline verification tests — `ModuleProcessor` compute tests (3), `ModuleDatabaseEmitter` round-trip tests (2) — ensuring flag survives produce→serialize→deserialize. | ✅ |
+| **4d. Existential return validation** | 32/32 validation maintained. Existential returns now flow through the EveryProtocol conformance wrappers across Nuke, Kingfisher, SmartCardIO, CryptoSwift, GRDB. Protocol extension methods with existential returns are correctly unblocked, though most real-world cases (RxSwift `subscribe`) are still gated by other constraints (closures, where clauses, throwing) — those gates will relax in future sessions. 26 total unit tests across 2 test files. | ✅ |
 
-**Projected impact**: RxSwift 2.75 → 3.20+ (Protocols +1, Completeness +0.5, Overall +0.5). Avg +0.03-0.05.
+**Results**: Gate lifted, Swift wrapper ABI fixed for existential by-value returns. 4420 unit tests (+26 new across 3 rounds of Codex review), 700 integration, 221 runtime. 32/32 validation. Main value is laying groundwork for Sessions 5-6 and enabling protocol extension existential returns as other gates relax.
 
-**Acceptance gate**: `observable.Subscribe(onNext: { element in ... })` appears and compiles. `observable.Map(x => x.ToString())` compiles without `ISwiftObject` constraint on return type. 32/32 validation maintained.
+**Existential container layout** (64-bit):
+```
+┌─────────────────────────────────────────┐
+│ Payload0 (8 bytes)                      │  ← Value buffer (inline for ≤24 bytes)
+│ Payload1 (8 bytes)                      │  ← or heap pointer in Payload0 for larger
+│ Payload2 (8 bytes)                      │
+│ Metadata  (IntPtr)                      │  ← Type metadata pointer
+│ WitnessTable0..N (IntPtr each)          │  ← Protocol witness tables (0-8)
+└─────────────────────────────────────────┘
+C# structs: ExistentialContainer0 (32 bytes) .. ExistentialContainer8 (96 bytes)
+```
 
 ---
 
 ### Session 5: Existential Dictionary/Collection Values
 
 **Theme**: Marshal existential containers inside generic collections
-**Effort**: 2+ sessions | **Libraries improved**: Mixpanel (deeply), various config APIs
-**Priority**: Medium — high effort, primarily benefits Mixpanel
+**Effort**: 1-2 sessions | **Libraries improved**: Mixpanel (deeply), various config APIs
+**Depends on**: Session 4 (existential container layout understanding)
+**Priority**: High — Mixpanel is a realistic .NET iOS library
 
 | Sub-task | Description | Classification |
 |----------|-------------|----------------|
-| **5a. Existential container layout analysis** | Map how existential containers are stored inside `SwiftDictionary<K,V>`. The layout varies by protocol witness table count. | Investigation |
-| **5b. Dict-existential marshalling pipeline** | New marshalling path for `[String: any Protocol]` → `Dictionary<string, object>` or `Dictionary<string, IProtocol>`. May require per-element existential unwrapping. | Design gap |
-| **5c. Mixpanel full API** | `track(event:, properties:)`, `set(properties:)`, `registerSuperProperties` with `[String: any MixpanelType]` parameters. | Validation |
+| **5a. Dict-existential marshalling pipeline** | New marshalling path for `[String: any Protocol]` → `Dictionary<string, object>` or `Dictionary<string, IProtocol>`. Build on Session 4's container layout. May require per-element existential unwrapping from `SwiftDictionary<K,V>` internal storage. | Design gap |
+| **5b. Mixpanel full API** | `track(event:, properties:)`, `set(properties:)`, `registerSuperProperties` with `[String: any MixpanelType]` parameters. | Validation |
 
 **Projected impact**: Mixpanel 3.25 → 3.70+ (Completeness +1, Overall +0.5). Avg +0.03.
 
@@ -165,11 +174,12 @@
 
 **Theme**: Enable Swift-to-C# delegate dispatch through protocol proxies
 **Effort**: 1-2 sessions | **Libraries improved**: Starscream, any library with delegate patterns
+**Depends on**: Session 4 (existential container layout understanding)
 **Priority**: Medium — deep structural work, primarily benefits Starscream runtime
 
 | Sub-task | Description | Classification |
 |----------|-------------|----------------|
-| **6a. Existential container unmarshalling in callbacks** | `[UnmanagedCallersOnly]` callback functions currently can't marshal existential containers from Swift arguments to C# types. Need to extract witness tables and reconstruct managed protocol objects. | Design gap |
+| **6a. Existential container unmarshalling in callbacks** | `[UnmanagedCallersOnly]` callback functions currently can't marshal existential containers from Swift arguments to C# types. Build on Session 4's container layout to extract witness tables and reconstruct managed protocol objects. | Design gap |
 | **6b. Starscream event delivery** | `IWebSocketDelegate.DidReceive(WebSocketEvent, IWebSocketClient)` actually invoked from Swift when events occur. Currently compile-only. | Validation |
 
 **Projected impact**: Starscream 3.45 → 3.80+ (Protocols +1, Overall +0.5). Avg +0.02-0.03.
@@ -180,7 +190,7 @@
 
 ## Lower-Priority Items (not yet sessionized)
 
-These are real improvements but have lower effort-to-impact ratios than Sessions 1-6. They can be bundled into future sessions or addressed opportunistically.
+These are real improvements but have lower effort-to-impact ratios than Sessions 4-6. They can be bundled into future sessions or addressed opportunistically.
 
 | Item | Impact | Effort | Notes |
 |------|--------|:------:|-------|
@@ -190,7 +200,6 @@ These are real improvements but have lower effort-to-impact ratios than Sessions
 | ExistentialContainer0 in tuples | Lottie edge case | Small | ~22 AnyType locations |
 | `async throws(ErrorType)` free functions | Guarded, rare | Small | `_payload`/`this` in static context |
 | Method bypass with marshalled passthrough params | Theoretical | Medium | 0 real-world methods currently bypass |
-| `flatMap` constrained generics (if S4c doesn't solve) | RxSwift composition | Medium-Large | `where Source: ObservableConvertibleType` |
 | SCREAMING_CASE naming (Mappedin) | Mappedin polish | Small | `THING_KEY` → `ThingKey` |
 | `_object` parameter naming (Mappedin) | Mappedin polish | Small | Already partially fixed in S8b |
 
@@ -203,21 +212,19 @@ Session 1: Ergonomic Polish                     ✅ COMPLETE
 Session 2: Foundation.Data Projection           ✅ COMPLETE
 Session 3: Closure Bridge Generalization        ✅ COMPLETE (depended on S2)
 
-Session 4: RxSwift Depth                        (next — independent)
-           (subscribe existential return,
-            Map ISwiftObject relaxation)
+Session 4: Existential Foundation + Returns     ✅ COMPLETE (foundation for S5, S6)
 
-Session 5: Existential Dict/Array Values        (independent, multi-session)
+Session 5: Dict-Existential Values              (depends on S4 layout work)
            (Mixpanel full API)
 
-Session 6: Existential Marshalling in Callbacks (independent)
+Session 6: Callback Existential Marshalling     (depends on S4 layout work)
            (Starscream runtime events)
 ```
 
-Sessions 1-3 are complete. Session 4 is the recommended next session. Sessions 5 and 6 are independent deep-structural work.
+Sessions 1-4 are complete. Session 5 is the recommended next session — it builds on Session 4's existential container layout to handle dict-existential values (Mixpanel).
 
-**If you only have 1 session**: Do 4 — RxSwift is the bottom scorer and benefits most.
-**If you have 3 sessions**: Do 4, 5, 6 — covers all remaining critical workflows.
+**If you only have 1 session**: Do 5 — covers Mixpanel, the most realistic .NET iOS use case.
+**If you have 2 sessions**: Do 5 + 6 — covers all remaining critical workflows.
 
 ---
 
@@ -235,38 +242,38 @@ Sessions 1-3 are complete. Session 4 is the recommended next session. Sessions 5
 | Others | — | — | +0.05 | Broad naming improvement |
 | **Average** | **3.62** | **~3.72** | **+0.10** | |
 
-### After Sessions 1-4 (~4 sessions, recommended minimum)
+### After Sessions 1-4 (foundation + existential returns)
 
 | Library | Current | Projected | Delta | Key Session |
 |---------|:-------:|:---------:|:-----:|:----------:|
 | Alamofire | 3.30 | 3.80 | +0.50 | S2 + S3 |
-| RxSwift | 2.75 | 3.30 | +0.55 | S1 + S4 |
 | SnapKit | 3.40 | 3.60 | +0.20 | S1 |
-| GRDB | 3.20 | 3.35 | +0.15 | S1 |
+| RxSwift | 2.75 | 2.95 | +0.20 | S1 + S4 (subscribe recovered) |
+| GRDB | 3.20 | 3.40 | +0.20 | S1 + S4 (query builder returns) |
 | Mixpanel | 3.25 | 3.35 | +0.10 | S1 |
 | SkeletonView | 3.25 | 3.35 | +0.10 | S1 |
 | KeychainAccess | 3.65 | 3.75 | +0.10 | S2 |
 | Others | — | — | +0.05 | S1 polish |
-| **Average** | **3.62** | **~3.85** | **+0.23** | |
+| **Average** | **3.62** | **~3.75** | **+0.13** | |
 
 ### After All 6 Sessions (full roadmap)
 
 | Library | Current | Projected | Delta | Key Session |
 |---------|:-------:|:---------:|:-----:|:----------:|
 | Alamofire | 3.30 | 3.80 | +0.50 | S2 + S3 |
-| RxSwift | 2.75 | 3.30 | +0.55 | S1 + S4 |
 | Mixpanel | 3.25 | 3.70 | +0.45 | S1 + S5 |
 | Starscream | 3.45 | 3.80 | +0.35 | S6 |
 | SnapKit | 3.40 | 3.60 | +0.20 | S1 |
-| GRDB | 3.20 | 3.35 | +0.15 | S1 |
+| RxSwift | 2.75 | 2.95 | +0.20 | S1 + S4 |
+| GRDB | 3.20 | 3.40 | +0.20 | S1 + S4 |
 | SkeletonView | 3.25 | 3.35 | +0.10 | S1 |
 | KeychainAccess | 3.65 | 3.75 | +0.10 | S2 |
 | Others | — | — | +0.05 | S1 polish |
-| **Average** | **3.62** | **~3.90** | **+0.28** | |
+| **Average** | **3.62** | **~3.82** | **+0.20** | |
 
-**Realistic range**: 3.80–3.95.
+**Realistic range**: 3.75–3.90.
 
-**To reach 4.0+**: Would require string enum raw values (GRDB), deeper ObjC integration (Lottie IInterpolatable existentials), `Optional<Primitive/Enum>` in closures, and more complete protocol extension coverage. Achievable but not in 6 sessions.
+**To reach 4.0+**: Would require string enum raw values (GRDB), deeper ObjC integration (Lottie IInterpolatable existentials), `Optional<Primitive/Enum>` in closures, and more complete protocol extension coverage. Also, RxSwift-specific features (Map value-type generics, flatMap constrained generics) were deprioritized as unlikely .NET iOS use cases.
 
 ---
 

@@ -563,6 +563,20 @@ namespace BindingsGeneration
             if (protocolDecl.HasSelfRequirement)
                 flags |= TypeRecordFlags.HasSelfRequirement;
 
+            // Protocols with no own instance members but inherited protocol requirements
+            // won't get proxy classes emitted (ProtocolProxyEmitter skips them to avoid CS0535).
+            // Mark them so existential return gates can reject them.
+            var hasOwnInstanceMembers = protocolDecl.Properties.Any(p => !p.IsStatic) ||
+                                         protocolDecl.Methods.Any(m => !m.IsConstructor && m.MethodType != MethodType.Static) ||
+                                         protocolDecl.Subscripts.Any(s => !s.IsStatic);
+            if (!hasOwnInstanceMembers)
+            {
+                var hasInheritedRequirements = protocolDecl.InheritedProtocols.Any(inherited =>
+                    inherited.NameWithoutModule != "AnyObject");
+                if (hasInheritedRequirements)
+                    flags |= TypeRecordFlags.InheritedRequirementsOnly;
+            }
+
             var typeRecord = new TypeRecord
             {
                 SwiftTypeName = protocolDecl.SwiftTypeName,

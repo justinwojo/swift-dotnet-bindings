@@ -112,6 +112,9 @@ namespace BindingsGeneration
             if ((record.Flags & TypeRecordFlags.SimpleEnum) != 0)
                 writer.WriteAttributeString("simpleEnum", "true");
 
+            if ((record.Flags & TypeRecordFlags.InheritedRequirementsOnly) != 0)
+                writer.WriteAttributeString("inheritedRequirementsOnly", "true");
+
             if (!string.IsNullOrEmpty(record.RawValueTypeName))
                 writer.WriteAttributeString("rawValueType", record.RawValueTypeName);
 

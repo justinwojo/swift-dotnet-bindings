@@ -171,12 +171,13 @@ public static class ProtocolExtensionEmitter
             }
         }
 
-        // Gate: return type must be Self, Void, or a class type
+        // Gate: return type must be Self, Void, a class type, or a supported existential
         if (!extMethod.ReturnsSelf && returnTypeSpec != null && !returnTypeSpec.IsEmptyTuple)
         {
-            if (!IsClassType(returnTypeSpec, typeDatabase))
+            if (!IsClassType(returnTypeSpec, typeDatabase) &&
+                !IsSupportedExistentialReturn(returnTypeSpec, typeDatabase))
             {
-                logger.LogDebug("Skipping extension method {Type}.{Method}: return type not class/Self/Void",
+                logger.LogDebug("Skipping extension method {Type}.{Method}: return type not class/Self/Void/existential",
                     typeName, extMethod.MethodName);
                 return;
             }
@@ -261,7 +262,7 @@ public static class ProtocolExtensionEmitter
 
             // Closure-bearing method: emit Swift wrapper with closure bridging
             EmitClosureSwiftWrapper(conformingType, extMethod, parameters, returnTypeSpec,
-                symbolName, closureTypeSpec!, closureParamIndex, methodLevelGenerics, ctx);
+                symbolName, closureTypeSpec!, closureParamIndex, methodLevelGenerics, typeDatabase, ctx);
 
             // Build synthetic MethodDecl preserving ClosureTypeSpec
             var syntheticMethod = BuildClosureSyntheticMethodDecl(
@@ -274,7 +275,7 @@ public static class ProtocolExtensionEmitter
         else
         {
             // Non-closure method: existing path
-            EmitSwiftWrapper(conformingType, extMethod, parameters, returnTypeSpec, symbolName, ctx);
+            EmitSwiftWrapper(conformingType, extMethod, parameters, returnTypeSpec, symbolName, typeDatabase, ctx);
 
             var syntheticMethod = BuildSyntheticMethodDecl(
                 moduleDecl, conformingType, extMethod, parameters, returnTypeSpec, returnTypeName, symbolName);
@@ -562,6 +563,86 @@ public static class ProtocolExtensionEmitter
     }
 
     /// <summary>
+    /// Checks if a return TypeSpec is a supported existential type that the downstream
+    /// MethodHandler → PInvokeEmitter → WrapperEmitter.Return pipeline can handle.
+    /// Requires: recognized existential, ≤8 witness tables, all protocols have TypeRecords,
+    /// no ObjC mixed-composition mismatch, a valid proxy class exists, and the proxy
+    /// will actually be emitted (no associated types, Self requirements, or inherited-only
+    /// requirements that skip proxy emission).
+    /// </summary>
+    internal static bool IsSupportedExistentialReturn(TypeSpec typeSpec, ITypeDatabase typeDatabase)
+    {
+        var existentialHandler = new ExistentialHandler(typeDatabase);
+        if (!existentialHandler.IsExistential(typeSpec))
+            return false;
+
+        var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
+        if (protocolList == null)
+            return false;
+
+        if (!existentialHandler.IsSupportedExistential(protocolList))
+            return false;
+
+        // Zero-protocol "Any" → ExistentialContainer0, allowed
+        if (existentialHandler.IsAnyType(protocolList))
+            return true;
+
+        // Well-known protocols (e.g., Swift.Error → AnyError) are always supported
+        if (existentialHandler.TryGetWellKnownProtocolType(protocolList, out _))
+            return true;
+
+        // All protocols must have TypeRecords for proxy wrapping
+        if (!existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
+            return false;
+
+        // Block public types that don't map to a proxy-wrappable interface.
+        // "object" = unresolved/unknown protocols (no usable interface).
+        // AnyType = generic protocol existentials (e.g., "any EventStream<τ_0_0.Event>")
+        //   whose associated type refs can't be resolved to concrete C# types.
+        //   WrapperEmitter.Return constructs `new {Proxy}(result)` which is not assignable to AnyType.
+        var publicType = existentialHandler.GetPublicExistentialType(protocolList);
+        if (publicType == "object")
+            return false;
+        if (publicType == TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName)
+            return false;
+
+        // ObjC filtering guard: if filtering drops protocols, ExistentialContainer size
+        // mismatches between proxy constructor and P/Invoke (P1 fix from ClosureHandler)
+        var filteredCount = protocolList.Protocols.Keys
+            .Count(p => !TypeDatabaseExtensions.IsObjCModuleType(p));
+        if (filteredCount != protocolList.Protocols.Count)
+            return false;
+
+        // Must have a valid proxy class name (TryGetFilteredProxyClassName filters ObjC protocols)
+        if (!existentialHandler.TryGetFilteredProxyClassName(protocolList, out _))
+            return false;
+
+        // Verify each protocol's TypeRecord doesn't have flags that prevent proxy emission.
+        // ProtocolProxyEmitter.Emit() skips protocols with associated types or Self requirements,
+        // so the proxy class won't exist at compile time despite having a valid name.
+        foreach (var protocol in protocolList.Protocols.Keys)
+        {
+            try
+            {
+                var swiftTypeName = SwiftTypeName.FromTypeSpec(protocol);
+                if (typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord))
+                {
+                    if (typeRecord.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes) ||
+                        typeRecord.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement) ||
+                        typeRecord.Flags.HasFlag(TypeRecordFlags.InheritedRequirementsOnly))
+                        return false;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
     /// Checks if a closure TypeSpec can be bridged via the protocol extension closure bridge.
     /// Requirements: not async, all args are generic params or classes (no primitives),
     /// return is Void, Bool, or method-level generic param (no primitive/class returns).
@@ -828,6 +909,7 @@ public static class ProtocolExtensionEmitter
         List<(string label, TypeSpec typeSpec, string swiftType)> parameters,
         TypeSpec? returnTypeSpec,
         string symbolName,
+        ITypeDatabase typeDatabase,
         ModuleEmissionContext ctx)
     {
         var typeName = conformingType.SwiftTypeName.ModuleQualifiedName;
@@ -902,7 +984,15 @@ public static class ProtocolExtensionEmitter
         }
         else
         {
-            if (returnTypeSpec is NamedTypeSpec retNamedType && !MarshallingHelpers.IsSwiftPrimitive(retNamedType.Name))
+            // Check existential first — return by value, not Unmanaged pointer
+            var existentialHandler = new ExistentialHandler(typeDatabase);
+            if (existentialHandler.IsExistential(returnTypeSpec!))
+            {
+                var protocolList = existentialHandler.ToProtocolListTypeSpec(returnTypeSpec!);
+                swiftReturnType = ExistentialBypassEmitter.RenderSwiftTypeSpec(protocolList ?? returnTypeSpec!);
+                returnIsClass = false;  // existentials return by value
+            }
+            else if (returnTypeSpec is NamedTypeSpec retNamedType && !MarshallingHelpers.IsSwiftPrimitive(retNamedType.Name))
             {
                 swiftReturnType = "UnsafeMutableRawPointer";
                 returnIsClass = true;
@@ -997,6 +1087,7 @@ public static class ProtocolExtensionEmitter
         ClosureTypeSpec closureTypeSpec,
         int closureParamIndex,
         List<string> methodLevelGenerics,
+        ITypeDatabase typeDatabase,
         ModuleEmissionContext ctx)
     {
         var typeName = conformingType.SwiftTypeName.ModuleQualifiedName;
@@ -1082,15 +1173,26 @@ public static class ProtocolExtensionEmitter
             swiftReturnType = "";
             returnIsClass = false;
         }
-        else if (returnTypeSpec is NamedTypeSpec retNamedType && !MarshallingHelpers.IsSwiftPrimitive(retNamedType.Name))
-        {
-            swiftReturnType = "UnsafeMutableRawPointer";
-            returnIsClass = true;
-        }
         else
         {
-            swiftReturnType = ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec);
-            returnIsClass = false;
+            // Check existential first — return by value, not Unmanaged pointer
+            var existentialHandler = new ExistentialHandler(typeDatabase);
+            if (existentialHandler.IsExistential(returnTypeSpec))
+            {
+                var protocolList = existentialHandler.ToProtocolListTypeSpec(returnTypeSpec);
+                swiftReturnType = ExistentialBypassEmitter.RenderSwiftTypeSpec(protocolList ?? returnTypeSpec);
+                returnIsClass = false;  // existentials return by value
+            }
+            else if (returnTypeSpec is NamedTypeSpec retNamedType && !MarshallingHelpers.IsSwiftPrimitive(retNamedType.Name))
+            {
+                swiftReturnType = "UnsafeMutableRawPointer";
+                returnIsClass = true;
+            }
+            else
+            {
+                swiftReturnType = ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec);
+                returnIsClass = false;
+            }
         }
 
         var returnArrow = string.IsNullOrEmpty(swiftReturnType) ? "" : $" -> {swiftReturnType}";
