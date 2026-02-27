@@ -809,6 +809,13 @@ public static class MemberEmissionValidator
                     {
                         continue;
                     }
+
+                    // Allow methods with bound-generic closure args through —
+                    // MethodClosureBridge handles them in MethodHandler.
+                    if (MethodClosureBridge.IsEligible(method, closureHandler, typeDatabase))
+                    {
+                        continue;
+                    }
                     skipDetails = $"Parameter '{arg.Name}' has unsupported closure type that cannot be marshalled.";
                     return SkipReason.UnsupportedClosure;
                 }

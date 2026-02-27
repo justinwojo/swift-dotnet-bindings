@@ -399,8 +399,8 @@ namespace BindingsGeneration
 
             // Skip methods that need [UnmanagedCallersOnly] callbacks in generic types.
             // DllImport is handled by PInvokeHelperContext hoisting, but callbacks can't be hoisted.
-            // Exception: protocol extension closure methods — ProtocolExtensionClosureBridge emits
-            // the callback in a non-generic NativeMethods helper class.
+            // Exceptions: ProtocolExtensionClosureBridge and MethodClosureBridge emit
+            // callbacks in a non-generic helper class via PInvokeHelperContext.RawCodeBlocks.
             if (methodEnv.PInvokeHelperContext != null && !methodEnv.MethodDecl.IsProtocolExtensionMethod)
             {
                 bool hasThunkClosure = methodEnv.MethodDecl.CSSignature.Skip(1)
@@ -410,12 +410,18 @@ namespace BindingsGeneration
                 bool isAsync = methodEnv.MethodDecl.IsAsync;
                 if (hasThunkClosure || isAsync)
                 {
-                    if (!methodEnv.MethodDecl.IsAccessor)
-                        ReportCollector.RecordMemberSkipped(
-                            BindingItemKind.Method, methodEnv.MethodDecl.Name,
-                            methodEnv.MethodDecl.ParentDecl, SkipReason.GenericTypeCallback,
-                            "Member requires [UnmanagedCallersOnly] callback inside generic type.");
-                    return;
+                    // Allow MethodClosureBridge-eligible methods through —
+                    // it hoists callbacks to the helper class like ProtocolExtensionClosureBridge.
+                    if (!MethodClosureBridge.IsEligible(methodEnv.MethodDecl, methodEnv.ClosureHandler,
+                            methodEnv.TypeDatabase))
+                    {
+                        if (!methodEnv.MethodDecl.IsAccessor)
+                            ReportCollector.RecordMemberSkipped(
+                                BindingItemKind.Method, methodEnv.MethodDecl.Name,
+                                methodEnv.MethodDecl.ParentDecl, SkipReason.GenericTypeCallback,
+                                "Member requires [UnmanagedCallersOnly] callback inside generic type.");
+                        return;
+                    }
                 }
             }
 
@@ -611,6 +617,22 @@ namespace BindingsGeneration
                     methodEnv.MethodDecl.ParentDecl,
                     "ProtocolExtensionClosureBridge",
                     "Protocol extension closure parameter bridged via @_silgen_name wrapper.");
+                return;
+            }
+
+            // Try method closure bridge — emits Swift wrapper + C# callbacks + P/Invoke + public method
+            // for regular methods with closure parameters containing bound generic types
+            // (e.g., Alamofire responseData with AFDataResponse<Data> closure arg).
+            if (!isAccessor && MethodClosureBridge.TryEmit(
+                csWriter, swiftWriter, methodEnv, methodEnv.ParentDecl as TypeDecl, context.GetEmissionContext()))
+            {
+                ReportCollector.RecordMemberWrapped(
+                    BindingItemKind.Method,
+                    methodEnv.MethodDecl.Name,
+                    methodEnv.MethodDecl.MangledName,
+                    methodEnv.MethodDecl.ParentDecl,
+                    "MethodClosureBridge",
+                    "Closure parameter with bound generic args bridged via @_silgen_name wrapper.");
                 return;
             }
 

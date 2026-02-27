@@ -3,7 +3,7 @@
 **Revised**: February 2026 (post-v3 binding review, reset to future work only)
 **Goal**: Push average binding quality score from 3.62 toward 4.0+
 **Scoring reference**: `binding-review-v3.md` — 18-library quality review, 10-category scorecards
-**Completed work**: `Completed/usability-roadmap-sessions-1-10.md` — Sessions 1–10B (all ✅)
+**Completed work**: `Completed/usability-roadmap-sessions-1-10.md` — Sessions 1–10B (all ✅); Ergonomic Polish Sessions 1–3 (all ✅)
 
 ---
 
@@ -49,7 +49,7 @@
 
 | Library | Workflow | Blocker | Fixable In |
 |---------|----------|---------|:----------:|
-| Alamofire | `Session.request(url).responseData { }` | Generic closure in callback param | Session 3 |
+| ~~Alamofire~~ | ~~`Session.request(url).responseData { }`~~ | ~~Generic closure in callback param~~ | ~~Session 3~~ ✅ |
 | ~~Alamofire~~ | ~~`Session.request(url).serializingData()`~~ | ~~`Foundation.Data` not `ISwiftObject`~~ | ~~Session 2~~ ✅ |
 | Mixpanel | `Track(event:, properties:)` full form | `[String: any MixpanelType]` dict-existential | Session 5 |
 | Starscream | Runtime event delivery via `IWebSocketDelegate` | Existential marshalling in callbacks | Session 6 |
@@ -102,22 +102,26 @@
 
 ---
 
-### Session 3: Closure Bridge Generalization
+### Session 3: Closure Bridge Generalization ✅ COMPLETE
 
 **Theme**: Extend closure bridging from protocol extensions to regular method P/Invoke
-**Effort**: 1-2 sessions | **Libraries improved**: Alamofire, Stripe, various callback-heavy APIs
-**Priority**: High — transforms Alamofire from "partially usable" to "fully usable"
+**Effort**: 1 session | **Libraries improved**: Alamofire, Stripe (StripePayments)
 **Depends on**: Session 2 (Foundation.Data needed for `responseData` return type)
+**Status**: Complete — MethodClosureBridge emitter implemented, 2 Codex review rounds (5 findings addressed), 15 unit tests, 32/32 validation (StripePayments improved: fail→ok)
 
-| Sub-task | Description | Classification |
-|----------|-------------|----------------|
-| **3a. `@_cdecl` callback thunk generation** | Extend the `ProtocolExtensionClosureBridge` pattern to emit `@_cdecl` thunks for closure parameters in regular instance/static methods. Generate `[UnmanagedCallersOnly]` callback + function pointer + GCHandle context passing. | Design gap |
-| **3b. Multi-closure and mixed-param support** | The protocol extension bridge only handles single-closure-only methods. Method callbacks often have additional non-closure params. Support mixed signatures: `responseData(queue:, completionHandler:)`. | Design gap |
-| **3c. Alamofire validation** | `Session.request(url).responseData { response in ... }` compiles end-to-end. | Validation |
+| Sub-task | Description | Status |
+|----------|-------------|--------|
+| **3a. `MethodClosureBridge` emitter** | New standalone emitter following `ProtocolExtensionClosureBridge` pattern. Emits `@_silgen_name` Swift wrapper + `[UnmanagedCallersOnly]` callback + function pointer + `[LibraryImport]` P/Invoke + public method. Handles bound generic closure args via `withUnsafePointer`/`UnsafeMutableRawPointer`, primitives via typed cdecl params, classes via `Unmanaged.passUnretained`. Generic parent type hoisting to `PInvokeHelperContext.RawCodeBlocks`. | ✅ |
+| **3b. Mixed-param support** | Non-closure params with defaults omitted (Swift fills them). Non-closure class params passed through (`.Payload.DangerousGetHandle()` for Swift-native, `.Handle` for ObjC-bridged). Non-closure primitive params passed directly. Static method support (`Self.method()`, no SwiftSelf). DynamicSelf return type resolution. | ✅ |
+| **3c. ABI correctness (Codex review)** | Typed cdecl params for primitives (Bool→UInt8/byte, Int→Int/nint). Bool closure args convert `(__p ? 1 : 0)` in Swift wrapper. Bool-return closures convert `cdecl(...) != 0`. ObjC-bridged generic arg rejection (ISwiftObject constraint). | ✅ |
+| **3d. Alamofire validation** | `ResponseData`, `ResponseString`, `ResponseJSON`, `Response`, `ResponseURL`, `ResponseDecodable` on both `DataRequest` and `DownloadRequest`. All compile. | ✅ |
+| **3e. Stripe validation** | StripePayments `PossibleBrands` static method with `SwiftResult<SwiftSet<STPCardBrand>, Error>` closure recovered. StripePayments regression fixed (fail→ok). | ✅ |
 
-**Projected impact**: Alamofire +0.30-0.50 (combined with Session 2: 3.30 → 3.80+). Stripe +0.10-0.15. Avg +0.05-0.08.
+**Acceptance gate results**: Alamofire `ResponseData(completionHandler:)` in bindings ✅. Stripe callback method recovered ✅. 32/32 validation ✅. 15 unit tests ✅.
 
-**Acceptance gate**: Alamofire `responseData(completionHandler:)` appears in bindings and compiles. At least one Stripe callback method recovered. 32/32 validation maintained.
+**Key files**: `MethodClosureBridge.cs` (new), `MemberEmissionValidator.cs` (B20 carve-out), `MethodHandler.cs` (preflight gate + dispatch point), `MethodClosureBridgeTests.cs` (15 tests)
+
+**Deferred**: Multi-closure params per method (no real-world library currently requires it).
 
 ---
 
@@ -195,18 +199,11 @@ These are real improvements but have lower effort-to-impact ratios than Sessions
 ## Sequencing & Dependencies
 
 ```
-Session 1: Ergonomic Polish                     (independent, do first)
-           (nint overloads, Get prefix,
-            async false positives, _event naming)
+Session 1: Ergonomic Polish                     ✅ COMPLETE
+Session 2: Foundation.Data Projection           ✅ COMPLETE
+Session 3: Closure Bridge Generalization        ✅ COMPLETE (depended on S2)
 
-Session 2: Foundation.Data Projection           (independent)
-           (SwiftData runtime type,
-            Data→byte[] projection)
-     │
-     └─► Session 3: Closure Bridge Generalization  (depends on S2 for Alamofire)
-                    (responseData {}, Stripe callbacks)
-
-Session 4: RxSwift Depth                        (independent)
+Session 4: RxSwift Depth                        (next — independent)
            (subscribe existential return,
             Map ISwiftObject relaxation)
 
@@ -217,10 +214,10 @@ Session 6: Existential Marshalling in Callbacks (independent)
            (Starscream runtime events)
 ```
 
-Sessions 1, 2, and 4 are independent and can be done in any order (or in parallel). Session 3 depends on Session 2 for the Alamofire `responseData` return type. Sessions 5 and 6 are independent deep-structural work.
+Sessions 1-3 are complete. Session 4 is the recommended next session. Sessions 5 and 6 are independent deep-structural work.
 
-**If you only have 3 sessions**: Do 1, 2, 4 — best coverage across the most libraries.
-**If you only have 5 sessions**: Do 1, 2, 3, 4, then either 5 or 6 based on whether Mixpanel or Starscream matters more.
+**If you only have 1 session**: Do 4 — RxSwift is the bottom scorer and benefits most.
+**If you have 3 sessions**: Do 4, 5, 6 — covers all remaining critical workflows.
 
 ---
 
