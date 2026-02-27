@@ -207,7 +207,6 @@ namespace BindingsGeneration
             // Emit methods as interface members
             var skippedMethodKeys = new HashSet<string>();
             var closureSkippedMethodKeys = new HashSet<string>(); // Closure methods: in interface, proxy needs stub
-            var existentialSkippedMethodKeys = new HashSet<string>(); // Existential methods: in interface, proxy needs stub
             foreach (var methodDecl in protocolDecl.Methods)
             {
                 // Skip constructors and static methods early (they can't be in C# interfaces)
@@ -264,14 +263,18 @@ namespace BindingsGeneration
                     continue;
                 }
 
-                // Track closure/existential methods that passed all gates and are emitted in interface
+                // Track closure methods that passed all gates and are emitted in interface.
+                // Closure methods get NotSupportedException stubs in the proxy (can't marshal closures).
+                // Existential-only methods flow through normal emission — receivers already handle
+                // ExistentialContainer marshalling via GetReceiverExistentialSetterConversion.
                 if (methodGate.IsInterfaceOnly)
                 {
-                    skippedMethodKeys.Add(methodKey);
-                    if (methodGate.SoftFlags.HasFlag(SoftGateFlags.HasClosureParam))
+                    bool hasClosure = methodGate.SoftFlags.HasFlag(SoftGateFlags.HasClosureParam);
+                    if (hasClosure)
+                    {
+                        skippedMethodKeys.Add(methodKey);
                         closureSkippedMethodKeys.Add(methodKey);
-                    if (methodGate.SoftFlags.HasFlag(SoftGateFlags.HasExistentialParam))
-                        existentialSkippedMethodKeys.Add(methodKey);
+                    }
                 }
 
                 EmitInterfaceMethod(bodyWriter, methodDecl, env.TypeDatabase, closureHandler, protocolDecl, emittedCSharpPropertyNames);
@@ -329,7 +332,7 @@ namespace BindingsGeneration
             if (!ModuleHandler.HasMembersReferencingUnsupportedModule(protocolDecl))
             {
                 EmitProtocolProxy(csWriter, protocolDecl, env.TypeDatabase, skippedMethodKeys, skippedPropertyNames, skippedSubscriptIndices,
-                    closureSkippedMethodKeys, closureSkippedPropertyNames, existentialSkippedMethodKeys, context.GetEmissionContext());
+                    closureSkippedMethodKeys, closureSkippedPropertyNames, context.GetEmissionContext());
             }
             else
             {
@@ -349,12 +352,12 @@ namespace BindingsGeneration
         private void EmitProtocolProxy(CSharpWriter csWriter, ProtocolDecl protocolDecl, ITypeDatabase typeDatabase,
             HashSet<string> skippedMethodKeys, HashSet<string> skippedPropertyNames, HashSet<int> skippedSubscriptIndices,
             HashSet<string> closureSkippedMethodKeys, HashSet<string> closureSkippedPropertyNames,
-            HashSet<string> existentialSkippedMethodKeys, ModuleEmissionContext? emissionCtx = null)
+            ModuleEmissionContext? emissionCtx = null)
         {
             var moduleName = protocolDecl.ModuleDecl?.Name ?? "Swift";
             var proxyEmitter = new ProtocolProxyEmitter(typeDatabase, _logger, moduleName, emissionCtx);
             proxyEmitter.EmitProxyClass(csWriter, protocolDecl, skippedMethodKeys, skippedPropertyNames, skippedSubscriptIndices,
-                closureSkippedMethodKeys, closureSkippedPropertyNames, existentialSkippedMethodKeys);
+                closureSkippedMethodKeys, closureSkippedPropertyNames);
         }
 
         /// <summary>

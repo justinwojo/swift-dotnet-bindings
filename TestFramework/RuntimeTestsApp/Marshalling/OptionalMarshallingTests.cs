@@ -61,7 +61,7 @@ public class OptionalMarshallingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestOptionalParameterSome()
     {
-        var result = SwiftBindingsTestLib.GetDescribeOptionalInt(42);
+        var result = SwiftBindingsTestLib.DescribeOptionalInt(42);
         AssertEqual("Value: 42", result, "DescribeOptionalInt with value");
         TestLogger.Info($"DescribeOptionalInt(42) = \"{result}\"");
     }
@@ -69,7 +69,7 @@ public class OptionalMarshallingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestOptionalParameterNone()
     {
-        var result = SwiftBindingsTestLib.GetDescribeOptionalInt(null);
+        var result = SwiftBindingsTestLib.DescribeOptionalInt(null);
         AssertEqual("nil", result, "DescribeOptionalInt with null");
         TestLogger.Info($"DescribeOptionalInt(null) = \"{result}\"");
     }
@@ -140,7 +140,7 @@ public class OptionalMarshallingTests : TestBase
     [TestTier(TestTier.Tier2)] // Fixed: Optional pointer wrapper passes full 16-byte Optional<String> via UnsafeRawPointer
     public void TestOptionalStringParameterSome()
     {
-        var result = SwiftBindingsTestLib.GetDescribeOptionalString("hello");
+        var result = SwiftBindingsTestLib.DescribeOptionalString("hello");
         AssertEqual("Value: hello", result, "DescribeOptionalString with value");
         TestLogger.Info($"DescribeOptionalString(\"hello\") = \"{result}\"");
     }
@@ -148,7 +148,7 @@ public class OptionalMarshallingTests : TestBase
     [TestTier(TestTier.Tier2)] // Fixed: Optional pointer wrapper passes full 16-byte Optional<String> via UnsafeRawPointer
     public void TestOptionalStringParameterNone()
     {
-        var result = SwiftBindingsTestLib.GetDescribeOptionalString(null);
+        var result = SwiftBindingsTestLib.DescribeOptionalString(null);
         AssertEqual("nil", result, "DescribeOptionalString with null");
         TestLogger.Info($"DescribeOptionalString(null) = \"{result}\"");
     }

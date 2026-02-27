@@ -73,7 +73,7 @@ public class TupleMarshallingTests : TestBase
     [TestTier(TestTier.Tier3)] // Mono: "Type System.ValueTuple must have a StructLayout attribute"
     public void TestDivmod()
     {
-        var result = SwiftBindingsTestLib.GetDivmod(17, 5);
+        var result = SwiftBindingsTestLib.Divmod(17, 5);
         AssertEqual(3, result.quotient, "Divmod quotient");
         AssertEqual(2, result.remainder, "Divmod remainder");
         TestLogger.Info($"Divmod(17, 5) = (q: {result.quotient}, r: {result.remainder})");
@@ -82,7 +82,7 @@ public class TupleMarshallingTests : TestBase
     [TestTier(TestTier.Tier3)] // Mono: "Type System.ValueTuple must have a StructLayout attribute"
     public void TestMinmax()
     {
-        var result = SwiftBindingsTestLib.GetMinmax(42, 7);
+        var result = SwiftBindingsTestLib.Minmax(42, 7);
         AssertEqual(7, result.min, "Minmax min");
         AssertEqual(42, result.max, "Minmax max");
         TestLogger.Info($"Minmax(42, 7) = (min: {result.min}, max: {result.max})");

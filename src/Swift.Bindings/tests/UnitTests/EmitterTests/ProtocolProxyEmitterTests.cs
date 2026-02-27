@@ -2260,6 +2260,324 @@ public class ProtocolProxyEmitterTests
         Assert.DoesNotContain("SwiftDictionary?", output.Replace("SwiftDictionary<", ""));
     }
 
+    #endregion
+
+    #region Existential Parameter Receiver Tests (Session 6)
+
+    [Fact]
+    public void EmitProxyClass_ExistentialParam_EmitsReceiver()
+    {
+        // Session 6: Protocol methods with existential parameters should emit receivers
+        // (not NotSupportedException stubs). The receiver unmarshals ExistentialContainer1
+        // and wraps it in a proxy before dispatching to _csharpImpl.
+        RegisterProtocol("SourceProtocol");
+        var protocolDecl = CreateSimpleProtocol("DelegateProtocol");
+        var existentialType = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.SourceProtocol") });
+
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "handle",
+            MangledName = "$shandle",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                },
+                new()
+                {
+                    Name = "source", PrivateName = "source",
+                    SwiftTypeSpec = existentialType,
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false,
+            Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // Receiver should be emitted (not skipped)
+        Assert.Contains("Receive_handle_0", output);
+        Assert.Contains("Swift.Runtime.ExistentialContainer1", output);
+        // Should create a proxy from the existential container
+        Assert.Contains("SourceProtocolProxy(", output);
+        // Should NOT emit NotSupportedException for this method
+        Assert.DoesNotContain("Existential parameters cannot be marshalled", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ExistentialParam_EmitsVtableAssignment()
+    {
+        // Vtable should include the function pointer for the existential-param method
+        RegisterProtocol("SourceProtocol");
+        var protocolDecl = CreateSimpleProtocol("DelegateProtocol");
+        var existentialType = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.SourceProtocol") });
+
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "handle",
+            MangledName = "$shandle",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                },
+                new()
+                {
+                    Name = "source", PrivateName = "source",
+                    SwiftTypeSpec = existentialType,
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false,
+            Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // Vtable should have the function pointer assignment
+        Assert.Contains("&Receive_handle_0", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ClosureAndExistentialParams_ClosureSkippedNotExistential()
+    {
+        // When a method has BOTH a closure param AND an existential param,
+        // the closure param causes the method to be skipped (NotSupportedException).
+        // The existential param alone would be fine, but closure takes priority.
+        RegisterProtocol("SourceProtocol");
+        var protocolDecl = CreateSimpleProtocol("MixedProtocol");
+
+        var closureType = new ClosureTypeSpec
+        {
+            Arguments = TupleTypeSpec.Empty,
+            ReturnType = TupleTypeSpec.Empty,
+        };
+        var existentialType = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.SourceProtocol") });
+
+        // Method with both closure AND existential params → should be skipped
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "update",
+            MangledName = "$supdate_closure_existential",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                },
+                new()
+                {
+                    Name = "source", PrivateName = "source",
+                    SwiftTypeSpec = existentialType,
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                },
+                new()
+                {
+                    Name = "handler", PrivateName = "handler",
+                    SwiftTypeSpec = closureType,
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false,
+            Visibility = Visibility.Public
+        });
+
+        var methodKey = ProtocolSignatureHelper.GetMethodSignatureKey(protocolDecl.Methods[0], _typeDatabase, protocolDecl);
+        var stringWriter = new StringWriter();
+        var writer = new CSharpWriter(stringWriter);
+        _emitter.EmitProxyClass(writer, protocolDecl,
+            skippedMethodKeys: new HashSet<string> { methodKey },
+            closureSkippedMethodKeys: new HashSet<string> { methodKey });
+        var output = stringWriter.ToString();
+
+        // Closure + existential method should have NotSupportedException (closure wins)
+        Assert.Contains("Closure parameters cannot be marshalled", output);
+        // No receiver for the closure-skipped method
+        Assert.DoesNotContain("Receive_update_0", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_MultipleExistentialParams_EmitsReceiverWithProxies()
+    {
+        // Method with two existential params — both should get proxy wrapping
+        RegisterProtocol("SourceProtocol");
+        RegisterProtocol("TargetProtocol");
+        var protocolDecl = CreateSimpleProtocol("BridgeProtocol");
+        var existentialType1 = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.SourceProtocol") });
+        var existentialType2 = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.TargetProtocol") });
+
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "bridge",
+            MangledName = "$sbridge",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                },
+                new()
+                {
+                    Name = "from", PrivateName = "from",
+                    SwiftTypeSpec = existentialType1,
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                },
+                new()
+                {
+                    Name = "to", PrivateName = "to",
+                    SwiftTypeSpec = existentialType2,
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false,
+            Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // Receiver emitted with both params
+        Assert.Contains("Receive_bridge_0", output);
+        // Both existential params should be unmarshalled as ExistentialContainer1
+        Assert.Contains("MarshalFromSwift<Swift.Runtime.ExistentialContainer1>", output);
+        // Both should get proxy wrapping
+        Assert.Contains("SourceProtocolProxy(", output);
+        Assert.Contains("TargetProtocolProxy(", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ExistentialParam_DispatchesToCSharpImpl()
+    {
+        // The method implementation in the proxy should dispatch to _csharpImpl,
+        // not throw NotSupportedException
+        RegisterProtocol("SourceProtocol");
+        var protocolDecl = CreateSimpleProtocol("DelegateProtocol");
+        var existentialType = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.SourceProtocol") });
+
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "handle",
+            MangledName = "$shandle",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                },
+                new()
+                {
+                    Name = "source", PrivateName = "source",
+                    SwiftTypeSpec = existentialType,
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false,
+            Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // Interface implementation should dispatch to _csharpImpl
+        Assert.Contains("_csharpImpl", output);
+        // The Handle method should contain a dispatch call (not NotSupportedException)
+        var methodIdx = output.IndexOf("public void Handle(");
+        Assert.True(methodIdx >= 0, "Expected to find 'public void Handle(' in output");
+        var methodSection = output.Substring(methodIdx, Math.Min(500, output.Length - methodIdx));
+        Assert.Contains("_csharpImpl", methodSection);
+        // Should NOT have "Cannot call method 'Handle'" (non-dispatchable fallback is OK, but existential shouldn't block)
+    }
+
+    [Fact]
+    public void EmitProxyClass_OptionalExistentialParam_EmitsReceiver()
+    {
+        // Optional<any Protocol> param should also emit receiver
+        RegisterProtocol("SourceProtocol");
+        var protocolDecl = CreateSimpleProtocol("OptDelegateProtocol");
+        var existentialType = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.SourceProtocol") });
+        var optionalExistential = new NamedTypeSpec("Swift.Optional");
+        optionalExistential.GenericParameters.Add(existentialType);
+
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "handleOptional",
+            MangledName = "$shandleOptional",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                },
+                new()
+                {
+                    Name = "source", PrivateName = "source",
+                    SwiftTypeSpec = optionalExistential,
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false,
+            Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // Receiver should be emitted
+        Assert.Contains("Receive_handleOptional_0", output);
+        // Should contain SwiftOptional unmarshalling for the optional existential
+        Assert.Contains("SwiftOptional", output);
+    }
+
     private void RegisterSwiftOptional()
     {
         _typeDatabase.AddOutOfModuleTypes(new[]

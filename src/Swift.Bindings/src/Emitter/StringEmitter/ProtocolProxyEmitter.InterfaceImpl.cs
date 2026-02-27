@@ -86,14 +86,6 @@ public partial class ProtocolProxyEmitter
                             continue;
                         EmitNotSupportedMethodStub(writer, method, "Closure parameters cannot be marshalled in protocol proxy.", emittedCSharpPropertyNames);
                     }
-                    // Existential-skipped methods are now in the interface — emit NotSupported stub
-                    else if (_existentialSkippedMethodKeys.Contains(methodKey))
-                    {
-                        var projectedKeySkipped = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
-                        if (!emittedCSharpKeys.Add(projectedKeySkipped))
-                            continue;
-                        EmitNotSupportedMethodStub(writer, method, "Existential parameters cannot be marshalled in protocol proxy.", emittedCSharpPropertyNames);
-                    }
                     continue;
                 }
                 var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);

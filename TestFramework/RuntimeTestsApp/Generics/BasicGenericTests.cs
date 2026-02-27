@@ -213,8 +213,8 @@ public class BasicGenericTests : TestBase
     public void TestIntContainerElementAt()
     {
         var container = new IntContainer(items: new int[] { 100, 200 });
-        var first = container.GetElement(index: 0);
-        var second = container.GetElement(index: 1);
+        var first = container.Element(index: 0);
+        var second = container.Element(index: 1);
         AssertEqual(100, first, "Element at 0");
         AssertEqual(200, second, "Element at 1");
     }
@@ -315,7 +315,7 @@ public class BasicGenericTests : TestBase
     public void TestGetIdentity()
     {
         var original = new SummableInt32(value: 42);
-        var result = SwiftBindingsTestLib.GetIdentity(original);
+        var result = SwiftBindingsTestLib.Identity(original);
         AssertEqual(42, result.Value, "GetIdentity round-trip");
         TestLogger.Info($"GetIdentity(SummableInt32(42)).Value = {result.Value}");
     }
@@ -324,7 +324,7 @@ public class BasicGenericTests : TestBase
     public void TestGetIdentityPreservesValue()
     {
         var original = new SummableInt32(value: -100);
-        var result = SwiftBindingsTestLib.GetIdentity(original);
+        var result = SwiftBindingsTestLib.Identity(original);
         AssertEqual(-100, result.Value, "GetIdentity negative value");
     }
 
@@ -333,7 +333,7 @@ public class BasicGenericTests : TestBase
     {
         var a = new SummableInt32(value: 10);
         var b = new SummableInt32(value: 20);
-        var pair = SwiftBindingsTestLib.GetPair(a, b);
+        var pair = SwiftBindingsTestLib.Pair(a, b);
         AssertEqual(10, pair.Item1.Value, "GetPair Item1.Value");
         AssertEqual(20, pair.Item2.Value, "GetPair Item2.Value");
         TestLogger.Info($"GetPair(10, 20) = ({pair.Item1.Value}, {pair.Item2.Value})");

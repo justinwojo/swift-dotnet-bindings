@@ -2736,6 +2736,157 @@ public class ProtocolHandlerOutputTests
         Assert.Contains("#pragma warning restore SB0003, SB0004", csOutput);
     }
 
+    [Fact]
+    public void Emit_ExistentialParamMethod_EmitsReceiverAndVtable()
+    {
+        // End-to-end ProtocolHandler test: a protocol with an existential-only method
+        // should emit a receiver callback and vtable assignment (not NotSupportedException).
+        // This tests the root-cause path in ProtocolHandler.cs:270 where existential-only
+        // methods are NOT added to skippedMethodKeys.
+        var typeDatabase = CreateTypeDatabaseWithProtocolRecords(
+            ("TestModule.EventSource", "IEventSource"));
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var existentialType = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.EventSource") });
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "EventHandler",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.EventHandler"),
+            MangledName = "$s10TestModule12EventHandlerP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                new()
+                {
+                    Name = "didReceive",
+                    MangledName = "$s10TestModule12EventHandlerP10didReceiveyyAA0C6Source_pF",
+                    MethodType = MethodType.Instance,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl),
+                        CreateArgument("source", existentialType, moduleDecl)
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl,
+                    Throws = false,
+                    IsAsync = false,
+                    Visibility = Visibility.Public
+                }
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        // Interface should contain the method
+        Assert.Contains("public interface IEventHandler", csOutput);
+        Assert.Contains("DidReceive", csOutput);
+
+        // Proxy should be emitted with receiver callback
+        Assert.Contains("class EventHandlerProxy", csOutput);
+        Assert.Contains("Receive_didReceive_0", csOutput);
+
+        // Vtable should wire up the receiver function pointer
+        Assert.Contains("&Receive_didReceive_0", csOutput);
+
+        // Receiver should unmarshal ExistentialContainer and wrap in proxy
+        Assert.Contains("ExistentialContainer1", csOutput);
+        Assert.Contains("EventSourceProxy", csOutput);
+
+        // Interface impl should dispatch to _csharpImpl when wrapping C# implementation
+        Assert.Contains("_csharpImpl", csOutput);
+        Assert.Contains("_csharpImpl.DidReceive", csOutput);
+
+        // The method should NOT have a closure-skipped NotSupportedException stub
+        // (The SB0003 NotSupportedException is expected for the Swift-container fallback path,
+        // but the key assertion is that the receiver + vtable + _csharpImpl dispatch are present,
+        // proving the method was NOT skipped from emission.)
+        Assert.DoesNotContain("Closure parameters cannot be marshalled", csOutput);
+    }
+
+    [Fact]
+    public void Emit_ClosureAndExistentialParamMethod_ClosureCausesSkip()
+    {
+        // When a method has BOTH a closure param AND an existential param,
+        // the closure param causes the method to be skipped (NotSupportedException stub).
+        // The existential param alone would be fine, but closure takes priority.
+        var typeDatabase = CreateTypeDatabaseWithProtocolRecords(
+            ("TestModule.EventSource", "IEventSource"));
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var closureType = new ClosureTypeSpec
+        {
+            Arguments = TupleTypeSpec.Empty,
+            ReturnType = TupleTypeSpec.Empty,
+        };
+        var existentialType = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.EventSource") });
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "MixedHandler",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MixedHandler"),
+            MangledName = "$s10TestModule12MixedHandlerP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                new()
+                {
+                    Name = "handleWith",
+                    MangledName = "$s10TestModule12MixedHandlerP10handleWithyyAA0C6Source_pyXEtF",
+                    MethodType = MethodType.Instance,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl),
+                        CreateArgument("source", existentialType, moduleDecl),
+                        CreateArgument("completion", closureType, moduleDecl)
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl,
+                    Throws = false,
+                    IsAsync = false,
+                    Visibility = Visibility.Public
+                }
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        // Interface should contain the method (it's InterfaceOnly, emitted for concrete types)
+        Assert.Contains("public interface IMixedHandler", csOutput);
+        Assert.Contains("HandleWith", csOutput);
+
+        // Proxy should emit NotSupportedException stub (closure param forces skip)
+        Assert.Contains("class MixedHandlerProxy", csOutput);
+        Assert.Contains("Closure parameters cannot be marshalled", csOutput);
+
+        // No receiver should be emitted for this method
+        Assert.DoesNotContain("Receive_handleWith_0", csOutput);
+    }
+
     private static (string csOutput, string swiftOutput) EmitProtocol(ProtocolDecl protocolDecl, TypeDatabase typeDatabase)
     {
         var csOutput = new StringWriter();

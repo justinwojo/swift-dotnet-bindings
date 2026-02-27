@@ -71,16 +71,25 @@ output_lines = []
 removed_count = 0
 i = 0
 
+# Protocols to preserve for runtime testing (Session 6+).
+# EveryProtocol conformances for these protocols are kept so proxy dispatch works at runtime.
+PRESERVED_PROTOCOLS = {"HasValue", "ExistentialParamDelegate"}
+
 while i < len(lines):
     line = lines[i]
     stripped = line.strip()
 
-    # Pattern 1: Skip EveryProtocol conformance extensions and class definition.
+    # Pattern 1: Skip EveryProtocol conformance extensions and class definition,
+    # EXCEPT those for preserved protocols needed for runtime testing.
     if stripped.startswith("extension EveryProtocol") or stripped.startswith("class EveryProtocol"):
         end = find_block_end(lines, i)
-        removed_count += 1
-        i = end + 1
-        continue
+        body = scan_block_body(lines, i, end)
+        # Preserve if the block references a preserved protocol
+        preserve = any(p in body for p in PRESERVED_PROTOCOLS)
+        if not preserve:
+            removed_count += 1
+            i = end + 1
+            continue
 
     # Pattern 2: Skip @_silgen_name + function blocks that have broken patterns.
     # Detect the start of a @_silgen_name / function pair, scan the body for
@@ -94,8 +103,11 @@ while i < len(lines):
         broken = False
 
         # (a) EveryProtocol() — protocol witness dispatch for unimplemented conformances
+        # Preserve if the block references a preserved protocol (Session 6+)
         if "EveryProtocol()" in body:
-            broken = True
+            preserve = any(p in body for p in PRESERVED_PROTOCOLS)
+            if not preserve:
+                broken = True
 
         # (b) self.functionName() in free function (no _self: parameter)
         if not broken and "_self:" not in body and "_self :" not in body:
@@ -143,7 +155,9 @@ while i < len(lines):
 
         broken = False
         if "EveryProtocol()" in body:
-            broken = True
+            preserve = any(p in body for p in PRESERVED_PROTOCOLS)
+            if not preserve:
+                broken = True
         if not broken and "__self.init(" in body:
             broken = True
         # Non-escaping closure in Task
@@ -167,7 +181,9 @@ while i < len(lines):
 
         broken = False
         if "EveryProtocol()" in body:
-            broken = True
+            preserve = any(p in body for p in PRESERVED_PROTOCOLS)
+            if not preserve:
+                broken = True
         if not broken and "let existential" in body and "existential." in body:
             if ".load(as: (any " in body:
                 broken = True
@@ -176,6 +192,11 @@ while i < len(lines):
             removed_count += 1
             i = end + 1
             continue
+
+    # Fix: Strip @escaping from return type position (only valid in parameter position).
+    # Generator sometimes emits `-> @escaping (Type) -> Type` for closure-returning methods.
+    if ") -> @escaping " in line:
+        line = line.replace(") -> @escaping ", ") -> ")
 
     # Default: keep the line
     output_lines.append(line)

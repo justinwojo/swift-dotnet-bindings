@@ -97,10 +97,10 @@ public class EnumMarshallingTests : TestBase
     public void TestColorForIndexFunction()
     {
         // Test the free function colorForIndex
-        var color0 = SwiftBindingsTestLib.GetColorForIndex(0);
+        var color0 = SwiftBindingsTestLib.ColorForIndex(0);
         AssertEqual(Color.Red, color0, "ColorForIndex(0) is Red");
 
-        var color1 = SwiftBindingsTestLib.GetColorForIndex(1);
+        var color1 = SwiftBindingsTestLib.ColorForIndex(1);
         AssertEqual(Color.Green, color1, "ColorForIndex(1) is Green");
 
         TestLogger.Info("ColorForIndex tests passed");

@@ -292,3 +292,20 @@ public func describeAllNamed(_ items: [any Named]) -> [String] {
 public func getAllPriorities(_ items: [any Prioritized]) -> [TaskPriority] {
     return items.map { $0.priority }
 }
+
+// MARK: - Existential Parameter Callback (Session 6)
+
+/// Protocol with a method that takes an existential parameter.
+/// Tests that Swift can call back into C# passing `any HasValue` as an arg.
+public protocol ExistentialParamDelegate: AnyObject {
+    func didReceive(value: any HasValue)
+}
+
+/// Fires the delegate callback with a concrete HasValue instance.
+/// Swift creates a MutableItem (conforms to HasValue), passes it as `any HasValue`
+/// to the delegate's didReceive method. If the delegate is a C# proxy,
+/// the existential container is marshalled into the proxy receiver callback.
+public func fireExistentialDelegate(_ delegate: any ExistentialParamDelegate, intValue: Int32) {
+    let item = MutableItem(value: intValue)
+    delegate.didReceive(value: item)
+}

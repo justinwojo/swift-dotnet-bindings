@@ -31,7 +31,7 @@ public class BlittableRoundTripTests : TestBase
     {
         // Create a point in C#, pass to Swift, get back description
         var point = new FrozenPoint { X = 3.14, Y = 2.71 };
-        var description = SwiftBindingsTestLib.GetDescribePoint(point);
+        var description = SwiftBindingsTestLib.DescribePoint(point);
 
         AssertNotNull(description, "Description not null");
         // Note: decimal separator varies by locale
@@ -45,17 +45,17 @@ public class BlittableRoundTripTests : TestBase
     {
         // Very small values
         var small = new FrozenPoint { X = 1e-10, Y = -1e-10 };
-        var smallDesc = SwiftBindingsTestLib.GetDescribePoint(small);
+        var smallDesc = SwiftBindingsTestLib.DescribePoint(small);
         AssertNotNull(smallDesc, "Small point description");
 
         // Very large values
         var large = new FrozenPoint { X = 1e10, Y = -1e10 };
-        var largeDesc = SwiftBindingsTestLib.GetDescribePoint(large);
+        var largeDesc = SwiftBindingsTestLib.DescribePoint(large);
         AssertNotNull(largeDesc, "Large point description");
 
         // Zero
         var zero = new FrozenPoint { X = 0.0, Y = 0.0 };
-        var zeroDesc = SwiftBindingsTestLib.GetDescribePoint(zero);
+        var zeroDesc = SwiftBindingsTestLib.DescribePoint(zero);
         AssertNotNull(zeroDesc, "Zero point description");
 
         TestLogger.Info("FrozenPoint edge cases passed");

@@ -4672,6 +4672,32 @@ namespace Swift.SwiftBindingsTestLib
         private static partial IntPtr PInvoke_getAllPriorities_81F9DE32( IntPtr itemsBuffer);
         
         
+        [global::Swift.UnsupportedSwiftType("Existential type fallback", "any SwiftBindingsTestLib.ExistentialParamDelegate")]
+        /// <summary>
+        /// Fires the delegate callback with a concrete HasValue instance. Swift creates a MutableItem (conforms to HasValue), passes it as <c>any HasValue</c> to the delegate's didReceive method. If the delegate is a C# proxy, the existential container is marshalled into the proxy receiver callback.
+        /// </summary>
+        public static void FireExistentialDelegate([global::Swift.OriginalSwiftType("any SwiftBindingsTestLib.ExistentialParamDelegate")]  IExistentialParamDelegate @delegate,  int intValue)
+        {
+            try
+            {
+                
+                
+                PInvoke_fireExistentialDelegate_A888850F(((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)@delegate).GetExistentialContainer(), intValue);
+                
+                return;
+            }
+            
+            finally
+            {
+            }
+            
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib23fireExistentialDelegate_8intValueyAA0f5ParamG0_p_s5Int32VtF")]
+        private static partial void PInvoke_fireExistentialDelegate_A888850F( Swift.Runtime.ExistentialContainer1 @delegate,  int intValue);
+        
+        
     }
     
     /// <summary>
@@ -41649,6 +41675,257 @@ public partial class SimplePriorityHandler : ISwiftObject, IDisposable, IPriorit
     
     
 }
+
+
+/// <summary>
+/// Protocol with a method that takes an existential parameter. Tests that Swift can call back into C# passing <c>any HasValue</c> as an arg.
+/// </summary>
+public interface IExistentialParamDelegate
+{
+    [global::Swift.UnsupportedSwiftType("Existential type fallback", "any SwiftBindingsTestLib.HasValue")]
+    void DidReceive(IHasValue value);
+}
+
+#pragma warning disable SB0003, SB0004
+/// <summary>
+/// Proxy class that enables C# implementations of the ExistentialParamDelegate protocol.
+/// Can wrap either a C# implementation or receive Swift existential containers.
+/// </summary>
+public unsafe partial class ExistentialParamDelegateProxy : IExistentialParamDelegate, ISwiftObject, IDisposable, Swift.Runtime.ISwiftExistentialConvertible<ExistentialContainer1>
+{
+    /// <summary>Matches Swift ExistentialParamDelegate_vtable layout</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ExistentialParamDelegateSwiftVTable
+    {
+        public IntPtr csVTHandle;
+        public IntPtr func_didReceive_0;
+    }
+    
+    /// <summary>Local vtable holding managed delegates</summary>
+    private struct ExistentialParamDelegateLocalVTable
+    {
+        public delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, void> Func_didReceive_0;
+    }
+    
+    private static IntPtr _protocolWitnessTable;
+    private static ExistentialParamDelegateSwiftVTable _swiftVTable;
+    private static ExistentialParamDelegateLocalVTable _localVTable;
+    // Application-lifetime: vtable must outlive all proxy instances. Never disposed.
+    private static GCHandle _localVTableHandle;
+    private static bool _vtableInitialized;
+    private static readonly object _vtableLock = new object();
+    private readonly IExistentialParamDelegate? _csharpImpl;
+    private readonly EveryProtocol? _everyProtocol;
+    private ExistentialContainer1 _swiftContainer;
+    private bool _disposed;
+    static ExistentialParamDelegateProxy()
+    {
+        InitializeVtable();
+    }
+    
+    private static void InitializeVtable()
+    {
+        lock (_vtableLock)
+        {
+            if (_vtableInitialized) return;
+            
+            _localVTable = new ExistentialParamDelegateLocalVTable
+            {
+                Func_didReceive_0 = &Receive_didReceive_0,
+            };
+            
+            _localVTableHandle = GCHandle.Alloc(_localVTable, GCHandleType.Pinned);
+            
+            _swiftVTable = new ExistentialParamDelegateSwiftVTable
+            {
+                csVTHandle = GCHandle.ToIntPtr(_localVTableHandle),
+                func_didReceive_0 = (IntPtr)_localVTable.Func_didReceive_0,
+            };
+            
+            fixed (ExistentialParamDelegateSwiftVTable* vtPtr = &_swiftVTable)
+            {
+                NativeMethods.SetExistentialParamDelegate_vtable((IntPtr)vtPtr);
+            }
+            _vtableInitialized = true;
+        }
+    }
+    
+    #region Swift Callback Receivers
+    
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    private static void Receive_didReceive_0(IntPtr vtHandle, IntPtr selfContainer, IntPtr rawArg0)
+    {
+        var container = *(ExistentialContainer1*)selfContainer;
+        var proxy = SwiftObjectRegistry.GetProxyFromContainer<ExistentialParamDelegateProxy>(container);
+        var rawParam0 = MarshalFromSwift<Swift.Runtime.ExistentialContainer1>(rawArg0);
+        var param0 = (IHasValue)new HasValueProxy(rawParam0);
+        proxy._csharpImpl!.DidReceive(param0);
+    }
+    
+    #endregion
+    
+    /// <summary>
+    /// Creates a proxy wrapping a C# implementation of IExistentialParamDelegate.
+    /// </summary>
+    /// <param name="implementation">The C# implementation of the protocol.</param>
+    public ExistentialParamDelegateProxy(IExistentialParamDelegate implementation)
+    {
+        _csharpImpl = implementation ?? throw new ArgumentNullException(nameof(implementation));
+        _everyProtocol = new EveryProtocol();
+        // Create existential container manually
+        // The container holds: payload (EveryProtocol pointer), metadata, and witness table
+        _swiftContainer = new ExistentialContainer1();
+        _swiftContainer.Payload0 = _everyProtocol.Handle;
+        _swiftContainer.ObjectMetadata = EveryProtocol.GetTypeMetadata();
+        _swiftContainer[0] = ProtocolWitnessTableHandle;
+        // Register this proxy so Swift callbacks can find us
+        SwiftObjectRegistry.RegisterStrong(_everyProtocol.Handle, this);
+    }
+    /// <summary>
+    /// Creates a proxy from an existing Swift existential container.
+    /// Use this when receiving protocol values from Swift code.
+    /// </summary>
+    /// <remarks>
+    /// Swift-backed proxies created with this constructor dispatch blittable and String
+    /// protocol members through witness table accessors. Non-dispatchable members
+    /// (non-blittable non-String types, throwing, async) throw <see cref="NotSupportedException"/>.
+    /// </remarks>
+    /// <param name="container">The Swift existential container.</param>
+    internal ExistentialParamDelegateProxy(ExistentialContainer1 container)
+    {
+        _swiftContainer = container;
+        _csharpImpl = null;
+        _everyProtocol = null;
+    }
+    #region Interface Implementation
+    
+    [Obsolete("This member is not dispatchable to Swift and throws NotSupportedException " +
+        "when called on a Swift-backed existential container (SB0003).",
+        DiagnosticId = "SB0003",
+        UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+    public void DidReceive(IHasValue value)
+    {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
+        if (_csharpImpl != null)
+        {
+            _csharpImpl.DidReceive(value);
+            return;
+        }
+        throw new NotSupportedException(
+            "Cannot call method 'DidReceive' on a Swift-backed existential container. " +
+            "Protocol member access is only supported when wrapping a C# implementation.");
+    }
+    
+    #endregion
+    
+    #region ISwiftObject Implementation
+    /// <summary>
+    /// Gets the protocol witness table handle for EveryProtocol conforming to ExistentialParamDelegate.
+    /// </summary>
+    public static IntPtr ProtocolWitnessTableHandle
+    {
+        get
+        {
+            if (_protocolWitnessTable == IntPtr.Zero)
+            {
+                // The witness table is generated by the Swift compiler
+                // It will be available after the Swift wrapper is loaded
+                // For now, we look it up dynamically
+                _protocolWitnessTable = GetWitnessTableFromSwift();
+            }
+            return _protocolWitnessTable;
+        }
+    }
+    private static IntPtr GetWitnessTableFromSwift()
+    {
+        // Call the Swift-exported function that returns the witness table pointer
+        // This function is generated by EveryProtocolEmitter.EmitWitnessTableGetter()
+        return NativeMethods.GetWitnessTable();
+    }
+    /// <summary>
+    /// Gets the existential container that can be passed to Swift code.
+    /// </summary>
+    public ExistentialContainer1 GetExistentialContainer()
+    {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
+        return _swiftContainer;
+    }
+    public static TypeMetadata GetTypeMetadata()
+    {
+        // Proxy classes don't have their own Swift metadata
+        // They use the EveryProtocol metadata
+        return EveryProtocol.GetTypeMetadata();
+    }
+    public static ISwiftObject NewFromPayload(IntPtr payload)
+    {
+        // Create from existential container
+        var container = *(ExistentialContainer1*)payload;
+        return new ExistentialParamDelegateProxy(container);
+    }
+    public int MarshalToSwift(ref Span<byte> swiftDestSpan)
+    {
+        if (_disposed) throw new ObjectDisposedException(GetType().Name);
+        // Marshal the existential container
+        var size = _swiftContainer.SizeOf;
+        if (swiftDestSpan.Length < size)
+            throw new ArgumentException("Destination span too small", nameof(swiftDestSpan));
+        fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
+        {
+            new Span<byte>(containerPtr, size).CopyTo(swiftDestSpan);
+        }
+        return size;
+    }
+    public static ProtocolConformanceDescriptor GetProtocolConformanceDescriptor<TProtocol>() where TProtocol : class
+    {
+        throw new NotSupportedException(
+            "Protocol conformance descriptor is not available for proxy types. " +
+            "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
+    }
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        if (_everyProtocol != null)
+        {
+            SwiftObjectRegistry.Unregister(_everyProtocol.Handle);
+            _everyProtocol.Dispose();
+        }
+    }
+    #endregion
+    #region Marshalling Helpers
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Utf8Slice
+    {
+        public IntPtr Ptr;
+        public nint Len;
+    }
+    private static IntPtr MarshalToSwiftBuffer<T>(T value)
+    {
+        // Use direct memory operations for all types
+        // This works for blittable types (value types, structs with blittable fields)
+        var size = Unsafe.SizeOf<T>();
+        var ptr = (IntPtr)NativeMemory.Alloc((nuint)size);
+        Unsafe.Write((void*)ptr, value);
+        return ptr;
+    }
+    private static T MarshalFromSwift<T>(IntPtr ptr)
+    {
+        // Use direct memory operations for all types
+        return Unsafe.Read<T>((void*)ptr);
+    }
+    #endregion
+    private static partial class NativeMethods
+    {
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SetExistentialParamDelegate_vtable")]
+        public static partial void SetExistentialParamDelegate_vtable(IntPtr vtable);
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "Get_EveryProtocol_ExistentialParamDelegate_WitnessTable")]
+        public static partial IntPtr GetWitnessTable();
+    }
+}
+#pragma warning restore SB0003, SB0004
 
 
 /// <summary>

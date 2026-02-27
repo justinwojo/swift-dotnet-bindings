@@ -140,8 +140,8 @@ public class BasicProtocolDispatchTests : TestBase
     {
         var val = new MultiConformingValue(value: 20);
         var iface = (ISubtractable)val;
-        AssertEqual(15, iface.GetSubtract(5), "ISubtractable.GetSubtract(5) on value=20");
-        TestLogger.Info($"((ISubtractable)MultiConformingValue(20)).GetSubtract(5) = {iface.GetSubtract(5)}");
+        AssertEqual(15, iface.Subtract(5), "ISubtractable.Subtract(5) on value=20");
+        TestLogger.Info($"((ISubtractable)MultiConformingValue(20)).Subtract(5) = {iface.Subtract(5)}");
     }
 
     [TestTier(TestTier.Tier1)]
@@ -149,8 +149,8 @@ public class BasicProtocolDispatchTests : TestBase
     {
         var val = new MultiConformingValue(value: 7);
         var iface = (IMultipliable)val;
-        AssertEqual(21, iface.GetMultiply(3), "IMultipliable.GetMultiply(3) on value=7");
-        TestLogger.Info($"((IMultipliable)MultiConformingValue(7)).GetMultiply(3) = {iface.GetMultiply(3)}");
+        AssertEqual(21, iface.Multiply(3), "IMultipliable.Multiply(3) on value=7");
+        TestLogger.Info($"((IMultipliable)MultiConformingValue(7)).Multiply(3) = {iface.Multiply(3)}");
     }
 
     [TestTier(TestTier.Tier1)]
@@ -158,8 +158,8 @@ public class BasicProtocolDispatchTests : TestBase
     {
         var val = new MultiConformingValue(value: 100);
         var iface = (IDividable)val;
-        AssertEqual(25, iface.GetDivide(4), "IDividable.GetDivide(4) on value=100");
-        TestLogger.Info($"((IDividable)MultiConformingValue(100)).GetDivide(4) = {iface.GetDivide(4)}");
+        AssertEqual(25, iface.Divide(4), "IDividable.Divide(4) on value=100");
+        TestLogger.Info($"((IDividable)MultiConformingValue(100)).Divide(4) = {iface.Divide(4)}");
     }
 
     [TestTier(TestTier.Tier1)]
@@ -244,7 +244,7 @@ public class BasicProtocolDispatchTests : TestBase
     {
         var handler = new SimpleStatusHandler(initialStatus: SwiftTaskStatus.Pending);
         var iface = (IStatusHandler)handler;
-        var next = iface.GetTransitionStatus(from: SwiftTaskStatus.Pending);
+        var next = iface.TransitionStatus(from: SwiftTaskStatus.Pending);
         AssertEqual(SwiftTaskStatus.Running, next, "Transition from Pending should be Running");
         TestLogger.Info($"TransitionStatus(Pending) = {next}");
     }

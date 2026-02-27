@@ -20,7 +20,7 @@ public class ArrayMarshallingTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestArrayParameterCount()
     {
-        var count = SwiftBindingsTestLib.GetArrayCount(new[] { 10, 20, 30 });
+        var count = SwiftBindingsTestLib.ArrayCount(new[] { 10, 20, 30 });
         AssertEqual(3, count, "Array count");
         TestLogger.Info($"ArrayCount([10,20,30]) = {count}");
     }
@@ -37,7 +37,7 @@ public class ArrayMarshallingTests : TestBase
     public void TestEmptyArray()
     {
         AssertTrue(SwiftBindingsTestLib.IsEmptyArray(Array.Empty<int>()), "Empty array is empty");
-        AssertEqual(0, SwiftBindingsTestLib.GetArrayCount(Array.Empty<int>()), "Empty array count is 0");
+        AssertEqual(0, SwiftBindingsTestLib.ArrayCount(Array.Empty<int>()), "Empty array count is 0");
         TestLogger.Info("Empty array tests passed");
     }
 
@@ -90,7 +90,7 @@ public class ArrayMarshallingTests : TestBase
     {
         var cat = SwiftBindingsTestLib.CreateAnimal("Cat", "Meow");
         var dog = SwiftBindingsTestLib.CreateAnimal("Dog", "Woof");
-        var descriptions = SwiftBindingsTestLib.GetDescribeAnimals(new[] { cat, dog });
+        var descriptions = SwiftBindingsTestLib.DescribeAnimals(new[] { cat, dog });
         AssertEqual(2, descriptions.Count, "Descriptions count");
         AssertTrue(descriptions[0].ToString().Contains("Cat"), "First is Cat");
         AssertTrue(descriptions[1].ToString().Contains("Dog"), "Second is Dog");
@@ -112,7 +112,7 @@ public class ArrayMarshallingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestSingleElementArray()
     {
-        AssertEqual(1, SwiftBindingsTestLib.GetArrayCount(new[] { 99 }), "Single element count");
+        AssertEqual(1, SwiftBindingsTestLib.ArrayCount(new[] { 99 }), "Single element count");
         AssertEqual(99, SwiftBindingsTestLib.SumArray(new[] { 99 }), "Single element sum");
         AssertFalse(SwiftBindingsTestLib.IsEmptyArray(new[] { 99 }), "Single element not empty");
         TestLogger.Info("Single element array tests passed");

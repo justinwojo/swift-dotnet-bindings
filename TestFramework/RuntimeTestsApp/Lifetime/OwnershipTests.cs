@@ -236,7 +236,7 @@ public class OwnershipTests : TestBase
         // BorrowResource should not consume the resource
         var resource = SwiftBindingsTestLib.CreateUniqueResource(42);
 
-        var borrowed = SwiftBindingsTestLib.GetBorrowResource(resource);
+        var borrowed = SwiftBindingsTestLib.BorrowResource(resource);
         AssertEqual(42, borrowed, "BorrowResource returns correct id");
 
         // Resource should still be accessible after borrow

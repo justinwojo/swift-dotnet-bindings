@@ -124,7 +124,7 @@ public class ClassMarshallingTests : TestBase
     public void TestBorrowResource()
     {
         var resource = SwiftBindingsTestLib.CreateUniqueResource(7);
-        var borrowed = SwiftBindingsTestLib.GetBorrowResource(resource);
+        var borrowed = SwiftBindingsTestLib.BorrowResource(resource);
 
         // BorrowResource should return the Id
         AssertEqual(7, borrowed, "BorrowResource returns Id");
