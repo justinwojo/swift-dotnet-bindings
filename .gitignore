@@ -210,8 +210,9 @@ src/samples/
 src/Swift.Bindings.Sdk/tools/
 src/Swift.Bindings.Sdk/bin/
 
-# Claude Code local settings
+# Claude Code local settings and worktrees
 .claude/settings.local.json
+.claude/worktrees/
 
 # LLVM profiling data
 *.profraw
