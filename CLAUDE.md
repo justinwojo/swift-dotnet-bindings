@@ -20,7 +20,7 @@ Experimental Swift/.NET interop project. Generates C# bindings from compiled Swi
 
 **Always use helper scripts, not raw commands.**
 
-**IMPORTANT: Slow commands (`./run-tests.sh` ~2 min, `./build-and-test.sh` ~5 min, `./validate-libraries.sh` ~5 min) — ALWAYS pipe to a temp file with `2>&1 | tee /tmp/<name>-results.txt`. Then use the Read tool on the temp file to inspect results. This avoids re-running slow commands just to see different slices of output. NEVER run a slow command twice.**
+**IMPORTANT: Slow commands (`./run-tests.sh` ~2 min, `./build-and-test.sh` ~5 min, `./validate-libraries.sh` ~1 min) — ALWAYS pipe to a temp file with `2>&1 | tee /tmp/<name>-results.txt`. Then use the Read tool on the temp file to inspect results. This avoids re-running slow commands just to see different slices of output. NEVER run a slow command twice.**
 
 ```bash
 ./build.sh                    # Build the project
@@ -39,9 +39,9 @@ cd TestFramework
 
 # Real-world library validation:
 scripts/fetch-libraries.sh              # Fetch xcframeworks (first time)
-./validate-libraries.sh                 # Compile gate (tier 1, 32 targets)
+./validate-libraries.sh                 # Compile gate (all tiers, 53 targets, ~35s cached)
+./validate-libraries.sh --tier 1        # Tier 1 only (32 targets)
 ./validate-libraries.sh --tier 2        # Tier 2 only (21 targets)
-./validate-libraries.sh --tier all      # Both tiers
 ./validate-libraries.sh --filter Nuke   # Validate one library
 ```
 
@@ -112,8 +112,9 @@ scripts/fetch-libraries.sh
 
 ### Validation tiers
 
-- **Tier 1** (32 targets): Established baseline libraries (Alamofire, Nuke, Kingfisher, RxSwift, Stripe, etc.). Default for `./validate-libraries.sh`. Baseline updates only on full tier-1 runs.
-- **Tier 2** (21 targets): Additional coverage libraries (DeviceKit, ObjectMapper, SVGView, etc.). Use `--tier 2` or `--tier all`.
+- **Tier 1** (32 targets): Established baseline libraries (Alamofire, Nuke, Kingfisher, RxSwift, Stripe, etc.).
+- **Tier 2** (21 targets): Additional coverage libraries (DeviceKit, ObjectMapper, SVGView, etc.).
+- **Default**: `./validate-libraries.sh` runs all tiers (53 targets, ~35s with cached build). Baseline updates on full unfiltered runs.
 - **Manual** (4 targets within tier 1): Proprietary libraries (BRLMPrinterKit, Mappedin, MicroblinkPlatform, SmartCardIO). Place xcframeworks in `.libraries/<name>/`.
 
 ### Adding a new library

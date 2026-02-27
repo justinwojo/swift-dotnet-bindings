@@ -5,13 +5,15 @@
 # compiles them, and tracks results against a baseline for regression detection.
 #
 # Usage:
-#   ./validate-libraries.sh                         # Tier 1 compile gate (default)
+#   ./validate-libraries.sh                         # All tiers compile gate (default)
 #   ./validate-libraries.sh --tier 2                # Tier 2 only
 #   ./validate-libraries.sh --tier all              # Both tiers
 #   ./validate-libraries.sh --quick                 # Reuse existing /tmp output
 #   ./validate-libraries.sh --filter Nuke           # Only matching libraries
 #   ./validate-libraries.sh --verbose               # Show errors detail
 #   ./validate-libraries.sh --fetch                 # Run fetch script first
+#   ./validate-libraries.sh --jobs 4                  # Limit to 4 parallel workers
+#   ./validate-libraries.sh --serial                  # Run sequentially (no parallelism)
 #   ./validate-libraries.sh --tier 2 --filter SVGView --verbose # Combine flags
 
 set -o pipefail
@@ -33,7 +35,8 @@ QUICK=false
 FILTER=""
 VERBOSE=false
 FETCH=false
-TIER="1"
+TIER="all"
+JOBS=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -41,6 +44,8 @@ while [[ $# -gt 0 ]]; do
         --filter) FILTER="$2"; shift 2 ;;
         --verbose) VERBOSE=true; shift ;;
         --fetch) FETCH=true; shift ;;
+        --jobs) JOBS="$2"; shift 2 ;;
+        --serial) JOBS=1; shift ;;
         --tier)
             case "$2" in
                 1|2|all) TIER="$2"; shift 2 ;;
@@ -51,7 +56,7 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: ./validate-libraries.sh [flags]"
             echo ""
             echo "Flags:"
-            echo "  --tier <1|2|all>  Library tier to validate (default: 1)"
+            echo "  --tier <1|2|all>  Library tier to validate (default: all)"
             echo "                      1 = established libraries (32 targets)"
             echo "                      2 = additional coverage libraries (21 targets)"
             echo "                      all = both tiers"
@@ -59,6 +64,8 @@ while [[ $# -gt 0 ]]; do
             echo "  --filter <pat>    Only libraries matching pattern (case-insensitive)"
             echo "  --verbose         Show generator warnings and first 10 compile errors"
             echo "  --fetch           Run scripts/fetch-libraries.sh before validating"
+            echo "  --jobs <N>        Max parallel workers (default: auto-detected from CPU cores)"
+            echo "  --serial          Run sequentially (equivalent to --jobs 1)"
             echo "  -h, --help        Show this help"
             exit 0
             ;;
@@ -70,6 +77,21 @@ done
 
 set_result() { echo "$3" > "$RESULTS_DIR/$1.$2"; }
 get_result() { cat "$RESULTS_DIR/$1.$2" 2>/dev/null || echo "${3:-}"; }
+
+detect_max_jobs() {
+    local cores
+    if command -v nproc &>/dev/null; then
+        cores=$(nproc)
+    elif command -v sysctl &>/dev/null; then
+        cores=$(sysctl -n hw.ncpu 2>/dev/null || echo 4)
+    else
+        cores=4
+    fi
+    # Leave headroom to avoid excessive contention (dotnet processes are CPU-heavy)
+    local jobs=$(( cores > 4 ? cores - 2 : (cores > 1 ? cores : 1) ))
+    (( jobs > 16 )) && jobs=16
+    echo "$jobs"
+}
 
 get_runtime_version() {
     grep -o 'DefaultSwiftRuntimeVersion = "[^"]*"' \
@@ -111,6 +133,18 @@ write_fallback_csproj() {
 CSPROJ
 }
 
+# --- Resolve parallel job count ---
+
+if [[ -n "$JOBS" ]]; then
+    if ! [[ "$JOBS" =~ ^[1-9][0-9]*$ ]]; then
+        echo "Invalid --jobs value: $JOBS (must be a positive integer)"
+        exit 1
+    fi
+    MAX_JOBS=$JOBS
+else
+    MAX_JOBS=$(detect_max_jobs)
+fi
+
 # --- Phase 1: Prerequisites ---
 
 echo -e "${BOLD}=== Library Validation ===${NC}"
@@ -134,6 +168,7 @@ fi
 echo -e "${DIM}Runtime version: $RUNTIME_VERSION${NC}"
 echo -e "${DIM}Git SHA: $(git -C "$SCRIPT_DIR" rev-parse --short HEAD)${NC}"
 echo -e "${DIM}Tier: $TIER${NC}"
+echo -e "${DIM}Workers: $MAX_JOBS${NC}"
 
 # --- Fetch if requested ---
 
@@ -205,13 +240,27 @@ echo ""
 
 # --- Phase 2: Build Generator ---
 
+GENERATOR_DLL="$SCRIPT_DIR/src/Swift.Bindings/src/bin/Debug/net10.0/Swift.Bindings.dll"
+BUILD_STAMP="$OUTPUT_BASE/.build-stamp"
+
 if ! $QUICK; then
-    echo -e "${BOLD}--- Building generator ---${NC}"
-    if dotnet build "$SCRIPT_DIR/SwiftBindings.sln" -v quiet 2>&1 | tail -3; then
-        echo -e "${GREEN}Generator built${NC}"
+    # Fingerprint generator + runtime sources to skip build when unchanged
+    BUILD_FINGERPRINT=$(find "$SCRIPT_DIR/src/Swift.Bindings/src" "$SCRIPT_DIR/src/Swift.Runtime/src" \
+        \( -name '*.cs' -o -name '*.csproj' -o -name '*.props' -o -name '*.targets' \) \
+        -not -path '*/bin/*' -not -path '*/obj/*' | sort | xargs cat 2>/dev/null | shasum -a 256 | cut -d' ' -f1)
+
+    if [[ -f "$BUILD_STAMP" ]] && [[ "$(cat "$BUILD_STAMP" 2>/dev/null)" == "$BUILD_FINGERPRINT" ]] && [[ -f "$GENERATOR_DLL" ]]; then
+        echo -e "${DIM}Generator unchanged — skipping build${NC}"
     else
-        echo -e "${RED}Generator build failed${NC}"
-        exit 1
+        echo -e "${BOLD}--- Building generator ---${NC}"
+        if dotnet build "$SCRIPT_DIR/SwiftBindings.sln" -v quiet 2>&1 | tail -3; then
+            echo -e "${GREEN}Generator built${NC}"
+            mkdir -p "$OUTPUT_BASE"
+            echo "$BUILD_FINGERPRINT" > "$BUILD_STAMP"
+        else
+            echo -e "${RED}Generator build failed${NC}"
+            exit 1
+        fi
     fi
     echo ""
 fi
@@ -234,30 +283,29 @@ if $QUICK; then
     fi
 fi
 
-COMPILE_PASSED=0
-COMPILE_FAILED=0
-COMPILE_NO_OUTPUT=0
+# --- Per-target processing function (runs in parallel) ---
 
-for entry in "${TARGETS[@]}"; do
+process_target() {
+    local entry="$1"
     IFS='|' read -r name lib_name xcfw_path mode known_errors <<< "$entry"
-    outdir="$OUTPUT_BASE/$name"
+    local outdir="$OUTPUT_BASE/$name"
+    local output_file="$RESULTS_DIR/$name.output"
+    local GEN_VERBOSE=""
 
     # Generate
     if ! $QUICK; then
         rm -rf "$outdir"
         mkdir -p "$outdir"
-        GEN_START=$SECONDS
-
-        GEN_OUTPUT=$(dotnet run --no-build --project "$PROJ" -- --xcframework "$xcfw_path" -o "$outdir" -v 0 2>&1)
+        local GEN_START=$SECONDS
+        local GEN_OUTPUT GEN_EXIT
+        GEN_OUTPUT=$(dotnet "$GENERATOR_DLL" --xcframework "$xcfw_path" -o "$outdir" -v 0 2>&1)
         GEN_EXIT=$?
         if [[ $GEN_EXIT -eq 0 ]] && ls "$outdir"/Swift.*.cs >/dev/null 2>&1; then
             set_result "$name" gen "ok"
         else
             set_result "$name" gen "fail"
             if $VERBOSE; then
-                echo "$GEN_OUTPUT" | tail -5 | while read -r line; do
-                    echo -e "    ${DIM}$line${NC}"
-                done
+                GEN_VERBOSE=$(echo "$GEN_OUTPUT" | tail -5)
             fi
         fi
         set_result "$name" seconds $(( SECONDS - GEN_START ))
@@ -270,14 +318,13 @@ for entry in "${TARGETS[@]}"; do
             set_result "$name" compile "skip"
             set_result "$name" errors 0
             set_result "$name" lines 0
-            COMPILE_NO_OUTPUT=$((COMPILE_NO_OUTPUT + 1))
-            echo -e "  ${YELLOW}$name: no cached output${NC}"
-            continue
+            echo -e "  ${YELLOW}$name: no cached output${NC}" > "$output_file"
+            return
         fi
     fi
 
     # Find .csproj to compile
-    CSPROJ_FILE=""
+    local CSPROJ_FILE=""
     if ls "$outdir"/*.csproj >/dev/null 2>&1; then
         CSPROJ_FILE=$(ls "$outdir"/*.csproj | grep -v Test.csproj | head -1)
     fi
@@ -292,67 +339,135 @@ for entry in "${TARGETS[@]}"; do
         set_result "$name" compile "no_csproj"
         set_result "$name" errors 0
         set_result "$name" lines 0
-        COMPILE_NO_OUTPUT=$((COMPILE_NO_OUTPUT + 1))
-        echo -e "  ${YELLOW}$name: no .csproj generated${NC}"
-        continue
+        echo -e "  ${YELLOW}$name: no .csproj generated${NC}" > "$output_file"
+        return
     fi
 
     # Patch .csproj to use local Swift.Runtime DLL
-    RUNTIME_DLL="$SCRIPT_DIR/src/Swift.Runtime/src/bin/Debug/net10.0-ios/Swift.Runtime.dll"
+    local RUNTIME_DLL="$SCRIPT_DIR/src/Swift.Runtime/src/bin/Debug/net10.0-ios/Swift.Runtime.dll"
     if grep -q 'PackageReference.*Swift\.Runtime' "$CSPROJ_FILE" 2>/dev/null; then
         sed -i '' 's|<PackageReference Include="Swift.Runtime"[^/]*/>|<Reference Include="Swift.Runtime"><HintPath>'"$RUNTIME_DLL"'</HintPath></Reference>|' "$CSPROJ_FILE"
     fi
 
     # Count lines
+    local CS_FILE LINES
     CS_FILE=$(ls "$outdir"/Swift.*.cs 2>/dev/null | head -1)
-    if [[ -n "$CS_FILE" ]]; then
-        LINES=$(wc -l < "$CS_FILE" | tr -d ' ')
-    else
-        LINES=0
-    fi
+    LINES=0
+    [[ -n "$CS_FILE" ]] && LINES=$(wc -l < "$CS_FILE" | tr -d ' ')
     set_result "$name" lines "$LINES"
 
     # Compile
-    BUILD_OUTPUT=$(dotnet build "$CSPROJ_FILE" -p:EnableDefaultCompileItems=false -v quiet 2>&1)
+    local BUILD_OUTPUT ERRORS
+    BUILD_OUTPUT=$(dotnet build "$CSPROJ_FILE" -p:EnableDefaultCompileItems=false --no-restore -v quiet 2>&1)
     ERRORS=$(echo "$BUILD_OUTPUT" | grep "error CS" | sort -u | wc -l | tr -d ' ')
     set_result "$name" errors "$ERRORS"
 
+    local GEN_SECS EXPECTED_ERRORS
     GEN_SECS=$(get_result "$name" seconds 0)
     EXPECTED_ERRORS=$known_errors
 
-    if [[ $ERRORS -eq 0 ]]; then
-        set_result "$name" compile "ok"
-        COMPILE_PASSED=$((COMPILE_PASSED + 1))
-        echo -e "  ${GREEN}$name: OK${NC} ${DIM}(${LINES} lines, ${GEN_SECS}s)${NC}"
-    elif [[ $EXPECTED_ERRORS -gt 0 && $ERRORS -le $EXPECTED_ERRORS ]]; then
-        set_result "$name" compile "known_errors"
-        COMPILE_PASSED=$((COMPILE_PASSED + 1))
-        echo -e "  ${YELLOW}$name: $ERRORS errors (known, expected $EXPECTED_ERRORS)${NC} ${DIM}(${LINES} lines, ${GEN_SECS}s)${NC}"
-    elif [[ $EXPECTED_ERRORS -gt 0 && $ERRORS -gt $EXPECTED_ERRORS ]]; then
-        set_result "$name" compile "regressed"
-        COMPILE_FAILED=$((COMPILE_FAILED + 1))
-        echo -e "  ${RED}$name: $ERRORS errors (expected $EXPECTED_ERRORS — REGRESSED)${NC} ${DIM}(${LINES} lines)${NC}"
-        if $VERBOSE; then
-            echo "$BUILD_OUTPUT" | grep "error CS" | head -10 | while read -r line; do
+    # Format result output (buffered to file for ordered display)
+    {
+        # Show gen verbose output if available
+        if [[ -n "$GEN_VERBOSE" ]]; then
+            echo "$GEN_VERBOSE" | while IFS= read -r line; do
                 echo -e "    ${DIM}$line${NC}"
             done
-            if [[ $ERRORS -gt 10 ]]; then
-                echo -e "    ${DIM}... and $((ERRORS - 10)) more${NC}"
+        fi
+
+        if [[ $ERRORS -eq 0 ]]; then
+            set_result "$name" compile "ok"
+            echo -e "  ${GREEN}$name: OK${NC} ${DIM}(${LINES} lines, ${GEN_SECS}s)${NC}"
+        elif [[ $EXPECTED_ERRORS -gt 0 && $ERRORS -le $EXPECTED_ERRORS ]]; then
+            set_result "$name" compile "known_errors"
+            echo -e "  ${YELLOW}$name: $ERRORS errors (known, expected $EXPECTED_ERRORS)${NC} ${DIM}(${LINES} lines, ${GEN_SECS}s)${NC}"
+        elif [[ $EXPECTED_ERRORS -gt 0 && $ERRORS -gt $EXPECTED_ERRORS ]]; then
+            set_result "$name" compile "regressed"
+            echo -e "  ${RED}$name: $ERRORS errors (expected $EXPECTED_ERRORS — REGRESSED)${NC} ${DIM}(${LINES} lines)${NC}"
+            if $VERBOSE; then
+                echo "$BUILD_OUTPUT" | grep "error CS" | head -10 | while IFS= read -r line; do
+                    echo -e "    ${DIM}$line${NC}"
+                done
+                [[ $ERRORS -gt 10 ]] && echo -e "    ${DIM}... and $((ERRORS - 10)) more${NC}"
+            fi
+        else
+            set_result "$name" compile "fail"
+            echo -e "  ${RED}$name: $ERRORS errors${NC} ${DIM}(${LINES} lines)${NC}"
+            if $VERBOSE; then
+                echo "$BUILD_OUTPUT" | grep "error CS" | head -10 | while IFS= read -r line; do
+                    echo -e "    ${DIM}$line${NC}"
+                done
+                [[ $ERRORS -gt 10 ]] && echo -e "    ${DIM}... and $((ERRORS - 10)) more${NC}"
             fi
         fi
-    else
-        set_result "$name" compile "fail"
-        COMPILE_FAILED=$((COMPILE_FAILED + 1))
-        echo -e "  ${RED}$name: $ERRORS errors${NC} ${DIM}(${LINES} lines)${NC}"
-        if $VERBOSE; then
-            echo "$BUILD_OUTPUT" | grep "error CS" | head -10 | while read -r line; do
-                echo -e "    ${DIM}$line${NC}"
-            done
-            if [[ $ERRORS -gt 10 ]]; then
-                echo -e "    ${DIM}... and $((ERRORS - 10)) more${NC}"
-            fi
-        fi
+    } > "$output_file"
+}
+
+# --- Sort targets longest-first for optimal scheduling ---
+# Start slow targets first so fast targets fill in around them.
+# Uses baseline gen_seconds when available, falls back to 0 (fast).
+# DISPLAY_TARGETS preserves manifest order for output.
+
+DISPLAY_TARGETS=("${TARGETS[@]}")
+
+if [[ -f "$BASELINE_FILE" ]] && (( MAX_JOBS > 1 )); then
+    # Sort targets by baseline gen_seconds (longest first) in a single python3 call.
+    # Avoids declare -A which requires bash 4+ (macOS ships bash 3.2).
+    SORT_TMPFILE=$(mktemp)
+    printf '%s\n' "${TARGETS[@]}" > "$SORT_TMPFILE"
+
+    SORTED_TARGETS=()
+    while IFS= read -r entry; do
+        SORTED_TARGETS+=("$entry")
+    done < <(python3 -c "
+import json
+with open('$BASELINE_FILE') as f:
+    bl = json.load(f)
+libs = bl.get('compile_gate', {}).get('libraries', {})
+with open('$SORT_TMPFILE') as f:
+    entries = [line.rstrip('\n') for line in f if line.strip()]
+entries.sort(key=lambda e: libs.get(e.split('|')[0], {}).get('gen_seconds', 0), reverse=True)
+for entry in entries:
+    print(entry)
+" 2>/dev/null)
+    rm -f "$SORT_TMPFILE"
+
+    if [[ ${#SORTED_TARGETS[@]} -gt 0 ]]; then
+        TARGETS=("${SORTED_TARGETS[@]}")
     fi
+fi
+
+# --- Parallel dispatch ---
+
+echo -e "${DIM}Processing $TOTAL_TARGETS targets with $MAX_JOBS parallel workers...${NC}"
+PHASE3_START=$SECONDS
+
+for entry in "${TARGETS[@]}"; do
+    process_target "$entry" &
+    # Limit concurrent background jobs
+    while (( $(jobs -rp | wc -l) >= MAX_JOBS )); do
+        sleep 0.1
+    done
+done
+wait
+
+echo -e "${DIM}Completed in $((SECONDS - PHASE3_START))s${NC}"
+
+# --- Display results in order and compute counters ---
+
+COMPILE_PASSED=0
+COMPILE_FAILED=0
+COMPILE_NO_OUTPUT=0
+
+for entry in "${DISPLAY_TARGETS[@]}"; do
+    IFS='|' read -r name _ <<< "$entry"
+    [[ -f "$RESULTS_DIR/$name.output" ]] && cat "$RESULTS_DIR/$name.output"
+    comp_status=$(get_result "$name" compile "unknown")
+    case "$comp_status" in
+        ok|known_errors) COMPILE_PASSED=$((COMPILE_PASSED + 1)) ;;
+        fail|regressed) COMPILE_FAILED=$((COMPILE_FAILED + 1)) ;;
+        *) COMPILE_NO_OUTPUT=$((COMPILE_NO_OUTPUT + 1)) ;;
+    esac
 done
 
 echo ""
@@ -373,7 +488,7 @@ GIT_SHA=$(git -C "$SCRIPT_DIR" rev-parse --short HEAD)
 # Determine if this is a full run (tier 1, no filter) — only full runs update the baseline
 IS_FULL_RUN=true
 [[ -n "$FILTER" ]] && IS_FULL_RUN=false
-[[ "$TIER" != "1" ]] && IS_FULL_RUN=false
+[[ "$TIER" != "all" ]] && IS_FULL_RUN=false
 
 # Load previous baseline for regression comparison
 PREV_BASELINE=""
@@ -383,7 +498,7 @@ fi
 
 # Build compile gate JSON for current run
 COMPILE_JSON=""
-for entry in "${TARGETS[@]}"; do
+for entry in "${DISPLAY_TARGETS[@]}"; do
     IFS='|' read -r name lib_name xcfw_path mode known_errors <<< "$entry"
     gen=$(get_result "$name" gen "unknown")
     comp=$(get_result "$name" compile "unknown")
