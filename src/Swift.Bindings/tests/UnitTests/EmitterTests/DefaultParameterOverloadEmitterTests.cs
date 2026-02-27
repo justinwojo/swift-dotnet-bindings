@@ -225,6 +225,63 @@ public class DefaultParameterOverloadEmitterTests
         Assert.Empty(swiftOutput);
     }
 
+    [Fact]
+    public void TryEmitOverloads_Constructor_NoBackticksInFuncName()
+    {
+        // Regression: constructors (Name="init") were getting backtick-escaped
+        // via ParserNameToSwift, producing `_dbw_`init`_HASH_N` — invalid Swift syntax.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Counter");
+
+        var parentDecl = new StructDecl
+        {
+            Name = "Counter",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Counter"),
+            MangledName = "$s10TestModule7CounterVN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$s10TestModule7CounterVMa"
+        };
+
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule7CounterVySiSiSitcfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                CreateArg("start", hasDefault: false),
+                CreateArg("step", hasDefault: false),
+                CreateArg("limit", hasDefault: true)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        parentDecl.Methods.Add(method);
+
+        var (_, swiftOutput) = EmitOverloads(method, typeDb);
+
+        // Must contain _dbw_init_ (no backticks)
+        Assert.Contains("_dbw_init_", swiftOutput);
+        // Must NOT contain backtick-escaped init
+        Assert.DoesNotContain("`init`", swiftOutput);
+        // Verify it's a valid static func declaration
+        Assert.Contains("public static func _dbw_init_", swiftOutput);
+    }
+
     #endregion
 
     #region Helpers

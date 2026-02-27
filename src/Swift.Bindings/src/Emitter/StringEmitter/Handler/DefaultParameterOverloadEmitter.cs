@@ -316,13 +316,17 @@ public static class DefaultParameterOverloadEmitter
         bool throws = originalMethodDecl.Throws;
 
         var originalMethodName = NameProvider.ParserNameToSwift(originalMethodDecl);
+        // For the wrapper function name, use the raw (unescaped) Swift name.
+        // `_dbw_init_HASH_N` is a valid identifier — backtick escaping from
+        // ParserNameToSwift would produce `_dbw_`init`_HASH_N` (invalid syntax).
+        var rawMethodName = originalMethodDecl.GetSwiftName();
         var asyncKeyword = originalMethodDecl.IsAsync ? " async" : "";
         var awaitPrefix = originalMethodDecl.IsAsync ? "await " : "";
         var throwsClause = throws ? " throws" : "";
         var returnClause = (isVoid || hasLargeOptionalReturn) ? "" : $" -> {returnType}";
         var tryPrefix = throws ? "try " : "";
         var trimCount = originalMethodDecl.CSSignature.Count - overloadDecl.CSSignature.Count;
-        var swiftFuncName = $"_dbw_{originalMethodName}_{DeterministicHash8(originalMethodDecl.MangledName)}_{trimCount}";
+        var swiftFuncName = $"_dbw_{rawMethodName}_{DeterministicHash8(originalMethodDecl.MangledName)}_{trimCount}";
 
         swiftWriter.WriteLine();
 
