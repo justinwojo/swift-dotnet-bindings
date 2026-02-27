@@ -698,6 +698,16 @@ public static class TypeDatabaseExtensions
         "QuartzCore.CAScroll",
         "QuartzCore.CADynamicRange",
         "QuartzCore.CAToneMapMode",
+        // UIKit enums whose .NET namespace differs from Swift module (UIKit → Foundation)
+        "UIKit.NSUnderlineStyle",                    // NS_OPTIONS bitmask (underline/strikethrough styles)
+        // UIKit ObjC typedefs (NSString-based) — value types in .NET iOS, not NSObject subclasses
+        "UIKit.UIFont.TextStyle",                    // typedef NSString *UIFontTextStyle → UIKit.UIFontTextStyle enum
+        "UIKit.UIContentSizeCategory",               // typedef NSString *UIContentSizeCategory → UIKit.UIContentSizeCategory enum
+        // UIKit nested ObjC enums
+        "UIKit.NSLayoutConstraint.Relation",         // Nested Swift enum → .NET flattened NSLayoutRelation
+        "UIKit.NSParagraphStyle.LineBreakStrategy",   // Nested Swift enum → .NET flattened NSLineBreakStrategy
+        // Foundation nested ObjC typedefs (not bound as standalone types in .NET iOS)
+        "Foundation.NSAttributedString.Key",         // typedef NSString *NSAttributedStringKey → NSString
     };
 
     /// <summary>
@@ -753,6 +763,12 @@ public static class TypeDatabaseExtensions
         ["QuartzCore.CAScroll"] = ("CoreAnimation", "CAScroll"),
         ["QuartzCore.CADynamicRange"] = ("CoreAnimation", "CADynamicRange"),
         ["QuartzCore.CAToneMapMode"] = ("CoreAnimation", "CAToneMapMode"),
+        // UIKit enum whose .NET namespace is Foundation (not UIKit)
+        ["UIKit.NSUnderlineStyle"] = ("Foundation", "NSUnderlineStyle"),
+        // UIKit nested enums/typedefs: Swift nested form → .NET flattened name
+        ["UIKit.NSLayoutConstraint.Relation"] = ("UIKit", "NSLayoutRelation"),
+        ["UIKit.NSParagraphStyle.LineBreakStrategy"] = ("UIKit", "NSLineBreakStrategy"),
+        ["UIKit.UIFont.TextStyle"] = ("UIKit", "UIFontTextStyle"),
     };
 
     /// <summary>
@@ -830,6 +846,9 @@ public static class TypeDatabaseExtensions
         // QuartzCore: casing difference — Swift uses lowercase 'f' (CAKeyframeAnimation),
         // .NET iOS uses capital 'F' (CAKeyFrameAnimation)
         ["QuartzCore.CAKeyframeAnimation"] = ("CoreAnimation", "CAKeyFrameAnimation"),
+
+        // Foundation typedefs not bound as distinct types in .NET iOS
+        ["Foundation.NSAttributedString.Key"] = ("Foundation", "NSString"),  // typedef NSString *NSAttributedStringKey
     };
 
     /// <summary>
