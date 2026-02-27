@@ -42,7 +42,7 @@ public static partial class SwiftUIBridgeEmitter
         // Void closure: () -> () or () -> Void
         if (typeSpec is ClosureTypeSpec closureSpec)
         {
-            return MapClosureType(param.Name, closureSpec);
+            return MapClosureType(param.Name, closureSpec, context);
         }
 
         // Named types: primitives, String, Optional<T>, enums (via TypeDatabase)
@@ -55,7 +55,7 @@ public static partial class SwiftUIBridgeEmitter
         return null;
     }
 
-    private static BridgeParameter? MapClosureType(string paramName, ClosureTypeSpec closureSpec)
+    private static BridgeParameter? MapClosureType(string paramName, ClosureTypeSpec closureSpec, BridgeContext? context = null)
     {
         // Async and throwing closures are unsupported
         if (closureSpec.IsAsync || closureSpec.Throws)
@@ -79,7 +79,7 @@ public static partial class SwiftUIBridgeEmitter
         if (hasArgs && closureSpec.ArgumentCount() > 4)
             return null;
 
-        // Map each closure argument to a bridge-compatible type (primitives only)
+        // Map each closure argument to a bridge-compatible type (primitives, String, classes)
         var closureArgs = new List<BridgeParameter>();
         int argIndex = 0;
         foreach (var arg in closureSpec.EachArgument())
@@ -87,13 +87,19 @@ public static partial class SwiftUIBridgeEmitter
             if (arg is not NamedTypeSpec namedArg)
                 return null;
             var mapped = MapPrimitiveOrString($"arg{argIndex}", namedArg);
-            if (mapped == null || mapped.Kind == BridgeParameterKind.String)
-                return null; // Only primitives supported in closure args
+            if (mapped == null && context?.TypeDatabase != null)
+            {
+                mapped = MapDatabaseType($"arg{argIndex}", namedArg, context.TypeDatabase);
+                if (mapped != null && mapped.Kind != BridgeParameterKind.BoundType)
+                    mapped = null; // Only classes via TypeDB in closures, not enums/structs
+            }
+            if (mapped == null)
+                return null;
             closureArgs.Add(mapped);
             argIndex++;
         }
 
-        // Map return type (primitives only)
+        // Map return type (primitives only — String/class returns deferred to 1B)
         BridgeParameter? closureReturn = null;
         if (hasReturn)
         {
@@ -106,7 +112,14 @@ public static partial class SwiftUIBridgeEmitter
         }
 
         // Build @convention(c) signature: (ArgAbi1, ArgAbi2, ..., UnsafeMutableRawPointer?) -> ReturnAbi
-        var abiArgTypes = closureArgs.Select(a => a.SwiftAbiType).ToList();
+        // String args produce TWO ABI parameters (ptr + len)
+        var abiArgTypes = new List<string>();
+        foreach (var a in closureArgs)
+        {
+            abiArgTypes.Add(a.SwiftAbiType);
+            if (a.Kind == BridgeParameterKind.String)
+                abiArgTypes.Add("Int"); // length companion
+        }
         abiArgTypes.Add("UnsafeMutableRawPointer?");
         var abiReturnType = closureReturn?.SwiftAbiType ?? "Void";
         var swiftAbiType = $"(@convention(c) ({string.Join(", ", abiArgTypes)}) -> {abiReturnType})?";
@@ -255,7 +268,13 @@ public static partial class SwiftUIBridgeEmitter
     {
         var innerTypeSpec = namedSpec.GenericParameters[0];
 
-        // Inner type must be a NamedTypeSpec (not closure, tuple, etc.)
+        // Optional<Closure> — closures are already nullable in the bridge ABI
+        if (innerTypeSpec is ClosureTypeSpec innerClosureSpec)
+        {
+            return MapClosureType(paramName, innerClosureSpec, context);
+        }
+
+        // Inner type must be a NamedTypeSpec (not tuple, etc.)
         if (innerTypeSpec is not NamedTypeSpec innerNamedSpec)
             return null;
 
@@ -275,12 +294,21 @@ public static partial class SwiftUIBridgeEmitter
                 InnerParameter: innerParam);
         }
 
+        // Optional<String> — same ABI as String (ptr+len), with ptr==nil meaning nil
+        if (innerParam.Kind == BridgeParameterKind.String)
+        {
+            return new BridgeParameter(
+                paramName,
+                BridgeParameterKind.OptionalWrapped,
+                SwiftAbiType: "UnsafePointer<UInt8>?",
+                CSharpPInvokeType: "IntPtr",
+                HasLength: true,
+                InnerParameter: innerParam);
+        }
+
         // Optional<Primitive> and Optional<BoundEnum> use hasValue flag + raw value
         if (innerParam.Kind != BridgeParameterKind.Primitive && innerParam.Kind != BridgeParameterKind.BoundEnum)
             return null;
-
-        // Optional<String> not supported in Phase 1A (reference type semantics differ)
-        // This is already blocked by the check above since String has its own Kind
 
         return new BridgeParameter(
             paramName,

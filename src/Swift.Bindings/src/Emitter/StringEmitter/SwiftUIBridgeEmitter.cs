@@ -428,6 +428,11 @@ public static partial class SwiftUIBridgeEmitter
                 initParams.Add($"{param.Name}Ptr: UnsafePointer<UInt8>?");
                 initParams.Add($"{param.Name}Len: Int");
             }
+            else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.String)
+            {
+                initParams.Add($"{param.Name}Ptr: UnsafePointer<UInt8>?");
+                initParams.Add($"{param.Name}Len: Int");
+            }
             else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.BoundType)
             {
                 initParams.Add($"{param.Name}Ptr: {param.SwiftAbiType}");
@@ -504,6 +509,15 @@ public static partial class SwiftUIBridgeEmitter
                 // Pass the reconstructed Swift object
                 viewInitArgs.Add($"{param.Name}: self.{param.Name}");
             }
+            else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.String)
+            {
+                // Optional<String>: nil check branching
+                sb.AppendLine($"        let {param.Name}String: String?");
+                sb.AppendLine($"        if {param.Name}Ptr == nil {{ {param.Name}String = nil }}");
+                sb.AppendLine($"        else if {param.Name}Len > 0 {{ {param.Name}String = String(bytes: UnsafeBufferPointer(start: {param.Name}Ptr!, count: {param.Name}Len), encoding: .utf8) ?? \"\" }}");
+                sb.AppendLine($"        else {{ {param.Name}String = \"\" }}");
+                viewInitArgs.Add($"{param.Name}: {param.Name}String");
+            }
             else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.BoundType)
             {
                 // Optional<BoundType>: nullable pointer — reconstruct if non-nil
@@ -567,6 +581,11 @@ public static partial class SwiftUIBridgeEmitter
                 createParams.Add($"_ {param.Name}Ptr: UnsafePointer<UInt8>?");
                 createParams.Add($"_ {param.Name}Len: Int");
             }
+            else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.String)
+            {
+                createParams.Add($"_ {param.Name}Ptr: UnsafePointer<UInt8>?");
+                createParams.Add($"_ {param.Name}Len: Int");
+            }
             else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.BoundType)
             {
                 createParams.Add($"_ {param.Name}Ptr: {param.SwiftAbiType}");
@@ -599,6 +618,11 @@ public static partial class SwiftUIBridgeEmitter
                 sessionArgs.Add($"{param.Name}UserData: {param.Name}UserData");
             }
             else if (param.Kind == BridgeParameterKind.String)
+            {
+                sessionArgs.Add($"{param.Name}Ptr: {param.Name}Ptr");
+                sessionArgs.Add($"{param.Name}Len: {param.Name}Len");
+            }
+            else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.String)
             {
                 sessionArgs.Add($"{param.Name}Ptr: {param.Name}Ptr");
                 sessionArgs.Add($"{param.Name}Len: {param.Name}Len");
@@ -700,6 +724,14 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine("using System.Runtime.InteropServices;");
             sb.AppendLine("using System.Text;");
             sb.AppendLine("using System.Threading.Tasks;");
+
+            // Add Swift.Runtime.InteropServices when class closure args need SwiftMarshal
+            bool hasClassClosureArgs = bridgeResults.Any(r => r.IsFunctional && r.Params != null &&
+                r.Params.Any(p => p.Kind == BridgeParameterKind.TypedClosure &&
+                    p.ClosureArguments != null &&
+                    p.ClosureArguments.Any(a => a.Kind == BridgeParameterKind.BoundType)));
+            if (hasClassClosureArgs)
+                sb.AppendLine("using Swift.Runtime.InteropServices;");
             sb.AppendLine();
             sb.AppendLine($"namespace {@namespace}");
             sb.AppendLine("{");
@@ -748,7 +780,8 @@ public static partial class SwiftUIBridgeEmitter
         var prefix = $"SBW_{moduleName}_{info.ViewName}";
         var bridgeLib = $"{moduleName}Bridge";
         var hasClosures = bridgeParams.Any(p => p.Kind is BridgeParameterKind.VoidClosure or BridgeParameterKind.TypedClosure);
-        var hasStrings = bridgeParams.Any(p => p.Kind == BridgeParameterKind.String);
+        var hasStrings = bridgeParams.Any(p => p.Kind == BridgeParameterKind.String ||
+            (p.Kind == BridgeParameterKind.OptionalWrapped && p.InnerParameter?.Kind == BridgeParameterKind.String));
         var needsUnsafe = hasClosures || hasStrings;
 
         // NativeMethods class
@@ -767,6 +800,11 @@ public static partial class SwiftUIBridgeEmitter
                 createPInvokeParams.Add($"IntPtr {param.Name}UserData");
             }
             else if (param.Kind == BridgeParameterKind.String)
+            {
+                createPInvokeParams.Add($"IntPtr {param.Name}Ptr");
+                createPInvokeParams.Add($"nint {param.Name}Len");
+            }
+            else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.String)
             {
                 createPInvokeParams.Add($"IntPtr {param.Name}Ptr");
                 createPInvokeParams.Add($"nint {param.Name}Len");
@@ -907,8 +945,10 @@ public static partial class SwiftUIBridgeEmitter
         foreach (var param in bridgeParams)
         {
             var type = GetFactoryParamType(param);
+            var isOptionalString = param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.String;
             var defaultVal = param.Kind is BridgeParameterKind.VoidClosure or BridgeParameterKind.TypedClosure ? " = null"
-                : param.Kind == BridgeParameterKind.String ? " = null" : "";
+                : param.Kind == BridgeParameterKind.String ? " = null"
+                : isOptionalString ? " = null" : "";
             if (defaultVal.Length > 0)
                 optionalParams.Add($"{type} {param.Name}{defaultVal}");
             else
@@ -947,10 +987,14 @@ public static partial class SwiftUIBridgeEmitter
                 sb.AppendLine();
             }
 
-            // String encoding
+            // String encoding (includes Optional<String> params)
             foreach (var param in bridgeParams.Where(p => p.Kind == BridgeParameterKind.String))
             {
                 sb.AppendLine($"{indent}var {param.Name}Bytes = Encoding.UTF8.GetBytes({param.Name} ?? \"\");");
+            }
+            foreach (var param in bridgeParams.Where(p => p.Kind == BridgeParameterKind.OptionalWrapped && p.InnerParameter?.Kind == BridgeParameterKind.String))
+            {
+                sb.AppendLine($"{indent}byte[]? {param.Name}Bytes = {param.Name} != null ? Encoding.UTF8.GetBytes({param.Name}) : null;");
             }
 
             // Call with fixed block if strings
@@ -966,10 +1010,14 @@ public static partial class SwiftUIBridgeEmitter
         else if (hasStrings)
         {
             var indent = "            ";
-            // String encoding
+            // String encoding (includes Optional<String> params)
             foreach (var param in bridgeParams.Where(p => p.Kind == BridgeParameterKind.String))
             {
                 sb.AppendLine($"{indent}var {param.Name}Bytes = Encoding.UTF8.GetBytes({param.Name} ?? \"\");");
+            }
+            foreach (var param in bridgeParams.Where(p => p.Kind == BridgeParameterKind.OptionalWrapped && p.InnerParameter?.Kind == BridgeParameterKind.String))
+            {
+                sb.AppendLine($"{indent}byte[]? {param.Name}Bytes = {param.Name} != null ? Encoding.UTF8.GetBytes({param.Name}) : null;");
             }
             EmitSimpleCreateCall(sb, info, bridgeParams, hasStrings, hasClosures, indent);
         }
@@ -991,7 +1039,8 @@ public static partial class SwiftUIBridgeEmitter
         StringBuilder sb, ViewBridgeInfo info, List<BridgeParameter> bridgeParams,
         bool hasStrings, bool hasClosures, string indent)
     {
-        var stringParams = bridgeParams.Where(p => p.Kind == BridgeParameterKind.String).ToList();
+        var stringParams = bridgeParams.Where(p => p.Kind == BridgeParameterKind.String ||
+            (p.Kind == BridgeParameterKind.OptionalWrapped && p.InnerParameter?.Kind == BridgeParameterKind.String)).ToList();
         var nativeArgs = BuildSimpleNativeCallArgs(bridgeParams);
 
         if (hasStrings)
@@ -1049,6 +1098,11 @@ public static partial class SwiftUIBridgeEmitter
             {
                 args.Add($"(IntPtr){param.Name}Ptr");
                 args.Add($"{param.Name}Bytes.Length");
+            }
+            else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.String)
+            {
+                args.Add($"{param.Name} == null ? IntPtr.Zero : (IntPtr){param.Name}Ptr");
+                args.Add($"{param.Name}Bytes?.Length ?? 0");
             }
             else if (param.Kind == BridgeParameterKind.BoundEnum)
             {
@@ -1128,6 +1182,8 @@ public static partial class SwiftUIBridgeEmitter
     private static string GetOptionalFactoryType(BridgeParameter param)
     {
         var inner = param.InnerParameter!;
+        if (inner.Kind == BridgeParameterKind.String)
+            return "string?";
         if (inner.Kind == BridgeParameterKind.BoundEnum)
             return $"{inner.CSharpTypeName}?";
         if (inner.Kind == BridgeParameterKind.BoundType)
@@ -1158,10 +1214,19 @@ public static partial class SwiftUIBridgeEmitter
         var closureArgs = param.ClosureArguments!;
         var closureReturn = param.ClosureReturn;
 
-        // Build closure parameter declarations: (arg0: Int, arg1: Bool)
+        // Build closure parameter declarations: (arg0: Int, arg1: Bool, arg2: String)
         var swiftArgDecls = closureArgs.Select((a, i) =>
             $"arg{i}: {GetSwiftTypeFromAbi(a)}").ToList();
         var argDeclStr = string.Join(", ", swiftArgDecls);
+
+        // Check if we have String or class args that need special encoding
+        var hasStringArgs = closureArgs.Any(a => a.Kind == BridgeParameterKind.String);
+        var hasClassArgs = closureArgs.Any(a => a.Kind == BridgeParameterKind.BoundType);
+
+        if (hasStringArgs || hasClassArgs)
+        {
+            return BuildComplexClosureViewInitArg(param, closureArgs, closureReturn, argDeclStr);
+        }
 
         // Build callback invocation args: convert Swift types to ABI types
         var callbackArgs = closureArgs.Select((a, i) =>
@@ -1193,12 +1258,117 @@ public static partial class SwiftUIBridgeEmitter
     }
 
     /// <summary>
+    /// Builds Swift closure body for closures with String or class arguments.
+    /// String args are UTF-8 encoded via withUnsafeBufferPointer.
+    /// Class args are passed as opaque pointers via Unmanaged.passRetained.
+    /// </summary>
+    private static string BuildComplexClosureViewInitArg(
+        BridgeParameter param, List<BridgeParameter> closureArgs,
+        BridgeParameter? closureReturn, string argDeclStr)
+    {
+        var sb = new StringBuilder();
+        var hasReturn = closureReturn != null;
+
+        // Closure signature: with or without return type annotation
+        if (hasReturn)
+        {
+            var swiftReturnType = GetSwiftTypeFromAbi(closureReturn!);
+            sb.Append($"{param.Name}: {{ ({argDeclStr}) -> {swiftReturnType} in\n");
+        }
+        else
+        {
+            sb.Append($"{param.Name}: {{ ({argDeclStr}) in\n");
+        }
+
+        // Collect String args that need withUnsafeBufferPointer nesting
+        var stringArgIndices = new List<int>();
+        for (int i = 0; i < closureArgs.Count; i++)
+        {
+            if (closureArgs[i].Kind == BridgeParameterKind.String)
+            {
+                sb.Append($"            let arg{i}Bytes = Array(arg{i}.utf8)\n");
+                stringArgIndices.Add(i);
+            }
+        }
+
+        // Open nested withUnsafeBufferPointer blocks for each String arg
+        // When the closure has a non-void return, each withUnsafeBufferPointer call must
+        // be preceded by `return` so the typed result propagates through all nesting levels.
+        var baseIndent = "            ";
+        var currentIndent = baseIndent;
+        for (int s = 0; s < stringArgIndices.Count; s++)
+        {
+            var si = stringArgIndices[s];
+            var returnPrefix = hasReturn ? "return " : "";
+            sb.Append($"{currentIndent}{returnPrefix}arg{si}Bytes.withUnsafeBufferPointer {{ buf{si} in\n");
+            currentIndent += "    ";
+        }
+
+        // Build callback args: String→(baseAddress, count), Class→Unmanaged, Primitive→direct
+        var callbackArgs = new List<string>();
+        for (int i = 0; i < closureArgs.Count; i++)
+        {
+            var a = closureArgs[i];
+            if (a.Kind == BridgeParameterKind.String)
+            {
+                callbackArgs.Add($"buf{i}.baseAddress");
+                callbackArgs.Add($"Int(buf{i}.count)");
+            }
+            else if (a.Kind == BridgeParameterKind.BoundType)
+            {
+                callbackArgs.Add($"Unmanaged.passRetained(arg{i}).toOpaque()");
+            }
+            else if (a.CSharpConversion != null)
+            {
+                callbackArgs.Add($"arg{i} {a.CSharpConversion}");
+            }
+            else
+            {
+                callbackArgs.Add($"arg{i}");
+            }
+        }
+        callbackArgs.Add($"ud_{param.Name}");
+        var callbackArgStr = string.Join(", ", callbackArgs);
+
+        if (hasReturn)
+        {
+            // Non-void return: default value + optional chaining + conversion
+            var defaultVal = closureReturn!.SwiftAbiType is "Double" or "Float" ? "0.0" : "0";
+            var callExpr = $"cb_{param.Name}?({callbackArgStr}) ?? {defaultVal}";
+            if (closureReturn.SwiftConversion != null)
+                callExpr = $"({callExpr}) {closureReturn.SwiftConversion}";
+
+            // String args require `return` keyword inside withUnsafeBufferPointer blocks
+            if (stringArgIndices.Count > 0)
+                sb.Append($"{currentIndent}return {callExpr}\n");
+            else
+                sb.Append($"{currentIndent}{callExpr}\n");
+        }
+        else
+        {
+            sb.Append($"{currentIndent}cb_{param.Name}?({callbackArgStr})\n");
+        }
+
+        // Close nested withUnsafeBufferPointer blocks — inner blocks need `return` propagation
+        for (int s = stringArgIndices.Count - 1; s >= 0; s--)
+        {
+            currentIndent = baseIndent + new string(' ', 4 * s);
+            sb.Append($"{currentIndent}}}\n");
+        }
+
+        sb.Append($"        }}");
+        return sb.ToString();
+    }
+
+    /// <summary>
     /// Maps an ABI BridgeParameter back to its Swift type name for closure signatures.
     /// e.g., Int32 with SwiftConversion "!= 0" → Bool; Int → Int; Double → Double
     /// </summary>
     private static string GetSwiftTypeFromAbi(BridgeParameter param)
     {
         if (param.SwiftConversion == "!= 0") return "Bool";
+        if (param.Kind == BridgeParameterKind.String) return "String";
+        if (param.Kind == BridgeParameterKind.BoundType) return param.BridgeTypeName!;
         return param.SwiftAbiType;
     }
 
@@ -1212,8 +1382,20 @@ public static partial class SwiftUIBridgeEmitter
         var closureArgs = param.ClosureArguments!;
         var closureReturn = param.ClosureReturn;
 
-        // Build trampoline parameters: (arg0AbiType, arg1AbiType, ..., IntPtr userData)
-        var trampolineParams = closureArgs.Select((a, i) => $"{a.CSharpPInvokeType} arg{i}").ToList();
+        // Build trampoline parameters: String args expand to (IntPtr ptr, nint len)
+        var trampolineParams = new List<string>();
+        foreach (var (a, i) in closureArgs.Select((a, i) => (a, i)))
+        {
+            if (a.Kind == BridgeParameterKind.String)
+            {
+                trampolineParams.Add($"IntPtr arg{i}Ptr");
+                trampolineParams.Add($"nint arg{i}Len");
+            }
+            else
+            {
+                trampolineParams.Add($"{a.CSharpPInvokeType} arg{i}");
+            }
+        }
         trampolineParams.Add("IntPtr userData");
         var returnType = closureReturn?.CSharpPInvokeType ?? "void";
 
@@ -1227,26 +1409,95 @@ public static partial class SwiftUIBridgeEmitter
         // Build C# delegate type for the cast
         var delegateType = GetCSharpDelegateType(closureArgs, closureReturn);
 
-        // Convert ABI args to delegate args
-        var delegateArgs = closureArgs.Select((a, i) =>
-            a.SwiftConversion != null ? $"arg{i} {a.SwiftConversion}" : $"arg{i}").ToList();
-        var delegateArgStr = string.Join(", ", delegateArgs);
+        var hasStringOrClassArgs = closureArgs.Any(a => a.Kind is BridgeParameterKind.String or BridgeParameterKind.BoundType);
 
-        if (closureReturn == null)
+        if (hasStringOrClassArgs)
         {
-            sb.AppendLine($"                if (h.Target is {delegateType} action)");
-            sb.AppendLine($"                    action({delegateArgStr});");
+            // String/class args need decoding before delegate invocation
+            foreach (var (a, i) in closureArgs.Select((a, i) => (a, i)))
+            {
+                if (a.Kind == BridgeParameterKind.String)
+                {
+                    sb.AppendLine($"                var str{i} = \"\";");
+                    sb.AppendLine($"                if (arg{i}Ptr != IntPtr.Zero && arg{i}Len > 0)");
+                    sb.AppendLine($"                    unsafe {{ str{i} = Encoding.UTF8.GetString((byte*)arg{i}Ptr, (int)arg{i}Len); }}");
+                }
+                else if (a.Kind == BridgeParameterKind.BoundType)
+                {
+                    sb.AppendLine($"                {a.CSharpTypeName} arg{i}Obj;");
+                    sb.AppendLine($"                unsafe");
+                    sb.AppendLine($"                {{");
+                    sb.AppendLine($"                    var classPayload{i} = System.Runtime.InteropServices.NativeMemory.Alloc((nuint)sizeof(IntPtr));");
+                    sb.AppendLine($"                    *(IntPtr*)classPayload{i} = arg{i};");
+                    sb.AppendLine($"                    try");
+                    sb.AppendLine($"                    {{");
+                    sb.AppendLine($"                        arg{i}Obj = ({a.CSharpTypeName})Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{a.CSharpTypeName}>(new IntPtr(classPayload{i}));");
+                    sb.AppendLine($"                    }}");
+                    sb.AppendLine($"                    catch");
+                    sb.AppendLine($"                    {{");
+                    sb.AppendLine($"                        System.Runtime.InteropServices.NativeMemory.Free(classPayload{i});");
+                    sb.AppendLine($"                        throw;");
+                    sb.AppendLine($"                    }}");
+                    sb.AppendLine($"                }}");
+                }
+            }
+
+            // Build delegate args using decoded values
+            var delegateArgs = new List<string>();
+            for (int i = 0; i < closureArgs.Count; i++)
+            {
+                var a = closureArgs[i];
+                if (a.Kind == BridgeParameterKind.String)
+                    delegateArgs.Add($"str{i}");
+                else if (a.Kind == BridgeParameterKind.BoundType)
+                    delegateArgs.Add($"arg{i}Obj");
+                else if (a.SwiftConversion != null)
+                    delegateArgs.Add($"arg{i} {a.SwiftConversion}");
+                else
+                    delegateArgs.Add($"arg{i}");
+            }
+            var delegateArgStr = string.Join(", ", delegateArgs);
+
+            if (closureReturn == null)
+            {
+                sb.AppendLine($"                if (h.Target is {delegateType} action)");
+                sb.AppendLine($"                    action({delegateArgStr});");
+            }
+            else
+            {
+                sb.AppendLine($"                if (h.Target is {delegateType} func)");
+                sb.AppendLine("                {");
+                sb.AppendLine($"                    var result = func({delegateArgStr});");
+                if (closureReturn.CSharpConversion != null)
+                    sb.AppendLine($"                    return result {closureReturn.CSharpConversion};");
+                else
+                    sb.AppendLine($"                    return result;");
+                sb.AppendLine("                }");
+            }
         }
         else
         {
-            sb.AppendLine($"                if (h.Target is {delegateType} func)");
-            sb.AppendLine("                {");
-            sb.AppendLine($"                    var result = func({delegateArgStr});");
-            if (closureReturn.CSharpConversion != null)
-                sb.AppendLine($"                    return result {closureReturn.CSharpConversion};");
+            // Simple primitive args — direct pass
+            var delegateArgs = closureArgs.Select((a, i) =>
+                a.SwiftConversion != null ? $"arg{i} {a.SwiftConversion}" : $"arg{i}").ToList();
+            var delegateArgStr = string.Join(", ", delegateArgs);
+
+            if (closureReturn == null)
+            {
+                sb.AppendLine($"                if (h.Target is {delegateType} action)");
+                sb.AppendLine($"                    action({delegateArgStr});");
+            }
             else
-                sb.AppendLine($"                    return result;");
-            sb.AppendLine("                }");
+            {
+                sb.AppendLine($"                if (h.Target is {delegateType} func)");
+                sb.AppendLine("                {");
+                sb.AppendLine($"                    var result = func({delegateArgStr});");
+                if (closureReturn.CSharpConversion != null)
+                    sb.AppendLine($"                    return result {closureReturn.CSharpConversion};");
+                else
+                    sb.AppendLine($"                    return result;");
+                sb.AppendLine("                }");
+            }
         }
 
         sb.AppendLine("            }");
@@ -1261,7 +1512,7 @@ public static partial class SwiftUIBridgeEmitter
     /// </summary>
     private static string GetCSharpDelegateType(List<BridgeParameter> closureArgs, BridgeParameter? closureReturn)
     {
-        var argTypes = closureArgs.Select(GetFactoryParamType).ToList();
+        var argTypes = closureArgs.Select(GetClosureArgCSharpType).ToList();
 
         if (closureReturn == null)
         {
@@ -1274,6 +1525,17 @@ public static partial class SwiftUIBridgeEmitter
             return $"Func<{string.Join(", ", argTypes)}>";
         }
     }
+
+    /// <summary>
+    /// Gets the idiomatic C# type for a closure argument used in delegate types.
+    /// String → "string", BoundType → fully-qualified class name, others → same as factory param.
+    /// </summary>
+    private static string GetClosureArgCSharpType(BridgeParameter param) => param.Kind switch
+    {
+        BridgeParameterKind.String => "string",
+        BridgeParameterKind.BoundType => param.CSharpTypeName!,
+        _ => GetFactoryParamType(param),
+    };
 
     /// <summary>
     /// Gets the C# factory parameter type for a typed closure (e.g., Action&lt;nint&gt;? or Func&lt;nint, bool&gt;?).
@@ -1297,7 +1559,19 @@ public static partial class SwiftUIBridgeEmitter
 
         var closureArgs = param.ClosureArguments!;
         var closureReturn = param.ClosureReturn;
-        var fnPtrTypes = closureArgs.Select(a => a.CSharpPInvokeType).ToList();
+        var fnPtrTypes = new List<string>();
+        foreach (var a in closureArgs)
+        {
+            if (a.Kind == BridgeParameterKind.String)
+            {
+                fnPtrTypes.Add("IntPtr"); // ptr
+                fnPtrTypes.Add("nint");   // len
+            }
+            else
+            {
+                fnPtrTypes.Add(a.CSharpPInvokeType);
+            }
+        }
         fnPtrTypes.Add("IntPtr"); // userData
         fnPtrTypes.Add(closureReturn?.CSharpPInvokeType ?? "void"); // return type
         return $"delegate* unmanaged[Cdecl]<{string.Join(", ", fnPtrTypes)}>";

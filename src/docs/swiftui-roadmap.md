@@ -1,7 +1,7 @@
 # SwiftUI Bridge Roadmap
 
 **Date**: February 2026
-**Status**: Foundation complete (v2 Phases 1-3), expansion planned
+**Status**: Session 1 complete (closure & optional expansion), Sessions 2-6 planned
 **Prior work**: `Completed/swiftui-bridge-v2-phases1-2.md` (param expansion + async inference), `Completed/swiftui-bridge-v2-phase3.md` (bridge hints)
 
 ---
@@ -16,7 +16,7 @@ The generator automatically detects SwiftUI Views and generates a bridge layer t
 |-----------|--------|-------------|
 | **View detection** | Done | `SwiftUIViewDetector` identifies `SwiftUI.View` conformance |
 | **Bridge collector** | Done | Thread-safe accumulation of Views during module emission |
-| **Parameter bridging** | Done | Primitives, String, closures (≤4 args), enums, classes, Optional\<T\> |
+| **Parameter bridging** | Done | Primitives, String, closures (≤4 args, String/class/primitive args), enums, classes, Optional\<String\>, Optional\<Closure\>, Optional\<Enum\>, Optional\<Class\> |
 | **Async factories** | Done | ABI-driven inference of async init chains (depth 3, cross-module) |
 | **Bridge hints** | Done | JSON sidecar for skip/forceTemplate/preferredInit/asyncPattern |
 | **Runtime types** | Done | `SwiftColor`, `SwiftFont` projections |
@@ -27,7 +27,7 @@ The generator automatically detects SwiftUI Views and generates a bridge layer t
 | Library | Views | Bridged | Runtime Tests |
 |---------|-------|---------|---------------|
 | BlinkIDUX | 4 | 2 (50%) | 16/16 |
-| BridgeParamTest | 9 | 9 (100%) | 35/35 |
+| BridgeParamTest | 14 | 14 (100%) | 43/43 |
 | Lottie | 6 | 5 (83%) | 15/15 |
 
 ### What Makes a View Unbridgeable Today
@@ -38,7 +38,7 @@ The generator automatically detects SwiftUI Views and generates a bridge layer t
 | `@ViewBuilder` closure param | `LottieView<Placeholder>(placeholder: () -> Placeholder)` | Common |
 | Existential param | `init(delegate: any SomeProtocol)` | Moderate |
 | Non-frozen struct param | `init(config: Configuration)` | Moderate |
-| Closure with String/class args | `init(onResult: (String) -> Void)` | Moderate |
+| Closure with non-primitive returns | `init(validator: (String) -> MyClass)` | Rare |
 | Tuple param | `init(range: (min: Int, max: Int))` | Rare |
 | >4 closure params | Multiple typed closures | Rare |
 
@@ -58,35 +58,53 @@ The correct strategy is: make it **trivial to consume SwiftUI components from Sw
 
 Ordered by priority. Each session is a self-contained unit of work. You can stop after any session and have shipped value.
 
-| Session | Focus | Priority | Key Unlock |
-|---------|-------|----------|------------|
-| **1** | Closure & Optional expansion | Highest | Result callbacks, selection handlers, data-passing closures |
-| **2** | Generic view support | High | `AnimatedImage<T>`, `LottieView<T>`, @ViewBuilder params |
-| **3** | Struct params & type database | High | Configuration-object patterns, reduced AnyType pollution |
-| **4** | Two-way state binding | Medium | Dynamic updates after creation (search, toggles, sliders) |
-| **5** | Lifecycle, modifiers & navigation | Medium-low | `onAppear`/`onDisappear`, frame/padding/background, presentation |
-| **6** | Observable binding & corpus tracking | Low | C# → Swift reactivity, coverage measurement infrastructure |
+| Session | Focus | Priority | Status | Key Unlock |
+|---------|-------|----------|--------|------------|
+| **1A** | Closure & Optional expansion | Highest | **Done** | Result callbacks, selection handlers, data-passing closures |
+| **1B** | Closure non-primitive returns | Medium | Planned | `(String) -> MyClass`, `(Int) -> String` return values |
+| **2** | Generic view support | High | Planned | `AnimatedImage<T>`, `LottieView<T>`, @ViewBuilder params |
+| **3** | Struct params & type database | High | Planned | Configuration-object patterns, reduced AnyType pollution |
+| **4** | Two-way state binding | Medium | Planned | Dynamic updates after creation (search, toggles, sliders) |
+| **5** | Lifecycle, modifiers & navigation | Medium-low | Planned | `onAppear`/`onDisappear`, frame/padding/background, presentation |
+| **6** | Observable binding & corpus tracking | Low | Planned | C# → Swift reactivity, coverage measurement infrastructure |
 
 ---
 
-### Session 1: Closure & Optional Expansion
+### Session 1A: Closure & Optional Expansion ✅
 
-**Priority**: Highest — unblocks the most views for the least effort.
+**Status**: Complete — all sub-tasks implemented, tested, and validated.
 
-Closures in bridge parameters currently only support primitive arguments. Many real SwiftUI views use callbacks like `(String) -> Void` or `(MyModel) -> Void`. This session extends the existing closure and optional machinery to handle richer types.
+Extended closure and optional parameter bridging to handle String args, class args, Optional\<String\>, and Optional\<Closure\>.
+
+**Completed scope**:
+
+| Sub-task | Status | Description |
+|----------|--------|-------------|
+| Closures with String args | **Done** | UTF-8 encode via `Array(arg.utf8)` + `withUnsafeBufferPointer` (Swift), `Encoding.UTF8.GetString` (C# trampoline) |
+| Closures with class args | **Done** | `Unmanaged.passRetained` (Swift), buffer-wrap + `SwiftMarshal.MarshalFromSwift` (C# trampoline) |
+| Optional\<String\> | **Done** | `UnsafePointer<UInt8>?` + `Int` ABI; nil = no pointer, empty = non-null + len 0 |
+| Optional\<Closure\> | **Done** | Maps identically to inner closure (closures already nullable in bridge ABI) |
+| Non-void closure returns | **Done** | `withUnsafeBufferPointer` return propagation for String-arg closures with typed returns |
+
+**Test coverage**: 20+ unit tests, 8 runtime tests on iOS Simulator (18 total bridge tests passing), 32/32 library validation.
+
+**Key files modified**: `SwiftUIBridgeEmitter.InitAnalyzer.cs` (gate lifts, context threading), `SwiftUIBridgeEmitter.cs` (Swift closure encoding, C# trampoline decoding, fn ptr types), `SwiftUIBridgeEmitterTests.cs` (20+ new tests).
+
+---
+
+### Session 1B: Closure Non-Primitive Returns
+
+**Priority**: Medium — deferred from Session 1A due to complex memory ownership.
+
+Closures that return String or class types across the FFI boundary require careful ownership semantics (who allocates, who frees). Primitive returns already work.
 
 **Scope**:
 
 | Sub-task | Description |
 |----------|-------------|
-| Closures with String args | Extend `MapClosureType` — UTF-8 encode/decode in trampoline, matching existing String parameter pattern |
-| Closures with class args | Opaque pointer + `Unmanaged` cast in trampoline, matching BoundType pattern |
-| Closures with non-primitive returns | UTF-8 decode or `Unmanaged.passRetained` in Swift trampoline for String/class return values |
-| Optional expansion | `Optional<String>`, `Optional<Closure>` — extend OptionalWrapped to cover the new types above |
-
-The Swift `@convention(c)` wrapper and C# `[UnmanagedCallersOnly]` trampoline patterns already exist — they just need to handle more arg/return types.
-
-**Impact**: Unblocks views with result callbacks, selection handlers, and data-passing closures.
+| String return from closure | Swift trampoline decodes returned UTF-8 buffer from C# callback |
+| Class return from closure | `Unmanaged.passRetained` from C# → Swift unwrap with ownership transfer |
+| Ownership protocol | Clear contract for allocation/deallocation across the FFI boundary |
 
 ---
 
@@ -260,11 +278,13 @@ Add `BridgeSummary` to `binding-report.json`:
 ## Session Dependencies
 
 ```
-Session 1: Closures & Optionals     (standalone — extends existing patterns)
+Session 1A: Closures & Optionals    ✅ COMPLETE
     │
-Session 2: Generic Views            (standalone — benefits from Session 1 closure types)
+Session 1B: Non-primitive returns   (standalone — extends Session 1A patterns)
     │
-Session 3: Structs & Type Database  (standalone — benefits from Session 1 optional patterns)
+Session 2: Generic Views            (standalone — benefits from Session 1A closure types)
+    │
+Session 3: Structs & Type Database  (standalone — benefits from Session 1A optional patterns)
     │
 Session 4: Two-Way State            (standalone — architectural change to session class)
     │
@@ -298,12 +318,14 @@ The product contract remains: **present SwiftUI View as UIViewController, with c
 
 ## Success Metrics
 
-| Metric | Current | After S1-3 | After S4-6 |
-|--------|---------|------------|------------|
-| Parameter types supported | 7 kinds | 12+ kinds | 12+ kinds |
-| Generic views bridged | 0% | 60%+ | 60%+ |
-| Bridge rate (estimated) | ~70% | ~90% | ~95% |
-| Post-creation state updates | No | No | Yes |
-| Lifecycle/modifier support | No | No | Yes |
-| Corpus libraries tracked | 3 | 3 | 10+ |
-| Runtime test coverage | 66/66 | 120+ | 150+ |
+| Metric | Before S1A | After S1A | After S2-3 | After S4-6 |
+|--------|------------|-----------|------------|------------|
+| Parameter types supported | 7 kinds | 11 kinds | 15+ kinds | 15+ kinds |
+| Closure arg types | Primitives only | + String, class | + String, class | + String, class |
+| Optional param types | Enum, class | + String, closure | + struct | + struct |
+| Generic views bridged | 0% | 0% | 60%+ | 60%+ |
+| Bridge rate (estimated) | ~70% | ~80% | ~90% | ~95% |
+| Post-creation state updates | No | No | No | Yes |
+| Lifecycle/modifier support | No | No | No | Yes |
+| Corpus libraries tracked | 3 | 3 | 3 | 10+ |
+| Runtime test coverage | 66/66 | 74/74 | 120+ | 150+ |

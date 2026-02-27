@@ -105,6 +105,71 @@ internal static class BridgeNativeMethods
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern void OptionalClassView_Free(IntPtr handle);
 
+    // --- StringClosureView ---
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_StringClosureView_Create")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr StringClosureView_Create(IntPtr onResultCallback, IntPtr onResultUserData);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_StringClosureView_GetViewController")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr StringClosureView_GetViewController(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_StringClosureView_Free")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void StringClosureView_Free(IntPtr handle);
+
+    // --- ClassClosureView ---
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_ClassClosureView_Create")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr ClassClosureView_Create(IntPtr onModelCallback, IntPtr onModelUserData);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_ClassClosureView_GetViewController")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr ClassClosureView_GetViewController(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_ClassClosureView_Free")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void ClassClosureView_Free(IntPtr handle);
+
+    // --- OptionalStringView ---
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_OptionalStringView_Create")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr OptionalStringView_Create(IntPtr titlePtr, nint titleLen);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_OptionalStringView_GetViewController")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr OptionalStringView_GetViewController(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_OptionalStringView_Free")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void OptionalStringView_Free(IntPtr handle);
+
+    // --- OptionalClosureView ---
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_OptionalClosureView_Create")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr OptionalClosureView_Create(IntPtr callbackCallback, IntPtr callbackUserData);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_OptionalClosureView_GetViewController")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr OptionalClosureView_GetViewController(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_OptionalClosureView_Free")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void OptionalClosureView_Free(IntPtr handle);
+
+    // --- MixedStringView ---
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_MixedStringView_Create")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr MixedStringView_Create(IntPtr titlePtr, nint titleLen, IntPtr onResultCallback, IntPtr onResultUserData);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_MixedStringView_GetViewController")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr MixedStringView_GetViewController(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_MixedStringView_Free")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void MixedStringView_Free(IntPtr handle);
+
     // --- AsyncServiceView ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_AsyncServiceView_Create")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
@@ -226,6 +291,39 @@ internal static class BridgeTestHelpers
     [DllImport(BridgeLib, EntryPoint = "SBW_TEST_OptionalClassView_GetModelValue")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern int OptionalClassView_GetModelValue(IntPtr handle);
+
+    // StringClosureView
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_StringClosureView_InvokeClosure")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int StringClosureView_InvokeClosure(IntPtr handle, IntPtr valuePtr, nint valueLen);
+
+    // ClassClosureView
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_ClassClosureView_InvokeClosure")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int ClassClosureView_InvokeClosure(IntPtr handle, IntPtr modelPtr);
+
+    // OptionalStringView
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_OptionalStringView_HasValue")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int OptionalStringView_HasValue(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_OptionalStringView_GetTitleLength")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int OptionalStringView_GetTitleLength(IntPtr handle);
+
+    // OptionalClosureView
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_OptionalClosureView_InvokeClosure")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int OptionalClosureView_InvokeClosure(IntPtr handle, int value);
+
+    // MixedStringView
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_MixedStringView_GetTitleLength")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int MixedStringView_GetTitleLength(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_MixedStringView_InvokeClosure")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int MixedStringView_InvokeClosure(IntPtr handle, IntPtr valuePtr, nint valueLen);
 }
 
 #endregion

@@ -107,6 +107,72 @@ internal static class MixedActionState
     }
 }
 
+internal static class StringClosureState
+{
+    internal static volatile string? LastValue;
+    internal static volatile int CallCount;
+
+    internal static void Reset()
+    {
+        LastValue = null;
+        CallCount = 0;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static void OnResultCallback(IntPtr ptr, nint len, IntPtr userData)
+    {
+        if (ptr != IntPtr.Zero && len > 0)
+        {
+            var bytes = new byte[(int)len];
+            Marshal.Copy(ptr, bytes, 0, (int)len);
+            LastValue = Encoding.UTF8.GetString(bytes);
+        }
+        else
+        {
+            LastValue = "";
+        }
+        Interlocked.Increment(ref CallCount);
+    }
+}
+
+internal static class ClassClosureState
+{
+    internal static volatile IntPtr LastModelPtr;
+    internal static volatile int CallCount;
+
+    internal static void Reset()
+    {
+        LastModelPtr = IntPtr.Zero;
+        CallCount = 0;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static void OnModelCallback(IntPtr modelPtr, IntPtr userData)
+    {
+        LastModelPtr = modelPtr;
+        Interlocked.Increment(ref CallCount);
+    }
+}
+
+internal static class OptionalClosureState
+{
+    internal static volatile int LastValue;
+    internal static volatile int CallCount;
+
+    internal static void Reset()
+    {
+        LastValue = 0;
+        CallCount = 0;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static void OnCallback(int value, IntPtr userData)
+    {
+        LastValue = value;
+        Interlocked.Increment(ref CallCount);
+    }
+}
+
 internal static class AsyncCallbackState
 {
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]

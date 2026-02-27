@@ -41,6 +41,26 @@ extension SBW_SwiftBindingsTestLib_OptionalClassView_Session {
     var rootView: OptionalClassView { hostingController.rootView }
 }
 
+extension SBW_SwiftBindingsTestLib_StringClosureView_Session {
+    var rootView: StringClosureView { hostingController.rootView }
+}
+
+extension SBW_SwiftBindingsTestLib_ClassClosureView_Session {
+    var rootView: ClassClosureView { hostingController.rootView }
+}
+
+extension SBW_SwiftBindingsTestLib_OptionalStringView_Session {
+    var rootView: OptionalStringView { hostingController.rootView }
+}
+
+extension SBW_SwiftBindingsTestLib_OptionalClosureView_Session {
+    var rootView: OptionalClosureView { hostingController.rootView }
+}
+
+extension SBW_SwiftBindingsTestLib_MixedStringView_Session {
+    var rootView: MixedStringView { hostingController.rootView }
+}
+
 // MARK: - SimpleModel helpers
 
 /// Create a SimpleModel, return opaque pointer via Unmanaged.passRetained() (caller owns +1 retain).
@@ -214,5 +234,120 @@ public func SBW_TEST_OptionalClassView_GetModelValue(_ handle: UnsafeMutableRawP
         let session = Unmanaged<SBW_SwiftBindingsTestLib_OptionalClassView_Session>
             .fromOpaque(handle).takeUnretainedValue()
         return session.rootView.model?.getValue() ?? -1
+    }
+}
+
+// MARK: - StringClosureView helpers
+
+/// Invoke the View's onResult closure with a test string.
+@_cdecl("SBW_TEST_StringClosureView_InvokeClosure")
+public func SBW_TEST_StringClosureView_InvokeClosure(_ handle: UnsafeMutableRawPointer?, _ value: UnsafePointer<UInt8>?, _ len: Int) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_StringClosureView_liveHandles.contains(handle) else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_StringClosureView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        let str: String
+        if let value = value, len > 0 {
+            str = String(bytes: UnsafeBufferPointer(start: value, count: len), encoding: .utf8) ?? ""
+        } else {
+            str = ""
+        }
+        session.rootView.onResult(str)
+        return 1
+    }
+}
+
+// MARK: - ClassClosureView helpers
+
+/// Invoke the View's onModel closure with a SimpleModel pointer.
+@_cdecl("SBW_TEST_ClassClosureView_InvokeClosure")
+public func SBW_TEST_ClassClosureView_InvokeClosure(_ handle: UnsafeMutableRawPointer?, _ modelPtr: UnsafeMutableRawPointer?) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_ClassClosureView_liveHandles.contains(handle),
+              let modelPtr = modelPtr else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_ClassClosureView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        let model = Unmanaged<SimpleModel>.fromOpaque(modelPtr).takeUnretainedValue()
+        session.rootView.onModel(model)
+        return 1
+    }
+}
+
+// MARK: - OptionalStringView helpers
+
+/// Return 1 if title is present, 0 if nil.
+@_cdecl("SBW_TEST_OptionalStringView_HasValue")
+public func SBW_TEST_OptionalStringView_HasValue(_ handle: UnsafeMutableRawPointer?) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_OptionalStringView_liveHandles.contains(handle) else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_OptionalStringView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        return session.rootView.title != nil ? 1 : 0
+    }
+}
+
+/// Read the title string length (returns -1 if nil).
+@_cdecl("SBW_TEST_OptionalStringView_GetTitleLength")
+public func SBW_TEST_OptionalStringView_GetTitleLength(_ handle: UnsafeMutableRawPointer?) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_OptionalStringView_liveHandles.contains(handle) else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_OptionalStringView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        guard let title = session.rootView.title else { return -1 }
+        return Int32(title.count)
+    }
+}
+
+// MARK: - OptionalClosureView helpers
+
+/// Invoke the View's optional callback closure. Returns 1 if callback exists, 0 if nil.
+@_cdecl("SBW_TEST_OptionalClosureView_InvokeClosure")
+public func SBW_TEST_OptionalClosureView_InvokeClosure(_ handle: UnsafeMutableRawPointer?, _ value: Int32) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_OptionalClosureView_liveHandles.contains(handle) else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_OptionalClosureView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        guard let callback = session.rootView.callback else { return 0 }
+        callback(value)
+        return 1
+    }
+}
+
+// MARK: - MixedStringView helpers
+
+/// Read the title string from the MixedStringView, copying into a pre-allocated buffer.
+/// Returns the byte count written, or -1 on error.
+@_cdecl("SBW_TEST_MixedStringView_GetTitleLength")
+public func SBW_TEST_MixedStringView_GetTitleLength(_ handle: UnsafeMutableRawPointer?) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_MixedStringView_liveHandles.contains(handle) else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_MixedStringView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        return Int32(session.rootView.title.utf8.count)
+    }
+}
+
+/// Invoke the MixedStringView's onResult closure with a test string.
+@_cdecl("SBW_TEST_MixedStringView_InvokeClosure")
+public func SBW_TEST_MixedStringView_InvokeClosure(_ handle: UnsafeMutableRawPointer?, _ value: UnsafePointer<UInt8>?, _ len: Int) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_MixedStringView_liveHandles.contains(handle) else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_MixedStringView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        let str: String
+        if let value = value, len > 0 {
+            str = String(bytes: UnsafeBufferPointer(start: value, count: len), encoding: .utf8) ?? ""
+        } else {
+            str = ""
+        }
+        session.rootView.onResult(str)
+        return 1
     }
 }

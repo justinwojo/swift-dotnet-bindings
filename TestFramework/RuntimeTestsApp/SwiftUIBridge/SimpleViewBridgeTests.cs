@@ -5,6 +5,7 @@
 
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Text;
 using RuntimeTestsApp.Infrastructure;
 
 namespace RuntimeTestsApp.SwiftUIBridge;
@@ -183,6 +184,172 @@ public class BridgeSimpleViewTests : TestBase
         AssertEqual(1, afterSessionFree, "Model deallocated after session free");
 
         TestLogger.Info("ClassParamView lifetime: passed");
+    }
+
+    public unsafe void TestStringClosureView()
+    {
+        StringClosureState.Reset();
+
+        delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> callbackPtr = &StringClosureState.OnResultCallback;
+        var handle = BridgeNativeMethods.StringClosureView_Create((IntPtr)callbackPtr, IntPtr.Zero);
+        AssertTrue(handle != IntPtr.Zero, "StringClosureView handle != 0");
+
+        // Invoke the closure via test helper with "hello"
+        var testBytes = Encoding.UTF8.GetBytes("hello");
+        fixed (byte* testPtr = testBytes)
+        {
+            var result = BridgeTestHelpers.StringClosureView_InvokeClosure(handle, (IntPtr)testPtr, testBytes.Length);
+            AssertEqual(1, result, "StringClosureView invoke success");
+        }
+
+        AssertEqual(1, StringClosureState.CallCount, "StringClosureView callback fired");
+        AssertEqual("hello", StringClosureState.LastValue!, "StringClosureView string round-trip");
+
+        BridgeNativeMethods.StringClosureView_Free(handle);
+        TestLogger.Info("StringClosureView: create/invoke/free cycle passed");
+    }
+
+    public unsafe void TestClassClosureView()
+    {
+        ClassClosureState.Reset();
+
+        delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> callbackPtr = &ClassClosureState.OnModelCallback;
+        var handle = BridgeNativeMethods.ClassClosureView_Create((IntPtr)callbackPtr, IntPtr.Zero);
+        AssertTrue(handle != IntPtr.Zero, "ClassClosureView handle != 0");
+
+        // Create a model and invoke the closure
+        var modelPtr = BridgeTestHelpers.CreateSimpleModel(55);
+        var result = BridgeTestHelpers.ClassClosureView_InvokeClosure(handle, modelPtr);
+        AssertEqual(1, result, "ClassClosureView invoke success");
+        AssertEqual(1, ClassClosureState.CallCount, "ClassClosureView callback fired");
+        AssertTrue(ClassClosureState.LastModelPtr != IntPtr.Zero, "ClassClosureView received model pointer");
+
+        BridgeNativeMethods.ClassClosureView_Free(handle);
+        BridgeTestHelpers.FreeSimpleModel(modelPtr);
+        TestLogger.Info("ClassClosureView: create/invoke/free cycle passed");
+    }
+
+    public unsafe void TestOptionalStringWithValue()
+    {
+        var titleBytes = Encoding.UTF8.GetBytes("test title");
+        fixed (byte* titlePtr = titleBytes)
+        {
+            var handle = BridgeNativeMethods.OptionalStringView_Create((IntPtr)titlePtr, titleBytes.Length);
+            AssertTrue(handle != IntPtr.Zero, "OptionalStringView handle != 0");
+
+            var hasValue = BridgeTestHelpers.OptionalStringView_HasValue(handle);
+            AssertEqual(1, hasValue, "OptionalStringView has value");
+
+            var titleLen = BridgeTestHelpers.OptionalStringView_GetTitleLength(handle);
+            AssertEqual(10, titleLen, "OptionalStringView title length");
+
+            BridgeNativeMethods.OptionalStringView_Free(handle);
+        }
+        TestLogger.Info("OptionalStringView (with value): passed");
+    }
+
+    public void TestOptionalStringNil()
+    {
+        var handle = BridgeNativeMethods.OptionalStringView_Create(IntPtr.Zero, 0);
+        AssertTrue(handle != IntPtr.Zero, "OptionalStringView nil handle != 0");
+
+        var hasValue = BridgeTestHelpers.OptionalStringView_HasValue(handle);
+        AssertEqual(0, hasValue, "OptionalStringView nil has no value");
+
+        BridgeNativeMethods.OptionalStringView_Free(handle);
+        TestLogger.Info("OptionalStringView (nil): passed");
+    }
+
+    public void TestOptionalStringEmpty()
+    {
+        // Pass non-null pointer with length 0 → empty string (not nil)
+        var emptyBytes = new byte[1]; // dummy byte to get non-null pointer
+        unsafe
+        {
+            fixed (byte* emptyPtr = emptyBytes)
+            {
+                var handle = BridgeNativeMethods.OptionalStringView_Create((IntPtr)emptyPtr, 0);
+                AssertTrue(handle != IntPtr.Zero, "OptionalStringView empty handle != 0");
+
+                var hasValue = BridgeTestHelpers.OptionalStringView_HasValue(handle);
+                AssertEqual(1, hasValue, "OptionalStringView empty has value");
+
+                var titleLen = BridgeTestHelpers.OptionalStringView_GetTitleLength(handle);
+                AssertEqual(0, titleLen, "OptionalStringView empty title length");
+
+                BridgeNativeMethods.OptionalStringView_Free(handle);
+            }
+        }
+        TestLogger.Info("OptionalStringView (empty): passed");
+    }
+
+    public unsafe void TestOptionalClosureWithCallback()
+    {
+        OptionalClosureState.Reset();
+
+        delegate* unmanaged[Cdecl]<int, IntPtr, void> callbackPtr = &OptionalClosureState.OnCallback;
+        var handle = BridgeNativeMethods.OptionalClosureView_Create((IntPtr)callbackPtr, IntPtr.Zero);
+        AssertTrue(handle != IntPtr.Zero, "OptionalClosureView handle != 0");
+
+        var result = BridgeTestHelpers.OptionalClosureView_InvokeClosure(handle, 99);
+        AssertEqual(1, result, "OptionalClosureView callback exists");
+        AssertEqual(1, OptionalClosureState.CallCount, "OptionalClosureView callback fired");
+        AssertEqual(99, OptionalClosureState.LastValue, "OptionalClosureView arg round-trip");
+
+        BridgeNativeMethods.OptionalClosureView_Free(handle);
+        TestLogger.Info("OptionalClosureView (with callback): passed");
+    }
+
+    public void TestOptionalClosureNil()
+    {
+        // When callback function pointer is nil, the bridge still creates a non-nil wrapper closure
+        // (optional chaining makes cb_callback?(...) a no-op). The View's callback is non-nil
+        // but calling it does nothing. This is by design — closures are already nullable in the ABI.
+        OptionalClosureState.Reset();
+
+        var handle = BridgeNativeMethods.OptionalClosureView_Create(IntPtr.Zero, IntPtr.Zero);
+        AssertTrue(handle != IntPtr.Zero, "OptionalClosureView nil handle != 0");
+
+        // The closure exists but invoking it is a no-op (cb_callback is nil)
+        var result = BridgeTestHelpers.OptionalClosureView_InvokeClosure(handle, 42);
+        AssertEqual(1, result, "OptionalClosureView wrapper closure exists");
+        // The inner C callback was never called (it was nil)
+        AssertEqual(0, OptionalClosureState.CallCount, "OptionalClosureView nil cb not invoked");
+
+        BridgeNativeMethods.OptionalClosureView_Free(handle);
+        TestLogger.Info("OptionalClosureView (nil): passed");
+    }
+
+    public unsafe void TestMixedStringView()
+    {
+        StringClosureState.Reset();
+
+        delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> callbackPtr = &StringClosureState.OnResultCallback;
+        var titleBytes = Encoding.UTF8.GetBytes("mixed title");
+        fixed (byte* titlePtr = titleBytes)
+        {
+            var handle = BridgeNativeMethods.MixedStringView_Create(
+                (IntPtr)titlePtr, titleBytes.Length,
+                (IntPtr)callbackPtr, IntPtr.Zero);
+            AssertTrue(handle != IntPtr.Zero, "MixedStringView handle != 0");
+
+            var titleLen = BridgeTestHelpers.MixedStringView_GetTitleLength(handle);
+            AssertEqual(11, titleLen, "MixedStringView title length");
+
+            // Invoke closure
+            var resultBytes = Encoding.UTF8.GetBytes("result");
+            fixed (byte* resultPtr = resultBytes)
+            {
+                var result = BridgeTestHelpers.MixedStringView_InvokeClosure(handle, (IntPtr)resultPtr, resultBytes.Length);
+                AssertEqual(1, result, "MixedStringView invoke success");
+            }
+
+            AssertEqual(1, StringClosureState.CallCount, "MixedStringView callback fired");
+            AssertEqual("result", StringClosureState.LastValue!, "MixedStringView result round-trip");
+
+            BridgeNativeMethods.MixedStringView_Free(handle);
+        }
+        TestLogger.Info("MixedStringView: create/read/invoke/free cycle passed");
     }
 }
 

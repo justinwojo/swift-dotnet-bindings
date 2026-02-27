@@ -100,3 +100,70 @@ public struct OptionalClassView: View {
         Text("OptionalClass: \(model?.getValue() ?? -1)")
     }
 }
+
+/// Tests TypedClosure with String argument: (String) -> Void.
+public struct StringClosureView: View {
+    public let onResult: (String) -> Void
+
+    public init(onResult: @escaping (String) -> Void) {
+        self.onResult = onResult
+    }
+
+    public var body: some View {
+        Text("StringClosure")
+    }
+}
+
+/// Tests TypedClosure with class argument: (SimpleModel) -> Void.
+public struct ClassClosureView: View {
+    public let onModel: (SimpleModel) -> Void
+
+    public init(onModel: @escaping (SimpleModel) -> Void) {
+        self.onModel = onModel
+    }
+
+    public var body: some View {
+        Text("ClassClosure")
+    }
+}
+
+/// Tests Optional<String> parameter kind.
+public struct OptionalStringView: View {
+    public let title: String?
+
+    public init(title: String? = nil) {
+        self.title = title
+    }
+
+    public var body: some View {
+        Text("OptionalString: \(title ?? "nil")")
+    }
+}
+
+/// Tests Optional<Closure> parameter kind.
+public struct OptionalClosureView: View {
+    public let callback: ((Int32) -> Void)?
+
+    public init(callback: ((Int32) -> Void)? = nil) {
+        self.callback = callback
+    }
+
+    public var body: some View {
+        Text("OptionalClosure")
+    }
+}
+
+/// Tests mixed String parameter + String closure.
+public struct MixedStringView: View {
+    public let title: String
+    public let onResult: (String) -> Void
+
+    public init(title: String, onResult: @escaping (String) -> Void) {
+        self.title = title
+        self.onResult = onResult
+    }
+
+    public var body: some View {
+        Text("MixedString: \(title)")
+    }
+}

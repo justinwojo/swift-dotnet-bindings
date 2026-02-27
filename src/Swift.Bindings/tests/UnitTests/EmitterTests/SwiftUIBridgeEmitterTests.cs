@@ -968,13 +968,17 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     }
 
     [Fact]
-    public void InitAnalyzer_OptionalString_IsNotSupported()
+    public void InitAnalyzer_OptionalString_IsSupported()
     {
-        // Optional<String> is not supported in Phase 1A (reference type semantics)
         var ctor = CreateConstructorWithOptionalPrimitive("title", "Swift.String");
         var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor);
 
-        Assert.Null(result); // String has its own Kind, not Primitive → blocked
+        Assert.NotNull(result);
+        Assert.Single(result);
+        Assert.Equal(BridgeParameterKind.OptionalWrapped, result[0].Kind);
+        Assert.NotNull(result[0].InnerParameter);
+        Assert.Equal(BridgeParameterKind.String, result[0].InnerParameter!.Kind);
+        Assert.True(result[0].HasLength);
     }
 
     [Fact]
@@ -1447,14 +1451,18 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     }
 
     [Fact]
-    public void InitAnalyzer_TypedClosure_StringArg_ForcesTemplate()
+    public void InitAnalyzer_TypedClosure_StringArg_IsSupported()
     {
-        // String closure args are not supported in Phase 1C
         var ctor = CreateConstructorWithTypedClosure("callback",
             new NamedTypeSpec("Swift.String"), TupleTypeSpec.Empty);
         var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor);
 
-        Assert.Null(result);
+        Assert.NotNull(result);
+        Assert.Single(result);
+        Assert.Equal(BridgeParameterKind.TypedClosure, result[0].Kind);
+        Assert.NotNull(result[0].ClosureArguments);
+        Assert.Single(result[0].ClosureArguments!);
+        Assert.Equal(BridgeParameterKind.String, result[0].ClosureArguments![0].Kind);
     }
 
     [Fact]
@@ -3964,6 +3972,424 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
         // skip is checked first → Skipped (not Unsupported/forceTemplate)
         Assert.Equal(ViewInitClassification.Skipped, info.Classification);
+    }
+
+    #endregion
+
+    #region Closure String/Class Args + Optional<String/Closure> (Session 1)
+
+    [Fact]
+    public void InitAnalyzer_TypedClosure_StringArg_AbiHasPtrAndLen()
+    {
+        var ctor = CreateConstructorWithTypedClosure("callback",
+            new NamedTypeSpec("Swift.String"), TupleTypeSpec.Empty);
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor);
+
+        Assert.NotNull(result);
+        // ABI type should include ptr + Int for length
+        Assert.Contains("UnsafePointer<UInt8>?", result[0].SwiftAbiType);
+        Assert.Contains("Int", result[0].SwiftAbiType);
+    }
+
+    [Fact]
+    public void InitAnalyzer_TypedClosure_ClassArg_IsSupported_WithTypeDatabase()
+    {
+        var typeDb = CreateClassTypeDatabase();
+        var context = new BridgeContext(typeDb);
+        var ctor = CreateConstructorWithTypedClosure("onModel",
+            new NamedTypeSpec("TestModule.LottieAnimation"), TupleTypeSpec.Empty);
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
+
+        Assert.NotNull(result);
+        Assert.Single(result);
+        Assert.Equal(BridgeParameterKind.TypedClosure, result[0].Kind);
+        Assert.NotNull(result[0].ClosureArguments);
+        Assert.Single(result[0].ClosureArguments!);
+        Assert.Equal(BridgeParameterKind.BoundType, result[0].ClosureArguments![0].Kind);
+        Assert.Equal("LottieAnimation", result[0].ClosureArguments![0].BridgeTypeName);
+    }
+
+    [Fact]
+    public void InitAnalyzer_TypedClosure_ClassArg_Rejected_WithoutTypeDatabase()
+    {
+        var ctor = CreateConstructorWithTypedClosure("onModel",
+            new NamedTypeSpec("TestModule.LottieAnimation"), TupleTypeSpec.Empty);
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void InitAnalyzer_TypedClosure_EnumArg_StillRejected()
+    {
+        // Enums in closures are not supported — only classes via TypeDB
+        var typeDb = CreateEnumTypeDatabase();
+        var context = new BridgeContext(typeDb);
+        var ctor = CreateConstructorWithTypedClosure("onStyle",
+            new NamedTypeSpec("TestModule.AlertStyle"), TupleTypeSpec.Empty);
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void InitAnalyzer_TypedClosure_MixedStringAndPrimitive_IsSupported()
+    {
+        // (String, Int32) -> Void
+        var argsTuple = new TupleTypeSpec(new TypeSpec[]
+        {
+            new NamedTypeSpec("Swift.String"),
+            new NamedTypeSpec("Swift.Int32"),
+        });
+        var ctor = CreateConstructorWithTypedClosure("handler", argsTuple, TupleTypeSpec.Empty);
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor);
+
+        Assert.NotNull(result);
+        Assert.Equal(2, result[0].ClosureArguments!.Count);
+        Assert.Equal(BridgeParameterKind.String, result[0].ClosureArguments![0].Kind);
+        Assert.Equal(BridgeParameterKind.Primitive, result[0].ClosureArguments![1].Kind);
+    }
+
+    [Fact]
+    public void InitAnalyzer_TypedClosure_StringReturn_StillRejected()
+    {
+        // String returns in closures are deferred to 1B
+        var ctor = CreateConstructorWithTypedClosure("getter",
+            TupleTypeSpec.Empty, new NamedTypeSpec("Swift.String"));
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void InitAnalyzer_OptionalVoidClosure_MapsToVoidClosure()
+    {
+        var ctor = CreateConstructorWithOptionalClosure("callback");
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor);
+
+        Assert.NotNull(result);
+        Assert.Single(result);
+        Assert.Equal(BridgeParameterKind.VoidClosure, result[0].Kind);
+        Assert.True(result[0].HasUserData);
+    }
+
+    [Fact]
+    public void InitAnalyzer_OptionalTypedClosure_MapsToTypedClosure()
+    {
+        var ctor = CreateConstructorWithOptionalTypedClosure("callback",
+            new NamedTypeSpec("Swift.Int32"), TupleTypeSpec.Empty);
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor);
+
+        Assert.NotNull(result);
+        Assert.Single(result);
+        Assert.Equal(BridgeParameterKind.TypedClosure, result[0].Kind);
+        Assert.NotNull(result[0].ClosureArguments);
+        Assert.Single(result[0].ClosureArguments!);
+    }
+
+    [Fact]
+    public void EmitStringClosureArg_Swift_ContainsUtf8Encoding()
+    {
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "callback",
+            new NamedTypeSpec("Swift.String"), TupleTypeSpec.Empty) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("Array(arg0.utf8)", swiftContent);
+        Assert.Contains("withUnsafeBufferPointer", swiftContent);
+    }
+
+    [Fact]
+    public void EmitStringClosureArg_CSharp_TrampolineDecodesUtf8()
+    {
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "callback",
+            new NamedTypeSpec("Swift.String"), TupleTypeSpec.Empty) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("Encoding.UTF8.GetString", csContent);
+        Assert.Contains("arg0Ptr", csContent);
+        Assert.Contains("arg0Len", csContent);
+    }
+
+    [Fact]
+    public void EmitStringClosureArg_CSharp_FnPtrHasPtrAndLen()
+    {
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "callback",
+            new NamedTypeSpec("Swift.String"), TupleTypeSpec.Empty) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void>", csContent);
+    }
+
+    [Fact]
+    public void EmitStringClosureArg_CSharp_DelegateUsesString()
+    {
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "callback",
+            new NamedTypeSpec("Swift.String"), TupleTypeSpec.Empty) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("Action<string>", csContent);
+    }
+
+    [Fact]
+    public void EmitStringClosureWithReturn_Swift_HasReturnType()
+    {
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "validator",
+            new NamedTypeSpec("Swift.String"), new NamedTypeSpec("Swift.Int32")) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        // Closure should have return type annotation and return expression
+        Assert.Contains("-> Int32 in", swiftContent);
+        Assert.Contains("return cb_validator", swiftContent);
+        Assert.Contains("?? 0", swiftContent);
+        // Each withUnsafeBufferPointer must have `return` prefix for non-void closures
+        Assert.Contains("return arg0Bytes.withUnsafeBufferPointer", swiftContent);
+    }
+
+    [Fact]
+    public void EmitStringClosureWithReturn_CSharp_HasFuncDelegate()
+    {
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "validator",
+            new NamedTypeSpec("Swift.String"), new NamedTypeSpec("Swift.Int32")) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("Func<string, int>", csContent);
+    }
+
+    [Fact]
+    public void EmitClassClosureArg_Swift_UsesUnmanagedPassRetained()
+    {
+        var typeDb = CreateClassTypeDatabase();
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "onModel",
+            new NamedTypeSpec("TestModule.LottieAnimation"), TupleTypeSpec.Empty) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("Unmanaged.passRetained(arg0).toOpaque()", swiftContent);
+    }
+
+    [Fact]
+    public void EmitClassClosureArg_CSharp_UsesMarshalFromSwift()
+    {
+        var typeDb = CreateClassTypeDatabase();
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "onModel",
+            new NamedTypeSpec("TestModule.LottieAnimation"), TupleTypeSpec.Empty) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("NativeMemory.Alloc", csContent);
+        Assert.Contains("SwiftMarshal.MarshalFromSwift", csContent);
+    }
+
+    [Fact]
+    public void EmitClassClosureArg_CSharp_DelegateUsesTypedClassName()
+    {
+        var typeDb = CreateClassTypeDatabase();
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "onModel",
+            new NamedTypeSpec("TestModule.LottieAnimation"), TupleTypeSpec.Empty) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("Action<Swift.TestModule.LottieAnimation>", csContent);
+    }
+
+    [Fact]
+    public void EmitOptionalString_Swift_HasNilCheckBranching()
+    {
+        var views = new List<TypeDecl> { CreateViewWithOptionalPrimitiveInit("OptView", "title", "Swift.String") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("titlePtr == nil", swiftContent);
+        Assert.Contains("titleString = nil", swiftContent);
+        Assert.Contains("title: titleString", swiftContent);
+    }
+
+    [Fact]
+    public void EmitOptionalString_CSharp_HasNullableStringParam()
+    {
+        var views = new List<TypeDecl> { CreateViewWithOptionalPrimitiveInit("OptView", "title", "Swift.String") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("string? title", csContent);
+        Assert.Contains("titlePtr", csContent);
+        Assert.Contains("titleLen", csContent);
+    }
+
+    [Fact]
+    public void EmitOptionalString_CSharp_HasNullHandling()
+    {
+        var views = new List<TypeDecl> { CreateViewWithOptionalPrimitiveInit("OptView", "title", "Swift.String") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("title == null ? IntPtr.Zero", csContent);
+    }
+
+    [Fact]
+    public void EmitOptionalString_GeneratesFunctionalBridge_NotTemplate()
+    {
+        var views = new List<TypeDecl> { CreateViewWithOptionalPrimitiveInit("OptView", "title", "Swift.String") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("@_cdecl(\"SBW_TestModule_OptView_Create\")", swiftContent);
+        Assert.DoesNotContain("BRIDGE TEMPLATE", swiftContent);
+    }
+
+    [Fact]
+    public void EmitOptionalString_Swift_CreateParamsHavePtrAndLen()
+    {
+        var views = new List<TypeDecl> { CreateViewWithOptionalPrimitiveInit("OptView", "title", "Swift.String") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("_ titlePtr: UnsafePointer<UInt8>?", swiftContent);
+        Assert.Contains("_ titleLen: Int", swiftContent);
+    }
+
+    [Fact]
+    public void EmitOptionalString_CSharp_PInvokeHasPtrAndLen()
+    {
+        var views = new List<TypeDecl> { CreateViewWithOptionalPrimitiveInit("OptView", "title", "Swift.String") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("IntPtr titlePtr", csContent);
+        Assert.Contains("nint titleLen", csContent);
+    }
+
+    [Fact]
+    public void EmitOptionalString_CSharp_DefaultValueIsNull()
+    {
+        var views = new List<TypeDecl> { CreateViewWithOptionalPrimitiveInit("OptView", "title", "Swift.String") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("string? title = null", csContent);
+    }
+
+    // Helper methods for new test types
+    private static MethodDecl CreateConstructorWithOptionalClosure(string paramName)
+    {
+        var closureSpec = new ClosureTypeSpec();
+        var optionalSpec = new NamedTypeSpec("Swift.Optional", closureSpec);
+        return new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule_init",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+            ParentDecl = null,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "",
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.TestView"),
+                    ParentDecl = null,
+                    ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    Name = paramName,
+                    PrivateName = paramName,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    SwiftTypeSpec = optionalSpec,
+                    ParentDecl = null,
+                    ModuleDecl = null,
+                },
+            },
+        };
+    }
+
+    private static MethodDecl CreateConstructorWithOptionalTypedClosure(string paramName, TypeSpec args, TypeSpec returnType)
+    {
+        var closureSpec = new ClosureTypeSpec(args, returnType);
+        var optionalSpec = new NamedTypeSpec("Swift.Optional", closureSpec);
+        return new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule_init",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+            ParentDecl = null,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "",
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.TestView"),
+                    ParentDecl = null,
+                    ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    Name = paramName,
+                    PrivateName = paramName,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    SwiftTypeSpec = optionalSpec,
+                    ParentDecl = null,
+                    ModuleDecl = null,
+                },
+            },
+        };
     }
 
     #endregion
