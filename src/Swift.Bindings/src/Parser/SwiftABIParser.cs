@@ -644,9 +644,14 @@ namespace BindingsGeneration
         /// <returns>The enum case declaration.</returns>
         private EnumCaseDecl CreateEnumCaseDecl(Node node, BaseDecl parentDecl, ModuleDecl moduleDecl)
         {
+            // Strip Swift backtick escaping (e.g., `subscript` → subscript).
+            var caseName = node.Name;
+            if (caseName.Length >= 2 && caseName[0] == '`' && caseName[caseName.Length - 1] == '`')
+                caseName = caseName.Substring(1, caseName.Length - 2);
+
             var enumCaseDecl = new EnumCaseDecl
             {
-                Name = node.Name,
+                Name = caseName,
                 MangledName = node.MangledName,
                 AssociatedValues = new List<TypeSpec>(),
                 ParentDecl = parentDecl,
@@ -1227,8 +1232,14 @@ namespace BindingsGeneration
         {
             var typeSpec = CreateTypeSpec(node.Children.ElementAt(0));
 
+            // Strip Swift backtick escaping (e.g., `subscript` → subscript).
+            // Methods already do this via ExtractUniqueNameWithOriginal.
+            var rawName = node.Name;
+            if (rawName.Length >= 2 && rawName[0] == '`' && rawName[rawName.Length - 1] == '`')
+                rawName = rawName.Substring(1, rawName.Length - 2);
+
             // Sanitize property wrapper projected value names ($volume -> projectedVolume)
-            var sanitizedName = NameProvider.SanitizePropertyWrapperName(node.Name);
+            var sanitizedName = NameProvider.SanitizePropertyWrapperName(rawName);
 
             var decl = new PropertyDecl
             {

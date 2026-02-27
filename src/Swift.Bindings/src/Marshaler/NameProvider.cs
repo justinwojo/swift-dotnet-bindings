@@ -232,7 +232,12 @@ public static class NameProvider
         // Use last 8 chars of mangled name hash to disambiguate overloads
         // whose parameters marshal to the same C# types (e.g., URL and ImageRequest both become SafeHandle)
         var mangledHash = EmitterUtility.DeterministicHash8(methodDecl.MangledName);
-        return $"PInvoke_{methodDecl.Name}_{mangledHash}";
+        // Sanitize the method name: strip backticks (Swift keyword escaping) and
+        // invalid C# identifier chars (emoji like 🚫 used in ObjC compatibility shims)
+        var sanitizedName = SanitizeIdentifierChars(methodDecl.Name.Replace("`", ""));
+        if (string.IsNullOrEmpty(sanitizedName))
+            sanitizedName = "unnamed";
+        return $"PInvoke_{sanitizedName}_{mangledHash}";
     }
 
 

@@ -96,6 +96,18 @@ namespace BindingsGeneration
             {
                 csWriter.WriteLine($"elementMetadataArray[{index}] = TypeMetadata.GetTypeMetadataOrThrow<{csharpType}>();");
             }
+            // Frozen structs from framework databases (e.g., CGPoint, UIEdgeInsets) are plain C# value types
+            // that don't implement ISwiftObject — SwiftObjectHelper<T> requires ISwiftObject constraint.
+            // Check the type database: if it's a frozen struct that isn't projected as a class (no .Buffer),
+            // use GetTypeMetadataOrThrow<T>() which works with any blittable value type.
+            else if (typeSpec is NamedTypeSpec frozenSpec && frozenSpec.HasModule() &&
+                     typeDatabase.TryGetTypeRecord(frozenSpec, out var frozenRecord) &&
+                     frozenRecord.Kind == TypeRecordKind.Struct &&
+                     MarshallingHelpers.IsTypeFrozen(frozenRecord) &&
+                     !MarshallingHelpers.IsFrozenStructProjectedAsClass(frozenRecord))
+            {
+                csWriter.WriteLine($"elementMetadataArray[{index}] = TypeMetadata.GetTypeMetadataOrThrow<{csharpType}>();");
+            }
             else
             {
                 // Assume the type implements ISwiftObject

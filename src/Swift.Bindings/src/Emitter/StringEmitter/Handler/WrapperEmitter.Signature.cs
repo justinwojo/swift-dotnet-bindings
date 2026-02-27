@@ -62,7 +62,7 @@ namespace BindingsGeneration
                 // Otherwise CS0115 ("no suitable method found to override") occurs when:
                 // - The ancestor is external (NSObject, UIView, etc.) — no C# base class
                 // - The ancestor method was skipped by validation gates — no C# method to override
-                if (_env.MethodDecl.IsOverride && HasMethodInResolvedAncestors(classParent, _env.MethodDecl))
+                if (_env.MethodDecl.IsOverride && HasMethodInResolvedAncestors(classParent, _env.MethodDecl, _env.CSharpMethodName, _env.TypeDatabase))
                 {
                     dispatchModifier = _env.MethodDecl.IsFinal ? "sealed override " : "override ";
                 }
@@ -252,10 +252,13 @@ namespace BindingsGeneration
         /// and matching parameter types that was actually emitted into C# output.
         /// Matches by name + parameter count + Swift type spec strings to handle overloaded methods
         /// where only some overloads were emitted.
+        /// Also verifies that the ancestor method's C# name matches the derived method's C# name,
+        /// because property collision rules (e.g., "With" prefix for self-returning builders) can
+        /// produce different C# names for the same Swift method in base vs derived classes.
         /// Returns false when: the chain reaches an external ancestor (null), the ancestor has
         /// unsupported constraints, or no ancestor has an emitted method matching by full signature.
         /// </summary>
-        internal static bool HasMethodInResolvedAncestors(ClassDecl classDecl, MethodDecl method)
+        internal static bool HasMethodInResolvedAncestors(ClassDecl classDecl, MethodDecl method, string? derivedCSharpName = null, ITypeDatabase? typeDatabase = null)
         {
             var ancestor = classDecl.ResolvedSuperclass;
             // CSSignature[0] is the return type; parameters start at [1]
@@ -271,11 +274,60 @@ namespace BindingsGeneration
                     && !m.IsAccessor
                     && !m.IsConstructor
                     && (m.CSSignature.Count - 1) == paramCount
-                    && ParameterTypesMatch(m, paramTypes)))
+                    && ParameterTypesMatch(m, paramTypes)
+                    && (derivedCSharpName == null || AncestorCSharpNameMatches(m, ancestor, derivedCSharpName, typeDatabase))))
                     return true;
                 ancestor = ancestor.ResolvedSuperclass;
             }
             return false;
+        }
+
+        /// <summary>
+        /// Computes the C# method name for an ancestor method and checks if it matches the derived name.
+        /// Uses the production ComputePropertyRenames path (ClassHandler.cs:104) when a TypeDatabase is
+        /// available, which applies type-based filtering and AsyncStream handling. Falls back to
+        /// ComputePropertyRenamesForNestedTypeCollisions (nested-type collision only) when no TypeDatabase
+        /// is provided (e.g., from tests that don't set up a full type database).
+        /// </summary>
+        private static bool AncestorCSharpNameMatches(MethodDecl ancestorMethod, ClassDecl ancestorClass, string derivedCSharpName, ITypeDatabase? typeDatabase)
+        {
+            // Build property name set matching ClassHandler.cs:262-267:
+            // - GetPropertyName (handles keyword escaping, wrapper sanitization, type-name collision)
+            // - GetFinalMemberName (applies property renames computed identically to ClassHandler.cs:104)
+            // - Nested type names (CS0102 collision with method names)
+            // Production uses ALL declared properties (not just emitted ones) in the final
+            // collision set — a non-emitted property still occupies the name and can cause
+            // method name collisions.
+            var propertyRenames = typeDatabase != null
+                ? NameProvider.ComputePropertyRenames(ancestorClass, typeDatabase)
+                : NameProvider.ComputePropertyRenamesForNestedTypeCollisions(
+                    ancestorClass.Properties.Select(p => NameProvider.GetPropertyName(p.Name, ancestorClass.Name)),
+                    ancestorClass.Types.Select(t => t.Name));
+            var ancestorProps = new HashSet<string>(
+                ancestorClass.Properties
+                    .Select(p => NameProvider.GetFinalMemberName(
+                        NameProvider.GetPropertyName(p.Name, ancestorClass.Name), propertyRenames)),
+                StringComparer.Ordinal);
+            // Nested type names collide with method names in C# (CS0102)
+            foreach (var nestedType in ancestorClass.Types)
+                ancestorProps.Add(NameProvider.ToPascalCase(nestedType.Name));
+
+            // Use the canonical IsSelfReturningMethod helper which also checks
+            // concrete parent-type returns (not just DynamicSelf/literal "Self").
+            bool isSelfReturning = MethodEnvironment.IsSelfReturningMethod(ancestorMethod);
+
+            int parameterCount = ancestorMethod.CSSignature.Skip(1)
+                .Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a));
+
+            var ancestorCSharpName = NameProvider.GetPublicMethodName(
+                ancestorMethod.Name, ancestorMethod.IsAsync,
+                hasReturnValue: !ancestorMethod.IsAccessor && ancestorMethod.CSSignature.Count > 0 && !ancestorMethod.CSSignature.First().SwiftTypeSpec.IsEmptyTuple,
+                ancestorProps,
+                isSelfReturning: isSelfReturning,
+                parentTypeName: ancestorClass.Name,
+                parameterCount: parameterCount);
+
+            return ancestorCSharpName == derivedCSharpName;
         }
 
         /// <summary>

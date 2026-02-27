@@ -142,9 +142,10 @@ build_source() {
     prod_count=$(manifest_product_count "$lib_idx")
 
     for ((j=0; j<prod_count; j++)); do
-        local scheme framework
+        local scheme framework project project_args
         scheme=$(manifest_product_field "$lib_idx" "$j" scheme "")
         framework=$(manifest_product_field "$lib_idx" "$j" framework)
+        project=$(manifest_product_field "$lib_idx" "$j" project "")
 
         if [[ -z "$scheme" ]]; then
             echo -e "  ${RED}Product $framework missing 'scheme' (required for source mode)${NC}"
@@ -152,9 +153,15 @@ build_source() {
             return 1
         fi
 
+        project_args=()
+        if [[ -n "$project" ]]; then
+            project_args=(-project "$project")
+        fi
+
         echo -e "  ${CYAN}Building $framework (scheme: $scheme) — device${NC}"
         if ! (cd "$build_dir/source" && xcodebuild archive \
             -scheme "$scheme" \
+            ${project_args[@]+"${project_args[@]}"} \
             -destination "generic/platform=iOS" \
             -archivePath "$archives_dir/${framework}-ios-arm64" \
             -derivedDataPath "$derived_data/device" \
@@ -172,6 +179,7 @@ build_source() {
         echo -e "  ${CYAN}Building $framework (scheme: $scheme) — simulator${NC}"
         if ! (cd "$build_dir/source" && xcodebuild archive \
             -scheme "$scheme" \
+            ${project_args[@]+"${project_args[@]}"} \
             -destination "generic/platform=iOS Simulator" \
             -archivePath "$archives_dir/${framework}-ios-simulator" \
             -derivedDataPath "$derived_data/simulator" \

@@ -1025,7 +1025,19 @@ public static class MethodClosureBridge
                 {
                     var parentTypeSpec = new NamedTypeSpec(parentDecl.SwiftTypeName.ModuleQualifiedName);
                     if (env.TypeDatabase.TryGetTypeRecord(parentTypeSpec, out var parentRecord))
-                        return parentRecord.CSharpTypeName.FullyQualifiedName;
+                    {
+                        var baseName = parentRecord.CSharpTypeName.FullyQualifiedName;
+                        // For generic parent types, append C# generic type parameters
+                        if (parentDecl.IsGeneric && parentDecl.GenericParameters.Count > 0)
+                        {
+                            var genericContext = GenericContext.FromType(parentDecl);
+                            var csParams = parentDecl.GenericParameters
+                                .Select(gp => genericContext.TryResolve(gp.TypeName, out var csName) ? csName : gp.TypeName)
+                                .ToList();
+                            return $"{baseName}<{string.Join(", ", csParams)}>";
+                        }
+                        return baseName;
+                    }
                 }
                 return "IntPtr";
             }

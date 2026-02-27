@@ -112,7 +112,19 @@ public class TypeProjectionFactory
                 return null;
             if (!context.TypeDatabase.TryGetTypeRecord(context.ParentTypeDecl.SwiftTypeName, out var selfTypeRecord))
                 return null;
-            return CreateProjectionForTypeRecord(selfTypeRecord);
+            // For generic parent types (e.g., ServiceEntry<TService>), append the mapped C# generic
+            // type parameters to the resolved type name. Without this, Self resolves to the bare name
+            // "ServiceEntry" instead of "ServiceEntry<TService>", causing CS0305.
+            string? typeNameOverride = null;
+            if (context.ParentTypeDecl.IsGeneric && context.ParentTypeDecl.GenericParameters.Count > 0)
+            {
+                var genericContext = context.GenericContext ?? GenericContext.FromType(context.ParentTypeDecl);
+                var csGenericParams = context.ParentTypeDecl.GenericParameters
+                    .Select(gp => genericContext.TryResolve(gp.TypeName, out var csName) ? csName : gp.TypeName)
+                    .ToList();
+                typeNameOverride = $"{selfTypeRecord.CSharpTypeName.FullyQualifiedName}<{string.Join(", ", csGenericParams)}>";
+            }
+            return CreateProjectionForTypeRecord(selfTypeRecord, typeNameOverride);
         }
 
         // Route NamedTypeSpec.IsAny to existential

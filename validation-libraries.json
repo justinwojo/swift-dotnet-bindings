@@ -9,7 +9,7 @@
       "minIOS": "15.0",
       "products": [
         {
-          "scheme": "Alamofire",
+          "scheme": "Alamofire iOS",
           "framework": "Alamofire"
         }
       ],
@@ -80,6 +80,7 @@
       "products": [
         {
           "scheme": "GRDB",
+          "project": "GRDB.xcodeproj",
           "framework": "GRDB"
         }
       ],
@@ -214,7 +215,7 @@
       "minIOS": "15.0",
       "products": [
         {
-          "scheme": "SkeletonView",
+          "scheme": "SkeletonView iOS",
           "framework": "SkeletonView"
         }
       ],

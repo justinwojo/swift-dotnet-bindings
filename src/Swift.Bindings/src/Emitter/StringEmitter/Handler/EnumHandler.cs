@@ -384,7 +384,8 @@ namespace BindingsGeneration
             var caseName = caseDecl.Name;
             var capitalizedName = NameProvider.GetFinalMemberName(
                 NameProvider.GetCaseName(caseName, caseNameMap), propertyRenames);
-            var fieldName = caseName;
+            // Strip backticks for field names (belt-and-suspenders — parser should already strip them)
+            var fieldName = caseName.Replace("`", "");
             var caseTag = enumDecl.GetCaseTag(caseDecl);
 
             if (canCacheCases)

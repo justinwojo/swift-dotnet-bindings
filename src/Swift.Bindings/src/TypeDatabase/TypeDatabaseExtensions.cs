@@ -826,6 +826,10 @@ public static class TypeDatabaseExtensions
         ["QuartzCore.CAMediaTimingFunctionName"] = ("Foundation", "NSString"),
         ["QuartzCore.CATransitionType"] = ("Foundation", "NSString"),
         ["QuartzCore.CATransitionSubtype"] = ("Foundation", "NSString"),
+
+        // QuartzCore: casing difference — Swift uses lowercase 'f' (CAKeyframeAnimation),
+        // .NET iOS uses capital 'F' (CAKeyFrameAnimation)
+        ["QuartzCore.CAKeyframeAnimation"] = ("CoreAnimation", "CAKeyFrameAnimation"),
     };
 
     /// <summary>

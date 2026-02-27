@@ -171,6 +171,10 @@ namespace BindingsGeneration
                     }
                     return;
                 }
+                // Unsupported closure return: MemberEmissionValidator should have caught this,
+                // but guard against fallthrough to GetTypeRecordOrThrow (which crashes on ClosureTypeSpec).
+                csWriter.WriteLine("return result;");
+                return;
             }
 
             // Handle existential return types (any Protocol) - wrap container in proxy

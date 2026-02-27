@@ -447,6 +447,23 @@ public static class MemberEmissionValidator
             }
         }
 
+        // B21: Check for unsupported closure return types.
+        // Methods returning closures where IsSupportedClosure is false will crash in
+        // EmitReturnMethod (fallthrough to GetTypeRecordOrThrow on ClosureTypeSpec).
+        if (method.CSSignature.Count > 0)
+        {
+            var returnArg = method.CSSignature[0];
+            if (closureHandler.IsClosure(returnArg))
+            {
+                var closureTypeSpec = closureHandler.GetClosureTypeSpec(returnArg);
+                if (closureTypeSpec == null || !closureHandler.IsSupportedClosure(closureTypeSpec))
+                {
+                    skipDetails = "Return type is an unsupported closure type.";
+                    return SkipReason.UnsupportedClosure;
+                }
+            }
+        }
+
         // Check for non-simple enum return types that require memory management (B18)
         // C8: Also check inside Optional<Enum> — unwrap Swift.Optional to inspect inner type
         // Only applies to synchronous methods — async methods use callback-based return, not .Buffer
