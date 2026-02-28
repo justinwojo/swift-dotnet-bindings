@@ -42,14 +42,40 @@ public static class ExistentialBypassEmitter
         var allArgs = methodDecl.CSSignature.Skip(1).ToList();
         var existentialArgs = new List<ArgumentDecl>();
         var passthroughArgs = new List<ArgumentDecl>();
+        var closureHandler = new ClosureHandler(env.TypeDatabase);
 
         foreach (var arg in allArgs)
         {
-            if (env.BoundGenericsHandler.IsBoundGeneric(arg) &&
-                (env.BoundGenericsHandler.TryGetFirstExistentialTypeArgument(arg.SwiftTypeSpec, out _) ||
-                 env.BoundGenericsHandler.TryGetFirstUnsupportedExistentialTypeArgument(arg.SwiftTypeSpec, out _)))
+            // Two-tier existential check matching MethodHandler + BuildReducedMethodDecl:
+            // 1. Unsupported existentials are always omittable
+            // 2. Supported existentials only if NOT in a container with dedicated handling
+            //    (Array<any P>, Dict<K, any P>, Optional<any P> go through normal emission)
+            if (env.BoundGenericsHandler.IsBoundGeneric(arg))
             {
-                existentialArgs.Add(arg);
+                if (env.BoundGenericsHandler.TryGetFirstUnsupportedExistentialTypeArgument(arg.SwiftTypeSpec, out _))
+                {
+                    existentialArgs.Add(arg);
+                    continue;
+                }
+                if (env.BoundGenericsHandler.TryGetFirstExistentialTypeArgument(arg.SwiftTypeSpec, out _) &&
+                    !env.BoundGenericsHandler.IsContainerWithSupportedDirectExistential(arg.SwiftTypeSpec))
+                {
+                    existentialArgs.Add(arg);
+                    continue;
+                }
+            }
+
+            if (closureHandler.IsOptionalClosure(arg.SwiftTypeSpec) && arg.HasDefaultArg)
+            {
+                var innerClosure = closureHandler.GetClosureTypeSpec(arg);
+                if (innerClosure != null && !closureHandler.IsSupportedClosure(innerClosure))
+                {
+                    existentialArgs.Add(arg); // Omit — Swift fills nil
+                }
+                else
+                {
+                    passthroughArgs.Add(arg);
+                }
             }
             else
             {
@@ -57,7 +83,7 @@ public static class ExistentialBypassEmitter
             }
         }
 
-        // Must have at least one existential argument
+        // Must have at least one omittable argument (existential or optional closure with default)
         if (existentialArgs.Count == 0)
             return false;
 
@@ -320,30 +346,60 @@ public static class ExistentialBypassEmitter
             return false;
         }
 
-        // Classify params into existential vs passthrough
+        // Classify params into existential/omittable vs passthrough
         var allArgs = methodDecl.CSSignature.Skip(1).ToList();
         var existentialArgs = new List<ArgumentDecl>();
         var passthroughArgs = new List<ArgumentDecl>();
+        var closureHandler = new ClosureHandler(env.TypeDatabase);
 
         foreach (var arg in allArgs)
         {
-            bool isExistentialBoundGeneric =
-                env.BoundGenericsHandler.IsBoundGeneric(arg) &&
-                (env.BoundGenericsHandler.TryGetFirstExistentialTypeArgument(arg.SwiftTypeSpec, out _) ||
-                 env.BoundGenericsHandler.TryGetFirstUnsupportedExistentialTypeArgument(arg.SwiftTypeSpec, out _));
+            // Two-tier existential check matching MethodHandler + BuildReducedMethodDecl:
+            // 1. Unsupported existentials are always omittable
+            // 2. Supported existentials only if NOT in a container with dedicated handling
+            //    (Array<any P>, Dict<K, any P>, Optional<any P> go through normal emission)
+            bool isOmittableExistential = false;
+            if (env.BoundGenericsHandler.IsBoundGeneric(arg))
+            {
+                if (env.BoundGenericsHandler.TryGetFirstUnsupportedExistentialTypeArgument(arg.SwiftTypeSpec, out _))
+                {
+                    isOmittableExistential = true;
+                }
+                else if (env.BoundGenericsHandler.TryGetFirstExistentialTypeArgument(arg.SwiftTypeSpec, out _) &&
+                         !env.BoundGenericsHandler.IsContainerWithSupportedDirectExistential(arg.SwiftTypeSpec))
+                {
+                    isOmittableExistential = true;
+                }
+            }
 
-            if (isExistentialBoundGeneric)
+            if (isOmittableExistential)
+            {
                 existentialArgs.Add(arg);
+            }
+            else if (closureHandler.IsOptionalClosure(arg.SwiftTypeSpec) && arg.HasDefaultArg)
+            {
+                var innerClosure = closureHandler.GetClosureTypeSpec(arg);
+                if (innerClosure != null && !closureHandler.IsSupportedClosure(innerClosure))
+                {
+                    existentialArgs.Add(arg); // Omit — Swift fills nil
+                }
+                else
+                {
+                    passthroughArgs.Add(arg);
+                }
+            }
             else
+            {
                 passthroughArgs.Add(arg);
+            }
         }
 
-        logger.LogDebug("ExistentialBypassEmitter: method '{Name}': {ExCount} existential, {PassCount} passthrough args.",
+        logger.LogDebug("ExistentialBypassEmitter: method '{Name}': {ExCount} omittable, {PassCount} passthrough args.",
             methodDecl.Name, existentialArgs.Count, passthroughArgs.Count);
 
         if (existentialArgs.Count == 0)
         {
-            logger.LogDebug("ExistentialBypassEmitter: rejected — no existential args found.");
+            logger.LogDebug("ExistentialBypassEmitter: rejected — no omittable args found.");
             return false;
         }
 
@@ -1106,5 +1162,98 @@ public static class ExistentialBypassEmitter
             default:
                 return typeSpec.ToString();
         }
+    }
+
+    /// <summary>
+    /// Checks whether a method has any Optional&lt;Closure&gt; parameters with HasDefaultArg
+    /// where the closure is unsupported. Used by MethodHandler to decide whether to attempt bypass.
+    /// </summary>
+    public static bool HasOptionalClosureWithDefault(MethodDecl method, ITypeDatabase typeDatabase)
+    {
+        var closureHandler = new ClosureHandler(typeDatabase);
+        foreach (var arg in method.CSSignature.Skip(1))
+        {
+            if (closureHandler.IsOptionalClosure(arg.SwiftTypeSpec) && arg.HasDefaultArg)
+            {
+                var innerClosure = closureHandler.GetClosureTypeSpec(arg);
+                if (innerClosure != null && !closureHandler.IsSupportedClosure(innerClosure))
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Builds a reduced MethodDecl with omittable params (existential bound generics and
+    /// unsupported Optional&lt;Closure&gt;+default) stripped. Used by MethodHandler for
+    /// reduced-signature dedup before calling TryEmitMethodBypass/TryEmitConstructorBypass.
+    /// Returns null if no params were omitted.
+    /// </summary>
+    public static MethodDecl? BuildReducedMethodDecl(MethodDecl method, ITypeDatabase typeDatabase)
+    {
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+
+        var passthroughArgs = new List<ArgumentDecl>();
+        bool hasOmitted = false;
+
+        foreach (var arg in method.CSSignature.Skip(1))
+        {
+            // Check existential bound generic — mirrors MethodHandler's two-tier check:
+            // 1. Unsupported existentials are always omittable
+            // 2. Supported existentials only if NOT in a container with dedicated handling
+            //    (Array<any P>, Dict<K, any P>, Optional<any P> go through normal emission)
+            if (boundGenericsHandler.IsBoundGeneric(arg))
+            {
+                if (boundGenericsHandler.TryGetFirstUnsupportedExistentialTypeArgument(arg.SwiftTypeSpec, out _))
+                {
+                    hasOmitted = true;
+                    continue;
+                }
+                if (boundGenericsHandler.TryGetFirstExistentialTypeArgument(arg.SwiftTypeSpec, out _) &&
+                    !boundGenericsHandler.IsContainerWithSupportedDirectExistential(arg.SwiftTypeSpec))
+                {
+                    hasOmitted = true;
+                    continue;
+                }
+            }
+
+            // Check unsupported Optional<Closure> with default
+            if (closureHandler.IsOptionalClosure(arg.SwiftTypeSpec) && arg.HasDefaultArg)
+            {
+                var innerClosure = closureHandler.GetClosureTypeSpec(arg);
+                if (innerClosure != null && !closureHandler.IsSupportedClosure(innerClosure))
+                {
+                    hasOmitted = true;
+                    continue;
+                }
+            }
+
+            passthroughArgs.Add(arg);
+        }
+
+        if (!hasOmitted)
+            return null;
+
+        var reducedSignature = new List<ArgumentDecl>
+        {
+            method.CSSignature.First() // return type
+        };
+        reducedSignature.AddRange(passthroughArgs);
+
+        return new MethodDecl
+        {
+            Name = method.Name,
+            MangledName = method.MangledName,
+            MethodType = method.MethodType,
+            IsConstructor = method.IsConstructor,
+            CSSignature = reducedSignature,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = method.ParentDecl,
+            ModuleDecl = method.ModuleDecl,
+            Throws = method.Throws,
+            IsAsync = method.IsAsync,
+            Visibility = method.Visibility
+        };
     }
 }

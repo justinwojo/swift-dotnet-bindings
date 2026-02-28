@@ -192,15 +192,135 @@ string firstName = result.FirstName?.Value;
 
 ---
 
-### Stripe — (assessment pending)
+### Stripe — USABLE
 
-Multi-module SDK (14 modules). Analysis was interrupted. Core question: can you initialize `STPAPIClient`, create a `PaymentSheet`, and present it?
+| Workflow | Status | Notes |
+|---|---|---|
+| `STPAPIClient.Shared` | **Works** | Static singleton (StripeCore module) |
+| `new STPAPIClient(publishableKey)` | **Works** | String constructor |
+| `client.PublishableKey = "pk_test_..."` | **Works** | Get+set, `string?` |
+| `new PaymentSheet.Configuration()` | **Works** | Parameterless constructor |
+| `config.MerchantDisplayName = "Shop"` | **Works** | Get+set |
+| `config.ReturnURL = "myapp://stripe"` | **Works** | Get+set, `string?` |
+| `config.AllowsDelayedPaymentMethods = true` | **Works** | Get+set |
+| `config.ApplePay = applePayConfig` | **Works** | Get+set, `ApplePayConfiguration?` |
+| `config.Appearance` | **Works** | Full customization struct |
+| `config.PrimaryButtonColor` | **Works** | `UIColor?` |
+| `config.PrimaryButtonLabel` | **Works** | `string?` |
+| `config.DefaultBillingDetails` | **Works** | Nested struct |
+| `new PaymentSheet(clientSecret, config)` | **Works** | Primary constructor |
+| `new PaymentSheet(intentConfig, config)` | **Works** | IntentConfiguration overload |
+| `await paymentSheet.PresentAsync(vc)` | **Works** | Returns `Task<PaymentSheetResult>` with CancellationToken |
+| `result.Tag == .Completed` | **Works** | CaseTag enum discrimination |
+| `result.TryGetFailed(out error)` | **Works** | AnyError extraction |
+| `PaymentSheetResult.Completed` | **Works** | Static singleton |
+| `PaymentSheetResult.Canceled` | **Works** | Static singleton |
+| `new STPCardParams()` | **Works** | StripePayments module |
+| `STPPaymentMethodParams` | **Works** | 100+ payment method type variants |
+| `CustomerSheet.PresentAsync(vc)` | **Works** | Returns `Task<CustomerSheetResult>` |
+
+**Viable C# pattern**:
+```csharp
+// Initialize (StripeCore module)
+using var client = STPAPIClient.Shared;
+client.PublishableKey = "pk_test_...";
+
+// Configure (StripePaymentSheet module)
+using var config = new PaymentSheet.Configuration();
+config.MerchantDisplayName = "My Shop";
+config.ReturnURL = "myapp://stripe-redirect";
+config.AllowsDelayedPaymentMethods = true;
+
+// Create & present
+using var paymentSheet = new PaymentSheet(paymentIntentClientSecret, config);
+var result = await paymentSheet.PresentAsync(viewController);
+
+// Handle result
+switch (result.Tag)
+{
+    case PaymentSheetResult.CaseTag.Completed:
+        // Payment succeeded
+        break;
+    case PaymentSheetResult.CaseTag.Canceled:
+        // User canceled
+        break;
+    case PaymentSheetResult.CaseTag.Failed:
+        result.TryGetFailed(out var error);
+        // Handle error
+        break;
+}
+```
+
+**Module coverage** (3 core modules assessed):
+
+| Module | Types | Members | Coverage |
+|---|---|---|---|
+| StripeCore | 106/106 | 356/424 (84%) | `STPAPIClient`, networking, telemetry |
+| StripePaymentSheet | 138/145 (95%) | 553/654 (85%) | PaymentSheet, Configuration, Appearance |
+| StripePayments | 245/245 | 1341/1670 (80%) | STPCardParams, 100+ payment method types |
+
+**Cross-module note**: `STPAPIClient` lives in StripeCore. PaymentSheet is in StripePaymentSheet. In production, both NuGet packages would be referenced. The `apiClient` property on `AddressViewController.Configuration` is skipped (cross-module type resolution) but this doesn't block the primary flow — PaymentSheet uses the shared singleton automatically.
+
+**Verdict**: The complete payment flow works: initialize API client → configure payment sheet → present → handle result. Async/await with CancellationToken support. All configuration properties accessible. This is the most important commercial SDK in the set and it's fully usable.
+
+---
+
+### Mappedin — USABLE
+
+| Workflow | Status | Notes |
+|---|---|---|
+| `new MPIMapView(frame)` | **Works** | CGRect constructor |
+| `mapView.LoadVenue(options)` | **Works** | Optional closure param omitted, Swift fills `nil` |
+| `mapView.ShowVenue(venueResponse)` | **Works** | String overload, closure omitted |
+| `mapView.ShowVenue(venueResponse)` | **Works** | MPIVenueResponse overload, closure omitted |
+| `MPIOptions.Init` struct | **Works** | clientId, clientSecret, venue, etc. |
+| `MPIOptions.ShowVenue` struct | **Works** | 12 configuration parameters, 6 constructor overloads |
+| `mapView.VenueData` | **Works** | Get+set, `MPIData?` |
+| `mapView.Delegate` | **Works** | Get+set, `IMPIMapViewDelegate?` |
+| `IMPIMapViewDelegate` proxy | **Works** | OnDataLoaded, OnFirstMapLoaded, OnMapChanged, OnPolygonClicked, etc. |
+| `mapView.SetMap(map)` | **Works** | With and without callback |
+| `mapView.SetMap(mapId)` | **Works** | String overload |
+| `mapView.GetDirections(to, from, accessible, callback)` | **Works** | `Action<MPIDirections?>` — clean types |
+| `mapView.GetDirections(destinations, from, accessible, callback)` | **Works** | Multi-destination with `MPIDestinationSet` |
+| `mapView.GetDistance(to, from, accessible, callback)` | **Works** | `Action<float?>` |
+| `mapView.GetDistanceAsync(to, from, accessible)` | **Works** | Auto-generated `Task<float?>` |
+| `mapView.SetPolygonColor(polygon, color, ...)` | **Works** | With textColor and opacity params |
+| `mapView.AddInteractivePolygon(polygon)` | **Works** | |
+| `MPISearchManager.AddQuery(query, object, weight, callback)` | **Works** | MPICategory, MPILocation, AnyObject overloads |
+| `MPISearchManager.Suggest(query, callback)` | **Works** | |
+| `MPIBlueDotManager.Enable(options)` | **Works** | |
+| `MPIBlueDotManager.UpdatePosition(position)` | **Works** | |
+| `MPIData.Locations` | **Works** | `IReadOnlyList<MPILocation>` |
+| `MPIData.Maps` | **Works** | `IReadOnlyList<MPIMap>` |
+| `MPIData.Polygons` | **Works** | `IReadOnlyList<MPIPolygon>` |
+| `MPILocation` properties | **Works** | id, name, type, description, sortOrder, etc. |
+| `MPINode` properties | **Works** | coordinates (x, y), map reference |
+| `MPIPathManager.Remove(paths)` | **Works** | Optional closure param omitted, Swift fills `nil` |
+
+**Fixed (Feb 2026)**: `loadVenue`, `showVenue`, and `PathManager.remove` were blocked because they take `Optional<Closure>` parameters with default values (e.g., `errorCallback: ((MPIError?) -> Void)? = nil`). Fixed by extending `ExistentialBypassEmitter` to classify `Optional<Closure>` params with `HasDefaultArg=true` as omittable — the Swift wrapper omits these params and Swift fills in `nil`. `MemberEmissionValidator.ShouldSkipMethodEmission` B20 carve-out allows these methods through; `CanEmitMethod` stays conservative (protocol conformance unaffected). Reduced-signature dedup prevents CS0111 when stripping params creates duplicates.
+
+**Binding statistics**: 120/120 types emitted (100%), 554/670 members (85%). 116 skips are synthesized Codable (expected).
+
+**Viable C# pattern**:
+```csharp
+using var mapView = new MPIMapView(frame);
+using var options = new MPIOptions.Init();
+// Set clientId, clientSecret, venue, etc.
+mapView.LoadVenue(options);
+
+// After venue loads (via delegate OnDataLoaded):
+mapView.SetMap(map);
+var directions = mapView.GetDirections(to, from, accessible: true, callback);
+await mapView.GetDistanceAsync(to, from, accessible: true);
+```
+
+**Verdict**: The full indoor mapping workflow is usable: create map view → load venue → navigate/search/wayfind. Directions, search, BlueDot positioning, polygon styling, and delegate callbacks all work. The optional error callbacks are omitted (Swift fills `nil`) — developers who need error handling can add a Swift wrapper that passes the callback explicitly.
 
 ---
 
 ## Root Cause Analysis
 
-Five root causes account for all blockers across all 8 libraries:
+Six root causes account for all blockers across all 9 libraries:
 
 ### 1. ~~Missing public constructors on settings/config types~~ FIXED
 **Affected**: BlinkID (`BlinkIDSdkSettings`), ~~BlinkIDUX (`BlinkIDUXModel`)~~
@@ -237,25 +357,46 @@ Five root causes account for all blockers across all 8 libraries:
 **Pattern**: `Foundation.URL` is a Swift value-type struct. Generic containers (`Optional<URL>`, `Array<URL>`) require elements to implement `ISwiftObject`.
 **Status**: The `Optional<URL>` case is **fixed** (same fix as #1 — `SwiftOptional<T>` has no constraint). The `Array<URL>` case remains blocked because `SwiftArray<T> where T : ISwiftObject` genuinely can't hold `NSUrl`. Would need `Foundation.URL` → `NSUrl` bridging or lifting the constraint for bridged types.
 
+### 6. ~~`Optional<Closure>` parameters — methods with nullable callbacks~~ FIXED
+**Affected**: Mappedin (`loadVenue`, `showVenue`, `PathManager.remove`)
+**Status**: **Fixed** — Extended `ExistentialBypassEmitter` to classify `Optional<Closure>` params with `HasDefaultArg=true` as omittable. Swift wrapper omits these params, Swift fills `nil`. `MemberEmissionValidator.ShouldSkipMethodEmission` B20 carve-out allows methods through; `CanEmitMethod` stays conservative (protocol conformance unaffected). Reduced-signature dedup via `BuildReducedMethodDecl` prevents CS0111 when param stripping creates duplicates. Bridge emitter ordering preserved: GenericClosureBridge → ProtocolExtensionClosureBridge → MethodClosureBridge → OptionalClosureBypass (bypass runs last, never preempts bridge-eligible methods). 14 unit tests added across `ThirdPartyValidationFixTestsV4.cs` and `MethodHandlerOutputTests.cs`.
+
 ## Fix Priority (by library impact)
 
 | Priority | Root Cause | Libraries Unblocked | Effort | Status |
 |---|---|---|---|---|
 | ~~1~~ | ~~`HasNonSwiftObjectGenericArg` too broad (#1 + #5)~~ | ~~BlinkID, 14 libraries (48 constructors)~~ | ~~Small~~ | **DONE** |
 | ~~2a~~ | ~~ObjC enums missing from type database (#4a)~~ | ~~Lottie, FSPagerView, Kingfisher, Stripe, PhoneNumberKit~~ | ~~Small~~ | **DONE** |
-| 2b | SwiftUI module gate (#4b) | BlinkIDUX (theme — 21 members) | Large | |
-| 3 | Result<T,E> closure bridge (#3) | Nuke (`loadImage` callback path) | Medium-Large | |
-| 4 | Protocol existential returns (#2) | SmartCardIO (fully — all 5 workflows) | Large — structural | |
+| ~~2b~~ | ~~`Optional<Closure>` with default value (#6)~~ | ~~Mappedin (fully — `loadVenue` entry point)~~ | ~~Small~~ | **DONE** |
+| 3 | SwiftUI module gate (#4b) | BlinkIDUX (theme — 21 members) | Large | |
+| 4 | Result<T,E> closure bridge (#3) | Nuke (`loadImage` callback path) | Medium-Large | |
+| 5 | Protocol existential returns (#2) | SmartCardIO (fully — all 5 workflows) | Large — structural | |
 
 ### What to investigate next
 
-**Priority #2b (SwiftUI module gate)** is a much larger effort. BlinkIDUX theme uses `SwiftUI.Color`/`SwiftUI.Font` — blocked at the module level by `GenericTypeEmitter.UnsupportedConstraintModules`. `UIColor` and `UIImage` are already in `UIKitDatabase.xml` and aren't the problem. Unblocking this requires either adding SwiftUI types to the type system or bridging SwiftUI→UIKit, neither of which is small.
+**Priority #3 (SwiftUI module gate)** is a large effort. BlinkIDUX theme uses `SwiftUI.Color`/`SwiftUI.Font` — blocked at the module level by `GenericTypeEmitter.UnsupportedConstraintModules`. `UIColor` and `UIImage` are already in `UIKitDatabase.xml` and aren't the problem. Unblocking this requires either adding SwiftUI types to the type system or bridging SwiftUI→UIKit, neither of which is small.
 
 Note: Lottie's `LoopMode` property is a *separate* issue (non-simple enum property Buffer marshalling), not UIKit types. The `loopMode` parameter in `Play()` methods already works.
 
-**Priority #3 (Result closure bridge)** helps Nuke's callback path only — async path already works.
+**Priority #4 (Result closure bridge)** helps Nuke's callback path only — async path already works.
 
-**Priority #4 (protocol existential returns)** is the highest-impact structural fix — it would take SmartCardIO from completely blocked to fully usable. Requires generating Swift wrapper functions that receive existentials, box them, and return concrete handles — multi-session effort.
+**Priority #5 (protocol existential returns)** is the highest-impact structural fix — it would take SmartCardIO from completely blocked to fully usable. Requires generating Swift wrapper functions that receive existentials, box them, and return concrete handles — multi-session effort.
+
+## Summary
+
+| Library | Verdict | Blocker |
+|---|---|---|
+| **Lottie** | USABLE | LoopMode property (workaround: pass in Play()) |
+| **Nuke** | USABLE (async) | Callback path blocked (Result closure) |
+| **BlinkID** | USABLE | CameraFrame constructor (use UIImage path) |
+| **Stripe** | USABLE | Cross-module `apiClient` property (not blocking) |
+| **MicroblinkPlatform** | USABLE (NativeAOT) | SB0001 on constructor (Mono JIT) |
+| **Mappedin** | USABLE | Optional closure params omitted (#6 — fixed) |
+| **BlinkIDUX** | BLOCKED | Cross-module factory + SwiftUI types |
+| **SmartCardIO** | BLOCKED | Protocol existential returns (#2) |
+| **BRLMPrinterKit** | EMPTY | Missing `BUILD_LIBRARY_FOR_DISTRIBUTION=YES` |
+
+**6 of 9 libraries are usable today.** All three fixed root causes (#1, #4a, #6) were small, targeted changes.
 
 ## Deep Dive: Root Causes #1 and #5 Are the Same Bug — FIXED
 

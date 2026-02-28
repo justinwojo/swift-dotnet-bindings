@@ -1209,4 +1209,434 @@ public class ThirdPartyValidationFixTestsV4
     }
 
     #endregion
+
+    #region Optional<Closure> with default parameter bypass
+
+    [Fact]
+    public void ShouldSkipMethodEmission_OptionalClosureWithDefault_NotSkipped()
+    {
+        // Method with Optional<Closure> + HasDefaultArg=true should pass through
+        // ShouldSkipMethodEmission — ExistentialBypassEmitter handles it in MethodHandler.
+        var typeDatabase = CreateTypeDatabase();
+
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("UnknownModule.SomeError") }),
+            TupleTypeSpec.Empty);
+        var optionalClosure = new NamedTypeSpec("Swift.Optional");
+        optionalClosure.GenericParameters.Add(closureType);
+
+        var method = CreateMethodDeclWithDefaultArgs("loadVenue", "TestModule.TestType",
+            returnType: TupleTypeSpec.Empty,
+            parameters: new[] { ("errorCallback", optionalClosure as TypeSpec, true) });
+
+        var result = MemberEmissionValidator.ShouldSkipMethodEmission(method, typeDatabase, out _);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void ShouldSkipMethodEmission_OptionalClosureWithoutDefault_IsSkipped()
+    {
+        // Optional<Closure> without HasDefaultArg should still be skipped.
+        var typeDatabase = CreateTypeDatabase();
+
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("UnknownModule.SomeError") }),
+            TupleTypeSpec.Empty);
+        var optionalClosure = new NamedTypeSpec("Swift.Optional");
+        optionalClosure.GenericParameters.Add(closureType);
+
+        var method = CreateMethodDeclWithDefaultArgs("loadVenue", "TestModule.TestType",
+            returnType: TupleTypeSpec.Empty,
+            parameters: new[] { ("errorCallback", optionalClosure as TypeSpec, false) });
+
+        var result = MemberEmissionValidator.ShouldSkipMethodEmission(method, typeDatabase, out var details);
+
+        Assert.NotNull(result);
+        Assert.Equal(SkipReason.UnsupportedClosure, result);
+        Assert.Contains("unsupported closure", details!);
+    }
+
+    [Fact]
+    public void ShouldSkipMethodEmission_NonOptionalUnsupportedClosure_StillSkipped()
+    {
+        // Bare unsupported closure (not Optional<Closure>) should still be skipped
+        // even with HasDefaultArg — regression guard.
+        var typeDatabase = CreateTypeDatabase();
+
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("UnknownModule.SomeError") }),
+            TupleTypeSpec.Empty);
+
+        var method = CreateMethodDeclWithDefaultArgs("process", "TestModule.TestType",
+            returnType: TupleTypeSpec.Empty,
+            parameters: new[] { ("callback", closureType as TypeSpec, true) });
+
+        var result = MemberEmissionValidator.ShouldSkipMethodEmission(method, typeDatabase, out var details);
+
+        Assert.NotNull(result);
+        Assert.Equal(SkipReason.UnsupportedClosure, result);
+    }
+
+    [Fact]
+    public void ShouldSkipMethodEmission_MixedOptionalAndNonOptionalClosure_IsSkipped()
+    {
+        // If one closure has no default, the entire method should still be skipped.
+        var typeDatabase = CreateTypeDatabase();
+
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("UnknownModule.SomeError") }),
+            TupleTypeSpec.Empty);
+
+        var optionalClosure = new NamedTypeSpec("Swift.Optional");
+        optionalClosure.GenericParameters.Add(closureType);
+
+        // Second param: bare unsupported closure without default
+        var bareClosure = new ClosureTypeSpec(
+            new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("UnknownModule.OtherType") }),
+            TupleTypeSpec.Empty);
+
+        var method = CreateMethodDeclWithDefaultArgs("mixed", "TestModule.TestType",
+            returnType: TupleTypeSpec.Empty,
+            parameters: new[]
+            {
+                ("optionalCallback", optionalClosure as TypeSpec, true),
+                ("requiredCallback", bareClosure as TypeSpec, false)
+            });
+
+        var result = MemberEmissionValidator.ShouldSkipMethodEmission(method, typeDatabase, out _);
+
+        Assert.NotNull(result);
+        Assert.Equal(SkipReason.UnsupportedClosure, result);
+    }
+
+    [Fact]
+    public void CanEmitMethod_OptionalClosureWithDefault_StillSkipped()
+    {
+        // CanEmitMethod must remain conservative — Optional<Closure> with default
+        // should still be skipped (used by ProtocolConformanceValidator).
+        var typeDatabase = CreateTypeDatabase();
+
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("UnknownModule.SomeError") }),
+            TupleTypeSpec.Empty);
+        var optionalClosure = new NamedTypeSpec("Swift.Optional");
+        optionalClosure.GenericParameters.Add(closureType);
+
+        var method = CreateMethodDeclWithDefaultArgs("loadVenue", "TestModule.TestType",
+            returnType: TupleTypeSpec.Empty,
+            parameters: new[] { ("errorCallback", optionalClosure as TypeSpec, true) });
+
+        var result = MemberEmissionValidator.CanEmitMethod(method, typeDatabase, out var details, out _);
+
+        Assert.NotNull(result);
+        Assert.Equal(SkipReason.UnsupportedClosure, result);
+    }
+
+    [Fact]
+    public void HasOptionalClosureWithDefault_DetectsPattern()
+    {
+        // Unit test for the ExistentialBypassEmitter helper.
+        var typeDatabase = CreateTypeDatabase();
+
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("UnknownModule.SomeError") }),
+            TupleTypeSpec.Empty);
+        var optionalClosure = new NamedTypeSpec("Swift.Optional");
+        optionalClosure.GenericParameters.Add(closureType);
+
+        var methodWithDefault = CreateMethodDeclWithDefaultArgs("loadVenue", "TestModule.TestType",
+            returnType: TupleTypeSpec.Empty,
+            parameters: new[] { ("errorCallback", optionalClosure as TypeSpec, true) });
+
+        Assert.True(ExistentialBypassEmitter.HasOptionalClosureWithDefault(methodWithDefault, typeDatabase));
+
+        var methodWithoutDefault = CreateMethodDeclWithDefaultArgs("loadVenue", "TestModule.TestType",
+            returnType: TupleTypeSpec.Empty,
+            parameters: new[] { ("errorCallback", optionalClosure as TypeSpec, false) });
+
+        Assert.False(ExistentialBypassEmitter.HasOptionalClosureWithDefault(methodWithoutDefault, typeDatabase));
+    }
+
+    [Fact]
+    public void HasOptionalClosureWithDefault_SupportedClosure_ReturnsFalse()
+    {
+        // A supported Optional<Closure> with default should NOT trigger bypass —
+        // it goes through normal emission.
+        var typeDatabase = CreateTypeDatabase();
+
+        // Closure with only primitive args is supported
+        var supportedClosure = new ClosureTypeSpec(
+            new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("Swift.Int") }),
+            TupleTypeSpec.Empty);
+        var optionalClosure = new NamedTypeSpec("Swift.Optional");
+        optionalClosure.GenericParameters.Add(supportedClosure);
+
+        var method = CreateMethodDeclWithDefaultArgs("process", "TestModule.TestType",
+            returnType: TupleTypeSpec.Empty,
+            parameters: new[] { ("callback", optionalClosure as TypeSpec, true) });
+
+        Assert.False(ExistentialBypassEmitter.HasOptionalClosureWithDefault(method, typeDatabase));
+    }
+
+    [Fact]
+    public void ShouldSkipMethodEmission_StaticMethodWithOptionalClosureDefault_NotSkipped()
+    {
+        // Static methods with Optional<Closure>+default should pass ShouldSkipMethodEmission.
+        // MethodClosureBridge handles static methods; the bypass does not preempt them.
+        var typeDatabase = CreateTypeDatabase();
+
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("UnknownModule.SomeError") }),
+            TupleTypeSpec.Empty);
+        var optionalClosure = new NamedTypeSpec("Swift.Optional");
+        optionalClosure.GenericParameters.Add(closureType);
+
+        var method = CreateMethodDeclWithDefaultArgs("configure", "TestModule.TestType",
+            returnType: TupleTypeSpec.Empty,
+            parameters: new[] { ("errorCallback", optionalClosure as TypeSpec, true) });
+        method.MethodType = MethodType.Static;
+
+        // ShouldSkipMethodEmission should still let it through (the carve-out is param-level)
+        var result = MemberEmissionValidator.ShouldSkipMethodEmission(method, typeDatabase, out _);
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void BuildReducedMethodDecl_StripsOptionalClosureWithDefault()
+    {
+        // Verify BuildReducedMethodDecl strips unsupported Optional<Closure>+default params
+        // but keeps other params.
+        var typeDatabase = CreateTypeDatabase();
+
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("UnknownModule.SomeError") }),
+            TupleTypeSpec.Empty);
+        var optionalClosure = new NamedTypeSpec("Swift.Optional");
+        optionalClosure.GenericParameters.Add(closureType);
+
+        var method = CreateMethodDeclWithDefaultArgs("loadVenue", "TestModule.TestType",
+            returnType: TupleTypeSpec.Empty,
+            parameters: new[]
+            {
+                ("options", new NamedTypeSpec("Swift.Int") as TypeSpec, false),
+                ("errorCallback", optionalClosure as TypeSpec, true)
+            });
+
+        var reduced = ExistentialBypassEmitter.BuildReducedMethodDecl(method, typeDatabase);
+
+        Assert.NotNull(reduced);
+        // CSSignature: return + 1 passthrough param (options). errorCallback stripped.
+        Assert.Equal(2, reduced!.CSSignature.Count);
+        Assert.Equal("options", reduced.CSSignature[1].Name);
+    }
+
+    [Fact]
+    public void BuildReducedMethodDecl_NoOmittableParams_ReturnsNull()
+    {
+        // When no params are omittable, BuildReducedMethodDecl returns null.
+        var typeDatabase = CreateTypeDatabase();
+
+        var method = CreateMethodDeclWithDefaultArgs("process", "TestModule.TestType",
+            returnType: TupleTypeSpec.Empty,
+            parameters: new[] { ("value", new NamedTypeSpec("Swift.Int") as TypeSpec, false) });
+
+        var reduced = ExistentialBypassEmitter.BuildReducedMethodDecl(method, typeDatabase);
+
+        Assert.Null(reduced);
+    }
+
+    [Fact]
+    public void BuildReducedMethodDecl_DedupKeyCollisionDetected()
+    {
+        // Two different methods that reduce to the same signature should produce the same
+        // projected key, allowing the dedup check to catch the collision.
+        var typeDatabase = CreateTypeDatabase();
+
+        var closureType1 = new ClosureTypeSpec(
+            new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("UnknownModule.ErrorA") }),
+            TupleTypeSpec.Empty);
+        var optionalClosure1 = new NamedTypeSpec("Swift.Optional");
+        optionalClosure1.GenericParameters.Add(closureType1);
+
+        var closureType2 = new ClosureTypeSpec(
+            new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("UnknownModule.ErrorB") }),
+            TupleTypeSpec.Empty);
+        var optionalClosure2 = new NamedTypeSpec("Swift.Optional");
+        optionalClosure2.GenericParameters.Add(closureType2);
+
+        // Method 1: loadVenue(options: Int, errorCallback: Optional<(ErrorA) -> Void> = nil)
+        var method1 = CreateMethodDeclWithDefaultArgs("loadVenue", "TestModule.TestType",
+            returnType: TupleTypeSpec.Empty,
+            parameters: new[]
+            {
+                ("options", new NamedTypeSpec("Swift.Int") as TypeSpec, false),
+                ("errorCallback", optionalClosure1 as TypeSpec, true)
+            });
+
+        // Method 2: loadVenue(options: Int, failureHandler: Optional<(ErrorB) -> Void> = nil)
+        var method2 = CreateMethodDeclWithDefaultArgs("loadVenue", "TestModule.TestType",
+            returnType: TupleTypeSpec.Empty,
+            parameters: new[]
+            {
+                ("options", new NamedTypeSpec("Swift.Int") as TypeSpec, false),
+                ("failureHandler", optionalClosure2 as TypeSpec, true)
+            });
+
+        var reduced1 = ExistentialBypassEmitter.BuildReducedMethodDecl(method1, typeDatabase);
+        var reduced2 = ExistentialBypassEmitter.BuildReducedMethodDecl(method2, typeDatabase);
+
+        Assert.NotNull(reduced1);
+        Assert.NotNull(reduced2);
+
+        // Both reduce to loadVenue(Int) — same projected key
+        var key1 = GetProjectedKeyViaReflection(reduced1!, typeDatabase);
+        var key2 = GetProjectedKeyViaReflection(reduced2!, typeDatabase);
+        Assert.Equal(key1, key2);
+    }
+
+    [Fact]
+    public void BuildReducedMethodDecl_ContainerExistentialNotOmitted()
+    {
+        // Supported container existentials (Array<any P>, Optional<any P>) should NOT
+        // be stripped by BuildReducedMethodDecl — they go through normal emission in MethodHandler.
+        var typeDatabase = CreateTypeDatabaseWithProtocol();
+
+        // Build Array<any SomeProtocol> — a container with supported existential
+        var existentialElement = new NamedTypeSpec("TestModule.SomeProtocol") { IsAny = true };
+        var arrayOfExistential = new NamedTypeSpec("Swift.Array");
+        arrayOfExistential.GenericParameters.Add(existentialElement);
+
+        // Optional<Closure> with default
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("UnknownModule.SomeError") }),
+            TupleTypeSpec.Empty);
+        var optionalClosure = new NamedTypeSpec("Swift.Optional");
+        optionalClosure.GenericParameters.Add(closureType);
+
+        var method = CreateMethodDeclWithDefaultArgs("process", "TestModule.TestType",
+            returnType: TupleTypeSpec.Empty,
+            parameters: new[]
+            {
+                ("items", arrayOfExistential as TypeSpec, false),
+                ("errorCallback", optionalClosure as TypeSpec, true)
+            });
+
+        var reduced = ExistentialBypassEmitter.BuildReducedMethodDecl(method, typeDatabase);
+
+        Assert.NotNull(reduced);
+        // Should keep 'items' (container existential = passthrough) and strip only 'errorCallback'
+        Assert.Equal(2, reduced!.CSSignature.Count); // return + items
+        Assert.Equal("items", reduced.CSSignature[1].Name);
+    }
+
+    /// <summary>
+    /// Creates a TypeDatabase with Swift stdlib types + a TestModule protocol for existential tests.
+    /// </summary>
+    private static TypeDatabase CreateTypeDatabaseWithProtocol()
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int32"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Array"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftArray"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Array"),
+                MetadataAccessor = "$sSaMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftOptional"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+                MetadataAccessor = "$sSqMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.SomeProtocol"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ISomeProtocol"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.SomeProtocol"),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol
+            });
+        typeDatabase.AddModuleDatabase(testModule);
+        return typeDatabase;
+    }
+
+    /// <summary>
+    /// Creates a MethodDecl with support for HasDefaultArg on parameters.
+    /// </summary>
+    private static MethodDecl CreateMethodDeclWithDefaultArgs(string name, string parentTypeName,
+        TypeSpec? returnType = null, (string name, TypeSpec type, bool hasDefault)[]? parameters = null)
+    {
+        var moduleDecl = CreateModuleDecl();
+        var csSignature = new List<ArgumentDecl>();
+
+        csSignature.Add(new ArgumentDecl
+        {
+            Name = "_return",
+            PrivateName = "_return",
+            SwiftTypeSpec = returnType ?? TupleTypeSpec.Empty,
+            IsGeneric = false,
+            IsInOut = false,
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        });
+
+        if (parameters != null)
+        {
+            foreach (var (pName, pType, hasDefault) in parameters)
+            {
+                csSignature.Add(new ArgumentDecl
+                {
+                    Name = pName,
+                    PrivateName = pName,
+                    SwiftTypeSpec = pType,
+                    IsGeneric = false,
+                    IsInOut = false,
+                    HasDefaultArg = hasDefault,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                });
+            }
+        }
+
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = "$s4test" + name,
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public,
+            CSSignature = csSignature,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = CreateStructDecl(parentTypeName.Split('.').Last()),
+            ModuleDecl = moduleDecl
+        };
+    }
+
+    #endregion
 }

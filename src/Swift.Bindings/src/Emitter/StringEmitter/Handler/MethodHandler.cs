@@ -205,6 +205,58 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Try Optional<Closure>+default bypass for constructors — omits unsupported
+            // optional closure params, letting Swift fill nil.
+            if (!hasExistentialArg &&
+                ExistentialBypassEmitter.HasOptionalClosureWithDefault(methodEnv.MethodDecl, methodEnv.TypeDatabase))
+            {
+                // Reduced-signature dedup — bypass strips params, check reduced projected key.
+                // Use Contains() first; only Add() after bypass succeeds, so a failed bypass
+                // doesn't poison the set and cause false duplicate skips for later members.
+                var reducedCtorDecl = ExistentialBypassEmitter.BuildReducedMethodDecl(
+                    methodEnv.MethodDecl, methodEnv.TypeDatabase);
+                string? reducedCtorKey = null;
+                if (reducedCtorDecl != null && methodEnv.EmittedProjectedSignatures != null)
+                {
+                    reducedCtorKey = GetProjectedCSharpMethodKey(reducedCtorDecl, methodEnv.TypeDatabase, _logger);
+                    if (methodEnv.EmittedProjectedSignatures.Contains(reducedCtorKey))
+                    {
+                        _logger.LogDebug($"Skipping constructor {methodEnv.MethodDecl.Name}: optional closure bypass reduced signature collides: {reducedCtorKey}");
+                        ReportCollector.RecordMemberSkipped(
+                            BindingItemKind.Method,
+                            methodEnv.MethodDecl.Name,
+                            methodEnv.MethodDecl.ParentDecl,
+                            SkipReason.DuplicateSignature,
+                            $"Optional closure bypass reduced constructor signature collides: {reducedCtorKey}");
+                        return;
+                    }
+                }
+
+                if (ExistentialBypassEmitter.TryEmitConstructorBypass(csWriter, swiftWriter, methodEnv, _logger))
+                {
+                    // Reserve the reduced key now that emission succeeded
+                    if (reducedCtorKey != null)
+                        methodEnv.EmittedProjectedSignatures?.Add(reducedCtorKey);
+                    ReportCollector.RecordMemberWrapped(
+                        BindingItemKind.Method,
+                        methodEnv.MethodDecl.Name,
+                        methodEnv.MethodDecl.MangledName,
+                        methodEnv.MethodDecl.ParentDecl,
+                        "OptionalClosureBypass",
+                        "Optional closure parameter(s) with defaults omitted; Swift fills nil.");
+                    return;
+                }
+                // Explicit fallback skip — bypass failed (not struct, failable, throwing)
+                _logger.LogWarning($"Skipping constructor {methodEnv.MethodDecl.Name}: optional closure params with defaults but constructor bypass not applicable.");
+                ReportCollector.RecordMemberSkipped(
+                    BindingItemKind.Method,
+                    methodEnv.MethodDecl.Name,
+                    methodEnv.MethodDecl.ParentDecl,
+                    SkipReason.UnsupportedClosure,
+                    "Optional closure parameter(s) with defaults, but constructor shape incompatible with bypass.");
+                return;
+            }
+
             // C# does not support generic constructors. If the constructor has method-own
             // generic parameters (not inherited from the parent type), skip it.
             if (methodEnv.MethodDecl.IsGeneric)
@@ -554,6 +606,7 @@ namespace BindingsGeneration
                         $"Bound generic contains existential type argument '{firstMethodExistentialType}'.");
                     return;
                 }
+
             }
 
             // Try ArraySlice normalization — emits Swift wrapper + normalized C# method
@@ -615,6 +668,62 @@ namespace BindingsGeneration
                     methodEnv.MethodDecl.ParentDecl,
                     "MethodClosureBridge",
                     "Closure parameter with bound generic args bridged via @_silgen_name wrapper.");
+                return;
+            }
+
+            // Try Optional<Closure>+default bypass — omits unsupported optional closure params,
+            // letting Swift fill nil. Runs AFTER bridge emitters so that bridge-eligible methods
+            // (GenericClosureBridge, ProtocolExtensionClosureBridge, MethodClosureBridge) are
+            // handled first — the bypass is narrower (void-return, non-static, non-async, non-throwing)
+            // and would incorrectly skip methods those bridges can handle.
+            if (!isAccessor &&
+                ExistentialBypassEmitter.HasOptionalClosureWithDefault(methodEnv.MethodDecl, methodEnv.TypeDatabase))
+            {
+                // Reduced-signature dedup — bypass strips params, so check the reduced
+                // projected key against EmittedProjectedSignatures to avoid CS0111 duplicates.
+                // Use Contains() first; only Add() after bypass succeeds, so a failed bypass
+                // doesn't poison the set and cause false duplicate skips for later members.
+                var reducedMethodDecl = ExistentialBypassEmitter.BuildReducedMethodDecl(
+                    methodEnv.MethodDecl, methodEnv.TypeDatabase);
+                string? reducedMethodKey = null;
+                if (reducedMethodDecl != null && methodEnv.EmittedProjectedSignatures != null)
+                {
+                    reducedMethodKey = GetProjectedCSharpMethodKey(reducedMethodDecl, methodEnv.TypeDatabase, _logger);
+                    if (methodEnv.EmittedProjectedSignatures.Contains(reducedMethodKey))
+                    {
+                        _logger.LogDebug($"Skipping method {methodEnv.MethodDecl.Name}: optional closure bypass reduced signature collides: {reducedMethodKey}");
+                        ReportCollector.RecordMemberSkipped(
+                            BindingItemKind.Method,
+                            methodEnv.MethodDecl.Name,
+                            methodEnv.MethodDecl.ParentDecl,
+                            SkipReason.DuplicateSignature,
+                            $"Optional closure bypass reduced C# signature collides: {reducedMethodKey}");
+                        return;
+                    }
+                }
+
+                if (ExistentialBypassEmitter.TryEmitMethodBypass(csWriter, swiftWriter, methodEnv, _logger))
+                {
+                    // Reserve the reduced key now that emission succeeded
+                    if (reducedMethodKey != null)
+                        methodEnv.EmittedProjectedSignatures?.Add(reducedMethodKey);
+                    ReportCollector.RecordMemberWrapped(
+                        BindingItemKind.Method,
+                        methodEnv.MethodDecl.Name,
+                        methodEnv.MethodDecl.MangledName,
+                        methodEnv.MethodDecl.ParentDecl,
+                        "OptionalClosureBypass",
+                        "Optional closure parameter(s) with defaults omitted; Swift fills nil.");
+                    return;
+                }
+                // Explicit fallback skip — bypass failed (async/throws/static/non-void)
+                _logger.LogWarning($"Skipping method {methodEnv.MethodDecl.Name}: optional closure params with defaults but bypass not applicable.");
+                ReportCollector.RecordMemberSkipped(
+                    BindingItemKind.Method,
+                    methodEnv.MethodDecl.Name,
+                    methodEnv.MethodDecl.ParentDecl,
+                    SkipReason.UnsupportedClosure,
+                    "Optional closure parameter(s) with defaults, but method shape incompatible with bypass (async/throws/static/non-void).");
                 return;
             }
 

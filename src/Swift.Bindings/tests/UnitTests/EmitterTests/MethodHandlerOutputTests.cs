@@ -1128,6 +1128,112 @@ public class MethodHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_StaticMethodWithOptionalClosureDefault_SkippedByBypass()
+    {
+        // Static method with Optional<Closure>+default: no bridge handles it (bridges need
+        // specific closure patterns), and ExistentialBypassEmitter rejects static methods.
+        // Verifies the fallback-skip fires and produces no output — the bypass doesn't
+        // preempt bridges that could theoretically handle the method.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MPIMapView", moduleDecl);
+
+        // Build an unsupported Optional<Closure> with default
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("Mappedin.MPIError") }),
+            TupleTypeSpec.Empty);
+        var optionalClosure = new NamedTypeSpec("Swift.Optional");
+        optionalClosure.GenericParameters.Add(closureType);
+
+        var method = new MethodDecl
+        {
+            Name = "configure",
+            MangledName = "$s10TestModule10MPIMapViewCconfigureSiyF",
+            MethodType = MethodType.Static,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl), // void return
+                CreateArgument("errorCallback", optionalClosure, moduleDecl),
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        method.CSSignature[1].HasDefaultArg = true;
+        parentDecl.Methods.Add(method);
+
+        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        // Static method: bypass rejects → fallback skip → no output
+        Assert.Equal(string.Empty, csOutput);
+        Assert.Equal(string.Empty, swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_InstanceMethodWithOptionalClosureDefault_BypassSucceeds()
+    {
+        // Instance void method with Optional<Closure>+default: bypass should succeed,
+        // emitting a Swift wrapper that omits the closure param and C# that calls it.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MPIMapView", moduleDecl);
+
+        // Register parent type so bypass can resolve it
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (identifier: SwiftTypeName.FromModuleQualifiedName("TestModule.MPIMapView"), record: new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "MPIMapView"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MPIMapView"),
+                MetadataAccessor = "$s10TestModule10MPIMapViewCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            })
+        });
+
+        // Build an unsupported Optional<Closure> with default
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("Mappedin.MPIError") }),
+            TupleTypeSpec.Empty);
+        var optionalClosure = new NamedTypeSpec("Swift.Optional");
+        optionalClosure.GenericParameters.Add(closureType);
+
+        var method = new MethodDecl
+        {
+            Name = "loadVenue",
+            MangledName = "$s10TestModule10MPIMapViewCloadVenueSiyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl), // void return
+                CreateArgument("options", new NamedTypeSpec("Swift.Int"), moduleDecl),
+                CreateArgument("errorCallback", optionalClosure, moduleDecl),
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        method.CSSignature[2].HasDefaultArg = true;
+        parentDecl.Methods.Add(method);
+
+        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        // Bypass succeeds: C# method emitted (no errorCallback param), Swift wrapper emitted
+        Assert.Contains("LoadVenue", csOutput);
+        Assert.DoesNotContain("errorCallback", csOutput);
+        Assert.Contains("@_silgen_name", swiftOutput);
+        Assert.Contains("loadVenue", swiftOutput);
+    }
+
+    [Fact]
     public void WorkaroundRecommendations_GenericTypeCallback_ReturnsRecommendation()
     {
         var recommendation = WorkaroundRecommendations.GetRecommendation(SkipReason.GenericTypeCallback);

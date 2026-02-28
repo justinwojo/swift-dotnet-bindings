@@ -804,6 +804,14 @@ public static class MemberEmissionValidator
                     {
                         continue;
                     }
+
+                    // Allow Optional<Closure> params with default values through —
+                    // ExistentialBypassEmitter omits these, letting Swift fill nil.
+                    if (closureHandler.IsOptionalClosure(arg.SwiftTypeSpec) && arg.HasDefaultArg)
+                    {
+                        continue;
+                    }
+
                     skipDetails = $"Parameter '{arg.Name}' has unsupported closure type that cannot be marshalled.";
                     return SkipReason.UnsupportedClosure;
                 }
