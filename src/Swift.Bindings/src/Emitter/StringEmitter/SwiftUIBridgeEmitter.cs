@@ -36,7 +36,7 @@ public static partial class SwiftUIBridgeEmitter
             return;
 
         var hints = BridgeHintsLoader.Load(bridgeHintsPath, outputDirectory, moduleName, logger);
-        var context = new BridgeContext(typeDatabase, moduleDecl, hints);
+        var context = new BridgeContext(typeDatabase, moduleDecl, hints, logger);
         var viewInfos = collectedViews.Select(v => AnalyzeView(v, moduleName, context)).ToList();
 
         // Record skipped views in report, then remove them
@@ -53,12 +53,13 @@ public static partial class SwiftUIBridgeEmitter
         }
 
         // Determine which views can be functionally bridged
-        var bridgeResults = new List<(ViewBridgeInfo Info, List<BridgeParameter>? Params, AsyncViewPattern? AsyncPattern, bool IsFunctional)>();
+        var bridgeResults = new List<(ViewBridgeInfo Info, List<BridgeParameter>? Params, AsyncViewPattern? AsyncPattern, bool IsFunctional, List<SynthesizedInitArg>? SynthesizedArgs)>();
         foreach (var info in viewInfos)
         {
             List<BridgeParameter>? bridgeParams = null;
             AsyncViewPattern? asyncPattern = null;
             bool isFunctional = false;
+            List<SynthesizedInitArg>? synthesizedArgs = null;
             var viewHint = hints?.Views?.GetValueOrDefault(info.ViewName);
 
             if (info.Classification == ViewInitClassification.AsyncDependency)
@@ -75,16 +76,28 @@ public static partial class SwiftUIBridgeEmitter
             }
             else if (info.Classification == ViewInitClassification.Simple && info.Constructors.Count > 0)
             {
-                var ctorIndex = 0;
-                if (viewHint?.PreferredInit != null)
+                if (info.GenericAnalysis != null)
                 {
-                    if (viewHint.PreferredInit.Value >= 0 && viewHint.PreferredInit.Value < info.Constructors.Count)
-                        ctorIndex = viewHint.PreferredInit.Value;
-                    else
-                        logger.LogWarning("preferredInit {Index} out of range for {View} (has {Count} constructors), using 0",
-                            viewHint.PreferredInit.Value, info.ViewName, info.Constructors.Count);
+                    // Generic views: constructor already selected during AnalyzeView
+                    var ctorIndex = info.GenericAnalysis.SelectedConstructorIndex;
+                    bridgeParams = AnalyzeInitParameters(
+                        info.Constructors[ctorIndex], context,
+                        info.GenericAnalysis, out synthesizedArgs);
                 }
-                bridgeParams = AnalyzeInitParameters(info.Constructors[ctorIndex], context);
+                else
+                {
+                    // Non-generic views: existing preferredInit logic
+                    var ctorIndex = 0;
+                    if (viewHint?.PreferredInit != null)
+                    {
+                        if (viewHint.PreferredInit.Value >= 0 && viewHint.PreferredInit.Value < info.Constructors.Count)
+                            ctorIndex = viewHint.PreferredInit.Value;
+                        else
+                            logger.LogWarning("preferredInit {Index} out of range for {View} (has {Count} constructors), using 0",
+                                viewHint.PreferredInit.Value, info.ViewName, info.Constructors.Count);
+                    }
+                    bridgeParams = AnalyzeInitParameters(info.Constructors[ctorIndex], context);
+                }
                 isFunctional = bridgeParams != null;
             }
             else if (info.Classification == ViewInitClassification.Simple && info.Constructors.Count == 0)
@@ -93,11 +106,11 @@ public static partial class SwiftUIBridgeEmitter
                 isFunctional = true;
             }
 
-            bridgeResults.Add((info, bridgeParams, asyncPattern, isFunctional));
+            bridgeResults.Add((info, bridgeParams, asyncPattern, isFunctional, synthesizedArgs));
         }
 
         // Record bridged views in report
-        foreach (var (info, _, asyncPat, isFunctional) in bridgeResults)
+        foreach (var (info, _, asyncPat, isFunctional, _) in bridgeResults)
         {
             var status = isFunctional ? "Generated" : "TemplatePending";
             var classification = info.InferredPattern != null
@@ -239,11 +252,28 @@ public static partial class SwiftUIBridgeEmitter
                 viewHint.Reason ?? "Forced to template by bridge hints", constructors);
         }
 
-        // 3. Generic type check
+        // 3. Generic type check — analyze instead of rejecting outright
         if (viewType.IsGeneric)
         {
-            return new ViewBridgeInfo(viewType.Name, moduleName, ViewInitClassification.Unsupported,
-                "Generic type parameter", constructors);
+            var selected = SelectBestGenericConstructor(constructors, viewType, viewHint, context?.Logger);
+            if (selected == null)
+                return new ViewBridgeInfo(viewType.Name, moduleName, ViewInitClassification.Unsupported,
+                    "No bridgeable constructor for generic view", constructors);
+
+            var (ctorIndex, selectedCtor) = selected.Value;
+            var genericAnalysis = AnalyzeGenericView(viewType, selectedCtor, ctorIndex);
+
+            if (!genericAnalysis.IsBridgeable)
+                return new ViewBridgeInfo(viewType.Name, moduleName, ViewInitClassification.Unsupported,
+                    genericAnalysis.UnsupportedReason, constructors);
+
+            var strategy = ParsePlaceholderStrategy(viewHint?.Placeholder);
+            if (strategy != PlaceholderStrategy.Empty)
+                return new ViewBridgeInfo(viewType.Name, moduleName, ViewInitClassification.Unsupported,
+                    $"{strategy} placeholder not yet implemented", constructors);
+
+            return new ViewBridgeInfo(viewType.Name, moduleName, ViewInitClassification.Simple,
+                null, constructors, GenericAnalysis: genericAnalysis);
         }
 
         // 4. Hints asyncPattern (forces async classification; pattern resolved in EmitBridgeFiles)
@@ -303,11 +333,147 @@ public static partial class SwiftUIBridgeEmitter
             null, constructors);
     }
 
+    /// <summary>
+    /// Selects the best constructor for a generic view type.
+    /// Prefers constructors with ConcreteType constraints (== EmptyView) over Protocol constraints (: View).
+    /// Returns null when no valid constructor exists.
+    /// </summary>
+    public static (int Index, MethodDecl Ctor)? SelectBestGenericConstructor(
+        List<MethodDecl> constructors, TypeDecl viewType, ViewHint? viewHint, ILogger? logger)
+    {
+        // Filter candidates: non-failable, no method-level generics beyond parent
+        var candidates = new List<(int Index, MethodDecl Ctor)>();
+        for (int i = 0; i < constructors.Count; i++)
+        {
+            var c = constructors[i];
+            if (c.IsFailable)
+                continue;
+            if (c.GenericParameters.Count > viewType.GenericParameters.Count)
+                continue; // Excludes method-level generics like <Property> beyond parent's <Placeholder>
+            candidates.Add((i, c));
+        }
+
+        if (candidates.Count == 0)
+            return null;
+
+        // preferredInit hint
+        if (viewHint?.PreferredInit != null)
+        {
+            var hintIndex = viewHint.PreferredInit.Value;
+            if (hintIndex >= 0 && hintIndex < constructors.Count)
+            {
+                // Check if hinted ctor passes filters
+                var hinted = candidates.FirstOrDefault(c => c.Index == hintIndex);
+                if (hinted.Ctor != null)
+                    return hinted;
+                logger?.LogWarning("preferredInit {Index} for generic view {View} failed filter (failable or method-level generics), using auto-selection",
+                    hintIndex, viewType.Name);
+            }
+            else
+            {
+                logger?.LogWarning("preferredInit {Index} out of range for generic view {View} (has {Count} constructors), using auto-selection",
+                    hintIndex, viewType.Name, constructors.Count);
+            }
+        }
+
+        // Rank: prefer constructors where ALL generic params have ConcreteType constraints (== EmptyView)
+        var concreteTypeCandidates = candidates.Where(c =>
+        {
+            foreach (var gp in viewType.GenericParameters)
+            {
+                var hasConcreteConstraint = c.Ctor.GenericParameters
+                    .SelectMany(ctorGp => ctorGp.GenericConformances)
+                    .Any(conf => conf.Kind == ConformanceKind.ConcreteType &&
+                                 conf.Path.Length == 1 && conf.Path[0] == gp.TypeName);
+                if (hasConcreteConstraint)
+                    continue;
+
+                // Also check type-level generic params for concrete constraints on this ctor
+                hasConcreteConstraint = viewType.GenericParameters
+                    .Where(vgp => vgp.TypeName == gp.TypeName)
+                    .SelectMany(vgp => vgp.GenericConformances)
+                    .Any(conf => conf.Kind == ConformanceKind.ConcreteType);
+                if (!hasConcreteConstraint)
+                    return false;
+            }
+            return true;
+        }).ToList();
+
+        if (concreteTypeCandidates.Count > 0)
+        {
+            // Among concrete-type candidates, prefer fewest params
+            return concreteTypeCandidates.OrderBy(c => c.Ctor.CSSignature.Count).First();
+        }
+
+        // Fall back to any candidate, fewest params
+        return candidates.OrderBy(c => c.Ctor.CSSignature.Count).First();
+    }
+
+    /// <summary>
+    /// Analyzes a generic view type to determine if it can be bridged with concrete type substitutions.
+    /// For each generic parameter, resolves the concrete type (e.g., EmptyView) from constructor or type-level constraints.
+    /// </summary>
+    public static GenericViewAnalysis AnalyzeGenericView(TypeDecl viewType, MethodDecl selectedCtor, int ctorIndex)
+    {
+        var concreteTypeArgs = new Dictionary<string, string>();
+
+        foreach (var gp in viewType.GenericParameters)
+        {
+            // 1. Check selected constructor's generic params for ConcreteType constraint (e.g., τ_0_0 == SwiftUI.EmptyView)
+            var concreteConstraint = selectedCtor.GenericParameters
+                .SelectMany(ctorGp => ctorGp.GenericConformances)
+                .FirstOrDefault(conf => conf.Kind == ConformanceKind.ConcreteType &&
+                                         conf.Path.Length == 1 && conf.Path[0] == gp.TypeName);
+
+            if (concreteConstraint != null)
+            {
+                // Use unqualified name (e.g., "EmptyView" from "SwiftUI.EmptyView")
+                concreteTypeArgs[gp.TypeName] = concreteConstraint.ConformanceTarget.Name;
+                continue;
+            }
+
+            // 2. Check type-level conformance for SwiftUI.View / SwiftUICore.View → default "EmptyView"
+            var hasViewConstraint = gp.GenericConformances.Any(conf =>
+                conf.Kind == ConformanceKind.Protocol &&
+                (conf.ConformanceTarget.ModuleQualifiedName == "SwiftUI.View" ||
+                 conf.ConformanceTarget.ModuleQualifiedName == "SwiftUICore.View"));
+
+            if (hasViewConstraint)
+            {
+                concreteTypeArgs[gp.TypeName] = "EmptyView";
+                continue;
+            }
+
+            // 3. No View constraint → not bridgeable
+            return new GenericViewAnalysis(false, concreteTypeArgs, PlaceholderStrategy.Empty, ctorIndex,
+                $"Generic parameter {gp.SugaredTypeName} has no View constraint");
+        }
+
+        return new GenericViewAnalysis(true, concreteTypeArgs, PlaceholderStrategy.Empty, ctorIndex);
+    }
+
+    /// <summary>
+    /// Parses a placeholder strategy hint string into a PlaceholderStrategy enum.
+    /// </summary>
+    internal static PlaceholderStrategy ParsePlaceholderStrategy(string? placeholder)
+    {
+        if (string.IsNullOrWhiteSpace(placeholder))
+            return PlaceholderStrategy.Empty;
+
+        return placeholder.ToLowerInvariant() switch
+        {
+            "empty" => PlaceholderStrategy.Empty,
+            "uiview" => PlaceholderStrategy.UIView,
+            "anyviewfromvc" => PlaceholderStrategy.AnyViewFromVC,
+            _ => PlaceholderStrategy.Empty,
+        };
+    }
+
     #region Swift Generation
 
     private static string GenerateSwiftBridge(
         string moduleName,
-        List<(ViewBridgeInfo Info, List<BridgeParameter>? Params, AsyncViewPattern? AsyncPattern, bool IsFunctional)> bridgeResults,
+        List<(ViewBridgeInfo Info, List<BridgeParameter>? Params, AsyncViewPattern? AsyncPattern, bool IsFunctional, List<SynthesizedInitArg>? SynthesizedArgs)> bridgeResults,
         HashSet<string>? hintImports = null)
     {
         var sb = new StringBuilder();
@@ -364,7 +530,7 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine();
         }
 
-        foreach (var (info, bridgeParams, asyncPattern, isFunctional) in bridgeResults)
+        foreach (var (info, bridgeParams, asyncPattern, isFunctional, synthesizedArgs) in bridgeResults)
         {
             if (isFunctional && asyncPattern != null)
             {
@@ -372,7 +538,7 @@ public static partial class SwiftUIBridgeEmitter
             }
             else if (isFunctional)
             {
-                EmitFunctionalSwiftBridge(sb, moduleName, info, bridgeParams!);
+                EmitFunctionalSwiftBridge(sb, moduleName, info, bridgeParams!, synthesizedArgs);
             }
             else
             {
@@ -384,7 +550,8 @@ public static partial class SwiftUIBridgeEmitter
     }
 
     private static void EmitFunctionalSwiftBridge(
-        StringBuilder sb, string moduleName, ViewBridgeInfo info, List<BridgeParameter> bridgeParams)
+        StringBuilder sb, string moduleName, ViewBridgeInfo info, List<BridgeParameter> bridgeParams,
+        List<SynthesizedInitArg>? synthesizedArgs = null)
     {
         var prefix = $"SBW_{moduleName}_{info.ViewName}";
         var sessionClass = $"{prefix}_Session";
@@ -394,8 +561,9 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine();
 
         // Session class
+        var hostedViewType = GetSwiftHostedViewType(info);
         sb.AppendLine($"final class {sessionClass} {{");
-        sb.AppendLine($"    let hostingController: UIHostingController<{info.ViewName}>");
+        sb.AppendLine($"    let hostingController: UIHostingController<{hostedViewType}>");
 
         // Store callback fields
         foreach (var param in bridgeParams)
@@ -548,13 +716,17 @@ public static partial class SwiftUIBridgeEmitter
             }
         }
 
-        if (viewInitArgs.Count == 0)
+        var mergedArgs = BuildMergedInitArgs(
+            info.Constructors.Count > 0 ? info.Constructors[info.GenericAnalysis?.SelectedConstructorIndex ?? 0] : null,
+            bridgeParams, viewInitArgs, synthesizedArgs);
+
+        if (mergedArgs.Count == 0)
         {
             sb.AppendLine($"        let view = {info.ViewName}()");
         }
         else
         {
-            sb.AppendLine($"        let view = {info.ViewName}({string.Join(", ", viewInitArgs)})");
+            sb.AppendLine($"        let view = {info.ViewName}({string.Join(", ", mergedArgs)})");
         }
         sb.AppendLine($"        self.hostingController = UIHostingController(rootView: view)");
         sb.AppendLine("    }");
@@ -710,7 +882,7 @@ public static partial class SwiftUIBridgeEmitter
     private static string GenerateCSharpBridge(
         string @namespace,
         string moduleName,
-        List<(ViewBridgeInfo Info, List<BridgeParameter>? Params, AsyncViewPattern? AsyncPattern, bool IsFunctional)> bridgeResults)
+        List<(ViewBridgeInfo Info, List<BridgeParameter>? Params, AsyncViewPattern? AsyncPattern, bool IsFunctional, List<SynthesizedInitArg>? SynthesizedArgs)> bridgeResults)
     {
         var sb = new StringBuilder();
         bool hasFunctionalBridge = bridgeResults.Any(r => r.IsFunctional);
@@ -736,7 +908,7 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine($"namespace {@namespace}");
             sb.AppendLine("{");
 
-            foreach (var (info, bridgeParams, asyncPattern, isFunctional) in bridgeResults)
+            foreach (var (info, bridgeParams, asyncPattern, isFunctional, synthesizedArgs) in bridgeResults)
             {
                 if (isFunctional && asyncPattern != null)
                 {
@@ -760,7 +932,7 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine("// These templates require manual completion before use.");
             sb.AppendLine("//");
             sb.AppendLine("// Views detected:");
-            foreach (var (info, _, _, _) in bridgeResults)
+            foreach (var (info, _, _, _, _) in bridgeResults)
             {
                 var paramSummary = GetInitParamSummary(info);
                 sb.AppendLine($"//   - {info.ViewName} ({info.Classification}: {paramSummary})");
@@ -1206,6 +1378,60 @@ public static partial class SwiftUIBridgeEmitter
     #region Helpers
 
     /// <summary>
+    /// Returns the Swift type for UIHostingController, with concrete type args for generic views.
+    /// Non-generic → "ViewName". Generic → "ViewName&lt;EmptyView&gt;".
+    /// </summary>
+    internal static string GetSwiftHostedViewType(ViewBridgeInfo info)
+    {
+        if (info.GenericAnalysis == null)
+            return info.ViewName;
+
+        var typeArgs = string.Join(", ", info.GenericAnalysis.ConcreteTypeArgs.Values);
+        return $"{info.ViewName}<{typeArgs}>";
+    }
+
+    /// <summary>
+    /// Merges bridge parameter args with synthesized init args in constructor parameter order.
+    /// When synthesizedArgs is null/empty, returns viewInitArgs directly (backward compatible).
+    /// </summary>
+    internal static List<string> BuildMergedInitArgs(
+        MethodDecl? constructor,
+        List<BridgeParameter> bridgeParams,
+        List<string> viewInitArgs,
+        List<SynthesizedInitArg>? synthesizedArgs)
+    {
+        if (synthesizedArgs == null || synthesizedArgs.Count == 0)
+            return viewInitArgs;
+
+        if (constructor == null)
+            return viewInitArgs;
+
+        var merged = new List<string>();
+        var synthDict = synthesizedArgs.ToDictionary(s => s.ParamName, s => s.SwiftExpression);
+        var bridgeArgIndex = 0;
+
+        // Iterate constructor params in order (skip [0] return type)
+        for (int i = 1; i < constructor.CSSignature.Count; i++)
+        {
+            var paramName = constructor.CSSignature[i].Name;
+
+            if (synthDict.TryGetValue(paramName, out var synthExpr))
+            {
+                // Synthesized arg — use expression verbatim
+                merged.Add($"{paramName}: {synthExpr}");
+            }
+            else if (bridgeArgIndex < viewInitArgs.Count)
+            {
+                // Bridged arg
+                merged.Add(viewInitArgs[bridgeArgIndex]);
+                bridgeArgIndex++;
+            }
+        }
+
+        return merged;
+    }
+
+    /// <summary>
     /// Builds the Swift closure expression for a typed closure view init argument.
     /// Generates: paramName: { (arg0: SwiftType, ...) [-> ReturnType] in callbackExpr }
     /// </summary>
@@ -1636,4 +1862,21 @@ public record ViewBridgeInfo(
     ViewInitClassification Classification,
     string? UnsupportedReason,
     List<MethodDecl> Constructors,
-    AsyncViewPattern? InferredPattern = null);
+    AsyncViewPattern? InferredPattern = null,
+    GenericViewAnalysis? GenericAnalysis = null);
+
+/// <summary>
+/// Strategy for filling generic View placeholder type parameters.
+/// </summary>
+public enum PlaceholderStrategy { Empty, UIView, AnyViewFromVC }
+
+/// <summary>
+/// Analysis result for a generic SwiftUI View type.
+/// When IsBridgeable is true, ConcreteTypeArgs maps each generic parameter to its concrete substitution.
+/// </summary>
+public record GenericViewAnalysis(
+    bool IsBridgeable,
+    Dictionary<string, string> ConcreteTypeArgs,
+    PlaceholderStrategy Strategy,
+    int SelectedConstructorIndex,
+    string? UnsupportedReason = null);

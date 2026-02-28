@@ -1023,13 +1023,13 @@ namespace Swift.SwiftBindingsTestLib
         private static partial int PInvoke_processRegistry_DBEFE550( SafeHandle registry);
         
         
-        [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_GetErrorDescription_SwiftBindingsTestLib")]
+        [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_GetErrorDescription_SwiftBindingsTestLib")]
         private static partial IntPtr SBW_GetErrorDescription(IntPtr error);
-        [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_ReleaseError_SwiftBindingsTestLib")]
+        [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_ReleaseError_SwiftBindingsTestLib")]
         private static partial void SBW_ReleaseError(IntPtr error);
-        [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
+        [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
         private static partial void SBW_Free(IntPtr ptr);
-        [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_ExtractTypedError_SwiftBindingsTestLib_SwiftBindingsTestLib_ParseError")]
+        [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_ExtractTypedError_SwiftBindingsTestLib_SwiftBindingsTestLib_ParseError")]
         private static partial IntPtr SBW_ExtractTypedError_SwiftBindingsTestLib_ParseError(IntPtr error);
         /// <summary>
         /// Parses a string into an Int32, throwing a typed ParseError on failure.
@@ -1099,7 +1099,7 @@ namespace Swift.SwiftBindingsTestLib
         private static partial int PInvoke_parseNumber_B8AA2BEC( Swift.SwiftString.Buffer input, out SwiftError error);
         
         
-        [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_ExtractTypedError_SwiftBindingsTestLib_SwiftBindingsTestLib_RangeError")]
+        [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_ExtractTypedError_SwiftBindingsTestLib_SwiftBindingsTestLib_RangeError")]
         private static partial IntPtr SBW_ExtractTypedError_SwiftBindingsTestLib_RangeError(IntPtr error);
         /// <summary>
         /// Validates that a value is within a range, throwing a typed RangeError.
@@ -3161,7 +3161,7 @@ namespace Swift.SwiftBindingsTestLib
         /// Task-returning overload for <see cref="CallVoidCallback"/>.
         /// </summary>
         /// <param name="cancellationToken">Cancels the returned Task but does not cancel the underlying operation.</param>
-        public async Task CallVoidCallbackAsync(System.Threading.CancellationToken cancellationToken = default)
+        public async Task CallVoidCallbackAsync(global::System.Threading.CancellationToken cancellationToken = default)
         {
             var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var registration = cancellationToken.Register(() => tcs.TrySetCanceled(cancellationToken));
@@ -3567,7 +3567,7 @@ namespace Swift.SwiftBindingsTestLib
         /// Task-returning overload for <see cref="CallCVoidFunction"/>.
         /// </summary>
         /// <param name="cancellationToken">Cancels the returned Task but does not cancel the underlying operation.</param>
-        public async Task CallCVoidFunctionAsync(System.Threading.CancellationToken cancellationToken = default)
+        public async Task CallCVoidFunctionAsync(global::System.Threading.CancellationToken cancellationToken = default)
         {
             var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var registration = cancellationToken.Register(() => tcs.TrySetCanceled(cancellationToken));
@@ -7975,7 +7975,7 @@ namespace Swift.SwiftBindingsTestLib
                 Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
         }
         
-        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        [global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Sequential)]
         private struct Utf8Slice
         {
             public IntPtr Ptr;
@@ -7999,7 +7999,7 @@ namespace Swift.SwiftBindingsTestLib
             try
             {
                 // Call the failable initializer with indirect result
-                var utf8Bytes = System.Text.Encoding.UTF8.GetBytes(rawValue ?? string.Empty);
+                var utf8Bytes = global::System.Text.Encoding.UTF8.GetBytes(rawValue ?? string.Empty);
                 fixed (byte* utf8Ptr = utf8Bytes)
                 {
                     var slice = new Utf8Slice { Ptr = (IntPtr)utf8Ptr, Len = (nint)utf8Bytes.Length };
@@ -15123,13 +15123,13 @@ public partial class TypedThrowingParser : ISwiftObject, IDisposable
     private static partial void PInvoke_init_99703116( SwiftIndirectResult swiftIndirectResult, [MarshalAs(UnmanagedType.U1)]  bool strict);
     
     
-    [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_GetErrorDescription_SwiftBindingsTestLib")]
+    [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_GetErrorDescription_SwiftBindingsTestLib")]
     private static partial IntPtr SBW_GetErrorDescription(IntPtr error);
-    [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_ReleaseError_SwiftBindingsTestLib")]
+    [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_ReleaseError_SwiftBindingsTestLib")]
     private static partial void SBW_ReleaseError(IntPtr error);
-    [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
+    [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
     private static partial void SBW_Free(IntPtr ptr);
-    [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_ExtractTypedError_SwiftBindingsTestLib_SwiftBindingsTestLib_ParseError")]
+    [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_ExtractTypedError_SwiftBindingsTestLib_SwiftBindingsTestLib_ParseError")]
     private static partial IntPtr SBW_ExtractTypedError_SwiftBindingsTestLib_ParseError(IntPtr error);
     /// <summary>
     /// Parses input with typed throws.
@@ -15205,7 +15205,7 @@ public partial class TypedThrowingParser : ISwiftObject, IDisposable
     private static partial int PInvoke_parse_53ABFB29( Swift.SwiftString.Buffer input,  SwiftSelf self, out SwiftError error);
     
     
-    [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_CancelTask_SwiftBindingsTestLib")]
+    [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_CancelTask_SwiftBindingsTestLib")]
     private static partial void SBW_CancelTask(long taskId);
             private static unsafe delegate* unmanaged[Cdecl]<int, IntPtr, void> s_asyncParseCallback_028ADCF1 = &asyncParseOnComplete_028ADCF1;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
@@ -15263,7 +15263,7 @@ public partial class TypedThrowingParser : ISwiftObject, IDisposable
                     if (isCancellation != 0)
                     {
                         // Swift reported CancellationError — find token and cancel the Task
-                        System.Threading.CancellationToken cancelToken = default;
+                        global::System.Threading.CancellationToken cancelToken = default;
                         for (int i = 1; i < holder.Length; i++)
                         {
                             if (holder[i] is CancellationRegistrationHolder cancelReg)
@@ -15338,7 +15338,7 @@ public partial class TypedThrowingParser : ISwiftObject, IDisposable
     /// <summary>
     /// Async parse with typed throws — simulates async parsing.
     /// </summary>
-    public Task<int> ParseAsync( string input, System.Threading.CancellationToken cancellationToken = default)
+    public Task<int> ParseAsync( string input, global::System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -15369,7 +15369,7 @@ public partial class TypedThrowingParser : ISwiftObject, IDisposable
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
-                        var (tcs, token, id) = ((TaskCompletionSource<int>, System.Threading.CancellationToken, long))state!;
+                        var (tcs, token, id) = ((TaskCompletionSource<int>, global::System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
@@ -16080,11 +16080,11 @@ public partial class ThrowingStruct : ISwiftObject, IDisposable
     private static partial void PInvoke_init_76433641( SwiftIndirectResult swiftIndirectResult,  int value);
     
     
-    [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_GetErrorDescription_SwiftBindingsTestLib")]
+    [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_GetErrorDescription_SwiftBindingsTestLib")]
     private static partial IntPtr SBW_GetErrorDescription(IntPtr error);
-    [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_ReleaseError_SwiftBindingsTestLib")]
+    [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_ReleaseError_SwiftBindingsTestLib")]
     private static partial void SBW_ReleaseError(IntPtr error);
-    [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
+    [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
     private static partial void SBW_Free(IntPtr ptr);
     /// <summary>
     /// Instance throwing method.
@@ -17215,7 +17215,7 @@ public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
     private static partial void PInvoke_init_9486E444( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer name);
     
     
-    [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_CancelTask_SwiftBindingsTestLib")]
+    [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_CancelTask_SwiftBindingsTestLib")]
     private static partial void SBW_CancelTask(long taskId);
             private static unsafe delegate* unmanaged[Cdecl]<int, IntPtr, void> s_asyncThrowingMethodCallback_AEC9A748 = &asyncThrowingMethodOnComplete_AEC9A748;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
@@ -17273,7 +17273,7 @@ public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
                     if (isCancellation != 0)
                     {
                         // Swift reported CancellationError — find token and cancel the Task
-                        System.Threading.CancellationToken cancelToken = default;
+                        global::System.Threading.CancellationToken cancelToken = default;
                         for (int i = 1; i < holder.Length; i++)
                         {
                             if (holder[i] is CancellationRegistrationHolder cancelReg)
@@ -17329,7 +17329,7 @@ public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
     /// <summary>
     /// Async throwing instance method.
     /// </summary>
-    public Task<int> ThrowingMethodAsync( bool shouldThrow, System.Threading.CancellationToken cancellationToken = default)
+    public Task<int> ThrowingMethodAsync( bool shouldThrow, global::System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -17360,7 +17360,7 @@ public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
-                        var (tcs, token, id) = ((TaskCompletionSource<int>, System.Threading.CancellationToken, long))state!;
+                        var (tcs, token, id) = ((TaskCompletionSource<int>, global::System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
@@ -17446,7 +17446,7 @@ public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
                     if (isCancellation != 0)
                     {
                         // Swift reported CancellationError — find token and cancel the Task
-                        System.Threading.CancellationToken cancelToken = default;
+                        global::System.Threading.CancellationToken cancelToken = default;
                         for (int i = 1; i < holder.Length; i++)
                         {
                             if (holder[i] is CancellationRegistrationHolder cancelReg)
@@ -17502,7 +17502,7 @@ public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
     /// <summary>
     /// Async throwing void method.
     /// </summary>
-    public Task ThrowingVoidAsync( bool shouldThrow, System.Threading.CancellationToken cancellationToken = default)
+    public Task ThrowingVoidAsync( bool shouldThrow, global::System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -17533,7 +17533,7 @@ public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
-                        var (tcs, token, id) = ((TaskCompletionSource, System.Threading.CancellationToken, long))state!;
+                        var (tcs, token, id) = ((TaskCompletionSource, global::System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
@@ -17563,7 +17563,7 @@ public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
     private static unsafe partial void PInvoke_asyncThrowingVoid_22F39542( void* s_asyncThrowingVoidCallback_22F39542,  void* s_asyncThrowingVoidErrorCallback_22F39542,  IntPtr handle, [MarshalAs(UnmanagedType.U1)]  bool shouldThrow,  IntPtr _self);
     
     
-                    [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
+                    [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
         private static partial void SBW_Free(IntPtr ptr);
 private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_asyncStaticThrowingCallback_A3C9A920 = &asyncStaticThrowingOnComplete_A3C9A920;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
@@ -17580,7 +17580,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 }
                 else
                 {
-                    result = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(slicePtr, (int)sliceLen)!;
+                    result = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(slicePtr, (int)sliceLen)!;
                 }
 
                 // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
@@ -17629,7 +17629,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     if (isCancellation != 0)
                     {
                         // Swift reported CancellationError — find token and cancel the Task
-                        System.Threading.CancellationToken cancelToken = default;
+                        global::System.Threading.CancellationToken cancelToken = default;
                         for (int i = 1; i < holder.Length; i++)
                         {
                             if (holder[i] is CancellationRegistrationHolder cancelReg)
@@ -17685,7 +17685,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     /// <summary>
     /// Async throwing static method.
     /// </summary>
-    public static Task<string> StaticThrowingAsync( bool shouldThrow, System.Threading.CancellationToken cancellationToken = default)
+    public static Task<string> StaticThrowingAsync( bool shouldThrow, global::System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -17716,7 +17716,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
-                        var (tcs, token, id) = ((TaskCompletionSource<string>, System.Threading.CancellationToken, long))state!;
+                        var (tcs, token, id) = ((TaskCompletionSource<string>, global::System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
@@ -18735,9 +18735,9 @@ public partial class AsyncStringWorker : ISwiftObject, IDisposable
     private static partial void PInvoke_init_E507B4F2( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer prefix);
     
     
-    [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_CancelTask_SwiftBindingsTestLib")]
+    [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_CancelTask_SwiftBindingsTestLib")]
     private static partial void SBW_CancelTask(long taskId);
-                    [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
+                    [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
         private static partial void SBW_Free(IntPtr ptr);
 private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_asyncGetStringCallback_1497F5DC = &asyncGetStringOnComplete_1497F5DC;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
@@ -18754,7 +18754,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 }
                 else
                 {
-                    result = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(slicePtr, (int)sliceLen)!;
+                    result = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(slicePtr, (int)sliceLen)!;
                 }
 
                 // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
@@ -18803,7 +18803,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     if (isCancellation != 0)
                     {
                         // Swift reported CancellationError — find token and cancel the Task
-                        System.Threading.CancellationToken cancelToken = default;
+                        global::System.Threading.CancellationToken cancelToken = default;
                         for (int i = 1; i < holder.Length; i++)
                         {
                             if (holder[i] is CancellationRegistrationHolder cancelReg)
@@ -18859,7 +18859,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     /// <summary>
     /// Async method returning a simple String.
     /// </summary>
-    public Task<string> GetStringAsync(System.Threading.CancellationToken cancellationToken = default)
+    public Task<string> GetStringAsync(global::System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -18890,7 +18890,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
-                        var (tcs, token, id) = ((TaskCompletionSource<string>, System.Threading.CancellationToken, long))state!;
+                        var (tcs, token, id) = ((TaskCompletionSource<string>, global::System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
@@ -18935,7 +18935,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 }
                 else
                 {
-                    result = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(slicePtr, (int)sliceLen)!;
+                    result = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(slicePtr, (int)sliceLen)!;
                 }
 
                 // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
@@ -18984,7 +18984,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     if (isCancellation != 0)
                     {
                         // Swift reported CancellationError — find token and cancel the Task
-                        System.Threading.CancellationToken cancelToken = default;
+                        global::System.Threading.CancellationToken cancelToken = default;
                         for (int i = 1; i < holder.Length; i++)
                         {
                             if (holder[i] is CancellationRegistrationHolder cancelReg)
@@ -19040,7 +19040,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     /// <summary>
     /// Async method returning a String with Unicode.
     /// </summary>
-    public Task<string> GetUnicodeStringAsync(System.Threading.CancellationToken cancellationToken = default)
+    public Task<string> GetUnicodeStringAsync(global::System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -19071,7 +19071,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
-                        var (tcs, token, id) = ((TaskCompletionSource<string>, System.Threading.CancellationToken, long))state!;
+                        var (tcs, token, id) = ((TaskCompletionSource<string>, global::System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
@@ -19116,7 +19116,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 }
                 else
                 {
-                    result = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(slicePtr, (int)sliceLen)!;
+                    result = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(slicePtr, (int)sliceLen)!;
                 }
 
                 // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
@@ -19165,7 +19165,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     if (isCancellation != 0)
                     {
                         // Swift reported CancellationError — find token and cancel the Task
-                        System.Threading.CancellationToken cancelToken = default;
+                        global::System.Threading.CancellationToken cancelToken = default;
                         for (int i = 1; i < holder.Length; i++)
                         {
                             if (holder[i] is CancellationRegistrationHolder cancelReg)
@@ -19221,7 +19221,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     /// <summary>
     /// Async method returning an empty String.
     /// </summary>
-    public Task<string> GetEmptyStringAsync(System.Threading.CancellationToken cancellationToken = default)
+    public Task<string> GetEmptyStringAsync(global::System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -19252,7 +19252,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
-                        var (tcs, token, id) = ((TaskCompletionSource<string>, System.Threading.CancellationToken, long))state!;
+                        var (tcs, token, id) = ((TaskCompletionSource<string>, global::System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
@@ -19297,7 +19297,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 }
                 else
                 {
-                    result = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(slicePtr, (int)sliceLen)!;
+                    result = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(slicePtr, (int)sliceLen)!;
                 }
 
                 // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
@@ -19346,7 +19346,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     if (isCancellation != 0)
                     {
                         // Swift reported CancellationError — find token and cancel the Task
-                        System.Threading.CancellationToken cancelToken = default;
+                        global::System.Threading.CancellationToken cancelToken = default;
                         for (int i = 1; i < holder.Length; i++)
                         {
                             if (holder[i] is CancellationRegistrationHolder cancelReg)
@@ -19402,7 +19402,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     /// <summary>
     /// Async method returning a long String.
     /// </summary>
-    public Task<string> GetLongStringAsync( int length, System.Threading.CancellationToken cancellationToken = default)
+    public Task<string> GetLongStringAsync( int length, global::System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -19433,7 +19433,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
-                        var (tcs, token, id) = ((TaskCompletionSource<string>, System.Threading.CancellationToken, long))state!;
+                        var (tcs, token, id) = ((TaskCompletionSource<string>, global::System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
@@ -19478,7 +19478,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 }
                 else
                 {
-                    result = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(slicePtr, (int)sliceLen)!;
+                    result = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(slicePtr, (int)sliceLen)!;
                 }
 
                 // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
@@ -19527,7 +19527,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     if (isCancellation != 0)
                     {
                         // Swift reported CancellationError — find token and cancel the Task
-                        System.Threading.CancellationToken cancelToken = default;
+                        global::System.Threading.CancellationToken cancelToken = default;
                         for (int i = 1; i < holder.Length; i++)
                         {
                             if (holder[i] is CancellationRegistrationHolder cancelReg)
@@ -19583,7 +19583,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     /// <summary>
     /// Async static method returning String.
     /// </summary>
-    public static Task<string> StaticStringAsync(System.Threading.CancellationToken cancellationToken = default)
+    public static Task<string> StaticStringAsync(global::System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -19614,7 +19614,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
-                        var (tcs, token, id) = ((TaskCompletionSource<string>, System.Threading.CancellationToken, long))state!;
+                        var (tcs, token, id) = ((TaskCompletionSource<string>, global::System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
@@ -19789,9 +19789,9 @@ public partial class AsyncArrayWorker : ISwiftObject, IDisposable
     private static partial void PInvoke_init_B7B2B2F7( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer identifier);
     
     
-    [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_CancelTask_SwiftBindingsTestLib")]
+    [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_CancelTask_SwiftBindingsTestLib")]
     private static partial void SBW_CancelTask(long taskId);
-                    [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
+                    [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
         private static partial void SBW_Free(IntPtr ptr);
 private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_asyncGetStringArrayCallback_8AD55D95 = &asyncGetStringArrayOnComplete_8AD55D95;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
@@ -19852,7 +19852,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                             int strLen = (int)lengthsPtr[i];
                             string s = strLen == 0
                                 ? string.Empty
-                                : System.Runtime.InteropServices.Marshal.PtrToStringUTF8(bufferPtr + dataOffset, strLen)!;
+                                : global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(bufferPtr + dataOffset, strLen)!;
                             result.Add(s);
                             dataOffset += strLen;
                         }
@@ -19919,7 +19919,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     if (isCancellation != 0)
                     {
                         // Swift reported CancellationError — find token and cancel the Task
-                        System.Threading.CancellationToken cancelToken = default;
+                        global::System.Threading.CancellationToken cancelToken = default;
                         for (int i = 1; i < holder.Length; i++)
                         {
                             if (holder[i] is CancellationRegistrationHolder cancelReg)
@@ -19975,7 +19975,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     /// <summary>
     /// Async method returning an array of strings.
     /// </summary>
-    public Task<IReadOnlyList<string>> GetStringArrayAsync(System.Threading.CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<string>> GetStringArrayAsync(global::System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -20006,7 +20006,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
-                        var (tcs, token, id) = ((TaskCompletionSource<IReadOnlyList<string>>, System.Threading.CancellationToken, long))state!;
+                        var (tcs, token, id) = ((TaskCompletionSource<IReadOnlyList<string>>, global::System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
@@ -20095,7 +20095,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                             int strLen = (int)lengthsPtr[i];
                             string s = strLen == 0
                                 ? string.Empty
-                                : System.Runtime.InteropServices.Marshal.PtrToStringUTF8(bufferPtr + dataOffset, strLen)!;
+                                : global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(bufferPtr + dataOffset, strLen)!;
                             result.Add(s);
                             dataOffset += strLen;
                         }
@@ -20162,7 +20162,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     if (isCancellation != 0)
                     {
                         // Swift reported CancellationError — find token and cancel the Task
-                        System.Threading.CancellationToken cancelToken = default;
+                        global::System.Threading.CancellationToken cancelToken = default;
                         for (int i = 1; i < holder.Length; i++)
                         {
                             if (holder[i] is CancellationRegistrationHolder cancelReg)
@@ -20218,7 +20218,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     /// <summary>
     /// Async method returning an empty array.
     /// </summary>
-    public Task<IReadOnlyList<string>> GetEmptyArrayAsync(System.Threading.CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<string>> GetEmptyArrayAsync(global::System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -20249,7 +20249,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
-                        var (tcs, token, id) = ((TaskCompletionSource<IReadOnlyList<string>>, System.Threading.CancellationToken, long))state!;
+                        var (tcs, token, id) = ((TaskCompletionSource<IReadOnlyList<string>>, global::System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
@@ -20338,7 +20338,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                             int strLen = (int)lengthsPtr[i];
                             string s = strLen == 0
                                 ? string.Empty
-                                : System.Runtime.InteropServices.Marshal.PtrToStringUTF8(bufferPtr + dataOffset, strLen)!;
+                                : global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(bufferPtr + dataOffset, strLen)!;
                             result.Add(s);
                             dataOffset += strLen;
                         }
@@ -20405,7 +20405,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     if (isCancellation != 0)
                     {
                         // Swift reported CancellationError — find token and cancel the Task
-                        System.Threading.CancellationToken cancelToken = default;
+                        global::System.Threading.CancellationToken cancelToken = default;
                         for (int i = 1; i < holder.Length; i++)
                         {
                             if (holder[i] is CancellationRegistrationHolder cancelReg)
@@ -20461,7 +20461,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     /// <summary>
     /// Async method returning a single-element array.
     /// </summary>
-    public Task<IReadOnlyList<string>> GetSingleElementArrayAsync(System.Threading.CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<string>> GetSingleElementArrayAsync(global::System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -20492,7 +20492,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
-                        var (tcs, token, id) = ((TaskCompletionSource<IReadOnlyList<string>>, System.Threading.CancellationToken, long))state!;
+                        var (tcs, token, id) = ((TaskCompletionSource<IReadOnlyList<string>>, global::System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
@@ -20581,7 +20581,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                             int strLen = (int)lengthsPtr[i];
                             string s = strLen == 0
                                 ? string.Empty
-                                : System.Runtime.InteropServices.Marshal.PtrToStringUTF8(bufferPtr + dataOffset, strLen)!;
+                                : global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(bufferPtr + dataOffset, strLen)!;
                             result.Add(s);
                             dataOffset += strLen;
                         }
@@ -20648,7 +20648,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     if (isCancellation != 0)
                     {
                         // Swift reported CancellationError — find token and cancel the Task
-                        System.Threading.CancellationToken cancelToken = default;
+                        global::System.Threading.CancellationToken cancelToken = default;
                         for (int i = 1; i < holder.Length; i++)
                         {
                             if (holder[i] is CancellationRegistrationHolder cancelReg)
@@ -20704,7 +20704,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     /// <summary>
     /// Async method returning an array with Unicode strings.
     /// </summary>
-    public Task<IReadOnlyList<string>> GetUnicodeArrayAsync(System.Threading.CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<string>> GetUnicodeArrayAsync(global::System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -20735,7 +20735,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
-                        var (tcs, token, id) = ((TaskCompletionSource<IReadOnlyList<string>>, System.Threading.CancellationToken, long))state!;
+                        var (tcs, token, id) = ((TaskCompletionSource<IReadOnlyList<string>>, global::System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
@@ -20821,7 +20821,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     if (isCancellation != 0)
                     {
                         // Swift reported CancellationError — find token and cancel the Task
-                        System.Threading.CancellationToken cancelToken = default;
+                        global::System.Threading.CancellationToken cancelToken = default;
                         for (int i = 1; i < holder.Length; i++)
                         {
                             if (holder[i] is CancellationRegistrationHolder cancelReg)
@@ -20877,7 +20877,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     /// <summary>
     /// Async method returning an array of integers.
     /// </summary>
-    public Task<IReadOnlyList<int>> GetIntArrayAsync( int count, System.Threading.CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<int>> GetIntArrayAsync( int count, global::System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -20908,7 +20908,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
-                        var (tcs, token, id) = ((TaskCompletionSource<IReadOnlyList<int>>, System.Threading.CancellationToken, long))state!;
+                        var (tcs, token, id) = ((TaskCompletionSource<IReadOnlyList<int>>, global::System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
@@ -20997,7 +20997,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                             int strLen = (int)lengthsPtr[i];
                             string s = strLen == 0
                                 ? string.Empty
-                                : System.Runtime.InteropServices.Marshal.PtrToStringUTF8(bufferPtr + dataOffset, strLen)!;
+                                : global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(bufferPtr + dataOffset, strLen)!;
                             result.Add(s);
                             dataOffset += strLen;
                         }
@@ -21064,7 +21064,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     if (isCancellation != 0)
                     {
                         // Swift reported CancellationError — find token and cancel the Task
-                        System.Threading.CancellationToken cancelToken = default;
+                        global::System.Threading.CancellationToken cancelToken = default;
                         for (int i = 1; i < holder.Length; i++)
                         {
                             if (holder[i] is CancellationRegistrationHolder cancelReg)
@@ -21120,7 +21120,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     /// <summary>
     /// Async static method returning String array.
     /// </summary>
-    public static Task<IReadOnlyList<string>> StaticArrayAsync(System.Threading.CancellationToken cancellationToken = default)
+    public static Task<IReadOnlyList<string>> StaticArrayAsync(global::System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -21151,7 +21151,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
-                        var (tcs, token, id) = ((TaskCompletionSource<IReadOnlyList<string>>, System.Threading.CancellationToken, long))state!;
+                        var (tcs, token, id) = ((TaskCompletionSource<IReadOnlyList<string>>, global::System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
@@ -21326,9 +21326,9 @@ public partial class AsyncComplexWorker : ISwiftObject, IDisposable
     private static partial void PInvoke_init_AF615155( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer workerId);
     
     
-    [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_CancelTask_SwiftBindingsTestLib")]
+    [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_CancelTask_SwiftBindingsTestLib")]
     private static partial void SBW_CancelTask(long taskId);
-                    [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
+                    [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
         private static partial void SBW_Free(IntPtr ptr);
 private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGetResultCallback_AC5EE419 = &asyncGetResultOnComplete_AC5EE419;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
@@ -21386,7 +21386,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                     if (isCancellation != 0)
                     {
                         // Swift reported CancellationError — find token and cancel the Task
-                        System.Threading.CancellationToken cancelToken = default;
+                        global::System.Threading.CancellationToken cancelToken = default;
                         for (int i = 1; i < holder.Length; i++)
                         {
                             if (holder[i] is CancellationRegistrationHolder cancelReg)
@@ -21442,7 +21442,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
     /// <summary>
     /// Async method returning a frozen struct.
     /// </summary>
-    public Task<Swift.SwiftBindingsTestLib.AsyncResult> GetResultAsync(System.Threading.CancellationToken cancellationToken = default)
+    public Task<Swift.SwiftBindingsTestLib.AsyncResult> GetResultAsync(global::System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -21473,7 +21473,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
-                        var (tcs, token, id) = ((TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult>, System.Threading.CancellationToken, long))state!;
+                        var (tcs, token, id) = ((TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult>, global::System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
@@ -21559,7 +21559,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                     if (isCancellation != 0)
                     {
                         // Swift reported CancellationError — find token and cancel the Task
-                        System.Threading.CancellationToken cancelToken = default;
+                        global::System.Threading.CancellationToken cancelToken = default;
                         for (int i = 1; i < holder.Length; i++)
                         {
                             if (holder[i] is CancellationRegistrationHolder cancelReg)
@@ -21615,7 +21615,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
     /// <summary>
     /// Async method returning an enum with associated value.
     /// </summary>
-    public Task<Swift.SwiftBindingsTestLib.AsyncStatus> GetStatusAsync(System.Threading.CancellationToken cancellationToken = default)
+    public Task<Swift.SwiftBindingsTestLib.AsyncStatus> GetStatusAsync(global::System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -21646,7 +21646,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
-                        var (tcs, token, id) = ((TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncStatus>, System.Threading.CancellationToken, long))state!;
+                        var (tcs, token, id) = ((TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncStatus>, global::System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
@@ -21732,7 +21732,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                     if (isCancellation != 0)
                     {
                         // Swift reported CancellationError — find token and cancel the Task
-                        System.Threading.CancellationToken cancelToken = default;
+                        global::System.Threading.CancellationToken cancelToken = default;
                         for (int i = 1; i < holder.Length; i++)
                         {
                             if (holder[i] is CancellationRegistrationHolder cancelReg)
@@ -21788,7 +21788,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
     /// <summary>
     /// Async method returning an enum without associated value.
     /// </summary>
-    public Task<Swift.SwiftBindingsTestLib.AsyncStatus> GetPendingStatusAsync(System.Threading.CancellationToken cancellationToken = default)
+    public Task<Swift.SwiftBindingsTestLib.AsyncStatus> GetPendingStatusAsync(global::System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -21819,7 +21819,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
-                        var (tcs, token, id) = ((TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncStatus>, System.Threading.CancellationToken, long))state!;
+                        var (tcs, token, id) = ((TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncStatus>, global::System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
@@ -21909,7 +21909,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                     if (isCancellation != 0)
                     {
                         // Swift reported CancellationError — find token and cancel the Task
-                        System.Threading.CancellationToken cancelToken = default;
+                        global::System.Threading.CancellationToken cancelToken = default;
                         for (int i = 1; i < holder.Length; i++)
                         {
                             if (holder[i] is CancellationRegistrationHolder cancelReg)
@@ -21965,7 +21965,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
     /// <summary>
     /// Async method returning a class instance.
     /// </summary>
-    public Task<Swift.SwiftBindingsTestLib.AsyncTask> GetTaskAsync(System.Threading.CancellationToken cancellationToken = default)
+    public Task<Swift.SwiftBindingsTestLib.AsyncTask> GetTaskAsync(global::System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -21996,7 +21996,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
-                        var (tcs, token, id) = ((TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncTask>, System.Threading.CancellationToken, long))state!;
+                        var (tcs, token, id) = ((TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncTask>, global::System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
@@ -22082,7 +22082,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                     if (isCancellation != 0)
                     {
                         // Swift reported CancellationError — find token and cancel the Task
-                        System.Threading.CancellationToken cancelToken = default;
+                        global::System.Threading.CancellationToken cancelToken = default;
                         for (int i = 1; i < holder.Length; i++)
                         {
                             if (holder[i] is CancellationRegistrationHolder cancelReg)
@@ -22138,7 +22138,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
     /// <summary>
     /// Async method returning optional struct (some).
     /// </summary>
-    public Task<Swift.SwiftBindingsTestLib.AsyncResult?> GetOptionalResultAsync(System.Threading.CancellationToken cancellationToken = default)
+    public Task<Swift.SwiftBindingsTestLib.AsyncResult?> GetOptionalResultAsync(global::System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -22169,7 +22169,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
-                        var (tcs, token, id) = ((TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult?>, System.Threading.CancellationToken, long))state!;
+                        var (tcs, token, id) = ((TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult?>, global::System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
@@ -22255,7 +22255,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                     if (isCancellation != 0)
                     {
                         // Swift reported CancellationError — find token and cancel the Task
-                        System.Threading.CancellationToken cancelToken = default;
+                        global::System.Threading.CancellationToken cancelToken = default;
                         for (int i = 1; i < holder.Length; i++)
                         {
                             if (holder[i] is CancellationRegistrationHolder cancelReg)
@@ -22311,7 +22311,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
     /// <summary>
     /// Async method returning optional struct (none).
     /// </summary>
-    public Task<Swift.SwiftBindingsTestLib.AsyncResult?> GetNilResultAsync(System.Threading.CancellationToken cancellationToken = default)
+    public Task<Swift.SwiftBindingsTestLib.AsyncResult?> GetNilResultAsync(global::System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -22342,7 +22342,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
-                        var (tcs, token, id) = ((TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult?>, System.Threading.CancellationToken, long))state!;
+                        var (tcs, token, id) = ((TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult?>, global::System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
@@ -22428,7 +22428,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                     if (isCancellation != 0)
                     {
                         // Swift reported CancellationError — find token and cancel the Task
-                        System.Threading.CancellationToken cancelToken = default;
+                        global::System.Threading.CancellationToken cancelToken = default;
                         for (int i = 1; i < holder.Length; i++)
                         {
                             if (holder[i] is CancellationRegistrationHolder cancelReg)
@@ -22484,7 +22484,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
     /// <summary>
     /// Async static method returning complex type.
     /// </summary>
-    public static Task<Swift.SwiftBindingsTestLib.AsyncResult> StaticResultAsync(System.Threading.CancellationToken cancellationToken = default)
+    public static Task<Swift.SwiftBindingsTestLib.AsyncResult> StaticResultAsync(global::System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -22515,7 +22515,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
-                        var (tcs, token, id) = ((TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult>, System.Threading.CancellationToken, long))state!;
+                        var (tcs, token, id) = ((TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncResult>, global::System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
@@ -22603,7 +22603,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                     if (isCancellation != 0)
                     {
                         // Swift reported CancellationError — find token and cancel the Task
-                        System.Threading.CancellationToken cancelToken = default;
+                        global::System.Threading.CancellationToken cancelToken = default;
                         for (int i = 1; i < holder.Length; i++)
                         {
                             if (holder[i] is CancellationRegistrationHolder cancelReg)
@@ -22659,7 +22659,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
     /// <summary>
     /// Async static method returning class.
     /// </summary>
-    public static Task<Swift.SwiftBindingsTestLib.AsyncTask> StaticTaskAsync(System.Threading.CancellationToken cancellationToken = default)
+    public static Task<Swift.SwiftBindingsTestLib.AsyncTask> StaticTaskAsync(global::System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -22690,7 +22690,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
-                        var (tcs, token, id) = ((TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncTask>, System.Threading.CancellationToken, long))state!;
+                        var (tcs, token, id) = ((TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncTask>, global::System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
@@ -23044,9 +23044,9 @@ public partial class MainActorViewModel : ISwiftObject, IDisposable
     private static partial int PInvoke_increment_B3ED6879( SwiftSelf self);
     
     
-    [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_CancelTask_SwiftBindingsTestLib")]
+    [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_CancelTask_SwiftBindingsTestLib")]
     private static partial void SBW_CancelTask(long taskId);
-                    [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
+                    [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
         private static partial void SBW_Free(IntPtr ptr);
 private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_refreshTitleCallback_BD57AD67 = &refreshTitleOnComplete_BD57AD67;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
@@ -23063,7 +23063,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_r
                 }
                 else
                 {
-                    result = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(slicePtr, (int)sliceLen)!;
+                    result = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(slicePtr, (int)sliceLen)!;
                 }
 
                 // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
@@ -23112,7 +23112,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_r
                     if (isCancellation != 0)
                     {
                         // Swift reported CancellationError — find token and cancel the Task
-                        System.Threading.CancellationToken cancelToken = default;
+                        global::System.Threading.CancellationToken cancelToken = default;
                         for (int i = 1; i < holder.Length; i++)
                         {
                             if (holder[i] is CancellationRegistrationHolder cancelReg)
@@ -23168,7 +23168,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_r
     /// <summary>
     /// Async method on @MainActor class.
     /// </summary>
-    public virtual Task<string> RefreshTitleAsync(System.Threading.CancellationToken cancellationToken = default)
+    public virtual Task<string> RefreshTitleAsync(global::System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -23201,7 +23201,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_r
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
-                        var (tcs, token, id) = ((TaskCompletionSource<string>, System.Threading.CancellationToken, long))state!;
+                        var (tcs, token, id) = ((TaskCompletionSource<string>, global::System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
@@ -23624,7 +23624,7 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
     private static partial void PInvoke_init_B98C720C( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer name);
     
     
-    [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_CancelTask_SwiftBindingsTestLib")]
+    [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_CancelTask_SwiftBindingsTestLib")]
     private static partial void SBW_CancelTask(long taskId);
             private static unsafe delegate* unmanaged[Cdecl]<IntPtr, void> s_asyncVoidMethodCallback_F6A56DB1 = &asyncVoidMethodOnComplete_F6A56DB1;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
@@ -23682,7 +23682,7 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
                     if (isCancellation != 0)
                     {
                         // Swift reported CancellationError — find token and cancel the Task
-                        System.Threading.CancellationToken cancelToken = default;
+                        global::System.Threading.CancellationToken cancelToken = default;
                         for (int i = 1; i < holder.Length; i++)
                         {
                             if (holder[i] is CancellationRegistrationHolder cancelReg)
@@ -23738,7 +23738,7 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
     /// <summary>
     /// Async void instance method.
     /// </summary>
-    public Task VoidMethodAsync(System.Threading.CancellationToken cancellationToken = default)
+    public Task VoidMethodAsync(global::System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -23769,7 +23769,7 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
-                        var (tcs, token, id) = ((TaskCompletionSource, System.Threading.CancellationToken, long))state!;
+                        var (tcs, token, id) = ((TaskCompletionSource, global::System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
@@ -23855,7 +23855,7 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
                     if (isCancellation != 0)
                     {
                         // Swift reported CancellationError — find token and cancel the Task
-                        System.Threading.CancellationToken cancelToken = default;
+                        global::System.Threading.CancellationToken cancelToken = default;
                         for (int i = 1; i < holder.Length; i++)
                         {
                             if (holder[i] is CancellationRegistrationHolder cancelReg)
@@ -23911,7 +23911,7 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
     /// <summary>
     /// Async instance method returning Int32.
     /// </summary>
-    public Task<int> ReturnMethodAsync(System.Threading.CancellationToken cancellationToken = default)
+    public Task<int> ReturnMethodAsync(global::System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -23942,7 +23942,7 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
-                        var (tcs, token, id) = ((TaskCompletionSource<int>, System.Threading.CancellationToken, long))state!;
+                        var (tcs, token, id) = ((TaskCompletionSource<int>, global::System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
@@ -23972,7 +23972,7 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
     private static unsafe partial void PInvoke_asyncReturnMethod_0900569C( void* s_asyncReturnMethodCallback_0900569C,  void* s_asyncReturnMethodErrorCallback_0900569C,  IntPtr handle,  IntPtr _self);
     
     
-                    [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
+                    [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
         private static partial void SBW_Free(IntPtr ptr);
 private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_asyncStringMethodCallback_DC250ED7 = &asyncStringMethodOnComplete_DC250ED7;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
@@ -23989,7 +23989,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 }
                 else
                 {
-                    result = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(slicePtr, (int)sliceLen)!;
+                    result = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(slicePtr, (int)sliceLen)!;
                 }
 
                 // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
@@ -24038,7 +24038,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     if (isCancellation != 0)
                     {
                         // Swift reported CancellationError — find token and cancel the Task
-                        System.Threading.CancellationToken cancelToken = default;
+                        global::System.Threading.CancellationToken cancelToken = default;
                         for (int i = 1; i < holder.Length; i++)
                         {
                             if (holder[i] is CancellationRegistrationHolder cancelReg)
@@ -24094,7 +24094,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     /// <summary>
     /// Async instance method returning String.
     /// </summary>
-    public Task<string> StringMethodAsync(System.Threading.CancellationToken cancellationToken = default)
+    public Task<string> StringMethodAsync(global::System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -24125,7 +24125,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
-                        var (tcs, token, id) = ((TaskCompletionSource<string>, System.Threading.CancellationToken, long))state!;
+                        var (tcs, token, id) = ((TaskCompletionSource<string>, global::System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
@@ -24211,7 +24211,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     if (isCancellation != 0)
                     {
                         // Swift reported CancellationError — find token and cancel the Task
-                        System.Threading.CancellationToken cancelToken = default;
+                        global::System.Threading.CancellationToken cancelToken = default;
                         for (int i = 1; i < holder.Length; i++)
                         {
                             if (holder[i] is CancellationRegistrationHolder cancelReg)
@@ -24267,7 +24267,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     /// <summary>
     /// Async static void method.
     /// </summary>
-    public static Task StaticVoidAsync(System.Threading.CancellationToken cancellationToken = default)
+    public static Task StaticVoidAsync(global::System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -24298,7 +24298,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
-                        var (tcs, token, id) = ((TaskCompletionSource, System.Threading.CancellationToken, long))state!;
+                        var (tcs, token, id) = ((TaskCompletionSource, global::System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
@@ -24382,7 +24382,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     if (isCancellation != 0)
                     {
                         // Swift reported CancellationError — find token and cancel the Task
-                        System.Threading.CancellationToken cancelToken = default;
+                        global::System.Threading.CancellationToken cancelToken = default;
                         for (int i = 1; i < holder.Length; i++)
                         {
                             if (holder[i] is CancellationRegistrationHolder cancelReg)
@@ -24438,7 +24438,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     /// <summary>
     /// Async static method returning Int32.
     /// </summary>
-    public static Task<int> StaticReturnAsync(System.Threading.CancellationToken cancellationToken = default)
+    public static Task<int> StaticReturnAsync(global::System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -24469,7 +24469,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
-                        var (tcs, token, id) = ((TaskCompletionSource<int>, System.Threading.CancellationToken, long))state!;
+                        var (tcs, token, id) = ((TaskCompletionSource<int>, global::System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
@@ -24553,7 +24553,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     if (isCancellation != 0)
                     {
                         // Swift reported CancellationError — find token and cancel the Task
-                        System.Threading.CancellationToken cancelToken = default;
+                        global::System.Threading.CancellationToken cancelToken = default;
                         for (int i = 1; i < holder.Length; i++)
                         {
                             if (holder[i] is CancellationRegistrationHolder cancelReg)
@@ -24609,7 +24609,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
     /// <summary>
     /// Async method with parameters.
     /// </summary>
-    public Task<int> AddAsync( int a,  int b, System.Threading.CancellationToken cancellationToken = default)
+    public Task<int> AddAsync( int a,  int b, global::System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -24640,7 +24640,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
-                        var (tcs, token, id) = ((TaskCompletionSource<int>, System.Threading.CancellationToken, long))state!;
+                        var (tcs, token, id) = ((TaskCompletionSource<int>, global::System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
@@ -25131,9 +25131,9 @@ public partial class AsyncProcessor : ISwiftObject, IDisposable
     private static partial void PInvoke_init_67FDB5EF( SwiftIndirectResult swiftIndirectResult);
     
     
-    [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_CancelTask_SwiftBindingsTestLib")]
+    [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_CancelTask_SwiftBindingsTestLib")]
     private static partial void SBW_CancelTask(long taskId);
-                    [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
+                    [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
         private static partial void SBW_Free(IntPtr ptr);
 private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_processCallback_6566B5F0 = &processOnComplete_6566B5F0;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
@@ -25150,7 +25150,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_p
                 }
                 else
                 {
-                    result = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(slicePtr, (int)sliceLen)!;
+                    result = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(slicePtr, (int)sliceLen)!;
                 }
 
                 // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
@@ -25199,7 +25199,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_p
                     if (isCancellation != 0)
                     {
                         // Swift reported CancellationError — find token and cancel the Task
-                        System.Threading.CancellationToken cancelToken = default;
+                        global::System.Threading.CancellationToken cancelToken = default;
                         for (int i = 1; i < holder.Length; i++)
                         {
                             if (holder[i] is CancellationRegistrationHolder cancelReg)
@@ -25255,7 +25255,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_p
     /// <summary>
     /// Async isolated method.
     /// </summary>
-    public virtual Task<string> ProcessAsync( string input, System.Threading.CancellationToken cancellationToken = default)
+    public virtual Task<string> ProcessAsync( string input, global::System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -25288,7 +25288,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_p
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
-                        var (tcs, token, id) = ((TaskCompletionSource<string>, System.Threading.CancellationToken, long))state!;
+                        var (tcs, token, id) = ((TaskCompletionSource<string>, global::System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
@@ -25410,7 +25410,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_p
                     if (isCancellation != 0)
                     {
                         // Swift reported CancellationError — find token and cancel the Task
-                        System.Threading.CancellationToken cancelToken = default;
+                        global::System.Threading.CancellationToken cancelToken = default;
                         for (int i = 1; i < holder.Length; i++)
                         {
                             if (holder[i] is CancellationRegistrationHolder cancelReg)
@@ -25466,7 +25466,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_p
     /// <summary>
     /// Nonisolated async method.
     /// </summary>
-    public virtual Task<int> ComputeHashAsync( string input, System.Threading.CancellationToken cancellationToken = default)
+    public virtual Task<int> ComputeHashAsync( string input, global::System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -25499,7 +25499,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_p
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
-                        var (tcs, token, id) = ((TaskCompletionSource<int>, System.Threading.CancellationToken, long))state!;
+                        var (tcs, token, id) = ((TaskCompletionSource<int>, global::System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
@@ -26590,7 +26590,7 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
                 Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
         }
         
-        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        [global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Sequential)]
         private struct Utf8Slice
         {
             public IntPtr Ptr;
@@ -26614,7 +26614,7 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
             try
             {
                 // Call the failable initializer with indirect result
-                var utf8Bytes = System.Text.Encoding.UTF8.GetBytes(rawValue ?? string.Empty);
+                var utf8Bytes = global::System.Text.Encoding.UTF8.GetBytes(rawValue ?? string.Empty);
                 fixed (byte* utf8Ptr = utf8Bytes)
                 {
                     var slice = new Utf8Slice { Ptr = (IntPtr)utf8Ptr, Len = (nint)utf8Bytes.Length };
@@ -26890,7 +26890,7 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
                 Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
         }
         
-        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        [global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Sequential)]
         private struct Utf8Slice
         {
             public IntPtr Ptr;
@@ -26914,7 +26914,7 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
             try
             {
                 // Call the failable initializer with indirect result
-                var utf8Bytes = System.Text.Encoding.UTF8.GetBytes(rawValue ?? string.Empty);
+                var utf8Bytes = global::System.Text.Encoding.UTF8.GetBytes(rawValue ?? string.Empty);
                 fixed (byte* utf8Ptr = utf8Bytes)
                 {
                     var slice = new Utf8Slice { Ptr = (IntPtr)utf8Ptr, Len = (nint)utf8Bytes.Length };
@@ -27363,7 +27363,7 @@ public partial class OrderContainer : ISwiftObject, IDisposable
                 Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
         }
         
-        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        [global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Sequential)]
         private struct Utf8Slice
         {
             public IntPtr Ptr;
@@ -27387,7 +27387,7 @@ public partial class OrderContainer : ISwiftObject, IDisposable
             try
             {
                 // Call the failable initializer with indirect result
-                var utf8Bytes = System.Text.Encoding.UTF8.GetBytes(rawValue ?? string.Empty);
+                var utf8Bytes = global::System.Text.Encoding.UTF8.GetBytes(rawValue ?? string.Empty);
                 fixed (byte* utf8Ptr = utf8Bytes)
                 {
                     var slice = new Utf8Slice { Ptr = (IntPtr)utf8Ptr, Len = (nint)utf8Bytes.Length };
@@ -27849,7 +27849,7 @@ public partial class PaymentContainer : ISwiftObject, IDisposable
                 Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
         }
         
-        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        [global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Sequential)]
         private struct Utf8Slice
         {
             public IntPtr Ptr;
@@ -27873,7 +27873,7 @@ public partial class PaymentContainer : ISwiftObject, IDisposable
             try
             {
                 // Call the failable initializer with indirect result
-                var utf8Bytes = System.Text.Encoding.UTF8.GetBytes(rawValue ?? string.Empty);
+                var utf8Bytes = global::System.Text.Encoding.UTF8.GetBytes(rawValue ?? string.Empty);
                 fixed (byte* utf8Ptr = utf8Bytes)
                 {
                     var slice = new Utf8Slice { Ptr = (IntPtr)utf8Ptr, Len = (nint)utf8Bytes.Length };
@@ -28171,7 +28171,7 @@ public partial class LogLevel : ISwiftObject, IDisposable
             Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
-    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    [global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Sequential)]
     private struct Utf8Slice
     {
         public IntPtr Ptr;
@@ -28195,7 +28195,7 @@ public partial class LogLevel : ISwiftObject, IDisposable
         try
         {
             // Call the failable initializer with indirect result
-            var utf8Bytes = System.Text.Encoding.UTF8.GetBytes(rawValue ?? string.Empty);
+            var utf8Bytes = global::System.Text.Encoding.UTF8.GetBytes(rawValue ?? string.Empty);
             fixed (byte* utf8Ptr = utf8Bytes)
             {
                 var slice = new Utf8Slice { Ptr = (IntPtr)utf8Ptr, Len = (nint)utf8Bytes.Length };
@@ -28471,7 +28471,7 @@ public partial class Greeting : ISwiftObject, IDisposable
             Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
-    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    [global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Sequential)]
     private struct Utf8Slice
     {
         public IntPtr Ptr;
@@ -28495,7 +28495,7 @@ public partial class Greeting : ISwiftObject, IDisposable
         try
         {
             // Call the failable initializer with indirect result
-            var utf8Bytes = System.Text.Encoding.UTF8.GetBytes(rawValue ?? string.Empty);
+            var utf8Bytes = global::System.Text.Encoding.UTF8.GetBytes(rawValue ?? string.Empty);
             fixed (byte* utf8Ptr = utf8Bytes)
             {
                 var slice = new Utf8Slice { Ptr = (IntPtr)utf8Ptr, Len = (nint)utf8Bytes.Length };
@@ -28771,7 +28771,7 @@ public partial class EdgeCaseStrings : ISwiftObject, IDisposable
             Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
-    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    [global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Sequential)]
     private struct Utf8Slice
     {
         public IntPtr Ptr;
@@ -28795,7 +28795,7 @@ public partial class EdgeCaseStrings : ISwiftObject, IDisposable
         try
         {
             // Call the failable initializer with indirect result
-            var utf8Bytes = System.Text.Encoding.UTF8.GetBytes(rawValue ?? string.Empty);
+            var utf8Bytes = global::System.Text.Encoding.UTF8.GetBytes(rawValue ?? string.Empty);
             fixed (byte* utf8Ptr = utf8Bytes)
             {
                 var slice = new Utf8Slice { Ptr = (IntPtr)utf8Ptr, Len = (nint)utf8Bytes.Length };
@@ -29084,7 +29084,7 @@ public partial class CaseSensitiveEnum : ISwiftObject, IDisposable
             Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
-    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    [global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Sequential)]
     private struct Utf8Slice
     {
         public IntPtr Ptr;
@@ -29108,7 +29108,7 @@ public partial class CaseSensitiveEnum : ISwiftObject, IDisposable
         try
         {
             // Call the failable initializer with indirect result
-            var utf8Bytes = System.Text.Encoding.UTF8.GetBytes(rawValue ?? string.Empty);
+            var utf8Bytes = global::System.Text.Encoding.UTF8.GetBytes(rawValue ?? string.Empty);
             fixed (byte* utf8Ptr = utf8Bytes)
             {
                 var slice = new Utf8Slice { Ptr = (IntPtr)utf8Ptr, Len = (nint)utf8Bytes.Length };
@@ -33430,7 +33430,7 @@ public unsafe partial class DescribableProxy : IDescribable, ISwiftObject, IDisp
                 {
                     var slice = *(Utf8Slice*)resultPtr;
                     var str = slice.Len > 0
-                        ? System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)
+                        ? global::System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)
                         : string.Empty;
                     return str;
                 }
@@ -33451,7 +33451,7 @@ public unsafe partial class DescribableProxy : IDescribable, ISwiftObject, IDisp
             {
                 var slice = *(Utf8Slice*)resultPtr;
                 return slice.Len > 0
-                    ? System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)
+                    ? global::System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)
                     : string.Empty;
             }
             finally
@@ -33724,7 +33724,7 @@ public unsafe partial class TestIdentifiableProxy : ITestIdentifiable, ISwiftObj
                 {
                     var slice = *(Utf8Slice*)resultPtr;
                     var str = slice.Len > 0
-                        ? System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)
+                        ? global::System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)
                         : string.Empty;
                     return str;
                 }
@@ -33985,7 +33985,7 @@ public unsafe partial class DisplayableProxy : IDisplayable, ISwiftObject, IDisp
             {
                 var slice = *(Utf8Slice*)resultPtr;
                 return slice.Len > 0
-                    ? System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)
+                    ? global::System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)
                     : string.Empty;
             }
             finally
@@ -35538,7 +35538,7 @@ public unsafe partial class NameableProxy : INameable, ISwiftObject, IDisposable
                 {
                     var slice = *(Utf8Slice*)resultPtr;
                     var str = slice.Len > 0
-                        ? System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)
+                        ? global::System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)
                         : string.Empty;
                     return str;
                 }
@@ -37480,7 +37480,7 @@ public partial class TaskPriority : ISwiftObject, IDisposable
             Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
-    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    [global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Sequential)]
     private struct Utf8Slice
     {
         public IntPtr Ptr;
@@ -37504,7 +37504,7 @@ public partial class TaskPriority : ISwiftObject, IDisposable
         try
         {
             // Call the failable initializer with indirect result
-            var utf8Bytes = System.Text.Encoding.UTF8.GetBytes(rawValue ?? string.Empty);
+            var utf8Bytes = global::System.Text.Encoding.UTF8.GetBytes(rawValue ?? string.Empty);
             fixed (byte* utf8Ptr = utf8Bytes)
             {
                 var slice = new Utf8Slice { Ptr = (IntPtr)utf8Ptr, Len = (nint)utf8Bytes.Length };
@@ -37877,7 +37877,7 @@ public unsafe partial class NamedProxy : INamed, ISwiftObject, IDisposable, Swif
                 {
                     var slice = *(Utf8Slice*)resultPtr;
                     var str = slice.Len > 0
-                        ? System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)
+                        ? global::System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)
                         : string.Empty;
                     return str;
                 }
@@ -38156,7 +38156,7 @@ public unsafe partial class MutableNamedProxy : IMutableNamed, ISwiftObject, IDi
                 {
                     var slice = *(Utf8Slice*)resultPtr;
                     var str = slice.Len > 0
-                        ? System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)
+                        ? global::System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)
                         : string.Empty;
                     return str;
                 }
@@ -38174,7 +38174,7 @@ public unsafe partial class MutableNamedProxy : IMutableNamed, ISwiftObject, IDi
             fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
             {
                 var str = value?.ToString() ?? string.Empty;
-                var utf8Bytes = System.Text.Encoding.UTF8.GetBytes(str);
+                var utf8Bytes = global::System.Text.Encoding.UTF8.GetBytes(str);
                 fixed (byte* utf8Ptr = utf8Bytes)
                 {
                     var slice = new Utf8Slice { Ptr = (IntPtr)utf8Ptr, Len = (nint)utf8Bytes.Length };
@@ -38999,7 +38999,7 @@ public unsafe partial class TaskDescriptorProxy : ITaskDescriptor, ISwiftObject,
                 {
                     var slice = *(Utf8Slice*)resultPtr;
                     var str = slice.Len > 0
-                        ? System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)
+                        ? global::System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)
                         : string.Empty;
                     return str;
                 }
@@ -39314,7 +39314,7 @@ public unsafe partial class StringProcessorProxy : IStringProcessor, ISwiftObjec
             var arg0Handle = default(GCHandle);
             try
             {
-                var arg0Bytes = System.Text.Encoding.UTF8.GetBytes(input ?? string.Empty);
+                var arg0Bytes = global::System.Text.Encoding.UTF8.GetBytes(input ?? string.Empty);
                 arg0Handle = GCHandle.Alloc(arg0Bytes, GCHandleType.Pinned);
                 var arg0Slice = new Utf8Slice { Ptr = arg0Handle.AddrOfPinnedObject(), Len = (nint)arg0Bytes.Length };
                 IntPtr resultPtr = NativeMethods.SBW_StringProcessor_method_process_0((IntPtr)containerPtr, (IntPtr)(&arg0Slice));
@@ -39322,7 +39322,7 @@ public unsafe partial class StringProcessorProxy : IStringProcessor, ISwiftObjec
                 {
                     var slice = *(Utf8Slice*)resultPtr;
                     return slice.Len > 0
-                        ? System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)
+                        ? global::System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)
                         : string.Empty;
                 }
                 finally
@@ -39349,7 +39349,7 @@ public unsafe partial class StringProcessorProxy : IStringProcessor, ISwiftObjec
             {
                 var slice = *(Utf8Slice*)resultPtr;
                 return slice.Len > 0
-                    ? System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)
+                    ? global::System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)
                     : string.Empty;
             }
             finally
@@ -42548,9 +42548,9 @@ public partial class AsyncService : ISwiftObject, IDisposable
         return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
     }
     
-    [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_CancelTask_SwiftBindingsTestLib")]
+    [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_CancelTask_SwiftBindingsTestLib")]
     private static partial void SBW_CancelTask(long taskId);
-                    [System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
+                    [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
         private static partial void SBW_Free(IntPtr ptr);
 private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCallback_80118581 = &initOnComplete_80118581;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
@@ -42612,7 +42612,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                     if (isCancellation != 0)
                     {
                         // Swift reported CancellationError — find token and cancel the Task
-                        System.Threading.CancellationToken cancelToken = default;
+                        global::System.Threading.CancellationToken cancelToken = default;
                         for (int i = 1; i < holder.Length; i++)
                         {
                             if (holder[i] is CancellationRegistrationHolder cancelReg)
@@ -42665,7 +42665,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 handle.Free();
             }
         }
-    public static Task<Swift.SwiftBindingsTestLib.AsyncService> CreateAsync( string key, System.Threading.CancellationToken cancellationToken = default)
+    public static Task<Swift.SwiftBindingsTestLib.AsyncService> CreateAsync( string key, global::System.Threading.CancellationToken cancellationToken = default)
     {
         unsafe
         {
@@ -42696,7 +42696,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
-                        var (tcs, token, id) = ((TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncService>, System.Threading.CancellationToken, long))state!;
+                        var (tcs, token, id) = ((TaskCompletionSource<Swift.SwiftBindingsTestLib.AsyncService>, global::System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },

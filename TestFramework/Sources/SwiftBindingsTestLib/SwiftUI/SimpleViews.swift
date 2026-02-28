@@ -167,3 +167,34 @@ public struct MixedStringView: View {
         Text("MixedString: \(title)")
     }
 }
+
+// MARK: - Generic View Support (Session 2)
+
+/// Tests generic view with View-constrained placeholder and two constructors:
+/// - init(title:) where Placeholder == EmptyView  →  bridge selects this (concrete constraint)
+/// - init(title:, @ViewBuilder placeholder: () -> Placeholder)  →  requires synthesized closure
+public struct GenericPlaceholderView<Placeholder: View>: View {
+    public let title: String
+
+    public init(title: String) where Placeholder == EmptyView {
+        self.title = title
+    }
+
+    public init(title: String, @ViewBuilder placeholder: () -> Placeholder) {
+        self.title = title
+    }
+
+    public var body: some View {
+        Text(title)
+    }
+}
+
+/// Tests generic view where ALL init params are synthesizable (zero C# params).
+/// Bridge synthesizes: PlaceholderOnlyView(content: { EmptyView() })
+public struct PlaceholderOnlyView<Content: View>: View {
+    public init(@ViewBuilder content: () -> Content) {}
+
+    public var body: some View {
+        Text("PlaceholderOnly")
+    }
+}

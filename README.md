@@ -91,10 +91,10 @@ Select libraries (Nuke, BlinkID, Lottie, CryptoSwift) have been functionally val
 // Load an image asynchronously
 var pipeline = ImagePipeline.Shared;
 var request = new ImageRequest("https://example.com/photo.jpg");
-UIImage image = await pipeline.GetImageAsync(request);
+UIImage image = await pipeline.ImageAsync(request);
 
 // Check the cache first
-ImageContainer? cached = pipeline.Cache.GetCachedImage(request);
+ImageContainer? cached = pipeline.CacheValue.CachedImage(request);
 ```
 
 **Animation playback with [Lottie](https://github.com/airbnb/lottie-ios):**

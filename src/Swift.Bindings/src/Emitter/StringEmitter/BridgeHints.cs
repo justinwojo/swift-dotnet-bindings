@@ -46,6 +46,9 @@ public class ViewHint
     [JsonPropertyName("extraSwiftImports")]
     public List<string>? ExtraSwiftImports { get; set; }
 
+    [JsonPropertyName("placeholder")]
+    public string? Placeholder { get; set; }
+
     [JsonPropertyName("reason")]
     public string? Reason { get; set; }
 }
@@ -142,7 +145,7 @@ public static class BridgeHintsLoader
     private static readonly HashSet<string> KnownViewKeys = new(StringComparer.Ordinal)
     {
         "skip", "forceTemplate", "preferredInit", "asyncPattern",
-        "parameterOverrides", "extraSwiftImports", "reason"
+        "parameterOverrides", "extraSwiftImports", "placeholder", "reason"
     };
 
     private static readonly HashSet<string> KnownGlobalSettingsKeys = new(StringComparer.Ordinal)

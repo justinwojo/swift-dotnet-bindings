@@ -1,7 +1,7 @@
 # SwiftUI Bridge Roadmap
 
 **Date**: February 2026
-**Status**: Session 1 complete (closure & optional expansion), Sessions 2-6 planned
+**Status**: Sessions 1-2 complete (closure/optional expansion + generic views), Sessions 3-6 planned
 **Prior work**: `Completed/swiftui-bridge-v2-phases1-2.md` (param expansion + async inference), `Completed/swiftui-bridge-v2-phase3.md` (bridge hints)
 
 ---
@@ -34,13 +34,14 @@ The generator automatically detects SwiftUI Views and generates a bridge layer t
 
 | Blocker | Example | Frequency |
 |---------|---------|-----------|
-| Generic View type | `AnimatedImage<Placeholder: View>` | Common |
-| `@ViewBuilder` closure param | `LottieView<Placeholder>(placeholder: () -> Placeholder)` | Common |
+| Generic View with non-View constraint | `ListView<Item: Identifiable>` | Moderate |
 | Existential param | `init(delegate: any SomeProtocol)` | Moderate |
 | Non-frozen struct param | `init(config: Configuration)` | Moderate |
 | Closure with non-primitive returns | `init(validator: (String) -> MyClass)` | Rare |
 | Tuple param | `init(range: (min: Int, max: Int))` | Rare |
 | >4 closure params | Multiple typed closures | Rare |
+
+**Resolved in Session 2**: Generic View types with View-constrained placeholders (e.g., `AnimatedImage<Placeholder: View>`) and `@ViewBuilder` closure params are now bridged automatically via `EmptyView` substitution.
 
 ---
 
@@ -62,7 +63,7 @@ Ordered by priority. Each session is a self-contained unit of work. You can stop
 |---------|-------|----------|--------|------------|
 | **1A** | Closure & Optional expansion | Highest | **Done** | Result callbacks, selection handlers, data-passing closures |
 | **1B** | Closure non-primitive returns | Medium | Planned | `(String) -> MyClass`, `(Int) -> String` return values |
-| **2** | Generic view support | High | Planned | `AnimatedImage<T>`, `LottieView<T>`, @ViewBuilder params |
+| **2** | Generic view support | High | **Done** | `AnimatedImage<T>`, `LottieView<T>`, @ViewBuilder params |
 | **3** | Struct params & type database | High | Planned | Configuration-object patterns, reduced AnyType pollution |
 | **4** | Two-way state binding | Medium | Planned | Dynamic updates after creation (search, toggles, sliders) |
 | **5** | Lifecycle, modifiers & navigation | Medium-low | Planned | `onAppear`/`onDisappear`, frame/padding/background, presentation |
@@ -108,31 +109,34 @@ Closures that return String or class types across the FFI boundary require caref
 
 ---
 
-### Session 2: Generic View Support
+### Session 2: Generic View Support ✅
 
-**Priority**: High — single biggest gap. Generic views are rejected outright today.
+**Status**: Complete — generic views with View-constrained placeholders are now automatically bridged.
 
-Types like `AnimatedImage<Placeholder: View>` or `LottieView<Placeholder>` are skipped entirely because `viewType.IsGeneric` → Unsupported.
+Generic views like `AnimatedImage<Placeholder: View>` and `LottieView<Placeholder>` were the single biggest gap. The `viewType.IsGeneric` gate has been lifted and replaced with intelligent analysis.
 
-**Scope**:
+**Completed scope**:
 
-| Sub-task | Description |
-|----------|-------------|
-| Type-erased generic views | For Views with `@ViewBuilder` generic params, emit bridge using `AnyView` or `EmptyView` as concrete type argument |
-| `@ViewBuilder` closure strategies | Fixed placeholder strategies instead of passing SwiftUI trees from C# |
-| Hint control | `bridge-hints.json` specifies concrete type args or placeholder strategy per view |
-
-**Type erasure trade-off**: `AnyView` is slower for SwiftUI diffing, but for bridge scenarios (single hosted view, not in a list), the perf impact is negligible. The alternative is no bridge at all.
+| Sub-task | Status | Description |
+|----------|--------|-------------|
+| Generic view analysis | **Done** | `AnalyzeGenericView()` resolves each generic param to a concrete type. Prefers constructors with `== EmptyView` constraints (ConcreteType), falls back to View protocol constraint → default `EmptyView`. |
+| Constructor selection | **Done** | `SelectBestGenericConstructor()` filters failable ctors and method-level generics, ranks by ConcreteType constraints, supports `preferredInit` hint with validation. |
+| `@ViewBuilder` synthesis | **Done** | Closure params returning generic placeholders synthesized as `{ EmptyView() }`. Direct generic type params synthesized as `EmptyView()`. Non-generic params bridged normally. |
+| Multi-generic-param views | **Done** | Views with `<A: View, B: View>` emit `ViewName<EmptyView, EmptyView>`. Each closure resolves its specific return type (not first-in-dict). |
+| Hint control | **Done** | `"placeholder"` field in `bridge-hints.json` (values: `"empty"`, `"uiview"`, `"anyviewfromvc"`). Non-empty strategies return Unsupported with "not yet implemented" (forward compat). |
+| Backward compatibility | **Done** | `AnalyzeInitParameters` 2-param overload preserved. All existing tests unchanged. |
 
 **Placeholder strategies** (selected via hint: `"placeholder": "empty"` or `"placeholder": "uiview"`):
 
-| Strategy | Description |
-|----------|-------------|
-| `EmptyView` | Default — no placeholder content |
-| `UIViewWrapper` | Wrap a UIKit `UIView` provided from C# |
-| `AnyViewFromVC` | Wrap a `UIViewController` as `UIViewControllerRepresentable` |
+| Strategy | Status | Description |
+|----------|--------|-------------|
+| `EmptyView` | **Implemented** | Default — no placeholder content |
+| `UIViewWrapper` | Deferred | Wrap a UIKit `UIView` provided from C# |
+| `AnyViewFromVC` | Deferred | Wrap a `UIViewController` as `UIViewControllerRepresentable` |
 
-This avoids the impossible problem (composing SwiftUI from C#) while covering the practical cases (loading spinner, fallback view).
+**Test coverage**: 22+ unit tests, 2 TestFramework integration views (`GenericPlaceholderView<Placeholder>`, `PlaceholderOnlyView<Content>`), bridge compiles with 17 bridged views, 53/53 library validation.
+
+**Key files modified**: `SwiftUIBridgeEmitter.cs` (analysis + emission), `SwiftUIBridgeEmitter.InitAnalyzer.cs` (synthesized args), `BridgeHints.cs` (placeholder hint), `SwiftUIBridgeEmitterTests.cs` (22+ tests), `SimpleViews.swift` (2 generic test views).
 
 ---
 
@@ -282,7 +286,7 @@ Session 1A: Closures & Optionals    ✅ COMPLETE
     │
 Session 1B: Non-primitive returns   (standalone — extends Session 1A patterns)
     │
-Session 2: Generic Views            (standalone — benefits from Session 1A closure types)
+Session 2: Generic Views            ✅ COMPLETE
     │
 Session 3: Structs & Type Database  (standalone — benefits from Session 1A optional patterns)
     │
@@ -318,14 +322,14 @@ The product contract remains: **present SwiftUI View as UIViewController, with c
 
 ## Success Metrics
 
-| Metric | Before S1A | After S1A | After S2-3 | After S4-6 |
-|--------|------------|-----------|------------|------------|
-| Parameter types supported | 7 kinds | 11 kinds | 15+ kinds | 15+ kinds |
-| Closure arg types | Primitives only | + String, class | + String, class | + String, class |
-| Optional param types | Enum, class | + String, closure | + struct | + struct |
-| Generic views bridged | 0% | 0% | 60%+ | 60%+ |
-| Bridge rate (estimated) | ~70% | ~80% | ~90% | ~95% |
-| Post-creation state updates | No | No | No | Yes |
-| Lifecycle/modifier support | No | No | No | Yes |
-| Corpus libraries tracked | 3 | 3 | 3 | 10+ |
-| Runtime test coverage | 66/66 | 74/74 | 120+ | 150+ |
+| Metric | Before S1A | After S1A | After S2 | After S3 | After S4-6 |
+|--------|------------|-----------|----------|----------|------------|
+| Parameter types supported | 7 kinds | 11 kinds | 11 + generic | 15+ kinds | 15+ kinds |
+| Closure arg types | Primitives only | + String, class | + String, class | + String, class | + String, class |
+| Optional param types | Enum, class | + String, closure | + String, closure | + struct | + struct |
+| Generic views bridged | 0% | 0% | View-constrained | 60%+ | 60%+ |
+| Bridge rate (estimated) | ~70% | ~80% | ~85% | ~90% | ~95% |
+| Post-creation state updates | No | No | No | No | Yes |
+| Lifecycle/modifier support | No | No | No | No | Yes |
+| Bridged views (TestFramework) | — | 15 | 17 | 20+ | 20+ |
+| Unit tests (bridge) | — | 174 | 196 | 220+ | 250+ |

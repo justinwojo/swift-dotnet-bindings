@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using Microsoft.Extensions.Logging;
+
 namespace BindingsGeneration;
 
 /// <summary>
@@ -12,15 +14,55 @@ public static partial class SwiftUIBridgeEmitter
     /// <summary>
     /// Analyzes all init parameters and returns bridge parameter mappings.
     /// Returns null if any parameter is unsupported (entire View falls back to template).
+    /// Backward-compatible overload — wraps the generic-aware version.
     /// </summary>
     public static List<BridgeParameter>? AnalyzeInitParameters(MethodDecl constructor, BridgeContext? context = null)
     {
+        return AnalyzeInitParameters(constructor, context, null, out _);
+    }
+
+    /// <summary>
+    /// Analyzes init parameters with optional generic view support.
+    /// When genericAnalysis is provided, ViewBuilder closure params and generic type params
+    /// matching ConcreteTypeArgs are synthesized (skipped from bridge params, added to synthesizedArgs).
+    /// </summary>
+    public static List<BridgeParameter>? AnalyzeInitParameters(
+        MethodDecl constructor, BridgeContext? context,
+        GenericViewAnalysis? genericAnalysis,
+        out List<SynthesizedInitArg>? synthesizedArgs)
+    {
+        synthesizedArgs = null;
         var parameters = new List<BridgeParameter>();
 
         // CSSignature[0] is the return type, skip it
         for (int i = 1; i < constructor.CSSignature.Count; i++)
         {
             var param = constructor.CSSignature[i];
+
+            // Generic view support: check for synthesizable parameters
+            if (genericAnalysis != null)
+            {
+                // ViewBuilder closure whose return type matches a ConcreteTypeArgs key
+                if (IsViewBuilderClosureParam(param, genericAnalysis))
+                {
+                    synthesizedArgs ??= new List<SynthesizedInitArg>();
+                    var closureReturnName = ((NamedTypeSpec)((ClosureTypeSpec)param.SwiftTypeSpec).ReturnType).Name;
+                    var concreteType = genericAnalysis.ConcreteTypeArgs.GetValueOrDefault(closureReturnName, "EmptyView");
+                    synthesizedArgs.Add(new SynthesizedInitArg(param.Name, $"{{ {concreteType}() }}"));
+                    continue; // Skip from bridgeParams
+                }
+
+                // Direct generic type parameter matching a ConcreteTypeArgs key
+                if (IsGenericTypeParam(param, genericAnalysis))
+                {
+                    synthesizedArgs ??= new List<SynthesizedInitArg>();
+                    var typeParamName = param.SwiftTypeSpec is NamedTypeSpec ns ? ns.Name : "";
+                    var concreteType = genericAnalysis.ConcreteTypeArgs.GetValueOrDefault(typeParamName, "EmptyView");
+                    synthesizedArgs.Add(new SynthesizedInitArg(param.Name, $"{concreteType}()"));
+                    continue; // Skip from bridgeParams
+                }
+            }
+
             var bridgeParam = MapParameterType(param, context);
             if (bridgeParam == null)
                 return null; // Unsupported parameter — entire view falls back to template
@@ -28,6 +70,39 @@ public static partial class SwiftUIBridgeEmitter
         }
 
         return parameters;
+    }
+
+    /// <summary>
+    /// Checks if a parameter is a ViewBuilder closure that returns a generic placeholder type.
+    /// e.g., @ViewBuilder placeholder: () -> Placeholder where Placeholder is in ConcreteTypeArgs.
+    /// </summary>
+    private static bool IsViewBuilderClosureParam(ArgumentDecl param, GenericViewAnalysis genericAnalysis)
+    {
+        if (param.SwiftTypeSpec is not ClosureTypeSpec closureSpec)
+            return false;
+
+        // Check if the return type is a generic parameter in ConcreteTypeArgs
+        var returnType = closureSpec.ReturnType;
+        if (returnType is NamedTypeSpec namedReturn &&
+            genericAnalysis.ConcreteTypeArgs.ContainsKey(namedReturn.Name))
+            return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// Checks if a parameter is a generic type parameter matching a ConcreteTypeArgs key.
+    /// </summary>
+    private static bool IsGenericTypeParam(ArgumentDecl param, GenericViewAnalysis genericAnalysis)
+    {
+        if (!param.IsGeneric)
+            return false;
+
+        if (param.SwiftTypeSpec is NamedTypeSpec namedSpec &&
+            genericAnalysis.ConcreteTypeArgs.ContainsKey(namedSpec.Name))
+            return true;
+
+        return false;
     }
 
     /// <summary>
@@ -336,7 +411,13 @@ public enum BridgeParameterKind
 /// <summary>
 /// Context for bridge parameter analysis. Holds shared services needed by the analyzer.
 /// </summary>
-public record BridgeContext(ITypeDatabase? TypeDatabase = null, ModuleDecl? ModuleDecl = null, BridgeHintsFile? Hints = null);
+public record BridgeContext(ITypeDatabase? TypeDatabase = null, ModuleDecl? ModuleDecl = null, BridgeHintsFile? Hints = null, ILogger? Logger = null);
+
+/// <summary>
+/// A synthesized init argument that the bridge emitter injects into the Swift init call.
+/// Used for generic view placeholder parameters (e.g., @ViewBuilder closures → { EmptyView() }).
+/// </summary>
+public record SynthesizedInitArg(string ParamName, string SwiftExpression);
 
 /// <summary>
 /// Mapping of a Swift init parameter to its C ABI representation for bridge code.

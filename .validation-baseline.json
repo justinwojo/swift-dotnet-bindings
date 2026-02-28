@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-02-27T21:34:08Z",
-  "git_sha": "d0794ef",
+  "timestamp": "2026-02-27T23:02:20Z",
+  "git_sha": "8326443",
   "runtime_version": "0.1.0-preview.5",
   "compile_gate": {
     "total": 53,
@@ -47,14 +47,14 @@
         "compile": "ok",
         "errors": 0,
         "lines": 92915,
-        "gen_seconds": 6
+        "gen_seconds": 5
       },
       "KeychainAccess": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 11785,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "Kingfisher": {
         "generate": "fail",
@@ -82,7 +82,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 3651,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "Mixpanel": {
         "generate": "fail",
@@ -110,7 +110,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 14358,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "SmartCardIO": {
         "generate": "ok",
@@ -138,14 +138,14 @@
         "compile": "ok",
         "errors": 0,
         "lines": 592,
-        "gen_seconds": 30
+        "gen_seconds": 29
       },
       "StripeApplePay": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 2971,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "StripeCameraCore": {
         "generate": "fail",
@@ -173,21 +173,21 @@
         "compile": "ok",
         "errors": 0,
         "lines": 34226,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "StripeCryptoOnramp": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 6842,
-        "gen_seconds": 33
+        "gen_seconds": 30
       },
       "StripeFinancialConnections": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 2677,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "StripeIdentity": {
         "generate": "ok",
@@ -201,21 +201,21 @@
         "compile": "ok",
         "errors": 0,
         "lines": 1681,
-        "gen_seconds": 13
+        "gen_seconds": 10
       },
       "StripePayments": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 95017,
-        "gen_seconds": 5
+        "gen_seconds": 7
       },
       "StripePaymentSheet": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 49022,
-        "gen_seconds": 14
+        "gen_seconds": 10
       },
       "StripePaymentsUI": {
         "generate": "fail",
@@ -257,14 +257,14 @@
         "compile": "ok",
         "errors": 0,
         "lines": 6562,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "SwiftyBeaver": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 10976,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "Reachability": {
         "generate": "fail",
@@ -285,7 +285,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 5318,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "BonMot": {
         "generate": "ok",
@@ -299,35 +299,35 @@
         "compile": "ok",
         "errors": 0,
         "lines": 19098,
-        "gen_seconds": 3
+        "gen_seconds": 2
       },
       "KeychainSwift": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 1418,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "SwipeCellKit": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 8735,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "FSPagerView": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 4869,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "SwiftyGif": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 1191,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "Quick": {
         "generate": "fail",
@@ -369,7 +369,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 2861,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "SVGView": {
         "generate": "fail",

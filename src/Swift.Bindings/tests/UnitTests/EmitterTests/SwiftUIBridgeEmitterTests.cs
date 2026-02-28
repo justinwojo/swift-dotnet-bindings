@@ -435,14 +435,15 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     }
 
     [Fact]
-    public void AnalyzeView_Unsupported_GenericType()
+    public void AnalyzeView_Unsupported_GenericType_NoBridgeableCtors()
     {
+        // Generic view with no constructors → no bridgeable constructor
         var view = CreateGenericViewStruct("GenericView");
 
         var info = SwiftUIBridgeEmitter.AnalyzeView(view, "TestModule");
 
         Assert.Equal(ViewInitClassification.Unsupported, info.Classification);
-        Assert.Contains("Generic", info.UnsupportedReason);
+        Assert.Contains("No bridgeable constructor", info.UnsupportedReason);
     }
 
     #endregion
@@ -4390,6 +4391,1137 @@ public class SwiftUIBridgeEmitterTests : IDisposable
                 },
             },
         };
+    }
+
+    #endregion
+
+    #region Generic View Support (Session 2)
+
+    // --- Test Helpers ---
+
+    /// <summary>
+    /// Creates a generic view with a View constraint on τ_0_0 and two constructors:
+    /// [0] has == EmptyView concrete constraint + String param ("title")
+    /// [1] has : View protocol constraint + ViewBuilder closure param ("placeholder") + String param ("title")
+    /// </summary>
+    private static StructDecl CreateGenericViewWithViewConstraint(string name)
+    {
+        var view = new StructDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}V",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>
+            {
+                new TypeConformance(
+                    SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+                    SwiftTypeName.FromModuleQualifiedName("SwiftUI.View"),
+                    $"${name}_SwiftUI_View_conformance")
+            },
+            ParentDecl = null,
+            ModuleDecl = null,
+            IsFrozen = true,
+            MetadataAccessor = $"$s10TestModule{name.Length}{name}VMa",
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_0_0", "Placeholder",
+                    new List<GenericParameterConformance>
+                    {
+                        new GenericParameterConformance(
+                            new[] { "τ_0_0" },
+                            SwiftTypeName.FromModuleQualifiedName("SwiftUI.View"),
+                            ConformanceKind.Protocol)
+                    },
+                    new List<GenericParameterConformance>())
+            },
+        };
+
+        // Constructor [0]: init(title:) where Placeholder == EmptyView
+        view.Methods.Add(new MethodDecl
+        {
+            Name = "init",
+            MangledName = $"$s10TestModule{name.Length}{name}V_init_concrete",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_0_0", "Placeholder",
+                    new List<GenericParameterConformance>
+                    {
+                        new GenericParameterConformance(
+                            new[] { "τ_0_0" },
+                            SwiftTypeName.FromModuleQualifiedName("SwiftUI.EmptyView"),
+                            ConformanceKind.ConcreteType)
+                    },
+                    new List<GenericParameterConformance>())
+            },
+            Visibility = Visibility.Public,
+            ParentDecl = null,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "", PrivateName = "", IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec($"TestModule.{name}"),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    Name = "title", PrivateName = "title", IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+            },
+        });
+
+        // Constructor [1]: init(title:, @ViewBuilder placeholder: () -> Placeholder)
+        view.Methods.Add(new MethodDecl
+        {
+            Name = "init",
+            MangledName = $"$s10TestModule{name.Length}{name}V_init_viewbuilder",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_0_0", "Placeholder",
+                    new List<GenericParameterConformance>
+                    {
+                        new GenericParameterConformance(
+                            new[] { "τ_0_0" },
+                            SwiftTypeName.FromModuleQualifiedName("SwiftUI.View"),
+                            ConformanceKind.Protocol)
+                    },
+                    new List<GenericParameterConformance>())
+            },
+            Visibility = Visibility.Public,
+            ParentDecl = null,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "", PrivateName = "", IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec($"TestModule.{name}"),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    Name = "title", PrivateName = "title", IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    Name = "placeholder", PrivateName = "placeholder", IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, new NamedTypeSpec("τ_0_0")),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+            },
+        });
+
+        return view;
+    }
+
+    /// <summary>
+    /// Creates a generic view with a non-View constraint (Swift.Identifiable) on τ_0_0.
+    /// Has one constructor with a String param.
+    /// </summary>
+    private static StructDecl CreateGenericViewWithNonViewConstraint(string name)
+    {
+        var view = new StructDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}V",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>
+            {
+                new TypeConformance(
+                    SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+                    SwiftTypeName.FromModuleQualifiedName("SwiftUI.View"),
+                    $"${name}_SwiftUI_View_conformance")
+            },
+            ParentDecl = null,
+            ModuleDecl = null,
+            IsFrozen = true,
+            MetadataAccessor = $"$s10TestModule{name.Length}{name}VMa",
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_0_0", "Item",
+                    new List<GenericParameterConformance>
+                    {
+                        new GenericParameterConformance(
+                            new[] { "τ_0_0" },
+                            SwiftTypeName.FromModuleQualifiedName("Swift.Identifiable"),
+                            ConformanceKind.Protocol)
+                    },
+                    new List<GenericParameterConformance>())
+            },
+        };
+
+        // One constructor with a String param
+        view.Methods.Add(new MethodDecl
+        {
+            Name = "init",
+            MangledName = $"$s10TestModule{name.Length}{name}V_init",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+            ParentDecl = null,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "", PrivateName = "", IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec($"TestModule.{name}"),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    Name = "title", PrivateName = "title", IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+            },
+        });
+
+        return view;
+    }
+
+    /// <summary>
+    /// Creates a generic view with two type params (A: View, B: View).
+    /// Has one constructor with == EmptyView constraints on both params + a String param.
+    /// </summary>
+    private static StructDecl CreateGenericViewMultipleTypeParams(string name)
+    {
+        var view = new StructDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}V",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>
+            {
+                new TypeConformance(
+                    SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+                    SwiftTypeName.FromModuleQualifiedName("SwiftUI.View"),
+                    $"${name}_SwiftUI_View_conformance")
+            },
+            ParentDecl = null,
+            ModuleDecl = null,
+            IsFrozen = true,
+            MetadataAccessor = $"$s10TestModule{name.Length}{name}VMa",
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_0_0", "A",
+                    new List<GenericParameterConformance>
+                    {
+                        new GenericParameterConformance(
+                            new[] { "τ_0_0" },
+                            SwiftTypeName.FromModuleQualifiedName("SwiftUI.View"),
+                            ConformanceKind.Protocol)
+                    },
+                    new List<GenericParameterConformance>()),
+                new GenericArgumentDecl("τ_0_1", "B",
+                    new List<GenericParameterConformance>
+                    {
+                        new GenericParameterConformance(
+                            new[] { "τ_0_1" },
+                            SwiftTypeName.FromModuleQualifiedName("SwiftUI.View"),
+                            ConformanceKind.Protocol)
+                    },
+                    new List<GenericParameterConformance>()),
+            },
+        };
+
+        view.Methods.Add(new MethodDecl
+        {
+            Name = "init",
+            MangledName = $"$s10TestModule{name.Length}{name}V_init",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_0_0", "A",
+                    new List<GenericParameterConformance>
+                    {
+                        new GenericParameterConformance(
+                            new[] { "τ_0_0" },
+                            SwiftTypeName.FromModuleQualifiedName("SwiftUI.EmptyView"),
+                            ConformanceKind.ConcreteType)
+                    },
+                    new List<GenericParameterConformance>()),
+                new GenericArgumentDecl("τ_0_1", "B",
+                    new List<GenericParameterConformance>
+                    {
+                        new GenericParameterConformance(
+                            new[] { "τ_0_1" },
+                            SwiftTypeName.FromModuleQualifiedName("SwiftUI.EmptyView"),
+                            ConformanceKind.ConcreteType)
+                    },
+                    new List<GenericParameterConformance>()),
+            },
+            Visibility = Visibility.Public,
+            ParentDecl = null,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "", PrivateName = "", IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec($"TestModule.{name}"),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    Name = "title", PrivateName = "title", IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+            },
+        });
+
+        return view;
+    }
+
+    /// <summary>
+    /// Creates a generic view with only a @ViewBuilder closure param.
+    /// Has : View protocol constraint (no == EmptyView), so AnalyzeGenericView defaults to EmptyView.
+    /// </summary>
+    private static StructDecl CreateViewBuilderOnlyGenericView(string name)
+    {
+        var view = new StructDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}V",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>
+            {
+                new TypeConformance(
+                    SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+                    SwiftTypeName.FromModuleQualifiedName("SwiftUI.View"),
+                    $"${name}_SwiftUI_View_conformance")
+            },
+            ParentDecl = null,
+            ModuleDecl = null,
+            IsFrozen = true,
+            MetadataAccessor = $"$s10TestModule{name.Length}{name}VMa",
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_0_0", "Content",
+                    new List<GenericParameterConformance>
+                    {
+                        new GenericParameterConformance(
+                            new[] { "τ_0_0" },
+                            SwiftTypeName.FromModuleQualifiedName("SwiftUI.View"),
+                            ConformanceKind.Protocol)
+                    },
+                    new List<GenericParameterConformance>())
+            },
+        };
+
+        // Single ctor: init(@ViewBuilder content: () -> Content)
+        view.Methods.Add(new MethodDecl
+        {
+            Name = "init",
+            MangledName = $"$s10TestModule{name.Length}{name}V_init",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+            ParentDecl = null,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "", PrivateName = "", IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec($"TestModule.{name}"),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    Name = "content", PrivateName = "content", IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, new NamedTypeSpec("τ_0_0")),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+            },
+        });
+
+        return view;
+    }
+
+    /// <summary>
+    /// Creates a generic view where the constructor has an extra method-level generic <Property>
+    /// beyond the parent's <Placeholder>. This ctor should be excluded by SelectBestGenericConstructor.
+    /// </summary>
+    private static StructDecl CreateGenericViewWithMethodLevelGenerics(string name)
+    {
+        var view = new StructDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}V",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>
+            {
+                new TypeConformance(
+                    SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+                    SwiftTypeName.FromModuleQualifiedName("SwiftUI.View"),
+                    $"${name}_SwiftUI_View_conformance")
+            },
+            ParentDecl = null,
+            ModuleDecl = null,
+            IsFrozen = true,
+            MetadataAccessor = $"$s10TestModule{name.Length}{name}VMa",
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_0_0", "Placeholder",
+                    new List<GenericParameterConformance>
+                    {
+                        new GenericParameterConformance(
+                            new[] { "τ_0_0" },
+                            SwiftTypeName.FromModuleQualifiedName("SwiftUI.View"),
+                            ConformanceKind.Protocol)
+                    },
+                    new List<GenericParameterConformance>())
+            },
+        };
+
+        // Only ctor has 2 generic params (parent's τ_0_0 + method-level τ_0_1)
+        view.Methods.Add(new MethodDecl
+        {
+            Name = "init",
+            MangledName = $"$s10TestModule{name.Length}{name}V_init",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_0_0", "Placeholder",
+                    new List<GenericParameterConformance>(),
+                    new List<GenericParameterConformance>()),
+                new GenericArgumentDecl("τ_0_1", "Property",
+                    new List<GenericParameterConformance>(),
+                    new List<GenericParameterConformance>()),
+            },
+            Visibility = Visibility.Public,
+            ParentDecl = null,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "", PrivateName = "", IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec($"TestModule.{name}"),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    Name = "title", PrivateName = "title", IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+            },
+        });
+
+        return view;
+    }
+
+    /// <summary>
+    /// Creates a generic view where ALL constructors are failable (init?).
+    /// SelectBestGenericConstructor should return null.
+    /// </summary>
+    private static StructDecl CreateGenericViewAllFailableCtors(string name)
+    {
+        var view = new StructDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}V",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>
+            {
+                new TypeConformance(
+                    SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+                    SwiftTypeName.FromModuleQualifiedName("SwiftUI.View"),
+                    $"${name}_SwiftUI_View_conformance")
+            },
+            ParentDecl = null,
+            ModuleDecl = null,
+            IsFrozen = true,
+            MetadataAccessor = $"$s10TestModule{name.Length}{name}VMa",
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_0_0", "Placeholder",
+                    new List<GenericParameterConformance>
+                    {
+                        new GenericParameterConformance(
+                            new[] { "τ_0_0" },
+                            SwiftTypeName.FromModuleQualifiedName("SwiftUI.View"),
+                            ConformanceKind.Protocol)
+                    },
+                    new List<GenericParameterConformance>())
+            },
+        };
+
+        // Failable constructor
+        view.Methods.Add(new MethodDecl
+        {
+            Name = "init",
+            MangledName = $"$s10TestModule{name.Length}{name}V_init",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            IsFailable = true,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+            ParentDecl = null,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "", PrivateName = "", IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec($"TestModule.{name}"),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    Name = "title", PrivateName = "title", IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+            },
+        });
+
+        return view;
+    }
+
+    /// <summary>
+    /// Creates a generic view with mixed constraints: τ_0_0 : SwiftUI.View, τ_0_1 : Swift.Identifiable.
+    /// Not all generic params have View constraints → unsupported.
+    /// </summary>
+    private static StructDecl CreateGenericViewMixedConstraints(string name)
+    {
+        var view = new StructDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}V",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>
+            {
+                new TypeConformance(
+                    SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+                    SwiftTypeName.FromModuleQualifiedName("SwiftUI.View"),
+                    $"${name}_SwiftUI_View_conformance")
+            },
+            ParentDecl = null,
+            ModuleDecl = null,
+            IsFrozen = true,
+            MetadataAccessor = $"$s10TestModule{name.Length}{name}VMa",
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_0_0", "A",
+                    new List<GenericParameterConformance>
+                    {
+                        new GenericParameterConformance(
+                            new[] { "τ_0_0" },
+                            SwiftTypeName.FromModuleQualifiedName("SwiftUI.View"),
+                            ConformanceKind.Protocol)
+                    },
+                    new List<GenericParameterConformance>()),
+                new GenericArgumentDecl("τ_0_1", "B",
+                    new List<GenericParameterConformance>
+                    {
+                        new GenericParameterConformance(
+                            new[] { "τ_0_1" },
+                            SwiftTypeName.FromModuleQualifiedName("Swift.Identifiable"),
+                            ConformanceKind.Protocol)
+                    },
+                    new List<GenericParameterConformance>()),
+            },
+        };
+
+        view.Methods.Add(new MethodDecl
+        {
+            Name = "init",
+            MangledName = $"$s10TestModule{name.Length}{name}V_init",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+            ParentDecl = null,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "", PrivateName = "", IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec($"TestModule.{name}"),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    Name = "title", PrivateName = "title", IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+            },
+        });
+
+        return view;
+    }
+
+    // --- Tests ---
+
+    [Fact]
+    public void AnalyzeView_GenericWithViewConstraint_ClassifiedAsSimple()
+    {
+        var view = CreateGenericViewWithViewConstraint("GenericPlaceholderView");
+
+        var info = SwiftUIBridgeEmitter.AnalyzeView(view, "TestModule");
+
+        Assert.Equal(ViewInitClassification.Simple, info.Classification);
+        Assert.Null(info.UnsupportedReason);
+        Assert.NotNull(info.GenericAnalysis);
+        Assert.True(info.GenericAnalysis.IsBridgeable);
+    }
+
+    [Fact]
+    public void AnalyzeView_GenericWithNonViewConstraint_RemainsUnsupported()
+    {
+        var view = CreateGenericViewWithNonViewConstraint("IdentifiableView");
+
+        var info = SwiftUIBridgeEmitter.AnalyzeView(view, "TestModule");
+
+        Assert.Equal(ViewInitClassification.Unsupported, info.Classification);
+        Assert.Contains("no View constraint", info.UnsupportedReason);
+    }
+
+    [Fact]
+    public void AnalyzeGenericView_EmptyViewConcreteConstraint_MapsToEmptyView()
+    {
+        var view = CreateGenericViewWithViewConstraint("TestView");
+        var ctor = view.Methods[0]; // ConcreteType constraint ctor
+
+        var analysis = SwiftUIBridgeEmitter.AnalyzeGenericView(view, ctor, 0);
+
+        Assert.True(analysis.IsBridgeable);
+        Assert.Single(analysis.ConcreteTypeArgs);
+        Assert.Equal("EmptyView", analysis.ConcreteTypeArgs["τ_0_0"]);
+        Assert.Equal(0, analysis.SelectedConstructorIndex);
+    }
+
+    [Fact]
+    public void AnalyzeGenericView_ViewProtocolConstraint_DefaultsToEmptyView()
+    {
+        var view = CreateViewBuilderOnlyGenericView("ContentView");
+        var ctor = view.Methods[0]; // Protocol constraint ctor (no == EmptyView)
+
+        var analysis = SwiftUIBridgeEmitter.AnalyzeGenericView(view, ctor, 0);
+
+        Assert.True(analysis.IsBridgeable);
+        Assert.Single(analysis.ConcreteTypeArgs);
+        Assert.Equal("EmptyView", analysis.ConcreteTypeArgs["τ_0_0"]);
+    }
+
+    [Fact]
+    public void GenericViewBridge_SwiftOutput_HasConcreteTypeArgs()
+    {
+        var view = CreateGenericViewWithViewConstraint("GenericPlaceholderView");
+        var views = new List<TypeDecl> { view };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("UIHostingController<GenericPlaceholderView<EmptyView>>", swiftContent);
+    }
+
+    [Fact]
+    public void GenericViewBridge_ViewBuilderParam_SynthesizedInInitCall()
+    {
+        var view = CreateViewBuilderOnlyGenericView("PlaceholderOnlyView");
+        var views = new List<TypeDecl> { view };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("content: { EmptyView() }", swiftContent);
+    }
+
+    [Fact]
+    public void GenericViewBridge_NonClosureParamsBridgedNormally()
+    {
+        var view = CreateGenericViewWithViewConstraint("GenericPlaceholderView");
+        var views = new List<TypeDecl> { view };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        // title param is a String, should be bridged normally
+        Assert.Contains("title:", swiftContent);
+        // C# side should have the title parameter (String → string? in C#)
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("string?", csContent);
+        Assert.Contains("title", csContent);
+    }
+
+    [Fact]
+    public void GenericView_AllViewBuilderParams_SynthesizesAll()
+    {
+        var view = CreateViewBuilderOnlyGenericView("PlaceholderOnlyView");
+        var views = new List<TypeDecl> { view };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        // Create method should have zero user-facing parameters (only the synthesized ViewBuilder)
+        // The Create @_cdecl should take no bridge params
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("PlaceholderOnlyView(content: { EmptyView() })", swiftContent);
+    }
+
+    [Fact]
+    public void BridgeHints_Placeholder_UIView_FallsBackToTemplate()
+    {
+        var view = CreateGenericViewWithViewConstraint("HintedView");
+        var hintsPath = CreateBridgeHintsFile(_tempDir, """
+        {
+            "views": {
+                "HintedView": { "placeholder": "uiview" }
+            }
+        }
+        """);
+
+        var hints = BridgeHintsLoader.Load(hintsPath, _tempDir, "TestModule", NullLogger.Instance);
+        var context = new BridgeContext(Hints: hints);
+
+        var info = SwiftUIBridgeEmitter.AnalyzeView(view, "TestModule", context);
+
+        Assert.Equal(ViewInitClassification.Unsupported, info.Classification);
+        Assert.Contains("UIView", info.UnsupportedReason);
+        Assert.Contains("not yet implemented", info.UnsupportedReason);
+    }
+
+    [Fact]
+    public void GenericView_MultipleTypeParams_AllView_Bridgeable()
+    {
+        var view = CreateGenericViewMultipleTypeParams("DualPlaceholderView");
+
+        var info = SwiftUIBridgeEmitter.AnalyzeView(view, "TestModule");
+
+        Assert.Equal(ViewInitClassification.Simple, info.Classification);
+        Assert.NotNull(info.GenericAnalysis);
+        Assert.True(info.GenericAnalysis.IsBridgeable);
+        Assert.Equal(2, info.GenericAnalysis.ConcreteTypeArgs.Count);
+        Assert.Equal("EmptyView", info.GenericAnalysis.ConcreteTypeArgs["τ_0_0"]);
+        Assert.Equal("EmptyView", info.GenericAnalysis.ConcreteTypeArgs["τ_0_1"]);
+    }
+
+    [Fact]
+    public void GenericView_MultipleTypeParams_SwiftOutput()
+    {
+        var view = CreateGenericViewMultipleTypeParams("DualPlaceholderView");
+        var views = new List<TypeDecl> { view };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("UIHostingController<DualPlaceholderView<EmptyView, EmptyView>>", swiftContent);
+    }
+
+    [Fact]
+    public void GenericView_MixedConstraints_Unsupported()
+    {
+        var view = CreateGenericViewMixedConstraints("MixedView");
+
+        var info = SwiftUIBridgeEmitter.AnalyzeView(view, "TestModule");
+
+        Assert.Equal(ViewInitClassification.Unsupported, info.Classification);
+        Assert.Contains("no View constraint", info.UnsupportedReason);
+    }
+
+    [Fact]
+    public void AnalyzeView_GenericWithHintSkip_StillSkipped()
+    {
+        var view = CreateGenericViewWithViewConstraint("SkippedGenericView");
+        var hintsPath = CreateBridgeHintsFile(_tempDir, """
+        {
+            "views": {
+                "SkippedGenericView": { "skip": true, "reason": "Not ready" }
+            }
+        }
+        """);
+
+        var hints = BridgeHintsLoader.Load(hintsPath, _tempDir, "TestModule", NullLogger.Instance);
+        var context = new BridgeContext(Hints: hints);
+
+        var info = SwiftUIBridgeEmitter.AnalyzeView(view, "TestModule", context);
+
+        Assert.Equal(ViewInitClassification.Skipped, info.Classification);
+        Assert.Equal("Not ready", info.UnsupportedReason);
+    }
+
+    [Fact]
+    public void GenericView_PreferredInit_UsedForBothAnalysisAndEmission()
+    {
+        // Create a view where ctor[0] has == EmptyView (concrete), ctor[1] has : View (protocol)
+        var view = CreateGenericViewWithViewConstraint("HintedInitView");
+        // preferredInit=1 should select the ViewBuilder ctor instead of the concrete one
+        var hintsPath = CreateBridgeHintsFile(_tempDir, """
+        {
+            "views": {
+                "HintedInitView": { "preferredInit": 1 }
+            }
+        }
+        """);
+
+        var hints = BridgeHintsLoader.Load(hintsPath, _tempDir, "TestModule", NullLogger.Instance);
+        var context = new BridgeContext(Hints: hints);
+
+        var info = SwiftUIBridgeEmitter.AnalyzeView(view, "TestModule", context);
+
+        Assert.Equal(ViewInitClassification.Simple, info.Classification);
+        Assert.NotNull(info.GenericAnalysis);
+        // SelectedConstructorIndex should be 1 (the ViewBuilder ctor)
+        Assert.Equal(1, info.GenericAnalysis.SelectedConstructorIndex);
+    }
+
+    [Fact]
+    public void GenericView_PreferredInit_OutOfRange_WarnsAndFallsBack()
+    {
+        var testLogger = new TestLogger();
+        var view = CreateGenericViewWithViewConstraint("OutOfRangeView");
+        var hintsPath = CreateBridgeHintsFile(_tempDir, """
+        {
+            "views": {
+                "OutOfRangeView": { "preferredInit": 99 }
+            }
+        }
+        """);
+
+        var hints = BridgeHintsLoader.Load(hintsPath, _tempDir, "TestModule", NullLogger.Instance);
+        var context = new BridgeContext(Hints: hints, Logger: testLogger);
+
+        var info = SwiftUIBridgeEmitter.AnalyzeView(view, "TestModule", context);
+
+        // Should warn and fall back to auto-selection
+        Assert.Contains(testLogger.Messages, m => m.Contains("preferredInit") && m.Contains("out of range"));
+        Assert.Equal(ViewInitClassification.Simple, info.Classification);
+        // Auto-selects ctor[0] (concrete constraint, fewest params)
+        Assert.Equal(0, info.GenericAnalysis!.SelectedConstructorIndex);
+    }
+
+    [Fact]
+    public void GenericView_MethodLevelGenerics_CtorExcluded()
+    {
+        var view = CreateGenericViewWithMethodLevelGenerics("MethodGenericView");
+
+        var info = SwiftUIBridgeEmitter.AnalyzeView(view, "TestModule");
+
+        // Only ctor has method-level generics → no candidates → unsupported
+        Assert.Equal(ViewInitClassification.Unsupported, info.Classification);
+        Assert.Contains("No bridgeable constructor", info.UnsupportedReason);
+    }
+
+    [Fact]
+    public void GenericView_AllFailableCtors_Unsupported()
+    {
+        var view = CreateGenericViewAllFailableCtors("FailableView");
+
+        var info = SwiftUIBridgeEmitter.AnalyzeView(view, "TestModule");
+
+        Assert.Equal(ViewInitClassification.Unsupported, info.Classification);
+        Assert.Contains("No bridgeable constructor", info.UnsupportedReason);
+    }
+
+    [Fact]
+    public void AnalyzeInitParameters_BackwardCompatible_NoGenericAnalysis()
+    {
+        // Existing 2-param overload should still work
+        var ctor = CreateConstructorWithPrimitive("count", "Swift.Int");
+
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor);
+
+        Assert.NotNull(result);
+        Assert.Single(result);
+        Assert.Equal("count", result[0].Name);
+        Assert.Equal(BridgeParameterKind.Primitive, result[0].Kind);
+    }
+
+    [Fact]
+    public void SelectBestGenericConstructor_PrefersConcrete_OverProtocol()
+    {
+        var view = CreateGenericViewWithViewConstraint("RankedView");
+        var constructors = view.Methods.ToList();
+
+        var selected = SwiftUIBridgeEmitter.SelectBestGenericConstructor(
+            constructors, view, null, null);
+
+        Assert.NotNull(selected);
+        // ctor[0] has == EmptyView (ConcreteType) and fewer params → selected
+        Assert.Equal(0, selected.Value.Index);
+    }
+
+    [Fact]
+    public void GetSwiftHostedViewType_NonGeneric_ReturnsViewName()
+    {
+        var info = new ViewBridgeInfo("MyView", "TestModule",
+            ViewInitClassification.Simple, null, new List<MethodDecl>());
+
+        var result = SwiftUIBridgeEmitter.GetSwiftHostedViewType(info);
+
+        Assert.Equal("MyView", result);
+    }
+
+    [Fact]
+    public void GetSwiftHostedViewType_Generic_ReturnsViewNameWithTypeArgs()
+    {
+        var analysis = new GenericViewAnalysis(true,
+            new Dictionary<string, string> { ["τ_0_0"] = "EmptyView" },
+            PlaceholderStrategy.Empty, 0);
+        var info = new ViewBridgeInfo("LottieView", "TestModule",
+            ViewInitClassification.Simple, null, new List<MethodDecl>(),
+            GenericAnalysis: analysis);
+
+        var result = SwiftUIBridgeEmitter.GetSwiftHostedViewType(info);
+
+        Assert.Equal("LottieView<EmptyView>", result);
+    }
+
+    [Fact]
+    public void BuildMergedInitArgs_NoSynthesized_ReturnsOriginal()
+    {
+        var viewInitArgs = new List<string> { "title: titleString" };
+
+        var result = SwiftUIBridgeEmitter.BuildMergedInitArgs(
+            null, new List<BridgeParameter>(), viewInitArgs, null);
+
+        Assert.Equal(viewInitArgs, result);
+    }
+
+    [Fact]
+    public void BuildMergedInitArgs_WithSynthesized_MergesInOrder()
+    {
+        // Constructor has: return, title (bridge), content (synthesized)
+        var ctor = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s_init",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+            ParentDecl = null,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl { Name = "", PrivateName = "", IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.TestView"),
+                    ParentDecl = null, ModuleDecl = null },
+                new ArgumentDecl { Name = "title", PrivateName = "title", IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                    ParentDecl = null, ModuleDecl = null },
+                new ArgumentDecl { Name = "content", PrivateName = "content", IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new ClosureTypeSpec(),
+                    ParentDecl = null, ModuleDecl = null },
+            },
+        };
+
+        var bridgeParams = new List<BridgeParameter>
+        {
+            new BridgeParameter("title", BridgeParameterKind.String, "UnsafePointer<UInt8>?", "IntPtr", HasLength: true),
+        };
+        var viewInitArgs = new List<string> { "title: titleString" };
+        var synthesizedArgs = new List<SynthesizedInitArg>
+        {
+            new SynthesizedInitArg("content", "{ EmptyView() }"),
+        };
+
+        var result = SwiftUIBridgeEmitter.BuildMergedInitArgs(
+            ctor, bridgeParams, viewInitArgs, synthesizedArgs);
+
+        Assert.Equal(2, result.Count);
+        Assert.Equal("title: titleString", result[0]);
+        Assert.Equal("content: { EmptyView() }", result[1]);
+    }
+
+    [Fact]
+    public void GenericView_MultiParam_ViewBuilderClosure_UsesCorrectConcreteType()
+    {
+        // View with two generic params: <Header: View, Footer: View>
+        // Constructor has a @ViewBuilder closure returning Footer (τ_0_1), NOT Header (τ_0_0)
+        // The synthesized closure must use the concrete type for τ_0_1, not τ_0_0
+        var view = new StructDecl
+        {
+            Name = "TwoSlotView",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.TwoSlotView"),
+            MangledName = "$s10TestModule11TwoSlotViewV",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>
+            {
+                new TypeConformance(
+                    SwiftTypeName.FromModuleQualifiedName("TestModule.TwoSlotView"),
+                    SwiftTypeName.FromModuleQualifiedName("SwiftUI.View"),
+                    "$TwoSlotView_SwiftUI_View_conformance")
+            },
+            ParentDecl = null,
+            ModuleDecl = null,
+            IsFrozen = true,
+            MetadataAccessor = "$s10TestModule11TwoSlotViewVMa",
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_0_0", "Header",
+                    new List<GenericParameterConformance>
+                    {
+                        new GenericParameterConformance(
+                            new[] { "τ_0_0" },
+                            SwiftTypeName.FromModuleQualifiedName("SwiftUI.View"),
+                            ConformanceKind.Protocol)
+                    },
+                    new List<GenericParameterConformance>()),
+                new GenericArgumentDecl("τ_0_1", "Footer",
+                    new List<GenericParameterConformance>
+                    {
+                        new GenericParameterConformance(
+                            new[] { "τ_0_1" },
+                            SwiftTypeName.FromModuleQualifiedName("SwiftUI.View"),
+                            ConformanceKind.Protocol)
+                    },
+                    new List<GenericParameterConformance>()),
+            },
+        };
+
+        // Constructor with: String title + @ViewBuilder () -> Footer (τ_0_1)
+        // Both generic params have == EmptyView constraints
+        view.Methods.Add(new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule11TwoSlotViewV_init",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_0_0", "Header",
+                    new List<GenericParameterConformance>
+                    {
+                        new GenericParameterConformance(
+                            new[] { "τ_0_0" },
+                            SwiftTypeName.FromModuleQualifiedName("SwiftUI.EmptyView"),
+                            ConformanceKind.ConcreteType)
+                    },
+                    new List<GenericParameterConformance>()),
+                new GenericArgumentDecl("τ_0_1", "Footer",
+                    new List<GenericParameterConformance>
+                    {
+                        new GenericParameterConformance(
+                            new[] { "τ_0_1" },
+                            SwiftTypeName.FromModuleQualifiedName("SwiftUI.EmptyView"),
+                            ConformanceKind.ConcreteType)
+                    },
+                    new List<GenericParameterConformance>()),
+            },
+            Visibility = Visibility.Public,
+            ParentDecl = null,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "", PrivateName = "", IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.TwoSlotView"),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    Name = "title", PrivateName = "title", IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    // Closure returns τ_0_1 (Footer), NOT τ_0_0 (Header)
+                    Name = "footer", PrivateName = "footer", IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, new NamedTypeSpec("τ_0_1")),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+            },
+        });
+
+        var views = new List<TypeDecl> { view };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        // The closure must synthesize the concrete type for τ_0_1 (EmptyView), not some random first value
+        Assert.Contains("footer: { EmptyView() }", swiftContent);
+        Assert.Contains("UIHostingController<TwoSlotView<EmptyView, EmptyView>>", swiftContent);
+    }
+
+    [Fact]
+    public void ParsePlaceholderStrategy_ReturnsCorrectValues()
+    {
+        Assert.Equal(PlaceholderStrategy.Empty, SwiftUIBridgeEmitter.ParsePlaceholderStrategy(null));
+        Assert.Equal(PlaceholderStrategy.Empty, SwiftUIBridgeEmitter.ParsePlaceholderStrategy(""));
+        Assert.Equal(PlaceholderStrategy.Empty, SwiftUIBridgeEmitter.ParsePlaceholderStrategy("empty"));
+        Assert.Equal(PlaceholderStrategy.UIView, SwiftUIBridgeEmitter.ParsePlaceholderStrategy("uiview"));
+        Assert.Equal(PlaceholderStrategy.AnyViewFromVC, SwiftUIBridgeEmitter.ParsePlaceholderStrategy("anyviewfromvc"));
+        Assert.Equal(PlaceholderStrategy.Empty, SwiftUIBridgeEmitter.ParsePlaceholderStrategy("unknown"));
     }
 
     #endregion

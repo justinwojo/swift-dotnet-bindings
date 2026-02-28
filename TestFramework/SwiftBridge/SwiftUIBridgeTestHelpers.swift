@@ -61,6 +61,14 @@ extension SBW_SwiftBindingsTestLib_MixedStringView_Session {
     var rootView: MixedStringView { hostingController.rootView }
 }
 
+extension SBW_SwiftBindingsTestLib_GenericPlaceholderView_Session {
+    var rootView: GenericPlaceholderView<EmptyView> { hostingController.rootView }
+}
+
+extension SBW_SwiftBindingsTestLib_PlaceholderOnlyView_Session {
+    var rootView: PlaceholderOnlyView<EmptyView> { hostingController.rootView }
+}
+
 // MARK: - SimpleModel helpers
 
 /// Create a SimpleModel, return opaque pointer via Unmanaged.passRetained() (caller owns +1 retain).
@@ -348,6 +356,32 @@ public func SBW_TEST_MixedStringView_InvokeClosure(_ handle: UnsafeMutableRawPoi
             str = ""
         }
         session.rootView.onResult(str)
+        return 1
+    }
+}
+
+// MARK: - GenericPlaceholderView helpers
+
+/// Read the title string length from a GenericPlaceholderView session.
+@_cdecl("SBW_TEST_GenericPlaceholderView_GetTitleLength")
+public func SBW_TEST_GenericPlaceholderView_GetTitleLength(_ handle: UnsafeMutableRawPointer?) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_GenericPlaceholderView_liveHandles.contains(handle) else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_GenericPlaceholderView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        return Int32(session.rootView.title.utf8.count)
+    }
+}
+
+// MARK: - PlaceholderOnlyView helpers
+
+/// Verify PlaceholderOnlyView session was created (returns 1 on success).
+@_cdecl("SBW_TEST_PlaceholderOnlyView_IsAlive")
+public func SBW_TEST_PlaceholderOnlyView_IsAlive(_ handle: UnsafeMutableRawPointer?) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_PlaceholderOnlyView_liveHandles.contains(handle) else { return 0 }
         return 1
     }
 }
