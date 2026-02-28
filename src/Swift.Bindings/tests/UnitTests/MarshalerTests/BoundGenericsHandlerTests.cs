@@ -645,10 +645,25 @@ public class BoundGenericsHandlerTests
     }
 
     [Fact]
-    public void HasNonSwiftObjectGenericArg_WithNestedObjCBridgedArg_ReturnsTrue()
+    public void HasNonSwiftObjectGenericArg_WithNestedObjCBridgedArgInOptional_ReturnsFalse()
     {
-        // ObjC-bridged nested inside another generic is still caught
+        // Container<Optional<UIView>> — SwiftOptional<UIView> implements ISwiftObject,
+        // and UIView inside Optional is fine because SwiftOptional<T> has no constraint on T.
         var inner = new NamedTypeSpec("Swift.Optional");
+        inner.GenericParameters.Add(new NamedTypeSpec("UIKit.UIView"));
+
+        var outer = new NamedTypeSpec("TestModule.Container");
+        outer.GenericParameters.Add(inner);
+
+        Assert.False(_handler.HasNonSwiftObjectGenericArg(outer));
+    }
+
+    [Fact]
+    public void HasNonSwiftObjectGenericArg_WithNestedObjCBridgedArgInArray_ReturnsTrue()
+    {
+        // Container<Array<UIView>> — SwiftArray<T> has ISwiftObject constraint,
+        // UIView doesn't satisfy it. Nested ObjC-bridged in non-Optional is still blocked.
+        var inner = new NamedTypeSpec("Swift.Array");
         inner.GenericParameters.Add(new NamedTypeSpec("UIKit.UIView"));
 
         var outer = new NamedTypeSpec("TestModule.Container");
@@ -777,6 +792,62 @@ public class BoundGenericsHandlerTests
 
         var optional = new NamedTypeSpec("Swift.Optional");
         optional.GenericParameters.Add(tuple);
+
+        Assert.False(_handler.HasNonSwiftObjectGenericArg(optional));
+    }
+
+    [Fact]
+    public void HasNonSwiftObjectGenericArg_OptionalObjCBridged_ReturnsFalse()
+    {
+        // Optional<UIKit.UIView> — SwiftOptional<T> has no ISwiftObject constraint,
+        // so ObjC-bridged types are valid inside Optional even though they'd fail in SwiftArray<T>.
+        var optional = new NamedTypeSpec("Swift.Optional");
+        optional.GenericParameters.Add(new NamedTypeSpec("UIKit.UIView"));
+
+        Assert.False(_handler.HasNonSwiftObjectGenericArg(optional));
+    }
+
+    [Fact]
+    public void HasNonSwiftObjectGenericArg_OptionalNativeRemapped_ReturnsFalse()
+    {
+        // Optional<Foundation.URL> — SwiftOptional<T> has no ISwiftObject constraint,
+        // so native-remapped types (URL → NSUrl) are valid inside Optional.
+        // This is the BlinkID BlinkIDSdkSettings(bundleURL: URL? = nil) case.
+        var optional = new NamedTypeSpec("Swift.Optional");
+        optional.GenericParameters.Add(new NamedTypeSpec("Foundation.URL"));
+
+        Assert.False(_handler.HasNonSwiftObjectGenericArg(optional));
+    }
+
+    [Fact]
+    public void HasNonSwiftObjectGenericArg_NonOptionalObjCBridged_ReturnsTrue()
+    {
+        // SwiftArray<UIKit.UIView> — SwiftArray<T> has ISwiftObject constraint,
+        // UIView doesn't satisfy it. Should still be blocked.
+        var array = new NamedTypeSpec("Swift.Array");
+        array.GenericParameters.Add(new NamedTypeSpec("UIKit.UIView"));
+
+        Assert.True(_handler.HasNonSwiftObjectGenericArg(array));
+    }
+
+    [Fact]
+    public void HasNonSwiftObjectGenericArg_NonOptionalNativeRemapped_ReturnsTrue()
+    {
+        // SwiftArray<Foundation.URL> — SwiftArray<T> has ISwiftObject constraint,
+        // Foundation.URL (mapped to NSUrl) doesn't satisfy it. Should still be blocked.
+        var array = new NamedTypeSpec("Swift.Array");
+        array.GenericParameters.Add(new NamedTypeSpec("Foundation.URL"));
+
+        Assert.True(_handler.HasNonSwiftObjectGenericArg(array));
+    }
+
+    [Fact]
+    public void HasNonSwiftObjectGenericArg_OptionalUIImage_ReturnsFalse()
+    {
+        // Optional<UIKit.UIImage> — common pattern for optional image parameters.
+        // UIImage is ObjC-bridged but valid inside Optional (no ISwiftObject constraint).
+        var optional = new NamedTypeSpec("Swift.Optional");
+        optional.GenericParameters.Add(new NamedTypeSpec("UIKit.UIImage"));
 
         Assert.False(_handler.HasNonSwiftObjectGenericArg(optional));
     }
@@ -1068,6 +1139,15 @@ public class BoundGenericsHandlerTests
                 {
                     CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Box"),
                     SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Box"),
+                    MetadataAccessor = "",
+                    Flags = TypeRecordFlags.Frozen,
+                    Kind = TypeRecordKind.Struct
+                },
+                ["Foundation.URL"] = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSUrl"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.URL"),
+                    NativeTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSUrl"),
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.Frozen,
                     Kind = TypeRecordKind.Struct

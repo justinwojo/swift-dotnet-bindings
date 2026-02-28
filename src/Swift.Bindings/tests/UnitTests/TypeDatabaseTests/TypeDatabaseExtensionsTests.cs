@@ -590,8 +590,6 @@ public class TypeDatabaseExtensionsTests
 
     [Theory]
     // UIKit top-level enums
-    [InlineData("UIKit.UIBarStyle")]
-    [InlineData("UIKit.UIKeyboardAppearance")]
     [InlineData("UIKit.UILayoutPriority")]
     [InlineData("UIKit.NSTextAlignment")]
     [InlineData("UIKit.UIUserInterfaceLayoutDirection")]
@@ -600,7 +598,6 @@ public class TypeDatabaseExtensionsTests
     [InlineData("UIKit.UIInterfaceOrientation")]
     [InlineData("UIKit.UIInterfaceOrientationMask")]
     [InlineData("UIKit.UIUserInterfaceIdiom")]
-    [InlineData("UIKit.UIUserInterfaceStyle")]
     [InlineData("UIKit.UISemanticContentAttribute")]
     [InlineData("UIKit.NSLineBreakMode")]
     [InlineData("UIKit.UITextAutocapitalizationType")]
@@ -609,15 +606,9 @@ public class TypeDatabaseExtensionsTests
     [InlineData("UIKit.UIReturnKeyType")]
     [InlineData("UIKit.UIDataDetectorTypes")]
     // UIKit nested enums
-    [InlineData("UIKit.UITextField.ViewMode")]
     [InlineData("UIKit.UIControl.ContentVerticalAlignment")]
     [InlineData("UIKit.UIControl.ContentHorizontalAlignment")]
-    [InlineData("UIKit.UIControl.State")]
-    [InlineData("UIKit.UIControl.Event")]
-    [InlineData("UIKit.UIView.ContentMode")]
     [InlineData("UIKit.UIAccessibilityTraits")]
-    [InlineData("UIKit.UIActivityIndicatorView.Style")]
-    [InlineData("UIKit.UIBlurEffect.Style")]
     // AVFoundation enums
     [InlineData("AVFoundation.AVMediaType")]
     [InlineData("AVFoundation.AVFileType")]
@@ -650,7 +641,6 @@ public class TypeDatabaseExtensionsTests
     }
 
     [Theory]
-    [InlineData("UIKit.UIBarStyle")]
     [InlineData("UIKit.NSTextAlignment")]
     public void TryGetTypeRecord_ObjCEnumType_ReturnsFalse(string swiftType)
     {
@@ -662,7 +652,6 @@ public class TypeDatabaseExtensionsTests
     }
 
     [Theory]
-    [InlineData("UIKit.UIBarStyle")]
     [InlineData("UIKit.NSTextAlignment")]
     public void TryGetAnyTypeFallbackInfo_ObjCEnumType_ReturnsMissing(string swiftType)
     {
@@ -1238,6 +1227,131 @@ public class TypeDatabaseExtensionsTests
         var result = TypeDatabaseExtensions.ConcatWithOverlapDedup("UIImage", "RenderingMode");
 
         Assert.Equal("UIImageRenderingMode", result);
+    }
+
+    #endregion
+
+    #region AppleFrameworkSimpleEnumRemappings
+
+    [Fact]
+    public void TryGetTypeRecord_UIViewContentMode_ReturnsSimpleEnumRecord()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var found = typeDatabase.TryGetTypeRecord(
+            new NamedTypeSpec("UIKit.UIView.ContentMode"), out var record);
+
+        Assert.True(found);
+        Assert.NotNull(record);
+        Assert.Equal(TypeRecordKind.Enum, record.Kind);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.SimpleEnum));
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.Frozen));
+        Assert.Equal("UIKit.UIViewContentMode", record.CSharpTypeName.FullyQualifiedName);
+    }
+
+    [Fact]
+    public void TryGetTypeRecord_UIControlState_ReturnsUInt64RawValueType()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var found = typeDatabase.TryGetTypeRecord(
+            new NamedTypeSpec("UIKit.UIControl.State"), out var record);
+
+        Assert.True(found);
+        Assert.NotNull(record);
+        Assert.Equal(TypeRecordKind.Enum, record.Kind);
+        Assert.Equal("UInt64", record.RawValueTypeName);
+    }
+
+    [Fact]
+    public void TryGetTypeRecord_FlatUIKitEnum_PreservesName()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var found = typeDatabase.TryGetTypeRecord(
+            new NamedTypeSpec("UIKit.UIBarStyle"), out var record);
+
+        Assert.True(found);
+        Assert.NotNull(record);
+        Assert.Equal("UIKit.UIBarStyle", record.CSharpTypeName.FullyQualifiedName);
+    }
+
+    [Fact]
+    public void GetTypeRecordOrThrow_UIViewContentMode_ReturnsEnumRecord()
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("UIKit.UIView.ContentMode");
+
+        var record = typeDatabase.GetTypeRecordOrThrow(swiftTypeName);
+
+        Assert.Equal(TypeRecordKind.Enum, record.Kind);
+        Assert.Equal("UIKit.UIViewContentMode", record.CSharpTypeName.FullyQualifiedName);
+    }
+
+    [Fact]
+    public void GetTypeRecordOrAnyType_UIViewContentMode_ReturnsEnumRecord()
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("UIKit.UIView.ContentMode");
+
+        var record = typeDatabase.GetTypeRecordOrAnyType(swiftTypeName);
+
+        Assert.NotEqual(TypeDatabaseExtensions.AnyType, record);
+        Assert.Equal(TypeRecordKind.Enum, record.Kind);
+    }
+
+    [Fact]
+    public void TryGetTypeRecord_UIViewContentMode_PInvokeUnderlyingType_IsLong()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        typeDatabase.TryGetTypeRecord(
+            new NamedTypeSpec("UIKit.UIView.ContentMode"), out var record);
+
+        Assert.NotNull(record);
+        Assert.Equal("Int64", record!.RawValueTypeName);
+        // Int64 maps to C# "long" in P/Invoke
+        Assert.Equal("long", EnumHandler.GetCSharpEnumUnderlyingType(record.RawValueTypeName!));
+    }
+
+    [Fact]
+    public void CoreTryGetTypeRecord_UIViewContentMode_ReturnsEnumRecord()
+    {
+        // Test via TypeDatabase directly (not extension), verifying ClosureHandler path works
+        var typeDatabase = new TypeDatabase();
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("UIKit.UIView.ContentMode");
+
+        var found = typeDatabase.TryGetTypeRecord(swiftTypeName, out var record);
+
+        Assert.True(found);
+        Assert.NotNull(record);
+        Assert.Equal(TypeRecordKind.Enum, record.Kind);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.SimpleEnum));
+    }
+
+    [Fact]
+    public void IsTypeProcessed_UIViewContentMode_NamedTypeSpec_ReturnsTrue()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var processed = typeDatabase.IsTypeProcessed(
+            new NamedTypeSpec("UIKit.UIView.ContentMode"));
+
+        Assert.True(processed);
+    }
+
+    [Fact]
+    public void IsTypeProcessed_UIViewContentMode_SwiftTypeName_ReturnsTrue()
+    {
+        // Exercises TypeDatabase.IsTypeProcessed(SwiftTypeName) directly,
+        // ensuring the core path resolves remapped Apple enums independently
+        // of the extension-level IsRemappedAppleEnum(NamedTypeSpec) check.
+        var typeDatabase = new TypeDatabase();
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("UIKit.UIView.ContentMode");
+
+        var processed = typeDatabase.IsTypeProcessed(swiftTypeName);
+
+        Assert.True(processed);
     }
 
     #endregion

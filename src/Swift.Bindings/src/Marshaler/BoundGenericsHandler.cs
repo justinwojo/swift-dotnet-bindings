@@ -456,8 +456,8 @@ public class BoundGenericsHandler
 
     /// <summary>
     /// Returns true when any concrete bound generic argument cannot satisfy C#'s implicit
-    /// ISwiftObject constraint. Checks ObjC-bridged types (always blocked) and tuples
-    /// (blocked except in Swift.Optional, which has no ISwiftObject constraint).
+    /// ISwiftObject constraint. Checks ObjC-bridged types, native-remapped types, and tuples
+    /// — all blocked except inside Swift.Optional, which has no ISwiftObject constraint on T.
     /// Closures are NOT checked — they fall back to object via AnyType/ContainsPlaceholder,
     /// so the entire type becomes [UnsupportedSwiftType] object (compiles fine).
     /// </summary>
@@ -498,7 +498,10 @@ public class BoundGenericsHandler
                 }
             }
 
-            if (genericParam is NamedTypeSpec namedArg && (IsObjCBridgedType(namedArg) || IsNonSwiftObjectMappedType(namedArg)))
+            // ObjC-bridged (UIImage) and native-remapped (Foundation.URL → NSUrl) types don't implement
+            // ISwiftObject — blocked in constrained generics. But SwiftOptional<T> has no constraint,
+            // so Optional<URL> and Optional<UIImage> are valid (projection factory handles marshalling).
+            if (!outerIsOptional && genericParam is NamedTypeSpec namedArg && (IsObjCBridgedType(namedArg) || IsNonSwiftObjectMappedType(namedArg)))
                 return true;
 
             if (HasNonSwiftObjectGenericArg(genericParam))

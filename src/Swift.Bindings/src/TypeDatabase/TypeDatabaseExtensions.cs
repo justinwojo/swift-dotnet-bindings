@@ -72,6 +72,10 @@ public static class TypeDatabaseExtensions
         if (IsRemappedAppleValueType(typeSpec))
             return true;
 
+        // Apple framework ObjC enums (NS_ENUM/NS_OPTIONS) with remapped .NET names
+        if (IsRemappedAppleEnum(typeSpec))
+            return true;
+
         // ObjC class types get synthetic ObjCBridged records (DB-first to allow explicit overrides)
         return IsObjCModuleType(typeSpec);
     }
@@ -215,6 +219,14 @@ public static class TypeDatabaseExtensions
             return true;
         }
 
+        // Apple framework ObjC enums (NS_ENUM/NS_OPTIONS) with remapped .NET names
+        var enumRecord = TryCreateAppleFrameworkEnumRecord(typeName);
+        if (enumRecord != null)
+        {
+            record = enumRecord;
+            return true;
+        }
+
         // ObjC class types get synthetic ObjCBridged records (DB-first to allow explicit overrides)
         if (IsObjCModuleType(typeSpec))
         {
@@ -278,6 +290,11 @@ public static class TypeDatabaseExtensions
         if (remapped != null)
             return remapped;
 
+        // Apple framework ObjC enums (NS_ENUM/NS_OPTIONS) with remapped .NET names
+        var enumRecord = TryCreateAppleFrameworkEnumRecord(swiftTypeName);
+        if (enumRecord != null)
+            return enumRecord;
+
         // ObjC class types not in the database get synthetic ObjCBridged records.
         // Covers ObjectiveC/Foundation root classes and Apple framework module types.
         if (IsObjCClassSwiftType(swiftTypeName))
@@ -301,6 +318,11 @@ public static class TypeDatabaseExtensions
         var remapped = TryCreateRemappedValueTypeRecord(swiftTypeName);
         if (remapped != null)
             return remapped;
+
+        // Apple framework ObjC enums (NS_ENUM/NS_OPTIONS) with remapped .NET names
+        var enumRecord = TryCreateAppleFrameworkEnumRecord(swiftTypeName);
+        if (enumRecord != null)
+            return enumRecord;
 
         // ObjC class types not in the database get synthetic ObjCBridged records.
         // Covers ObjectiveC/Foundation root classes and Apple framework module types.
@@ -362,6 +384,13 @@ public static class TypeDatabaseExtensions
 
         // Apple framework value types with remapped .NET names are handled, not a fallback
         if (IsRemappedAppleValueType(typeSpec))
+        {
+            fallbackInfo = null;
+            return false;
+        }
+
+        // Apple framework ObjC enums with remapped .NET names are handled, not a fallback
+        if (IsRemappedAppleEnum(typeSpec))
         {
             fallbackInfo = null;
             return false;
@@ -771,6 +800,72 @@ public static class TypeDatabaseExtensions
         ["UIKit.NSParagraphStyle.LineBreakStrategy"] = ("UIKit", "NSLineBreakStrategy"),
         ["UIKit.UIFont.TextStyle"] = ("UIKit", "UIFontTextStyle"),
     };
+
+    /// <summary>
+    /// Remapping table for Apple framework ObjC enum types (NS_ENUM / NS_OPTIONS).
+    /// These types are in <see cref="AppleFrameworkValueTypes"/> (excluded from ObjC class bridging)
+    /// but have no XML database entry. Without this table, TryGetTypeRecord returns false
+    /// and properties/parameters using these types are silently skipped.
+    /// Key is the Swift module-qualified name, value is (C# namespace, C# type name, raw value type).
+    /// NS_ENUM(NSInteger) → Int64 ("long"), NS_OPTIONS(NSUInteger) → UInt64 ("ulong").
+    /// </summary>
+    private static readonly Dictionary<string, (string Namespace, string Name, string RawValueType)>
+        AppleFrameworkSimpleEnumRemappings = new(StringComparer.Ordinal)
+    {
+        // UIKit nested ObjC enums: NS_ENUM(NSInteger) → Int64
+        ["UIKit.UIView.ContentMode"] = ("UIKit", "UIViewContentMode", "Int64"),
+        ["UIKit.UIBarStyle"] = ("UIKit", "UIBarStyle", "Int64"),
+        ["UIKit.UIKeyboardAppearance"] = ("UIKit", "UIKeyboardAppearance", "Int64"),
+        ["UIKit.UITextField.ViewMode"] = ("UIKit", "UITextFieldViewMode", "Int64"),
+        ["UIKit.UIActivityIndicatorView.Style"] = ("UIKit", "UIActivityIndicatorViewStyle", "Int64"),
+        ["UIKit.UIBlurEffect.Style"] = ("UIKit", "UIBlurEffectStyle", "Int64"),
+        ["UIKit.UITableView.Style"] = ("UIKit", "UITableViewStyle", "Int64"),
+        ["UIKit.UIModalPresentationStyle"] = ("UIKit", "UIModalPresentationStyle", "Int64"),
+        ["UIKit.UIUserInterfaceStyle"] = ("UIKit", "UIUserInterfaceStyle", "Int64"),
+        // UIKit NS_OPTIONS(NSUInteger) → UInt64
+        ["UIKit.UIControl.State"] = ("UIKit", "UIControlState", "UInt64"),
+        ["UIKit.UIControl.Event"] = ("UIKit", "UIControlEvent", "UInt64"),
+    };
+
+    /// <summary>
+    /// Creates a synthetic TypeRecord for an Apple framework ObjC enum type (NS_ENUM / NS_OPTIONS).
+    /// Returns null if the type is not in the remapping table.
+    /// </summary>
+    internal static TypeRecord? TryCreateAppleFrameworkEnumRecord(SwiftTypeName swiftTypeName)
+    {
+        if (!AppleFrameworkSimpleEnumRemappings.TryGetValue(swiftTypeName.ModuleQualifiedName, out var remap))
+            return null;
+
+        return new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName(remap.Namespace, remap.Name),
+            SwiftTypeName = swiftTypeName,
+            MetadataAccessor = string.Empty,
+            Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
+            Kind = TypeRecordKind.Enum,
+            RawValueTypeName = remap.RawValueType,
+        };
+    }
+
+    /// <summary>
+    /// Determines whether the specified SwiftTypeName is an Apple framework ObjC enum
+    /// with a remapping entry.
+    /// </summary>
+    internal static bool IsRemappedAppleEnum(SwiftTypeName swiftTypeName)
+    {
+        return AppleFrameworkSimpleEnumRemappings.ContainsKey(swiftTypeName.ModuleQualifiedName);
+    }
+
+    /// <summary>
+    /// Determines whether the specified NamedTypeSpec is an Apple framework ObjC enum
+    /// with a remapping entry.
+    /// </summary>
+    internal static bool IsRemappedAppleEnum(NamedTypeSpec typeSpec)
+    {
+        if (!typeSpec.HasModule())
+            return false;
+        return AppleFrameworkSimpleEnumRemappings.ContainsKey(typeSpec.Name);
+    }
 
     /// <summary>
     /// Remapping table for Foundation class types whose Swift names differ from their
