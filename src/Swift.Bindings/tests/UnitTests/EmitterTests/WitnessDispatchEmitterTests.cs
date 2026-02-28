@@ -683,6 +683,226 @@ public class WitnessDispatchEmitterTests
 
     #endregion
 
+    #region Existential Return Classification Tests
+
+    [Fact]
+    public void ClassifyMethodDispatch_ThrowingExistentialReturn_ReturnsExistentialReturn()
+    {
+        var emitter = CreateExistentialEmitter(out _);
+        var method = CreateMethod("connect", CreateExistentialReturnType("TestModule.Card"));
+        method.Throws = true;
+        Assert.Equal(MethodDispatchKind.ExistentialReturn, emitter.ClassifyMethodDispatch(method));
+    }
+
+    [Fact]
+    public void ClassifyMethodDispatch_NonThrowingExistentialReturn_ReturnsExistentialReturn()
+    {
+        var emitter = CreateExistentialEmitter(out _);
+        var method = CreateMethod("getBasicChannel", CreateExistentialReturnType("TestModule.CardChannel"));
+        Assert.Equal(MethodDispatchKind.ExistentialReturn, emitter.ClassifyMethodDispatch(method));
+    }
+
+    [Fact]
+    public void ClassifyMethodDispatch_ThrowingBlittableReturn_StillNotDispatchable()
+    {
+        var method = CreateMethod("getValue", new NamedTypeSpec("Swift.Int32"));
+        method.Throws = true;
+        Assert.Equal(MethodDispatchKind.NotDispatchable, _emitter.ClassifyMethodDispatch(method));
+    }
+
+    [Fact]
+    public void ClassifyMethodDispatch_AsyncExistentialReturn_NotDispatchable()
+    {
+        var emitter = CreateExistentialEmitter(out _);
+        var method = CreateMethod("getAsync", CreateExistentialReturnType("TestModule.Card"));
+        method.IsAsync = true;
+        Assert.Equal(MethodDispatchKind.NotDispatchable, emitter.ClassifyMethodDispatch(method));
+    }
+
+    [Fact]
+    public void ClassifyMethodDispatch_ExistentialReturnWithNonDispatchableParam_NotDispatchable()
+    {
+        var emitter = CreateExistentialEmitter(out _);
+        var arrayType = new NamedTypeSpec("Swift.Array");
+        arrayType.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var method = CreateMethodWithParams("process",
+            CreateExistentialReturnType("TestModule.Card"),
+            new[] { ("items", arrayType as TypeSpec) });
+        Assert.Equal(MethodDispatchKind.NotDispatchable, emitter.ClassifyMethodDispatch(method));
+    }
+
+    [Fact]
+    public void ClassifyMethodDispatch_WellKnownExistentialReturn_NotDispatchable()
+    {
+        // "any Error" → AnyError, well-known type, not dispatchable via existential dispatch
+        var emitter = CreateExistentialEmitter(out _);
+        var errorType = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Error") });
+        var method = CreateMethod("getError", errorType);
+        Assert.Equal(MethodDispatchKind.NotDispatchable, emitter.ClassifyMethodDispatch(method));
+    }
+
+    [Fact]
+    public void ClassifyMethodDispatch_BlittableReturn_StillBlittableOrString()
+    {
+        var method = CreateMethod("getValue", new NamedTypeSpec("Swift.Int32"));
+        Assert.Equal(MethodDispatchKind.BlittableOrString, _emitter.ClassifyMethodDispatch(method));
+    }
+
+    [Fact]
+    public void ClassifyMethodDispatch_VoidNoParams_BlittableOrString()
+    {
+        var method = CreateMethod("reset", TupleTypeSpec.Empty);
+        Assert.Equal(MethodDispatchKind.BlittableOrString, _emitter.ClassifyMethodDispatch(method));
+    }
+
+    [Fact]
+    public void ClassifyMethodDispatch_ExistentialReturnWithStringParam_ReturnsExistentialReturn()
+    {
+        var emitter = CreateExistentialEmitter(out _);
+        var method = CreateMethodWithParams("connect",
+            CreateExistentialReturnType("TestModule.Card"),
+            new[] { ("protocolString", new NamedTypeSpec("Swift.String") as TypeSpec) });
+        method.Throws = true;
+        Assert.Equal(MethodDispatchKind.ExistentialReturn, emitter.ClassifyMethodDispatch(method));
+    }
+
+    #endregion
+
+    #region Existential Swift Emission Tests
+
+    [Fact]
+    public void EmitExistentialMethodAccessor_NonThrowing_UsesTypedInitialize()
+    {
+        var emitter = CreateExistentialEmitter(out var ctx);
+        var protocolDecl = CreateSimpleProtocol("Card");
+        protocolDecl.Methods.Add(CreateMethod("getBasicChannel", CreateExistentialReturnType("TestModule.CardChannel")));
+        var output = EmitDispatchWithEmitter(emitter, protocolDecl, ctx);
+
+        Assert.Contains("UnsafeMutablePointer<any TestModule.CardChannel>.allocate(capacity: 1)", output);
+        Assert.Contains("ptr.initialize(to: result)", output);
+    }
+
+    [Fact]
+    public void EmitExistentialMethodAccessor_Throwing_HasErrorOutParam()
+    {
+        var emitter = CreateExistentialEmitter(out var ctx);
+        var protocolDecl = CreateSimpleProtocol("CardTerminal");
+        var method = CreateMethodWithParams("connect",
+            CreateExistentialReturnType("TestModule.Card"),
+            new[] { ("protocolString", new NamedTypeSpec("Swift.String") as TypeSpec) });
+        method.Throws = true;
+        protocolDecl.Methods.Add(method);
+        var output = EmitDispatchWithEmitter(emitter, protocolDecl, ctx);
+
+        Assert.Contains("errorOut: UnsafeMutablePointer<UnsafeRawPointer?>", output);
+    }
+
+    [Fact]
+    public void EmitExistentialMethodAccessor_FreeFunction_UsesDeinitialize()
+    {
+        var emitter = CreateExistentialEmitter(out var ctx);
+        var protocolDecl = CreateSimpleProtocol("Card");
+        protocolDecl.Methods.Add(CreateMethod("getBasicChannel", CreateExistentialReturnType("TestModule.CardChannel")));
+        var output = EmitDispatchWithEmitter(emitter, protocolDecl, ctx);
+
+        Assert.Contains("(any TestModule.CardChannel).self).deinitialize(count: 1)", output);
+        Assert.Contains("ptr.deallocate()", output);
+    }
+
+    [Fact]
+    public void EmitExistentialMethodAccessor_Throwing_UsesPassRetained()
+    {
+        var emitter = CreateExistentialEmitter(out var ctx);
+        var protocolDecl = CreateSimpleProtocol("CardTerminal");
+        var method = CreateMethod("connect", CreateExistentialReturnType("TestModule.Card"));
+        method.Throws = true;
+        protocolDecl.Methods.Add(method);
+        var output = EmitDispatchWithEmitter(emitter, protocolDecl, ctx);
+
+        Assert.Contains("Unmanaged.passRetained(error as AnyObject).toOpaque()", output);
+    }
+
+    [Fact]
+    public void EmitExistentialMethodAccessor_Throwing_ReturnTypeIsOptional()
+    {
+        var emitter = CreateExistentialEmitter(out var ctx);
+        var protocolDecl = CreateSimpleProtocol("CardTerminal");
+        var method = CreateMethod("connect", CreateExistentialReturnType("TestModule.Card"));
+        method.Throws = true;
+        protocolDecl.Methods.Add(method);
+        var output = EmitDispatchWithEmitter(emitter, protocolDecl, ctx);
+
+        // Throwing pattern returns optional raw pointer (nil = error)
+        Assert.Contains("-> UnsafeMutableRawPointer?", output);
+        Assert.Contains("return nil", output);
+    }
+
+    [Fact]
+    public void EmitExistentialMethodAccessor_NonThrowing_ReturnTypeIsNonOptional()
+    {
+        var emitter = CreateExistentialEmitter(out var ctx);
+        var protocolDecl = CreateSimpleProtocol("Card");
+        protocolDecl.Methods.Add(CreateMethod("getBasicChannel", CreateExistentialReturnType("TestModule.CardChannel")));
+        var output = EmitDispatchWithEmitter(emitter, protocolDecl, ctx);
+
+        // Non-throwing: the return line should be non-optional
+        Assert.Contains("-> UnsafeMutableRawPointer {", output);
+        Assert.DoesNotContain("-> UnsafeMutableRawPointer? {", output);
+    }
+
+    [Fact]
+    public void EmitExistentialMethodAccessor_Throwing_EmitsErrorDescriptionInfra()
+    {
+        var emitter = CreateExistentialEmitter(out var ctx);
+        var protocolDecl = CreateSimpleProtocol("CardTerminal");
+        var method = CreateMethod("connect", CreateExistentialReturnType("TestModule.Card"));
+        method.Throws = true;
+        protocolDecl.Methods.Add(method);
+        var output = EmitDispatchWithEmitter(emitter, protocolDecl, ctx);
+
+        // Error infrastructure should be emitted for throwing existential methods
+        Assert.Contains("SBW_GetErrorDescription", output);
+        Assert.Contains("SBW_ReleaseError", output);
+    }
+
+    [Fact]
+    public void EmitExistentialMethodAccessor_Throwing_EmitsTryCatch()
+    {
+        var emitter = CreateExistentialEmitter(out var ctx);
+        var protocolDecl = CreateSimpleProtocol("CardTerminal");
+        var method = CreateMethod("connect", CreateExistentialReturnType("TestModule.Card"));
+        method.Throws = true;
+        protocolDecl.Methods.Add(method);
+        var output = EmitDispatchWithEmitter(emitter, protocolDecl, ctx);
+
+        Assert.Contains("do {", output);
+        Assert.Contains("try existential.", output);
+        Assert.Contains("} catch {", output);
+    }
+
+    #endregion
+
+    #region Existential IsMethodDispatchable Backward Compat
+
+    [Fact]
+    public void IsMethodDispatchable_ExistentialReturn_ReturnsTrue()
+    {
+        var emitter = CreateExistentialEmitter(out _);
+        var method = CreateMethod("getBasicChannel", CreateExistentialReturnType("TestModule.CardChannel"));
+        Assert.True(emitter.IsMethodDispatchable(method));
+    }
+
+    [Fact]
+    public void IsMethodDispatchable_ThrowingExistentialReturn_ReturnsTrue()
+    {
+        var emitter = CreateExistentialEmitter(out _);
+        var method = CreateMethod("connect", CreateExistentialReturnType("TestModule.Card"));
+        method.Throws = true;
+        Assert.True(emitter.IsMethodDispatchable(method));
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private string EmitDispatch(ProtocolDecl protocolDecl)
@@ -695,6 +915,49 @@ public class WitnessDispatchEmitterTests
         var writer = new SwiftWriter(stringWriter);
         emitter.EmitWitnessDispatchFunctions(writer, protocolDecl);
         return stringWriter.ToString();
+    }
+
+    private string EmitDispatchWithEmitter(WitnessDispatchEmitter emitter, ProtocolDecl protocolDecl, ModuleEmissionContext ctx)
+    {
+        var stringWriter = new StringWriter();
+        var writer = new SwiftWriter(stringWriter);
+        emitter.EmitWitnessDispatchFunctions(writer, protocolDecl);
+        return stringWriter.ToString();
+    }
+
+    private WitnessDispatchEmitter CreateExistentialEmitter(out ModuleEmissionContext ctx)
+    {
+        var db = CreateTypeDatabaseWithProtocols("TestModule.Card", "TestModule.CardChannel");
+        ctx = new ModuleEmissionContext();
+        return new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule", ctx);
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithProtocols(params string[] protocolNames)
+    {
+        var typeDatabase = new TypeDatabase();
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        foreach (var protocolName in protocolNames)
+        {
+            var parts = protocolName.Split('.');
+            var shortName = parts[^1];
+            testModule.RegisterType(
+                SwiftTypeName.FromModuleQualifiedName(protocolName),
+                new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", $"I{shortName}"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(protocolName),
+                    MetadataAccessor = "$sMa",
+                    Flags = TypeRecordFlags.None,
+                    Kind = TypeRecordKind.Protocol
+                });
+        }
+        typeDatabase.AddModuleDatabase(testModule);
+        return typeDatabase;
+    }
+
+    private static ProtocolListTypeSpec CreateExistentialReturnType(string protocolName)
+    {
+        return new ProtocolListTypeSpec(new[] { new NamedTypeSpec(protocolName) });
     }
 
     private static ProtocolDecl CreateSimpleProtocol(string name)

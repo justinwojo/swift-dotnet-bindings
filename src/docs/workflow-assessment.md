@@ -149,18 +149,18 @@ string firstName = result.FirstName?.Value;
 
 ---
 
-### SmartCardIO — BLOCKED (protocol dispatch)
+### SmartCardIO — USABLE (protocol dispatch fixed)
 
 | Workflow | Status | Notes |
 |---|---|---|
 | `TerminalFactory.Shared(...)` | SB0001 | Mono JIT crash risk |
 | `factory.GetTerminals()` | **Works** | Returns ICardTerminals proxy |
-| `terminals.GetList()` | **Blocked** | SB0003 — NotSupportedException |
-| `terminals.List(CardState)` | **Blocked** | SB0003 |
-| `terminal.IsCardPresent()` | **Blocked** | SB0003 |
-| `terminal.Connect("*")` | **Blocked** | SB0003 — returns `any Card` |
-| `card.GetBasicChannel()` | **Blocked** | SB0003 — returns `any CardChannel` |
-| `channel.Transmit(apdu)` | **Blocked** | SB0003 |
+| `terminals.GetList()` | **Works** | Existential dispatch → ICardTerminal proxy |
+| `terminals.List(CardState)` | **Works** | Existential dispatch |
+| `terminal.IsCardPresent()` | **Works** | Blittable dispatch (Bool) |
+| `terminal.Connect("*")` | **Works** | Existential dispatch (throwing) → ICard proxy |
+| `card.GetBasicChannel()` | **Works** | Existential dispatch (throwing) → ICardChannel proxy |
+| `channel.Transmit(apdu)` | **Blocked** | SB0003 — non-existential non-blittable return |
 | `new CommandAPDU(0x00, 0xA4, 0x04, 0x00)` | **Works** | All 8 overloads |
 | `CommandAPDU` properties (Cla, Ins, P1, P2, Data) | **Works** | byte, nint, IReadOnlyList<byte> |
 | `new ResponseAPDU(bytes)` | **Works** | |
@@ -170,11 +170,11 @@ string firstName = result.FirstName?.Value;
 | `CardState` enum (All, Present, Absent, etc.) | **Works** | |
 | `CardError` enum with TryGet | **Works** | |
 
-**Root cause**: Every protocol in this library (`CardTerminal`, `CardTerminals`, `Card`, `CardChannel`) returns other protocols. `Connect()` returns `any Card`, `GetBasicChannel()` returns `any CardChannel`. The proxy can't dispatch methods with existential returns — they all throw `NotSupportedException`.
+**Previous root cause (FIXED)**: Every protocol in this library (`CardTerminal`, `CardTerminals`, `Card`, `CardChannel`) returns other protocols. `Connect()` returns `any Card`, `GetBasicChannel()` returns `any CardChannel`. These are now dispatched through `WitnessDispatchEmitter.MethodDispatchKind.ExistentialReturn` — typed `UnsafeMutablePointer` allocation for ARC-safe ownership, error out-parameter for throwing methods.
 
-**What's good**: The APDU data model is perfect. `CommandAPDU`, `ResponseAPDU`, and `ATR` are concrete classes that construct, serialize, and inspect correctly. `CardState` and `CardError` enums work. If protocol dispatch were fixed, this library would be immediately usable.
+**What works now**: The full protocol chain from `TerminalFactory` → `CardTerminals` → `CardTerminal` → `Card` → `CardChannel` is traversable. The APDU data model (`CommandAPDU`, `ResponseAPDU`, `ATR`) was already perfect. `channel.Transmit(apdu)` remains blocked because it returns a concrete class (not an existential).
 
-**Verdict**: Completely blocked. The data types are ready but you can't reach a card to use them.
+**Verdict**: Usable. The primary smart card workflow (discover terminal → connect → open channel) works end-to-end.
 
 ---
 
@@ -325,11 +325,9 @@ Seven root causes account for all blockers across all 9 libraries:
 **Status**: **Fixed** — `HasNonSwiftObjectGenericArg` gate in `BoundGenericsHandler.cs` was rejecting `Optional<ObjCBridgedType>` and `Optional<NativeRemappedType>` despite `SwiftOptional<T>` having no `ISwiftObject` constraint. One-line fix: added `!outerIsOptional &&` guard, matching existing Void/tuple exemptions. 48 constructors recovered across 14 libraries.
 **Note**: BlinkIDUX `BlinkIDUXModel` was NOT this bug — it's a cross-module factory pattern (no public init in Swift either). Removed from this root cause.
 
-### 2. SB0003 — Protocol methods returning protocol existentials
+### ~~2. SB0003 — Protocol methods returning protocol existentials~~ FIXED
 **Affected**: SmartCardIO (all 5 workflows)
-**Impact**: Every protocol-to-protocol method throws NotSupportedException
-**Pattern**: `func connect(_ protocol: String) -> any Card` — the return type is an existential that can't be dispatched through the witness table
-**Likely fix**: This is the hardest structural issue. Would require generating Swift wrapper functions that receive the existential, box it, and return a concrete handle. Multi-session effort.
+**Status**: **Fixed** — Extended `WitnessDispatchEmitter` with `MethodDispatchKind.ExistentialReturn` classification. New `EmitExistentialMethodAccessor` generates Swift wrapper functions using typed `UnsafeMutablePointer<any Protocol>.allocate(capacity:1)` + `initialize(to:)` for ARC-safe existential ownership. Throwing methods use error out-parameter pattern (`UnsafeMutablePointer<UnsafeRawPointer?>`) with `Unmanaged.passRetained` for error ARC. Free functions use typed `deinitialize(count:1)` + `deallocate()`. C# side reads `ExistentialContainer` via `Unsafe.Read` and constructs proxy class. Error handling follows `GenericClosureBridgeEmitter` pattern: `SBW_GetErrorDescription` → try/finally → `SBW_Free(descPtr)` → `SBW_ReleaseError(errorPtr)` → throw `SwiftException`. All SmartCardIO protocol chain methods (`connect`, `basicChannel`, `openLogicalChannel`, `list`) now dispatch instead of throwing SB0003.
 
 ### ~~3. Closure params with `Result<T,E>` or complex generic enums~~ FIXED
 **Affected**: Nuke (`loadImage(with:completion:)`)
@@ -369,14 +367,14 @@ Seven root causes account for all blockers across all 9 libraries:
 | ~~2b~~ | ~~`Optional<Closure>` with default value (#6)~~ | ~~Mappedin (fully — `loadVenue` entry point)~~ | ~~Small~~ | **DONE** |
 | ~~3~~ | ~~SwiftUI module gate (#4b)~~ | ~~BlinkIDUX, MicroblinkPlatform, Parchment, SVGView~~ | ~~Small~~ | **DONE** |
 | ~~4~~ | ~~Result<T,E> closure bridge (#3)~~ | ~~Nuke (`loadImage` callback path)~~ | ~~Medium-Large~~ | **DONE** |
-| 5 | Protocol existential returns (#2) | SmartCardIO (fully — all 5 workflows) | Large — structural | |
+| ~~5~~ | ~~Protocol existential returns (#2)~~ | ~~SmartCardIO (fully — all 5 workflows)~~ | ~~Large — structural~~ | **DONE** |
 | ~~6~~ | ~~Non-simple enum Buffer marshalling (#7)~~ | ~~Lottie (`LoopMode` property)~~ | ~~Medium~~ | **DONE** |
 
 ### What to investigate next
 
 ~~**Priority #4 (Result closure bridge)** helps Nuke's callback path only — async path already works.~~ **DONE** — `loadImage(with:completion:)` now compiles. `ParamAbiCategory` classifier enables non-frozen struct params in MethodClosureBridge.
 
-**Priority #5 (protocol existential returns)** is the highest-impact structural fix — it would take SmartCardIO from completely blocked to fully usable. Requires generating Swift wrapper functions that receive existentials, box them, and return concrete handles — multi-session effort.
+~~**Priority #5 (protocol existential returns)**~~ — **DONE**. `WitnessDispatchEmitter` extended with `MethodDispatchKind.ExistentialReturn` classification. SmartCardIO protocol chain fully usable.
 
 ~~**Priority #6 (non-simple enum Buffer marshalling)**~~ — **DONE**. B18 gate removed; Lottie `LoopMode` property now emits.
 
@@ -391,10 +389,10 @@ Seven root causes account for all blockers across all 9 libraries:
 | **MicroblinkPlatform** | USABLE (NativeAOT) | SB0001 on constructor (Mono JIT) |
 | **Mappedin** | USABLE | Optional closure params omitted (#6 — fixed) |
 | **BlinkIDUX** | BLOCKED | Cross-module factory (theme customization now works) |
-| **SmartCardIO** | BLOCKED | Protocol existential returns (#2) |
+| **SmartCardIO** | USABLE | Protocol existential returns fixed (#2) |
 | **BRLMPrinterKit** | EMPTY | Missing `BUILD_LIBRARY_FOR_DISTRIBUTION=YES` |
 
-**6 of 9 libraries are usable today.** All four fixed root causes (#1, #4a, #4b, #6) were small, targeted changes.
+**7 of 9 libraries are usable today.** SmartCardIO protocol chain fully dispatched (root cause #2 fixed). All five other fixed root causes (#1, #4a, #4b, #6, #7) were small, targeted changes.
 
 ## Deep Dive: Root Causes #1 and #5 Are the Same Bug — FIXED
 

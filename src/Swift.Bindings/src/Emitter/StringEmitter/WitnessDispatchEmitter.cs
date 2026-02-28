@@ -6,6 +6,19 @@ using Microsoft.Extensions.Logging;
 namespace BindingsGeneration;
 
 /// <summary>
+/// Classifies how a method can be dispatched through the witness table.
+/// </summary>
+public enum MethodDispatchKind
+{
+    /// <summary>Method cannot be dispatched (unsupported return type, async, etc.).</summary>
+    NotDispatchable,
+    /// <summary>Method returns blittable or String types (existing dispatch path).</summary>
+    BlittableOrString,
+    /// <summary>Method returns a protocol existential (new dispatch path with ARC-safe typed pointer).</summary>
+    ExistentialReturn
+}
+
+/// <summary>
 /// Generates Swift @_silgen_name accessor functions that reconstruct existential containers
 /// and dispatch through the protocol witness table. These accessors enable C# code to call
 /// protocol members on Swift-backed existential containers via P/Invoke.
@@ -14,6 +27,7 @@ namespace BindingsGeneration;
 /// non-mutating void methods with blittable parameters.
 /// Phase B scope: String property getters/setters, String method params/returns,
 /// blittable property setters.
+/// Phase C scope: methods returning protocol existentials (throwing/non-throwing).
 /// </summary>
 public class WitnessDispatchEmitter
 {
@@ -174,7 +188,8 @@ public class WitnessDispatchEmitter
             var idx = methodIndex++;
             methodIndices[methodKey] = idx;
 
-            if (IsMethodDispatchable(method))
+            var kind = ClassifyMethodDispatch(method);
+            if (kind == MethodDispatchKind.BlittableOrString)
             {
                 if (!anyEmitted)
                 {
@@ -186,6 +201,24 @@ public class WitnessDispatchEmitter
                     Utf8SliceEmitter.EmitIfNeeded(writer, _emissionContext);
                 }
                 EmitMethodAccessor(writer, method, protocolDecl, moduleQualifiedName, idx);
+            }
+            else if (kind == MethodDispatchKind.ExistentialReturn)
+            {
+                if (!anyEmitted)
+                {
+                    writer.WriteLine($"// Witness dispatch accessors for {protocolName}");
+                    anyEmitted = true;
+                }
+                if (NeedsUtf8Slice(protocolDecl))
+                {
+                    Utf8SliceEmitter.EmitIfNeeded(writer, _emissionContext);
+                }
+                if (method.Throws)
+                {
+                    ErrorDescriptionEmitter.EmitIfNeeded(writer, _moduleName, _emissionContext);
+                    Utf8SliceEmitter.EmitFreeIfNeeded(writer, _moduleName, _emissionContext);
+                }
+                EmitExistentialMethodAccessor(writer, method, protocolDecl, moduleQualifiedName, idx);
             }
         }
 
@@ -212,29 +245,92 @@ public class WitnessDispatchEmitter
     }
 
     /// <summary>
-    /// Determines if a method can be dispatched via witness table.
-    /// A method is dispatchable if all parameter types and the return type (if any) are blittable or String.
-    /// Throwing and async methods are not yet dispatchable.
+    /// Classifies how a method can be dispatched through the witness table.
+    /// Returns <see cref="MethodDispatchKind.BlittableOrString"/> for methods with all blittable/String types,
+    /// <see cref="MethodDispatchKind.ExistentialReturn"/> for methods returning protocol existentials
+    /// (including throwing methods), or <see cref="MethodDispatchKind.NotDispatchable"/> otherwise.
     /// </summary>
-    public bool IsMethodDispatchable(MethodDecl method)
+    public MethodDispatchKind ClassifyMethodDispatch(MethodDecl method)
     {
-        // Throwing and async methods require special Swift accessor
-        // signatures (try/await) that we don't generate yet
-        if (method.Throws || method.IsAsync)
-            return false;
+        // Async methods are never dispatchable (require Swift concurrency runtime)
+        if (method.IsAsync)
+            return MethodDispatchKind.NotDispatchable;
 
-        // Check return type
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
+
+        // Check if return type is an existential that can be dispatched
+        if (hasReturn && IsExistentialDispatchable(returnType!))
+        {
+            // Existential return path: allows throwing (uses error out-parameter)
+            // All params must still be blittable/String
+            foreach (var param in method.CSSignature.Skip(1))
+            {
+                if (!IsTypeDispatchable(param.SwiftTypeSpec))
+                    return MethodDispatchKind.NotDispatchable;
+            }
+            return MethodDispatchKind.ExistentialReturn;
+        }
+
+        // Blittable/String path: throwing methods are not yet dispatchable
+        if (method.Throws)
+            return MethodDispatchKind.NotDispatchable;
+
+        // Check return type is blittable/String
         if (hasReturn && !IsTypeDispatchable(returnType!))
-            return false;
+            return MethodDispatchKind.NotDispatchable;
 
         // Check all parameters
         foreach (var param in method.CSSignature.Skip(1))
         {
             if (!IsTypeDispatchable(param.SwiftTypeSpec))
-                return false;
+                return MethodDispatchKind.NotDispatchable;
         }
+
+        return MethodDispatchKind.BlittableOrString;
+    }
+
+    /// <summary>
+    /// Determines if a method can be dispatched via witness table (backward-compat wrapper).
+    /// Returns true if the method is dispatchable via any dispatch kind.
+    /// </summary>
+    public bool IsMethodDispatchable(MethodDecl method)
+    {
+        return ClassifyMethodDispatch(method) != MethodDispatchKind.NotDispatchable;
+    }
+
+    /// <summary>
+    /// Checks if a return type is a protocol existential that can be dispatched
+    /// through the witness table using a typed pointer allocation pattern.
+    /// Reuses <see cref="ProtocolExtensionEmitter.IsSupportedExistentialReturn"/> for validation,
+    /// then adds additional gates: must not be a well-known protocol type, and must have
+    /// a valid proxy class name.
+    /// </summary>
+    public bool IsExistentialDispatchable(TypeSpec returnType)
+    {
+        // Delegate to the existing comprehensive existential validation
+        if (!ProtocolExtensionEmitter.IsSupportedExistentialReturn(returnType, _typeDatabase))
+            return false;
+
+        // IsSupportedExistentialReturn allows well-known types (e.g., Swift.Error → AnyError)
+        // and zero-protocol "Any" → ExistentialContainer0. These use different C# wrappers,
+        // not proxy classes, so they can't use the existential dispatch pattern.
+        var existentialHandler = new ExistentialHandler(_typeDatabase);
+        var protocolList = existentialHandler.ToProtocolListTypeSpec(returnType);
+        if (protocolList == null)
+            return false;
+
+        // Reject well-known types (e.g., "any Error" → AnyError)
+        if (existentialHandler.TryGetWellKnownProtocolType(protocolList, out _))
+            return false;
+
+        // Reject zero-protocol "Any" (no proxy class)
+        if (existentialHandler.IsAnyType(protocolList))
+            return false;
+
+        // Must have a valid proxy class name
+        if (!existentialHandler.TryGetFilteredProxyClassName(protocolList, out _))
+            return false;
 
         return true;
     }
@@ -339,7 +435,12 @@ public class WitnessDispatchEmitter
         {
             if (method.IsConstructor || method.MethodType == MethodType.Static)
                 continue;
-            if (method.Throws || method.IsAsync)
+            // Skip async methods entirely, but for throwing methods check if they
+            // are ExistentialReturn dispatchable (those can have String params)
+            if (method.IsAsync)
+                continue;
+            var kind = ClassifyMethodDispatch(method);
+            if (kind == MethodDispatchKind.NotDispatchable)
                 continue;
             var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
             if (returnType != null && !returnType.IsEmptyTuple && IsStringType(returnType))
@@ -661,6 +762,159 @@ public class WitnessDispatchEmitter
                     """);
             }
         }
+    }
+
+    /// <summary>
+    /// Gets the Swift module-qualified existential type string for a return type.
+    /// E.g., for a ProtocolListTypeSpec with "SmartCardIO.Card", returns "SmartCardIO.Card".
+    /// Used in typed pointer declarations: <c>UnsafeMutablePointer&lt;any SmartCardIO.Card&gt;</c>.
+    /// </summary>
+    private string? GetSwiftExistentialTypeName(TypeSpec returnType)
+    {
+        var existentialHandler = new ExistentialHandler(_typeDatabase);
+        var protocolList = existentialHandler.ToProtocolListTypeSpec(returnType);
+        if (protocolList == null)
+            return null;
+
+        // Build module-qualified protocol names for the existential type
+        var protocols = protocolList.Protocols.Keys
+            .Where(p => !TypeDatabaseExtensions.IsObjCModuleType(p))
+            .OrderBy(p => p.NameWithoutModule, StringComparer.Ordinal)
+            .ToList();
+        if (protocols.Count == 0)
+            return null;
+
+        if (protocols.Count == 1)
+            return protocols[0].Name; // e.g., "SmartCardIO.Card"
+
+        // Multi-protocol composition: "ProtocolA & ProtocolB"
+        return string.Join(" & ", protocols.Select(p => p.Name));
+    }
+
+    private void EmitExistentialMethodAccessor(SwiftWriter writer, MethodDecl method, ProtocolDecl protocolDecl, string moduleQualifiedName, int index)
+    {
+        var protocolName = protocolDecl.Name;
+        var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+        var swiftExistentialType = GetSwiftExistentialTypeName(returnType!);
+        if (swiftExistentialType == null)
+            return; // Should not happen — IsExistentialDispatchable already validated
+
+        var accessorSymbol = GetAccessorSymbol(protocolName, "method", method.Name, index);
+        var freeSymbol = GetFreeSymbol(protocolName, "method", method.Name, index);
+
+        // Build Swift parameter list: containerPtr + one UnsafeRawPointer per param
+        // + errorOut if throwing
+        var swiftParams = new List<string> { "_ containerPtr: UnsafeRawPointer" };
+        for (int i = 0; i < method.CSSignature.Count - 1; i++)
+        {
+            swiftParams.Add($"_ arg{i}Ptr: UnsafeRawPointer");
+        }
+        if (method.Throws)
+        {
+            swiftParams.Add("_ errorOut: UnsafeMutablePointer<UnsafeRawPointer?>");
+        }
+        var swiftParamsString = string.Join(", ", swiftParams);
+
+        // Return type: UnsafeMutableRawPointer (nullable if throwing — nil means error)
+        var swiftReturnDecl = method.Throws
+            ? " -> UnsafeMutableRawPointer?"
+            : " -> UnsafeMutableRawPointer";
+
+        writer.WriteLine($"@_silgen_name(\"{accessorSymbol}\")");
+        writer.WriteLine($"public func {accessorSymbol}({swiftParamsString}){swiftReturnDecl} {{");
+        writer.Indent++;
+
+        // Load existential from container
+        writer.WriteLine($"let existential = containerPtr.load(as: (any {moduleQualifiedName}).self)");
+
+        // Unmarshal parameters — same pattern as EmitMethodAccessor
+        var callArgs = new List<string>();
+        int argIdx = 0;
+        foreach (var param in method.CSSignature.Skip(1))
+        {
+            if (IsStringType(param.SwiftTypeSpec))
+            {
+                writer.WriteLine($"let arg{argIdx}Slice = arg{argIdx}Ptr.load(as: SBW_Utf8Slice.self)");
+                writer.WriteLine($"let arg{argIdx}: String");
+                writer.WriteLine($"if arg{argIdx}Slice.len > 0 {{");
+                writer.Indent++;
+                writer.WriteLine($"arg{argIdx} = String(unsafeUninitializedCapacity: arg{argIdx}Slice.len) {{ buf in");
+                writer.Indent++;
+                writer.WriteLine($"UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: arg{argIdx}Slice.ptr, byteCount: arg{argIdx}Slice.len)");
+                writer.WriteLine($"return arg{argIdx}Slice.len");
+                writer.Indent--;
+                writer.WriteLine("}");
+                writer.Indent--;
+                writer.WriteLine("} else {");
+                writer.Indent++;
+                writer.WriteLine($"arg{argIdx} = \"\"");
+                writer.Indent--;
+                writer.WriteLine("}");
+            }
+            else
+            {
+                var csharpType = GetCSharpTypeName(param.SwiftTypeSpec);
+                var swiftType = GetSwiftPrimitiveType(csharpType);
+                writer.WriteLine($"let arg{argIdx} = arg{argIdx}Ptr.load(as: {swiftType}.self)");
+            }
+            callArgs.Add($"arg{argIdx}");
+            argIdx++;
+        }
+
+        // Build method call with Swift parameter labels
+        var labeledArgs = new List<string>();
+        argIdx = 0;
+        for (int i = 1; i < method.CSSignature.Count; i++)
+        {
+            var param = method.CSSignature[i];
+            var label = GetSwiftParameterLabel(param);
+            var argRef = callArgs[argIdx];
+            labeledArgs.Add(label == "_" ? argRef : $"{label}: {argRef}");
+            argIdx++;
+        }
+        var callArgsString = string.Join(", ", labeledArgs);
+
+        var tryPrefix = method.Throws ? "try " : "";
+
+        if (method.Throws)
+        {
+            // Throwing pattern: do/catch with error out-parameter
+            writer.WriteLine("do {");
+            writer.Indent++;
+            writer.WriteLine($"let result: any {swiftExistentialType} = {tryPrefix}existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
+            writer.WriteLine($"let ptr = UnsafeMutablePointer<any {swiftExistentialType}>.allocate(capacity: 1)");
+            writer.WriteLine("ptr.initialize(to: result)");
+            writer.WriteLine("return UnsafeMutableRawPointer(ptr)");
+            writer.Indent--;
+            writer.WriteLine("} catch {");
+            writer.Indent++;
+            writer.WriteLine("errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()");
+            writer.WriteLine("return nil");
+            writer.Indent--;
+            writer.WriteLine("}");
+        }
+        else
+        {
+            // Non-throwing pattern: direct allocation
+            writer.WriteLine($"let result: any {swiftExistentialType} = existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
+            writer.WriteLine($"let ptr = UnsafeMutablePointer<any {swiftExistentialType}>.allocate(capacity: 1)");
+            writer.WriteLine("ptr.initialize(to: result)");
+            writer.WriteLine("return UnsafeMutableRawPointer(ptr)");
+        }
+
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.WriteLine();
+
+        // Emit free function — typed deinitialize for ARC-safe cleanup
+        writer.WriteLines($$"""
+            @_silgen_name("{{freeSymbol}}")
+            public func {{freeSymbol}}(_ ptr: UnsafeMutableRawPointer) {
+                ptr.assumingMemoryBound(to: (any {{swiftExistentialType}}).self).deinitialize(count: 1)
+                ptr.deallocate()
+            }
+
+            """);
     }
 
     /// <summary>

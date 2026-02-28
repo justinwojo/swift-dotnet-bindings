@@ -3140,6 +3140,475 @@ public class ProtocolProxyEmitterTests
 
     #endregion
 
+    #region Existential Return Dispatch Tests
+
+    [Fact]
+    public void EmitProxyClass_ExistentialReturnMethod_NonThrowing_EmitsProxyConstruction()
+    {
+        // Non-throwing method returning existential (any TargetProtocol) should dispatch
+        // through witness table and construct proxy from existential container
+        RegisterProtocol("TargetProtocol");
+        var protocolDecl = CreateSimpleProtocol("SourceProtocol");
+        var existentialReturn = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.TargetProtocol") });
+
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "getTarget",
+            MangledName = "$sgetTarget",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = existentialReturn,
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false,
+            Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // Should construct proxy from existential container
+        Assert.Contains("new TargetProtocolProxy(container)", output);
+        // Should use Unsafe.Read to recover the container (fully qualified type name)
+        Assert.Contains("Unsafe.Read<Swift.Runtime.ExistentialContainer1>", output);
+        // Should call accessor P/Invoke
+        Assert.Contains("NativeMethods.SBW_SourceProtocol_method_getTarget_0", output);
+        // Should free in finally block
+        Assert.Contains("NativeMethods.SBW_SourceProtocol_free_method_getTarget_0(resultPtr)", output);
+        Assert.Contains("finally", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ExistentialReturnMethod_NonThrowing_NoErrorHandling()
+    {
+        // Non-throwing existential return should NOT emit error handling code
+        RegisterProtocol("TargetProtocol");
+        var protocolDecl = CreateSimpleProtocol("SourceProtocol");
+        var existentialReturn = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.TargetProtocol") });
+
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "getTarget",
+            MangledName = "$sgetTarget",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = existentialReturn,
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false,
+            Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // Non-throwing should NOT have error handling
+        Assert.DoesNotContain("SBW_GetErrorDescription", output);
+        Assert.DoesNotContain("SBW_ReleaseError", output);
+        Assert.DoesNotContain("SwiftException", output);
+        Assert.DoesNotContain("errorOut", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ExistentialReturnMethod_Throwing_EmitsErrorOutParam()
+    {
+        // Throwing method returning existential should use error out-parameter pattern
+        RegisterProtocol("TargetProtocol");
+        var protocolDecl = CreateSimpleProtocol("SourceProtocol");
+        var existentialReturn = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.TargetProtocol") });
+
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "connect",
+            MangledName = "$sconnect",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = existentialReturn,
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = true, IsAsync = false,
+            Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // Should have error out-parameter
+        Assert.Contains("IntPtr errorOut = IntPtr.Zero", output);
+        // Should check null result for error
+        Assert.Contains("resultPtr == IntPtr.Zero", output);
+        // Should still construct proxy on success
+        Assert.Contains("new TargetProtocolProxy(container)", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ExistentialReturnMethod_Throwing_FreesDescBeforeReleaseError()
+    {
+        // Throwing existential: must free description buffer BEFORE releasing error
+        // (the description buffer may reference memory owned by the error)
+        RegisterProtocol("TargetProtocol");
+        var protocolDecl = CreateSimpleProtocol("SourceProtocol");
+        var existentialReturn = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.TargetProtocol") });
+
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "connect",
+            MangledName = "$sconnect",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = existentialReturn,
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = true, IsAsync = false,
+            Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // Error description extraction
+        Assert.Contains("SBW_GetErrorDescription(errorOut)", output);
+        // SBW_Free must come BEFORE SBW_ReleaseError (order matters for memory safety)
+        var freeIdx = output.IndexOf("SBW_Free(_descPtr)", StringComparison.Ordinal);
+        var releaseIdx = output.IndexOf("SBW_ReleaseError(errorOut)", StringComparison.Ordinal);
+        Assert.True(freeIdx >= 0, "Expected SBW_Free(_descPtr) in output");
+        Assert.True(releaseIdx >= 0, "Expected SBW_ReleaseError(errorOut) in output");
+        Assert.True(freeIdx < releaseIdx, "SBW_Free must come before SBW_ReleaseError");
+        // Should throw SwiftException
+        Assert.Contains("SwiftException(_errorMessage)", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ExistentialReturnMethod_Throwing_FreeInFinally()
+    {
+        // Both error cleanup and success result must use finally blocks
+        RegisterProtocol("TargetProtocol");
+        var protocolDecl = CreateSimpleProtocol("SourceProtocol");
+        var existentialReturn = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.TargetProtocol") });
+
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "connect",
+            MangledName = "$sconnect",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = existentialReturn,
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = true, IsAsync = false,
+            Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // Success path free must be in finally block
+        var freeSymbol = "SBW_SourceProtocol_free_method_connect_0(resultPtr)";
+        Assert.Contains(freeSymbol, output);
+        // Error cleanup must be in finally block (SBW_Free + SBW_ReleaseError)
+        Assert.Contains("finally", output);
+        // Must call the free function for the result on success path
+        var successFreeIdx = output.IndexOf(freeSymbol, StringComparison.Ordinal);
+        // Find the nearest preceding "finally" before the success free
+        var precedingFinally = output.LastIndexOf("finally", successFreeIdx, StringComparison.Ordinal);
+        Assert.True(precedingFinally >= 0, "Expected 'finally' before success-path free");
+    }
+
+    [Fact]
+    public void EmitProxyClass_ExistentialReturnMethod_NoSB0003()
+    {
+        // Existential-returning methods should be dispatchable (no SB0003 diagnostic)
+        RegisterProtocol("TargetProtocol");
+        var protocolDecl = CreateSimpleProtocol("SourceProtocol");
+        var existentialReturn = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.TargetProtocol") });
+
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "getTarget",
+            MangledName = "$sgetTarget",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = existentialReturn,
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false,
+            Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // Find the method declaration and check SB0003 is NOT near it
+        var methodIdx = output.IndexOf("ITargetProtocol GetTarget()", StringComparison.Ordinal);
+        Assert.True(methodIdx >= 0, "Expected to find 'ITargetProtocol GetTarget()' in output");
+        var preMethodText = output.Substring(Math.Max(0, methodIdx - 300), Math.Min(300, methodIdx));
+        Assert.DoesNotContain("SB0003", preMethodText);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ExistentialReturnMethod_DelegatesToCSharpImpl()
+    {
+        // Existential-returning dispatch should check _csharpImpl first
+        RegisterProtocol("TargetProtocol");
+        var protocolDecl = CreateSimpleProtocol("SourceProtocol");
+        var existentialReturn = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.TargetProtocol") });
+
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "getTarget",
+            MangledName = "$sgetTarget",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = existentialReturn,
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false,
+            Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // _csharpImpl delegation must come first (before Swift dispatch)
+        Assert.Contains("_csharpImpl != null", output);
+        Assert.Contains("_csharpImpl.GetTarget()", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ExistentialReturnMethod_WithStringParam_EmitsPinHandle()
+    {
+        // Existential return with string param should marshal string via GCHandle
+        RegisterProtocol("TargetProtocol");
+        RegisterSwiftString();
+        var protocolDecl = CreateSimpleProtocol("SourceProtocol");
+        var existentialReturn = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.TargetProtocol") });
+
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "connect",
+            MangledName = "$sconnect",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = existentialReturn,
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                },
+                new()
+                {
+                    Name = "protocol", PrivateName = "protocolString",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false,
+            Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // String param should be marshalled via UTF-8 encoding + GCHandle pin
+        Assert.Contains("Encoding.UTF8.GetBytes", output);
+        Assert.Contains("GCHandle.Alloc", output);
+        Assert.Contains("Utf8Slice", output);
+        // Pin handle cleanup in finally
+        Assert.Contains("IsAllocated", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ThrowingExistentialReturn_PInvokeHasErrorOutParam()
+    {
+        // P/Invoke declaration for throwing existential method should include errorOut param
+        RegisterProtocol("TargetProtocol");
+        var protocolDecl = CreateSimpleProtocol("SourceProtocol");
+        var existentialReturn = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.TargetProtocol") });
+
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "connect",
+            MangledName = "$sconnect",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = existentialReturn,
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = true, IsAsync = false,
+            Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // Scope assertions to the NativeMethods section to avoid matching
+        // the method body's "IntPtr errorOut = IntPtr.Zero"
+        var nativeMethodsIdx = output.IndexOf("class NativeMethods", StringComparison.Ordinal);
+        Assert.True(nativeMethodsIdx >= 0, "Expected NativeMethods class in output");
+        var nativeMethodsSection = output.Substring(nativeMethodsIdx);
+
+        // P/Invoke accessor for throwing existential should have errorOut in its parameter list
+        Assert.Contains("IntPtr containerPtr, IntPtr errorOut", nativeMethodsSection);
+        // Should also emit the error helper P/Invokes inside NativeMethods
+        Assert.Contains("SBW_GetErrorDescription", nativeMethodsSection);
+        Assert.Contains("SBW_ReleaseError", nativeMethodsSection);
+        Assert.Contains("SBW_Free", nativeMethodsSection);
+    }
+
+    [Fact]
+    public void EmitProxyClass_NonThrowingExistentialReturn_PInvokeHasNoErrorOut()
+    {
+        // P/Invoke declaration for non-throwing existential method should NOT include errorOut
+        RegisterProtocol("TargetProtocol");
+        var protocolDecl = CreateSimpleProtocol("SourceProtocol");
+        var existentialReturn = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.TargetProtocol") });
+
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "getTarget",
+            MangledName = "$sgetTarget",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = existentialReturn,
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false,
+            Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // Non-throwing should not have error infrastructure
+        Assert.DoesNotContain("SBW_GetErrorDescription", output);
+        Assert.DoesNotContain("SBW_ReleaseError", output);
+        Assert.DoesNotContain("errorOut", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ExistentialReturnMethod_PInvokeEmitsAccessorAndFree()
+    {
+        // P/Invoke declarations should include both accessor and free function
+        RegisterProtocol("TargetProtocol");
+        var protocolDecl = CreateSimpleProtocol("SourceProtocol");
+        var existentialReturn = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.TargetProtocol") });
+
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "getTarget",
+            MangledName = "$sgetTarget",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = existentialReturn,
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false,
+            Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // NativeMethods should contain accessor P/Invoke
+        Assert.Contains("SBW_SourceProtocol_method_getTarget_0", output);
+        // NativeMethods should contain free P/Invoke
+        Assert.Contains("SBW_SourceProtocol_free_method_getTarget_0", output);
+        // Both should be in NativeMethods section
+        var nativeMethodsIdx = output.IndexOf("class NativeMethods", StringComparison.Ordinal);
+        Assert.True(nativeMethodsIdx >= 0, "Expected NativeMethods class in output");
+        var accessorIdx = output.IndexOf("SBW_SourceProtocol_method_getTarget_0", nativeMethodsIdx, StringComparison.Ordinal);
+        var freeIdx = output.IndexOf("SBW_SourceProtocol_free_method_getTarget_0", nativeMethodsIdx, StringComparison.Ordinal);
+        Assert.True(accessorIdx >= 0, "Accessor P/Invoke must be inside NativeMethods");
+        Assert.True(freeIdx >= 0, "Free P/Invoke must be inside NativeMethods");
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private string EmitProxyClass(ProtocolDecl protocolDecl)

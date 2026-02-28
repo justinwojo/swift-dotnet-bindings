@@ -415,31 +415,63 @@ public partial class ProtocolProxyEmitter
         var methodName = NameProvider.GetPublicMethodName(method.Name, method.IsAsync, hasReturn,
             propertyNames: propertyNames, isSelfReturning: isSelfReturning,
             parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
-        var isDispatchable = dispatchEmitter.IsMethodDispatchable(method);
+        var dispatchKind = dispatchEmitter.ClassifyMethodDispatch(method);
 
-        // Validate that the projected return type matches the dispatch strategy.
-        // IsMethodDispatchable checks Swift-side dispatchability, but if the projected
-        // return type diverges (e.g. Swift.AnyType from incomplete TypeDatabase),
-        // the generated code would have a type mismatch. Disable dispatch.
-        if (isDispatchable && hasReturn)
+        // Secondary C#-side validation for ExistentialReturn — verify proxy class exists
+        // and projected return type is a valid interface (not "object" or "AnyType")
+        if (dispatchKind == MethodDispatchKind.ExistentialReturn && hasReturn)
         {
-            if (isStringReturn)
+            var existentialHandler = new ExistentialHandler(_typeDatabase);
+            var protocolList = existentialHandler.ToProtocolListTypeSpec(returnType!);
+            if (protocolList == null ||
+                !existentialHandler.TryGetFilteredProxyClassName(protocolList, out _) ||
+                returnTypeName == "object" ||
+                returnTypeName == TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName)
             {
-                // String return: projected type must be idiomatic "string" (from TypeConversionHandler)
-                if (!IsIdiomaticStringType(returnTypeName))
-                    isDispatchable = false;
-            }
-            else if (!WitnessDispatchEmitter.IsBlittablePrimitive(returnTypeName))
-            {
-                isDispatchable = false;
+                dispatchKind = MethodDispatchKind.NotDispatchable;
             }
         }
 
-        // Validate that each parameter's projected C# type matches the dispatch strategy.
-        // The Swift-side dispatchability is already checked by IsMethodDispatchable().
-        // Here we verify the C# side: if the projected type doesn't match what the
-        // marshalling code expects, the generated code would fail to compile.
-        if (isDispatchable)
+        // Validate projected types for BlittableOrString dispatch
+        if (dispatchKind == MethodDispatchKind.BlittableOrString)
+        {
+            if (hasReturn)
+            {
+                if (isStringReturn)
+                {
+                    if (!IsIdiomaticStringType(returnTypeName))
+                        dispatchKind = MethodDispatchKind.NotDispatchable;
+                }
+                else if (!WitnessDispatchEmitter.IsBlittablePrimitive(returnTypeName))
+                {
+                    dispatchKind = MethodDispatchKind.NotDispatchable;
+                }
+            }
+
+            if (dispatchKind == MethodDispatchKind.BlittableOrString)
+            {
+                for (int i = 0; i < projectedParamTypes.Count; i++)
+                {
+                    var isStringParam = WitnessDispatchEmitter.IsStringDispatchType(paramSwiftTypeSpecs[i]);
+                    if (isStringParam)
+                    {
+                        if (!IsIdiomaticStringType(projectedParamTypes[i]))
+                        {
+                            dispatchKind = MethodDispatchKind.NotDispatchable;
+                            break;
+                        }
+                    }
+                    else if (!WitnessDispatchEmitter.IsBlittablePrimitive(projectedParamTypes[i]))
+                    {
+                        dispatchKind = MethodDispatchKind.NotDispatchable;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Validate params for ExistentialReturn dispatch (same param validation)
+        if (dispatchKind == MethodDispatchKind.ExistentialReturn)
         {
             for (int i = 0; i < projectedParamTypes.Count; i++)
             {
@@ -448,17 +480,19 @@ public partial class ProtocolProxyEmitter
                 {
                     if (!IsIdiomaticStringType(projectedParamTypes[i]))
                     {
-                        isDispatchable = false;
+                        dispatchKind = MethodDispatchKind.NotDispatchable;
                         break;
                     }
                 }
                 else if (!WitnessDispatchEmitter.IsBlittablePrimitive(projectedParamTypes[i]))
                 {
-                    isDispatchable = false;
+                    dispatchKind = MethodDispatchKind.NotDispatchable;
                     break;
                 }
             }
         }
+
+        var isDispatchable = dispatchKind != MethodDispatchKind.NotDispatchable;
 
         if (!isDispatchable)
         {
@@ -474,7 +508,11 @@ public partial class ProtocolProxyEmitter
 
         writer.WriteLine("if (_disposed) throw new ObjectDisposedException(GetType().Name);");
 
-        if (isDispatchable)
+        if (dispatchKind == MethodDispatchKind.ExistentialReturn)
+        {
+            EmitExistentialReturnMethodBody(writer, method, protocolDecl, methodIndex, methodName, argsString, argNames, paramSwiftTypeSpecs, returnType!, returnTypeName);
+        }
+        else if (dispatchKind == MethodDispatchKind.BlittableOrString)
         {
             var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolDecl.Name, "method", method.Name, methodIndex);
 
@@ -668,6 +706,122 @@ public partial class ProtocolProxyEmitter
         writer.Indent--;
         writer.WriteLine("}");
         writer.WriteLine();
+    }
+
+    /// <summary>
+    /// Emits the C# dispatch body for methods that return protocol existentials.
+    /// Uses typed pointer allocation on the Swift side, Unsafe.Read on the C# side to
+    /// recover the ExistentialContainer, and constructs a proxy class instance.
+    /// Throwing methods use error out-parameter pattern matching GenericClosureBridgeEmitter.
+    /// </summary>
+    private void EmitExistentialReturnMethodBody(
+        CSharpWriter writer, MethodDecl method, ProtocolDecl protocolDecl,
+        int methodIndex, string methodName, string argsString,
+        List<string> argNames, List<TypeSpec?> paramSwiftTypeSpecs,
+        TypeSpec returnType, string returnTypeName)
+    {
+        var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolDecl.Name, "method", method.Name, methodIndex);
+        var freeSymbol = WitnessDispatchEmitter.GetFreeSymbol(protocolDecl.Name, "method", method.Name, methodIndex);
+
+        // Resolve the existential container type and proxy class name
+        var existentialHandler = new ExistentialHandler(_typeDatabase);
+        var protocolList = existentialHandler.ToProtocolListTypeSpec(returnType);
+        var containerType = existentialHandler.GetCSharpExistentialType(protocolList!);
+        existentialHandler.TryGetFilteredProxyClassName(protocolList!, out var proxyClassName);
+
+        writer.WriteLines($$"""
+            if (_csharpImpl != null)
+                return _csharpImpl.{{methodName}}({{argsString}});
+            fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
+            {
+            """);
+        writer.Indent++;
+
+        // Declare pin handles before try for exception-safe cleanup
+        var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs);
+        bool needsOuterTry = pinHandles.Count > 0;
+
+        if (needsOuterTry)
+        {
+            writer.WriteLine("try");
+            writer.WriteLine("{");
+            writer.Indent++;
+        }
+
+        // Marshal each parameter
+        EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs);
+
+        // Build P/Invoke call args
+        var pInvokeArgs = new List<string> { "(IntPtr)containerPtr" };
+        for (int i = 0; i < argNames.Count; i++)
+        {
+            pInvokeArgs.Add($"(IntPtr)(&arg{i}Slice)");
+        }
+
+        if (method.Throws)
+        {
+            pInvokeArgs.Add("(IntPtr)(&errorOut)");
+            var pInvokeArgsString = string.Join(", ", pInvokeArgs);
+
+            // Throwing pattern: error out-parameter, null result means error
+            writer.WriteLines($$"""
+                IntPtr errorOut = IntPtr.Zero;
+                IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
+                if (resultPtr == IntPtr.Zero)
+                {
+                    string _errorMessage;
+                    var _descPtr = NativeMethods.SBW_GetErrorDescription(errorOut);
+                    try
+                    {
+                        _errorMessage = _descPtr != IntPtr.Zero
+                            ? global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
+                            : "Unknown Swift error";
+                    }
+                    finally
+                    {
+                        if (_descPtr != IntPtr.Zero) NativeMethods.SBW_Free(_descPtr);
+                        NativeMethods.SBW_ReleaseError(errorOut);
+                    }
+                    throw new Swift.Runtime.SwiftException(_errorMessage);
+                }
+                try
+                {
+                    var container = Unsafe.Read<{{containerType}}>((void*)resultPtr);
+                    return new {{proxyClassName}}(container);
+                }
+                finally { NativeMethods.{{freeSymbol}}(resultPtr); }
+                """);
+        }
+        else
+        {
+            var pInvokeArgsString = string.Join(", ", pInvokeArgs);
+
+            // Non-throwing pattern: direct allocation
+            writer.WriteLines($$"""
+                IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
+                try
+                {
+                    var container = Unsafe.Read<{{containerType}}>((void*)resultPtr);
+                    return new {{proxyClassName}}(container);
+                }
+                finally { NativeMethods.{{freeSymbol}}(resultPtr); }
+                """);
+        }
+
+        if (needsOuterTry)
+        {
+            writer.Indent--;
+            writer.WriteLine("}");
+            writer.WriteLine("finally");
+            writer.WriteLine("{");
+            writer.Indent++;
+            EmitPinHandleCleanup(writer, pinHandles);
+            writer.Indent--;
+            writer.WriteLine("}");
+        }
+
+        writer.Indent--;
+        writer.WriteLine("}");
     }
 
     /// <summary>

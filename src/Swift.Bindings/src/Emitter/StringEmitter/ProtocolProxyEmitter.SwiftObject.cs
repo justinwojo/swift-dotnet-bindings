@@ -271,16 +271,117 @@ public partial class ProtocolProxyEmitter
             if (!emittedCSharpKeys.Add(projectedKey))
                 continue;
 
-            if (dispatchEmitter.IsMethodDispatchable(method))
+            var dispatchKind = dispatchEmitter.ClassifyMethodDispatch(method);
+            if (dispatchKind == MethodDispatchKind.NotDispatchable)
+                continue;
+
+            var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+            var hasReturn = returnType != null && !returnType.IsEmptyTuple;
+            var paramCount = method.CSSignature.Count - 1;
+
+            var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolName, "method", method.Name, idx);
+            if (!emittedPInvokes.Add(accessorSymbol))
+                continue;
+
+            if (dispatchKind == MethodDispatchKind.ExistentialReturn)
             {
-                var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
-                var hasReturn = returnType != null && !returnType.IsEmptyTuple;
-                var paramCount = method.CSSignature.Count - 1;
+                // ExistentialReturn: accessor returns IntPtr (nullable for throwing)
+                // params: containerPtr + per-param IntPtrs + errorOut if throwing
+                var pInvokeParams = new List<string> { "IntPtr containerPtr" };
+                for (int i = 0; i < paramCount; i++)
+                {
+                    pInvokeParams.Add($"IntPtr arg{i}Ptr");
+                }
+                if (method.Throws)
+                {
+                    pInvokeParams.Add("IntPtr errorOut");
+                }
+                var pInvokeParamsString = string.Join(", ", pInvokeParams);
 
-                var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolName, "method", method.Name, idx);
-                if (!emittedPInvokes.Add(accessorSymbol))
-                    continue;
+                writer.WriteLine();
+                PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+                {
+                    LibraryPath = wrapperLibPath,
+                    EntryPoint = accessorSymbol,
+                    MethodName = accessorSymbol,
+                    ReturnType = "IntPtr",
+                    ParametersString = pInvokeParamsString,
+                    CallingConvention = PInvokeCallingConvention.Cdecl,
+                    Visibility = PInvokeVisibility.Public
+                });
 
+                // Free function (always needed — existential return always has a value)
+                var freeSymbol = WitnessDispatchEmitter.GetFreeSymbol(protocolName, "method", method.Name, idx);
+                writer.WriteLine();
+                PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+                {
+                    LibraryPath = wrapperLibPath,
+                    EntryPoint = freeSymbol,
+                    MethodName = freeSymbol,
+                    ReturnType = "void",
+                    ParametersString = "IntPtr ptr",
+                    CallingConvention = PInvokeCallingConvention.Cdecl,
+                    Visibility = PInvokeVisibility.Public
+                });
+
+                // Emit error helper P/Invokes for throwing existential methods
+                if (method.Throws)
+                {
+                    var proxyClassName = GetProxyClassName(protocolDecl);
+                    if (!ErrorDescriptionEmitter.HasErrorPInvokeForType(proxyClassName, _emissionContext))
+                    {
+                        ErrorDescriptionEmitter.MarkErrorPInvokeEmittedForType(proxyClassName, _emissionContext);
+
+                        var descSymbol = ErrorDescriptionEmitter.GetDescriptionSymbolName(_moduleName);
+                        var releaseSymbol = ErrorDescriptionEmitter.GetReleaseSymbolName(_moduleName);
+
+                        writer.WriteLine();
+                        PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+                        {
+                            LibraryPath = wrapperLibPath,
+                            EntryPoint = descSymbol,
+                            MethodName = "SBW_GetErrorDescription",
+                            ReturnType = "IntPtr",
+                            ParametersString = "IntPtr error",
+                            CallingConvention = PInvokeCallingConvention.Cdecl,
+                            Visibility = PInvokeVisibility.Public
+                        });
+
+                        writer.WriteLine();
+                        PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+                        {
+                            LibraryPath = wrapperLibPath,
+                            EntryPoint = releaseSymbol,
+                            MethodName = "SBW_ReleaseError",
+                            ReturnType = "void",
+                            ParametersString = "IntPtr error",
+                            CallingConvention = PInvokeCallingConvention.Cdecl,
+                            Visibility = PInvokeVisibility.Public
+                        });
+
+                        if (!Utf8SliceEmitter.HasFreePInvokeForType(proxyClassName, _emissionContext))
+                        {
+                            Utf8SliceEmitter.MarkFreePInvokeEmittedForType(proxyClassName, _emissionContext);
+                            var freeSwiftSymbol = Utf8SliceEmitter.GetFreeSymbolName(_moduleName);
+
+                            writer.WriteLine();
+                            PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+                            {
+                                LibraryPath = wrapperLibPath,
+                                EntryPoint = freeSwiftSymbol,
+                                MethodName = "SBW_Free",
+                                ReturnType = "void",
+                                ParametersString = "IntPtr ptr",
+                                CallingConvention = PInvokeCallingConvention.Cdecl,
+                                Visibility = PInvokeVisibility.Public
+                            });
+                        }
+                    }
+                }
+            }
+            else
+            {
+                // BlittableOrString: existing pattern
                 // Build parameter list: containerPtr + one IntPtr per param
                 var pInvokeParams = new List<string> { "IntPtr containerPtr" };
                 for (int i = 0; i < paramCount; i++)
