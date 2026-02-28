@@ -131,6 +131,37 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_NonFrozenEnumWithInstanceProperty_EmitsDangerousAddRefRelease()
+    {
+        // B18 gate lift: non-simple enum instance property accessors must emit
+        // DangerousAddRef/DangerousRelease to pin the _payload SafeHandle during P/Invoke.
+        // The Tag property also emits DangerousAddRef, so we verify the property accessor
+        // path specifically by checking for 2+ occurrences (Tag + Area) and for SwiftSelf
+        // which only appears in the WrapperEmitter.Marshalling property accessor path.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Shape", moduleDecl, isFrozen: false);
+        var circleCase = CreateCase("circle");
+        circleCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Double"));
+        enumDecl.Cases.Add(circleCase);
+        enumDecl.Cases.Add(CreateCase("empty"));
+        enumDecl.Properties.Add(CreateInstanceIntProperty("area", enumDecl, moduleDecl));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains("class Shape", csOutput);
+        // Tag property emits one DangerousAddRef; the instance property accessor emits another.
+        // Count occurrences to ensure BOTH paths emit (not just Tag).
+        var addRefCount = csOutput.Split("DangerousAddRef").Length - 1;
+        Assert.True(addRefCount >= 2, $"Expected at least 2 DangerousAddRef calls (Tag + Area), got {addRefCount}");
+        var releaseCount = csOutput.Split("DangerousRelease").Length - 1;
+        Assert.True(releaseCount >= 2, $"Expected at least 2 DangerousRelease calls (Tag + Area), got {releaseCount}");
+        // SwiftSelf is unique to the property accessor path (WrapperEmitter.Marshalling),
+        // not emitted by the Tag property (EnumHandler.CaseInspection).
+        Assert.Contains("SwiftSelf", csOutput);
+    }
+
+    [Fact]
     public void Emit_NonFrozenEnumWithStaticMethods_FallsToClassPath()
     {
         // Non-frozen no-payload enum with static method → CanSafelyEmitAsSimpleEnum returns false

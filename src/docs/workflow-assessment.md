@@ -33,15 +33,13 @@ These are the libraries that would actually be consumed in a .NET for iOS app:
 | `animView.Stop()` / `Pause()` | **Works** | |
 | `animView.CurrentProgress = 0.5` | **Works** | Get+set |
 | `animView.AnimationSpeed = 2.0` | **Works** | |
-| `animView.LoopMode = .Loop` | **Blocked** | Non-simple enum lacks Buffer marshalling |
+| `animView.LoopMode = .Loop` | **Works** | Non-simple enum property (B18 gate lifted) |
 | `animView.ContentMode = .ScaleAspectFit` | **Works** | ObjC enum resolved via `AppleFrameworkSimpleEnumRemappings` |
 | `animView.BackgroundBehavior = .Pause` | **Works** | |
 | `SetValueProvider(colorProvider, keypath)` | **Works** | Dynamic property animation |
 | `ColorValueProvider` with block | **Works** | |
 
-**Workaround for LoopMode**: Pass `loopMode:` parameter into every `Play()` call instead of setting the property. Functional but verbose. Root cause: non-simple enum property getter/setter requires Buffer marshalling (not UIKit issue).
-
-**Verdict**: A developer can load, play, pause, scrub, set content mode, and dynamically color Lottie animations. The LoopMode property gap is annoying but not blocking. This library is usable.
+**Verdict**: A developer can load, play, pause, scrub, set content mode, set loop mode, and dynamically color Lottie animations. This library is fully usable.
 
 ---
 
@@ -360,10 +358,7 @@ Seven root causes account for all blockers across all 9 libraries:
 
 ### 7. Non-simple enum property Buffer marshalling
 **Affected**: Lottie (`LoopMode` property getter/setter)
-**Impact**: Can't set `animView.LoopMode = .Loop` — must pass `loopMode:` parameter into every `Play()` call instead
-**Pattern**: `LottieLoopMode` is a non-simple enum (has associated values). Property getters/setters for non-simple enums require Buffer marshalling (allocate stack buffer, copy bytes, interpret tag+payload). Method parameters work because they use a different marshalling path.
-**Workaround**: `animView.Play(from: 0, to: 1, loopMode: .loop)` — functional but verbose.
-**Likely fix**: Extend enum property emission to handle Buffer marshalling for non-simple enums (getter: marshal from buffer to C# enum; setter: marshal C# enum to buffer).
+**Status**: **Fixed** — The B18 gate in `MemberEmissionValidator` was a prophylactic guard that was no longer necessary. `PInvokeEmitter` already handled non-simple enum returns correctly via `SwiftIndirectResult` (non-frozen) or `IntPtr` (frozen). The `.Buffer` suffix was never reached for enums. Removed all 3 B18 gates (property, `CanEmitMethod`, `ShouldSkipMethodEmission`) and added `EnumDecl` to SafeHandle `DangerousAddRef`/`DangerousRelease` in `WrapperEmitter.Marshalling.cs`.
 
 ## Fix Priority (by library impact)
 
@@ -375,7 +370,7 @@ Seven root causes account for all blockers across all 9 libraries:
 | ~~3~~ | ~~SwiftUI module gate (#4b)~~ | ~~BlinkIDUX, MicroblinkPlatform, Parchment, SVGView~~ | ~~Small~~ | **DONE** |
 | ~~4~~ | ~~Result<T,E> closure bridge (#3)~~ | ~~Nuke (`loadImage` callback path)~~ | ~~Medium-Large~~ | **DONE** |
 | 5 | Protocol existential returns (#2) | SmartCardIO (fully — all 5 workflows) | Large — structural | |
-| 6 | Non-simple enum Buffer marshalling (#7) | Lottie (`LoopMode` property) | Medium | |
+| ~~6~~ | ~~Non-simple enum Buffer marshalling (#7)~~ | ~~Lottie (`LoopMode` property)~~ | ~~Medium~~ | **DONE** |
 
 ### What to investigate next
 
@@ -383,13 +378,13 @@ Seven root causes account for all blockers across all 9 libraries:
 
 **Priority #5 (protocol existential returns)** is the highest-impact structural fix — it would take SmartCardIO from completely blocked to fully usable. Requires generating Swift wrapper functions that receive existentials, box them, and return concrete handles — multi-session effort.
 
-**Priority #6 (non-simple enum Buffer marshalling)** — Lottie's `LoopMode` property getter/setter is blocked. The `loopMode` parameter in `Play()` already works (passed by value). Workaround: pass `loopMode:` into every `Play()` call instead of setting the property.
+~~**Priority #6 (non-simple enum Buffer marshalling)**~~ — **DONE**. B18 gate removed; Lottie `LoopMode` property now emits.
 
 ## Summary
 
 | Library | Verdict | Blocker |
 |---|---|---|
-| **Lottie** | USABLE | LoopMode property (workaround: pass in Play()) |
+| **Lottie** | USABLE | No blockers |
 | **Nuke** | USABLE (async+callback) | Callback `LoadImage` compiles (SB0001 runtime risk) |
 | **BlinkID** | USABLE | CameraFrame constructor (use UIImage path) |
 | **Stripe** | USABLE | Cross-module `apiClient` property (not blocking) |

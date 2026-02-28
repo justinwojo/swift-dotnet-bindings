@@ -565,6 +565,12 @@ namespace BindingsGeneration
                     csWriter.WriteLine($"var success = false;");
                     csWriter.WriteLine($"_payload.DangerousAddRef(ref success);");
                 }
+                else if (_env.ParentDecl is EnumDecl)
+                {
+                    // Non-simple enums use _payload SafeHandle like classes
+                    csWriter.WriteLine($"var success = false;");
+                    csWriter.WriteLine($"_payload.DangerousAddRef(ref success);");
+                }
             }
 
             foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1).Where(a => !a.IsGeneric && !_env.BoundGenericsHandler.IsBoundGeneric(a) && !_env.ClosureHandler.IsClosure(a) && !_env.TupleHandler.IsTuple(a) && !_env.ExistentialHandler.IsExistential(a) && (_env.MethodDecl.IsAccessor || !MarshallingHelpers.IsConvertibleType(a.SwiftTypeSpec))))
@@ -623,6 +629,12 @@ namespace BindingsGeneration
                 else if (_env.ParentDecl is ClassDecl)
                 {
                     // Swift classes always need ref counting - they use _payload SafeHandle
+                    csWriter.WriteLine($"if (success)");
+                    csWriter.WriteLine($"   _payload.DangerousRelease();");
+                }
+                else if (_env.ParentDecl is EnumDecl)
+                {
+                    // Non-simple enums use _payload SafeHandle like classes
                     csWriter.WriteLine($"if (success)");
                     csWriter.WriteLine($"   _payload.DangerousRelease();");
                 }

@@ -69,20 +69,20 @@ public class ThirdPartyValidationFixTestsV3
 
     #endregion
 
-    #region B18 — Non-simple enum .Buffer return type
+    #region B18 — Non-simple enum return type (gate lifted)
 
     [Fact]
-    public void CanEmitMethod_NonSimpleEnumReturn_IsSkipped()
+    public void CanEmitMethod_NonSimpleEnumReturn_NotSkipped()
     {
+        // B18 gate was removed — PInvokeEmitter handles non-simple enums via
+        // SwiftIndirectResult (non-frozen) or IntPtr (frozen).
         var typeDatabase = CreateTypeDatabaseWithEnum(isSimple: false, requiresMemMgmt: true);
         var method = CreateMethodDecl("getStatus", "TestModule.TestType",
             returnType: new NamedTypeSpec("TestModule.ComplexEnum"));
 
-        var result = MemberEmissionValidator.CanEmitMethod(method, typeDatabase, out var details, out _);
+        var result = MemberEmissionValidator.CanEmitMethod(method, typeDatabase, out _, out _);
 
-        Assert.NotNull(result);
-        Assert.Equal(SkipReason.UnsupportedSignature, result);
-        Assert.Contains("Non-simple enum", details!);
+        Assert.Null(result);
     }
 
     [Fact]
@@ -111,28 +111,30 @@ public class ThirdPartyValidationFixTestsV3
     }
 
     [Fact]
-    public void CanEmitProperty_NonSimpleEnumAccessorReturn_IsSkipped()
+    public void CanEmitProperty_NonSimpleEnumAccessorReturn_NotSkipped()
     {
+        // B18 gate was removed — non-simple enum properties now supported.
         var typeDatabase = CreateTypeDatabaseWithEnum(isSimple: false, requiresMemMgmt: true);
+        var parentDecl = CreateStructDecl("Owner");
+        var moduleDecl = CreateModuleDecl();
+        var accessor = CreateGetAccessor(new NamedTypeSpec("TestModule.ComplexEnum"));
+        accessor.Method.ParentDecl = parentDecl;
+        accessor.Method.ModuleDecl = moduleDecl;
+
         var property = new PropertyDecl
         {
             Name = "status",
             SwiftTypeSpec = new NamedTypeSpec("TestModule.ComplexEnum"),
             IsStatic = false,
             HasStorage = true,
-            Accessors = new List<AccessorDecl>
-            {
-                CreateGetAccessor(new NamedTypeSpec("TestModule.ComplexEnum"))
-            },
-            ParentDecl = CreateStructDecl("Owner"),
-            ModuleDecl = CreateModuleDecl()
+            Accessors = new List<AccessorDecl> { accessor },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
         };
 
-        var result = MemberEmissionValidator.CanEmitProperty(property, typeDatabase, out var details, out _);
+        var result = MemberEmissionValidator.CanEmitProperty(property, typeDatabase, out _, out _);
 
-        Assert.NotNull(result);
-        Assert.Equal(SkipReason.UnsupportedSignature, result);
-        Assert.Contains("Non-simple enum", details!);
+        Assert.Null(result);
     }
 
     #endregion

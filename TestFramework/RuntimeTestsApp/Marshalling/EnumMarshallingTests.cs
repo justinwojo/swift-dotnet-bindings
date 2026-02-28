@@ -191,6 +191,76 @@ public class EnumMarshallingTests : TestBase
 
     #endregion
 
+    #region EnumPropertyHolder (Non-simple enum property get/set — B18 gate lift)
+
+    [TestTier(TestTier.Tier2)]
+    public void TestEnumPropertyHolder_GetCurrentShape()
+    {
+        // Create holder with circle, read back the property
+        var holder = new EnumPropertyHolder(Shape.Circle(5.0));
+        var shape = holder.CurrentShape;
+        AssertEqual(Shape.CaseTag.Circle, shape.Tag, "CurrentShape is Circle");
+        TestLogger.Info("EnumPropertyHolder.CurrentShape getter passed");
+    }
+
+    [TestTier(TestTier.Tier2)]
+    public void TestEnumPropertyHolder_SetCurrentShape()
+    {
+        // Create holder with circle, set to rectangle, verify
+        var holder = new EnumPropertyHolder(Shape.Circle(5.0));
+        holder.CurrentShape = Shape.Rectangle((width: 3.0, height: 4.0));
+        var shape = holder.CurrentShape;
+        AssertEqual(Shape.CaseTag.Rectangle, shape.Tag, "CurrentShape updated to Rectangle");
+        TestLogger.Info("EnumPropertyHolder.CurrentShape setter passed");
+    }
+
+    [TestTier(TestTier.Tier2)]
+    public void TestEnumPropertyHolder_GetShapeMethod()
+    {
+        // Test method returning non-simple enum
+        var holder = new EnumPropertyHolder(Shape.Empty);
+        var shape = holder.GetShape();
+        AssertEqual(Shape.CaseTag.Empty, shape.Tag, "GetShape() returns Empty");
+        TestLogger.Info("EnumPropertyHolder.GetShape() passed");
+    }
+
+    [TestTier(TestTier.Tier2)]
+    public void TestEnumPropertyHolder_OptionalShapeDefaultNull()
+    {
+        // optionalShape defaults to nil in init — verify null round-trip
+        var holder = new EnumPropertyHolder(Shape.Empty);
+        var optShape = holder.OptionalShape;
+        AssertNull(optShape, "OptionalShape defaults to null");
+        TestLogger.Info("EnumPropertyHolder.OptionalShape default null passed");
+    }
+
+    [TestTier(TestTier.Tier2)]
+    public void TestEnumPropertyHolder_SetOptionalShape()
+    {
+        // Set optionalShape to a value, read back
+        var holder = new EnumPropertyHolder(Shape.Empty);
+        holder.OptionalShape = Shape.Circle(3.0);
+        var optShape = holder.OptionalShape;
+        AssertNotNull(optShape, "OptionalShape set to Circle is not null");
+        AssertEqual(Shape.CaseTag.Circle, optShape!.Tag, "OptionalShape is Circle");
+        TestLogger.Info("EnumPropertyHolder.OptionalShape setter passed");
+    }
+
+    [TestTier(TestTier.Tier2)]
+    public void TestEnumPropertyHolder_ClearOptionalShape()
+    {
+        // Set optionalShape, then clear back to null
+        var holder = new EnumPropertyHolder(Shape.Empty);
+        holder.OptionalShape = Shape.Rectangle((width: 5.0, height: 10.0));
+        AssertNotNull(holder.OptionalShape, "OptionalShape is set");
+
+        holder.OptionalShape = null;
+        AssertNull(holder.OptionalShape, "OptionalShape cleared to null");
+        TestLogger.Info("EnumPropertyHolder.OptionalShape clear passed");
+    }
+
+    #endregion
+
     #region Nested Container Enums (Phase 55 regression area)
 
     [TestTier(TestTier.Tier2)]

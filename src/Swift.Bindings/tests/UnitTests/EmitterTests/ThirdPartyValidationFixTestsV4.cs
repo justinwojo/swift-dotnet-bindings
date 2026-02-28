@@ -349,13 +349,12 @@ public class ThirdPartyValidationFixTestsV4
 
     #endregion
 
-    #region C8 — Optional non-simple enum B18 check (StripeUICore)
+    #region C8 — Optional non-simple enum (B18 gate lifted)
 
     [Fact]
-    public void ShouldSkipMethodEmission_OptionalNonSimpleEnumReturn_IsSkipped()
+    public void ShouldSkipMethodEmission_OptionalNonSimpleEnumReturn_NotSkipped()
     {
-        // StripeUICore: Methods returning Optional<NonSimpleEnum> — the B18 check
-        // must unwrap Optional to see the inner non-simple enum.
+        // B18 gate was removed — Optional<NonSimpleEnum> returns now supported.
         var typeDatabase = CreateTypeDatabaseWithEnum(isSimple: false, requiresMemMgmt: true);
 
         var optionalEnum = new NamedTypeSpec("Swift.Optional");
@@ -364,11 +363,9 @@ public class ThirdPartyValidationFixTestsV4
         var method = CreateMethodDecl("getState", "TestModule.TestType",
             returnType: optionalEnum);
 
-        var result = MemberEmissionValidator.ShouldSkipMethodEmission(method, typeDatabase, out var details);
+        var result = MemberEmissionValidator.ShouldSkipMethodEmission(method, typeDatabase, out _);
 
-        Assert.NotNull(result);
-        Assert.Equal(SkipReason.UnsupportedSignature, result);
-        Assert.Contains("Non-simple enum", details!);
+        Assert.Null(result);
     }
 
     [Fact]
@@ -407,9 +404,9 @@ public class ThirdPartyValidationFixTestsV4
     }
 
     [Fact]
-    public void CanEmitProperty_OptionalNonSimpleEnum_IsSkipped()
+    public void CanEmitProperty_OptionalNonSimpleEnum_NotSkipped()
     {
-        // Property returning Optional<NonSimpleEnum> — C8 fix in CanEmitProperty.
+        // B18 gate was removed — Optional<NonSimpleEnum> properties now supported.
         var typeDatabase = CreateTypeDatabaseWithEnumAndOptional(isSimple: false, requiresMemMgmt: true);
 
         var optionalEnum = new NamedTypeSpec("Swift.Optional");
@@ -417,11 +414,9 @@ public class ThirdPartyValidationFixTestsV4
 
         var property = CreatePropertyDeclWithAccessor("validationState", optionalEnum);
 
-        var result = MemberEmissionValidator.CanEmitProperty(property, typeDatabase, out var details, out _);
+        var result = MemberEmissionValidator.CanEmitProperty(property, typeDatabase, out _, out _);
 
-        Assert.NotNull(result);
-        Assert.Equal(SkipReason.UnsupportedSignature, result);
-        Assert.Contains("Non-simple enum", details!);
+        Assert.Null(result);
     }
 
     #endregion

@@ -7537,6 +7537,8 @@ namespace Swift.SwiftBindingsTestLib
         {
             unsafe
             {
+                var success = false;
+                _payload.DangerousAddRef(ref success);
                 try
                 {
                     var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
@@ -7550,6 +7552,8 @@ namespace Swift.SwiftBindingsTestLib
                 
                 finally
                 {
+                    if (success)
+                       _payload.DangerousRelease();
                 }
                 
             }
@@ -7646,6 +7650,8 @@ namespace Swift.SwiftBindingsTestLib
         {
             unsafe
             {
+                var success = false;
+                _payload.DangerousAddRef(ref success);
                 try
                 {
                     var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
@@ -7659,6 +7665,8 @@ namespace Swift.SwiftBindingsTestLib
                 
                 finally
                 {
+                    if (success)
+                       _payload.DangerousRelease();
                 }
                 
             }
@@ -7680,6 +7688,8 @@ namespace Swift.SwiftBindingsTestLib
         {
             unsafe
             {
+                var success = false;
+                _payload.DangerousAddRef(ref success);
                 try
                 {
                     var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
@@ -7693,6 +7703,8 @@ namespace Swift.SwiftBindingsTestLib
                 
                 finally
                 {
+                    if (success)
+                       _payload.DangerousRelease();
                 }
                 
             }
@@ -7845,6 +7857,8 @@ namespace Swift.SwiftBindingsTestLib
         {
             unsafe
             {
+                var success = false;
+                _payload.DangerousAddRef(ref success);
                 try
                 {
                     var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
@@ -7858,6 +7872,8 @@ namespace Swift.SwiftBindingsTestLib
                 
                 finally
                 {
+                    if (success)
+                       _payload.DangerousRelease();
                 }
                 
             }
@@ -8130,6 +8146,8 @@ namespace Swift.SwiftBindingsTestLib
         {
             unsafe
             {
+                var success = false;
+                _payload.DangerousAddRef(ref success);
                 try
                 {
                     var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
@@ -8145,6 +8163,8 @@ namespace Swift.SwiftBindingsTestLib
                 
                 finally
                 {
+                    if (success)
+                       _payload.DangerousRelease();
                 }
                 
             }
@@ -8525,6 +8545,8 @@ namespace Swift.SwiftBindingsTestLib
         {
             unsafe
             {
+                var success = false;
+                _payload.DangerousAddRef(ref success);
                 try
                 {
                     var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
@@ -8538,6 +8560,8 @@ namespace Swift.SwiftBindingsTestLib
                 
                 finally
                 {
+                    if (success)
+                       _payload.DangerousRelease();
                 }
                 
             }
@@ -8631,6 +8655,8 @@ namespace Swift.SwiftBindingsTestLib
         {
             unsafe
             {
+                var success = false;
+                _payload.DangerousAddRef(ref success);
                 try
                 {
                     var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
@@ -8645,6 +8671,8 @@ namespace Swift.SwiftBindingsTestLib
                 
                 finally
                 {
+                    if (success)
+                       _payload.DangerousRelease();
                 }
                 
             }
@@ -8841,6 +8869,8 @@ namespace Swift.SwiftBindingsTestLib
         {
             unsafe
             {
+                var success = false;
+                _payload.DangerousAddRef(ref success);
                 TypeMetadata TMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
                 try
                 {
@@ -8855,6 +8885,8 @@ namespace Swift.SwiftBindingsTestLib
                 
                 finally
                 {
+                    if (success)
+                       _payload.DangerousRelease();
                 }
                 
             }
@@ -8953,6 +8985,296 @@ namespace Swift.SwiftBindingsTestLib
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib13GenericResultOMa")]
         internal static partial TypeMetadata PInvoke_getMetadata(TypeMetadata tMetadata);
+        
+    }
+    
+    
+    /// <summary>
+    /// Class with non-simple enum stored properties for testing B18 gate lift. Verifies that non-simple enum property getters/setters compile and work correctly.
+    /// </summary>
+    /// <remarks>
+    /// This type wraps a Swift class and must be disposed explicitly.
+    /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
+    /// </remarks>
+    public partial class EnumPropertyHolder : ISwiftObject, IDisposable
+    {
+        private Swift.SwiftBindingsTestLib.Shape CurrentShape_Get()
+        {
+            unsafe
+            {
+                var success = false;
+                _payload.DangerousAddRef(ref success);
+                try
+                {
+                    var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
+                    
+                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<Swift.SwiftBindingsTestLib.Shape>();
+                    var payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                    var swiftIndirectResult = new SwiftIndirectResult(payload);
+                    
+                    
+                    
+                    PInvoke_currentShape_Get_406280E0(swiftIndirectResult, self);
+                    
+                    return SwiftMarshal.MarshalFromSwift<Swift.SwiftBindingsTestLib.Shape>(new IntPtr(swiftIndirectResult.Value));
+                }
+                
+                finally
+                {
+                    if (success)
+                       _payload.DangerousRelease();
+                }
+                
+            }
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib18EnumPropertyHolderC12currentShapeAA0I0OvgTj")]
+        private static partial void PInvoke_currentShape_Get_406280E0( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        
+        private void CurrentShape_Set( Swift.SwiftBindingsTestLib.Shape value)
+        {
+            unsafe
+            {
+                var success = false;
+                _payload.DangerousAddRef(ref success);
+                try
+                {
+                    var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
+                    
+                    
+                    
+                    PInvoke_currentShape_Set_5462A05C(value.Payload.DangerousGetHandle(), self);
+                    
+                    return;
+                }
+                
+                finally
+                {
+                    if (success)
+                       _payload.DangerousRelease();
+                }
+                
+            }
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib18EnumPropertyHolderC12currentShapeAA0I0OvsTj")]
+        private static partial void PInvoke_currentShape_Set_5462A05C( IntPtr value,  SwiftSelf self);
+        
+        public virtual Swift.SwiftBindingsTestLib.Shape CurrentShape
+        {
+            get => CurrentShape_Get();
+            set => CurrentShape_Set(value);
+        }
+        
+        private Swift.SwiftOptional<Swift.SwiftBindingsTestLib.Shape> OptionalShape_Get()
+        {
+            unsafe
+            {
+                var success = false;
+                _payload.DangerousAddRef(ref success);
+                try
+                {
+                    var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
+                    
+                    
+                    
+                    var result = PInvoke_optionalShape_Get_26789B42(self);
+                    
+                    unsafe {
+                        return SwiftMarshal.MarshalFromSwift<SwiftOptional<Swift.SwiftBindingsTestLib.Shape>>(new IntPtr(&result));
+                    }
+                }
+                
+                finally
+                {
+                    if (success)
+                       _payload.DangerousRelease();
+                }
+                
+            }
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib18EnumPropertyHolderC13optionalShapeAA0I0OSgvgTj")]
+        private static partial IntPtr PInvoke_optionalShape_Get_26789B42( SwiftSelf self);
+        
+        private void OptionalShape_Set( Swift.SwiftOptional<Swift.SwiftBindingsTestLib.Shape> value)
+        {
+            unsafe
+            {
+                var success = false;
+                _payload.DangerousAddRef(ref success);
+                try
+                {
+                    var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
+                    
+                    
+                    using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
+                    IntPtr valueBuffer = valueDisposable.Buffer;
+                    
+                    PInvoke_optionalShape_Set_12787BC6(valueBuffer, self);
+                    
+                    return;
+                }
+                
+                finally
+                {
+                    if (success)
+                       _payload.DangerousRelease();
+                }
+                
+            }
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib18EnumPropertyHolderC13optionalShapeAA0I0OSgvsTj")]
+        private static partial void PInvoke_optionalShape_Set_12787BC6( IntPtr valueBuffer,  SwiftSelf self);
+        
+        public virtual Swift.SwiftBindingsTestLib.Shape? OptionalShape
+        {
+            get { using var __ret = OptionalShape_Get(); return ((Swift.SwiftBindingsTestLib.Shape?)__ret); }
+            set { using var __val = (value is {} valueVal ? SwiftOptional<Swift.SwiftBindingsTestLib.Shape>.NewSome(valueVal) : SwiftOptional<Swift.SwiftBindingsTestLib.Shape>.NewNone()); OptionalShape_Set(__val); }
+        }
+        
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        static nuint _payloadSize = SwiftObjectHelper<EnumPropertyHolder>.GetTypeMetadata().Size;
+        
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        protected SwiftSafeHandle<EnumPropertyHolder> _payload = SwiftSafeHandle<EnumPropertyHolder>.Zero;
+        
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        internal SwiftSafeHandle<EnumPropertyHolder> Payload => _payload;
+        
+        public void Dispose()
+        {
+            _payload.Dispose();
+            GC.SuppressFinalize(this);
+        }
+        ~EnumPropertyHolder()
+        {
+            Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
+        }
+        
+        static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib18EnumPropertyHolderCMa")]
+        internal static partial TypeMetadata PInvoke_getMetadata();
+        
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
+        {
+            return new EnumPropertyHolder(handle);
+        }
+        
+        EnumPropertyHolder(SwiftHandle handle)
+        {
+            _payload = new SwiftSafeHandle<EnumPropertyHolder>(handle);
+        }
+        
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        protected EnumPropertyHolder(SwiftInheritanceChain _swiftObject) { }
+        
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
+        {
+            var metadata = SwiftObjectHelper<EnumPropertyHolder>.GetTypeMetadata();
+            if ((int)metadata.Size > swiftDestSpan.Length)
+            {
+                throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
+            }
+            fixed (void* swiftDest = swiftDestSpan)
+            {
+                // Ensure that the instance is valid before making copy
+                bool success = false;
+                _payload.DangerousAddRef(ref success);
+                try
+                {
+                    metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
+                    return (int)metadata.Size;
+                }
+                finally
+                {
+                    if (success)
+                        _payload.DangerousRelease();
+                }
+            }
+        }
+        
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        private static Dictionary<Type, string> _protocolConformanceSymbols;
+        static EnumPropertyHolder()
+        {
+            _protocolConformanceSymbols = new Dictionary<Type, string>
+            {
+                
+            };
+        }
+        
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
+            where TProtocol : class
+        {
+            if (!_protocolConformanceSymbols.TryGetValue(typeof(TProtocol), out var symbolName))
+            {
+                throw new SwiftRuntimeException($"Attempted to retrieve protocol conformance descriptor for type EnumPropertyHolder and protocol {typeof(TProtocol).Name}, but no conformance was found.");
+            }
+            return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
+        }
+        
+        public EnumPropertyHolder( Swift.SwiftBindingsTestLib.Shape shape)
+        {
+            unsafe
+            {
+                _payload = new SwiftSafeHandle<EnumPropertyHolder>((IntPtr)NativeMemory.Alloc(_payloadSize));
+                var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+                
+                PInvoke_init_923546C9(swiftIndirectResult, shape.Payload.DangerousGetHandle());
+                
+            }
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib18EnumPropertyHolderC5shapeAcA5ShapeO_tcfC")]
+        private static partial void PInvoke_init_923546C9( SwiftIndirectResult swiftIndirectResult,  IntPtr shape);
+        
+        
+        public virtual Swift.SwiftBindingsTestLib.Shape GetShape()
+        {
+            unsafe
+            {
+                var success = false;
+                _payload.DangerousAddRef(ref success);
+                try
+                {
+                    var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
+                    
+                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<Swift.SwiftBindingsTestLib.Shape>();
+                    var payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                    var swiftIndirectResult = new SwiftIndirectResult(payload);
+                    
+                    
+                    
+                    PInvoke_getShape_AAD4466C(swiftIndirectResult, self);
+                    
+                    return (Swift.SwiftBindingsTestLib.Shape)SwiftMarshal.MarshalFromSwift<Swift.SwiftBindingsTestLib.Shape>(new IntPtr(swiftIndirectResult.Value));
+                }
+                
+                finally
+                {
+                    if (success)
+                       _payload.DangerousRelease();
+                }
+                
+            }
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib18EnumPropertyHolderC8getShapeAA0I0OyFTj")]
+        private static partial void PInvoke_getShape_AAD4466C( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        
         
     }
     
@@ -12075,6 +12397,644 @@ public partial class StructBuilder : ISwiftObject, IDisposable
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib13StructBuilderV11makeDefaultACyFZ")]
     private static partial void PInvoke_makeDefault_2C63F390( SwiftIndirectResult swiftIndirectResult);
+    
+    
+}
+
+
+/// <summary>
+/// Test types for Result&lt;T,E&gt; closure bridge with non-frozen struct params. Exercises MethodClosureBridge with:
+/// </summary>
+/// <remarks>
+/// <para>Non-frozen struct as non-closure param (PayloadHandle category)</para>
+/// <para>Result&lt;Class, NonSimpleEnum&gt; as closure arg (bound generic)</para>
+/// </remarks>
+public partial class FetchError : ISwiftObject, IDisposable
+{
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    static nuint _payloadSize = SwiftObjectHelper<FetchError>.GetTypeMetadata().Size;
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    SwiftSafeHandle<FetchError> _payload = SwiftSafeHandle<FetchError>.Zero;
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    internal SwiftSafeHandle<FetchError> Payload => _payload;
+    #pragma warning disable CS0649
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    internal bool _isCachedSingleton;
+    #pragma warning restore CS0649
+    
+    public void Dispose()
+    {
+        if (_isCachedSingleton) return;
+        _payload.Dispose();
+        GC.SuppressFinalize(this);
+    }
+    ~FetchError()
+    {
+        if (!_isCachedSingleton)
+            Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
+    }
+    
+    /// <summary>
+    /// Creates the 'networkError' case of FetchError.
+    /// </summary>
+    public static unsafe FetchError NetworkError(nint code)
+    {
+        var result = new FetchError();
+        var metadata = PInvoke_getMetadata();
+        IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
+        var indirectResult = new SwiftIndirectResult((void*)buffer);
+        PInvoke_NetworkError(indirectResult, code);
+        result._payload = new SwiftSafeHandle<FetchError>(buffer);
+        return result;
+    }
+    
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10FetchErrorO07networkF0yACSi_tcACmF")]
+    private static partial void PInvoke_NetworkError(SwiftIndirectResult result, nint code);
+    
+    /// <summary>
+    /// Creates the 'invalidResponse' case of FetchError.
+    /// </summary>
+    public static unsafe FetchError InvalidResponse(string message)
+    {
+        var result = new FetchError();
+        using var __message = new SwiftString(message);
+        var metadata = PInvoke_getMetadata();
+        IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
+        var indirectResult = new SwiftIndirectResult((void*)buffer);
+        PInvoke_InvalidResponse(indirectResult, __message.Payload.DangerousGetHandle());
+        result._payload = new SwiftSafeHandle<FetchError>(buffer);
+        return result;
+    }
+    
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10FetchErrorO15invalidResponseyACSS_tcACmF")]
+    private static partial void PInvoke_InvalidResponse(SwiftIndirectResult result, IntPtr message);
+    
+    private static readonly Lazy<FetchError> _lazy_timeout = new(() =>
+    {
+        unsafe
+        {
+            var result = new FetchError();
+            var metadata = SwiftObjectHelper<FetchError>.GetTypeMetadata();
+            IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
+            metadata.ValueWitnessTable->DestructiveInjectEnumTag((void*)buffer, (uint)2, metadata);
+            result._payload = new SwiftSafeHandle<FetchError>(buffer);
+            result._isCachedSingleton = true;
+            return result;
+        }
+    });
+    /// <summary>
+    /// Gets the 'timeout' case of FetchError.
+    /// </summary>
+    public static FetchError Timeout => _lazy_timeout.Value;
+    
+    /// <summary>
+    /// Enum representing the possible cases of FetchError.
+    /// Tag values follow Swift's ordering: payload cases first, then no-payload cases.
+    /// </summary>
+    public enum CaseTag : uint
+    {
+        NetworkError = 0,
+        InvalidResponse = 1,
+        Timeout = 2,
+    }
+    
+    /// <summary>
+    /// Gets the current case of this enum instance.
+    /// </summary>
+    public CaseTag Tag
+    {
+        get
+        {
+            unsafe
+            {
+                bool success = false;
+                _payload.DangerousAddRef(ref success);
+                try
+                {
+                    var metadata = SwiftObjectHelper<FetchError>.GetTypeMetadata();
+                    byte* payload = (byte*)_payload.DangerousGetHandle();
+                    return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
+                }
+                finally
+                {
+                    if (success)
+                        _payload.DangerousRelease();
+                }
+            }
+        }
+    }
+    
+    /// <summary>
+    /// Attempts to extract the associated value(s) for the 'networkError' case.
+    /// </summary>
+    /// <param name="value">When this method returns true, contains the associated value(s).</param>
+    /// <returns>True if this enum is the 'networkError' case; otherwise, false.</returns>
+    public bool TryGetNetworkError([MaybeNullWhen(false)] out nint value)
+    {
+        unsafe
+        {
+            if (Tag != CaseTag.NetworkError)
+            {
+                value = default;
+                return false;
+            }
+            
+            var metadata = SwiftObjectHelper<FetchError>.GetTypeMetadata();
+            
+            // Create a non-destructive copy of the enum
+            byte* enumCopy = stackalloc byte[(int)metadata.Size];
+            bool success = false;
+            _payload.DangerousAddRef(ref success);
+            try
+            {
+                metadata.ValueWitnessTable->InitializeWithCopy(enumCopy, (void*)_payload.DangerousGetHandle(), metadata);
+            }
+            finally
+            {
+                if (success)
+                    _payload.DangerousRelease();
+            }
+            
+            // Strip the tag to get the raw payload
+            metadata.ValueWitnessTable->DestructiveProjectEnumData(enumCopy, metadata);
+            
+            // Marshal the payload to C# type(s)
+            value = SwiftMarshal.MarshalFromSwift<nint>(new IntPtr(enumCopy));
+            return true;
+        }
+    }
+    
+    /// <summary>
+    /// Attempts to extract the associated value(s) for the 'invalidResponse' case.
+    /// </summary>
+    /// <param name="value">When this method returns true, contains the associated value(s).</param>
+    /// <returns>True if this enum is the 'invalidResponse' case; otherwise, false.</returns>
+    public bool TryGetInvalidResponse([MaybeNullWhen(false)] out string value)
+    {
+        unsafe
+        {
+            if (Tag != CaseTag.InvalidResponse)
+            {
+                value = default;
+                return false;
+            }
+            
+            var metadata = SwiftObjectHelper<FetchError>.GetTypeMetadata();
+            
+            // Create a non-destructive copy of the enum
+            byte* enumCopy = stackalloc byte[(int)metadata.Size];
+            bool success = false;
+            _payload.DangerousAddRef(ref success);
+            try
+            {
+                metadata.ValueWitnessTable->InitializeWithCopy(enumCopy, (void*)_payload.DangerousGetHandle(), metadata);
+            }
+            finally
+            {
+                if (success)
+                    _payload.DangerousRelease();
+            }
+            
+            // Strip the tag to get the raw payload
+            metadata.ValueWitnessTable->DestructiveProjectEnumData(enumCopy, metadata);
+            
+            // Marshal the payload to C# type(s)
+            var __value_raw = SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(enumCopy));
+            value = __value_raw.ToString();
+            return true;
+        }
+    }
+    
+    
+    static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
+    
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10FetchErrorOMa")]
+    internal static partial TypeMetadata PInvoke_getMetadata();
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
+    {
+        return new FetchError(handle);
+    }
+    
+    FetchError()
+    {
+    }
+    
+    FetchError(SwiftHandle handle)
+    {
+        _payload = new SwiftSafeHandle<FetchError>(handle);
+    }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
+    {
+        var metadata = SwiftObjectHelper<FetchError>.GetTypeMetadata();
+        if ((int)metadata.Size > swiftDestSpan.Length)
+        {
+            throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
+        }
+        fixed (void* swiftDest = swiftDestSpan)
+        {
+            // Ensure that the instance is valid before making copy
+            bool success = false;
+            _payload.DangerousAddRef(ref success);
+            try
+            {
+                metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
+                return (int)metadata.Size;
+            }
+            finally
+            {
+                if (success)
+                    _payload.DangerousRelease();
+            }
+        }
+    }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static Dictionary<Type, string> _protocolConformanceSymbols;
+    static FetchError()
+    {
+        _protocolConformanceSymbols = new Dictionary<Type, string>
+        {
+            
+        };
+    }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
+        where TProtocol : class
+    {
+        if (!_protocolConformanceSymbols.TryGetValue(typeof(TProtocol), out var symbolName))
+        {
+            throw new SwiftRuntimeException($"Attempted to retrieve protocol conformance descriptor for type FetchError and protocol {typeof(TProtocol).Name}, but no conformance was found.");
+        }
+        return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
+    }
+    
+}
+
+
+/// <remarks>
+/// This type wraps a Swift class and must be disposed explicitly.
+/// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
+/// </remarks>
+public partial class FetchResult : ISwiftObject, IDisposable
+{
+    private Swift.SwiftString Data_Get()
+    {
+        unsafe
+        {
+            var success = false;
+            _payload.DangerousAddRef(ref success);
+            try
+            {
+                var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
+                
+                
+                
+                var result = PInvoke_data_Get_E1C59777(self);
+                
+                unsafe {
+    return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
+}
+            }
+            
+            finally
+            {
+                if (success)
+                   _payload.DangerousRelease();
+            }
+            
+        }
+    }
+    
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11FetchResultC4dataSSvgTj")]
+    private static partial Swift.SwiftString.Buffer PInvoke_data_Get_E1C59777( SwiftSelf self);
+    
+    private void Data_Set( Swift.SwiftString value)
+    {
+        unsafe
+        {
+            var success = false;
+            _payload.DangerousAddRef(ref success);
+            using PayloadBuffer<Swift.SwiftString.Buffer> valueDisposable = value.PayloadBuffer;
+            try
+            {
+                var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
+                
+                
+                
+                PInvoke_data_Set_EDC5AA5B(valueDisposable.Buffer, self);
+                
+                return;
+            }
+            
+            finally
+            {
+                if (success)
+                   _payload.DangerousRelease();
+            }
+            
+        }
+    }
+    
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11FetchResultC4dataSSvsTj")]
+    private static partial void PInvoke_data_Set_EDC5AA5B( Swift.SwiftString.Buffer value,  SwiftSelf self);
+    
+    public virtual string Data
+    {
+        get { using var __ret = Data_Get(); return __ret.ToString(); }
+        set { using var __val = new SwiftString(value); Data_Set(__val); }
+    }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    static nuint _payloadSize = SwiftObjectHelper<FetchResult>.GetTypeMetadata().Size;
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    protected SwiftSafeHandle<FetchResult> _payload = SwiftSafeHandle<FetchResult>.Zero;
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    internal SwiftSafeHandle<FetchResult> Payload => _payload;
+    
+    public void Dispose()
+    {
+        _payload.Dispose();
+        GC.SuppressFinalize(this);
+    }
+    ~FetchResult()
+    {
+        Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
+    }
+    
+    static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
+    
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11FetchResultCMa")]
+    internal static partial TypeMetadata PInvoke_getMetadata();
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
+    {
+        return new FetchResult(handle);
+    }
+    
+    FetchResult(SwiftHandle handle)
+    {
+        _payload = new SwiftSafeHandle<FetchResult>(handle);
+    }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    protected FetchResult(SwiftInheritanceChain _swiftObject) { }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
+    {
+        var metadata = SwiftObjectHelper<FetchResult>.GetTypeMetadata();
+        if ((int)metadata.Size > swiftDestSpan.Length)
+        {
+            throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
+        }
+        fixed (void* swiftDest = swiftDestSpan)
+        {
+            // Ensure that the instance is valid before making copy
+            bool success = false;
+            _payload.DangerousAddRef(ref success);
+            try
+            {
+                metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
+                return (int)metadata.Size;
+            }
+            finally
+            {
+                if (success)
+                    _payload.DangerousRelease();
+            }
+        }
+    }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static Dictionary<Type, string> _protocolConformanceSymbols;
+    static FetchResult()
+    {
+        _protocolConformanceSymbols = new Dictionary<Type, string>
+        {
+            
+        };
+    }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
+        where TProtocol : class
+    {
+        if (!_protocolConformanceSymbols.TryGetValue(typeof(TProtocol), out var symbolName))
+        {
+            throw new SwiftRuntimeException($"Attempted to retrieve protocol conformance descriptor for type FetchResult and protocol {typeof(TProtocol).Name}, but no conformance was found.");
+        }
+        return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
+    }
+    
+    public FetchResult( string data)
+    {
+        unsafe
+        {
+            _payload = new SwiftSafeHandle<FetchResult>((IntPtr)NativeMemory.Alloc(_payloadSize));
+            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+            
+            using var dataSwift = new SwiftString(data);
+            using var dataDisposable = dataSwift.PayloadBuffer;
+            PInvoke_init_B5C3121F(swiftIndirectResult, dataDisposable.Buffer);
+            
+        }
+    }
+    
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11FetchResultC4dataACSS_tcfC")]
+    private static partial void PInvoke_init_B5C3121F( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer data);
+    
+    
+}
+
+
+/// <remarks>
+/// This type wraps a Swift class and must be disposed explicitly.
+/// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
+/// </remarks>
+public partial class ResultClosureTest : ISwiftObject, IDisposable
+{
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    static nuint _payloadSize = SwiftObjectHelper<ResultClosureTest>.GetTypeMetadata().Size;
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    protected SwiftSafeHandle<ResultClosureTest> _payload = SwiftSafeHandle<ResultClosureTest>.Zero;
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    internal SwiftSafeHandle<ResultClosureTest> Payload => _payload;
+    
+    public void Dispose()
+    {
+        _payload.Dispose();
+        GC.SuppressFinalize(this);
+    }
+    ~ResultClosureTest()
+    {
+        Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
+    }
+    
+    static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
+    
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib013ResultClosureC0CMa")]
+    internal static partial TypeMetadata PInvoke_getMetadata();
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
+    {
+        return new ResultClosureTest(handle);
+    }
+    
+    ResultClosureTest(SwiftHandle handle)
+    {
+        _payload = new SwiftSafeHandle<ResultClosureTest>(handle);
+    }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    protected ResultClosureTest(SwiftInheritanceChain _swiftObject) { }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
+    {
+        var metadata = SwiftObjectHelper<ResultClosureTest>.GetTypeMetadata();
+        if ((int)metadata.Size > swiftDestSpan.Length)
+        {
+            throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
+        }
+        fixed (void* swiftDest = swiftDestSpan)
+        {
+            // Ensure that the instance is valid before making copy
+            bool success = false;
+            _payload.DangerousAddRef(ref success);
+            try
+            {
+                metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
+                return (int)metadata.Size;
+            }
+            finally
+            {
+                if (success)
+                    _payload.DangerousRelease();
+            }
+        }
+    }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static Dictionary<Type, string> _protocolConformanceSymbols;
+    static ResultClosureTest()
+    {
+        _protocolConformanceSymbols = new Dictionary<Type, string>
+        {
+            
+        };
+    }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
+        where TProtocol : class
+    {
+        if (!_protocolConformanceSymbols.TryGetValue(typeof(TProtocol), out var symbolName))
+        {
+            throw new SwiftRuntimeException($"Attempted to retrieve protocol conformance descriptor for type ResultClosureTest and protocol {typeof(TProtocol).Name}, but no conformance was found.");
+        }
+        return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
+    }
+    
+    public ResultClosureTest()
+    {
+        unsafe
+        {
+            _payload = new SwiftSafeHandle<ResultClosureTest>((IntPtr)NativeMemory.Alloc(_payloadSize));
+            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+            
+            PInvoke_init_0C773E6B(swiftIndirectResult);
+            
+        }
+    }
+    
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib013ResultClosureC0CACycfC")]
+    private static partial void PInvoke_init_0C773E6B( SwiftIndirectResult swiftIndirectResult);
+    
+    
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(System.Runtime.CompilerServices.CallConvCdecl) })]
+    private static unsafe void MCB_C183DBD8(IntPtr arg0, IntPtr contextPtr)
+    {
+        var handle = GCHandle.FromIntPtr(contextPtr);
+        var callback = (Action<IntPtr>)handle.Target!;
+        try
+        {
+            callback(arg0);
+        }
+        catch { }
+    }
+    
+    internal static readonly unsafe IntPtr s_MCB_C183DBD8 = (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void>)&MCB_C183DBD8;
+    
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_MCB_C183DBD8_fetchData")]
+    internal static partial void PInvoke_MCB_C183DBD8(IntPtr request, IntPtr funcPtr, IntPtr context, SwiftSelf self_);
+    
+    /// <summary>
+    /// Method with non-frozen struct param + Result&lt;Class, NonSimpleEnum&gt; closure. Tests the MethodClosureBridge path: ImageRequest-like non-frozen struct passes as PayloadHandle, Result passes as bound generic via withUnsafePointer.
+    /// </summary>
+    public unsafe void FetchData(Swift.SwiftBindingsTestLib.NonFrozenPoint request, Action<Swift.SwiftResult<Swift.SwiftBindingsTestLib.FetchResult, Swift.SwiftBindingsTestLib.FetchError>> completion)
+    {
+        Action<IntPtr> __inner = (IntPtr __p0) =>
+        {
+            var __a0 = SwiftMarshal.MarshalFromSwift<Swift.SwiftResult<Swift.SwiftBindingsTestLib.FetchResult, Swift.SwiftBindingsTestLib.FetchError>>(__p0);
+            completion(__a0);
+        };
+        var __gcHandle = GCHandle.Alloc(__inner);
+        PInvoke_MCB_C183DBD8(request.Payload.DangerousGetHandle(), s_MCB_C183DBD8, GCHandle.ToIntPtr(__gcHandle), new SwiftSelf((void*)Payload.DangerousGetHandle()));
+    }
+    
+    
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(System.Runtime.CompilerServices.CallConvCdecl) })]
+    private static unsafe void MCB_7046BE7A(IntPtr arg0, IntPtr contextPtr)
+    {
+        var handle = GCHandle.FromIntPtr(contextPtr);
+        var callback = (Action<IntPtr>)handle.Target!;
+        try
+        {
+            callback(arg0);
+        }
+        catch { }
+    }
+    
+    internal static readonly unsafe IntPtr s_MCB_7046BE7A = (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void>)&MCB_7046BE7A;
+    
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_MCB_7046BE7A_staticFetch")]
+    internal static partial void PInvoke_MCB_7046BE7A(IntPtr request, IntPtr funcPtr, IntPtr context);
+    
+    /// <summary>
+    /// Static variant — verifies static method emission path.
+    /// </summary>
+    public static unsafe void StaticFetch(Swift.SwiftBindingsTestLib.NonFrozenPoint request, Action<Swift.SwiftResult<Swift.SwiftBindingsTestLib.FetchResult, Swift.SwiftBindingsTestLib.FetchError>> completion)
+    {
+        Action<IntPtr> __inner = (IntPtr __p0) =>
+        {
+            var __a0 = SwiftMarshal.MarshalFromSwift<Swift.SwiftResult<Swift.SwiftBindingsTestLib.FetchResult, Swift.SwiftBindingsTestLib.FetchError>>(__p0);
+            completion(__a0);
+        };
+        var __gcHandle = GCHandle.Alloc(__inner);
+        PInvoke_MCB_7046BE7A(request.Payload.DangerousGetHandle(), s_MCB_7046BE7A, GCHandle.ToIntPtr(__gcHandle));
+    }
     
     
 }
@@ -15801,6 +16761,8 @@ public partial class MathError : ISwiftObject, IDisposable
     {
         unsafe
         {
+            var success = false;
+            _payload.DangerousAddRef(ref success);
             try
             {
                 var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
@@ -15814,6 +16776,8 @@ public partial class MathError : ISwiftObject, IDisposable
             
             finally
             {
+                if (success)
+                   _payload.DangerousRelease();
             }
             
         }
@@ -15914,6 +16878,8 @@ public partial class MathError : ISwiftObject, IDisposable
     {
         unsafe
         {
+            var success = false;
+            _payload.DangerousAddRef(ref success);
             try
             {
                 var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
@@ -15927,6 +16893,8 @@ public partial class MathError : ISwiftObject, IDisposable
             
             finally
             {
+                if (success)
+                   _payload.DangerousRelease();
             }
             
         }
@@ -16932,6 +17900,8 @@ public partial class AsyncError : ISwiftObject, IDisposable
     {
         unsafe
         {
+            var success = false;
+            _payload.DangerousAddRef(ref success);
             try
             {
                 var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
@@ -16945,6 +17915,8 @@ public partial class AsyncError : ISwiftObject, IDisposable
             
             finally
             {
+                if (success)
+                   _payload.DangerousRelease();
             }
             
         }
@@ -17045,6 +18017,8 @@ public partial class AsyncError : ISwiftObject, IDisposable
     {
         unsafe
         {
+            var success = false;
+            _payload.DangerousAddRef(ref success);
             try
             {
                 var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
@@ -17058,6 +18032,8 @@ public partial class AsyncError : ISwiftObject, IDisposable
             
             finally
             {
+                if (success)
+                   _payload.DangerousRelease();
             }
             
         }
@@ -26758,6 +27734,8 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
         {
             unsafe
             {
+                var success = false;
+                _payload.DangerousAddRef(ref success);
                 try
                 {
                     var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
@@ -26773,6 +27751,8 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
                 
                 finally
                 {
+                    if (success)
+                       _payload.DangerousRelease();
                 }
                 
             }
@@ -27045,6 +28025,8 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
         {
             unsafe
             {
+                var success = false;
+                _payload.DangerousAddRef(ref success);
                 try
                 {
                     var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
@@ -27060,6 +28042,8 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
                 
                 finally
                 {
+                    if (success)
+                       _payload.DangerousRelease();
                 }
                 
             }
@@ -27531,6 +28515,8 @@ public partial class OrderContainer : ISwiftObject, IDisposable
         {
             unsafe
             {
+                var success = false;
+                _payload.DangerousAddRef(ref success);
                 try
                 {
                     var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
@@ -27546,6 +28532,8 @@ public partial class OrderContainer : ISwiftObject, IDisposable
                 
                 finally
                 {
+                    if (success)
+                       _payload.DangerousRelease();
                 }
                 
             }
@@ -28017,6 +29005,8 @@ public partial class PaymentContainer : ISwiftObject, IDisposable
         {
             unsafe
             {
+                var success = false;
+                _payload.DangerousAddRef(ref success);
                 try
                 {
                     var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
@@ -28032,6 +29022,8 @@ public partial class PaymentContainer : ISwiftObject, IDisposable
                 
                 finally
                 {
+                    if (success)
+                       _payload.DangerousRelease();
                 }
                 
             }
@@ -28339,6 +29331,8 @@ public partial class LogLevel : ISwiftObject, IDisposable
     {
         unsafe
         {
+            var success = false;
+            _payload.DangerousAddRef(ref success);
             try
             {
                 var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
@@ -28354,6 +29348,8 @@ public partial class LogLevel : ISwiftObject, IDisposable
             
             finally
             {
+                if (success)
+                   _payload.DangerousRelease();
             }
             
         }
@@ -28639,6 +29635,8 @@ public partial class Greeting : ISwiftObject, IDisposable
     {
         unsafe
         {
+            var success = false;
+            _payload.DangerousAddRef(ref success);
             try
             {
                 var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
@@ -28654,6 +29652,8 @@ public partial class Greeting : ISwiftObject, IDisposable
             
             finally
             {
+                if (success)
+                   _payload.DangerousRelease();
             }
             
         }
@@ -28952,6 +29952,8 @@ public partial class EdgeCaseStrings : ISwiftObject, IDisposable
     {
         unsafe
         {
+            var success = false;
+            _payload.DangerousAddRef(ref success);
             try
             {
                 var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
@@ -28967,6 +29969,8 @@ public partial class EdgeCaseStrings : ISwiftObject, IDisposable
             
             finally
             {
+                if (success)
+                   _payload.DangerousRelease();
             }
             
         }
@@ -29252,6 +30256,8 @@ public partial class CaseSensitiveEnum : ISwiftObject, IDisposable
     {
         unsafe
         {
+            var success = false;
+            _payload.DangerousAddRef(ref success);
             try
             {
                 var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
@@ -29267,6 +30273,8 @@ public partial class CaseSensitiveEnum : ISwiftObject, IDisposable
             
             finally
             {
+                if (success)
+                   _payload.DangerousRelease();
             }
             
         }
@@ -37350,6 +38358,8 @@ public partial class TaskStatus : ISwiftObject, IDisposable
     {
         unsafe
         {
+            var success = false;
+            _payload.DangerousAddRef(ref success);
             try
             {
                 var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
@@ -37363,6 +38373,8 @@ public partial class TaskStatus : ISwiftObject, IDisposable
             
             finally
             {
+                if (success)
+                   _payload.DangerousRelease();
             }
             
         }
@@ -37635,6 +38647,8 @@ public partial class TaskPriority : ISwiftObject, IDisposable
     {
         unsafe
         {
+            var success = false;
+            _payload.DangerousAddRef(ref success);
             try
             {
                 var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
@@ -37650,6 +38664,8 @@ public partial class TaskPriority : ISwiftObject, IDisposable
             
             finally
             {
+                if (success)
+                   _payload.DangerousRelease();
             }
             
         }
@@ -42054,6 +43070,8 @@ public partial class AlertStyle : ISwiftObject, IDisposable
     {
         unsafe
         {
+            var success = false;
+            _payload.DangerousAddRef(ref success);
             try
             {
                 var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
@@ -42067,6 +43085,8 @@ public partial class AlertStyle : ISwiftObject, IDisposable
             
             finally
             {
+                if (success)
+                   _payload.DangerousRelease();
             }
             
         }

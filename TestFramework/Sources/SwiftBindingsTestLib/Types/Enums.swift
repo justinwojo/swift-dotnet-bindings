@@ -95,6 +95,24 @@ public enum GenericResult<T> {
     }
 }
 
+// MARK: - Enum Property Holder
+
+/// Class with non-simple enum stored properties for testing B18 gate lift.
+/// Verifies that non-simple enum property getters/setters compile and work correctly.
+public class EnumPropertyHolder {
+    public var currentShape: Shape
+    public var optionalShape: Shape?
+
+    public init(shape: Shape) {
+        self.currentShape = shape
+        self.optionalShape = nil
+    }
+
+    public func getShape() -> Shape {
+        return currentShape
+    }
+}
+
 // MARK: - Helper Functions
 
 /// Free function accepting an enum.
