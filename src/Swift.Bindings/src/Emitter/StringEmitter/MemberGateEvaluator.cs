@@ -92,8 +92,8 @@ public class MemberGateEvaluator
                 return GateResult.Skipped(SkipReason.AnyTypeFallback, "Property type contains AnyType as a generic type argument, which violates generic constraints.");
         }
 
-        // P5: Unsupported module references
-        if (MemberEmissionValidator.ReferencesUnsupportedModule(property.SwiftTypeSpec))
+        // P5: Unsupported module references (types registered in type database are allowed through)
+        if (MemberEmissionValidator.ReferencesUnsupportedModule(property.SwiftTypeSpec, _typeDatabase))
             return GateResult.Skipped(SkipReason.SwiftUIConstraint, "Property type references unsupported module (SwiftUI/Combine).");
 
         // P6: Bound generic with non-ISwiftObject args
@@ -158,9 +158,9 @@ public class MemberGateEvaluator
         if (protocolContext != null && HasAnyTypeGenericArgInMethodSignature(method, protocolContext))
             return GateResult.Skipped(SkipReason.AnyTypeFallback, "Method return type or parameter contains AnyType as a generic type argument.");
 
-        // M10: Unsupported module references
+        // M10: Unsupported module references (types registered in type database are allowed through)
         bool hasUnsupportedModuleRef = method.CSSignature.Any(arg =>
-            MemberEmissionValidator.ReferencesUnsupportedModule(arg.SwiftTypeSpec));
+            MemberEmissionValidator.ReferencesUnsupportedModule(arg.SwiftTypeSpec, _typeDatabase));
         if (hasUnsupportedModuleRef)
             return GateResult.Skipped(SkipReason.SwiftUIConstraint, "Method signature references unsupported module (SwiftUI/Combine).");
 
@@ -205,9 +205,9 @@ public class MemberGateEvaluator
             }
         }
 
-        // S5: Unsupported module references
-        if (MemberEmissionValidator.ReferencesUnsupportedModule(subscript.ReturnTypeSpec) ||
-            subscript.IndexParameters.Any(p => MemberEmissionValidator.ReferencesUnsupportedModule(p.SwiftTypeSpec)))
+        // S5: Unsupported module references (types registered in type database are allowed through)
+        if (MemberEmissionValidator.ReferencesUnsupportedModule(subscript.ReturnTypeSpec, _typeDatabase) ||
+            subscript.IndexParameters.Any(p => MemberEmissionValidator.ReferencesUnsupportedModule(p.SwiftTypeSpec, _typeDatabase)))
             return GateResult.Skipped(SkipReason.SwiftUIConstraint, "Subscript signature references unsupported module (SwiftUI/Combine).");
 
         return GateResult.Pass;
@@ -236,13 +236,13 @@ public class MemberGateEvaluator
                     "Bound generic contains type argument that cannot satisfy C# ISwiftObject constraint.");
         }
 
-        // Unsupported module references
+        // Unsupported module references (types registered in type database are allowed through)
         bool hasUnsupportedModuleRef = method.CSSignature.Any(arg =>
-            MemberEmissionValidator.ReferencesUnsupportedModule(arg.SwiftTypeSpec));
+            MemberEmissionValidator.ReferencesUnsupportedModule(arg.SwiftTypeSpec, _typeDatabase));
         if (hasUnsupportedModuleRef)
         {
             var unsupportedArg = method.CSSignature.First(arg =>
-                MemberEmissionValidator.ReferencesUnsupportedModule(arg.SwiftTypeSpec));
+                MemberEmissionValidator.ReferencesUnsupportedModule(arg.SwiftTypeSpec, _typeDatabase));
             return GateResult.Skipped(SkipReason.SwiftUIConstraint,
                 $"Method signature references unsupported module (SwiftUI/Combine) in '{unsupportedArg.SwiftTypeSpec}'.");
         }
@@ -262,8 +262,8 @@ public class MemberGateEvaluator
         if (boundGenericsHandler.HasBareGenericUsage(property.SwiftTypeSpec, property.ModuleDecl ?? moduleDecl))
             return GateResult.Skipped(SkipReason.UnsupportedSignature, "Property type uses generic type without type arguments.");
 
-        // Unsupported module references
-        if (MemberEmissionValidator.ReferencesUnsupportedModule(property.SwiftTypeSpec))
+        // Unsupported module references (types registered in type database are allowed through)
+        if (MemberEmissionValidator.ReferencesUnsupportedModule(property.SwiftTypeSpec, _typeDatabase))
             return GateResult.Skipped(SkipReason.SwiftUIConstraint, "Property type references unsupported module (SwiftUI/Combine).");
 
         // Non-ISwiftObject bound generic

@@ -24,11 +24,11 @@ The generator automatically detects SwiftUI Views and generates a bridge layer t
 
 ### Current Coverage
 
-| Library | Views | Bridged | Runtime Tests |
-|---------|-------|---------|---------------|
-| BlinkIDUX | 4 | 2 (50%) | 16/16 |
-| BridgeParamTest | 14 | 14 (100%) | 43/43 |
-| Lottie | 6 | 5 (83%) | 15/15 |
+| Library | Views | Bridged | Modifiers (4C) | Runtime Tests |
+|---------|-------|---------|----------------|---------------|
+| BlinkIDUX | 4 | 2 (50%) | 0 | 16/16 |
+| BridgeParamTest | 19 | 19 (100%) | 3 (ModifiableView) | 43/43 |
+| Lottie | 3 | 3 (100%) | 6 (LottieView) | 15/15 |
 
 ### What Makes a View Unbridgeable Today
 

@@ -453,6 +453,196 @@ public class MemberGateEvaluatorTests
 
     #endregion
 
+    #region SwiftUI Database-Aware Gate Tests
+
+    [Fact]
+    public void EvaluateProperty_SwiftUIColorWithDatabase_PassesThrough()
+    {
+        var typeDatabase = CreateTypeDatabaseWithSwiftUI();
+        var evaluator = new MemberGateEvaluator(typeDatabase);
+        var property = CreateProperty("primaryColor", new NamedTypeSpec("SwiftUI.Color"));
+
+        var result = evaluator.EvaluateProperty(property, CreateModuleDecl("TestModule"), null);
+
+        Assert.True(result.IsEmittable);
+    }
+
+    [Fact]
+    public void EvaluateProperty_SwiftUIFontWithDatabase_PassesThrough()
+    {
+        var typeDatabase = CreateTypeDatabaseWithSwiftUI();
+        var evaluator = new MemberGateEvaluator(typeDatabase);
+        var property = CreateProperty("headlineFont", new NamedTypeSpec("SwiftUI.Font"));
+
+        var result = evaluator.EvaluateProperty(property, CreateModuleDecl("TestModule"), null);
+
+        Assert.True(result.IsEmittable);
+    }
+
+    [Fact]
+    public void EvaluateProperty_SwiftUIViewWithDatabase_StillSkipped()
+    {
+        // SwiftUI.View is NOT in the database — should still be rejected
+        var typeDatabase = CreateTypeDatabaseWithSwiftUI();
+        var evaluator = new MemberGateEvaluator(typeDatabase);
+        var property = CreateProperty("body", new NamedTypeSpec("SwiftUI.View"));
+
+        var result = evaluator.EvaluateProperty(property, CreateModuleDecl("TestModule"), null);
+
+        Assert.True(result.IsSkipped);
+        Assert.Equal(SkipReason.SwiftUIConstraint, result.Reason);
+    }
+
+    [Fact]
+    public void EvaluateMethod_SwiftUIColorParamWithDatabase_PassesThrough()
+    {
+        var typeDatabase = CreateTypeDatabaseWithSwiftUI();
+        var evaluator = new MemberGateEvaluator(typeDatabase);
+        var method = CreateMethod("setColor", new NamedTypeSpec("Swift.Int"), new NamedTypeSpec("SwiftUI.Color"));
+
+        var result = evaluator.EvaluateMethod(method, CreateModuleDecl("TestModule"), null);
+
+        Assert.True(result.IsEmittable);
+    }
+
+    [Fact]
+    public void EvaluateMethod_SwiftUIViewParamWithDatabase_StillSkipped()
+    {
+        var typeDatabase = CreateTypeDatabaseWithSwiftUI();
+        var evaluator = new MemberGateEvaluator(typeDatabase);
+        var method = CreateMethod("render", new NamedTypeSpec("Swift.Int"), new NamedTypeSpec("SwiftUI.View"));
+
+        var result = evaluator.EvaluateMethod(method, CreateModuleDecl("TestModule"), null);
+
+        Assert.True(result.IsSkipped);
+        Assert.Equal(SkipReason.SwiftUIConstraint, result.Reason);
+    }
+
+    [Fact]
+    public void EvaluateHardGates_SwiftUIColorWithDatabase_PassesThrough()
+    {
+        var typeDatabase = CreateTypeDatabaseWithSwiftUI();
+        var evaluator = new MemberGateEvaluator(typeDatabase);
+        var method = CreateMethod("setColor", new NamedTypeSpec("Swift.Int"), new NamedTypeSpec("SwiftUI.Color"));
+
+        var result = evaluator.EvaluateHardGates(method, CreateModuleDecl("TestModule"));
+
+        Assert.True(result.IsEmittable);
+    }
+
+    [Fact]
+    public void EvaluatePropertyHardGates_SwiftUIColorWithDatabase_PassesThrough()
+    {
+        var typeDatabase = CreateTypeDatabaseWithSwiftUI();
+        var evaluator = new MemberGateEvaluator(typeDatabase);
+        var property = CreateProperty("accentColor", new NamedTypeSpec("SwiftUI.Color"));
+
+        var result = evaluator.EvaluatePropertyHardGates(property, CreateModuleDecl("TestModule"));
+
+        Assert.True(result.IsEmittable);
+    }
+
+    [Fact]
+    public void EvaluateSubscript_SwiftUIColorReturnWithDatabase_PassesThrough()
+    {
+        var typeDatabase = CreateTypeDatabaseWithSwiftUI();
+        var evaluator = new MemberGateEvaluator(typeDatabase);
+        var subscript = CreateSubscript(new NamedTypeSpec("SwiftUI.Color"), new NamedTypeSpec("Swift.Int"));
+
+        var result = evaluator.EvaluateSubscript(subscript, CreateModuleDecl("TestModule"), null);
+
+        Assert.True(result.IsEmittable);
+    }
+
+    [Fact]
+    public void EvaluateProperty_CombineTypeWithDatabase_StillSkipped()
+    {
+        // Combine.Publisher is NOT in any database — should still be rejected
+        var typeDatabase = CreateTypeDatabaseWithSwiftUI();
+        var evaluator = new MemberGateEvaluator(typeDatabase);
+        var property = CreateProperty("publisher", new NamedTypeSpec("Combine.Publisher"));
+
+        var result = evaluator.EvaluateProperty(property, CreateModuleDecl("TestModule"), null);
+
+        Assert.True(result.IsSkipped);
+        Assert.Equal(SkipReason.SwiftUIConstraint, result.Reason);
+    }
+
+    [Fact]
+    public void ReferencesUnsupportedModule_SwiftUIColorWithDatabase_ReturnsFalse()
+    {
+        var typeDatabase = CreateTypeDatabaseWithSwiftUI();
+        var typeSpec = new NamedTypeSpec("SwiftUI.Color");
+
+        Assert.False(MemberEmissionValidator.ReferencesUnsupportedModule(typeSpec, typeDatabase));
+    }
+
+    [Fact]
+    public void ReferencesUnsupportedModule_SwiftUIColorWithoutDatabase_ReturnsTrue()
+    {
+        var typeSpec = new NamedTypeSpec("SwiftUI.Color");
+
+        Assert.True(MemberEmissionValidator.ReferencesUnsupportedModule(typeSpec));
+    }
+
+    [Fact]
+    public void ReferencesUnsupportedModule_SwiftUIViewWithDatabase_ReturnsTrue()
+    {
+        // View is NOT in the database — still unsupported
+        var typeDatabase = CreateTypeDatabaseWithSwiftUI();
+        var typeSpec = new NamedTypeSpec("SwiftUI.View");
+
+        Assert.True(MemberEmissionValidator.ReferencesUnsupportedModule(typeSpec, typeDatabase));
+    }
+
+    [Fact]
+    public void ReferencesUnsupportedModule_RegisteredContainerWithUnsupportedGenericArg_ReturnsTrue()
+    {
+        // SwiftUI.Binding is registered, but SwiftUI.View is NOT —
+        // Binding<View> must still be rejected
+        var typeDatabase = CreateTypeDatabaseWithSwiftUI();
+        var typeSpec = new NamedTypeSpec("SwiftUI.Binding", new TypeSpec[] { new NamedTypeSpec("SwiftUI.View") });
+
+        Assert.True(MemberEmissionValidator.ReferencesUnsupportedModule(typeSpec, typeDatabase));
+    }
+
+    [Fact]
+    public void ReferencesUnsupportedModule_RegisteredContainerWithRegisteredGenericArg_ReturnsFalse()
+    {
+        // Both Binding and Color are registered — Binding<Color> should pass
+        var typeDatabase = CreateTypeDatabaseWithSwiftUI();
+        var typeSpec = new NamedTypeSpec("SwiftUI.Binding", new TypeSpec[] { new NamedTypeSpec("SwiftUI.Color") });
+
+        Assert.False(MemberEmissionValidator.ReferencesUnsupportedModule(typeSpec, typeDatabase));
+    }
+
+    [Fact]
+    public void ReferencesUnsupportedModule_RegisteredContainerWithNonSwiftUIArg_ReturnsFalse()
+    {
+        // Binding<Swift.String> — Binding registered, String from a supported module → pass
+        var typeDatabase = CreateTypeDatabaseWithSwiftUI();
+        var typeSpec = new NamedTypeSpec("SwiftUI.Binding", new TypeSpec[] { new NamedTypeSpec("Swift.String") });
+
+        Assert.False(MemberEmissionValidator.ReferencesUnsupportedModule(typeSpec, typeDatabase));
+    }
+
+    [Fact]
+    public void EvaluateProperty_RegisteredContainerWithUnsupportedGenericArg_StillSkipped()
+    {
+        // Full gate evaluation: Binding<View> should be skipped
+        var typeDatabase = CreateTypeDatabaseWithSwiftUI();
+        var evaluator = new MemberGateEvaluator(typeDatabase);
+        var property = CreateProperty("content",
+            new NamedTypeSpec("SwiftUI.Binding", new TypeSpec[] { new NamedTypeSpec("SwiftUI.View") }));
+
+        var result = evaluator.EvaluateProperty(property, CreateModuleDecl("TestModule"), null);
+
+        Assert.True(result.IsSkipped);
+        Assert.Equal(SkipReason.SwiftUIConstraint, result.Reason);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static TypeDatabase CreateTypeDatabase()
@@ -601,6 +791,32 @@ public class MemberGateEvaluatorTests
             ParentDecl = null,
             ModuleDecl = null
         };
+    }
+
+    /// <summary>
+    /// Creates a type database with SwiftUI types registered,
+    /// matching the production SwiftUIDatabase.xml entries (Color, Font, EdgeInsets,
+    /// Animation, Image, Text, AnyView, Binding).
+    /// </summary>
+    private static TypeDatabase CreateTypeDatabaseWithSwiftUI()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var swiftUIModule = new ModuleTypeDatabase("SwiftUI", "/System/Library/Frameworks/SwiftUI.framework/SwiftUI");
+        foreach (var typeName in new[] { "Color", "Font", "EdgeInsets", "Animation", "Image", "Text", "AnyView", "Binding" })
+        {
+            swiftUIModule.RegisterType(
+                SwiftTypeName.FromModuleQualifiedName($"SwiftUI.{typeName}"),
+                new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("SwiftUI", typeName),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"SwiftUI.{typeName}"),
+                    MetadataAccessor = $"$s7SwiftUI{typeName.Length}{typeName}VMa",
+                    Flags = TypeRecordFlags.None,
+                    Kind = TypeRecordKind.Struct
+                });
+        }
+        typeDatabase.AddModuleDatabase(swiftUIModule);
+        return typeDatabase;
     }
 
     #endregion

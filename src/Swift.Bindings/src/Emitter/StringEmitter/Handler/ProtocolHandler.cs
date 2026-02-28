@@ -329,7 +329,7 @@ namespace BindingsGeneration
             // Skip proxy class if protocol has members with unsupported module types (SwiftUI, Combine).
             // The Swift EveryProtocol conformance is also skipped (in ModuleHandler), so emitting the
             // C# proxy would produce calls to non-existent Swift symbols (SetVtable, WitnessTableGetter).
-            if (!ModuleHandler.HasMembersReferencingUnsupportedModule(protocolDecl))
+            if (!ModuleHandler.HasMembersReferencingUnsupportedModule(protocolDecl, env.TypeDatabase))
             {
                 EmitProtocolProxy(csWriter, protocolDecl, env.TypeDatabase, skippedMethodKeys, skippedPropertyNames, skippedSubscriptIndices,
                     closureSkippedMethodKeys, closureSkippedPropertyNames, context.GetEmissionContext());

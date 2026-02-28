@@ -487,7 +487,7 @@ namespace BindingsGeneration
                 // $s{length}{moduleName}... (e.g., $s11CryptoSwift...), while stdlib protocols
                 // use abbreviated forms ($sSl, $sSB, $ss17...).
                 .Where(p => IsMangledNameFromModule(p.MangledName, moduleDecl.Name))
-                .Where(p => !HasMembersReferencingUnsupportedModule(p))
+                .Where(p => !HasMembersReferencingUnsupportedModule(p, typeDatabase))
                 .ToList();
 
             if (!suitableProtocols.Any())
@@ -568,15 +568,16 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Returns true if the protocol has any non-static member whose type references an
-        /// unsupported module (SwiftUI, Combine). Used to skip EveryProtocol conformance and
-        /// C# proxy emission for protocols whose requirements can't be satisfied.
+        /// unsupported module (SwiftUI, Combine) that is not registered in the type database.
+        /// Used to skip EveryProtocol conformance and C# proxy emission for protocols whose
+        /// requirements can't be satisfied.
         /// </summary>
-        internal static bool HasMembersReferencingUnsupportedModule(ProtocolDecl protocolDecl)
+        internal static bool HasMembersReferencingUnsupportedModule(ProtocolDecl protocolDecl, ITypeDatabase? typeDatabase = null)
         {
             foreach (var property in protocolDecl.Properties)
             {
                 if (property.IsStatic) continue;
-                if (MemberEmissionValidator.ReferencesUnsupportedModule(property.SwiftTypeSpec))
+                if (MemberEmissionValidator.ReferencesUnsupportedModule(property.SwiftTypeSpec, typeDatabase))
                     return true;
             }
             foreach (var method in protocolDecl.Methods)
@@ -584,18 +585,18 @@ namespace BindingsGeneration
                 if (method.IsConstructor || method.MethodType == MethodType.Static) continue;
                 foreach (var arg in method.CSSignature)
                 {
-                    if (MemberEmissionValidator.ReferencesUnsupportedModule(arg.SwiftTypeSpec))
+                    if (MemberEmissionValidator.ReferencesUnsupportedModule(arg.SwiftTypeSpec, typeDatabase))
                         return true;
                 }
             }
             foreach (var subscript in protocolDecl.Subscripts)
             {
                 if (subscript.IsStatic) continue;
-                if (MemberEmissionValidator.ReferencesUnsupportedModule(subscript.ReturnTypeSpec))
+                if (MemberEmissionValidator.ReferencesUnsupportedModule(subscript.ReturnTypeSpec, typeDatabase))
                     return true;
                 foreach (var param in subscript.IndexParameters)
                 {
-                    if (MemberEmissionValidator.ReferencesUnsupportedModule(param.SwiftTypeSpec))
+                    if (MemberEmissionValidator.ReferencesUnsupportedModule(param.SwiftTypeSpec, typeDatabase))
                         return true;
                 }
             }

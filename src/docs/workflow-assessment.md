@@ -120,8 +120,8 @@ string firstName = result.FirstName?.Value;
 | `new Camera()` / `StartAsync()` / `StopAsync()` | **Works** | Full camera lifecycle |
 | Camera torch control | **Works** | |
 | `BlinkIDEventStream` / async event iteration | **Works** | UIEvent enum fully typed |
-| `BlinkIDTheme.Shared` access | Exists | But IUXThemeProtocol is empty (SB0004) |
-| Theme color/font customization | **Blocked** | All 21 protocol members dropped |
+| `BlinkIDTheme.Shared` access | **Works** | Full `IUXThemeProtocol` with 21 `SwiftUI.Color`/`SwiftUI.Font` properties |
+| Theme color/font customization | **Works** | All 21 protocol members recovered (SwiftUI module gate fix) |
 | Alert type inspection | **Works** | Title/Description strings |
 | `ScanningResult<T,U>` discrimination | **Works** | Full TryGet pattern |
 | `IBlinkIDClassFilter` implementation | **Blocked** | Takes `AnyType` (cross-module DocumentClassInfo) |
@@ -130,7 +130,7 @@ string firstName = result.FirstName?.Value;
 
 **What's good**: The infrastructure pieces (settings, camera, events, result discrimination) are well-projected. If the entry point were available, the downstream flow works.
 
-**Verdict**: Blocked by cross-module factory pattern and empty theme protocol.
+**Verdict**: Blocked by cross-module factory pattern. Theme customization now works (21 `SwiftUI.Color`/`SwiftUI.Font` properties recovered).
 
 ---
 
@@ -143,7 +143,7 @@ string firstName = result.FirstName?.Value;
 | Implement `IMicroblinkPlatformSDKDelegate` in C# | **Works** | 3 callback methods |
 | `new MicroblinkPlatformSDK(settings, delegate)` | **Works** | SB0001 — NativeAOT only |
 | `sdk.StartSDK()` → present ViewController | **Works** | |
-| `MicroblinkPlatformTheme.Shared` customization | **Works** | Colors, fonts, images |
+| `MicroblinkPlatformTheme.Shared` customization | **Works** | Colors, fonts, images — includes 18 SwiftUI.Color/SwiftUI.Font properties (gate fix) |
 | `MicroblinkPlatformResult` status inspection | **Works** | Accept/Review/Reject enum |
 | `MicroblinkPlatformCancelState` inspection | **Works** | UserCanceled/ConsentDenied |
 
@@ -345,11 +345,10 @@ Six root causes account for all blockers across all 9 libraries:
 **Affected**: Lottie, FSPagerView, Kingfisher, Stripe (sub-frameworks), PhoneNumberKit
 **Status**: **Fixed** — Added `AppleFrameworkSimpleEnumRemappings` dictionary in `TypeDatabaseExtensions.cs` mapping 11 ObjC enum types (`NS_ENUM`/`NS_OPTIONS`) to their .NET equivalents. Wired into `TryGetTypeRecord`, `GetTypeRecordOrThrow`, `GetTypeRecordOrAnyType`, `IsTypeProcessed`, and core `TypeDatabase.TryGetTypeRecord(SwiftTypeName)`. Types recovered: `UIViewContentMode`, `UIControlState`, `UIControlEvent`, `UIBarStyle`, `UIKeyboardAppearance`, `UITextFieldViewMode`, `UIActivityIndicatorViewStyle`, `UIBlurEffectStyle`, `UITableViewStyle`, `UIModalPresentationStyle`, `UIUserInterfaceStyle`. 60+ property/method occurrences recovered across 5 libraries.
 
-**4b. BlinkIDUX theme — SwiftUI module gate**
-**Affected**: BlinkIDUX (`IUXThemeProtocol` — all 21 members dropped, SB0004)
-**Impact**: Theme customization completely blocked
-**Root cause**: NOT UIKit types. All 21 properties use `SwiftUI.Color` and `SwiftUI.Font`. The `UnsupportedConstraintModules` gate in `GenericTypeEmitter.cs` rejects any type from the `SwiftUI` module at the module level before the type database is consulted. `UIColor` and `UIImage` are already in `UIKitDatabase.xml` — they aren't the problem.
-**Effort**: Large — would require adding SwiftUI type support or SwiftUI→UIKit bridging. Not a database fix.
+**~~4b. BlinkIDUX theme — SwiftUI module gate~~ FIXED**
+**Affected**: BlinkIDUX (`IUXThemeProtocol` — 21 members), MicroblinkPlatform (18 theme properties), Parchment (1 property), SVGView (2 methods)
+**Status**: **Fixed** — `ReferencesUnsupportedModule` in `MemberEmissionValidator.cs` now accepts an `ITypeDatabase?` parameter and checks whether the specific type is registered before rejecting. Types in `SwiftUIDatabase.xml` (Color, Font, EdgeInsets, Animation, Image, Text, AnyView, Binding) pass through; unregistered SwiftUI types (View, ViewModifier, etc.) still correctly rejected. Registered container types (e.g., `SwiftUI.Binding`) still recurse into their generic arguments — `Binding<SwiftUI.View>` is correctly rejected because `View` is not registered. 17 unit tests (including generic-arg recursion tests). All 12 call sites updated: `MemberGateEvaluator` (6), `MemberEmissionValidator` (3), `SubscriptHandler` (1), `ModuleHandler.HasMembersReferencingUnsupportedModule` (1), `ProtocolHandler` (1).
+**Validation impact**: BlinkIDUX +2327 lines (+25%), MicroblinkPlatform +1260 lines (+34%), Parchment +39 lines, SVGView +70 lines. 53/53 compile gate passing.
 
 ### 5. `Foundation.URL` struct can't satisfy `ISwiftObject` constraint — PARTIALLY FIXED
 **Affected**: Nuke (`ImageRequest(url:)`, `startPrefetching([URL])`)
@@ -368,13 +367,11 @@ Six root causes account for all blockers across all 9 libraries:
 | ~~1~~ | ~~`HasNonSwiftObjectGenericArg` too broad (#1 + #5)~~ | ~~BlinkID, 14 libraries (48 constructors)~~ | ~~Small~~ | **DONE** |
 | ~~2a~~ | ~~ObjC enums missing from type database (#4a)~~ | ~~Lottie, FSPagerView, Kingfisher, Stripe, PhoneNumberKit~~ | ~~Small~~ | **DONE** |
 | ~~2b~~ | ~~`Optional<Closure>` with default value (#6)~~ | ~~Mappedin (fully — `loadVenue` entry point)~~ | ~~Small~~ | **DONE** |
-| 3 | SwiftUI module gate (#4b) | BlinkIDUX (theme — 21 members) | Large | |
+| ~~3~~ | ~~SwiftUI module gate (#4b)~~ | ~~BlinkIDUX, MicroblinkPlatform, Parchment, SVGView~~ | ~~Small~~ | **DONE** |
 | 4 | Result<T,E> closure bridge (#3) | Nuke (`loadImage` callback path) | Medium-Large | |
 | 5 | Protocol existential returns (#2) | SmartCardIO (fully — all 5 workflows) | Large — structural | |
 
 ### What to investigate next
-
-**Priority #3 (SwiftUI module gate)** is a large effort. BlinkIDUX theme uses `SwiftUI.Color`/`SwiftUI.Font` — blocked at the module level by `GenericTypeEmitter.UnsupportedConstraintModules`. `UIColor` and `UIImage` are already in `UIKitDatabase.xml` and aren't the problem. Unblocking this requires either adding SwiftUI types to the type system or bridging SwiftUI→UIKit, neither of which is small.
 
 Note: Lottie's `LoopMode` property is a *separate* issue (non-simple enum property Buffer marshalling), not UIKit types. The `loopMode` parameter in `Play()` methods already works.
 
@@ -392,11 +389,11 @@ Note: Lottie's `LoopMode` property is a *separate* issue (non-simple enum proper
 | **Stripe** | USABLE | Cross-module `apiClient` property (not blocking) |
 | **MicroblinkPlatform** | USABLE (NativeAOT) | SB0001 on constructor (Mono JIT) |
 | **Mappedin** | USABLE | Optional closure params omitted (#6 — fixed) |
-| **BlinkIDUX** | BLOCKED | Cross-module factory + SwiftUI types |
+| **BlinkIDUX** | BLOCKED | Cross-module factory (theme customization now works) |
 | **SmartCardIO** | BLOCKED | Protocol existential returns (#2) |
 | **BRLMPrinterKit** | EMPTY | Missing `BUILD_LIBRARY_FOR_DISTRIBUTION=YES` |
 
-**6 of 9 libraries are usable today.** All three fixed root causes (#1, #4a, #6) were small, targeted changes.
+**6 of 9 libraries are usable today.** All four fixed root causes (#1, #4a, #4b, #6) were small, targeted changes.
 
 ## Deep Dive: Root Causes #1 and #5 Are the Same Bug — FIXED
 

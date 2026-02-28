@@ -19,7 +19,7 @@ public static class MemberEmissionValidator
     /// </summary>
     public static bool HasUnsupportedPropertyType(PropertyDecl property, ITypeDatabase typeDatabase)
     {
-        if (ReferencesUnsupportedModule(property.SwiftTypeSpec))
+        if (ReferencesUnsupportedModule(property.SwiftTypeSpec, typeDatabase))
             return true;
 
         // For named types, check if the type can be resolved in the database.
@@ -71,8 +71,8 @@ public static class MemberEmissionValidator
         var closureHandler = new ClosureHandler(typeDatabase);
         var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
 
-        // B19: Skip properties referencing SwiftUI/Combine types
-        if (MemberEmissionValidator.ReferencesUnsupportedModule(property.SwiftTypeSpec))
+        // B19: Skip properties referencing SwiftUI/Combine types (unless registered in type database)
+        if (MemberEmissionValidator.ReferencesUnsupportedModule(property.SwiftTypeSpec, typeDatabase))
         {
             skipDetails = "Property type references unsupported module (SwiftUI/Combine).";
             return SkipReason.SwiftUIConstraint;
@@ -696,10 +696,12 @@ public static class MemberEmissionValidator
     }
 
     /// <summary>
-    /// Returns true if the TypeSpec references a type from an unsupported module (SwiftUI, Combine).
+    /// Returns true if the TypeSpec references a type from an unsupported module (SwiftUI, Combine)
+    /// that is NOT registered in the type database. Types registered in the database (e.g., SwiftUI.Color,
+    /// SwiftUI.Font from SwiftUIDatabase.xml) are considered supported and pass through.
     /// Recursively checks generic parameters, tuple elements, and closure args/return.
     /// </summary>
-    internal static bool ReferencesUnsupportedModule(TypeSpec? typeSpec)
+    internal static bool ReferencesUnsupportedModule(TypeSpec? typeSpec, ITypeDatabase? typeDatabase = null)
     {
         if (typeSpec == null)
             return false;
@@ -708,10 +710,33 @@ public static class MemberEmissionValidator
         {
             case NamedTypeSpec namedType:
                 if (namedType.HasModule() && GenericTypeEmitter.IsUnsupportedModule(namedType.Module))
-                    return true;
+                {
+                    // If the specific type is registered in the type database, it's supported
+                    // (e.g., SwiftUI.Color, SwiftUI.Font are in SwiftUIDatabase.xml).
+                    // But we must still recurse into generic parameters — a registered container
+                    // like SwiftUI.Binding<SwiftUI.View> should still be rejected because View
+                    // is not registered.
+                    bool typeIsRegistered = false;
+                    if (typeDatabase != null)
+                    {
+                        try
+                        {
+                            // namedType.Name is module-qualified (e.g., "SwiftUI.Color")
+                            var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+                            typeIsRegistered = typeDatabase.TryGetTypeRecord(swiftTypeName, out _);
+                        }
+                        catch (ArgumentException)
+                        {
+                            // Generic types (contain '<') or malformed names — stay rejected
+                        }
+                    }
+                    if (!typeIsRegistered)
+                        return true;
+                    // Type itself is registered — fall through to check generic parameters
+                }
                 foreach (var genericParam in namedType.GenericParameters)
                 {
-                    if (ReferencesUnsupportedModule(genericParam))
+                    if (ReferencesUnsupportedModule(genericParam, typeDatabase))
                         return true;
                 }
                 return false;
@@ -719,22 +744,22 @@ public static class MemberEmissionValidator
             case TupleTypeSpec tupleType:
                 foreach (var element in tupleType.Elements)
                 {
-                    if (ReferencesUnsupportedModule(element))
+                    if (ReferencesUnsupportedModule(element, typeDatabase))
                         return true;
                 }
                 return false;
 
             case ClosureTypeSpec closureType:
-                if (ReferencesUnsupportedModule(closureType.Arguments))
+                if (ReferencesUnsupportedModule(closureType.Arguments, typeDatabase))
                     return true;
-                if (ReferencesUnsupportedModule(closureType.ReturnType))
+                if (ReferencesUnsupportedModule(closureType.ReturnType, typeDatabase))
                     return true;
                 return false;
 
             case ProtocolListTypeSpec protocolList:
                 foreach (var protocol in protocolList.Protocols.Keys)
                 {
-                    if (ReferencesUnsupportedModule(protocol))
+                    if (ReferencesUnsupportedModule(protocol, typeDatabase))
                         return true;
                 }
                 return false;
@@ -822,10 +847,10 @@ public static class MemberEmissionValidator
         if (method.IsConstructor)
             return null;
 
-        // B19: Skip methods whose return type or parameters reference SwiftUI/Combine types
+        // B19: Skip methods whose return type or parameters reference SwiftUI/Combine types (unless registered in type database)
         foreach (var arg in method.CSSignature)
         {
-            if (ReferencesUnsupportedModule(arg.SwiftTypeSpec))
+            if (ReferencesUnsupportedModule(arg.SwiftTypeSpec, typeDatabase))
             {
                 skipDetails = $"Method signature references unsupported module (SwiftUI/Combine) in '{arg.SwiftTypeSpec}'.";
                 return SkipReason.SwiftUIConstraint;

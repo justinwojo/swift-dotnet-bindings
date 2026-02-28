@@ -48,9 +48,9 @@ namespace BindingsGeneration
                     continue;
                 }
 
-                // Skip subscripts referencing unsupported modules (SwiftUI, Combine)
-                if (MemberEmissionValidator.ReferencesUnsupportedModule(subscriptDecl.ReturnTypeSpec) ||
-                    subscriptDecl.IndexParameters.Any(p => MemberEmissionValidator.ReferencesUnsupportedModule(p.SwiftTypeSpec)))
+                // Skip subscripts referencing unsupported modules (SwiftUI, Combine) unless registered in type database
+                if (MemberEmissionValidator.ReferencesUnsupportedModule(subscriptDecl.ReturnTypeSpec, typeDatabase) ||
+                    subscriptDecl.IndexParameters.Any(p => MemberEmissionValidator.ReferencesUnsupportedModule(p.SwiftTypeSpec, typeDatabase)))
                 {
                     ReportCollector.RecordMemberSkipped(BindingItemKind.Subscript, "subscript", typeDecl,
                         SkipReason.SwiftUIConstraint, "Subscript signature references unsupported module.");
