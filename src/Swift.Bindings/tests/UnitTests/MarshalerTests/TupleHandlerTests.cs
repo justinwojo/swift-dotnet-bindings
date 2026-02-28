@@ -453,6 +453,18 @@ public class TupleHandlerTests
         Assert.False(_tupleHandler.HasClosureUnsafeTupleElements(tuple));
     }
 
+    [Fact]
+    public void HasClosureUnsafeTupleElements_WithExistentialElement_ReturnsFalse()
+    {
+        // Existential elements no longer trigger the gate — the emitter handles
+        // per-element conversion between ExistentialContainer and object/interface.
+        var existentialElement = new NamedTypeSpec("TestModule.SomeProtocol") { IsAny = true };
+        var intElement = new NamedTypeSpec("Swift.Int");
+        var tuple = new TupleTypeSpec(new List<TypeSpec> { existentialElement, intElement });
+
+        Assert.False(_tupleHandler.HasClosureUnsafeTupleElements(tuple));
+    }
+
     #endregion
 
     #region TupleTypeSpec Kind Tests

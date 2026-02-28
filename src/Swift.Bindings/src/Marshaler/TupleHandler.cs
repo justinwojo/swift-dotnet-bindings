@@ -325,9 +325,6 @@ public class TupleHandler
             if (pinvokeType == "IntPtr" &&
                 csharpType != "IntPtr" && csharpType != "System.IntPtr")
                 return true;
-            // Existential mismatch: P/Invoke uses ExistentialContainer but C# uses object/interface
-            if (pinvokeType != csharpType && pinvokeType.Contains("ExistentialContainer"))
-                return true;
         }
         return false;
     }

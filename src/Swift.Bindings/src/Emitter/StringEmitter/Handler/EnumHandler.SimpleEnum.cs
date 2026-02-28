@@ -57,7 +57,7 @@ namespace BindingsGeneration
         {
             // Simple enums emit as C# enum value types (cases become enum members, not properties),
             // so they bypass ComputePropertyRenames — no CS0542 risk from nested-type collisions.
-            var enumName = enumDecl.Name;
+            var enumName = NameProvider.ToPascalCaseForTypeName(enumDecl.Name);
             var csUnderlyingType = GetCSharpEnumUnderlyingType(enumDecl.RawValueTypeName);
 
             // Compute case name map for case-insensitive collision avoidance

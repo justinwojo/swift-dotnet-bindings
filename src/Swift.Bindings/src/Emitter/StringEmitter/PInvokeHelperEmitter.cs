@@ -72,12 +72,12 @@ public class PInvokeHelperContext
         BaseDecl? current = typeDecl;
         while (current is TypeDecl td)
         {
-            parts.Add(td.Name);
+            parts.Add(NameProvider.ToPascalCaseForTypeName(td.Name));
             current = td.ParentDecl;
         }
 
         if (parts.Count <= 1)
-            return typeDecl.Name;
+            return NameProvider.ToPascalCaseForTypeName(typeDecl.Name);
 
         parts.Reverse();
         return string.Join("_", parts);

@@ -417,4 +417,27 @@ public class NameProviderParameterTests
     }
 
     #endregion
+
+    #region ToPascalCaseForTypeName — type-level casing (underscore abbreviation patterns)
+
+    [Theory]
+    [InlineData("CAMERA_DIRECTION", "CameraDirection")] // true SCREAMING_CASE → PascalCase
+    [InlineData("THING_KEY", "ThingKey")]               // true SCREAMING_CASE → PascalCase
+    [InlineData("EASING_MODE", "EasingMode")]           // true SCREAMING_CASE → PascalCase
+    [InlineData("F0_S1", "F0_S1")]                      // abbreviation pattern (single-letter segments) → unchanged
+    [InlineData("F10_S4", "F10_S4")]                    // abbreviation pattern with multi-digit → unchanged
+    [InlineData("F2_S2_S0_S0", "F2_S2_S0_S0")]         // deeply nested abbreviation → unchanged
+    [InlineData("NF3_S0", "Nf3S0")]                      // NF has 2 consecutive letters → converts
+    [InlineData("E1_S2", "E1_S2")]                      // enum test pattern → unchanged
+    [InlineData("URL", "URL")]                          // all-caps no underscore → unchanged
+    [InlineData("F9S1", "F9S1")]                        // all-caps abbreviation → unchanged
+    [InlineData("pixelFormat", "PixelFormat")]           // camelCase → PascalCase
+    [InlineData("ImageRequest", "ImageRequest")]         // already PascalCase → unchanged
+    [InlineData("", "")]                                 // empty → empty
+    public void ToPascalCaseForTypeName_ConvertedCorrectly(string input, string expected)
+    {
+        Assert.Equal(expected, NameProvider.ToPascalCaseForTypeName(input));
+    }
+
+    #endregion
 }

@@ -269,4 +269,132 @@ public class ClosureEmitterDirectTests
 
         return typeDatabase;
     }
+
+    #region Tuple existential + simple enum conversion
+
+    [Fact]
+    public void EmitEscapingClosureCallback_TupleParamWithExistentialAndEnum_EmitsBothCasts()
+    {
+        // Closure: ((any ImageProcessing, StatusEnum)) -> Void
+        // Callback receives ValueTuple<ExistentialContainer1, int> → must convert to (IImageProcessing, StatusEnum)
+        var typeDatabase = CreateTypeDatabaseWithProtocolAndSimpleEnum();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        var existentialElement = new NamedTypeSpec("TestModule.ImageProcessing") { IsAny = true };
+        var enumElement = new NamedTypeSpec("TestModule.StatusEnum");
+        var tupleParam = new TupleTypeSpec(new List<TypeSpec> { existentialElement, enumElement });
+        var closureTypeSpec = new ClosureTypeSpec(tupleParam, TupleTypeSpec.Empty);
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitEscapingClosureCallback(
+            csWriter, "process", "callback", closureTypeSpec, closureHandler,
+            "$s10TestModule7processyyF", useCdecl: false);
+
+        var result = output.ToString();
+        // Existential element should be wrapped with proxy constructor
+        Assert.Contains("new ImageProcessingProxy(", result);
+        // Simple enum element should be cast from underlying int to enum type (namespace-qualified)
+        Assert.Contains("(TestModule.StatusEnum)", result);
+    }
+
+    [Fact]
+    public void EmitEscapingClosureCallback_TupleReturnWithExistentialAndEnum_EmitsBothConversions()
+    {
+        // Closure: () -> (any ImageProcessing, StatusEnum)
+        // Delegate returns (IImageProcessing, StatusEnum), callback returns ValueTuple<EC1, int>
+        var typeDatabase = CreateTypeDatabaseWithProtocolAndSimpleEnum();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        var existentialElement = new NamedTypeSpec("TestModule.ImageProcessing") { IsAny = true };
+        var enumElement = new NamedTypeSpec("TestModule.StatusEnum");
+        var tupleReturn = new TupleTypeSpec(new List<TypeSpec> { existentialElement, enumElement });
+        var closureTypeSpec = new ClosureTypeSpec(null, tupleReturn);
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitEscapingClosureCallback(
+            csWriter, "getResult", "callback", closureTypeSpec, closureHandler,
+            "$s10TestModule9getResultyyF", useCdecl: false);
+
+        var result = output.ToString();
+        // Existential return should extract container via ISwiftExistentialConvertible
+        Assert.Contains("GetExistentialContainer()", result);
+        // Simple enum return should cast to underlying type
+        Assert.Contains("(int)", result);
+    }
+
+    [Fact]
+    public void EmitClosureReturnMarshalling_TupleWithExistentialAndEnum_EmitsBothConversions()
+    {
+        // Invoker direction: P/Invoke returns ValueTuple<EC1, int>, delegate returns (IImageProcessing, StatusEnum)
+        var typeDatabase = CreateTypeDatabaseWithProtocolAndSimpleEnum();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        var existentialElement = new NamedTypeSpec("TestModule.ImageProcessing") { IsAny = true };
+        var enumElement = new NamedTypeSpec("TestModule.StatusEnum");
+        var tupleReturn = new TupleTypeSpec(new List<TypeSpec> { existentialElement, enumElement });
+        var closureTypeSpec = new ClosureTypeSpec(null, tupleReturn);
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, closureHandler, "result");
+
+        var result = output.ToString();
+        // Existential should be wrapped with proxy constructor
+        Assert.Contains("new ImageProcessingProxy(", result);
+        // Simple enum should be cast from underlying int to enum type (namespace-qualified)
+        Assert.Contains("(TestModule.StatusEnum)", result);
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithProtocolAndSimpleEnum()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        // Register protocol
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.ImageProcessing"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "IImageProcessing"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ImageProcessing"),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol
+            });
+        // Register simple enum with Int raw value
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.StatusEnum"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "StatusEnum"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.StatusEnum"),
+                MetadataAccessor = "$s10TestModule10StatusEnumOMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
+                Kind = TypeRecordKind.Enum,
+                RawValueTypeName = "Swift.Int"
+            });
+        typeDatabase.AddModuleDatabase(testModule);
+
+        return typeDatabase;
+    }
+
+    #endregion
 }

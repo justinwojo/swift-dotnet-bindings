@@ -122,6 +122,42 @@ public static partial class ClosureEmitter
                             return _optResult != null ? (void*)_optResult.Handle : null;
                     """;
         }
+        else if (closureTypeSpec.ReturnType is TupleTypeSpec retTuple &&
+                 retTuple.Elements.Any(e => closureHandler.NeedsWellKnownProtocolWrapping(e, out _) ||
+                                             closureHandler.NeedsProxyWrapping(e, out _) ||
+                                             closureHandler.IsExistentialParam(e) ||
+                                             closureHandler.IsSimpleEnum(e)))
+        {
+            var elems = new List<string>();
+            for (int i = 0; i < retTuple.Elements.Count; i++)
+            {
+                var elem = retTuple.Elements[i];
+                var acc = $"_tupleResult.Item{i + 1}";
+                if (closureHandler.NeedsWellKnownProtocolWrapping(elem, out _))
+                    elems.Add($"{acc}.GetExistentialContainer()");
+                else if (closureHandler.NeedsProxyWrapping(elem, out _))
+                {
+                    var ct = closureHandler.GetPInvokeExistentialType(elem);
+                    elems.Add($"((Swift.Runtime.ISwiftExistentialConvertible<{ct}>){acc}).GetExistentialContainer()");
+                }
+                else if (closureHandler.IsExistentialParam(elem))
+                {
+                    var ct = closureHandler.GetPInvokeExistentialType(elem);
+                    elems.Add($"({ct}){acc}");
+                }
+                else if (closureHandler.IsSimpleEnum(elem))
+                {
+                    var underlyingType = closureHandler.GetSimpleEnumInfo(elem)?.csUnderlying ?? "int";
+                    elems.Add($"({underlyingType}){acc}");
+                }
+                else
+                    elems.Add(acc);
+            }
+            returnStatement = $"""
+                    var _tupleResult = del({invokeArgsString});
+                            return ({string.Join(", ", elems)});
+                """;
+        }
         else if (closureHandler.IsSimpleEnum(closureTypeSpec.ReturnType))
         {
             // Simple enum returns: delegate returns C# enum, callback returns underlying integer
@@ -299,6 +335,36 @@ public static partial class ClosureEmitter
         {
             returnExpr = $"return (object){invokeExpr};";
         }
+        else if (closureTypeSpec.ReturnType is TupleTypeSpec invRetTuple &&
+                 invRetTuple.Elements.Any(e => closureHandler.NeedsWellKnownProtocolWrapping(e, out _) ||
+                                                closureHandler.NeedsProxyWrapping(e, out _) ||
+                                                closureHandler.IsExistentialParam(e) ||
+                                                closureHandler.IsSimpleEnum(e)))
+        {
+            var elems = new List<string>();
+            for (int i = 0; i < invRetTuple.Elements.Count; i++)
+            {
+                var elem = invRetTuple.Elements[i];
+                var acc = $"_invResult.Item{i + 1}";
+                if (closureHandler.NeedsWellKnownProtocolWrapping(elem, out var wrt))
+                    elems.Add($"new {wrt}({acc})");
+                else if (closureHandler.NeedsProxyWrapping(elem, out var prn))
+                    elems.Add($"new {prn}({acc})");
+                else if (closureHandler.IsExistentialParam(elem))
+                    elems.Add($"(object){acc}");
+                else if (closureHandler.IsSimpleEnum(elem))
+                {
+                    var enumType = closureHandler.TranslateTypeSpecToCSharp(elem);
+                    elems.Add($"({enumType}){acc}");
+                }
+                else
+                    elems.Add(acc);
+            }
+            returnExpr = $"""
+                    var _invResult = {invokeExpr};
+                            return ({string.Join(", ", elems)});
+                """;
+        }
         else if (closureHandler.IsSimpleEnum(closureTypeSpec.ReturnType))
         {
             // Simple enum return: Swift returns underlying integer, delegate expects C# enum
@@ -373,6 +439,39 @@ public static partial class ClosureEmitter
         {
             var delegateType = closureHandler.TranslateTypeSpecToCSharp(typeSpec);
             return $"({delegateType})arg{argIndex}";
+        }
+
+        // Tuple with existential elements: decompose and convert each element
+        if (typeSpec is TupleTypeSpec tupleSpec)
+        {
+            bool needsConversion = tupleSpec.Elements.Any(e =>
+                closureHandler.NeedsWellKnownProtocolWrapping(e, out _) ||
+                closureHandler.NeedsProxyWrapping(e, out _) ||
+                closureHandler.IsExistentialParam(e) ||
+                closureHandler.IsSimpleEnum(e));
+            if (needsConversion)
+            {
+                var elements = new List<string>();
+                for (int i = 0; i < tupleSpec.Elements.Count; i++)
+                {
+                    var elem = tupleSpec.Elements[i];
+                    var accessor = $"arg{argIndex}.Item{i + 1}";
+                    if (closureHandler.NeedsWellKnownProtocolWrapping(elem, out var wt))
+                        elements.Add($"new {wt}({accessor})");
+                    else if (closureHandler.NeedsProxyWrapping(elem, out var pn))
+                        elements.Add($"new {pn}({accessor})");
+                    else if (closureHandler.IsExistentialParam(elem))
+                        elements.Add($"(object){accessor}");
+                    else if (closureHandler.IsSimpleEnum(elem))
+                    {
+                        var enumType = closureHandler.TranslateTypeSpecToCSharp(elem);
+                        elements.Add($"({enumType}){accessor}");
+                    }
+                    else
+                        elements.Add(accessor);
+                }
+                return $"({string.Join(", ", elements)})";
+            }
         }
 
         // Check if this parameter needs marshalling from void*
@@ -597,6 +696,45 @@ public static partial class ClosureEmitter
         {
             var ct = closureHandler.GetPInvokeExistentialType(typeSpec);
             return $"({ct})_arg{argIndex}";
+        }
+
+        // Tuple with existential/enum elements: decompose and convert each element to P/Invoke type
+        if (typeSpec is TupleTypeSpec invTupleSpec && closureHandler != null)
+        {
+            bool needsConversion = invTupleSpec.Elements.Any(e =>
+                closureHandler.NeedsWellKnownProtocolWrapping(e, out _) ||
+                closureHandler.NeedsProxyWrapping(e, out _) ||
+                closureHandler.IsExistentialParam(e) ||
+                closureHandler.IsSimpleEnum(e));
+            if (needsConversion)
+            {
+                var elements = new List<string>();
+                for (int i = 0; i < invTupleSpec.Elements.Count; i++)
+                {
+                    var elem = invTupleSpec.Elements[i];
+                    var acc = $"_arg{argIndex}.Item{i + 1}";
+                    if (closureHandler.NeedsWellKnownProtocolWrapping(elem, out _))
+                        elements.Add($"{acc}.GetExistentialContainer()");
+                    else if (closureHandler.NeedsProxyWrapping(elem, out _))
+                    {
+                        var ct = closureHandler.GetPInvokeExistentialType(elem);
+                        elements.Add($"((Swift.Runtime.ISwiftExistentialConvertible<{ct}>){acc}).GetExistentialContainer()");
+                    }
+                    else if (closureHandler.IsExistentialParam(elem))
+                    {
+                        var ct = closureHandler.GetPInvokeExistentialType(elem);
+                        elements.Add($"({ct}){acc}");
+                    }
+                    else if (closureHandler.IsSimpleEnum(elem))
+                    {
+                        var underlyingType = closureHandler.GetSimpleEnumInfo(elem)?.csUnderlying ?? "int";
+                        elements.Add($"({underlyingType}){acc}");
+                    }
+                    else
+                        elements.Add(acc);
+                }
+                return $"({string.Join(", ", elements)})";
+            }
         }
 
         return $"_arg{argIndex}";

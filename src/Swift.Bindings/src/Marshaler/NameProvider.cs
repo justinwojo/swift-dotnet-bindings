@@ -221,6 +221,50 @@ public static class NameProvider
     }
 
     /// <summary>
+    /// Converts a type name segment to PascalCase for C# output.
+    /// Only converts true SCREAMING_CASE names (with underscores and multi-letter segments,
+    /// e.g. THING_KEY → ThingKey) and camelCase names (starts lowercase, e.g. pixelFormat → PixelFormat).
+    /// Leaves abbreviations and short patterns unchanged (e.g. URL, F9S1, F0_S1).
+    /// </summary>
+    public static string ToPascalCaseForTypeName(string segment)
+    {
+        if (string.IsNullOrEmpty(segment))
+            return segment;
+        // Has underscores → convert only if it's true SCREAMING_CASE (not abbreviation patterns like F0_S1)
+        if (segment.Contains('_') && HasMultiLetterUpperSegment(segment))
+            return ToPascalCase(segment);
+        // Starts lowercase → camelCase, capitalize first letter
+        if (char.IsLower(segment[0]))
+            return ToPascalCase(segment);
+        // Already PascalCase, abbreviation (URL, F9S1), or short pattern (F0_S1) → leave unchanged
+        return segment;
+    }
+
+    /// <summary>
+    /// Returns true if any underscore-separated segment has 2+ consecutive uppercase letters.
+    /// This distinguishes true SCREAMING_CASE (THING_KEY → segments with multi-letter words)
+    /// from abbreviation patterns (F0_S1 → segments with single letters + digits).
+    /// </summary>
+    private static bool HasMultiLetterUpperSegment(string s)
+    {
+        foreach (var part in s.Split('_', StringSplitOptions.RemoveEmptyEntries))
+        {
+            int consecutiveUpperLetters = 0;
+            foreach (var c in part)
+            {
+                if (char.IsUpper(c))
+                {
+                    consecutiveUpperLetters++;
+                    if (consecutiveUpperLetters >= 2) return true;
+                }
+                else
+                    consecutiveUpperLetters = 0;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Provides the name of the PInvoke method.
     /// Uses a hash of the mangled name to ensure uniqueness for method overloads
     /// that have different Swift parameter types but marshal to the same C# types.

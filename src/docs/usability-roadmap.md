@@ -17,8 +17,8 @@
 |---------|:-----:|----------------------|
 | SmartCardIO | 4.56 | Minor — `object _params` existential |
 | MicroblinkPlatform | 4.44 | Minor — naming collisions |
-| Mappedin | 4.30 | Minor — SCREAMING_CASE names |
-| Lottie | 4.10 | AnyType in ~22 locations (IInterpolatable) |
+| Mappedin | 4.30 | ~~SCREAMING_CASE names~~ — fixed |
+| Lottie | 4.10 | ~~AnyType in \~22 locations~~ — existential tuple elements now supported |
 | Nuke | 3.80 | `Create_529DA596` mangled name, naming polish |
 | BlinkID | 3.70 | `DateResult<SwiftString>` in MRZ properties |
 | BlinkIDUX | 3.70 | Empty `IUXThemeProtocol` (21 members skipped) |
@@ -69,9 +69,9 @@ These are real improvements with lower effort-to-impact ratios than the complete
 
 | Item | Impact | Libraries | Notes |
 |------|--------|-----------|-------|
-| ExistentialContainer0 in tuples | ~22 AnyType locations | Lottie | Blocked by `HasClosureUnsafeTupleElements` gate |
+| ~~ExistentialContainer0 in tuples~~ | ~~\~22 AnyType locations~~ | ~~Lottie~~ | **Done** — Extended ClosureEmitter tuple branches for element-wise existential + simple enum conversion; removed `HasClosureUnsafeTupleElements` gate |
 | `async throws(ErrorType)` free functions | Guarded, rare | Various | `_payload`/`this` in static context |
-| SCREAMING_CASE naming | `THING_KEY` → `ThingKey` | Mappedin | Small polish |
+| ~~SCREAMING_CASE naming~~ | ~~`THING_KEY` → `ThingKey`~~ | ~~Mappedin~~ | **Done** — `ToPascalCaseForTypeName` in NameProvider; applied at registration + C# output points |
 | `_object` parameter naming | Already partially fixed in S8b | Mappedin | Small polish |
 
 ### Runtime Blockers (not generator work)
@@ -102,7 +102,7 @@ RxSwift-specific features (Map value-type generics, flatMap constrained generics
 |-------|--------|
 | `Optional<Primitive/Enum>` in closures | Q3 (Phase 2) |
 | Complex enums in closures | Q3 (Phase 2) |
-| ExistentialContainer0 in tuple elements | Pre-existing |
+| ~~ExistentialContainer0 in tuple elements~~ | ~~Pre-existing~~ — **Completed** |
 | `async throws(ErrorType)` free functions | Pre-existing |
 | Multi-closure params per method | Session 3 (deferred) |
 | Runtime existential callbacks | Session 6 (Mono JIT blocker) |

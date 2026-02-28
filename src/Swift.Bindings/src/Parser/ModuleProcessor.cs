@@ -3,6 +3,7 @@
 // Licensed under the MIT License.
 
 using System.Diagnostics.CodeAnalysis;
+using System.Linq;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Swift.Runtime;
@@ -295,8 +296,12 @@ namespace BindingsGeneration
             TypeRecordFlags flags)
         {
             var @namespace = _namespacePatternResolver.ResolveNamespace(namedTypeSpec.Module);
-            // TODO: Remove this logic once correct csharp type names are used
-            var csharpTypeIdentifier = structDecl.SwiftTypeName.Module == "" ? structDecl.SwiftTypeName.Name : structDecl.SwiftTypeName.ModuleQualifiedName.Substring(structDecl.SwiftTypeName.ModuleQualifiedName.IndexOf(".") + 1);
+            var rawIdentifier = structDecl.SwiftTypeName.Module == ""
+                ? structDecl.SwiftTypeName.Name
+                : structDecl.SwiftTypeName.ModuleQualifiedName.Substring(
+                    structDecl.SwiftTypeName.ModuleQualifiedName.IndexOf(".") + 1);
+            var csharpTypeIdentifier = string.Join(".",
+                rawIdentifier.Split('.').Select(NameProvider.ToPascalCaseForTypeName));
             var typeRecord = new TypeRecord
             {
                 SwiftTypeName = structDecl.SwiftTypeName,
@@ -380,10 +385,12 @@ namespace BindingsGeneration
             TypeRecordFlags flags)
         {
             var @namespace = _namespacePatternResolver.ResolveNamespace(namedTypeSpec.Module);
-            // TODO: Remove this logic once correct csharp type names are used
-            var csharpTypeIdentifier = enumDecl.SwiftTypeName.Module == ""
+            var rawIdentifier = enumDecl.SwiftTypeName.Module == ""
                 ? enumDecl.SwiftTypeName.Name
-                : enumDecl.SwiftTypeName.ModuleQualifiedName.Substring(enumDecl.SwiftTypeName.ModuleQualifiedName.IndexOf(".") + 1);
+                : enumDecl.SwiftTypeName.ModuleQualifiedName.Substring(
+                    enumDecl.SwiftTypeName.ModuleQualifiedName.IndexOf(".") + 1);
+            var csharpTypeIdentifier = string.Join(".",
+                rawIdentifier.Split('.').Select(NameProvider.ToPascalCaseForTypeName));
 
             var typeRecord = new TypeRecord
             {
@@ -412,8 +419,12 @@ namespace BindingsGeneration
         {
             TypeRecordFlags flags = TypeRecordFlags.RequiresMemoryManagement;
             var @namespace = _namespacePatternResolver.ResolveNamespace(namedTypeSpec.Module);
-            // TODO: Remove this logic once correct csharp type names are used
-            var csharpTypeIdentifier = classDecl.SwiftTypeName.Module == "" ? classDecl.SwiftTypeName.Name : classDecl.SwiftTypeName.ModuleQualifiedName.Substring(classDecl.SwiftTypeName.ModuleQualifiedName.IndexOf(".") + 1);
+            var rawIdentifier = classDecl.SwiftTypeName.Module == ""
+                ? classDecl.SwiftTypeName.Name
+                : classDecl.SwiftTypeName.ModuleQualifiedName.Substring(
+                    classDecl.SwiftTypeName.ModuleQualifiedName.IndexOf(".") + 1);
+            var csharpTypeIdentifier = string.Join(".",
+                rawIdentifier.Split('.').Select(NameProvider.ToPascalCaseForTypeName));
             var typeRecord = new TypeRecord
             {
                 SwiftTypeName = classDecl.SwiftTypeName,
@@ -588,5 +599,6 @@ namespace BindingsGeneration
 
             _moduleDatabase.RegisterType(protocolDecl.SwiftTypeName, typeRecord);
         }
+
     }
 }

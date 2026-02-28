@@ -348,10 +348,10 @@ public class ClosureExistentialTests
     #region Tuple existential safety gate (Step 2d)
 
     [Fact]
-    public void HasClosureUnsafeTupleElements_WithExistentialElement_ReturnsTrue()
+    public void HasClosureUnsafeTupleElements_WithExistentialElement_ReturnsFalse()
     {
         // Existential in tuple: P/Invoke uses ExistentialContainer1 but C# uses object/IProtocol
-        // → HasClosureUnsafeTupleElements must return true (blocks the closure)
+        // → emitter now handles per-element conversion, so the gate no longer blocks
         var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule.ImageProcessing");
         var tupleHandler = new TupleHandler(typeDatabase);
 
@@ -361,7 +361,7 @@ public class ClosureExistentialTests
 
         var result = tupleHandler.HasClosureUnsafeTupleElements(tupleSpec);
 
-        Assert.True(result);
+        Assert.False(result);
     }
 
     [Fact]
@@ -380,11 +380,10 @@ public class ClosureExistentialTests
     }
 
     [Fact]
-    public void IsSupportedClosure_TupleReturnWithExistential_IsBlocked()
+    public void IsSupportedClosure_TupleReturnWithExistential_IsSupported()
     {
-        // A closure returning (any Protocol, Int) would generate a callback with
-        // ValueTuple<ExistentialContainer1, nint> return type but del() returns
-        // (object, long) — type mismatch. The closure must be rejected.
+        // A closure returning (any Protocol, Int) — the emitter now handles per-element
+        // existential conversion in both callback and invoker directions, so this is supported.
         var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule.ImageProcessing");
         var handler = new ClosureHandler(typeDatabase);
 
@@ -395,8 +394,27 @@ public class ClosureExistentialTests
         // Build closure: () -> (any ImageProcessing, Int)
         var closureSpec = new ClosureTypeSpec(null, tupleReturn);
 
-        // The closure must be rejected because the tuple return has an existential mismatch
-        Assert.False(handler.IsSupportedClosure(closureSpec));
+        // The closure is now supported with per-element existential conversion
+        Assert.True(handler.IsSupportedClosure(closureSpec));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_TupleParamWithExistential_IsSupported()
+    {
+        // A closure taking (any Protocol, Int) as a parameter — the emitter now handles
+        // per-element existential conversion, so tuple params with existentials are supported.
+        var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule.ImageProcessing");
+        var handler = new ClosureHandler(typeDatabase);
+
+        var existentialElement = new NamedTypeSpec("TestModule.ImageProcessing") { IsAny = true };
+        var intElement = new NamedTypeSpec("Swift.Int");
+        var tupleParam = new TupleTypeSpec(new List<TypeSpec> { existentialElement, intElement });
+
+        // Build closure: ((any ImageProcessing, Int)) -> Void
+        var closureSpec = new ClosureTypeSpec(tupleParam, TupleTypeSpec.Empty);
+
+        // The closure is now supported with per-element existential conversion
+        Assert.True(handler.IsSupportedClosure(closureSpec));
     }
 
     #endregion

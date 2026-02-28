@@ -42,7 +42,7 @@ public static class GenericTypeEmitter
     /// <returns>The type name with generic parameters.</returns>
     public static string GetTypeNameWithGenerics(TypeDecl typeDecl)
     {
-        return $"{typeDecl.Name}{GetGenericParameterList(typeDecl)}";
+        return $"{NameProvider.ToPascalCaseForTypeName(typeDecl.Name)}{GetGenericParameterList(typeDecl)}";
     }
 
     /// <summary>
