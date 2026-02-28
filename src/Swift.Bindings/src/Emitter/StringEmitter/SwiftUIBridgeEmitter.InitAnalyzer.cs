@@ -309,7 +309,30 @@ public static partial class SwiftUIBridgeEmitter
                 CSharpTypeName: csharpName);
         }
 
-        // Other TypeDatabase types (structs) not yet supported — deferred to v2.1
+        if (record.Kind == TypeRecordKind.Struct)
+        {
+            var projection = MarshallingHelpers.IsTypeFrozen(record)
+                ? (MarshallingHelpers.RequiresMemoryManagement(record)
+                    ? StructProjectionKind.FrozenWithMemory
+                    : StructProjectionKind.FrozenBlittable)
+                : StructProjectionKind.NonFrozen;
+
+            // Frozen blittable structs are C# value types (no SafeHandle) — pinning deferred
+            if (projection == StructProjectionKind.FrozenBlittable)
+                return null;
+
+            var dotIndex = namedSpec.Name.IndexOf('.');
+            var swiftSimpleName = dotIndex >= 0 ? namedSpec.Name.Substring(dotIndex + 1) : namedSpec.Name;
+            var csharpName = record.CSharpTypeName.FullyQualifiedName;
+
+            return new BridgeParameter(
+                paramName, BridgeParameterKind.BoundStruct,
+                SwiftAbiType: "UnsafeMutableRawPointer", CSharpPInvokeType: "IntPtr",
+                BridgeTypeName: swiftSimpleName, CSharpTypeName: csharpName,
+                StructProjection: projection);
+        }
+
+        // Other TypeDatabase types not yet supported
         return null;
     }
 
@@ -369,6 +392,17 @@ public static partial class SwiftUIBridgeEmitter
                 InnerParameter: innerParam);
         }
 
+        // Optional<BoundStruct> for struct types — nullable pointer, same as BoundType
+        if (innerParam.Kind == BridgeParameterKind.BoundStruct)
+        {
+            return new BridgeParameter(
+                paramName,
+                BridgeParameterKind.OptionalWrapped,
+                SwiftAbiType: "UnsafeMutableRawPointer?",
+                CSharpPInvokeType: "IntPtr",
+                InnerParameter: innerParam);
+        }
+
         // Optional<String> — same ABI as String (ptr+len), with ptr==nil meaning nil
         if (innerParam.Kind == BridgeParameterKind.String)
         {
@@ -405,7 +439,21 @@ public enum BridgeParameterKind
     TypedClosure,
     BoundEnum,
     BoundType,
+    BoundStruct,
     OptionalWrapped,
+}
+
+/// <summary>
+/// Projection strategy for struct bridge parameters.
+/// </summary>
+public enum StructProjectionKind
+{
+    /// <summary>Non-frozen struct — C# class with SafeHandle (opaque payload).</summary>
+    NonFrozen,
+    /// <summary>Frozen struct with no reference-counted fields — C# value type (no SafeHandle).</summary>
+    FrozenBlittable,
+    /// <summary>Frozen struct with reference-counted fields — C# class with SafeHandle.</summary>
+    FrozenWithMemory,
 }
 
 /// <summary>
@@ -436,4 +484,5 @@ public record BridgeParameter(
     BridgeParameter? InnerParameter = null,
     List<BridgeParameter>? ClosureArguments = null,
     BridgeParameter? ClosureReturn = null,
-    bool IsSimpleEnum = false);
+    bool IsSimpleEnum = false,
+    StructProjectionKind? StructProjection = null);

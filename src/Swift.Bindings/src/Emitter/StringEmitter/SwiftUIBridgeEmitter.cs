@@ -573,7 +573,7 @@ public static partial class SwiftUIBridgeEmitter
                 sb.AppendLine($"    let {param.Name}Callback: ({param.SwiftAbiType.TrimEnd('?')})?");
                 sb.AppendLine($"    let {param.Name}UserData: UnsafeMutableRawPointer?");
             }
-            else if (param.Kind == BridgeParameterKind.BoundType)
+            else if (param.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
             {
                 sb.AppendLine($"    let {param.Name}: {param.BridgeTypeName}");
             }
@@ -601,7 +601,7 @@ public static partial class SwiftUIBridgeEmitter
                 initParams.Add($"{param.Name}Ptr: UnsafePointer<UInt8>?");
                 initParams.Add($"{param.Name}Len: Int");
             }
-            else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.BoundType)
+            else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
             {
                 initParams.Add($"{param.Name}Ptr: {param.SwiftAbiType}");
             }
@@ -610,7 +610,7 @@ public static partial class SwiftUIBridgeEmitter
                 initParams.Add($"{param.Name}HasValue: Int32");
                 initParams.Add($"{param.Name}Value: {param.InnerParameter!.SwiftAbiType}");
             }
-            else if (param.Kind == BridgeParameterKind.BoundType)
+            else if (param.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
             {
                 initParams.Add($"{param.Name}Ptr: {param.SwiftAbiType}");
             }
@@ -633,6 +633,10 @@ public static partial class SwiftUIBridgeEmitter
             else if (param.Kind == BridgeParameterKind.BoundType)
             {
                 sb.AppendLine($"        self.{param.Name} = Unmanaged<{param.BridgeTypeName}>.fromOpaque({param.Name}Ptr).takeUnretainedValue()");
+            }
+            else if (param.Kind == BridgeParameterKind.BoundStruct)
+            {
+                sb.AppendLine($"        self.{param.Name} = {param.Name}Ptr.assumingMemoryBound(to: {param.BridgeTypeName}.self).pointee");
             }
         }
 
@@ -672,7 +676,7 @@ public static partial class SwiftUIBridgeEmitter
                 // Construct enum from rawValue
                 viewInitArgs.Add($"{param.Name}: {param.BridgeTypeName}(rawValue: {param.Name})!");
             }
-            else if (param.Kind == BridgeParameterKind.BoundType)
+            else if (param.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
             {
                 // Pass the reconstructed Swift object
                 viewInitArgs.Add($"{param.Name}: self.{param.Name}");
@@ -691,6 +695,13 @@ public static partial class SwiftUIBridgeEmitter
                 // Optional<BoundType>: nullable pointer — reconstruct if non-nil
                 var inner = param.InnerParameter!;
                 sb.AppendLine($"        let {param.Name}Val: {inner.BridgeTypeName}? = {param.Name}Ptr.map {{ Unmanaged<{inner.BridgeTypeName}>.fromOpaque($0).takeUnretainedValue() }}");
+                viewInitArgs.Add($"{param.Name}: {param.Name}Val");
+            }
+            else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.BoundStruct)
+            {
+                // Optional<BoundStruct>: nullable pointer — reconstruct via pointee if non-nil
+                var inner = param.InnerParameter!;
+                sb.AppendLine($"        let {param.Name}Val: {inner.BridgeTypeName}? = {param.Name}Ptr.map {{ $0.assumingMemoryBound(to: {inner.BridgeTypeName}.self).pointee }}");
                 viewInitArgs.Add($"{param.Name}: {param.Name}Val");
             }
             else if (param.Kind == BridgeParameterKind.OptionalWrapped)
@@ -758,7 +769,7 @@ public static partial class SwiftUIBridgeEmitter
                 createParams.Add($"_ {param.Name}Ptr: UnsafePointer<UInt8>?");
                 createParams.Add($"_ {param.Name}Len: Int");
             }
-            else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.BoundType)
+            else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
             {
                 createParams.Add($"_ {param.Name}Ptr: {param.SwiftAbiType}");
             }
@@ -767,7 +778,7 @@ public static partial class SwiftUIBridgeEmitter
                 createParams.Add($"_ {param.Name}HasValue: Int32");
                 createParams.Add($"_ {param.Name}Value: {param.InnerParameter!.SwiftAbiType}");
             }
-            else if (param.Kind == BridgeParameterKind.BoundType)
+            else if (param.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
             {
                 createParams.Add($"_ {param.Name}Ptr: {param.SwiftAbiType}");
             }
@@ -799,7 +810,7 @@ public static partial class SwiftUIBridgeEmitter
                 sessionArgs.Add($"{param.Name}Ptr: {param.Name}Ptr");
                 sessionArgs.Add($"{param.Name}Len: {param.Name}Len");
             }
-            else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.BoundType)
+            else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
             {
                 sessionArgs.Add($"{param.Name}Ptr: {param.Name}Ptr");
             }
@@ -808,7 +819,7 @@ public static partial class SwiftUIBridgeEmitter
                 sessionArgs.Add($"{param.Name}HasValue: {param.Name}HasValue");
                 sessionArgs.Add($"{param.Name}Value: {param.Name}Value");
             }
-            else if (param.Kind == BridgeParameterKind.BoundType)
+            else if (param.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
             {
                 sessionArgs.Add($"{param.Name}Ptr: {param.Name}Ptr");
             }
@@ -981,7 +992,7 @@ public static partial class SwiftUIBridgeEmitter
                 createPInvokeParams.Add($"IntPtr {param.Name}Ptr");
                 createPInvokeParams.Add($"nint {param.Name}Len");
             }
-            else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.BoundType)
+            else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
             {
                 createPInvokeParams.Add($"IntPtr {param.Name}");
             }
@@ -990,7 +1001,7 @@ public static partial class SwiftUIBridgeEmitter
                 createPInvokeParams.Add($"int {param.Name}HasValue");
                 createPInvokeParams.Add($"{param.InnerParameter!.CSharpPInvokeType} {param.Name}Value");
             }
-            else if (param.Kind == BridgeParameterKind.BoundType)
+            else if (param.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
             {
                 createPInvokeParams.Add($"IntPtr {param.Name}");
             }
@@ -1289,11 +1300,11 @@ public static partial class SwiftUIBridgeEmitter
                     args.Add($"{param.Name}.RawValue");
                 }
             }
-            else if (param.Kind == BridgeParameterKind.BoundType)
+            else if (param.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
             {
                 args.Add($"{param.Name}.Payload.DangerousGetHandle()");
             }
-            else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.BoundType)
+            else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
             {
                 args.Add($"{param.Name}?.Payload.DangerousGetHandle() ?? IntPtr.Zero");
             }
@@ -1346,7 +1357,7 @@ public static partial class SwiftUIBridgeEmitter
         BridgeParameterKind.String => "string?",
         BridgeParameterKind.Primitive when param.CSharpConversion != null => "bool",
         BridgeParameterKind.BoundEnum => param.CSharpTypeName!,
-        BridgeParameterKind.BoundType => param.CSharpTypeName!,
+        BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct => param.CSharpTypeName!,
         BridgeParameterKind.OptionalWrapped => GetOptionalFactoryType(param),
         _ => param.CSharpPInvokeType,
     };
@@ -1358,7 +1369,7 @@ public static partial class SwiftUIBridgeEmitter
             return "string?";
         if (inner.Kind == BridgeParameterKind.BoundEnum)
             return $"{inner.CSharpTypeName}?";
-        if (inner.Kind == BridgeParameterKind.BoundType)
+        if (inner.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
             return $"{inner.CSharpTypeName}?";
         if (inner.CSharpConversion != null) // Bool
             return "bool?";
@@ -1759,7 +1770,7 @@ public static partial class SwiftUIBridgeEmitter
     private static string GetClosureArgCSharpType(BridgeParameter param) => param.Kind switch
     {
         BridgeParameterKind.String => "string",
-        BridgeParameterKind.BoundType => param.CSharpTypeName!,
+        BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct => param.CSharpTypeName!,
         _ => GetFactoryParamType(param),
     };
 

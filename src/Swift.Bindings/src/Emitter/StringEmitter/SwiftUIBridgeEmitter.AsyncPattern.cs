@@ -303,7 +303,7 @@ public static partial class SwiftUIBridgeEmitter
 
                 // For cross-module types (BoundType/BoundEnum from TypeDatabase),
                 // record the source module for ExtraSwiftImports.
-                if (flatParam.Kind is AsyncFlatParamKind.BoundType or AsyncFlatParamKind.BoundEnum
+                if (flatParam.Kind is AsyncFlatParamKind.BoundType or AsyncFlatParamKind.BoundStruct or AsyncFlatParamKind.BoundEnum
                     && param.SwiftTypeSpec is NamedTypeSpec leafNamedSpec)
                 {
                     var sourceModule = ExtractSwiftModule(leafNamedSpec);
@@ -339,6 +339,9 @@ public static partial class SwiftUIBridgeEmitter
             BridgeParameterKind.BoundType => new AsyncFlatParam(
                 bp.Name, AsyncFlatParamKind.BoundType, "UnsafeMutableRawPointer", "IntPtr",
                 null, null, BridgeTypeName: bp.BridgeTypeName),
+            BridgeParameterKind.BoundStruct => new AsyncFlatParam(
+                bp.Name, AsyncFlatParamKind.BoundStruct, "UnsafeMutableRawPointer", "IntPtr",
+                null, null, BridgeTypeName: bp.BridgeTypeName, CSharpTypeName: bp.CSharpTypeName),
             BridgeParameterKind.BoundEnum => new AsyncFlatParam(
                 bp.Name, AsyncFlatParamKind.BoundEnum, bp.SwiftAbiType, bp.CSharpPInvokeType,
                 null, null, BridgeTypeName: bp.BridgeTypeName, CSharpTypeName: bp.CSharpTypeName),
@@ -636,7 +639,7 @@ public static partial class SwiftUIBridgeEmitter
                 createParams.Add($"_ {param.Name}Ptr: UnsafePointer<UInt8>?");
                 createParams.Add($"_ {param.Name}Len: Int");
             }
-            else if (param.Kind == AsyncFlatParamKind.BoundType)
+            else if (param.Kind is AsyncFlatParamKind.BoundType or AsyncFlatParamKind.BoundStruct)
             {
                 createParams.Add($"_ {param.Name}Ptr: UnsafeMutableRawPointer");
             }
@@ -676,7 +679,7 @@ public static partial class SwiftUIBridgeEmitter
 
         // BoundType null-pointer guard + conversion (before Task)
         // Validates non-null pointers eagerly and reports via error callback instead of trapping.
-        var boundTypeParams = pattern.FlattenedParams.Where(p => p.Kind == AsyncFlatParamKind.BoundType).ToList();
+        var boundTypeParams = pattern.FlattenedParams.Where(p => p.Kind is AsyncFlatParamKind.BoundType or AsyncFlatParamKind.BoundStruct).ToList();
         if (boundTypeParams.Count > 0)
         {
             var ptrNames = string.Join(" || ", boundTypeParams.Select(p => $"{p.Name}Ptr == UnsafeMutableRawPointer(bitPattern: 0)"));
@@ -693,7 +696,10 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine($"    }}");
             foreach (var param in boundTypeParams)
             {
-                sb.AppendLine($"    let {param.Name} = Unmanaged<{param.BridgeTypeName}>.fromOpaque({param.Name}Ptr).takeUnretainedValue()");
+                if (param.Kind == AsyncFlatParamKind.BoundType)
+                    sb.AppendLine($"    let {param.Name} = Unmanaged<{param.BridgeTypeName}>.fromOpaque({param.Name}Ptr).takeUnretainedValue()");
+                else // BoundStruct
+                    sb.AppendLine($"    let {param.Name} = {param.Name}Ptr.assumingMemoryBound(to: {param.BridgeTypeName}.self).pointee");
             }
             sb.AppendLine();
         }
@@ -1148,7 +1154,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine("        {");
 
         // Validate BoundType parameters are non-zero before entering native call
-        var boundTypeFactoryParams = pattern.FlattenedParams.Where(p => p.Kind == AsyncFlatParamKind.BoundType).ToList();
+        var boundTypeFactoryParams = pattern.FlattenedParams.Where(p => p.Kind is AsyncFlatParamKind.BoundType or AsyncFlatParamKind.BoundStruct).ToList();
         foreach (var param in boundTypeFactoryParams)
         {
             sb.AppendLine($"            if ({param.Name} == IntPtr.Zero)");
@@ -1451,5 +1457,6 @@ public enum AsyncFlatParamKind
     Bool,
     Primitive,
     BoundType,
+    BoundStruct,
     BoundEnum,
 }

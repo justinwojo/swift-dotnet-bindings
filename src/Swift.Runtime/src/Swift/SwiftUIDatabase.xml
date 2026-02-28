@@ -7,5 +7,23 @@
         <entity managedNameSpace="SwiftUI" managedTypeName="Font">
             <typedeclaration kind="struct" name="Font" module="SwiftUI" frozen="false" requiresMemoryManagement="true" />
         </entity>
+        <entity managedNameSpace="SwiftUI" managedTypeName="EdgeInsets">
+            <typedeclaration kind="struct" name="EdgeInsets" module="SwiftUI" frozen="false" requiresMemoryManagement="true" />
+        </entity>
+        <entity managedNameSpace="SwiftUI" managedTypeName="Animation">
+            <typedeclaration kind="struct" name="Animation" module="SwiftUI" frozen="false" requiresMemoryManagement="true" />
+        </entity>
+        <entity managedNameSpace="SwiftUI" managedTypeName="Image">
+            <typedeclaration kind="struct" name="Image" module="SwiftUI" frozen="false" requiresMemoryManagement="true" />
+        </entity>
+        <entity managedNameSpace="SwiftUI" managedTypeName="Text">
+            <typedeclaration kind="struct" name="Text" module="SwiftUI" frozen="false" requiresMemoryManagement="true" />
+        </entity>
+        <entity managedNameSpace="SwiftUI" managedTypeName="AnyView">
+            <typedeclaration kind="struct" name="AnyView" module="SwiftUI" frozen="false" requiresMemoryManagement="true" />
+        </entity>
+        <entity managedNameSpace="SwiftUI" managedTypeName="Binding">
+            <typedeclaration kind="struct" name="Binding" module="SwiftUI" frozen="false" requiresMemoryManagement="true" />
+        </entity>
     </entities>
 </swifttypedatabase>

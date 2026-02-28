@@ -1,7 +1,7 @@
 # SwiftUI Bridge Roadmap
 
 **Date**: February 2026
-**Status**: Sessions 1-2 complete (closure/optional expansion + generic views), Sessions 3-6 planned
+**Status**: Sessions 1-3 complete (closure/optional expansion + generic views + struct params), Sessions 4-6 planned
 **Prior work**: `Completed/swiftui-bridge-v2-phases1-2.md` (param expansion + async inference), `Completed/swiftui-bridge-v2-phase3.md` (bridge hints)
 
 ---
@@ -16,11 +16,11 @@ The generator automatically detects SwiftUI Views and generates a bridge layer t
 |-----------|--------|-------------|
 | **View detection** | Done | `SwiftUIViewDetector` identifies `SwiftUI.View` conformance |
 | **Bridge collector** | Done | Thread-safe accumulation of Views during module emission |
-| **Parameter bridging** | Done | Primitives, String, closures (≤4 args, String/class/primitive args), enums, classes, Optional\<String\>, Optional\<Closure\>, Optional\<Enum\>, Optional\<Class\> |
+| **Parameter bridging** | Done | Primitives, String, closures (≤4 args, String/class/primitive args), enums, classes, structs (non-frozen + frozen-with-memory), Optional\<String\>, Optional\<Closure\>, Optional\<Enum\>, Optional\<Class\>, Optional\<Struct\> |
 | **Async factories** | Done | ABI-driven inference of async init chains (depth 3, cross-module) |
 | **Bridge hints** | Done | JSON sidecar for skip/forceTemplate/preferredInit/asyncPattern |
 | **Runtime types** | Done | `SwiftColor`, `SwiftFont` projections |
-| **Type database** | Done | `SwiftUIDatabase.xml` with Color + Font entries |
+| **Type database** | Done | `SwiftUIDatabase.xml` with Color, Font, EdgeInsets, Animation, Image, Text, AnyView, Binding entries |
 
 ### Current Coverage
 
@@ -36,12 +36,14 @@ The generator automatically detects SwiftUI Views and generates a bridge layer t
 |---------|---------|-----------|
 | Generic View with non-View constraint | `ListView<Item: Identifiable>` | Moderate |
 | Existential param | `init(delegate: any SomeProtocol)` | Moderate |
-| Non-frozen struct param | `init(config: Configuration)` | Moderate |
+| Frozen blittable struct param | `init(point: CGPoint)` | Low |
 | Closure with non-primitive returns | `init(validator: (String) -> MyClass)` | Rare |
 | Tuple param | `init(range: (min: Int, max: Int))` | Rare |
 | >4 closure params | Multiple typed closures | Rare |
 
 **Resolved in Session 2**: Generic View types with View-constrained placeholders (e.g., `AnimatedImage<Placeholder: View>`) and `@ViewBuilder` closure params are now bridged automatically via `EmptyView` substitution.
+
+**Resolved in Session 3**: Non-frozen and frozen-with-memory struct params (e.g., `init(config: Configuration)`) now cross the ABI as `UnsafeMutableRawPointer`/`IntPtr` with Swift `.pointee` reconstruction. Frozen blittable structs (C# value types needing pinning) remain deferred.
 
 ---
 
@@ -64,7 +66,7 @@ Ordered by priority. Each session is a self-contained unit of work. You can stop
 | **1A** | Closure & Optional expansion | Highest | **Done** | Result callbacks, selection handlers, data-passing closures |
 | **1B** | Closure non-primitive returns | Medium | Planned | `(String) -> MyClass`, `(Int) -> String` return values |
 | **2** | Generic view support | High | **Done** | `AnimatedImage<T>`, `LottieView<T>`, @ViewBuilder params |
-| **3** | Struct params & type database | High | Planned | Configuration-object patterns, reduced AnyType pollution |
+| **3** | Struct params & type database | High | **Done** | Configuration-object patterns, reduced AnyType pollution |
 | **4** | Two-way state binding | Medium | Planned | Dynamic updates after creation (search, toggles, sliders) |
 | **5** | Lifecycle, modifiers & navigation | Medium-low | Planned | `onAppear`/`onDisappear`, frame/padding/background, presentation |
 | **6** | Observable binding & corpus tracking | Low | Planned | C# → Swift reactivity, coverage measurement infrastructure |
@@ -140,32 +142,31 @@ Generic views like `AnimatedImage<Placeholder: View>` and `LottieView<Placeholde
 
 ---
 
-### Session 3: Struct Parameters & Type Database Expansion
+### Session 3: Struct Parameters & Type Database Expansion ✅
 
-**Priority**: High — configuration-object patterns are extremely common in SwiftUI libraries.
+**Status**: Complete — non-frozen and frozen-with-memory struct params bridged, 6 SwiftUI types added to database.
 
-**Scope**:
+Struct parameters are the most common reason views fall back to template generation. This session added `BridgeParameterKind.BoundStruct` with a 3-category projection model.
 
-| Sub-task | Description |
-|----------|-------------|
-| Frozen struct params | Safe starting point — known layout, no VWT needed |
-| Non-frozen struct params | VWT `initializeWithCopy` + `destroy` for struct lifecycle. Session holds copied memory, freed in `Free`. Gate behind flag initially. |
-| `Optional<Struct>` | Extend OptionalWrapped for struct inner types |
-| SwiftUIDatabase.xml expansion | Add commonly-referenced SwiftUI types to prevent `AnyType` pollution |
-| Runtime projections | `SwiftEdgeInsets`, `SwiftAnimation` C# projection types |
+**Completed scope**:
 
-**Struct risk**: VWT lookup at runtime adds fragility. Struct layout changes break silently. Start with frozen structs (safe), gate non-frozen separately.
+| Sub-task | Status | Description |
+|----------|--------|-------------|
+| Non-frozen struct params | **Done** | C# class with SafeHandle → `IntPtr` via `.Payload.DangerousGetHandle()`. Swift reconstructs via `.assumingMemoryBound(to: T.self).pointee` (typed load with ARC). |
+| Frozen-with-memory struct params | **Done** | Same ABI as non-frozen (C# class with SafeHandle). `StructProjectionKind.FrozenWithMemory` detected but treated identically. |
+| Frozen blittable struct gate | **Done** | Detected (`StructProjectionKind.FrozenBlittable`) but gated to template — C# value types need pinning (`GCHandle.Alloc(Pinned)` or `fixed`), deferred. |
+| `Optional<Struct>` | **Done** | Nullable pointer ABI (`UnsafeMutableRawPointer?`/`IntPtr`). Swift: `.map { $0.assumingMemoryBound(to: T.self).pointee }`. |
+| SwiftUIDatabase.xml expansion | **Done** | Added EdgeInsets, Animation, Image, Text, AnyView, Binding (all non-frozen with memory management). |
+| Async pattern struct support | **Done** | `AsyncFlatParamKind.BoundStruct` for async chain leaf params. Cross-module import propagation, null-pointer guard, separate `.pointee` conversion. |
 
-**Type database entries** (don't enable composition — prevent `AnyType` when these appear in third-party library APIs):
+**Not in scope** (deferred):
+- Frozen blittable structs (C# value types needing `GCHandle.Alloc(Pinned)` or `fixed`/`stackalloc`)
+- Runtime C# projection types (`SwiftEdgeInsets`, etc.) — DB entries prevent `AnyType` pollution in main generator; bridge factory code compiles when managed wrappers are added
+- Struct closure arguments (Swift→C# allocation patterns for struct callback args)
 
-| Type | Kind | Use Case |
-|------|------|----------|
-| `SwiftUI.Image` | struct | Return type in image libraries (Kingfisher, SDWebImage, Nuke) |
-| `SwiftUI.Text` | struct | Return type in text/label libraries |
-| `SwiftUI.AnyView` | struct | Type-erased view used in generic APIs |
-| `SwiftUI.Binding` | struct | Two-way binding wrapper |
-| `SwiftUI.EdgeInsets` | struct | Layout configuration |
-| `SwiftUI.Animation` | struct | Animation configuration |
+**Test coverage**: 14 new unit tests, 53/53 library validation, golden files unchanged.
+
+**Key files modified**: `SwiftUIBridgeEmitter.InitAnalyzer.cs` (`BoundStruct` kind, `StructProjectionKind`, struct handler in `MapDatabaseType`/`MapOptionalType`), `SwiftUIBridgeEmitter.cs` (emission pipeline: 10 merge sites + 2 separate branches), `SwiftUIBridgeEmitter.AsyncPattern.cs` (`BoundStruct` in async flat params), `SwiftUIDatabase.xml` (6 entries), `SwiftUIBridgeEmitterTests.cs` (14 tests).
 
 ---
 
@@ -288,7 +289,7 @@ Session 1B: Non-primitive returns   (standalone — extends Session 1A patterns)
     │
 Session 2: Generic Views            ✅ COMPLETE
     │
-Session 3: Structs & Type Database  (standalone — benefits from Session 1A optional patterns)
+Session 3: Structs & Type Database  ✅ COMPLETE
     │
 Session 4: Two-Way State            (standalone — architectural change to session class)
     │
@@ -324,12 +325,12 @@ The product contract remains: **present SwiftUI View as UIViewController, with c
 
 | Metric | Before S1A | After S1A | After S2 | After S3 | After S4-6 |
 |--------|------------|-----------|----------|----------|------------|
-| Parameter types supported | 7 kinds | 11 kinds | 11 + generic | 15+ kinds | 15+ kinds |
+| Parameter types supported | 7 kinds | 11 kinds | 11 + generic | 12 + struct | 12+ kinds |
 | Closure arg types | Primitives only | + String, class | + String, class | + String, class | + String, class |
 | Optional param types | Enum, class | + String, closure | + String, closure | + struct | + struct |
-| Generic views bridged | 0% | 0% | View-constrained | 60%+ | 60%+ |
+| Generic views bridged | 0% | 0% | View-constrained | View-constrained | 60%+ |
 | Bridge rate (estimated) | ~70% | ~80% | ~85% | ~90% | ~95% |
 | Post-creation state updates | No | No | No | No | Yes |
 | Lifecycle/modifier support | No | No | No | No | Yes |
-| Bridged views (TestFramework) | — | 15 | 17 | 20+ | 20+ |
-| Unit tests (bridge) | — | 174 | 196 | 220+ | 250+ |
+| Bridged views (TestFramework) | — | 15 | 17 | 17 | 20+ |
+| Unit tests (bridge) | — | 174 | 196 | 210 | 250+ |

@@ -1148,15 +1148,21 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     }
 
     [Fact]
-    public void InitAnalyzer_BoundType_FallsBackToTemplate_ForStructInTypeDatabase()
+    public void InitAnalyzer_MapsBoundStruct_ForNonFrozenStruct()
     {
-        // Non-frozen structs are deferred to v2.1
         var typeDb = CreateStructTypeDatabase();
         var context = new BridgeContext(typeDb);
         var ctor = CreateConstructorWithNamedType("config", "TestModule.Config");
         var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
 
-        Assert.Null(result);
+        Assert.NotNull(result);
+        Assert.Single(result);
+        Assert.Equal(BridgeParameterKind.BoundStruct, result[0].Kind);
+        Assert.Equal(StructProjectionKind.NonFrozen, result[0].StructProjection);
+        Assert.Equal("UnsafeMutableRawPointer", result[0].SwiftAbiType);
+        Assert.Equal("IntPtr", result[0].CSharpPInvokeType);
+        Assert.Equal("Config", result[0].BridgeTypeName);
+        Assert.Equal("Swift.TestModule.Config", result[0].CSharpTypeName);
     }
 
     [Fact]
@@ -1336,6 +1342,243 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
         Assert.Contains("@_cdecl(\"SBW_TestModule_OptAnimView_Create\")", swiftContent);
         Assert.DoesNotContain("BRIDGE TEMPLATE", swiftContent);
+    }
+
+    #endregion
+
+    #region BoundStruct (Session 3)
+
+    [Fact]
+    public void InitAnalyzer_MapsBoundStruct_ForFrozenWithMemoryStruct()
+    {
+        var typeDb = CreateFrozenWithMemoryStructTypeDatabase();
+        var context = new BridgeContext(typeDb);
+        var ctor = CreateConstructorWithNamedType("config", "TestModule.Config");
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
+
+        Assert.NotNull(result);
+        Assert.Single(result);
+        Assert.Equal(BridgeParameterKind.BoundStruct, result[0].Kind);
+        Assert.Equal(StructProjectionKind.FrozenWithMemory, result[0].StructProjection);
+        Assert.Equal("UnsafeMutableRawPointer", result[0].SwiftAbiType);
+        Assert.Equal("IntPtr", result[0].CSharpPInvokeType);
+    }
+
+    [Fact]
+    public void InitAnalyzer_FallsBackToTemplate_ForFrozenBlittableStruct()
+    {
+        var typeDb = CreateFrozenBlittableStructTypeDatabase();
+        var context = new BridgeContext(typeDb);
+        var ctor = CreateConstructorWithNamedType("config", "TestModule.Config");
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void InitAnalyzer_OptionalBoundStruct_MapsCorrectly()
+    {
+        var typeDb = CreateStructTypeDatabase();
+        var context = new BridgeContext(typeDb);
+        var ctor = CreateConstructorWithOptionalType("config", "TestModule.Config");
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
+
+        Assert.NotNull(result);
+        Assert.Single(result);
+        Assert.Equal(BridgeParameterKind.OptionalWrapped, result[0].Kind);
+        Assert.NotNull(result[0].InnerParameter);
+        Assert.Equal(BridgeParameterKind.BoundStruct, result[0].InnerParameter!.Kind);
+        Assert.Equal("Config", result[0].InnerParameter!.BridgeTypeName);
+        Assert.Equal("UnsafeMutableRawPointer?", result[0].SwiftAbiType);
+        Assert.Equal("IntPtr", result[0].CSharpPInvokeType);
+    }
+
+    [Fact]
+    public void EmitBoundStruct_Swift_UsesPointeeNotUnmanaged()
+    {
+        var typeDb = CreateStructTypeDatabase();
+        var views = new List<TypeDecl> { CreateViewWithClassInit("ConfigView", "config", "TestModule.Config") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains(".pointee", swiftContent);
+        Assert.DoesNotContain("Unmanaged<Config>", swiftContent);
+    }
+
+    [Fact]
+    public void EmitBoundStruct_Swift_PassesUnsafeMutableRawPointerToCdecl()
+    {
+        var typeDb = CreateStructTypeDatabase();
+        var views = new List<TypeDecl> { CreateViewWithClassInit("ConfigView", "config", "TestModule.Config") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("_ configPtr: UnsafeMutableRawPointer", swiftContent);
+    }
+
+    [Fact]
+    public void EmitBoundStruct_Swift_GeneratesFunctionalBridge()
+    {
+        var typeDb = CreateStructTypeDatabase();
+        var views = new List<TypeDecl> { CreateViewWithClassInit("ConfigView", "config", "TestModule.Config") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("@_cdecl(\"SBW_TestModule_ConfigView_Create\")", swiftContent);
+        Assert.DoesNotContain("BRIDGE TEMPLATE", swiftContent);
+    }
+
+    [Fact]
+    public void EmitBoundStruct_Swift_SessionStoresStructField()
+    {
+        var typeDb = CreateStructTypeDatabase();
+        var views = new List<TypeDecl> { CreateViewWithClassInit("ConfigView", "config", "TestModule.Config") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("let config: Config", swiftContent);
+        Assert.Contains("config: self.config", swiftContent);
+    }
+
+    [Fact]
+    public void EmitOptionalBoundStruct_Swift_UsesPointeeMap()
+    {
+        var typeDb = CreateStructTypeDatabase();
+        var views = new List<TypeDecl> { CreateViewWithOptionalClassInit("OptConfigView", "config", "TestModule.Config") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains(".pointee", swiftContent);
+        Assert.Contains(".map", swiftContent);
+        Assert.DoesNotContain("Unmanaged<Config>", swiftContent);
+    }
+
+    [Fact]
+    public void EmitBoundStruct_CSharp_UsesIntPtrPInvoke()
+    {
+        var typeDb = CreateStructTypeDatabase();
+        var views = new List<TypeDecl> { CreateViewWithClassInit("ConfigView", "config", "TestModule.Config") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("IntPtr config", csContent);
+    }
+
+    [Fact]
+    public void EmitBoundStruct_CSharp_UsesTypedFactoryParam()
+    {
+        var typeDb = CreateStructTypeDatabase();
+        var views = new List<TypeDecl> { CreateViewWithClassInit("ConfigView", "config", "TestModule.Config") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("Config config", csContent);
+        Assert.Contains("config.Payload.DangerousGetHandle()", csContent);
+    }
+
+    [Fact]
+    public void AsyncFlatParam_BoundStruct_MappedFromBridgeParam()
+    {
+        var bp = new BridgeParameter("config", BridgeParameterKind.BoundStruct,
+            SwiftAbiType: "UnsafeMutableRawPointer", CSharpPInvokeType: "IntPtr",
+            BridgeTypeName: "Config", CSharpTypeName: "Swift.TestModule.Config",
+            StructProjection: StructProjectionKind.NonFrozen);
+
+        // Use reflection to test BridgeParamToFlatParam (private)
+        var method = typeof(SwiftUIBridgeEmitter).GetMethod("BridgeParamToFlatParam",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        var result = method?.Invoke(null, new object[] { bp }) as AsyncFlatParam;
+
+        Assert.NotNull(result);
+        Assert.Equal(AsyncFlatParamKind.BoundStruct, result!.Kind);
+        Assert.Equal("Config", result.BridgeTypeName);
+        Assert.Equal("UnsafeMutableRawPointer", result.SwiftAbiType);
+    }
+
+    [Fact]
+    public void AsyncInference_BoundStruct_IncludedInFlattenedParams()
+    {
+        // Build a simple async pattern with a BoundStruct flattened param.
+        // Config is cross-module (OtherModule.Config) so it resolves via TypeDatabase as a leaf,
+        // not as a same-module type that needs constructor resolution.
+        var moduleDecl = CreateInferenceModuleDecl("TestModule");
+        var asyncService = CreateClassTypeDecl("AsyncService", "TestModule");
+        asyncService.Methods.Add(CreateAsyncThrowsCtor("config", "OtherModule.Config"));
+        moduleDecl.Types.Add(asyncService);
+
+        // Cross-module struct in TypeDatabase
+        var typeDb = new BridgeTestTypeDatabase(new Dictionary<string, TypeRecord>
+        {
+            ["OtherModule.Config"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.OtherModule", "Config"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("OtherModule.Config"),
+                MetadataAccessor = "$s11OtherModule6ConfigVMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct,
+            },
+        });
+
+        var view = CreateSimpleViewStruct("AsyncConfigView");
+        view.Methods.Add(CreateCtorWithNamedParam("service", "TestModule.AsyncService"));
+        moduleDecl.Types.Add(view);
+
+        var info = new ViewBridgeInfo("AsyncConfigView", "TestModule",
+            ViewInitClassification.Simple, null, view.Methods.Where(m => m.IsConstructor).ToList());
+        var context = new BridgeContext(TypeDatabase: typeDb, ModuleDecl: moduleDecl);
+
+        var pattern = SwiftUIBridgeEmitter.InferAsyncPattern(info, context);
+
+        Assert.NotNull(pattern);
+        Assert.Contains(pattern!.FlattenedParams, p => p.Kind == AsyncFlatParamKind.BoundStruct && p.Name == "config");
+    }
+
+    [Fact]
+    public void AsyncEmission_BoundStruct_SwiftUsesPointee()
+    {
+        // Full emission test: async view with BoundStruct leaf param must use .pointee, not Unmanaged.
+        var moduleDecl = CreateInferenceModuleDecl("TestModule");
+        var asyncService = CreateClassTypeDecl("AsyncService", "TestModule");
+        asyncService.Methods.Add(CreateAsyncThrowsCtor("config", "OtherModule.Config"));
+        moduleDecl.Types.Add(asyncService);
+
+        // Cross-module struct in TypeDatabase
+        var typeDb = new BridgeTestTypeDatabase(new Dictionary<string, TypeRecord>
+        {
+            ["OtherModule.Config"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.OtherModule", "Config"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("OtherModule.Config"),
+                MetadataAccessor = "$s11OtherModule6ConfigVMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct,
+            },
+        });
+
+        var view = CreateSimpleViewStruct("AsyncConfigView");
+        view.Methods.Add(CreateCtorWithNamedParam("service", "TestModule.AsyncService"));
+        moduleDecl.Types.Add(view);
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule",
+            new List<TypeDecl> { view }, NullLogger.Instance, typeDb, moduleDecl);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains(".assumingMemoryBound(to: Config.self).pointee", swiftContent);
+        Assert.DoesNotContain("Unmanaged<Config>", swiftContent);
     }
 
     #endregion
@@ -2310,7 +2553,37 @@ public class SwiftUIBridgeEmitterTests : IDisposable
                 CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Config"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Config"),
                 MetadataAccessor = "$s10TestModule6ConfigVMa",
-                Flags = TypeRecordFlags.None,
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct,
+            },
+        });
+    }
+
+    private static ITypeDatabase CreateFrozenWithMemoryStructTypeDatabase()
+    {
+        return new BridgeTestTypeDatabase(new Dictionary<string, TypeRecord>
+        {
+            ["TestModule.Config"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Config"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Config"),
+                MetadataAccessor = "$s10TestModule6ConfigVMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct,
+            },
+        });
+    }
+
+    private static ITypeDatabase CreateFrozenBlittableStructTypeDatabase()
+    {
+        return new BridgeTestTypeDatabase(new Dictionary<string, TypeRecord>
+        {
+            ["TestModule.Config"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Config"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Config"),
+                MetadataAccessor = "$s10TestModule6ConfigVMa",
+                Flags = TypeRecordFlags.Frozen,
                 Kind = TypeRecordKind.Struct,
             },
         });
