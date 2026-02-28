@@ -140,15 +140,15 @@ public static class MethodClosureBridge
         var callbackBaseName = $"MCB_{mangledHash}";
 
         // Determine which non-closure params to pass through (not defaulted)
-        var passableNonClosureParams = new List<(ArgumentDecl arg, string csName, string csType, bool isClass, bool isObjCBridged)>();
+        var passableNonClosureParams = new List<(ArgumentDecl arg, string csName, string csType, ParamAbiCategory category)>();
         foreach (var arg in method.CSSignature.Skip(1))
         {
             if (arg == closureArg) continue;
             if (arg.HasDefaultArg) continue; // Omit defaulted params — Swift fills them
 
             var csName = NameProvider.GetCSharpParameterName(arg);
-            var (csType, isClass, isObjCBridged) = GetNonClosureParamCSharpType(arg, env);
-            passableNonClosureParams.Add((arg, csName, csType, isClass, isObjCBridged));
+            var (csType, category) = GetNonClosureParamCSharpType(arg, env);
+            passableNonClosureParams.Add((arg, csName, csType, category));
         }
 
         // Emit Swift wrapper
@@ -203,7 +203,7 @@ public static class MethodClosureBridge
         ArgumentDecl closureArg,
         ClosureTypeSpec closureTypeSpec,
         List<TypeSpec> closureArgs,
-        List<(ArgumentDecl arg, string csName, string csType, bool isClass, bool isObjCBridged)> passableNonClosureParams,
+        List<(ArgumentDecl arg, string csName, string csType, ParamAbiCategory category)> passableNonClosureParams,
         string callbackBaseName)
     {
         bool isInstance = method.MethodType != MethodType.Static && parentDecl != null;
@@ -216,7 +216,7 @@ public static class MethodClosureBridge
         var swiftParams = new List<string>();
 
         // Non-closure passable params first
-        foreach (var (arg, csName, _, isClass, _) in passableNonClosureParams)
+        foreach (var (arg, csName, _, category) in passableNonClosureParams)
         {
             var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec);
             var paramName = NameProvider.EscapeSwiftKeyword(csName);
@@ -298,7 +298,7 @@ public static class MethodClosureBridge
         // Build call to original method
         var callLabel = GetSwiftArgLabel(closureArg);
         var nonClosureCallArgs = new List<string>();
-        foreach (var (arg, csName, _, _, _) in passableNonClosureParams)
+        foreach (var (arg, csName, _, _) in passableNonClosureParams)
         {
             var label = GetSwiftArgLabel(arg);
             var paramName = NameProvider.EscapeSwiftKeyword(csName);
@@ -516,25 +516,27 @@ public static class MethodClosureBridge
         MethodDecl method,
         string asyncLibName,
         ArgumentDecl closureArg,
-        List<(ArgumentDecl arg, string csName, string csType, bool isClass, bool isObjCBridged)> passableNonClosureParams,
+        List<(ArgumentDecl arg, string csName, string csType, ParamAbiCategory category)> passableNonClosureParams,
         string callbackBaseName,
         MethodEnvironment env)
     {
         var pinvokeParams = new List<string>();
 
         // Non-closure passable params
-        foreach (var (arg, csName, csType, isClass, _) in passableNonClosureParams)
+        foreach (var (arg, csName, csType, category) in passableNonClosureParams)
         {
-            if (isClass)
-                pinvokeParams.Add($"IntPtr {csName}");
-            else
+            switch (category)
             {
-                // Primitive — use the P/Invoke type
-                var pinvokeType = GetPInvokePrimitiveType(arg.SwiftTypeSpec);
-                if (MarshallingHelpers.IsBoolType(arg.SwiftTypeSpec))
-                    pinvokeParams.Add($"[MarshalAs(UnmanagedType.U1)] bool {csName}");
-                else
-                    pinvokeParams.Add($"{pinvokeType} {csName}");
+                case ParamAbiCategory.PayloadHandle:
+                case ParamAbiCategory.ObjCHandle:
+                    pinvokeParams.Add($"IntPtr {csName}");
+                    break;
+                case ParamAbiCategory.Primitive:
+                    if (MarshallingHelpers.IsBoolType(arg.SwiftTypeSpec))
+                        pinvokeParams.Add($"[MarshalAs(UnmanagedType.U1)] bool {csName}");
+                    else
+                        pinvokeParams.Add($"{GetPInvokePrimitiveType(arg.SwiftTypeSpec)} {csName}");
+                    break;
             }
         }
 
@@ -585,7 +587,7 @@ public static class MethodClosureBridge
         ArgumentDecl closureArg,
         List<TypeSpec> closureArgs,
         bool closureReturnIsVoid,
-        List<(ArgumentDecl arg, string csName, string csType, bool isClass, bool isObjCBridged)> passableNonClosureParams,
+        List<(ArgumentDecl arg, string csName, string csType, ParamAbiCategory category)> passableNonClosureParams,
         string callbackBaseName,
         string closureParamName,
         MethodEnvironment env,
@@ -633,7 +635,7 @@ public static class MethodClosureBridge
 
         // Build public parameter list — non-closure passable + closure delegate
         var publicParams = new List<string>();
-        foreach (var (_, csName, csType, _, _) in passableNonClosureParams)
+        foreach (var (_, csName, csType, _) in passableNonClosureParams)
         {
             publicParams.Add($"{csType} {csName}");
         }
@@ -717,19 +719,20 @@ public static class MethodClosureBridge
         var callArgs = new List<string>();
 
         // Non-closure passable params
-        foreach (var (arg, csName, _, isClass, isObjCBridged) in passableNonClosureParams)
+        foreach (var (arg, csName, _, category) in passableNonClosureParams)
         {
-            if (isClass)
+            switch (category)
             {
-                // ObjC-bridged types (UIViewController, etc.) use .Handle;
-                // Swift-native classes use .Payload.DangerousGetHandle()
-                if (isObjCBridged)
+                case ParamAbiCategory.ObjCHandle:
                     callArgs.Add($"{csName}.Handle");
-                else
+                    break;
+                case ParamAbiCategory.PayloadHandle:
                     callArgs.Add($"{csName}.Payload.DangerousGetHandle()");
+                    break;
+                case ParamAbiCategory.Primitive:
+                    callArgs.Add(csName);
+                    break;
             }
-            else
-                callArgs.Add(csName);
         }
 
         // Closure funcPtr + context
@@ -902,32 +905,18 @@ public static class MethodClosureBridge
     }
 
     /// <summary>
-    /// Checks if a non-closure parameter can be passed through (class, primitive) or omitted (default).
+    /// Checks if a non-closure parameter can be passed through or omitted (default).
+    /// Uses ParamAbiCategory to classify: Primitive, ObjCHandle, and PayloadHandle are passable.
     /// </summary>
     private static bool IsNonClosureParamPassable(ArgumentDecl arg, ITypeDatabase typeDatabase)
     {
         // Params with defaults are omitted — Swift fills them
         if (arg.HasDefaultArg) return true;
 
-        var typeSpec = arg.SwiftTypeSpec;
-        if (typeSpec is not NamedTypeSpec named) return false;
-
-        // Primitives
-        if (MarshallingHelpers.IsSwiftPrimitive(named.Name)) return true;
-
-        // Classes
-        try
-        {
-            if (typeDatabase.TryGetTypeRecord(
-                SwiftTypeName.FromModuleQualifiedName(named.Name), out var record))
-            {
-                return record.Kind == TypeRecordKind.Class ||
-                       MarshallingHelpers.IsObjCBridged(record);
-            }
-        }
-        catch (ArgumentException) { }
-
-        return false;
+        var category = ClassifyParam(arg, typeDatabase);
+        return category is ParamAbiCategory.Primitive
+            or ParamAbiCategory.ObjCHandle
+            or ParamAbiCategory.PayloadHandle;
     }
 
     /// <summary>
@@ -958,29 +947,28 @@ public static class MethodClosureBridge
     }
 
     /// <summary>
-    /// Gets the C# type, class flag, and ObjC-bridged flag for a non-closure parameter.
-    /// ObjC-bridged types use .Handle; Swift-native classes use .Payload.DangerousGetHandle().
+    /// Gets the C# type and ABI category for a non-closure parameter.
     /// </summary>
-    private static (string csType, bool isClass, bool isObjCBridged) GetNonClosureParamCSharpType(
+    private static (string csType, ParamAbiCategory category) GetNonClosureParamCSharpType(
         ArgumentDecl arg, MethodEnvironment env)
     {
+        var category = ClassifyParam(arg, env.TypeDatabase);
         var typeSpec = arg.SwiftTypeSpec;
-        if (typeSpec is NamedTypeSpec named)
+
+        switch (category)
         {
-            if (MarshallingHelpers.IsSwiftPrimitive(named.Name))
-            {
-                var csType = GetCSharpPrimitiveType(named.Name);
-                return (csType, false, false);
-            }
+            case ParamAbiCategory.Primitive:
+                return (GetCSharpPrimitiveType(((NamedTypeSpec)typeSpec).Name), category);
 
-            if (env.TypeDatabase.TryGetTypeRecord(typeSpec, out var record))
-            {
-                bool isObjC = MarshallingHelpers.IsObjCBridged(record);
-                return (record.CSharpTypeName.FullyQualifiedName, true, isObjC);
-            }
+            case ParamAbiCategory.ObjCHandle:
+            case ParamAbiCategory.PayloadHandle:
+                if (env.TypeDatabase.TryGetTypeRecord(typeSpec, out var record))
+                    return (record.CSharpTypeName.FullyQualifiedName, category);
+                return ("IntPtr", category);
+
+            default:
+                return ("IntPtr", ParamAbiCategory.Unsupported);
         }
-
-        return ("IntPtr", true, false);
     }
 
     /// <summary>
@@ -1191,4 +1179,89 @@ public static class MethodClosureBridge
             return $"{name.Substring(1)}: "; // Strip leading underscore
         return $"{name}: ";
     }
+
+    // ─── ParamAbiCategory ─────────────────────────────────────────────
+
+    /// <summary>
+    /// Classifies a non-closure parameter's ABI category for the MethodClosureBridge.
+    /// Determines both eligibility (which types are passable) and emission
+    /// (how the param is passed in Swift wrapper, P/Invoke, and public method).
+    /// </summary>
+    internal enum ParamAbiCategory
+    {
+        /// <summary>Swift primitives (Int, Bool, Double, etc.) — pass by value.</summary>
+        Primitive,
+        /// <summary>ObjC-bridged classes (UIView, UIImage) — use .Handle for IntPtr.</summary>
+        ObjCHandle,
+        /// <summary>Swift-native classes and non-frozen structs — use .Payload.DangerousGetHandle() for IntPtr.</summary>
+        PayloadHandle,
+        /// <summary>Native-remapped types (Foundation.URL → NSUrl) — NOT passable. Requires FromX/ToX conversion.</summary>
+        NativeRemapped,
+        /// <summary>Frozen structs (by-value or Buffer) — NOT passable. Would need Buffer/.Value marshalling.</summary>
+        FrozenStruct,
+        /// <summary>Pointer/buffer types (UnsafePointer, etc.) — NOT passable. Mapped to System.IntPtr, no Payload.</summary>
+        PointerType,
+        /// <summary>Unknown/unresolvable type — NOT passable.</summary>
+        Unsupported,
+    }
+
+    /// <summary>
+    /// Classifies a non-closure parameter's ABI category based on type database lookup.
+    /// </summary>
+    internal static ParamAbiCategory ClassifyParam(ArgumentDecl arg, ITypeDatabase typeDatabase)
+    {
+        var typeSpec = arg.SwiftTypeSpec;
+        if (typeSpec is not NamedTypeSpec named)
+            return ParamAbiCategory.Unsupported;
+
+        if (MarshallingHelpers.IsSwiftPrimitive(named.Name))
+            return ParamAbiCategory.Primitive;
+
+        if (IsSwiftPointerType(named.Name))
+            return ParamAbiCategory.PointerType;
+
+        try
+        {
+            if (typeDatabase.TryGetTypeRecord(
+                SwiftTypeName.FromModuleQualifiedName(named.Name), out var record))
+            {
+                if (MarshallingHelpers.IsObjCBridged(record))
+                    return ParamAbiCategory.ObjCHandle;
+
+                // Native-remapped types (Foundation.URL → NSUrl, Foundation.Data → NSData)
+                // require FromX/ToX conversion that MethodClosureBridge doesn't emit.
+                // Must be checked before struct/class classification.
+                if (record.NativeTypeName != null)
+                    return ParamAbiCategory.NativeRemapped;
+
+                if (record.Kind == TypeRecordKind.Class)
+                    return ParamAbiCategory.PayloadHandle;
+
+                if (record.Kind == TypeRecordKind.Struct)
+                {
+                    // Non-frozen structs → NonFrozenStructProjection → SafeHandle with Payload
+                    // (TypeProjectionFactory.cs:283-285)
+                    if (!MarshallingHelpers.IsTypeFrozen(record))
+                        return ParamAbiCategory.PayloadHandle;
+
+                    // Frozen structs → BlittableProjection or FrozenWithMemoryProjection
+                    return ParamAbiCategory.FrozenStruct;
+                }
+            }
+        }
+        catch (ArgumentException) { }
+
+        return ParamAbiCategory.Unsupported;
+    }
+
+    /// <summary>
+    /// Determines whether a Swift type name represents a pointer type.
+    /// Pointer types are mapped to System.IntPtr and have no Payload — not passable.
+    /// </summary>
+    private static bool IsSwiftPointerType(string name) =>
+        name is "Swift.UnsafePointer" or "Swift.UnsafeMutablePointer"
+            or "Swift.UnsafeRawPointer" or "Swift.UnsafeMutableRawPointer"
+            or "Swift.UnsafeBufferPointer" or "Swift.UnsafeMutableBufferPointer"
+            or "Swift.UnsafeRawBufferPointer" or "Swift.UnsafeMutableRawBufferPointer"
+            or "Swift.OpaquePointer" or "Builtin.RawPointer";
 }

@@ -55,7 +55,7 @@ These are the libraries that would actually be consumed in a .NET for iOS app:
 | `await pipeline.ImageAsync(request)` | **Works** | Returns `Task<UIImage>` with CancellationToken |
 | `await pipeline.ImageAsync(nsUrl)` | **Works** | NSUrl overload |
 | `await pipeline.DataAsync(request)` | **Works** | Returns `(byte[], NSUrlResponse?)` |
-| `pipeline.LoadImage(request, completion)` | **Blocked** | `Result<T,E>` closure not bridgeable |
+| `pipeline.LoadImage(request, completion)` | **Compiles** | `Result<T,E>` closure via MethodClosureBridge; runtime needs NativeAOT (SB0001) |
 | `NukeExtensions.loadImage(into: imageView)` | **Blocked** | NukeExtensions not emitted |
 | `ImagePrefetcher._startPrefetching([requests])` | **Works** | Underscore name, only ImageRequest[] overload |
 | `prefetcher.StartPrefetching([urls])` | **Blocked** | `[Foundation.URL]` can't satisfy ISwiftObject |
@@ -320,7 +320,7 @@ await mapView.GetDistanceAsync(to, from, accessible: true);
 
 ## Root Cause Analysis
 
-Six root causes account for all blockers across all 9 libraries:
+Seven root causes account for all blockers across all 9 libraries:
 
 ### 1. ~~Missing public constructors on settings/config types~~ FIXED
 **Affected**: BlinkID (`BlinkIDSdkSettings`), ~~BlinkIDUX (`BlinkIDUXModel`)~~
@@ -333,11 +333,9 @@ Six root causes account for all blockers across all 9 libraries:
 **Pattern**: `func connect(_ protocol: String) -> any Card` — the return type is an existential that can't be dispatched through the witness table
 **Likely fix**: This is the hardest structural issue. Would require generating Swift wrapper functions that receive the existential, box it, and return a concrete handle. Multi-session effort.
 
-### 3. Closure params with `Result<T,E>` or complex generic enums
+### ~~3. Closure params with `Result<T,E>` or complex generic enums~~ FIXED
 **Affected**: Nuke (`loadImage(with:completion:)`)
-**Impact**: Callback-based image loading blocked
-**Pattern**: Completion handler type is `(Result<ImageResponse, Error>) -> Void` — `Result` is a Swift enum, not a class, and has two generic params
-**Likely fix**: Extend `MethodClosureBridge` to handle `Result<T,E>` specifically, or project it to C#'s `Action<T?, Exception?>` pattern.
+**Status**: **Fixed** — `ParamAbiCategory` classifier in `MethodClosureBridge` now classifies non-frozen structs (like `ImageRequest`) as `PayloadHandle`, passing them via `Payload.DangerousGetHandle()`. `Result<T,E>` closure args were already handled by the B20 carve-out. `loadImage(with:completion:)` now compiles with `Action<SwiftResult<ImageResponse, ImagePipeline.Error>>` callback.
 
 ### 4. Missing Apple framework types — TWO DISTINCT SUB-PROBLEMS
 
@@ -360,6 +358,13 @@ Six root causes account for all blockers across all 9 libraries:
 **Affected**: Mappedin (`loadVenue`, `showVenue`, `PathManager.remove`)
 **Status**: **Fixed** — Extended `ExistentialBypassEmitter` to classify `Optional<Closure>` params with `HasDefaultArg=true` as omittable. Swift wrapper omits these params, Swift fills `nil`. `MemberEmissionValidator.ShouldSkipMethodEmission` B20 carve-out allows methods through; `CanEmitMethod` stays conservative (protocol conformance unaffected). Reduced-signature dedup via `BuildReducedMethodDecl` prevents CS0111 when param stripping creates duplicates. Bridge emitter ordering preserved: GenericClosureBridge → ProtocolExtensionClosureBridge → MethodClosureBridge → OptionalClosureBypass (bypass runs last, never preempts bridge-eligible methods). 14 unit tests added across `ThirdPartyValidationFixTestsV4.cs` and `MethodHandlerOutputTests.cs`.
 
+### 7. Non-simple enum property Buffer marshalling
+**Affected**: Lottie (`LoopMode` property getter/setter)
+**Impact**: Can't set `animView.LoopMode = .Loop` — must pass `loopMode:` parameter into every `Play()` call instead
+**Pattern**: `LottieLoopMode` is a non-simple enum (has associated values). Property getters/setters for non-simple enums require Buffer marshalling (allocate stack buffer, copy bytes, interpret tag+payload). Method parameters work because they use a different marshalling path.
+**Workaround**: `animView.Play(from: 0, to: 1, loopMode: .loop)` — functional but verbose.
+**Likely fix**: Extend enum property emission to handle Buffer marshalling for non-simple enums (getter: marshal from buffer to C# enum; setter: marshal C# enum to buffer).
+
 ## Fix Priority (by library impact)
 
 | Priority | Root Cause | Libraries Unblocked | Effort | Status |
@@ -368,23 +373,24 @@ Six root causes account for all blockers across all 9 libraries:
 | ~~2a~~ | ~~ObjC enums missing from type database (#4a)~~ | ~~Lottie, FSPagerView, Kingfisher, Stripe, PhoneNumberKit~~ | ~~Small~~ | **DONE** |
 | ~~2b~~ | ~~`Optional<Closure>` with default value (#6)~~ | ~~Mappedin (fully — `loadVenue` entry point)~~ | ~~Small~~ | **DONE** |
 | ~~3~~ | ~~SwiftUI module gate (#4b)~~ | ~~BlinkIDUX, MicroblinkPlatform, Parchment, SVGView~~ | ~~Small~~ | **DONE** |
-| 4 | Result<T,E> closure bridge (#3) | Nuke (`loadImage` callback path) | Medium-Large | |
+| ~~4~~ | ~~Result<T,E> closure bridge (#3)~~ | ~~Nuke (`loadImage` callback path)~~ | ~~Medium-Large~~ | **DONE** |
 | 5 | Protocol existential returns (#2) | SmartCardIO (fully — all 5 workflows) | Large — structural | |
+| 6 | Non-simple enum Buffer marshalling (#7) | Lottie (`LoopMode` property) | Medium | |
 
 ### What to investigate next
 
-Note: Lottie's `LoopMode` property is a *separate* issue (non-simple enum property Buffer marshalling), not UIKit types. The `loopMode` parameter in `Play()` methods already works.
-
-**Priority #4 (Result closure bridge)** helps Nuke's callback path only — async path already works.
+~~**Priority #4 (Result closure bridge)** helps Nuke's callback path only — async path already works.~~ **DONE** — `loadImage(with:completion:)` now compiles. `ParamAbiCategory` classifier enables non-frozen struct params in MethodClosureBridge.
 
 **Priority #5 (protocol existential returns)** is the highest-impact structural fix — it would take SmartCardIO from completely blocked to fully usable. Requires generating Swift wrapper functions that receive existentials, box them, and return concrete handles — multi-session effort.
+
+**Priority #6 (non-simple enum Buffer marshalling)** — Lottie's `LoopMode` property getter/setter is blocked. The `loopMode` parameter in `Play()` already works (passed by value). Workaround: pass `loopMode:` into every `Play()` call instead of setting the property.
 
 ## Summary
 
 | Library | Verdict | Blocker |
 |---|---|---|
 | **Lottie** | USABLE | LoopMode property (workaround: pass in Play()) |
-| **Nuke** | USABLE (async) | Callback path blocked (Result closure) |
+| **Nuke** | USABLE (async+callback) | Callback `LoadImage` compiles (SB0001 runtime risk) |
 | **BlinkID** | USABLE | CameraFrame constructor (use UIImage path) |
 | **Stripe** | USABLE | Cross-module `apiClient` property (not blocking) |
 | **MicroblinkPlatform** | USABLE (NativeAOT) | SB0001 on constructor (Mono JIT) |

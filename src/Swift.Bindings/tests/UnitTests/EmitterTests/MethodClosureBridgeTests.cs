@@ -267,6 +267,330 @@ public class MethodClosureBridgeTests
         Assert.Contains("static unsafe", cs);
     }
 
+    // ─── ClassifyParam ─────────────────────────────────────────────────
+
+    [Fact]
+    public void ClassifyParam_Primitive_ReturnsPrimitive()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var arg = CreateArgument("value", new NamedTypeSpec("Swift.Int"), CreateModuleDecl("TestModule"));
+
+        var result = MethodClosureBridge.ClassifyParam(arg, typeDatabase);
+
+        Assert.Equal(MethodClosureBridge.ParamAbiCategory.Primitive, result);
+    }
+
+    [Fact]
+    public void ClassifyParam_Class_ReturnsPayloadHandle()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var arg = CreateArgument("obj", new NamedTypeSpec("TestModule.MyClass"), CreateModuleDecl("TestModule"));
+
+        var result = MethodClosureBridge.ClassifyParam(arg, typeDatabase);
+
+        Assert.Equal(MethodClosureBridge.ParamAbiCategory.PayloadHandle, result);
+    }
+
+    [Fact]
+    public void ClassifyParam_ObjCBridged_ReturnsObjCHandle()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var arg = CreateArgument("error", new NamedTypeSpec("Foundation.NSError"), CreateModuleDecl("TestModule"));
+
+        var result = MethodClosureBridge.ClassifyParam(arg, typeDatabase);
+
+        Assert.Equal(MethodClosureBridge.ParamAbiCategory.ObjCHandle, result);
+    }
+
+    [Fact]
+    public void ClassifyParam_NonFrozenStruct_ReturnsPayloadHandle()
+    {
+        // DataResponse has Flags = None (not frozen), Kind = Struct → non-frozen struct
+        var typeDatabase = CreateTypeDatabase();
+        var arg = CreateArgument("req", new NamedTypeSpec("TestModule.DataResponse"), CreateModuleDecl("TestModule"));
+
+        var result = MethodClosureBridge.ClassifyParam(arg, typeDatabase);
+
+        Assert.Equal(MethodClosureBridge.ParamAbiCategory.PayloadHandle, result);
+    }
+
+    [Fact]
+    public void ClassifyParam_FrozenStruct_ReturnsFrozenStruct()
+    {
+        var typeDatabase = CreateTypeDatabaseWithExtendedTypes();
+        var arg = CreateArgument("point", new NamedTypeSpec("TestModule.FrozenPoint"), CreateModuleDecl("TestModule"));
+
+        var result = MethodClosureBridge.ClassifyParam(arg, typeDatabase);
+
+        Assert.Equal(MethodClosureBridge.ParamAbiCategory.FrozenStruct, result);
+    }
+
+    [Fact]
+    public void ClassifyParam_FrozenWithMemory_ReturnsFrozenStruct()
+    {
+        var typeDatabase = CreateTypeDatabaseWithExtendedTypes();
+        var arg = CreateArgument("container", new NamedTypeSpec("TestModule.FrozenContainer"), CreateModuleDecl("TestModule"));
+
+        var result = MethodClosureBridge.ClassifyParam(arg, typeDatabase);
+
+        Assert.Equal(MethodClosureBridge.ParamAbiCategory.FrozenStruct, result);
+    }
+
+    [Fact]
+    public void ClassifyParam_PointerType_ReturnsPointerType()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var arg = CreateArgument("ptr", new NamedTypeSpec("Swift.UnsafePointer"), CreateModuleDecl("TestModule"));
+
+        var result = MethodClosureBridge.ClassifyParam(arg, typeDatabase);
+
+        Assert.Equal(MethodClosureBridge.ParamAbiCategory.PointerType, result);
+    }
+
+    [Fact]
+    public void ClassifyParam_BufferPointerType_ReturnsPointerType()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var arg = CreateArgument("buf", new NamedTypeSpec("Swift.UnsafeBufferPointer"), CreateModuleDecl("TestModule"));
+
+        var result = MethodClosureBridge.ClassifyParam(arg, typeDatabase);
+
+        Assert.Equal(MethodClosureBridge.ParamAbiCategory.PointerType, result);
+    }
+
+    [Fact]
+    public void ClassifyParam_NativeRemapped_ReturnsNativeRemapped()
+    {
+        var typeDatabase = CreateTypeDatabaseWithExtendedTypes();
+        var arg = CreateArgument("url", new NamedTypeSpec("Foundation.URL"), CreateModuleDecl("TestModule"));
+
+        var result = MethodClosureBridge.ClassifyParam(arg, typeDatabase);
+
+        Assert.Equal(MethodClosureBridge.ParamAbiCategory.NativeRemapped, result);
+    }
+
+    // ─── IsEligible: ParamAbiCategory integration ────────────────────
+
+    [Fact]
+    public void IsEligible_ResultClosure_NonFrozenStructParam_ReturnsTrue()
+    {
+        var typeDatabase = CreateTypeDatabaseWithResultTypes();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        // Closure: (Result<MyData, MyError>) -> Void (bound generic)
+        var resultArg = new NamedTypeSpec("Swift.Result",
+            new NamedTypeSpec("TestModule.MyData"), new NamedTypeSpec("TestModule.MyError"));
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)resultArg }), TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        // Non-closure param: ImageRequest (non-frozen struct)
+        var method = CreateMethodDeclWithNonClosureParam("loadImage", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closureType, "completion",
+            new NamedTypeSpec("TestModule.ImageRequest"), "request");
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.True(MethodClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    [Fact]
+    public void IsEligible_ResultClosure_FrozenStructParam_ReturnsFalse()
+    {
+        var typeDatabase = CreateTypeDatabaseWithResultTypes();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        var resultArg = new NamedTypeSpec("Swift.Result",
+            new NamedTypeSpec("TestModule.MyData"), new NamedTypeSpec("TestModule.MyError"));
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)resultArg }), TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        // Non-closure param: FrozenPoint (frozen struct) — NOT passable
+        var method = CreateMethodDeclWithNonClosureParam("loadImage", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closureType, "completion",
+            new NamedTypeSpec("TestModule.FrozenPoint"), "point");
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.False(MethodClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    [Fact]
+    public void IsEligible_ResultClosure_PointerStructParam_ReturnsFalse()
+    {
+        var typeDatabase = CreateTypeDatabaseWithResultTypes();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        var resultArg = new NamedTypeSpec("Swift.Result",
+            new NamedTypeSpec("TestModule.MyData"), new NamedTypeSpec("TestModule.MyError"));
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)resultArg }), TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        // Non-closure param: UnsafePointer — NOT passable
+        var method = CreateMethodDeclWithNonClosureParam("loadImage", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closureType, "completion",
+            new NamedTypeSpec("Swift.UnsafePointer"), "ptr");
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.False(MethodClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    [Fact]
+    public void IsEligible_ResultClosure_NativeRemappedParam_ReturnsFalse()
+    {
+        var typeDatabase = CreateTypeDatabaseWithResultTypes();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        var resultArg = new NamedTypeSpec("Swift.Result",
+            new NamedTypeSpec("TestModule.MyData"), new NamedTypeSpec("TestModule.MyError"));
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)resultArg }), TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        // Non-closure param: Foundation.URL (native-remapped) — NOT passable
+        var method = CreateMethodDeclWithNonClosureParam("loadImage", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closureType, "completion",
+            new NamedTypeSpec("Foundation.URL"), "url");
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.False(MethodClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    [Fact]
+    public void IsEligible_ResultClosure_ClassParam_ReturnsTrue()
+    {
+        var typeDatabase = CreateTypeDatabaseWithResultTypes();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        var resultArg = new NamedTypeSpec("Swift.Result",
+            new NamedTypeSpec("TestModule.MyData"), new NamedTypeSpec("TestModule.MyError"));
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)resultArg }), TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        // Non-closure param: MyData (Swift class) — passable
+        var method = CreateMethodDeclWithNonClosureParam("loadImage", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closureType, "completion",
+            new NamedTypeSpec("TestModule.MyData"), "data");
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.True(MethodClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    [Fact]
+    public void IsEligible_ResultClosure_ObjCParam_ReturnsTrue()
+    {
+        var typeDatabase = CreateTypeDatabaseWithResultTypes();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        var resultArg = new NamedTypeSpec("Swift.Result",
+            new NamedTypeSpec("TestModule.MyData"), new NamedTypeSpec("TestModule.MyError"));
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)resultArg }), TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        // Non-closure param: NSError (ObjC-bridged) — passable
+        var method = CreateMethodDeclWithNonClosureParam("loadImage", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closureType, "completion",
+            new NamedTypeSpec("Foundation.NSError"), "error");
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.True(MethodClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    // ─── TryEmit: Non-frozen struct params ────────────────────────────
+
+    [Fact]
+    public void TryEmit_NonFrozenStructParam_EmitsPayloadDangerousGetHandle()
+    {
+        var typeDatabase = CreateTypeDatabaseWithResultTypes();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        var resultArg = new NamedTypeSpec("Swift.Result",
+            new NamedTypeSpec("TestModule.MyData"), new NamedTypeSpec("TestModule.MyError"));
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)resultArg }), TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDeclWithNonClosureParam("loadImage", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closureType, "completion",
+            new NamedTypeSpec("TestModule.ImageRequest"), "request");
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(new StringWriter());
+
+        MethodClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
+
+        var cs = csOutput.ToString();
+        // Non-frozen struct params use .Payload.DangerousGetHandle() (same ABI as classes)
+        Assert.Contains("request.Payload.DangerousGetHandle()", cs);
+    }
+
+    [Fact]
+    public void TryEmit_ResultClosureArg_EmitsWithUnsafePointer()
+    {
+        var typeDatabase = CreateTypeDatabaseWithResultTypes();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        var resultArg = new NamedTypeSpec("Swift.Result",
+            new NamedTypeSpec("TestModule.MyData"), new NamedTypeSpec("TestModule.MyError"));
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)resultArg }), TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDeclWithNonClosureParam("loadImage", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closureType, "completion",
+            new NamedTypeSpec("TestModule.ImageRequest"), "request");
+        var env = new MethodEnvironment(method, typeDatabase);
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+        var csWriter = new CSharpWriter(new StringWriter());
+
+        MethodClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
+
+        var swift = swiftOutput.ToString();
+        // Result<T,E> is a value type — needs withUnsafePointer wrapping
+        Assert.Contains("withUnsafePointer(to:", swift);
+    }
+
+    [Fact]
+    public void TryEmit_ResultClosureArg_EmitsSwiftMarshalForResult()
+    {
+        var typeDatabase = CreateTypeDatabaseWithResultTypes();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        var resultArg = new NamedTypeSpec("Swift.Result",
+            new NamedTypeSpec("TestModule.MyData"), new NamedTypeSpec("TestModule.MyError"));
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)resultArg }), TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDeclWithNonClosureParam("loadImage", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closureType, "completion",
+            new NamedTypeSpec("TestModule.ImageRequest"), "request");
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(new StringWriter());
+
+        MethodClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
+
+        var cs = csOutput.ToString();
+        // Result<T,E> closure args come as IntPtr, marshalled via SwiftMarshal.MarshalFromSwift
+        // BoundGenericsHandler produces fully-qualified names
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<Swift.Runtime.SwiftResult<Swift.TestModule.MyData, Swift.TestModule.MyError>>", cs);
+    }
+
     // ─── Helper Methods ───────────────────────────────────────────────
 
     /// <summary>
@@ -594,5 +918,255 @@ public class MethodClosureBridgeTests
             ParentDecl = null,
             ModuleDecl = moduleDecl
         };
+    }
+
+    /// <summary>
+    /// Creates a type database with extended types for classifier tests:
+    /// FrozenPoint (frozen struct), FrozenContainer (frozen + memory), Foundation.URL (native-remapped).
+    /// Each module has its own separate database since TypeDatabase rejects duplicate modules.
+    /// </summary>
+    private static TypeDatabase CreateTypeDatabaseWithExtendedTypes()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        // Swift module — primitives
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "IntPtr"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Boolean"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+                MetadataAccessor = "$sSbMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        // Foundation module — ObjC-bridged + native-remapped
+        var foundationModule = new ModuleTypeDatabase("Foundation", "/usr/lib/swift/libswiftFoundation.dylib");
+        foundationModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Foundation.NSError"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSError"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.NSError"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        foundationModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Foundation.URL"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "URL"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.URL"),
+                MetadataAccessor = "$s10Foundation3URLVMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct,
+                NativeTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSUrl")
+            });
+        typeDatabase.AddModuleDatabase(foundationModule);
+
+        // TestModule — all test types in one module
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.MyClass"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "MyClass"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyClass"),
+                MetadataAccessor = "$s10TestModule7MyClassCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.DataResponse"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "DataResponse"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.DataResponse"),
+                MetadataAccessor = "$s10TestModule12DataResponseVMa",
+                Flags = TypeRecordFlags.None, // Non-frozen struct
+                Kind = TypeRecordKind.Struct
+            });
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.MyData"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "MyData"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyData"),
+                MetadataAccessor = "$s10TestModule6MyDataCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.FrozenPoint"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "FrozenPoint"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.FrozenPoint"),
+                MetadataAccessor = "$s10TestModule11FrozenPointVMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.FrozenContainer"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "FrozenContainer"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.FrozenContainer"),
+                MetadataAccessor = "$s10TestModule15FrozenContainerVMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(testModule);
+
+        return typeDatabase;
+    }
+
+    /// <summary>
+    /// Creates a type database with Result-related types for eligibility/emission tests:
+    /// Swift.Result, TestModule.ImageRequest (non-frozen struct), TestModule.MyError (non-simple enum),
+    /// plus all extended types.
+    /// </summary>
+    private static TypeDatabase CreateTypeDatabaseWithResultTypes()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        // Swift module — primitives + Result
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "IntPtr"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Boolean"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+                MetadataAccessor = "$sSbMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Result"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Runtime", "SwiftResult"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Result"),
+                MetadataAccessor = "$ss6ResultOMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Enum
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        // Foundation module — ObjC-bridged + native-remapped
+        var foundationModule = new ModuleTypeDatabase("Foundation", "/usr/lib/swift/libswiftFoundation.dylib");
+        foundationModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Foundation.NSError"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSError"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.NSError"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        foundationModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Foundation.URL"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "URL"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.URL"),
+                MetadataAccessor = "$s10Foundation3URLVMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct,
+                NativeTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSUrl")
+            });
+        typeDatabase.AddModuleDatabase(foundationModule);
+
+        // TestModule — all types including Nuke-like Result types
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.MyClass"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "MyClass"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyClass"),
+                MetadataAccessor = "$s10TestModule7MyClassCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.DataResponse"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "DataResponse"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.DataResponse"),
+                MetadataAccessor = "$s10TestModule12DataResponseVMa",
+                Flags = TypeRecordFlags.None, // Non-frozen struct
+                Kind = TypeRecordKind.Struct
+            });
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.MyData"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "MyData"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyData"),
+                MetadataAccessor = "$s10TestModule6MyDataCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.FrozenPoint"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "FrozenPoint"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.FrozenPoint"),
+                MetadataAccessor = "$s10TestModule11FrozenPointVMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.ImageRequest"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "ImageRequest"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ImageRequest"),
+                MetadataAccessor = "$s10TestModule12ImageRequestVMa",
+                Flags = TypeRecordFlags.None, // Non-frozen struct
+                Kind = TypeRecordKind.Struct
+            });
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.MyError"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "MyError"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyError"),
+                MetadataAccessor = "$s10TestModule7MyErrorOMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement, // Non-simple enum
+                Kind = TypeRecordKind.Enum
+            });
+        typeDatabase.AddModuleDatabase(testModule);
+
+        return typeDatabase;
     }
 }

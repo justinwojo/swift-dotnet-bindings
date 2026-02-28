@@ -473,6 +473,152 @@ public class ThirdPartyValidationFixTestsV4
 
     #endregion
 
+    #region Nuke — loadImage Result<T,E> closure + non-frozen struct param
+
+    [Fact]
+    public void Nuke_LoadImage_IsEligibleForMethodClosureBridge()
+    {
+        // Nuke's loadImage(with:completion:) takes:
+        //   with: ImageRequest (non-frozen struct)
+        //   completion: @escaping (Result<ImageResponse, ImagePipeline.Error>) -> Void
+        // This must be eligible for MethodClosureBridge now that non-frozen structs are passable.
+        var typeDatabase = new TypeDatabase();
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Result"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Runtime", "SwiftResult"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Result"),
+                MetadataAccessor = "$ss6ResultOMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Enum
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var nukeModule = new ModuleTypeDatabase("Nuke", "/tmp/Nuke.dylib");
+        nukeModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Nuke.ImagePipeline"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Nuke", "ImagePipeline"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImagePipeline"),
+                MetadataAccessor = "$s4Nuke13ImagePipelineCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        nukeModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Nuke.ImageRequest"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Nuke", "ImageRequest"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImageRequest"),
+                MetadataAccessor = "$s4Nuke12ImageRequestVMa",
+                Flags = TypeRecordFlags.None, // Non-frozen struct
+                Kind = TypeRecordKind.Struct
+            });
+        nukeModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Nuke.ImageResponse"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Nuke", "ImageResponse"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImageResponse"),
+                MetadataAccessor = "$s4Nuke13ImageResponseVMa",
+                Flags = TypeRecordFlags.None, // Non-frozen struct
+                Kind = TypeRecordKind.Struct
+            });
+        nukeModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Nuke.ImagePipeline.Error"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Nuke", "ImagePipelineError"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImagePipeline.Error"),
+                MetadataAccessor = "$s4Nuke13ImagePipelineC5ErrorOMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement, // Non-simple enum
+                Kind = TypeRecordKind.Enum
+            });
+        typeDatabase.AddModuleDatabase(nukeModule);
+
+        // Build: loadImage(with: ImageRequest, completion: @escaping (Result<ImageResponse, ImagePipeline.Error>) -> Void)
+        var nukeModuleDecl = new ModuleDecl
+        {
+            Name = "Nuke",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var pipelineDecl = new ClassDecl
+        {
+            Name = "ImagePipeline",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImagePipeline"),
+            MangledName = "$s4Nuke13ImagePipelineCN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = nukeModuleDecl,
+            ModuleDecl = nukeModuleDecl
+        };
+
+        var resultType = new NamedTypeSpec("Swift.Result",
+            new NamedTypeSpec("Nuke.ImageResponse"),
+            new NamedTypeSpec("Nuke.ImagePipeline.Error"));
+
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)resultType }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = new MethodDecl
+        {
+            Name = "loadImage",
+            MangledName = "$s4Nuke13ImagePipelineC9loadImage4with10completionyAA0dF0V_yAF_AC5ErrorOtctF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "", SwiftTypeSpec = TupleTypeSpec.Empty,
+                    PrivateName = "", IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = nukeModuleDecl
+                },
+                new ArgumentDecl
+                {
+                    Name = "_with", SwiftTypeSpec = new NamedTypeSpec("Nuke.ImageRequest"),
+                    PrivateName = "request", IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = nukeModuleDecl
+                },
+                new ArgumentDecl
+                {
+                    Name = "_completion", SwiftTypeSpec = closureType,
+                    PrivateName = "completion", IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = nukeModuleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = pipelineDecl,
+            ModuleDecl = nukeModuleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var closureHandler = new ClosureHandler(typeDatabase);
+        Assert.True(MethodClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static MethodDecl CreateMethodDecl(string name, string parentTypeName,

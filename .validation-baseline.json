@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-02-28T16:52:13Z",
-  "git_sha": "211e73b",
+  "timestamp": "2026-02-28T18:04:25Z",
+  "git_sha": "fd51468",
   "runtime_version": "0.1.0-preview.5",
   "compile_gate": {
     "total": 53,
@@ -11,7 +11,7 @@
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
-        "lines": 51091,
+        "lines": 51266,
         "gen_seconds": 2
       },
       "BlinkID": {
@@ -26,7 +26,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 11646,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "BRLMPrinterKit": {
         "generate": "ok",
@@ -68,21 +68,21 @@
         "compile": "ok",
         "errors": 0,
         "lines": 35868,
-        "gen_seconds": 3
+        "gen_seconds": 4
       },
       "Mappedin": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 51634,
-        "gen_seconds": 3
+        "gen_seconds": 2
       },
       "MicroblinkPlatform": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 4981,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "Mixpanel": {
         "generate": "fail",
@@ -95,8 +95,8 @@
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
-        "lines": 24604,
-        "gen_seconds": 3
+        "lines": 24694,
+        "gen_seconds": 2
       },
       "RxSwift": {
         "generate": "fail",
@@ -110,14 +110,14 @@
         "compile": "ok",
         "errors": 0,
         "lines": 15158,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "SmartCardIO": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 5017,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "SnapKit": {
         "generate": "ok",
@@ -145,14 +145,14 @@
         "compile": "ok",
         "errors": 0,
         "lines": 3013,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "StripeCameraCore": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 3900,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "StripeCardScan": {
         "generate": "ok",
@@ -166,7 +166,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 14544,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "StripeCore": {
         "generate": "fail",
@@ -180,14 +180,14 @@
         "compile": "ok",
         "errors": 0,
         "lines": 6842,
-        "gen_seconds": 26
+        "gen_seconds": 38
       },
       "StripeFinancialConnections": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 2677,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "StripeIdentity": {
         "generate": "ok",
@@ -214,15 +214,15 @@
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
-        "lines": 50680,
-        "gen_seconds": 9
+        "lines": 50738,
+        "gen_seconds": 15
       },
       "StripePaymentsUI": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 15698,
-        "gen_seconds": 5
+        "gen_seconds": 4
       },
       "StripeUICore": {
         "generate": "fail",
@@ -236,7 +236,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 7150,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "Swinject": {
         "generate": "ok",
@@ -250,7 +250,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 16875,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "Valet": {
         "generate": "fail",
@@ -264,7 +264,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 11074,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "Reachability": {
         "generate": "fail",
@@ -285,14 +285,14 @@
         "compile": "ok",
         "errors": 0,
         "lines": 5498,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "BonMot": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 16445,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "Parchment": {
         "generate": "ok",
@@ -320,7 +320,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 5266,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "SwiftyGif": {
         "generate": "ok",
@@ -341,7 +341,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 4559,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "TinyConstraints": {
         "generate": "fail",
@@ -369,7 +369,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 2994,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "SVGView": {
         "generate": "fail",
