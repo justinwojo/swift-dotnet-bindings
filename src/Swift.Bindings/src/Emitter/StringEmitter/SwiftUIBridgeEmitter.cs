@@ -53,7 +53,7 @@ public static partial class SwiftUIBridgeEmitter
         }
 
         // Determine which views can be functionally bridged
-        var bridgeResults = new List<(ViewBridgeInfo Info, List<BridgeParameter>? Params, AsyncViewPattern? AsyncPattern, bool IsFunctional, List<SynthesizedInitArg>? SynthesizedArgs)>();
+        var bridgeResults = new List<(ViewBridgeInfo Info, List<BridgeParameter>? Params, AsyncViewPattern? AsyncPattern, bool IsFunctional, List<SynthesizedInitArg>? SynthesizedArgs, List<BridgeModifier>? Modifiers)>();
         foreach (var info in viewInfos)
         {
             List<BridgeParameter>? bridgeParams = null;
@@ -106,11 +106,11 @@ public static partial class SwiftUIBridgeEmitter
                 isFunctional = true;
             }
 
-            bridgeResults.Add((info, bridgeParams, asyncPattern, isFunctional, synthesizedArgs));
+            bridgeResults.Add((info, bridgeParams, asyncPattern, isFunctional, synthesizedArgs, info.Modifiers));
         }
 
         // Record bridged views in report
-        foreach (var (info, _, asyncPat, isFunctional, _) in bridgeResults)
+        foreach (var (info, _, asyncPat, isFunctional, _, _) in bridgeResults)
         {
             var status = isFunctional ? "Generated" : "TemplatePending";
             var classification = info.InferredPattern != null
@@ -272,8 +272,9 @@ public static partial class SwiftUIBridgeEmitter
                 return new ViewBridgeInfo(viewType.Name, moduleName, ViewInitClassification.Unsupported,
                     $"{strategy} placeholder not yet implemented", constructors);
 
+            var genericModifiers = AnalyzeModifiers(viewType, moduleName, context);
             return new ViewBridgeInfo(viewType.Name, moduleName, ViewInitClassification.Simple,
-                null, constructors, GenericAnalysis: genericAnalysis);
+                null, constructors, GenericAnalysis: genericAnalysis, Modifiers: genericModifiers);
         }
 
         // 4. Hints asyncPattern (forces async classification; pattern resolved in EmitBridgeFiles)
@@ -303,8 +304,9 @@ public static partial class SwiftUIBridgeEmitter
 
         if (constructors.Count == 0)
         {
+            var noCtorModifiers = AnalyzeModifiers(viewType, moduleName, context);
             return new ViewBridgeInfo(viewType.Name, moduleName, ViewInitClassification.Simple,
-                null, constructors);
+                null, constructors, Modifiers: noCtorModifiers);
         }
 
         // Check each constructor's parameters
@@ -329,8 +331,9 @@ public static partial class SwiftUIBridgeEmitter
             }
         }
 
+        var modifiers = AnalyzeModifiers(viewType, moduleName, context);
         return new ViewBridgeInfo(viewType.Name, moduleName, ViewInitClassification.Simple,
-            null, constructors);
+            null, constructors, Modifiers: modifiers);
     }
 
     /// <summary>
@@ -473,7 +476,7 @@ public static partial class SwiftUIBridgeEmitter
 
     private static string GenerateSwiftBridge(
         string moduleName,
-        List<(ViewBridgeInfo Info, List<BridgeParameter>? Params, AsyncViewPattern? AsyncPattern, bool IsFunctional, List<SynthesizedInitArg>? SynthesizedArgs)> bridgeResults,
+        List<(ViewBridgeInfo Info, List<BridgeParameter>? Params, AsyncViewPattern? AsyncPattern, bool IsFunctional, List<SynthesizedInitArg>? SynthesizedArgs, List<BridgeModifier>? Modifiers)> bridgeResults,
         HashSet<string>? hintImports = null)
     {
         var sb = new StringBuilder();
@@ -530,7 +533,7 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine();
         }
 
-        foreach (var (info, bridgeParams, asyncPattern, isFunctional, synthesizedArgs) in bridgeResults)
+        foreach (var (info, bridgeParams, asyncPattern, isFunctional, synthesizedArgs, modifiers) in bridgeResults)
         {
             if (isFunctional && asyncPattern != null)
             {
@@ -538,7 +541,7 @@ public static partial class SwiftUIBridgeEmitter
             }
             else if (isFunctional)
             {
-                EmitFunctionalSwiftBridge(sb, moduleName, info, bridgeParams!, synthesizedArgs);
+                EmitFunctionalSwiftBridge(sb, moduleName, info, bridgeParams!, synthesizedArgs, modifiers);
             }
             else
             {
@@ -551,7 +554,7 @@ public static partial class SwiftUIBridgeEmitter
 
     private static void EmitFunctionalSwiftBridge(
         StringBuilder sb, string moduleName, ViewBridgeInfo info, List<BridgeParameter> bridgeParams,
-        List<SynthesizedInitArg>? synthesizedArgs = null)
+        List<SynthesizedInitArg>? synthesizedArgs = null, List<BridgeModifier>? modifiers = null)
     {
         var prefix = $"SBW_{moduleName}_{info.ViewName}";
         var sessionClass = $"{prefix}_Session";
@@ -561,18 +564,19 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine();
 
         var hasUpdatableParams = bridgeParams.Any(p => p.IsUpdatable);
+        var hasModifiers = modifiers != null && modifiers.Count > 0;
 
-        // Emit State class and Wrapper view before Session when there are updatable params
-        if (hasUpdatableParams)
+        // Emit State class and Wrapper view before Session when there are updatable params or modifiers
+        if (hasUpdatableParams || hasModifiers)
         {
-            EmitSwiftStateClass(sb, prefix, info, bridgeParams);
-            EmitSwiftWrapperView(sb, prefix, info, bridgeParams, synthesizedArgs);
+            EmitSwiftStateClass(sb, prefix, info, bridgeParams, modifiers);
+            EmitSwiftWrapperView(sb, prefix, info, bridgeParams, synthesizedArgs, modifiers);
         }
 
         // Session class
-        var hostedViewType = GetSwiftHostedViewType(info, bridgeParams);
+        var hostedViewType = GetSwiftHostedViewType(info, bridgeParams, modifiers);
         sb.AppendLine($"final class {sessionClass} {{");
-        if (hasUpdatableParams)
+        if (hasUpdatableParams || hasModifiers)
             sb.AppendLine($"    let state: {prefix}_State");
         sb.AppendLine($"    let hostingController: UIHostingController<{hostedViewType}>");
 
@@ -660,7 +664,7 @@ public static partial class SwiftUIBridgeEmitter
             }
         }
 
-        if (hasUpdatableParams)
+        if (hasUpdatableParams || hasModifiers)
         {
             // Convert ABI params to Swift-native values for state
             EmitSwiftStateConversions(sb, bridgeParams);
@@ -897,6 +901,12 @@ public static partial class SwiftUIBridgeEmitter
         {
             EmitSwiftUpdateFunctions(sb, prefix, sessionClass, handlesVar, bridgeParams);
         }
+
+        // Modifier Set functions
+        if (hasModifiers)
+        {
+            EmitSwiftModifierSetFunctions(sb, prefix, sessionClass, handlesVar, modifiers!);
+        }
     }
 
     #region State/Wrapper/Update Emission
@@ -905,13 +915,31 @@ public static partial class SwiftUIBridgeEmitter
     /// Emits the ObservableObject state class that holds @Published properties for updatable params.
     /// </summary>
     private static void EmitSwiftStateClass(
-        StringBuilder sb, string prefix, ViewBridgeInfo info, List<BridgeParameter> bridgeParams)
+        StringBuilder sb, string prefix, ViewBridgeInfo info, List<BridgeParameter> bridgeParams,
+        List<BridgeModifier>? modifiers = null)
     {
         sb.AppendLine($"final class {prefix}_State: ObservableObject {{");
         foreach (var param in bridgeParams.Where(p => p.IsUpdatable))
         {
             var swiftType = GetSwiftNativeType(param);
             sb.AppendLine($"    @Published var {param.Name}: {swiftType}");
+        }
+
+        // Modifier state vars
+        if (modifiers != null)
+        {
+            foreach (var mod in modifiers)
+            {
+                if (mod.IsParameterless)
+                {
+                    sb.AppendLine($"    @Published var mod_{mod.MethodName}: Bool = false");
+                }
+                else
+                {
+                    var swiftType = GetModifierSwiftStateType(mod.Parameter!);
+                    sb.AppendLine($"    @Published var mod_{mod.MethodName}: {swiftType}? = nil");
+                }
+            }
         }
 
         // Init
@@ -933,8 +961,10 @@ public static partial class SwiftUIBridgeEmitter
     /// </summary>
     private static void EmitSwiftWrapperView(
         StringBuilder sb, string prefix, ViewBridgeInfo info, List<BridgeParameter> bridgeParams,
-        List<SynthesizedInitArg>? synthesizedArgs)
+        List<SynthesizedInitArg>? synthesizedArgs, List<BridgeModifier>? modifiers = null)
     {
+        var hasModifiers = modifiers != null && modifiers.Count > 0;
+
         sb.AppendLine($"struct {prefix}_Wrapper: View {{");
         sb.AppendLine($"    @ObservedObject var state: {prefix}_State");
 
@@ -967,12 +997,42 @@ public static partial class SwiftUIBridgeEmitter
             info.Constructors.Count > 0 ? info.Constructors[info.GenericAnalysis?.SelectedConstructorIndex ?? 0] : null,
             bridgeParams, viewInitArgs, synthesizedArgs);
 
-        if (mergedArgs.Count == 0)
-            sb.AppendLine($"        {info.ViewName}()");
+        var viewExpr = mergedArgs.Count == 0
+            ? $"{info.ViewName}()"
+            : $"{info.ViewName}({string.Join(", ", mergedArgs)})";
+
+        if (hasModifiers)
+            sb.AppendLine($"        applyModifiers({viewExpr})");
         else
-            sb.AppendLine($"        {info.ViewName}({string.Join(", ", mergedArgs)})");
+            sb.AppendLine($"        {viewExpr}");
 
         sb.AppendLine("    }");
+
+        // applyModifiers helper
+        if (hasModifiers)
+        {
+            var concreteType = GetConcreteViewType(info);
+            sb.AppendLine($"    private func applyModifiers(_ view: {concreteType}) -> {concreteType} {{");
+            sb.AppendLine($"        var result = view");
+            foreach (var mod in modifiers!)
+            {
+                if (mod.IsParameterless)
+                {
+                    sb.AppendLine($"        if state.mod_{mod.MethodName} {{ result = result.{mod.MethodName}() }}");
+                }
+                else
+                {
+                    var paramName = mod.Parameter!.Name;
+                    // Unnamed params (external label is _ or parser-synthesized argN) need no label
+                    var isUnlabeled = paramName == "_" || NameProvider.IsGeneratedArgName(paramName);
+                    var callArg = isUnlabeled ? "val" : $"{paramName}: val";
+                    sb.AppendLine($"        if let val = state.mod_{mod.MethodName} {{ result = result.{mod.MethodName}({callArg}) }}");
+                }
+            }
+            sb.AppendLine($"        return result");
+            sb.AppendLine("    }");
+        }
+
         sb.AppendLine("}");
         sb.AppendLine();
     }
@@ -1365,6 +1425,218 @@ public static partial class SwiftUIBridgeEmitter
         }
     }
 
+    /// <summary>
+    /// Emits Swift @_cdecl Set functions for each modifier.
+    /// </summary>
+    private static void EmitSwiftModifierSetFunctions(
+        StringBuilder sb, string prefix, string sessionClass, string handlesVar,
+        List<BridgeModifier> modifiers)
+    {
+        foreach (var mod in modifiers)
+        {
+            var funcName = $"{prefix}_Set{mod.PascalName}";
+
+            sb.AppendLine($"@_cdecl(\"{funcName}\")");
+
+            var setParams = new List<string> { "_ handle: UnsafeMutableRawPointer?" };
+            if (mod.IsParameterless)
+            {
+                setParams.Add("_ enabled: Int32");
+            }
+            else
+            {
+                var param = mod.Parameter!;
+                if (param.Kind == BridgeParameterKind.String)
+                {
+                    setParams.Add("_ newValuePtr: UnsafePointer<UInt8>?");
+                    setParams.Add("_ newValueLen: Int");
+                }
+                else if (param.Kind == BridgeParameterKind.Primitive && param.SwiftConversion == "!= 0")
+                {
+                    // Bool param: hasValue + value (both Int32)
+                    setParams.Add("_ hasValue: Int32");
+                    setParams.Add("_ value: Int32");
+                }
+                else if (param.Kind == BridgeParameterKind.BoundEnum)
+                {
+                    setParams.Add("_ hasValue: Int32");
+                    setParams.Add($"_ value: {param.SwiftAbiType}");
+                }
+                else
+                {
+                    // Other primitives: hasValue + value
+                    setParams.Add("_ hasValue: Int32");
+                    setParams.Add($"_ value: {param.SwiftAbiType}");
+                }
+            }
+
+            sb.AppendLine($"public func {funcName}(");
+            sb.AppendLine($"    {string.Join(",\n    ", setParams)}");
+            sb.AppendLine(") {");
+            sb.AppendLine("    SBW_onMainThread {");
+            sb.AppendLine($"        guard let handle = handle,");
+            sb.AppendLine($"              {handlesVar}.contains(handle) else {{ return }}");
+            sb.AppendLine($"        let session = Unmanaged<{sessionClass}>");
+            sb.AppendLine($"            .fromOpaque(handle).takeUnretainedValue()");
+
+            // Emit assignment
+            if (mod.IsParameterless)
+            {
+                sb.AppendLine($"        session.state.mod_{mod.MethodName} = enabled != 0");
+            }
+            else
+            {
+                var param = mod.Parameter!;
+                if (param.Kind == BridgeParameterKind.String)
+                {
+                    sb.AppendLine($"        if let ptr = newValuePtr, newValueLen > 0 {{");
+                    sb.AppendLine($"            session.state.mod_{mod.MethodName} = String(bytes: UnsafeBufferPointer(start: ptr, count: newValueLen), encoding: .utf8) ?? \"\"");
+                    sb.AppendLine($"        }} else if newValuePtr != nil {{");
+                    sb.AppendLine($"            session.state.mod_{mod.MethodName} = \"\"");
+                    sb.AppendLine($"        }} else {{");
+                    sb.AppendLine($"            session.state.mod_{mod.MethodName} = nil");
+                    sb.AppendLine($"        }}");
+                }
+                else if (param.Kind == BridgeParameterKind.Primitive && param.SwiftConversion == "!= 0")
+                {
+                    sb.AppendLine($"        session.state.mod_{mod.MethodName} = hasValue != 0 ? (value != 0) : nil");
+                }
+                else if (param.Kind == BridgeParameterKind.BoundEnum)
+                {
+                    sb.AppendLine($"        session.state.mod_{mod.MethodName} = hasValue != 0 ? {param.BridgeTypeName}(rawValue: value)! : nil");
+                }
+                else
+                {
+                    sb.AppendLine($"        session.state.mod_{mod.MethodName} = hasValue != 0 ? value : nil");
+                }
+            }
+
+            sb.AppendLine("    }");
+            sb.AppendLine("}");
+            sb.AppendLine();
+        }
+    }
+
+    /// <summary>
+    /// Emits C# P/Invoke declarations for modifier Set functions.
+    /// </summary>
+    private static void EmitCSharpModifierPInvokeDeclarations(
+        StringBuilder sb, string prefix, string bridgeLib, List<BridgeModifier> modifiers)
+    {
+        foreach (var mod in modifiers)
+        {
+            var pinvokeParams = new List<string> { "IntPtr handle" };
+
+            if (mod.IsParameterless)
+            {
+                pinvokeParams.Add("int enabled");
+            }
+            else
+            {
+                var param = mod.Parameter!;
+                if (param.Kind == BridgeParameterKind.String)
+                {
+                    pinvokeParams.Add("IntPtr ptr");
+                    pinvokeParams.Add("nint len");
+                }
+                else if (param.Kind == BridgeParameterKind.Primitive && param.SwiftConversion == "!= 0")
+                {
+                    pinvokeParams.Add("int hasValue");
+                    pinvokeParams.Add("int value");
+                }
+                else if (param.Kind == BridgeParameterKind.BoundEnum)
+                {
+                    pinvokeParams.Add("int hasValue");
+                    pinvokeParams.Add($"{param.CSharpPInvokeType} value");
+                }
+                else
+                {
+                    pinvokeParams.Add("int hasValue");
+                    pinvokeParams.Add($"{param.CSharpPInvokeType} value");
+                }
+            }
+
+            sb.AppendLine();
+            foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
+            {
+                LibraryPath = bridgeLib,
+                EntryPoint = $"{prefix}_Set{mod.PascalName}",
+                MethodName = $"Set{mod.PascalName}",
+                ReturnType = "void",
+                ParametersString = string.Join(", ", pinvokeParams),
+                CallingConvention = PInvokeCallingConvention.Cdecl,
+                Visibility = PInvokeVisibility.Internal
+            }))
+                sb.AppendLine($"        {line}");
+        }
+    }
+
+    /// <summary>
+    /// Emits C# public methods on the Session class for each modifier.
+    /// </summary>
+    private static void EmitCSharpModifierMethods(
+        StringBuilder sb, ViewBridgeInfo info, List<BridgeModifier> modifiers)
+    {
+        foreach (var mod in modifiers)
+        {
+            if (mod.IsParameterless)
+            {
+                sb.AppendLine($"        public void {mod.PascalName}(bool enabled = true) =>");
+                sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Set{mod.PascalName}(Handle, enabled ? 1 : 0);");
+                sb.AppendLine();
+            }
+            else
+            {
+                var param = mod.Parameter!;
+                if (param.Kind == BridgeParameterKind.String)
+                {
+                    sb.AppendLine($"        public unsafe void {mod.PascalName}(string? value)");
+                    sb.AppendLine("        {");
+                    sb.AppendLine("            if (value == null)");
+                    sb.AppendLine("            {");
+                    sb.AppendLine($"                {info.ViewName}BridgeNativeMethods.Set{mod.PascalName}(Handle, IntPtr.Zero, 0);");
+                    sb.AppendLine("                return;");
+                    sb.AppendLine("            }");
+                    sb.AppendLine($"            var bytes = Encoding.UTF8.GetBytes(value);");
+                    sb.AppendLine("            fixed (byte* ptr = bytes)");
+                    sb.AppendLine($"                {info.ViewName}BridgeNativeMethods.Set{mod.PascalName}(Handle, (IntPtr)ptr, bytes.Length);");
+                    sb.AppendLine("        }");
+                    sb.AppendLine();
+                }
+                else if (param.Kind == BridgeParameterKind.Primitive && param.SwiftConversion == "!= 0")
+                {
+                    // Bool param
+                    sb.AppendLine($"        public void {mod.PascalName}(bool? value) =>");
+                    sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Set{mod.PascalName}(Handle, value.HasValue ? 1 : 0, value.HasValue ? (value.Value ? 1 : 0) : 0);");
+                    sb.AppendLine();
+                }
+                else if (param.Kind == BridgeParameterKind.BoundEnum)
+                {
+                    var factoryType = $"{param.CSharpTypeName}?";
+                    if (param.IsSimpleEnum)
+                    {
+                        sb.AppendLine($"        public void {mod.PascalName}({factoryType} value) =>");
+                        sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Set{mod.PascalName}(Handle, value.HasValue ? 1 : 0, value.HasValue ? ({param.CSharpPInvokeType})value.Value : 0);");
+                    }
+                    else
+                    {
+                        sb.AppendLine($"        public void {mod.PascalName}({factoryType} value) =>");
+                        sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Set{mod.PascalName}(Handle, value != null ? 1 : 0, value?.RawValue ?? 0);");
+                    }
+                    sb.AppendLine();
+                }
+                else
+                {
+                    // Other primitives (Double, Float, Int32, etc.)
+                    var factoryType = GetFactoryParamType(param);
+                    sb.AppendLine($"        public void {mod.PascalName}({factoryType}? value) =>");
+                    sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Set{mod.PascalName}(Handle, value.HasValue ? 1 : 0, value ?? 0);");
+                    sb.AppendLine();
+                }
+            }
+        }
+    }
+
     #endregion
 
     private static void EmitSwiftTemplate(StringBuilder sb, string moduleName, ViewBridgeInfo info)
@@ -1395,7 +1667,7 @@ public static partial class SwiftUIBridgeEmitter
     private static string GenerateCSharpBridge(
         string @namespace,
         string moduleName,
-        List<(ViewBridgeInfo Info, List<BridgeParameter>? Params, AsyncViewPattern? AsyncPattern, bool IsFunctional, List<SynthesizedInitArg>? SynthesizedArgs)> bridgeResults)
+        List<(ViewBridgeInfo Info, List<BridgeParameter>? Params, AsyncViewPattern? AsyncPattern, bool IsFunctional, List<SynthesizedInitArg>? SynthesizedArgs, List<BridgeModifier>? Modifiers)> bridgeResults)
     {
         var sb = new StringBuilder();
         bool hasFunctionalBridge = bridgeResults.Any(r => r.IsFunctional);
@@ -1421,7 +1693,7 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine($"namespace {@namespace}");
             sb.AppendLine("{");
 
-            foreach (var (info, bridgeParams, asyncPattern, isFunctional, synthesizedArgs) in bridgeResults)
+            foreach (var (info, bridgeParams, asyncPattern, isFunctional, synthesizedArgs, modifiers) in bridgeResults)
             {
                 if (isFunctional && asyncPattern != null)
                 {
@@ -1429,7 +1701,7 @@ public static partial class SwiftUIBridgeEmitter
                 }
                 else if (isFunctional)
                 {
-                    EmitFunctionalCSharpBridge(sb, moduleName, info, bridgeParams!);
+                    EmitFunctionalCSharpBridge(sb, moduleName, info, bridgeParams!, modifiers);
                 }
                 else
                 {
@@ -1445,7 +1717,7 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine("// These templates require manual completion before use.");
             sb.AppendLine("//");
             sb.AppendLine("// Views detected:");
-            foreach (var (info, _, _, _, _) in bridgeResults)
+            foreach (var (info, _, _, _, _, _) in bridgeResults)
             {
                 var paramSummary = GetInitParamSummary(info);
                 sb.AppendLine($"//   - {info.ViewName} ({info.Classification}: {paramSummary})");
@@ -1460,13 +1732,15 @@ public static partial class SwiftUIBridgeEmitter
     }
 
     private static void EmitFunctionalCSharpBridge(
-        StringBuilder sb, string moduleName, ViewBridgeInfo info, List<BridgeParameter> bridgeParams)
+        StringBuilder sb, string moduleName, ViewBridgeInfo info, List<BridgeParameter> bridgeParams,
+        List<BridgeModifier>? modifiers = null)
     {
         var prefix = $"SBW_{moduleName}_{info.ViewName}";
         var bridgeLib = $"{moduleName}Bridge";
         var hasClosures = bridgeParams.Any(p => p.Kind is BridgeParameterKind.VoidClosure or BridgeParameterKind.TypedClosure);
         var hasStrings = bridgeParams.Any(p => p.Kind == BridgeParameterKind.String ||
             (p.Kind == BridgeParameterKind.OptionalWrapped && p.InnerParameter?.Kind == BridgeParameterKind.String));
+        var hasModifiers = modifiers != null && modifiers.Count > 0;
         var needsUnsafe = hasClosures || hasStrings;
 
         // NativeMethods class
@@ -1555,6 +1829,10 @@ public static partial class SwiftUIBridgeEmitter
         // Update P/Invoke declarations for updatable params
         EmitCSharpUpdatePInvokeDeclarations(sb, prefix, bridgeLib, bridgeParams);
 
+        // Modifier Set P/Invoke declarations
+        if (hasModifiers)
+            EmitCSharpModifierPInvokeDeclarations(sb, prefix, bridgeLib, modifiers!);
+
         sb.AppendLine("    }");
         sb.AppendLine();
 
@@ -1606,6 +1884,10 @@ public static partial class SwiftUIBridgeEmitter
 
         // Update methods for updatable params
         EmitCSharpUpdateMethods(sb, info, bridgeParams);
+
+        // Modifier methods
+        if (hasModifiers)
+            EmitCSharpModifierMethods(sb, info, modifiers!);
 
         sb.AppendLine("        public void Dispose()");
         sb.AppendLine("        {");
@@ -1899,12 +2181,18 @@ public static partial class SwiftUIBridgeEmitter
 
     /// <summary>
     /// Returns the Swift type for UIHostingController, with concrete type args for generic views.
-    /// When the view has updatable (non-closure) params, returns the Wrapper type instead.
+    /// When the view has updatable (non-closure) params or modifiers, returns the Wrapper type instead.
     /// </summary>
-    internal static string GetSwiftHostedViewType(ViewBridgeInfo info, List<BridgeParameter>? bridgeParams = null)
+    internal static string GetSwiftHostedViewType(ViewBridgeInfo info, List<BridgeParameter>? bridgeParams = null,
+        List<BridgeModifier>? modifiers = null)
     {
-        // If there are updatable params, the hosted view is the Wrapper, not the raw view
+        // If there are updatable params or modifiers, the hosted view is the Wrapper, not the raw view
         if (bridgeParams != null && bridgeParams.Any(p => p.IsUpdatable))
+        {
+            var prefix = $"SBW_{info.ModuleName}_{info.ViewName}";
+            return $"{prefix}_Wrapper";
+        }
+        if (modifiers != null && modifiers.Count > 0)
         {
             var prefix = $"SBW_{info.ModuleName}_{info.ViewName}";
             return $"{prefix}_Wrapper";
@@ -1916,6 +2204,31 @@ public static partial class SwiftUIBridgeEmitter
         var typeArgs = string.Join(", ", info.GenericAnalysis.ConcreteTypeArgs.Values);
         return $"{info.ViewName}<{typeArgs}>";
     }
+
+    /// <summary>
+    /// Returns the raw view type with concrete generic args (not the Wrapper type).
+    /// Used for applyModifiers helper parameter/return type.
+    /// </summary>
+    internal static string GetConcreteViewType(ViewBridgeInfo info)
+    {
+        if (info.GenericAnalysis == null)
+            return info.ViewName;
+
+        var typeArgs = string.Join(", ", info.GenericAnalysis.ConcreteTypeArgs.Values);
+        return $"{info.ViewName}<{typeArgs}>";
+    }
+
+    /// <summary>
+    /// Returns the Swift type for a modifier parameter's state variable (used in Optional wrapping).
+    /// </summary>
+    private static string GetModifierSwiftStateType(BridgeParameter param) => param.Kind switch
+    {
+        BridgeParameterKind.Primitive when param.SwiftConversion == "!= 0" => "Bool",
+        BridgeParameterKind.Primitive => param.SwiftAbiType,
+        BridgeParameterKind.String => "String",
+        BridgeParameterKind.BoundEnum => param.BridgeTypeName!,
+        _ => param.SwiftAbiType,
+    };
 
     /// <summary>
     /// Merges bridge parameter args with synthesized init args in constructor parameter order.
@@ -2390,7 +2703,8 @@ public record ViewBridgeInfo(
     string? UnsupportedReason,
     List<MethodDecl> Constructors,
     AsyncViewPattern? InferredPattern = null,
-    GenericViewAnalysis? GenericAnalysis = null);
+    GenericViewAnalysis? GenericAnalysis = null,
+    List<BridgeModifier>? Modifiers = null);
 
 /// <summary>
 /// Strategy for filling generic View placeholder type parameters.

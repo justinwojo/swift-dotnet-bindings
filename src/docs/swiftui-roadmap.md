@@ -1,7 +1,7 @@
 # SwiftUI Bridge Roadmap
 
 **Date**: February 2026
-**Status**: Sessions 1-3 + 4A complete (closure/optional expansion + generic views + struct params + two-way state binding), Sessions 4B-6 planned
+**Status**: Sessions 1-3 + 4A + 4C complete (closure/optional expansion + generic views + struct params + two-way state binding + view modifier chains), Sessions 4B-6 planned
 **Prior work**: `Completed/swiftui-bridge-v2-phases1-2.md` (param expansion + async inference), `Completed/swiftui-bridge-v2-phase3.md` (bridge hints)
 
 ---
@@ -68,6 +68,7 @@ Ordered by priority. Each session is a self-contained unit of work. You can stop
 | **2** | Generic view support | High | **Done** | `AnimatedImage<T>`, `LottieView<T>`, @ViewBuilder params |
 | **3** | Struct params & type database | High | **Done** | Configuration-object patterns, reduced AnyType pollution |
 | **4A** | Two-way state binding | Medium | **Done** | Dynamic updates after creation (search, toggles, sliders) |
+| **4C** | View modifier chains | Medium | **Done** | Self-returning modifiers (`.playing()`, `.animationSpeed()`) callable from C# |
 | **4B** | Constrained generics | Medium | Planned | `<T: Identifiable>`, `<T: Hashable>` — concrete type when satisfiable |
 | **5** | Lifecycle, modifiers & navigation | Medium-low | Planned | `onAppear`/`onDisappear`, frame/padding/background, presentation |
 | **6** | Observable binding & corpus tracking | Low | Planned | C# → Swift reactivity, coverage measurement infrastructure |
@@ -207,6 +208,52 @@ session.UpdateLabel("Points"); // String update via UTF-8 encoding
 
 ---
 
+### Session 4C: View Modifier Chains ✅
+
+**Status**: Complete — self-returning modifier methods detected, bridged, and callable from C#.
+
+SwiftUI views often expose builder-pattern modifier methods (e.g., `.playing()`, `.animationSpeed(2.0)`, `.looping(.loop)`) that return `Self`. Previously these were invisible from C#. This session extends the State/Wrapper/Update pattern to detect and emit bridge code for self-returning modifiers.
+
+**Architecture**: Modifier state is stored as Optional `@Published` vars on the State class (nil = modifier not applied). An `applyModifiers` helper in the Wrapper body conditionally chains active modifiers onto the constructed view. Per-modifier `@_cdecl` Set functions allow C# to activate/deactivate each modifier independently.
+
+**Completed scope**:
+
+| Sub-task | Status | Description |
+|----------|--------|-------------|
+| `BridgeModifier` record | **Done** | Data model for modifier methods (MethodName, PascalName, Parameter, IsParameterless) |
+| `AnalyzeModifiers()` | **Done** | Detection via `IsSelfReturningMethod`, gates for throwing/mutating/generic/multi-param, overload dedup |
+| Parameterless modifiers | **Done** | Bool toggle state (`mod_x: Bool = false`), e.g., `.highlighted()` → `session.Highlighted()` |
+| Single-param Primitive | **Done** | Optional state (`mod_x: Double? = nil`), hasValue+value ABI |
+| Single-param Bool | **Done** | Optional Bool state, hasValue+value as Int32 ABI |
+| Single-param BoundEnum | **Done** | Optional enum state, hasValue+rawValue ABI |
+| Single-param String | **Done** | Optional String state, ptr+len ABI (nil ptr = reset) |
+| Overload dedup | **Done** | Same-name methods with different params → all skipped (with diagnostic logging) |
+| `applyModifiers` helper | **Done** | Conditional modifier chain using concrete view type (including generic views) |
+| Unnamed param handling | **Done** | Parser-generated `argN` names (from `_` external labels) detected via `NameProvider.IsGeneratedArgName`, emitted without label |
+| Modifiers-only gate | **Done** | Views with only closures but with modifiers get State/Wrapper emission |
+| C# public methods | **Done** | Nullable params for reset semantics: `Opacity(double? value)`, `Highlighted(bool enabled = true)` |
+
+**Not in scope** (deferred):
+- Multi-param modifiers, closure-param modifiers, generic-param modifiers
+- OptionalWrapped modifier params (tri-state ABI: modifier active/inactive + inner nil)
+- BoundType/BoundStruct modifier params (ABI complexity)
+- Call-order preservation (fixed emit order — known limitation, independent modifiers unaffected)
+
+**Test coverage**: 20 unit tests, 1 new test view (`ModifiableView` with 3 modifier patterns), 53/53 library validation.
+
+**Key files modified**: `SwiftUIBridgeEmitter.InitAnalyzer.cs` (`BridgeModifier`, `AnalyzeModifiers`), `SwiftUIBridgeEmitter.cs` (State/Wrapper/Set emission, `GetConcreteViewType` helper), `SwiftUIBridgeEmitterTests.cs` (20 tests), `SimpleViews.swift` (`ModifiableView`).
+
+```csharp
+// Generated C# — modifier methods on Session
+var session = ModifiableViewSession.Create(title: "Hello");
+session.Highlighted();           // Bool toggle (default: true)
+session.Opacity(0.5);            // Double value
+session.Enabled(true);           // Bool value
+session.Opacity(null);           // Reset modifier (nil = not applied)
+```
+
+---
+
 ### Session 4B: Constrained Generics
 
 **Priority**: Medium — extends generic view support beyond View-constrained placeholders.
@@ -320,6 +367,8 @@ Session 3: Structs & Type Database  ✅ COMPLETE
     │
 Session 4A: Two-Way State           ✅ COMPLETE
     │
+Session 4C: View Modifier Chains   ✅ COMPLETE (extends Session 4A's State/Wrapper pattern)
+    │
 Session 4B: Constrained Generics   (standalone — extends Session 2's generic analysis)
     │
 Session 5: Lifecycle & Modifiers    (runtime modifiers depend on Session 4A's ObservableObject)
@@ -328,7 +377,7 @@ Session 6: Observable Binding       (depends on Session 4A's ObservableObject wr
            + Corpus Tracking        (standalone — measures everything above)
 ```
 
-**Stop points**: After Sessions 1-3 + 4A, the bridge covers the vast majority of real-world SwiftUI views with dynamic state updates. Sessions 4B-6 add extended generic support, lifecycle management, and advanced reactivity.
+**Stop points**: After Sessions 1-3 + 4A + 4C, the bridge covers the vast majority of real-world SwiftUI views with dynamic state updates and self-returning modifier chains. Sessions 4B-6 add extended generic support, lifecycle management, and advanced reactivity.
 
 ---
 
@@ -352,14 +401,15 @@ The product contract remains: **present SwiftUI View as UIViewController, with c
 
 ## Success Metrics
 
-| Metric | Before S1A | After S1A | After S2 | After S3 | After S4A | After S4B-6 |
-|--------|------------|-----------|----------|----------|-----------|-------------|
-| Parameter types supported | 7 kinds | 11 kinds | 11 + generic | 12 + struct | 12 + struct | 12+ kinds |
-| Closure arg types | Primitives only | + String, class | + String, class | + String, class | + String, class | + String, class |
-| Optional param types | Enum, class | + String, closure | + String, closure | + struct | + struct | + struct |
-| Generic views bridged | 0% | 0% | View-constrained | View-constrained | View-constrained | 60%+ |
-| Bridge rate (estimated) | ~70% | ~80% | ~85% | ~90% | ~90% | ~95% |
-| Post-creation state updates | No | No | No | No | **Yes** | Yes |
-| Lifecycle/modifier support | No | No | No | No | No | Yes |
-| Bridged views (TestFramework) | — | 15 | 17 | 17 | 19 | 20+ |
-| Unit tests (bridge) | — | 174 | 196 | 210 | 228 | 250+ |
+| Metric | Before S1A | After S1A | After S2 | After S3 | After S4A | After S4C | After S4B-6 |
+|--------|------------|-----------|----------|----------|-----------|-----------|-------------|
+| Parameter types supported | 7 kinds | 11 kinds | 11 + generic | 12 + struct | 12 + struct | 12 + struct | 12+ kinds |
+| Closure arg types | Primitives only | + String, class | + String, class | + String, class | + String, class | + String, class | + String, class |
+| Optional param types | Enum, class | + String, closure | + String, closure | + struct | + struct | + struct | + struct |
+| Generic views bridged | 0% | 0% | View-constrained | View-constrained | View-constrained | View-constrained | 60%+ |
+| Bridge rate (estimated) | ~70% | ~80% | ~85% | ~90% | ~90% | ~90% | ~95% |
+| Post-creation state updates | No | No | No | No | **Yes** | Yes | Yes |
+| Self-returning modifiers | No | No | No | No | No | **Yes** | Yes |
+| Lifecycle/modifier support | No | No | No | No | No | No | Yes |
+| Bridged views (TestFramework) | — | 15 | 17 | 17 | 19 | 19 | 20+ |
+| Unit tests (bridge) | — | 174 | 196 | 210 | 228 | 248 | 270+ |

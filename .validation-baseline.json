@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-02-28T15:49:41Z",
-  "git_sha": "da6652e",
+  "timestamp": "2026-02-28T16:09:21Z",
+  "git_sha": "19f101a",
   "runtime_version": "0.1.0-preview.5",
   "compile_gate": {
     "total": 53,
@@ -12,7 +12,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 51091,
-        "gen_seconds": 2
+        "gen_seconds": 3
       },
       "BlinkID": {
         "generate": "fail",
@@ -26,7 +26,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 9319,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "BRLMPrinterKit": {
         "generate": "ok",
@@ -47,14 +47,14 @@
         "compile": "ok",
         "errors": 0,
         "lines": 92927,
-        "gen_seconds": 6
+        "gen_seconds": 5
       },
       "KeychainAccess": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 11859,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "Kingfisher": {
         "generate": "fail",
@@ -117,7 +117,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 5017,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "SnapKit": {
         "generate": "ok",
@@ -131,28 +131,28 @@
         "compile": "ok",
         "errors": 0,
         "lines": 17165,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "Stripe": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 592,
-        "gen_seconds": 29
+        "gen_seconds": 30
       },
       "StripeApplePay": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 3013,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "StripeCameraCore": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 3900,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "StripeCardScan": {
         "generate": "ok",
@@ -180,49 +180,49 @@
         "compile": "ok",
         "errors": 0,
         "lines": 6842,
-        "gen_seconds": 33
+        "gen_seconds": 32
       },
       "StripeFinancialConnections": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 2677,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "StripeIdentity": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 1706,
-        "gen_seconds": 2
+        "gen_seconds": 3
       },
       "StripeIssuing": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 1710,
-        "gen_seconds": 12
+        "gen_seconds": 13
       },
       "StripePayments": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 97774,
-        "gen_seconds": 6
+        "gen_seconds": 5
       },
       "StripePaymentSheet": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 50680,
-        "gen_seconds": 9
+        "gen_seconds": 13
       },
       "StripePaymentsUI": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 15698,
-        "gen_seconds": 8
+        "gen_seconds": 6
       },
       "StripeUICore": {
         "generate": "fail",
@@ -243,7 +243,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 4970,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "PhoneNumberKit": {
         "generate": "fail",
@@ -264,21 +264,21 @@
         "compile": "ok",
         "errors": 0,
         "lines": 11074,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "Reachability": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 1353,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "NVActivityIndicatorView": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 8873,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "ObjectMapper": {
         "generate": "fail",
@@ -299,14 +299,14 @@
         "compile": "ok",
         "errors": 0,
         "lines": 19975,
-        "gen_seconds": 3
+        "gen_seconds": 2
       },
       "KeychainSwift": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 1418,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "SwipeCellKit": {
         "generate": "ok",
@@ -334,7 +334,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 4459,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "DifferenceKit": {
         "generate": "fail",
@@ -348,14 +348,14 @@
         "compile": "ok",
         "errors": 0,
         "lines": 2292,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "AMPopTip": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 5310,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "XMLCoder": {
         "generate": "fail",

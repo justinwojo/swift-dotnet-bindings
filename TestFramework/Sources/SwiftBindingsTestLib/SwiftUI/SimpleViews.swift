@@ -168,6 +168,30 @@ public struct MixedStringView: View {
     }
 }
 
+// MARK: - View Modifier Chain (Session 4C)
+
+/// Tests self-returning modifier detection and bridge emission.
+public struct ModifiableView: View {
+    public let title: String
+
+    public init(title: String) {
+        self.title = title
+    }
+
+    /// Parameterless modifier (bool toggle).
+    public func highlighted() -> Self { return self }
+
+    /// Single-param Double modifier.
+    public func opacity(level: Double) -> Self { return self }
+
+    /// Single-param Bool modifier.
+    public func enabled(_ flag: Bool) -> Self { return self }
+
+    public var body: some View {
+        Text(title)
+    }
+}
+
 // MARK: - Generic View Support (Session 2)
 
 /// Tests generic view with View-constrained placeholder and two constructors:

@@ -359,6 +359,79 @@ public static partial class SwiftUIBridgeEmitter
     }
 
     /// <summary>
+    /// Analyzes a View type's methods for self-returning modifiers.
+    /// Returns a list of BridgeModifier records for methods that pass all gates.
+    /// Overloaded method names (2+ methods with same base name) are skipped entirely.
+    /// </summary>
+    public static List<BridgeModifier>? AnalyzeModifiers(TypeDecl viewType, string moduleName, BridgeContext? context = null)
+    {
+        var candidates = new List<BridgeModifier>();
+
+        foreach (var method in viewType.Methods)
+        {
+            // Must be a self-returning instance method
+            if (!MethodEnvironment.IsSelfReturningMethod(method))
+                continue;
+
+            // Skip throwing, mutating, and methods with own generic params (beyond parent)
+            if (method.Throws || method.IsMutating)
+                continue;
+            if (method.GenericParameters.Count > (viewType.GenericParameters?.Count ?? 0))
+                continue;
+
+            // Count non-return params (CSSignature[0] is return type)
+            var paramCount = method.CSSignature.Count - 1;
+
+            if (paramCount == 0)
+            {
+                // Parameterless bool toggle
+                candidates.Add(new BridgeModifier(
+                    method.Name,
+                    char.ToUpperInvariant(method.Name[0]) + method.Name[1..],
+                    Parameter: null,
+                    IsParameterless: true));
+            }
+            else if (paramCount == 1)
+            {
+                var param = method.CSSignature[1];
+                var bridgeParam = MapParameterType(param, context);
+                if (bridgeParam == null)
+                    continue;
+
+                // Tighten gate: only Primitive, String, BoundEnum this session
+                if (bridgeParam.Kind is not BridgeParameterKind.Primitive
+                    and not BridgeParameterKind.String
+                    and not BridgeParameterKind.BoundEnum)
+                    continue;
+
+                candidates.Add(new BridgeModifier(
+                    method.Name,
+                    char.ToUpperInvariant(method.Name[0]) + method.Name[1..],
+                    Parameter: bridgeParam,
+                    IsParameterless: false));
+            }
+            // else: multi-param → skip
+        }
+
+        if (candidates.Count == 0)
+            return null;
+
+        // Overload dedup: group by MethodName, skip any name with 2+ candidates
+        var grouped = candidates.GroupBy(c => c.MethodName).ToList();
+        var result = new List<BridgeModifier>();
+        foreach (var group in grouped)
+        {
+            if (group.Count() == 1)
+                result.Add(group.First());
+            else
+                context?.Logger?.LogDebug("SwiftUI bridge: skipping overloaded modifier '{MethodName}' on {ViewName} ({Count} overloads)",
+                    group.Key, viewType.Name, group.Count());
+        }
+
+        return result.Count > 0 ? result : null;
+    }
+
+    /// <summary>
     /// Maps Optional&lt;T&gt; where T is a Primitive or BoundEnum.
     /// Uses a hasValue flag + raw value pair across the ABI.
     /// </summary>
@@ -427,6 +500,16 @@ public static partial class SwiftUIBridgeEmitter
             InnerParameter: innerParam);
     }
 }
+
+/// <summary>
+/// A detected self-returning modifier method on a View.
+/// Maps to a Set* @_cdecl function and a C# method on the Session class.
+/// </summary>
+public record BridgeModifier(
+    string MethodName,          // Swift name: "playing", "animationSpeed"
+    string PascalName,          // C# name: "Playing", "AnimationSpeed"
+    BridgeParameter? Parameter, // null for parameterless, single BridgeParameter otherwise
+    bool IsParameterless);      // true = bool toggle, false = single non-optional param
 
 /// <summary>
 /// Kind of bridge parameter.

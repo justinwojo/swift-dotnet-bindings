@@ -6265,4 +6265,497 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     }
 
     #endregion
+
+    #region View Modifier Chain (Session 4C)
+
+    [Fact]
+    public void Modifier_Detection_FindsParameterlessSelfReturning()
+    {
+        var view = CreateViewWithModifierMethods("TestView");
+        var modifiers = SwiftUIBridgeEmitter.AnalyzeModifiers(view, "TestModule");
+
+        Assert.NotNull(modifiers);
+        Assert.Contains(modifiers, m => m.MethodName == "highlighted" && m.IsParameterless);
+    }
+
+    [Fact]
+    public void Modifier_Detection_FindsSingleParamSelfReturning()
+    {
+        var view = CreateViewWithModifierMethods("TestView");
+        var modifiers = SwiftUIBridgeEmitter.AnalyzeModifiers(view, "TestModule");
+
+        Assert.NotNull(modifiers);
+        Assert.Contains(modifiers, m => m.MethodName == "animationSpeed" && !m.IsParameterless);
+        Assert.Contains(modifiers, m => m.MethodName == "animationSpeed" && m.Parameter?.Kind == BridgeParameterKind.Primitive);
+    }
+
+    [Fact]
+    public void Modifier_Detection_SkipsNonSelfReturning()
+    {
+        var view = CreateSimpleViewStruct("TestView");
+        // Add void-returning method
+        view.Methods.Add(new MethodDecl
+        {
+            Name = "doSomething",
+            MangledName = "$s_doSomething",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            IsAccessor = false,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+            ParentDecl = view,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl { Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, SwiftTypeSpec = TupleTypeSpec.Empty, ParentDecl = null, ModuleDecl = null },
+            },
+        });
+
+        var modifiers = SwiftUIBridgeEmitter.AnalyzeModifiers(view, "TestModule");
+        Assert.Null(modifiers);
+    }
+
+    [Fact]
+    public void Modifier_Detection_SkipsStaticMethods()
+    {
+        var view = CreateSimpleViewStruct("TestView");
+        view.Methods.Add(CreateSelfReturningMethod(view, "factory", MethodType.Static));
+
+        var modifiers = SwiftUIBridgeEmitter.AnalyzeModifiers(view, "TestModule");
+        Assert.Null(modifiers);
+    }
+
+    [Fact]
+    public void Modifier_Detection_SkipsThrowingMethods()
+    {
+        var view = CreateSimpleViewStruct("TestView");
+        var method = CreateSelfReturningMethod(view, "riskyModifier");
+        method.Throws = true;
+        view.Methods.Add(method);
+
+        var modifiers = SwiftUIBridgeEmitter.AnalyzeModifiers(view, "TestModule");
+        Assert.Null(modifiers);
+    }
+
+    [Fact]
+    public void Modifier_Detection_SkipsMultiParamMethods()
+    {
+        var view = CreateSimpleViewStruct("TestView");
+        view.Methods.Add(new MethodDecl
+        {
+            Name = "multiParam",
+            MangledName = "$s_multiParam",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            IsAccessor = false,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+            ParentDecl = view,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl { Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, SwiftTypeSpec = new NamedTypeSpec($"TestModule.{view.Name}"), ParentDecl = null, ModuleDecl = null },
+                new ArgumentDecl { Name = "a", PrivateName = "a", IsInOut = false, IsGeneric = false, SwiftTypeSpec = new NamedTypeSpec("Swift.Double"), ParentDecl = null, ModuleDecl = null },
+                new ArgumentDecl { Name = "b", PrivateName = "b", IsInOut = false, IsGeneric = false, SwiftTypeSpec = new NamedTypeSpec("Swift.Double"), ParentDecl = null, ModuleDecl = null },
+            },
+        });
+
+        var modifiers = SwiftUIBridgeEmitter.AnalyzeModifiers(view, "TestModule");
+        Assert.Null(modifiers);
+    }
+
+    [Fact]
+    public void Modifier_Detection_SkipsClosureParams()
+    {
+        var view = CreateSimpleViewStruct("TestView");
+        view.Methods.Add(new MethodDecl
+        {
+            Name = "withAction",
+            MangledName = "$s_withAction",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            IsAccessor = false,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+            ParentDecl = view,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl { Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, SwiftTypeSpec = new NamedTypeSpec($"TestModule.{view.Name}"), ParentDecl = null, ModuleDecl = null },
+                new ArgumentDecl { Name = "action", PrivateName = "action", IsInOut = false, IsGeneric = false, SwiftTypeSpec = new ClosureTypeSpec(), ParentDecl = null, ModuleDecl = null },
+            },
+        });
+
+        var modifiers = SwiftUIBridgeEmitter.AnalyzeModifiers(view, "TestModule");
+        Assert.Null(modifiers);
+    }
+
+    [Fact]
+    public void Modifier_Detection_SkipsOverloadedMethods()
+    {
+        var view = CreateSimpleViewStruct("TestView");
+        // Two methods with same name but different params
+        view.Methods.Add(CreateSelfReturningMethod(view, "speed"));
+        view.Methods.Add(new MethodDecl
+        {
+            Name = "speed",
+            MangledName = "$s_speed2",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            IsAccessor = false,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+            ParentDecl = view,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl { Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, SwiftTypeSpec = new NamedTypeSpec($"TestModule.{view.Name}"), ParentDecl = null, ModuleDecl = null },
+                new ArgumentDecl { Name = "value", PrivateName = "value", IsInOut = false, IsGeneric = false, SwiftTypeSpec = new NamedTypeSpec("Swift.Float"), ParentDecl = null, ModuleDecl = null },
+            },
+        });
+
+        var modifiers = SwiftUIBridgeEmitter.AnalyzeModifiers(view, "TestModule");
+        Assert.Null(modifiers);
+    }
+
+    [Fact]
+    public void Modifier_Swift_EmitsStateVars()
+    {
+        var views = new List<TypeDecl> { CreateViewWithModifierMethods("ModView") };
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views, NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("@Published var mod_highlighted: Bool = false", swiftContent);
+        Assert.Contains("@Published var mod_animationSpeed: Double? = nil", swiftContent);
+    }
+
+    [Fact]
+    public void Modifier_Swift_EmitsApplyModifiers()
+    {
+        var views = new List<TypeDecl> { CreateViewWithModifierMethods("ModView") };
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views, NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("applyModifiers(ModView(", swiftContent);
+        Assert.Contains("private func applyModifiers(_ view: ModView) -> ModView", swiftContent);
+        Assert.Contains("if state.mod_highlighted { result = result.highlighted() }", swiftContent);
+        Assert.Contains("if let val = state.mod_animationSpeed { result = result.animationSpeed(speed: val) }", swiftContent);
+    }
+
+    [Fact]
+    public void Modifier_Swift_EmitsSetFunctions()
+    {
+        var views = new List<TypeDecl> { CreateViewWithModifierMethods("ModView") };
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views, NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("@_cdecl(\"SBW_TestModule_ModView_SetHighlighted\")", swiftContent);
+        Assert.Contains("@_cdecl(\"SBW_TestModule_ModView_SetAnimationSpeed\")", swiftContent);
+        Assert.Contains("session.state.mod_highlighted = enabled != 0", swiftContent);
+        Assert.Contains("session.state.mod_animationSpeed = hasValue != 0 ? value : nil", swiftContent);
+    }
+
+    [Fact]
+    public void Modifier_CSharp_EmitsPInvoke()
+    {
+        var views = new List<TypeDecl> { CreateViewWithModifierMethods("ModView") };
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views, NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("SBW_TestModule_ModView_SetHighlighted", csContent);
+        Assert.Contains("SBW_TestModule_ModView_SetAnimationSpeed", csContent);
+    }
+
+    [Fact]
+    public void Modifier_CSharp_EmitsPublicMethods()
+    {
+        var views = new List<TypeDecl> { CreateViewWithModifierMethods("ModView") };
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views, NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("public void Highlighted(bool enabled = true)", csContent);
+        Assert.Contains("public void AnimationSpeed(double? value)", csContent);
+    }
+
+    [Fact]
+    public void Modifier_NoModifiers_NoExtraEmission()
+    {
+        // View with no self-returning methods → no modifier emission
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("PlainView") };
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views, NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.DoesNotContain("applyModifiers", swiftContent);
+        Assert.DoesNotContain("mod_", swiftContent);
+    }
+
+    [Fact]
+    public void Modifier_ModifiersOnlyView_ForcesStateWrapper()
+    {
+        // View with no init params but with modifiers → needs State/Wrapper
+        var view = CreateSimpleViewStruct("ModOnlyView");
+        view.Methods.Add(CreateSelfReturningMethod(view, "playing"));
+
+        var views = new List<TypeDecl> { view };
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views, NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("SBW_TestModule_ModOnlyView_State", swiftContent);
+        Assert.Contains("SBW_TestModule_ModOnlyView_Wrapper", swiftContent);
+        Assert.Contains("@Published var mod_playing: Bool = false", swiftContent);
+    }
+
+    [Fact]
+    public void Modifier_GenericView_UsesConcreteTypeInApplyModifiers()
+    {
+        var view = CreateGenericViewWithModifiers("GenericModView");
+        var views = new List<TypeDecl> { view };
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views, NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("private func applyModifiers(_ view: GenericModView<EmptyView>) -> GenericModView<EmptyView>", swiftContent);
+    }
+
+    [Fact]
+    public void Modifier_GetConcreteViewType_NonGeneric()
+    {
+        var info = new ViewBridgeInfo("SimpleView", "TestModule", ViewInitClassification.Simple, null, new List<MethodDecl>());
+        Assert.Equal("SimpleView", SwiftUIBridgeEmitter.GetConcreteViewType(info));
+    }
+
+    [Fact]
+    public void Modifier_GetConcreteViewType_Generic()
+    {
+        var analysis = new GenericViewAnalysis(true, new Dictionary<string, string> { { "τ_0_0", "EmptyView" } },
+            PlaceholderStrategy.Empty, 0);
+        var info = new ViewBridgeInfo("LottieView", "Lottie", ViewInitClassification.Simple, null,
+            new List<MethodDecl>(), GenericAnalysis: analysis);
+        Assert.Equal("LottieView<EmptyView>", SwiftUIBridgeEmitter.GetConcreteViewType(info));
+    }
+
+    [Fact]
+    public void Modifier_BoolParam_UsesHasValuePattern()
+    {
+        var view = CreateSimpleViewStruct("BoolModView");
+        view.Methods.Add(new MethodDecl
+        {
+            Name = "enabled",
+            MangledName = "$s_enabled",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            IsAccessor = false,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+            ParentDecl = view,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl { Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, SwiftTypeSpec = new NamedTypeSpec($"TestModule.{view.Name}"), ParentDecl = null, ModuleDecl = null },
+                new ArgumentDecl { Name = "flag", PrivateName = "flag", IsInOut = false, IsGeneric = false, SwiftTypeSpec = new NamedTypeSpec("Swift.Bool"), ParentDecl = null, ModuleDecl = null },
+            },
+        });
+
+        var views = new List<TypeDecl> { view };
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views, NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("@Published var mod_enabled: Bool? = nil", swiftContent);
+        Assert.Contains("session.state.mod_enabled = hasValue != 0 ? (value != 0) : nil", swiftContent);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("public void Enabled(bool? value)", csContent);
+    }
+
+    [Fact]
+    public void Modifier_ArgPrefixedLabel_PreservesLabel()
+    {
+        // A param named "argument" (not a parser-generated argN) must keep its label
+        var view = CreateSimpleViewStruct("ArgLabelView");
+        view.Methods.Add(new MethodDecl
+        {
+            Name = "configure",
+            MangledName = "$s_configure",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            IsAccessor = false,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+            ParentDecl = view,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl { Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, SwiftTypeSpec = new NamedTypeSpec($"TestModule.{view.Name}"), ParentDecl = null, ModuleDecl = null },
+                new ArgumentDecl { Name = "argument", PrivateName = "argument", IsInOut = false, IsGeneric = false, SwiftTypeSpec = new NamedTypeSpec("Swift.Int32"), ParentDecl = null, ModuleDecl = null },
+            },
+        });
+
+        var views = new List<TypeDecl> { view };
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views, NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        // "argument" is a legitimate label, NOT a parser-generated argN — must emit with label
+        Assert.Contains("result.configure(argument: val)", swiftContent);
+        Assert.DoesNotContain("result.configure(val)", swiftContent);
+    }
+
+    // --- Test Helpers ---
+
+    private static StructDecl CreateViewWithModifierMethods(string viewName)
+    {
+        var view = CreateSimpleViewStruct(viewName);
+        // Add a constructor so it's functional
+        view.Methods.Add(new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s_init",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+            ParentDecl = null,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl { Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, SwiftTypeSpec = new NamedTypeSpec($"TestModule.{viewName}"), ParentDecl = null, ModuleDecl = null },
+                new ArgumentDecl { Name = "title", PrivateName = "title", IsInOut = false, IsGeneric = false, SwiftTypeSpec = new NamedTypeSpec("Swift.String"), ParentDecl = null, ModuleDecl = null },
+            },
+        });
+
+        // Parameterless modifier
+        view.Methods.Add(CreateSelfReturningMethod(view, "highlighted"));
+
+        // Single-param Double modifier
+        view.Methods.Add(new MethodDecl
+        {
+            Name = "animationSpeed",
+            MangledName = "$s_animationSpeed",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            IsAccessor = false,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+            ParentDecl = view,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl { Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, SwiftTypeSpec = new NamedTypeSpec($"TestModule.{viewName}"), ParentDecl = null, ModuleDecl = null },
+                new ArgumentDecl { Name = "speed", PrivateName = "speed", IsInOut = false, IsGeneric = false, SwiftTypeSpec = new NamedTypeSpec("Swift.Double"), ParentDecl = null, ModuleDecl = null },
+            },
+        });
+
+        return view;
+    }
+
+    private static MethodDecl CreateSelfReturningMethod(StructDecl parentView, string name, MethodType methodType = MethodType.Instance)
+    {
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s_{name}",
+            MethodType = methodType,
+            IsConstructor = false,
+            IsAccessor = false,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+            ParentDecl = parentView,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl { Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, SwiftTypeSpec = new NamedTypeSpec($"TestModule.{parentView.Name}"), ParentDecl = null, ModuleDecl = null },
+            },
+        };
+    }
+
+    private static StructDecl CreateGenericViewWithModifiers(string name)
+    {
+        var view = new StructDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}V",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>
+            {
+                new TypeConformance(
+                    SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+                    SwiftTypeName.FromModuleQualifiedName("SwiftUI.View"),
+                    $"${name}_SwiftUI_View_conformance")
+            },
+            ParentDecl = null,
+            ModuleDecl = null,
+            IsFrozen = true,
+            MetadataAccessor = $"$s10TestModule{name.Length}{name}VMa",
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_0_0", "Placeholder",
+                    new List<GenericParameterConformance>
+                    {
+                        new GenericParameterConformance(
+                            new[] { "τ_0_0" },
+                            SwiftTypeName.FromModuleQualifiedName("SwiftUICore.View"),
+                            ConformanceKind.Protocol)
+                    },
+                    new List<GenericParameterConformance>())
+            },
+        };
+
+        // Constructor: init(title: String) where Placeholder == EmptyView
+        view.Methods.Add(new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s_init",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_0_0", "Placeholder",
+                    new List<GenericParameterConformance>
+                    {
+                        new GenericParameterConformance(
+                            new[] { "τ_0_0" },
+                            SwiftTypeName.FromModuleQualifiedName("SwiftUI.EmptyView"),
+                            ConformanceKind.ConcreteType)
+                    },
+                    new List<GenericParameterConformance>())
+            },
+            Visibility = Visibility.Public,
+            ParentDecl = null,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl { Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, SwiftTypeSpec = new NamedTypeSpec($"TestModule.{name}"), ParentDecl = null, ModuleDecl = null },
+                new ArgumentDecl { Name = "title", PrivateName = "title", IsInOut = false, IsGeneric = false, SwiftTypeSpec = new NamedTypeSpec("Swift.String"), ParentDecl = null, ModuleDecl = null },
+            },
+        });
+
+        // Parameterless modifier
+        view.Methods.Add(CreateSelfReturningMethod(view, "playing"));
+
+        return view;
+    }
+
+    #endregion
 }
