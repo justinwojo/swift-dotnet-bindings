@@ -1,7 +1,7 @@
 # SwiftUI Bridge Roadmap
 
 **Date**: February 2026
-**Status**: Sessions 1-3 complete (closure/optional expansion + generic views + struct params), Sessions 4-6 planned
+**Status**: Sessions 1-3 + 4A complete (closure/optional expansion + generic views + struct params + two-way state binding), Sessions 4B-6 planned
 **Prior work**: `Completed/swiftui-bridge-v2-phases1-2.md` (param expansion + async inference), `Completed/swiftui-bridge-v2-phase3.md` (bridge hints)
 
 ---
@@ -67,7 +67,8 @@ Ordered by priority. Each session is a self-contained unit of work. You can stop
 | **1B** | Closure non-primitive returns | Medium | Planned | `(String) -> MyClass`, `(Int) -> String` return values |
 | **2** | Generic view support | High | **Done** | `AnimatedImage<T>`, `LottieView<T>`, @ViewBuilder params |
 | **3** | Struct params & type database | High | **Done** | Configuration-object patterns, reduced AnyType pollution |
-| **4** | Two-way state binding | Medium | Planned | Dynamic updates after creation (search, toggles, sliders) |
+| **4A** | Two-way state binding | Medium | **Done** | Dynamic updates after creation (search, toggles, sliders) |
+| **4B** | Constrained generics | Medium | Planned | `<T: Identifiable>`, `<T: Hashable>` — concrete type when satisfiable |
 | **5** | Lifecycle, modifiers & navigation | Medium-low | Planned | `onAppear`/`onDisappear`, frame/padding/background, presentation |
 | **6** | Observable binding & corpus tracking | Low | Planned | C# → Swift reactivity, coverage measurement infrastructure |
 
@@ -170,29 +171,55 @@ Struct parameters are the most common reason views fall back to template generat
 
 ---
 
-### Session 4: Two-Way State Binding
+### Session 4A: Two-Way State Binding ✅
 
-**Priority**: Medium — enables dynamic views (search fields, toggles, sliders). Not required for basic consumption, but significantly improves usefulness of bridged views.
+**Status**: Complete — ObservableObject wrapper pattern, Update methods for all updatable param kinds.
 
-Currently bridge parameters are set-once at creation. After `Create`, C# can't update the view.
+Previously bridge parameters were set-once at creation. Now C# can dynamically update view state via `Update{Param}()` methods that flow through SwiftUI's reactivity system.
+
+**Architecture**: For views with updatable params (primitives, strings, enums, classes, structs, optionals), the emitter generates a `State` class (`ObservableObject` with `@Published` vars), a `Wrapper` view (`@ObservedObject` state + closure lets), and per-param `@_cdecl` Update functions. Closures remain set-once (not updatable). Views with only closure params or no params skip the State/Wrapper pattern entirely.
+
+**Completed scope**:
+
+| Sub-task | Status | Description |
+|----------|--------|-------------|
+| `IsUpdatable` property | **Done** | All `BridgeParameterKind` except `VoidClosure` and `TypedClosure` are updatable |
+| Swift State class | **Done** | `final class SBW_{Module}_{View}_State: ObservableObject` with `@Published var` per updatable param |
+| Swift Wrapper view | **Done** | `struct SBW_{Module}_{View}_Wrapper: View` with `@ObservedObject var state` + closure `let` properties. Body reconstructs inner view using state for updatable params, direct references for closures. |
+| Session refactor | **Done** | Session holds `let state: State` field; init creates State, Wrapper, then UIHostingController with Wrapper as rootView |
+| Swift Update functions | **Done** | `@_cdecl("SBW_{Module}_{View}_Update{Param}")` per updatable param. Handle validation + `SBW_onMainThread` + ABI conversion + state assignment. |
+| C# Update P/Invokes | **Done** | `[LibraryImport]` declarations per updatable param in NativeMethods |
+| C# Update methods | **Done** | Public `Update{PascalName}()` methods on Session class with disposed-check, proper ABI marshalling (string→UTF8, enum→RawValue, class→SafeHandle, bool→byte, optional patterns) |
+| Selective application | **Done** | Only views with ≥1 updatable param get State/Wrapper. Closure-only and parameterless views keep the original direct-hosting pattern. |
+
+**Supported update types**: `Int32`/`Int64`/`Float`/`Double`/`Bool` (primitives), `String`, `BoundEnum` (via rawValue), `BoundType` (class via pointer), `BoundStruct` (via pointer), all Optional variants.
+
+**Test coverage**: 18 new unit tests, 9 runtime tests on iOS Simulator (primitive/string/enum/bool updates, closure-after-mutation, existing view retrofits), 2 new test views (`UpdatableCounterView`, `UpdatableMixedView`), 19 bridged views total, 53/53 library validation.
+
+**Key files modified**: `SwiftUIBridgeEmitter.InitAnalyzer.cs` (`IsUpdatable`), `SwiftUIBridgeEmitter.cs` (State/Wrapper/Update emission), `SwiftUIBridgeEmitterTests.cs` (18 tests), `SimpleViews.swift` (2 test views), `SwiftUIBridgeTestHelpers.swift` (updated for state pattern), `StateUpdateBridgeTests.cs` (9 runtime tests), `BridgeNativeMethods.cs` (Update P/Invokes + test helpers).
+
+```csharp
+// Generated C# — dynamic state updates
+var session = UpdatableCounterViewSession.Create(count: 0, label: "Score");
+session.UpdateCount(42);      // SwiftUI re-renders immediately
+session.UpdateLabel("Points"); // String update via UTF-8 encoding
+```
+
+---
+
+### Session 4B: Constrained Generics
+
+**Priority**: Medium — extends generic view support beyond View-constrained placeholders.
+
+Views with `<T: Identifiable>` or `<T: Hashable>` are currently template fallback. This session adds concrete type resolution when constraints are satisfiable.
 
 **Scope**:
 
 | Sub-task | Description |
 |----------|-------------|
-| Property update methods | For each bridged init param, emit `Update{Param}()` on the session. Swift side uses `@Published` / `objectWillChange` to trigger re-render. |
-| ObservableObject wrapper | Session holds an `ObservableObject` that the view reads from (architectural change from current direct view creation) |
-| Constrained generics | Views with `<T: Identifiable>` or `<T: Hashable>` — bridge with concrete type when constraint is satisfiable, template fallback otherwise |
-
-**Key challenge**: The session class currently creates the view directly. For mutable state, it needs to hold an `ObservableObject` that the view reads from, so updates flow through SwiftUI's reactivity system.
-
-```csharp
-// Generated
-public sealed class SearchViewSession : IDisposable {
-    public static SearchViewSession Create(string query, Action<string>? onQueryChanged = null) { ... }
-    public void UpdateQuery(string newQuery) { ... }  // calls SBW_*_UpdateQuery @_cdecl
-}
-```
+| Constraint analysis | Analyze non-View generic constraints (Identifiable, Hashable, Equatable, etc.) |
+| Concrete type resolution | When constraint is satisfiable with a known type, bridge with that concrete type |
+| Template fallback | When constraint requires user type, fall back to template generation |
 
 ---
 
@@ -291,15 +318,17 @@ Session 2: Generic Views            ✅ COMPLETE
     │
 Session 3: Structs & Type Database  ✅ COMPLETE
     │
-Session 4: Two-Way State            (standalone — architectural change to session class)
+Session 4A: Two-Way State           ✅ COMPLETE
     │
-Session 5: Lifecycle & Modifiers    (runtime modifiers depend on Session 4's ObservableObject)
+Session 4B: Constrained Generics   (standalone — extends Session 2's generic analysis)
     │
-Session 6: Observable Binding       (depends on Session 4's ObservableObject wrapper)
+Session 5: Lifecycle & Modifiers    (runtime modifiers depend on Session 4A's ObservableObject)
+    │
+Session 6: Observable Binding       (depends on Session 4A's ObservableObject wrapper)
            + Corpus Tracking        (standalone — measures everything above)
 ```
 
-**Stop points**: After Sessions 1-3, the bridge covers the vast majority of real-world SwiftUI views. Sessions 4-6 add power and polish but aren't required for basic consumption.
+**Stop points**: After Sessions 1-3 + 4A, the bridge covers the vast majority of real-world SwiftUI views with dynamic state updates. Sessions 4B-6 add extended generic support, lifecycle management, and advanced reactivity.
 
 ---
 
@@ -323,14 +352,14 @@ The product contract remains: **present SwiftUI View as UIViewController, with c
 
 ## Success Metrics
 
-| Metric | Before S1A | After S1A | After S2 | After S3 | After S4-6 |
-|--------|------------|-----------|----------|----------|------------|
-| Parameter types supported | 7 kinds | 11 kinds | 11 + generic | 12 + struct | 12+ kinds |
-| Closure arg types | Primitives only | + String, class | + String, class | + String, class | + String, class |
-| Optional param types | Enum, class | + String, closure | + String, closure | + struct | + struct |
-| Generic views bridged | 0% | 0% | View-constrained | View-constrained | 60%+ |
-| Bridge rate (estimated) | ~70% | ~80% | ~85% | ~90% | ~95% |
-| Post-creation state updates | No | No | No | No | Yes |
-| Lifecycle/modifier support | No | No | No | No | Yes |
-| Bridged views (TestFramework) | — | 15 | 17 | 17 | 20+ |
-| Unit tests (bridge) | — | 174 | 196 | 210 | 250+ |
+| Metric | Before S1A | After S1A | After S2 | After S3 | After S4A | After S4B-6 |
+|--------|------------|-----------|----------|----------|-----------|-------------|
+| Parameter types supported | 7 kinds | 11 kinds | 11 + generic | 12 + struct | 12 + struct | 12+ kinds |
+| Closure arg types | Primitives only | + String, class | + String, class | + String, class | + String, class | + String, class |
+| Optional param types | Enum, class | + String, closure | + String, closure | + struct | + struct | + struct |
+| Generic views bridged | 0% | 0% | View-constrained | View-constrained | View-constrained | 60%+ |
+| Bridge rate (estimated) | ~70% | ~80% | ~85% | ~90% | ~90% | ~95% |
+| Post-creation state updates | No | No | No | No | **Yes** | Yes |
+| Lifecycle/modifier support | No | No | No | No | No | Yes |
+| Bridged views (TestFramework) | — | 15 | 17 | 17 | 19 | 20+ |
+| Unit tests (bridge) | — | 174 | 196 | 210 | 228 | 250+ |

@@ -485,4 +485,12 @@ public record BridgeParameter(
     List<BridgeParameter>? ClosureArguments = null,
     BridgeParameter? ClosureReturn = null,
     bool IsSimpleEnum = false,
-    StructProjectionKind? StructProjection = null);
+    StructProjectionKind? StructProjection = null)
+{
+    /// <summary>
+    /// Returns true for parameter kinds that support Update* methods (two-way state binding).
+    /// Closures are excluded because their GCHandle lifecycle is tied to session creation/disposal.
+    /// </summary>
+    public bool IsUpdatable => Kind is not BridgeParameterKind.VoidClosure
+                                    and not BridgeParameterKind.TypedClosure;
+}

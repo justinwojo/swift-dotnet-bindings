@@ -198,3 +198,37 @@ public struct PlaceholderOnlyView<Content: View>: View {
         Text("PlaceholderOnly")
     }
 }
+
+// MARK: - Two-Way State Binding (Session 4A)
+
+/// Tests updatable primitive + string params (no closures).
+public struct UpdatableCounterView: View {
+    public let count: Int32
+    public let label: String
+
+    public init(count: Int32, label: String) {
+        self.count = count
+        self.label = label
+    }
+
+    public var body: some View {
+        Text("\(label): \(count)")
+    }
+}
+
+/// Tests mixed updatable + closure params (title/isEnabled updatable, onTap closure).
+public struct UpdatableMixedView: View {
+    public let title: String
+    public let isEnabled: Bool
+    public let onTap: () -> Void
+
+    public init(title: String, isEnabled: Bool, onTap: @escaping () -> Void) {
+        self.title = title
+        self.isEnabled = isEnabled
+        self.onTap = onTap
+    }
+
+    public var body: some View {
+        Text(title)
+    }
+}

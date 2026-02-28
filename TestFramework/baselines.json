@@ -4,6 +4,6 @@
   "must_pass_degraded": 0,
   "must_pass_compiled_out": 26,
   "known_unsupported_total": 60,
-  "crash_risk_classes": 2,
+  "crash_risk_classes": 3,
   "wrapper_stripped_count": 56
 }

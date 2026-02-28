@@ -170,6 +170,61 @@ internal static class BridgeNativeMethods
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern void MixedStringView_Free(IntPtr handle);
 
+    // --- UpdatableCounterView ---
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_UpdatableCounterView_Create")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr UpdatableCounterView_Create(int count, IntPtr labelPtr, nint labelLen);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_UpdatableCounterView_GetViewController")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr UpdatableCounterView_GetViewController(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_UpdatableCounterView_Free")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void UpdatableCounterView_Free(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_UpdatableCounterView_UpdateCount")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void UpdatableCounterView_UpdateCount(IntPtr handle, int newValue);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_UpdatableCounterView_UpdateLabel")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void UpdatableCounterView_UpdateLabel(IntPtr handle, IntPtr newValuePtr, nint newValueLen);
+
+    // --- UpdatableMixedView ---
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_UpdatableMixedView_Create")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr UpdatableMixedView_Create(IntPtr titlePtr, nint titleLen, int isEnabled, IntPtr onTapCallback, IntPtr onTapUserData);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_UpdatableMixedView_GetViewController")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr UpdatableMixedView_GetViewController(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_UpdatableMixedView_Free")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void UpdatableMixedView_Free(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_UpdatableMixedView_UpdateTitle")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void UpdatableMixedView_UpdateTitle(IntPtr handle, IntPtr newValuePtr, nint newValueLen);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_UpdatableMixedView_UpdateIsEnabled")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void UpdatableMixedView_UpdateIsEnabled(IntPtr handle, int newValue);
+
+    // --- Update functions for existing views (Session 4A) ---
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_EnumParamView_UpdateStyle")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void EnumParamView_UpdateStyle(IntPtr handle, int newValue);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_MixedParamView_UpdateStyle")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void MixedParamView_UpdateStyle(IntPtr handle, int newValue);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_MixedParamView_UpdateCount")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void MixedParamView_UpdateCount(IntPtr handle, int newValue);
+
     // --- AsyncServiceView ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_AsyncServiceView_Create")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
@@ -324,6 +379,28 @@ internal static class BridgeTestHelpers
     [DllImport(BridgeLib, EntryPoint = "SBW_TEST_MixedStringView_InvokeClosure")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern int MixedStringView_InvokeClosure(IntPtr handle, IntPtr valuePtr, nint valueLen);
+
+    // UpdatableCounterView (Session 4A)
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_UpdatableCounterView_GetCount")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int UpdatableCounterView_GetCount(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_UpdatableCounterView_GetLabelLength")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int UpdatableCounterView_GetLabelLength(IntPtr handle);
+
+    // UpdatableMixedView (Session 4A)
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_UpdatableMixedView_GetTitleLength")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int UpdatableMixedView_GetTitleLength(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_UpdatableMixedView_GetIsEnabled")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int UpdatableMixedView_GetIsEnabled(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_UpdatableMixedView_FireOnTap")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int UpdatableMixedView_FireOnTap(IntPtr handle);
 }
 
 #endregion

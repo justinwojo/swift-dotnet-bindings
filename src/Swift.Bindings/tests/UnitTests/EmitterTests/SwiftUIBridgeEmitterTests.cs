@@ -1204,8 +1204,9 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             NullLogger.Instance, typeDb);
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
-        Assert.Contains("let animation: LottieAnimation", swiftContent);
-        Assert.Contains("animation: self.animation", swiftContent);
+        // With state binding, BoundType goes to State as @Published
+        Assert.Contains("@Published var animation: LottieAnimation", swiftContent);
+        Assert.Contains("animation: state.animation", swiftContent);
     }
 
     [Fact]
@@ -1444,8 +1445,9 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             NullLogger.Instance, typeDb);
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
-        Assert.Contains("let config: Config", swiftContent);
-        Assert.Contains("config: self.config", swiftContent);
+        // With state binding, BoundStruct goes to State as @Published
+        Assert.Contains("@Published var config: Config", swiftContent);
+        Assert.Contains("config: state.config", swiftContent);
     }
 
     [Fact]
@@ -4500,8 +4502,9 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
         Assert.Contains("titlePtr == nil", swiftContent);
-        Assert.Contains("titleString = nil", swiftContent);
-        Assert.Contains("title: titleString", swiftContent);
+        // With state binding, optional string conversion uses "Converted" suffix
+        Assert.Contains("titleConverted = nil", swiftContent);
+        Assert.Contains("title: titleConverted", swiftContent);
     }
 
     [Fact]
@@ -5350,7 +5353,8 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             NullLogger.Instance);
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
-        Assert.Contains("UIHostingController<GenericPlaceholderView<EmptyView>>", swiftContent);
+        // With state binding (title: String is updatable), the hosted view is the Wrapper
+        Assert.Contains("UIHostingController<SBW_TestModule_GenericPlaceholderView_Wrapper>", swiftContent);
     }
 
     [Fact]
@@ -5447,7 +5451,8 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             NullLogger.Instance);
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
-        Assert.Contains("UIHostingController<DualPlaceholderView<EmptyView, EmptyView>>", swiftContent);
+        // With state binding (title: String is updatable), the hosted view is the Wrapper
+        Assert.Contains("UIHostingController<SBW_TestModule_DualPlaceholderView_Wrapper>", swiftContent);
     }
 
     [Fact]
@@ -5783,7 +5788,8 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
         // The closure must synthesize the concrete type for τ_0_1 (EmptyView), not some random first value
         Assert.Contains("footer: { EmptyView() }", swiftContent);
-        Assert.Contains("UIHostingController<TwoSlotView<EmptyView, EmptyView>>", swiftContent);
+        // With state binding (title: String is updatable), the hosted view is the Wrapper
+        Assert.Contains("UIHostingController<SBW_TestModule_TwoSlotView_Wrapper>", swiftContent);
     }
 
     [Fact]
@@ -5795,6 +5801,467 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.Equal(PlaceholderStrategy.UIView, SwiftUIBridgeEmitter.ParsePlaceholderStrategy("uiview"));
         Assert.Equal(PlaceholderStrategy.AnyViewFromVC, SwiftUIBridgeEmitter.ParsePlaceholderStrategy("anyviewfromvc"));
         Assert.Equal(PlaceholderStrategy.Empty, SwiftUIBridgeEmitter.ParsePlaceholderStrategy("unknown"));
+    }
+
+    #endregion
+
+    #region Two-Way State Binding (Session 4A)
+
+    [Fact]
+    public void StateBinding_Swift_EmitsStateClass_ForUpdatableParams()
+    {
+        var views = new List<TypeDecl> { CreateViewWithPrimitiveAndStringInit("CounterView", "count", "Swift.Int32", "label") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("final class SBW_TestModule_CounterView_State: ObservableObject", swiftContent);
+        Assert.Contains("@Published var count: Int32", swiftContent);
+        Assert.Contains("@Published var label: String", swiftContent);
+    }
+
+    [Fact]
+    public void StateBinding_Swift_EmitsWrapperView_WithObservedObject()
+    {
+        var views = new List<TypeDecl> { CreateViewWithPrimitiveAndStringInit("CounterView", "count", "Swift.Int32", "label") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("struct SBW_TestModule_CounterView_Wrapper: View", swiftContent);
+        Assert.Contains("@ObservedObject var state: SBW_TestModule_CounterView_State", swiftContent);
+    }
+
+    [Fact]
+    public void StateBinding_Swift_WrapperBody_UsesStateProperties()
+    {
+        var views = new List<TypeDecl> { CreateViewWithPrimitiveAndStringInit("CounterView", "count", "Swift.Int32", "label") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("CounterView(count: state.count, label: state.label)", swiftContent);
+    }
+
+    [Fact]
+    public void StateBinding_Swift_SessionHoldsState()
+    {
+        var views = new List<TypeDecl> { CreateViewWithPrimitiveAndStringInit("CounterView", "count", "Swift.Int32", "label") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("let state: SBW_TestModule_CounterView_State", swiftContent);
+        Assert.Contains("UIHostingController<SBW_TestModule_CounterView_Wrapper>", swiftContent);
+    }
+
+    [Fact]
+    public void StateBinding_Swift_EmitsUpdateFunctions()
+    {
+        var views = new List<TypeDecl> { CreateViewWithPrimitiveAndStringInit("CounterView", "count", "Swift.Int32", "label") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("@_cdecl(\"SBW_TestModule_CounterView_UpdateCount\")", swiftContent);
+        Assert.Contains("@_cdecl(\"SBW_TestModule_CounterView_UpdateLabel\")", swiftContent);
+        Assert.Contains("session.state.count = newValue", swiftContent);
+    }
+
+    [Fact]
+    public void StateBinding_Swift_UpdateStringFunction_DecodesUtf8()
+    {
+        var views = new List<TypeDecl> { CreateViewWithPrimitiveAndStringInit("CounterView", "count", "Swift.Int32", "label") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("session.state.label = String(bytes:", swiftContent);
+    }
+
+    [Fact]
+    public void StateBinding_CSharp_EmitsUpdatePInvoke()
+    {
+        var views = new List<TypeDecl> { CreateViewWithPrimitiveAndStringInit("CounterView", "count", "Swift.Int32", "label") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("SBW_TestModule_CounterView_UpdateCount", csContent);
+        Assert.Contains("SBW_TestModule_CounterView_UpdateLabel", csContent);
+    }
+
+    [Fact]
+    public void StateBinding_CSharp_EmitsUpdateMethods()
+    {
+        var views = new List<TypeDecl> { CreateViewWithPrimitiveAndStringInit("CounterView", "count", "Swift.Int32", "label") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("public void UpdateCount(int newValue)", csContent);
+        Assert.Contains("public unsafe void UpdateLabel(string? newValue)", csContent);
+    }
+
+    [Fact]
+    public void StateBinding_ClosuresExcluded_FromUpdates()
+    {
+        // Mixed view: title + isEnabled (updatable) + onTap (closure, NOT updatable)
+        var views = new List<TypeDecl> { CreateViewWithMixedUpdatableInit("MixedView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        // onTap should NOT have an Update function
+        Assert.DoesNotContain("UpdateOnTap", swiftContent);
+        // But title and isEnabled should
+        Assert.Contains("@_cdecl(\"SBW_TestModule_MixedView_UpdateTitle\")", swiftContent);
+        Assert.Contains("@_cdecl(\"SBW_TestModule_MixedView_UpdateIsEnabled\")", swiftContent);
+    }
+
+    [Fact]
+    public void StateBinding_ClosureOnWrapper_NotOnState()
+    {
+        var views = new List<TypeDecl> { CreateViewWithMixedUpdatableInit("MixedView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        // Closure is on Wrapper as let, not on State as @Published
+        Assert.Contains("let onTap: () -> Void", swiftContent);
+        Assert.DoesNotContain("@Published var onTap", swiftContent);
+    }
+
+    [Fact]
+    public void StateBinding_NoWrapper_ForClosureOnlyView()
+    {
+        // View with only closures → no updatable params → no state/wrapper
+        var views = new List<TypeDecl> { CreateViewWithVoidClosureInit("ClosureOnlyView", "action") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.DoesNotContain("SBW_TestModule_ClosureOnlyView_State", swiftContent);
+        Assert.DoesNotContain("SBW_TestModule_ClosureOnlyView_Wrapper", swiftContent);
+        Assert.Contains("UIHostingController<ClosureOnlyView>", swiftContent);
+    }
+
+    [Fact]
+    public void StateBinding_NoWrapper_ForParameterlessView()
+    {
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("EmptyView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.DoesNotContain("_State", swiftContent);
+        Assert.DoesNotContain("_Wrapper", swiftContent);
+    }
+
+    [Fact]
+    public void StateBinding_Swift_BoolPrimitive_UpdateUsesConversion()
+    {
+        var views = new List<TypeDecl> { CreateViewWithMixedUpdatableInit("BoolView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("@Published var isEnabled: Bool", swiftContent);
+        Assert.Contains("!= 0", swiftContent);
+    }
+
+    [Fact]
+    public void StateBinding_CSharp_BoolUpdate_UsesConversion()
+    {
+        var views = new List<TypeDecl> { CreateViewWithMixedUpdatableInit("BoolView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("public void UpdateIsEnabled(bool newValue)", csContent);
+        Assert.Contains("? 1 : 0", csContent);
+    }
+
+    [Fact]
+    public void StateBinding_BoundEnum_UpdateUsesRawValue()
+    {
+        var typeDb = CreateEnumTypeDatabase();
+        var views = new List<TypeDecl> { CreateViewWithEnumInit("EnumUpdateView", "style", "TestModule.AlertStyle") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("@_cdecl(\"SBW_TestModule_EnumUpdateView_UpdateStyle\")", swiftContent);
+        Assert.Contains("session.state.style = AlertStyle(rawValue: newValue)!", swiftContent);
+        Assert.Contains("@Published var style: AlertStyle", swiftContent);
+    }
+
+    [Fact]
+    public void StateBinding_IsUpdatable_Property()
+    {
+        var primitiveParam = new BridgeParameter("count", BridgeParameterKind.Primitive, "Int32", "int");
+        var stringParam = new BridgeParameter("title", BridgeParameterKind.String, "UnsafePointer<UInt8>?", "IntPtr", HasLength: true);
+        var voidClosureParam = new BridgeParameter("onTap", BridgeParameterKind.VoidClosure,
+            "(@convention(c) (UnsafeMutableRawPointer?) -> Void)?", "IntPtr", HasUserData: true);
+        var typedClosureParam = new BridgeParameter("onValue", BridgeParameterKind.TypedClosure,
+            "(@convention(c) (Int32, UnsafeMutableRawPointer?) -> Void)?", "IntPtr", HasUserData: true);
+        var enumParam = new BridgeParameter("style", BridgeParameterKind.BoundEnum,
+            "Int32", "int", BridgeTypeName: "AlertStyle");
+        var optionalParam = new BridgeParameter("opt", BridgeParameterKind.OptionalWrapped,
+            "Int32", "int", InnerParameter: primitiveParam);
+
+        Assert.True(primitiveParam.IsUpdatable);
+        Assert.True(stringParam.IsUpdatable);
+        Assert.False(voidClosureParam.IsUpdatable);
+        Assert.False(typedClosureParam.IsUpdatable);
+        Assert.True(enumParam.IsUpdatable);
+        Assert.True(optionalParam.IsUpdatable);
+    }
+
+    [Fact]
+    public void StateBinding_WrapperBody_MergesSynthesizedArgs()
+    {
+        // Generic view with updatable + synthesized args: both should appear correctly in wrapper body
+        var views = new List<TypeDecl> { CreateGenericViewWithUpdatableParam("GenericUpdatable") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("SBW_TestModule_GenericUpdatable_State", swiftContent);
+        Assert.Contains("SBW_TestModule_GenericUpdatable_Wrapper", swiftContent);
+        Assert.Contains("state.title", swiftContent);
+    }
+
+    [Fact]
+    public void StateBinding_CSharp_NoUpdateMethods_ForClosureOnlyView()
+    {
+        var views = new List<TypeDecl> { CreateViewWithVoidClosureInit("ActionView", "doSomething") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.DoesNotContain("public void Update", csContent);
+    }
+
+    // --- Test Helpers ---
+
+    private static StructDecl CreateViewWithPrimitiveAndStringInit(string viewName, string primName, string primType, string strName)
+    {
+        var view = CreateSimpleViewStruct(viewName);
+        view.Methods.Add(new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule_init",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+            ParentDecl = null,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "",
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec($"TestModule.{viewName}"),
+                    ParentDecl = null,
+                    ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    Name = primName,
+                    PrivateName = primName,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec(primType),
+                    ParentDecl = null,
+                    ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    Name = strName,
+                    PrivateName = strName,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                    ParentDecl = null,
+                    ModuleDecl = null,
+                },
+            },
+        });
+        return view;
+    }
+
+    private static StructDecl CreateViewWithMixedUpdatableInit(string viewName)
+    {
+        var view = CreateSimpleViewStruct(viewName);
+        view.Methods.Add(new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule_init",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+            ParentDecl = null,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "",
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec($"TestModule.{viewName}"),
+                    ParentDecl = null,
+                    ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    Name = "title",
+                    PrivateName = "title",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                    ParentDecl = null,
+                    ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    Name = "isEnabled",
+                    PrivateName = "isEnabled",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Bool"),
+                    ParentDecl = null,
+                    ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    Name = "onTap",
+                    PrivateName = "onTap",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    SwiftTypeSpec = new ClosureTypeSpec(),
+                    ParentDecl = null,
+                    ModuleDecl = null,
+                },
+            },
+        });
+        return view;
+    }
+
+    private static StructDecl CreateGenericViewWithUpdatableParam(string name)
+    {
+        var view = new StructDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}V",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>
+            {
+                new TypeConformance(
+                    SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+                    SwiftTypeName.FromModuleQualifiedName("SwiftUI.View"),
+                    $"${name}_SwiftUI_View_conformance")
+            },
+            ParentDecl = null,
+            ModuleDecl = null,
+            IsFrozen = true,
+            MetadataAccessor = $"$s10TestModule{name.Length}{name}VMa",
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_0_0", "Placeholder",
+                    new List<GenericParameterConformance>
+                    {
+                        new GenericParameterConformance(
+                            new[] { "τ_0_0" },
+                            SwiftTypeName.FromModuleQualifiedName("SwiftUICore.View"),
+                            ConformanceKind.Protocol)
+                    },
+                    new List<GenericParameterConformance>())
+            },
+        };
+
+        // Constructor: init(title: String) where Placeholder == EmptyView
+        view.Methods.Add(new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule_init",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_0_0", "Placeholder",
+                    new List<GenericParameterConformance>
+                    {
+                        new GenericParameterConformance(
+                            new[] { "τ_0_0" },
+                            SwiftTypeName.FromModuleQualifiedName("SwiftUI.EmptyView"),
+                            ConformanceKind.ConcreteType)
+                    },
+                    new List<GenericParameterConformance>())
+            },
+            Visibility = Visibility.Public,
+            ParentDecl = null,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "",
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec($"TestModule.{name}"),
+                    ParentDecl = null,
+                    ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    Name = "title",
+                    PrivateName = "title",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                    ParentDecl = null,
+                    ModuleDecl = null,
+                },
+            },
+        });
+
+        return view;
     }
 
     #endregion

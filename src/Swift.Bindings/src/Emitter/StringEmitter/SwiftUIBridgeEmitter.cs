@@ -560,12 +560,23 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine($"// --- {info.ViewName} ---");
         sb.AppendLine();
 
+        var hasUpdatableParams = bridgeParams.Any(p => p.IsUpdatable);
+
+        // Emit State class and Wrapper view before Session when there are updatable params
+        if (hasUpdatableParams)
+        {
+            EmitSwiftStateClass(sb, prefix, info, bridgeParams);
+            EmitSwiftWrapperView(sb, prefix, info, bridgeParams, synthesizedArgs);
+        }
+
         // Session class
-        var hostedViewType = GetSwiftHostedViewType(info);
+        var hostedViewType = GetSwiftHostedViewType(info, bridgeParams);
         sb.AppendLine($"final class {sessionClass} {{");
+        if (hasUpdatableParams)
+            sb.AppendLine($"    let state: {prefix}_State");
         sb.AppendLine($"    let hostingController: UIHostingController<{hostedViewType}>");
 
-        // Store callback fields
+        // Store callback fields (+ class/struct fields only when no state pattern)
         foreach (var param in bridgeParams)
         {
             if (param.Kind is BridgeParameterKind.VoidClosure or BridgeParameterKind.TypedClosure)
@@ -573,7 +584,7 @@ public static partial class SwiftUIBridgeEmitter
                 sb.AppendLine($"    let {param.Name}Callback: ({param.SwiftAbiType.TrimEnd('?')})?");
                 sb.AppendLine($"    let {param.Name}UserData: UnsafeMutableRawPointer?");
             }
-            else if (param.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
+            else if (!hasUpdatableParams && param.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
             {
                 sb.AppendLine($"    let {param.Name}: {param.BridgeTypeName}");
             }
@@ -630,11 +641,11 @@ public static partial class SwiftUIBridgeEmitter
                 sb.AppendLine($"        self.{param.Name}Callback = {param.Name}Callback");
                 sb.AppendLine($"        self.{param.Name}UserData = {param.Name}UserData");
             }
-            else if (param.Kind == BridgeParameterKind.BoundType)
+            else if (!hasUpdatableParams && param.Kind == BridgeParameterKind.BoundType)
             {
                 sb.AppendLine($"        self.{param.Name} = Unmanaged<{param.BridgeTypeName}>.fromOpaque({param.Name}Ptr).takeUnretainedValue()");
             }
-            else if (param.Kind == BridgeParameterKind.BoundStruct)
+            else if (!hasUpdatableParams && param.Kind == BridgeParameterKind.BoundStruct)
             {
                 sb.AppendLine($"        self.{param.Name} = {param.Name}Ptr.assumingMemoryBound(to: {param.BridgeTypeName}.self).pointee");
             }
@@ -649,97 +660,114 @@ public static partial class SwiftUIBridgeEmitter
             }
         }
 
-        // Build view init call
-        var viewInitArgs = new List<string>();
-        foreach (var param in bridgeParams)
+        if (hasUpdatableParams)
         {
-            if (param.Kind == BridgeParameterKind.VoidClosure)
-            {
-                viewInitArgs.Add($"{param.Name}: {{\n            DispatchQueue.main.async {{ cb_{param.Name}?(ud_{param.Name}) }}\n        }}");
-            }
-            else if (param.Kind == BridgeParameterKind.TypedClosure)
-            {
-                viewInitArgs.Add(BuildTypedClosureViewInitArg(param));
-            }
-            else if (param.Kind == BridgeParameterKind.String)
-            {
-                sb.AppendLine($"        let {param.Name}String: String");
-                sb.AppendLine($"        if let ptr = {param.Name}Ptr, {param.Name}Len > 0 {{");
-                sb.AppendLine($"            {param.Name}String = String(bytes: UnsafeBufferPointer(start: ptr, count: {param.Name}Len), encoding: .utf8) ?? \"\"");
-                sb.AppendLine($"        }} else {{");
-                sb.AppendLine($"            {param.Name}String = \"\"");
-                sb.AppendLine($"        }}");
-                viewInitArgs.Add($"{param.Name}: {param.Name}String");
-            }
-            else if (param.Kind == BridgeParameterKind.BoundEnum)
-            {
-                // Construct enum from rawValue
-                viewInitArgs.Add($"{param.Name}: {param.BridgeTypeName}(rawValue: {param.Name})!");
-            }
-            else if (param.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
-            {
-                // Pass the reconstructed Swift object
-                viewInitArgs.Add($"{param.Name}: self.{param.Name}");
-            }
-            else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.String)
-            {
-                // Optional<String>: nil check branching
-                sb.AppendLine($"        let {param.Name}String: String?");
-                sb.AppendLine($"        if {param.Name}Ptr == nil {{ {param.Name}String = nil }}");
-                sb.AppendLine($"        else if {param.Name}Len > 0 {{ {param.Name}String = String(bytes: UnsafeBufferPointer(start: {param.Name}Ptr!, count: {param.Name}Len), encoding: .utf8) ?? \"\" }}");
-                sb.AppendLine($"        else {{ {param.Name}String = \"\" }}");
-                viewInitArgs.Add($"{param.Name}: {param.Name}String");
-            }
-            else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.BoundType)
-            {
-                // Optional<BoundType>: nullable pointer — reconstruct if non-nil
-                var inner = param.InnerParameter!;
-                sb.AppendLine($"        let {param.Name}Val: {inner.BridgeTypeName}? = {param.Name}Ptr.map {{ Unmanaged<{inner.BridgeTypeName}>.fromOpaque($0).takeUnretainedValue() }}");
-                viewInitArgs.Add($"{param.Name}: {param.Name}Val");
-            }
-            else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.BoundStruct)
-            {
-                // Optional<BoundStruct>: nullable pointer — reconstruct via pointee if non-nil
-                var inner = param.InnerParameter!;
-                sb.AppendLine($"        let {param.Name}Val: {inner.BridgeTypeName}? = {param.Name}Ptr.map {{ $0.assumingMemoryBound(to: {inner.BridgeTypeName}.self).pointee }}");
-                viewInitArgs.Add($"{param.Name}: {param.Name}Val");
-            }
-            else if (param.Kind == BridgeParameterKind.OptionalWrapped)
-            {
-                var inner = param.InnerParameter!;
-                string valueExpr;
-                if (inner.Kind == BridgeParameterKind.BoundEnum)
-                    valueExpr = $"{inner.BridgeTypeName}(rawValue: {param.Name}Value)!";
-                else if (inner.SwiftConversion != null)
-                    valueExpr = $"{param.Name}Value {inner.SwiftConversion}";
-                else
-                    valueExpr = $"{param.Name}Value";
-                viewInitArgs.Add($"{param.Name}: {param.Name}HasValue != 0 ? {valueExpr} : nil");
-            }
-            else if (param.Kind == BridgeParameterKind.Primitive && param.SwiftConversion != null)
-            {
-                // Bool: Int32 != 0
-                viewInitArgs.Add($"{param.Name}: {param.Name} {param.SwiftConversion}");
-            }
-            else
-            {
-                viewInitArgs.Add($"{param.Name}: {param.Name}");
-            }
-        }
+            // Convert ABI params to Swift-native values for state
+            EmitSwiftStateConversions(sb, bridgeParams);
 
-        var mergedArgs = BuildMergedInitArgs(
-            info.Constructors.Count > 0 ? info.Constructors[info.GenericAnalysis?.SelectedConstructorIndex ?? 0] : null,
-            bridgeParams, viewInitArgs, synthesizedArgs);
+            // Create state object
+            var stateArgs = bridgeParams.Where(p => p.IsUpdatable)
+                .Select(p => $"{p.Name}: {GetSwiftConvertedVarName(p)}")
+                .ToList();
+            sb.AppendLine($"        self.state = {prefix}_State({string.Join(", ", stateArgs)})");
 
-        if (mergedArgs.Count == 0)
-        {
-            sb.AppendLine($"        let view = {info.ViewName}()");
+            // Build closure Swift init args for the Wrapper
+            var wrapperArgs = new List<string> { "state: state" };
+            foreach (var param in bridgeParams.Where(p => !p.IsUpdatable))
+            {
+                if (param.Kind == BridgeParameterKind.VoidClosure)
+                    wrapperArgs.Add($"{param.Name}: {{\n            DispatchQueue.main.async {{ cb_{param.Name}?(ud_{param.Name}) }}\n        }}");
+                else if (param.Kind == BridgeParameterKind.TypedClosure)
+                    wrapperArgs.Add(BuildTypedClosureViewInitArg(param));
+            }
+            sb.AppendLine($"        let wrapper = {prefix}_Wrapper({string.Join(", ", wrapperArgs)})");
+            sb.AppendLine($"        self.hostingController = UIHostingController(rootView: wrapper)");
         }
         else
         {
-            sb.AppendLine($"        let view = {info.ViewName}({string.Join(", ", mergedArgs)})");
+            // Original direct view creation path
+            var viewInitArgs = new List<string>();
+            foreach (var param in bridgeParams)
+            {
+                if (param.Kind == BridgeParameterKind.VoidClosure)
+                {
+                    viewInitArgs.Add($"{param.Name}: {{\n            DispatchQueue.main.async {{ cb_{param.Name}?(ud_{param.Name}) }}\n        }}");
+                }
+                else if (param.Kind == BridgeParameterKind.TypedClosure)
+                {
+                    viewInitArgs.Add(BuildTypedClosureViewInitArg(param));
+                }
+                else if (param.Kind == BridgeParameterKind.String)
+                {
+                    sb.AppendLine($"        let {param.Name}String: String");
+                    sb.AppendLine($"        if let ptr = {param.Name}Ptr, {param.Name}Len > 0 {{");
+                    sb.AppendLine($"            {param.Name}String = String(bytes: UnsafeBufferPointer(start: ptr, count: {param.Name}Len), encoding: .utf8) ?? \"\"");
+                    sb.AppendLine($"        }} else {{");
+                    sb.AppendLine($"            {param.Name}String = \"\"");
+                    sb.AppendLine($"        }}");
+                    viewInitArgs.Add($"{param.Name}: {param.Name}String");
+                }
+                else if (param.Kind == BridgeParameterKind.BoundEnum)
+                {
+                    viewInitArgs.Add($"{param.Name}: {param.BridgeTypeName}(rawValue: {param.Name})!");
+                }
+                else if (param.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
+                {
+                    viewInitArgs.Add($"{param.Name}: self.{param.Name}");
+                }
+                else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.String)
+                {
+                    sb.AppendLine($"        let {param.Name}String: String?");
+                    sb.AppendLine($"        if {param.Name}Ptr == nil {{ {param.Name}String = nil }}");
+                    sb.AppendLine($"        else if {param.Name}Len > 0 {{ {param.Name}String = String(bytes: UnsafeBufferPointer(start: {param.Name}Ptr!, count: {param.Name}Len), encoding: .utf8) ?? \"\" }}");
+                    sb.AppendLine($"        else {{ {param.Name}String = \"\" }}");
+                    viewInitArgs.Add($"{param.Name}: {param.Name}String");
+                }
+                else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.BoundType)
+                {
+                    var inner = param.InnerParameter!;
+                    sb.AppendLine($"        let {param.Name}Val: {inner.BridgeTypeName}? = {param.Name}Ptr.map {{ Unmanaged<{inner.BridgeTypeName}>.fromOpaque($0).takeUnretainedValue() }}");
+                    viewInitArgs.Add($"{param.Name}: {param.Name}Val");
+                }
+                else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.BoundStruct)
+                {
+                    var inner = param.InnerParameter!;
+                    sb.AppendLine($"        let {param.Name}Val: {inner.BridgeTypeName}? = {param.Name}Ptr.map {{ $0.assumingMemoryBound(to: {inner.BridgeTypeName}.self).pointee }}");
+                    viewInitArgs.Add($"{param.Name}: {param.Name}Val");
+                }
+                else if (param.Kind == BridgeParameterKind.OptionalWrapped)
+                {
+                    var inner = param.InnerParameter!;
+                    string valueExpr;
+                    if (inner.Kind == BridgeParameterKind.BoundEnum)
+                        valueExpr = $"{inner.BridgeTypeName}(rawValue: {param.Name}Value)!";
+                    else if (inner.SwiftConversion != null)
+                        valueExpr = $"{param.Name}Value {inner.SwiftConversion}";
+                    else
+                        valueExpr = $"{param.Name}Value";
+                    viewInitArgs.Add($"{param.Name}: {param.Name}HasValue != 0 ? {valueExpr} : nil");
+                }
+                else if (param.Kind == BridgeParameterKind.Primitive && param.SwiftConversion != null)
+                {
+                    viewInitArgs.Add($"{param.Name}: {param.Name} {param.SwiftConversion}");
+                }
+                else
+                {
+                    viewInitArgs.Add($"{param.Name}: {param.Name}");
+                }
+            }
+
+            var mergedArgs = BuildMergedInitArgs(
+                info.Constructors.Count > 0 ? info.Constructors[info.GenericAnalysis?.SelectedConstructorIndex ?? 0] : null,
+                bridgeParams, viewInitArgs, synthesizedArgs);
+
+            if (mergedArgs.Count == 0)
+                sb.AppendLine($"        let view = {info.ViewName}()");
+            else
+                sb.AppendLine($"        let view = {info.ViewName}({string.Join(", ", mergedArgs)})");
+            sb.AppendLine($"        self.hostingController = UIHostingController(rootView: view)");
         }
-        sb.AppendLine($"        self.hostingController = UIHostingController(rootView: view)");
+
         sb.AppendLine("    }");
         sb.AppendLine("}");
         sb.AppendLine();
@@ -863,7 +891,481 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine("    }");
         sb.AppendLine("}");
         sb.AppendLine();
+
+        // Update functions for updatable params
+        if (hasUpdatableParams)
+        {
+            EmitSwiftUpdateFunctions(sb, prefix, sessionClass, handlesVar, bridgeParams);
+        }
     }
+
+    #region State/Wrapper/Update Emission
+
+    /// <summary>
+    /// Emits the ObservableObject state class that holds @Published properties for updatable params.
+    /// </summary>
+    private static void EmitSwiftStateClass(
+        StringBuilder sb, string prefix, ViewBridgeInfo info, List<BridgeParameter> bridgeParams)
+    {
+        sb.AppendLine($"final class {prefix}_State: ObservableObject {{");
+        foreach (var param in bridgeParams.Where(p => p.IsUpdatable))
+        {
+            var swiftType = GetSwiftNativeType(param);
+            sb.AppendLine($"    @Published var {param.Name}: {swiftType}");
+        }
+
+        // Init
+        var initParams = bridgeParams.Where(p => p.IsUpdatable)
+            .Select(p => $"{p.Name}: {GetSwiftNativeType(p)}")
+            .ToList();
+        sb.AppendLine($"    init({string.Join(", ", initParams)}) {{");
+        foreach (var param in bridgeParams.Where(p => p.IsUpdatable))
+        {
+            sb.AppendLine($"        self.{param.Name} = {param.Name}");
+        }
+        sb.AppendLine("    }");
+        sb.AppendLine("}");
+        sb.AppendLine();
+    }
+
+    /// <summary>
+    /// Emits the Wrapper View that observes the state and holds closure let properties.
+    /// </summary>
+    private static void EmitSwiftWrapperView(
+        StringBuilder sb, string prefix, ViewBridgeInfo info, List<BridgeParameter> bridgeParams,
+        List<SynthesizedInitArg>? synthesizedArgs)
+    {
+        sb.AppendLine($"struct {prefix}_Wrapper: View {{");
+        sb.AppendLine($"    @ObservedObject var state: {prefix}_State");
+
+        // Closure params as let properties
+        foreach (var param in bridgeParams.Where(p => !p.IsUpdatable))
+        {
+            if (param.Kind == BridgeParameterKind.VoidClosure)
+                sb.AppendLine($"    let {param.Name}: () -> Void");
+            else if (param.Kind == BridgeParameterKind.TypedClosure)
+            {
+                var swiftClosureType = GetSwiftClosureType(param);
+                sb.AppendLine($"    let {param.Name}: {swiftClosureType}");
+            }
+        }
+
+        // body
+        sb.AppendLine("    var body: some View {");
+
+        // Build view init args: state.x for updatable, direct reference for closures
+        var viewInitArgs = new List<string>();
+        foreach (var param in bridgeParams)
+        {
+            if (param.IsUpdatable)
+                viewInitArgs.Add($"{param.Name}: state.{param.Name}");
+            else
+                viewInitArgs.Add($"{param.Name}: {param.Name}");
+        }
+
+        var mergedArgs = BuildMergedInitArgs(
+            info.Constructors.Count > 0 ? info.Constructors[info.GenericAnalysis?.SelectedConstructorIndex ?? 0] : null,
+            bridgeParams, viewInitArgs, synthesizedArgs);
+
+        if (mergedArgs.Count == 0)
+            sb.AppendLine($"        {info.ViewName}()");
+        else
+            sb.AppendLine($"        {info.ViewName}({string.Join(", ", mergedArgs)})");
+
+        sb.AppendLine("    }");
+        sb.AppendLine("}");
+        sb.AppendLine();
+    }
+
+    /// <summary>
+    /// Emits ABI-to-Swift-native conversion statements for updatable params in the Session init.
+    /// </summary>
+    private static void EmitSwiftStateConversions(StringBuilder sb, List<BridgeParameter> bridgeParams)
+    {
+        foreach (var param in bridgeParams.Where(p => p.IsUpdatable))
+        {
+            EmitSingleParamConversion(sb, param);
+        }
+    }
+
+    /// <summary>
+    /// Emits ABI-to-Swift-native conversion for a single parameter.
+    /// </summary>
+    private static void EmitSingleParamConversion(StringBuilder sb, BridgeParameter param)
+    {
+        if (param.Kind == BridgeParameterKind.String)
+        {
+            sb.AppendLine($"        let {param.Name}Converted: String");
+            sb.AppendLine($"        if let ptr = {param.Name}Ptr, {param.Name}Len > 0 {{");
+            sb.AppendLine($"            {param.Name}Converted = String(bytes: UnsafeBufferPointer(start: ptr, count: {param.Name}Len), encoding: .utf8) ?? \"\"");
+            sb.AppendLine($"        }} else {{");
+            sb.AppendLine($"            {param.Name}Converted = \"\"");
+            sb.AppendLine($"        }}");
+        }
+        else if (param.Kind == BridgeParameterKind.BoundEnum)
+        {
+            sb.AppendLine($"        let {param.Name}Converted = {param.BridgeTypeName}(rawValue: {param.Name})!");
+        }
+        else if (param.Kind == BridgeParameterKind.BoundType)
+        {
+            sb.AppendLine($"        let {param.Name}Converted = Unmanaged<{param.BridgeTypeName}>.fromOpaque({param.Name}Ptr).takeUnretainedValue()");
+        }
+        else if (param.Kind == BridgeParameterKind.BoundStruct)
+        {
+            sb.AppendLine($"        let {param.Name}Converted = {param.Name}Ptr.assumingMemoryBound(to: {param.BridgeTypeName}.self).pointee");
+        }
+        else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.String)
+        {
+            sb.AppendLine($"        let {param.Name}Converted: String?");
+            sb.AppendLine($"        if {param.Name}Ptr == nil {{ {param.Name}Converted = nil }}");
+            sb.AppendLine($"        else if {param.Name}Len > 0 {{ {param.Name}Converted = String(bytes: UnsafeBufferPointer(start: {param.Name}Ptr!, count: {param.Name}Len), encoding: .utf8) ?? \"\" }}");
+            sb.AppendLine($"        else {{ {param.Name}Converted = \"\" }}");
+        }
+        else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.BoundType)
+        {
+            var inner = param.InnerParameter!;
+            sb.AppendLine($"        let {param.Name}Converted: {inner.BridgeTypeName}? = {param.Name}Ptr.map {{ Unmanaged<{inner.BridgeTypeName}>.fromOpaque($0).takeUnretainedValue() }}");
+        }
+        else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.BoundStruct)
+        {
+            var inner = param.InnerParameter!;
+            sb.AppendLine($"        let {param.Name}Converted: {inner.BridgeTypeName}? = {param.Name}Ptr.map {{ $0.assumingMemoryBound(to: {inner.BridgeTypeName}.self).pointee }}");
+        }
+        else if (param.Kind == BridgeParameterKind.OptionalWrapped)
+        {
+            var inner = param.InnerParameter!;
+            string valueExpr;
+            if (inner.Kind == BridgeParameterKind.BoundEnum)
+                valueExpr = $"{inner.BridgeTypeName}(rawValue: {param.Name}Value)!";
+            else if (inner.SwiftConversion != null)
+                valueExpr = $"{param.Name}Value {inner.SwiftConversion}";
+            else
+                valueExpr = $"{param.Name}Value";
+            sb.AppendLine($"        let {param.Name}Converted: {GetSwiftNativeType(param)} = {param.Name}HasValue != 0 ? {valueExpr} : nil");
+        }
+        else if (param.Kind == BridgeParameterKind.Primitive && param.SwiftConversion != null)
+        {
+            // Bool: Int32 != 0
+            sb.AppendLine($"        let {param.Name}Converted = {param.Name} {param.SwiftConversion}");
+        }
+        // Plain primitives don't need conversion — use directly
+    }
+
+    /// <summary>
+    /// Returns the variable name for the converted Swift-native value of a param.
+    /// </summary>
+    private static string GetSwiftConvertedVarName(BridgeParameter param)
+    {
+        // Primitives without conversion don't need a Converted variable
+        if (param.Kind == BridgeParameterKind.Primitive && param.SwiftConversion == null)
+            return param.Name;
+        return $"{param.Name}Converted";
+    }
+
+    /// <summary>
+    /// Returns the Swift-native type for a param (used in State @Published properties).
+    /// </summary>
+    private static string GetSwiftNativeType(BridgeParameter param) => param.Kind switch
+    {
+        BridgeParameterKind.Primitive when param.SwiftConversion == "!= 0" => "Bool",
+        BridgeParameterKind.Primitive => param.SwiftAbiType,
+        BridgeParameterKind.String => "String",
+        BridgeParameterKind.BoundEnum => param.BridgeTypeName!,
+        BridgeParameterKind.BoundType => param.BridgeTypeName!,
+        BridgeParameterKind.BoundStruct => param.BridgeTypeName!,
+        BridgeParameterKind.OptionalWrapped when param.InnerParameter != null =>
+            $"{GetSwiftNativeType(param.InnerParameter)}?",
+        _ => param.SwiftAbiType,
+    };
+
+    /// <summary>
+    /// Returns the Swift closure type signature for a typed closure (used in Wrapper let properties).
+    /// </summary>
+    private static string GetSwiftClosureType(BridgeParameter param)
+    {
+        var closureArgs = param.ClosureArguments!;
+        var closureReturn = param.ClosureReturn;
+        var argTypes = closureArgs.Select(a => GetSwiftTypeFromAbi(a)).ToList();
+        var returnType = closureReturn != null ? GetSwiftTypeFromAbi(closureReturn) : "Void";
+        return $"({string.Join(", ", argTypes)}) -> {returnType}";
+    }
+
+    /// <summary>
+    /// Emits Swift @_cdecl Update functions for each updatable parameter.
+    /// </summary>
+    private static void EmitSwiftUpdateFunctions(
+        StringBuilder sb, string prefix, string sessionClass, string handlesVar,
+        List<BridgeParameter> bridgeParams)
+    {
+        foreach (var param in bridgeParams.Where(p => p.IsUpdatable))
+        {
+            var pascalName = char.ToUpperInvariant(param.Name[0]) + param.Name[1..];
+            var funcName = $"{prefix}_Update{pascalName}";
+
+            sb.AppendLine($"@_cdecl(\"{funcName}\")");
+
+            // Build parameter list matching ABI
+            var updateParams = new List<string> { "_ handle: UnsafeMutableRawPointer?" };
+            if (param.Kind == BridgeParameterKind.String)
+            {
+                updateParams.Add("_ newValuePtr: UnsafePointer<UInt8>?");
+                updateParams.Add("_ newValueLen: Int");
+            }
+            else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.String)
+            {
+                updateParams.Add("_ newValuePtr: UnsafePointer<UInt8>?");
+                updateParams.Add("_ newValueLen: Int");
+            }
+            else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
+            {
+                updateParams.Add($"_ newValuePtr: {param.SwiftAbiType}");
+            }
+            else if (param.Kind == BridgeParameterKind.OptionalWrapped)
+            {
+                updateParams.Add("_ newValueHasValue: Int32");
+                updateParams.Add($"_ newValueValue: {param.InnerParameter!.SwiftAbiType}");
+            }
+            else if (param.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
+            {
+                updateParams.Add($"_ newValuePtr: {param.SwiftAbiType}");
+            }
+            else
+            {
+                updateParams.Add($"_ newValue: {param.SwiftAbiType}");
+            }
+
+            sb.AppendLine($"public func {funcName}(");
+            sb.AppendLine($"    {string.Join(",\n    ", updateParams)}");
+            sb.AppendLine(") {");
+            sb.AppendLine("    SBW_onMainThread {");
+            sb.AppendLine($"        guard let handle = handle,");
+            sb.AppendLine($"              {handlesVar}.contains(handle) else {{ return }}");
+            sb.AppendLine($"        let session = Unmanaged<{sessionClass}>");
+            sb.AppendLine($"            .fromOpaque(handle).takeUnretainedValue()");
+
+            // Emit the conversion + assignment
+            EmitSwiftUpdateConversion(sb, param);
+
+            sb.AppendLine("    }");
+            sb.AppendLine("}");
+            sb.AppendLine();
+        }
+    }
+
+    /// <summary>
+    /// Emits the state assignment inside an Update function, with appropriate ABI conversion.
+    /// </summary>
+    private static void EmitSwiftUpdateConversion(StringBuilder sb, BridgeParameter param)
+    {
+        if (param.Kind == BridgeParameterKind.String)
+        {
+            sb.AppendLine($"        if let ptr = newValuePtr, newValueLen > 0 {{");
+            sb.AppendLine($"            session.state.{param.Name} = String(bytes: UnsafeBufferPointer(start: ptr, count: newValueLen), encoding: .utf8) ?? \"\"");
+            sb.AppendLine($"        }} else {{");
+            sb.AppendLine($"            session.state.{param.Name} = \"\"");
+            sb.AppendLine($"        }}");
+        }
+        else if (param.Kind == BridgeParameterKind.BoundEnum)
+        {
+            sb.AppendLine($"        session.state.{param.Name} = {param.BridgeTypeName}(rawValue: newValue)!");
+        }
+        else if (param.Kind == BridgeParameterKind.BoundType)
+        {
+            sb.AppendLine($"        session.state.{param.Name} = Unmanaged<{param.BridgeTypeName}>.fromOpaque(newValuePtr).takeUnretainedValue()");
+        }
+        else if (param.Kind == BridgeParameterKind.BoundStruct)
+        {
+            sb.AppendLine($"        session.state.{param.Name} = newValuePtr.assumingMemoryBound(to: {param.BridgeTypeName}.self).pointee");
+        }
+        else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.String)
+        {
+            sb.AppendLine($"        if newValuePtr == nil {{ session.state.{param.Name} = nil }}");
+            sb.AppendLine($"        else if newValueLen > 0 {{ session.state.{param.Name} = String(bytes: UnsafeBufferPointer(start: newValuePtr!, count: newValueLen), encoding: .utf8) ?? \"\" }}");
+            sb.AppendLine($"        else {{ session.state.{param.Name} = \"\" }}");
+        }
+        else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.BoundType)
+        {
+            var inner = param.InnerParameter!;
+            sb.AppendLine($"        session.state.{param.Name} = newValuePtr.map {{ Unmanaged<{inner.BridgeTypeName}>.fromOpaque($0).takeUnretainedValue() }}");
+        }
+        else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.BoundStruct)
+        {
+            var inner = param.InnerParameter!;
+            sb.AppendLine($"        session.state.{param.Name} = newValuePtr.map {{ $0.assumingMemoryBound(to: {inner.BridgeTypeName}.self).pointee }}");
+        }
+        else if (param.Kind == BridgeParameterKind.OptionalWrapped)
+        {
+            var inner = param.InnerParameter!;
+            string valueExpr;
+            if (inner.Kind == BridgeParameterKind.BoundEnum)
+                valueExpr = $"{inner.BridgeTypeName}(rawValue: newValueValue)!";
+            else if (inner.SwiftConversion != null)
+                valueExpr = $"newValueValue {inner.SwiftConversion}";
+            else
+                valueExpr = "newValueValue";
+            sb.AppendLine($"        session.state.{param.Name} = newValueHasValue != 0 ? {valueExpr} : nil");
+        }
+        else if (param.Kind == BridgeParameterKind.Primitive && param.SwiftConversion != null)
+        {
+            sb.AppendLine($"        session.state.{param.Name} = newValue {param.SwiftConversion}");
+        }
+        else
+        {
+            sb.AppendLine($"        session.state.{param.Name} = newValue");
+        }
+    }
+
+    /// <summary>
+    /// Emits C# Update P/Invoke declarations in NativeMethods for each updatable param.
+    /// </summary>
+    private static void EmitCSharpUpdatePInvokeDeclarations(
+        StringBuilder sb, string prefix, string bridgeLib, List<BridgeParameter> bridgeParams)
+    {
+        foreach (var param in bridgeParams.Where(p => p.IsUpdatable))
+        {
+            var pascalName = char.ToUpperInvariant(param.Name[0]) + param.Name[1..];
+            var pinvokeParams = new List<string> { "IntPtr handle" };
+
+            if (param.Kind == BridgeParameterKind.String)
+            {
+                pinvokeParams.Add("IntPtr newValuePtr");
+                pinvokeParams.Add("nint newValueLen");
+            }
+            else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.String)
+            {
+                pinvokeParams.Add("IntPtr newValuePtr");
+                pinvokeParams.Add("nint newValueLen");
+            }
+            else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
+            {
+                pinvokeParams.Add("IntPtr newValue");
+            }
+            else if (param.Kind == BridgeParameterKind.OptionalWrapped)
+            {
+                pinvokeParams.Add("int newValueHasValue");
+                pinvokeParams.Add($"{param.InnerParameter!.CSharpPInvokeType} newValueValue");
+            }
+            else if (param.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
+            {
+                pinvokeParams.Add("IntPtr newValue");
+            }
+            else
+            {
+                pinvokeParams.Add($"{param.CSharpPInvokeType} newValue");
+            }
+
+            sb.AppendLine();
+            foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
+            {
+                LibraryPath = bridgeLib,
+                EntryPoint = $"{prefix}_Update{pascalName}",
+                MethodName = $"Update{pascalName}",
+                ReturnType = "void",
+                ParametersString = string.Join(", ", pinvokeParams),
+                CallingConvention = PInvokeCallingConvention.Cdecl,
+                Visibility = PInvokeVisibility.Internal
+            }))
+                sb.AppendLine($"        {line}");
+        }
+    }
+
+    /// <summary>
+    /// Emits C# Update methods on the Session class for each updatable param.
+    /// </summary>
+    private static void EmitCSharpUpdateMethods(
+        StringBuilder sb, ViewBridgeInfo info, List<BridgeParameter> bridgeParams)
+    {
+        foreach (var param in bridgeParams.Where(p => p.IsUpdatable))
+        {
+            var pascalName = char.ToUpperInvariant(param.Name[0]) + param.Name[1..];
+            var factoryType = GetFactoryParamType(param);
+
+            if (param.Kind == BridgeParameterKind.String ||
+                (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.String))
+            {
+                // String update: UTF-8 encode + fixed
+                var isOptional = param.Kind == BridgeParameterKind.OptionalWrapped;
+                sb.AppendLine($"        public unsafe void Update{pascalName}({factoryType} newValue)");
+                sb.AppendLine("        {");
+                if (isOptional)
+                {
+                    sb.AppendLine("            if (newValue == null)");
+                    sb.AppendLine("            {");
+                    sb.AppendLine($"                {info.ViewName}BridgeNativeMethods.Update{pascalName}(Handle, IntPtr.Zero, 0);");
+                    sb.AppendLine("                return;");
+                    sb.AppendLine("            }");
+                }
+                sb.AppendLine($"            var bytes = Encoding.UTF8.GetBytes(newValue ?? \"\");");
+                sb.AppendLine("            fixed (byte* ptr = bytes)");
+                sb.AppendLine($"                {info.ViewName}BridgeNativeMethods.Update{pascalName}(Handle, (IntPtr)ptr, bytes.Length);");
+                sb.AppendLine("        }");
+                sb.AppendLine();
+            }
+            else if (param.Kind == BridgeParameterKind.BoundEnum)
+            {
+                sb.AppendLine($"        public void Update{pascalName}({factoryType} newValue) =>");
+                if (param.IsSimpleEnum)
+                    sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Update{pascalName}(Handle, ({param.CSharpPInvokeType})newValue);");
+                else
+                    sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Update{pascalName}(Handle, newValue.RawValue);");
+                sb.AppendLine();
+            }
+            else if (param.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
+            {
+                sb.AppendLine($"        public void Update{pascalName}({factoryType} newValue) =>");
+                sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Update{pascalName}(Handle, newValue.Payload.DangerousGetHandle());");
+                sb.AppendLine();
+            }
+            else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
+            {
+                sb.AppendLine($"        public void Update{pascalName}({factoryType} newValue) =>");
+                sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Update{pascalName}(Handle, newValue?.Payload.DangerousGetHandle() ?? IntPtr.Zero);");
+                sb.AppendLine();
+            }
+            else if (param.Kind == BridgeParameterKind.OptionalWrapped)
+            {
+                var inner = param.InnerParameter!;
+                sb.AppendLine($"        public void Update{pascalName}({factoryType} newValue)");
+                sb.AppendLine("        {");
+                if (inner.Kind == BridgeParameterKind.BoundEnum)
+                {
+                    if (inner.IsSimpleEnum)
+                    {
+                        sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Update{pascalName}(Handle, newValue.HasValue ? 1 : 0, newValue.HasValue ? ({inner.CSharpPInvokeType})newValue.Value : 0);");
+                    }
+                    else
+                    {
+                        sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Update{pascalName}(Handle, newValue != null ? 1 : 0, newValue?.RawValue ?? 0);");
+                    }
+                }
+                else if (inner.CSharpConversion != null) // Bool
+                {
+                    sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Update{pascalName}(Handle, newValue.HasValue ? 1 : 0, newValue.HasValue ? (newValue.Value {inner.CSharpConversion}) : 0);");
+                }
+                else
+                {
+                    sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Update{pascalName}(Handle, newValue.HasValue ? 1 : 0, newValue ?? 0);");
+                }
+                sb.AppendLine("        }");
+                sb.AppendLine();
+            }
+            else if (param.CSharpConversion != null)
+            {
+                // Bool: value ? 1 : 0
+                sb.AppendLine($"        public void Update{pascalName}({factoryType} newValue) =>");
+                sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Update{pascalName}(Handle, newValue {param.CSharpConversion});");
+                sb.AppendLine();
+            }
+            else
+            {
+                sb.AppendLine($"        public void Update{pascalName}({factoryType} newValue) =>");
+                sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Update{pascalName}(Handle, newValue);");
+                sb.AppendLine();
+            }
+        }
+    }
+
+    #endregion
 
     private static void EmitSwiftTemplate(StringBuilder sb, string moduleName, ViewBridgeInfo info)
     {
@@ -1049,6 +1551,10 @@ public static partial class SwiftUIBridgeEmitter
             Visibility = PInvokeVisibility.Internal
         }))
             sb.AppendLine($"        {line}");
+
+        // Update P/Invoke declarations for updatable params
+        EmitCSharpUpdatePInvokeDeclarations(sb, prefix, bridgeLib, bridgeParams);
+
         sb.AppendLine("    }");
         sb.AppendLine();
 
@@ -1097,6 +1603,9 @@ public static partial class SwiftUIBridgeEmitter
 
         // Create factory method
         EmitSimpleCreateFactory(sb, info, bridgeParams, needsUnsafe, hasClosures, hasStrings);
+
+        // Update methods for updatable params
+        EmitCSharpUpdateMethods(sb, info, bridgeParams);
 
         sb.AppendLine("        public void Dispose()");
         sb.AppendLine("        {");
@@ -1390,10 +1899,17 @@ public static partial class SwiftUIBridgeEmitter
 
     /// <summary>
     /// Returns the Swift type for UIHostingController, with concrete type args for generic views.
-    /// Non-generic → "ViewName". Generic → "ViewName&lt;EmptyView&gt;".
+    /// When the view has updatable (non-closure) params, returns the Wrapper type instead.
     /// </summary>
-    internal static string GetSwiftHostedViewType(ViewBridgeInfo info)
+    internal static string GetSwiftHostedViewType(ViewBridgeInfo info, List<BridgeParameter>? bridgeParams = null)
     {
+        // If there are updatable params, the hosted view is the Wrapper, not the raw view
+        if (bridgeParams != null && bridgeParams.Any(p => p.IsUpdatable))
+        {
+            var prefix = $"SBW_{info.ModuleName}_{info.ViewName}";
+            return $"{prefix}_Wrapper";
+        }
+
         if (info.GenericAnalysis == null)
             return info.ViewName;
 

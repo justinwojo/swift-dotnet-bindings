@@ -11,15 +11,11 @@ import SwiftBindingsTestLib
 
 // MARK: - Session extensions (coupled to generated field names)
 // If the emitter renames internal fields, only this section needs updating.
-
-extension SBW_SwiftBindingsTestLib_EnumParamView_Session {
-    var rootView: EnumParamView { hostingController.rootView }
-}
-
-extension SBW_SwiftBindingsTestLib_ClassParamView_Session {
-    var rootView: ClassParamView { hostingController.rootView }
-    var storedModel: SimpleModel { model }
-}
+//
+// Views with updatable params use the State/Wrapper pattern:
+//   hostingController.rootView → Wrapper type, state values via session.state.{prop}
+// Views with closure-only params use direct hosting:
+//   hostingController.rootView → concrete View type
 
 extension SBW_SwiftBindingsTestLib_TypedClosureView_Session {
     var rootView: TypedClosureView { hostingController.rootView }
@@ -27,18 +23,6 @@ extension SBW_SwiftBindingsTestLib_TypedClosureView_Session {
 
 extension SBW_SwiftBindingsTestLib_MultiArgClosureView_Session {
     var rootView: MultiArgClosureView { hostingController.rootView }
-}
-
-extension SBW_SwiftBindingsTestLib_MixedParamView_Session {
-    var rootView: MixedParamView { hostingController.rootView }
-}
-
-extension SBW_SwiftBindingsTestLib_OptionalEnumView_Session {
-    var rootView: OptionalEnumView { hostingController.rootView }
-}
-
-extension SBW_SwiftBindingsTestLib_OptionalClassView_Session {
-    var rootView: OptionalClassView { hostingController.rootView }
 }
 
 extension SBW_SwiftBindingsTestLib_StringClosureView_Session {
@@ -49,20 +33,8 @@ extension SBW_SwiftBindingsTestLib_ClassClosureView_Session {
     var rootView: ClassClosureView { hostingController.rootView }
 }
 
-extension SBW_SwiftBindingsTestLib_OptionalStringView_Session {
-    var rootView: OptionalStringView { hostingController.rootView }
-}
-
 extension SBW_SwiftBindingsTestLib_OptionalClosureView_Session {
     var rootView: OptionalClosureView { hostingController.rootView }
-}
-
-extension SBW_SwiftBindingsTestLib_MixedStringView_Session {
-    var rootView: MixedStringView { hostingController.rootView }
-}
-
-extension SBW_SwiftBindingsTestLib_GenericPlaceholderView_Session {
-    var rootView: GenericPlaceholderView<EmptyView> { hostingController.rootView }
 }
 
 extension SBW_SwiftBindingsTestLib_PlaceholderOnlyView_Session {
@@ -96,9 +68,9 @@ public func SBW_TEST_ResetSimpleModelDeinitCount() {
     SimpleModel.deinitCount = 0
 }
 
-// MARK: - EnumParamView helpers
+// MARK: - EnumParamView helpers (State/Wrapper pattern)
 
-/// Read stored enum raw value via the View's style property.
+/// Read stored enum raw value via the session's state.
 @_cdecl("SBW_TEST_EnumParamView_GetStyle")
 public func SBW_TEST_EnumParamView_GetStyle(_ handle: UnsafeMutableRawPointer?) -> Int32 {
     return SBW_onMainThread {
@@ -106,13 +78,13 @@ public func SBW_TEST_EnumParamView_GetStyle(_ handle: UnsafeMutableRawPointer?) 
               SBW_SwiftBindingsTestLib_EnumParamView_liveHandles.contains(handle) else { return -1 }
         let session = Unmanaged<SBW_SwiftBindingsTestLib_EnumParamView_Session>
             .fromOpaque(handle).takeUnretainedValue()
-        return session.rootView.style.rawValue
+        return session.state.style.rawValue
     }
 }
 
-// MARK: - ClassParamView helpers
+// MARK: - ClassParamView helpers (State/Wrapper pattern)
 
-/// Read model.value via the session's stored model reference.
+/// Read model.value via the session's state.
 @_cdecl("SBW_TEST_ClassParamView_GetModelValue")
 public func SBW_TEST_ClassParamView_GetModelValue(_ handle: UnsafeMutableRawPointer?) -> Int32 {
     return SBW_onMainThread {
@@ -120,11 +92,11 @@ public func SBW_TEST_ClassParamView_GetModelValue(_ handle: UnsafeMutableRawPoin
               SBW_SwiftBindingsTestLib_ClassParamView_liveHandles.contains(handle) else { return -1 }
         let session = Unmanaged<SBW_SwiftBindingsTestLib_ClassParamView_Session>
             .fromOpaque(handle).takeUnretainedValue()
-        return session.storedModel.getValue()
+        return session.state.model.getValue()
     }
 }
 
-// MARK: - TypedClosureView helpers
+// MARK: - TypedClosureView helpers (direct hosting)
 
 /// Invoke the View's onValue closure via rootView.
 @_cdecl("SBW_TEST_TypedClosureView_InvokeClosure")
@@ -139,7 +111,7 @@ public func SBW_TEST_TypedClosureView_InvokeClosure(_ handle: UnsafeMutableRawPo
     }
 }
 
-// MARK: - MultiArgClosureView helpers
+// MARK: - MultiArgClosureView helpers (direct hosting)
 
 /// Invoke the View's onEvent closure via rootView.
 @_cdecl("SBW_TEST_MultiArgClosureView_InvokeClosure")
@@ -154,9 +126,9 @@ public func SBW_TEST_MultiArgClosureView_InvokeClosure(_ handle: UnsafeMutableRa
     }
 }
 
-// MARK: - MixedParamView helpers
+// MARK: - MixedParamView helpers (State/Wrapper pattern)
 
-/// Read enum from mixed session via the View's style property.
+/// Read enum from mixed session via the state's style property.
 @_cdecl("SBW_TEST_MixedParamView_GetStyle")
 public func SBW_TEST_MixedParamView_GetStyle(_ handle: UnsafeMutableRawPointer?) -> Int32 {
     return SBW_onMainThread {
@@ -164,11 +136,11 @@ public func SBW_TEST_MixedParamView_GetStyle(_ handle: UnsafeMutableRawPointer?)
               SBW_SwiftBindingsTestLib_MixedParamView_liveHandles.contains(handle) else { return -1 }
         let session = Unmanaged<SBW_SwiftBindingsTestLib_MixedParamView_Session>
             .fromOpaque(handle).takeUnretainedValue()
-        return session.rootView.style.rawValue
+        return session.state.style.rawValue
     }
 }
 
-/// Invoke the mixed view's onAction closure via rootView.
+/// Invoke the mixed view's onAction closure via the wrapper's rootView.
 @_cdecl("SBW_TEST_MixedParamView_FireAction")
 public func SBW_TEST_MixedParamView_FireAction(_ handle: UnsafeMutableRawPointer?) -> Int32 {
     return SBW_onMainThread {
@@ -176,12 +148,12 @@ public func SBW_TEST_MixedParamView_FireAction(_ handle: UnsafeMutableRawPointer
               SBW_SwiftBindingsTestLib_MixedParamView_liveHandles.contains(handle) else { return -1 }
         let session = Unmanaged<SBW_SwiftBindingsTestLib_MixedParamView_Session>
             .fromOpaque(handle).takeUnretainedValue()
-        session.rootView.onAction()
+        session.hostingController.rootView.onAction()
         return 1
     }
 }
 
-/// Read count from mixed session via the View's count property.
+/// Read count from mixed session via the state's count property.
 @_cdecl("SBW_TEST_MixedParamView_GetCount")
 public func SBW_TEST_MixedParamView_GetCount(_ handle: UnsafeMutableRawPointer?) -> Int32 {
     return SBW_onMainThread {
@@ -189,11 +161,11 @@ public func SBW_TEST_MixedParamView_GetCount(_ handle: UnsafeMutableRawPointer?)
               SBW_SwiftBindingsTestLib_MixedParamView_liveHandles.contains(handle) else { return -1 }
         let session = Unmanaged<SBW_SwiftBindingsTestLib_MixedParamView_Session>
             .fromOpaque(handle).takeUnretainedValue()
-        return session.rootView.count
+        return session.state.count
     }
 }
 
-// MARK: - OptionalEnumView helpers
+// MARK: - OptionalEnumView helpers (State/Wrapper pattern)
 
 /// Return 1 if enum present, 0 if nil.
 @_cdecl("SBW_TEST_OptionalEnumView_HasValue")
@@ -203,7 +175,7 @@ public func SBW_TEST_OptionalEnumView_HasValue(_ handle: UnsafeMutableRawPointer
               SBW_SwiftBindingsTestLib_OptionalEnumView_liveHandles.contains(handle) else { return -1 }
         let session = Unmanaged<SBW_SwiftBindingsTestLib_OptionalEnumView_Session>
             .fromOpaque(handle).takeUnretainedValue()
-        return session.rootView.style != nil ? 1 : 0
+        return session.state.style != nil ? 1 : 0
     }
 }
 
@@ -215,11 +187,11 @@ public func SBW_TEST_OptionalEnumView_GetStyle(_ handle: UnsafeMutableRawPointer
               SBW_SwiftBindingsTestLib_OptionalEnumView_liveHandles.contains(handle) else { return -1 }
         let session = Unmanaged<SBW_SwiftBindingsTestLib_OptionalEnumView_Session>
             .fromOpaque(handle).takeUnretainedValue()
-        return session.rootView.style?.rawValue ?? -1
+        return session.state.style?.rawValue ?? -1
     }
 }
 
-// MARK: - OptionalClassView helpers
+// MARK: - OptionalClassView helpers (State/Wrapper pattern)
 
 /// Return 1 if model present, 0 if nil.
 @_cdecl("SBW_TEST_OptionalClassView_HasValue")
@@ -229,7 +201,7 @@ public func SBW_TEST_OptionalClassView_HasValue(_ handle: UnsafeMutableRawPointe
               SBW_SwiftBindingsTestLib_OptionalClassView_liveHandles.contains(handle) else { return -1 }
         let session = Unmanaged<SBW_SwiftBindingsTestLib_OptionalClassView_Session>
             .fromOpaque(handle).takeUnretainedValue()
-        return session.rootView.model != nil ? 1 : 0
+        return session.state.model != nil ? 1 : 0
     }
 }
 
@@ -241,11 +213,11 @@ public func SBW_TEST_OptionalClassView_GetModelValue(_ handle: UnsafeMutableRawP
               SBW_SwiftBindingsTestLib_OptionalClassView_liveHandles.contains(handle) else { return -1 }
         let session = Unmanaged<SBW_SwiftBindingsTestLib_OptionalClassView_Session>
             .fromOpaque(handle).takeUnretainedValue()
-        return session.rootView.model?.getValue() ?? -1
+        return session.state.model?.getValue() ?? -1
     }
 }
 
-// MARK: - StringClosureView helpers
+// MARK: - StringClosureView helpers (direct hosting)
 
 /// Invoke the View's onResult closure with a test string.
 @_cdecl("SBW_TEST_StringClosureView_InvokeClosure")
@@ -266,7 +238,7 @@ public func SBW_TEST_StringClosureView_InvokeClosure(_ handle: UnsafeMutableRawP
     }
 }
 
-// MARK: - ClassClosureView helpers
+// MARK: - ClassClosureView helpers (direct hosting)
 
 /// Invoke the View's onModel closure with a SimpleModel pointer.
 @_cdecl("SBW_TEST_ClassClosureView_InvokeClosure")
@@ -283,7 +255,7 @@ public func SBW_TEST_ClassClosureView_InvokeClosure(_ handle: UnsafeMutableRawPo
     }
 }
 
-// MARK: - OptionalStringView helpers
+// MARK: - OptionalStringView helpers (State/Wrapper pattern)
 
 /// Return 1 if title is present, 0 if nil.
 @_cdecl("SBW_TEST_OptionalStringView_HasValue")
@@ -293,7 +265,7 @@ public func SBW_TEST_OptionalStringView_HasValue(_ handle: UnsafeMutableRawPoint
               SBW_SwiftBindingsTestLib_OptionalStringView_liveHandles.contains(handle) else { return -1 }
         let session = Unmanaged<SBW_SwiftBindingsTestLib_OptionalStringView_Session>
             .fromOpaque(handle).takeUnretainedValue()
-        return session.rootView.title != nil ? 1 : 0
+        return session.state.title != nil ? 1 : 0
     }
 }
 
@@ -305,12 +277,12 @@ public func SBW_TEST_OptionalStringView_GetTitleLength(_ handle: UnsafeMutableRa
               SBW_SwiftBindingsTestLib_OptionalStringView_liveHandles.contains(handle) else { return -1 }
         let session = Unmanaged<SBW_SwiftBindingsTestLib_OptionalStringView_Session>
             .fromOpaque(handle).takeUnretainedValue()
-        guard let title = session.rootView.title else { return -1 }
+        guard let title = session.state.title else { return -1 }
         return Int32(title.count)
     }
 }
 
-// MARK: - OptionalClosureView helpers
+// MARK: - OptionalClosureView helpers (direct hosting)
 
 /// Invoke the View's optional callback closure. Returns 1 if callback exists, 0 if nil.
 @_cdecl("SBW_TEST_OptionalClosureView_InvokeClosure")
@@ -326,10 +298,9 @@ public func SBW_TEST_OptionalClosureView_InvokeClosure(_ handle: UnsafeMutableRa
     }
 }
 
-// MARK: - MixedStringView helpers
+// MARK: - MixedStringView helpers (State/Wrapper pattern)
 
-/// Read the title string from the MixedStringView, copying into a pre-allocated buffer.
-/// Returns the byte count written, or -1 on error.
+/// Read the title string length from MixedStringView via state.
 @_cdecl("SBW_TEST_MixedStringView_GetTitleLength")
 public func SBW_TEST_MixedStringView_GetTitleLength(_ handle: UnsafeMutableRawPointer?) -> Int32 {
     return SBW_onMainThread {
@@ -337,11 +308,11 @@ public func SBW_TEST_MixedStringView_GetTitleLength(_ handle: UnsafeMutableRawPo
               SBW_SwiftBindingsTestLib_MixedStringView_liveHandles.contains(handle) else { return -1 }
         let session = Unmanaged<SBW_SwiftBindingsTestLib_MixedStringView_Session>
             .fromOpaque(handle).takeUnretainedValue()
-        return Int32(session.rootView.title.utf8.count)
+        return Int32(session.state.title.utf8.count)
     }
 }
 
-/// Invoke the MixedStringView's onResult closure with a test string.
+/// Invoke the MixedStringView's onResult closure via the wrapper's rootView.
 @_cdecl("SBW_TEST_MixedStringView_InvokeClosure")
 public func SBW_TEST_MixedStringView_InvokeClosure(_ handle: UnsafeMutableRawPointer?, _ value: UnsafePointer<UInt8>?, _ len: Int) -> Int32 {
     return SBW_onMainThread {
@@ -355,14 +326,14 @@ public func SBW_TEST_MixedStringView_InvokeClosure(_ handle: UnsafeMutableRawPoi
         } else {
             str = ""
         }
-        session.rootView.onResult(str)
+        session.hostingController.rootView.onResult(str)
         return 1
     }
 }
 
-// MARK: - GenericPlaceholderView helpers
+// MARK: - GenericPlaceholderView helpers (State/Wrapper pattern)
 
-/// Read the title string length from a GenericPlaceholderView session.
+/// Read the title string length from a GenericPlaceholderView session via state.
 @_cdecl("SBW_TEST_GenericPlaceholderView_GetTitleLength")
 public func SBW_TEST_GenericPlaceholderView_GetTitleLength(_ handle: UnsafeMutableRawPointer?) -> Int32 {
     return SBW_onMainThread {
@@ -370,11 +341,11 @@ public func SBW_TEST_GenericPlaceholderView_GetTitleLength(_ handle: UnsafeMutab
               SBW_SwiftBindingsTestLib_GenericPlaceholderView_liveHandles.contains(handle) else { return -1 }
         let session = Unmanaged<SBW_SwiftBindingsTestLib_GenericPlaceholderView_Session>
             .fromOpaque(handle).takeUnretainedValue()
-        return Int32(session.rootView.title.utf8.count)
+        return Int32(session.state.title.utf8.count)
     }
 }
 
-// MARK: - PlaceholderOnlyView helpers
+// MARK: - PlaceholderOnlyView helpers (direct hosting, no params)
 
 /// Verify PlaceholderOnlyView session was created (returns 1 on success).
 @_cdecl("SBW_TEST_PlaceholderOnlyView_IsAlive")
@@ -382,6 +353,71 @@ public func SBW_TEST_PlaceholderOnlyView_IsAlive(_ handle: UnsafeMutableRawPoint
     return SBW_onMainThread {
         guard let handle = handle,
               SBW_SwiftBindingsTestLib_PlaceholderOnlyView_liveHandles.contains(handle) else { return 0 }
+        return 1
+    }
+}
+
+// MARK: - UpdatableCounterView helpers (State/Wrapper pattern, Session 4A)
+
+/// Read count from UpdatableCounterView via state.
+@_cdecl("SBW_TEST_UpdatableCounterView_GetCount")
+public func SBW_TEST_UpdatableCounterView_GetCount(_ handle: UnsafeMutableRawPointer?) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_UpdatableCounterView_liveHandles.contains(handle) else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_UpdatableCounterView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        return session.state.count
+    }
+}
+
+/// Read label string length from UpdatableCounterView via state.
+@_cdecl("SBW_TEST_UpdatableCounterView_GetLabelLength")
+public func SBW_TEST_UpdatableCounterView_GetLabelLength(_ handle: UnsafeMutableRawPointer?) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_UpdatableCounterView_liveHandles.contains(handle) else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_UpdatableCounterView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        return Int32(session.state.label.utf8.count)
+    }
+}
+
+// MARK: - UpdatableMixedView helpers (State/Wrapper pattern, Session 4A)
+
+/// Read title string length from UpdatableMixedView via state.
+@_cdecl("SBW_TEST_UpdatableMixedView_GetTitleLength")
+public func SBW_TEST_UpdatableMixedView_GetTitleLength(_ handle: UnsafeMutableRawPointer?) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_UpdatableMixedView_liveHandles.contains(handle) else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_UpdatableMixedView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        return Int32(session.state.title.utf8.count)
+    }
+}
+
+/// Read isEnabled from UpdatableMixedView via state (1=true, 0=false).
+@_cdecl("SBW_TEST_UpdatableMixedView_GetIsEnabled")
+public func SBW_TEST_UpdatableMixedView_GetIsEnabled(_ handle: UnsafeMutableRawPointer?) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_UpdatableMixedView_liveHandles.contains(handle) else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_UpdatableMixedView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        return session.state.isEnabled ? 1 : 0
+    }
+}
+
+/// Invoke the UpdatableMixedView's onTap closure via the wrapper's rootView.
+@_cdecl("SBW_TEST_UpdatableMixedView_FireOnTap")
+public func SBW_TEST_UpdatableMixedView_FireOnTap(_ handle: UnsafeMutableRawPointer?) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_UpdatableMixedView_liveHandles.contains(handle) else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_UpdatableMixedView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        session.hostingController.rootView.onTap()
         return 1
     }
 }
