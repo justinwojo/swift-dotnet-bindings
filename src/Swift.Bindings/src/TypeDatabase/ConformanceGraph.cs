@@ -1,0 +1,54 @@
+// Copyright (c) 2026 Justin Wojciechowski.
+// Licensed under the MIT License.
+
+namespace BindingsGeneration;
+
+/// <summary>
+/// Stores TypeWitness mappings from ABI JSON conformance entries.
+/// Maps (conformingType, protocol, associatedTypeName) → resolved TypeSpec.
+/// Used to resolve associated type references (e.g., Self.Element → GRDB.Statement)
+/// during protocol extension emission and bound generic translation.
+/// </summary>
+public class ConformanceGraph
+{
+    private readonly Dictionary<(string ConformingType, string Protocol, string AssociatedTypeName), TypeSpec> _witnesses = new();
+
+    /// <summary>
+    /// Records a TypeWitness mapping: conformingType conforming to protocol has
+    /// associatedTypeName resolved to resolvedType.
+    /// </summary>
+    /// <param name="conformingType">Module-qualified conforming type name (e.g., "GRDB.SQLStatementCursor").</param>
+    /// <param name="protocol">Module-qualified protocol name (e.g., "GRDB.Cursor").</param>
+    /// <param name="associatedTypeName">The associated type name (e.g., "Element").</param>
+    /// <param name="resolvedType">The resolved TypeSpec for this associated type.</param>
+    public void AddWitness(string conformingType, string protocol,
+                           string associatedTypeName, TypeSpec resolvedType)
+    {
+        _witnesses[(conformingType, protocol, associatedTypeName)] = resolvedType;
+    }
+
+    /// <summary>
+    /// Attempts to resolve an associated type for a specific conformance.
+    /// </summary>
+    /// <param name="conformingType">Module-qualified conforming type name.</param>
+    /// <param name="protocol">Module-qualified protocol name.</param>
+    /// <param name="associatedTypeName">The associated type name to resolve.</param>
+    /// <param name="resolvedType">The resolved TypeSpec, if found.</param>
+    /// <returns>True if a witness mapping exists for this combination.</returns>
+    public bool TryResolve(string conformingType, string protocol,
+                           string associatedTypeName, out TypeSpec? resolvedType)
+    {
+        if (_witnesses.TryGetValue((conformingType, protocol, associatedTypeName), out var result))
+        {
+            resolvedType = result;
+            return true;
+        }
+        resolvedType = null;
+        return false;
+    }
+
+    /// <summary>
+    /// The number of TypeWitness entries in the graph.
+    /// </summary>
+    public int Count => _witnesses.Count;
+}

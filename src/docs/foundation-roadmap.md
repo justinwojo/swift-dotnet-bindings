@@ -364,10 +364,10 @@ Details: [Pillar 3 § P3.3](#session-p33-nested-closures--class-params-41-method
 
 ---
 
-**B1: DependentMember Fix + ConformanceGraph** | Plan
+**B1: DependentMember Fix + ConformanceGraph** | ✅ COMPLETE
 *Pillar: 1 (associated types) | ~24-32 GRDB cursor methods unlocked*
 
-Fix dead `DependentMember` code path in `SwiftABIParser.CreateTypeSpec` (P1.4 — direct, do first). Then build `ConformanceGraph` from ABI JSON TypeWitness data (P1.2 — plan, new infrastructure with 4 integration points). MVP: concrete + generic-forwarding resolution only. Need to verify TypeWitness data shape across libraries before committing to dictionary key design.
+Fixed dead `DependentMember` code path in `SwiftABIParser.CreateTypeSpec` — ABI JSON `TypeNominal` nodes with `name="DependentMember"` now produce `AssociatedTypeReferenceSpec`. Built `ConformanceGraph` from TypeWitness entries in `HandleConformance()`, wired into `ResolveSelfElement` (protocol extensions) and `BoundGenericsHandler` (bound generic types). Three TypeWitness categories handled: concrete (Element → GRDB.Statement), generic forwarding (Element → τ_0_0), chained (Fetcher → τ_0_0.Fetcher → AnyType fallback). Ambiguity-safe resolution across multi-protocol conformances. Lifted `IsGeneric` guard for non-generic conformers. 19 new tests (4 parser, 7 graph CRUD, 8 resolution). Golden file updated (simple enum P/Invoke improvement as side effect). 53/53 validation.
 
 Details: [Pillar 1 § P1.4](#session-p14-dependentmember-parsing-fix), [Pillar 1 § P1.2](#session-p12-conformancegraph-from-abi-json-typewitness-data)
 

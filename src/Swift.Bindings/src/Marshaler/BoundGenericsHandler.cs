@@ -25,13 +25,15 @@ public class BoundGenericsHandler
     private readonly ClosureHandler _closureHandler;
     private readonly TupleHandler _tupleHandler;
     private readonly ExistentialHandler _existentialHandler;
+    private readonly ConformanceGraph? _conformanceGraph;
 
-    public BoundGenericsHandler(ITypeDatabase typeDatabase)
+    public BoundGenericsHandler(ITypeDatabase typeDatabase, ConformanceGraph? conformanceGraph = null)
     {
         _typeDatabase = typeDatabase;
         _closureHandler = new ClosureHandler(typeDatabase);
         _tupleHandler = new TupleHandler(typeDatabase);
         _existentialHandler = new ExistentialHandler(typeDatabase);
+        _conformanceGraph = conformanceGraph;
     }
 
     // Almost all generics will be projected into C# as classes.
@@ -127,7 +129,8 @@ public class BoundGenericsHandler
             throw new NotSupportedException(
                 $"Attempted to translate to C# name for a non-bound generic property {propertyDecl.Name}");
         var namedTypeSpec = (NamedTypeSpec)propertyDecl.SwiftTypeSpec;
-        return TranslateBoundGenericTypeToCSharp(namedTypeSpec, genericContext, propertyDecl.ModuleDecl);
+        return TranslateBoundGenericTypeToCSharp(namedTypeSpec, genericContext, propertyDecl.ModuleDecl,
+            propertyDecl.ParentDecl as TypeDecl);
     }
 
     /// <summary>
@@ -151,7 +154,8 @@ public class BoundGenericsHandler
             throw new NotSupportedException(
                 $"Attempted to translate to C# name for a non-bound generic argument {argumentDecl.Name}");
         var namedTypeSpec = (NamedTypeSpec)argumentDecl.SwiftTypeSpec;
-        return TranslateBoundGenericTypeToCSharp(namedTypeSpec, genericContext, argumentDecl.ModuleDecl);
+        return TranslateBoundGenericTypeToCSharp(namedTypeSpec, genericContext, argumentDecl.ModuleDecl,
+            argumentDecl.ParentDecl as TypeDecl);
     }
 
     /// <summary>
@@ -533,7 +537,8 @@ public class BoundGenericsHandler
     private string TranslateBoundGenericTypeToCSharp(
         NamedTypeSpec namedTypeSpec,
         GenericContext genericContext,
-        ModuleDecl? moduleDecl)
+        ModuleDecl? moduleDecl,
+        TypeDecl? parentTypeDecl = null)
     {
         if (namedTypeSpec.Name == "Swift.Void")
             return "Swift.SwiftVoid";
@@ -559,7 +564,7 @@ public class BoundGenericsHandler
         List<string> translatedGenericParameters = new();
         foreach (var genericParameter in namedTypeSpec.GenericParameters)
         {
-            translatedGenericParameters.Add(TranslateTypeSpecToCSharp(genericParameter, genericContext, moduleDecl));
+            translatedGenericParameters.Add(TranslateTypeSpecToCSharp(genericParameter, genericContext, moduleDecl, parentTypeDecl));
         }
 
         var typeName = QualifyNestedGenericOwners(typeReference.CSharpTypeName.FullyQualifiedName, namedTypeSpec, genericContext, moduleDecl);
@@ -584,7 +589,8 @@ public class BoundGenericsHandler
     /// <summary>
     /// Translates any TypeSpec to its C# equivalent, using a generic context to resolve type parameters.
     /// </summary>
-    private string TranslateTypeSpecToCSharp(TypeSpec typeSpec, GenericContext genericContext, ModuleDecl? moduleDecl)
+    private string TranslateTypeSpecToCSharp(TypeSpec typeSpec, GenericContext genericContext, ModuleDecl? moduleDecl,
+        TypeDecl? parentTypeDecl = null)
     {
         // Handle existential types (including bare 'Any' with 0 protocols and 'any Protocol' syntax).
         // For fully supported existentials (resolvable, known protocols, non-object), return
@@ -615,21 +621,108 @@ public class BoundGenericsHandler
         return typeSpec switch
         {
             NamedTypeSpec { Name: "Swift.Void" } => "Swift.SwiftVoid",
-            NamedTypeSpec namedTypeSpec => TranslateBoundGenericTypeToCSharp(namedTypeSpec, genericContext, moduleDecl),
+            NamedTypeSpec namedTypeSpec => TranslateBoundGenericTypeToCSharp(namedTypeSpec, genericContext, moduleDecl, parentTypeDecl),
             ClosureTypeSpec closureTypeSpec => TranslateClosureTypeToCSharp(closureTypeSpec),
             TupleTypeSpec { IsEmptyTuple: true } => "Swift.SwiftVoid",
             TupleTypeSpec tupleTypeSpec => _tupleHandler.GetCSharpTupleType(tupleTypeSpec,
-                ts => TranslateTypeSpecToCSharp(ts, genericContext, moduleDecl)),
-            // Associated type references (e.g., Self.Element inside Array<Self.Element>) degrade to AnyType.
-            // These appear in protocol signatures with associated types and can't be resolved without
-            // concrete type binding. Callers (ProtocolHandler, ProtocolSignatureHelper, etc.) handle
-            // AnyType appropriately.
+                ts => TranslateTypeSpecToCSharp(ts, genericContext, moduleDecl, parentTypeDecl)),
+            // Associated type references (e.g., Self.Element inside Array<Self.Element>).
+            // Try to resolve via ConformanceGraph when parent type context is available.
+            AssociatedTypeReferenceSpec assocRef when
+                _conformanceGraph != null && parentTypeDecl != null &&
+                IsParentSelfReference(assocRef, parentTypeDecl) =>
+                ResolveAssociatedTypeViaGraph(assocRef, parentTypeDecl, genericContext, moduleDecl),
             AssociatedTypeReferenceSpec => TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName,
             ProtocolListTypeSpec => TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName,
             _ => throw new NotSupportedException(
                 $"Type spec {typeSpec.GetType().Name} ({typeSpec}) is not supported as a generic parameter")
         };
     }
+
+    /// <summary>
+    /// Checks whether the associated type reference's base type refers to the parent type's Self
+    /// (type-level generic params at depth 0), not method-level generic params (depth > 0).
+    /// </summary>
+    private static bool IsParentSelfReference(AssociatedTypeReferenceSpec assocRef, TypeDecl parentTypeDecl)
+    {
+        var baseType = assocRef.BaseType;
+        if (baseType == "Self")
+            return true;
+
+        // τ_D_I format: depth D, index I. Type-level params have depth 0.
+        if (baseType.StartsWith("τ_"))
+        {
+            var parts = baseType.Substring(2).Split('_');
+            if (parts.Length >= 2 && int.TryParse(parts[0], out var depth))
+            {
+                // Depth 0 = type-level generic params (Self in protocol context)
+                // Depth > 0 = method-level generic params — skip graph resolution
+                return depth == 0;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Resolves an associated type reference by iterating the parent type's conformances
+    /// and querying the ConformanceGraph for each protocol until a match is found.
+    /// When multiple protocols resolve the same associated type name to different concrete
+    /// types, falls back to AnyType to avoid silently picking the wrong witness.
+    /// </summary>
+    private string ResolveAssociatedTypeViaGraph(AssociatedTypeReferenceSpec assocRef,
+        TypeDecl parentTypeDecl, GenericContext genericContext, ModuleDecl? moduleDecl)
+    {
+        var conformingTypeName = parentTypeDecl.SwiftTypeName.ModuleQualifiedName;
+        var conformances = GetConformances(parentTypeDecl);
+
+        TypeSpec? firstMatch = null;
+
+        foreach (var conformance in conformances)
+        {
+            if (_conformanceGraph!.TryResolve(
+                conformingTypeName,
+                conformance.Protocol.ModuleQualifiedName,
+                assocRef.AssociatedTypeName,
+                out var resolved) && resolved != null)
+            {
+                // Chained references (AssociatedTypeReferenceSpec) can't be resolved further
+                if (resolved is AssociatedTypeReferenceSpec)
+                    continue;
+
+                if (firstMatch == null)
+                {
+                    firstMatch = resolved;
+                }
+                else if (firstMatch.ToString() != resolved.ToString())
+                {
+                    // Ambiguity: two protocols map the same associated type name to
+                    // different concrete types. Fall back to AnyType rather than
+                    // silently picking one that could produce a valid-but-wrong signature.
+                    return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
+                }
+            }
+        }
+
+        if (firstMatch != null)
+        {
+            return TranslateTypeSpecToCSharp(firstMatch, genericContext, moduleDecl, parentTypeDecl);
+        }
+
+        return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
+    }
+
+    /// <summary>
+    /// Gets conformances from a TypeDecl, handling the fact that Conformances is defined
+    /// on ClassDecl/StructDecl/EnumDecl, not on the base TypeDecl.
+    /// </summary>
+    private static IReadOnlyList<TypeConformance> GetConformances(TypeDecl typeDecl) => typeDecl switch
+    {
+        ClassDecl classDecl => classDecl.Conformances,
+        StructDecl structDecl => structDecl.Conformances,
+        EnumDecl enumDecl => enumDecl.Conformances,
+        _ => Array.Empty<TypeConformance>(),
+    };
 
     private string QualifyNestedGenericOwners(
         string fullyQualifiedTypeName,

@@ -46,5 +46,12 @@ namespace BindingsGeneration
         /// Distinct from <see cref="Dependencies"/> which is ABI-derived and filtered through AppleFrameworks.
         /// </summary>
         public List<string> DependencyModuleNames { get; set; } = new();
+
+        /// <summary>
+        /// TypeWitness mappings extracted from ABI JSON conformance entries.
+        /// Maps (conformingType, protocol, associatedTypeName) → concrete TypeSpec.
+        /// Populated by SwiftABIParser during HandleConformance.
+        /// </summary>
+        public ConformanceGraph ConformanceGraph { get; set; } = new();
     }
 }

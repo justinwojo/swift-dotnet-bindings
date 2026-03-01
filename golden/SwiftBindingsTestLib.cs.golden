@@ -800,7 +800,7 @@ namespace Swift.SwiftBindingsTestLib
             {
                 
                 
-                var result = PInvoke_isHorizontal_C5617946(direction.Payload.DangerousGetHandle());
+                var result = PInvoke_isHorizontal_C5617946((int)direction);
                 
                 return result;
             }
@@ -814,7 +814,7 @@ namespace Swift.SwiftBindingsTestLib
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib12isHorizontalySbAA9DirectionOF")]
         [return: MarshalAs(UnmanagedType.U1)]
-        private static partial bool PInvoke_isHorizontal_C5617946( IntPtr direction);
+        private static partial bool PInvoke_isHorizontal_C5617946( int direction);
         
         
         /// <summary>
@@ -828,7 +828,7 @@ namespace Swift.SwiftBindingsTestLib
                 
                 var result = PInvoke_colorForIndex_ED8E6968(index);
                 
-                return (Swift.SwiftBindingsTestLib.Color)SwiftMarshal.MarshalFromSwift<Swift.SwiftBindingsTestLib.Color>(result);
+                return (Swift.SwiftBindingsTestLib.Color)result;
             }
             
             finally
@@ -839,7 +839,7 @@ namespace Swift.SwiftBindingsTestLib
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib13colorForIndexyAA5ColorOs5Int32VF")]
-        private static partial IntPtr PInvoke_colorForIndex_ED8E6968( int index);
+        private static partial int PInvoke_colorForIndex_ED8E6968( int index);
         
         
         /// <summary>
@@ -4416,7 +4416,7 @@ namespace Swift.SwiftBindingsTestLib
                     
                     // Write back modified inout generic parameter
                     handler = SwiftMarshal.MarshalFromSwift<T0>(handlerPayload);
-                    return (Swift.SwiftBindingsTestLib.TaskStatus)SwiftMarshal.MarshalFromSwift<Swift.SwiftBindingsTestLib.TaskStatus>(result);
+                    return (Swift.SwiftBindingsTestLib.TaskStatus)result;
                 }
                 
                 finally
@@ -4429,7 +4429,7 @@ namespace Swift.SwiftBindingsTestLib
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib13advanceStatusyAA04TaskF0OxzAA0F7HandlerRzlF")]
-        private static partial IntPtr PInvoke_advanceStatus_A3FCACFA(ref IntPtr handlerPayload,  TypeMetadata T0Metadata,  ProtocolWitnessTable T0StatusHandlerPWT);
+        private static partial int PInvoke_advanceStatus_A3FCACFA(ref IntPtr handlerPayload,  TypeMetadata T0Metadata,  ProtocolWitnessTable T0StatusHandlerPWT);
         
         
         [global::Swift.UnsupportedSwiftType("Existential type fallback", "any SwiftBindingsTestLib.Named")]
@@ -4754,6 +4754,7 @@ namespace Swift.SwiftBindingsTestLib
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         internal SwiftSafeHandle<SpikeBox<TElement>> Payload => _payload;
+        IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
         
         public void Dispose()
         {
@@ -5058,6 +5059,7 @@ namespace Swift.SwiftBindingsTestLib
             var container = *(ExistentialContainer1*)payload;
             return new SummableProxy(container);
         }
+        IntPtr ISwiftObject.SwiftHandle => _swiftContainer.Payload0;
         public int MarshalToSwift(ref Span<byte> swiftDestSpan)
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
@@ -5316,6 +5318,7 @@ namespace Swift.SwiftBindingsTestLib
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         internal SwiftSafeHandle<AcceptsSummable<T>> Payload => _payload;
+        IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
         
         public void Dispose()
         {
@@ -5487,7 +5490,7 @@ namespace Swift.SwiftBindingsTestLib
     public interface IContainer<TElement>
     {
         int Count { get; }
-        Swift.AnyType Element(int index);
+        TElement Element(int index);
     }
     
     
@@ -5538,6 +5541,7 @@ namespace Swift.SwiftBindingsTestLib
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         internal SwiftSafeHandle<IntContainer> Payload => _payload;
+        IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
         
         public void Dispose()
         {
@@ -5756,6 +5760,7 @@ namespace Swift.SwiftBindingsTestLib
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         internal SwiftSafeHandle<OpaqueProvider> Payload => _payload;
+        IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
         
         public void Dispose()
         {
@@ -5903,6 +5908,7 @@ namespace Swift.SwiftBindingsTestLib
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         internal SwiftSafeHandle<Wrapper<T>> Payload => _payload;
+        IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
         
         public void Dispose()
         {
@@ -6152,6 +6158,7 @@ namespace Swift.SwiftBindingsTestLib
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         internal SwiftSafeHandle<GenericPair<T, U>> Payload => _payload;
+        IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
         
         public void Dispose()
         {
@@ -6543,6 +6550,7 @@ namespace Swift.SwiftBindingsTestLib
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         internal SwiftSafeHandle<BoundStringPair> Payload => _payload;
+        IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
         
         public void Dispose()
         {
@@ -6764,6 +6772,7 @@ namespace Swift.SwiftBindingsTestLib
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         internal SwiftSafeHandle<GenericClass<T>> Payload => _payload;
+        IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
         
         public void Dispose()
         {
@@ -7019,6 +7028,7 @@ namespace Swift.SwiftBindingsTestLib
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         internal SwiftSafeHandle<UniqueResource> Payload => _payload;
+        IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
         
         public void Dispose()
         {
@@ -7195,6 +7205,7 @@ namespace Swift.SwiftBindingsTestLib
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         internal SwiftSafeHandle<FileHandle> Payload => _payload;
+        IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
         
         public void Dispose()
         {
@@ -7397,323 +7408,23 @@ namespace Swift.SwiftBindingsTestLib
     /// <summary>
     /// Simple enum with no raw value or associated values.
     /// </summary>
-    public partial class Direction : ISwiftObject, IDisposable
+    public enum Direction : int
     {
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        static nuint _payloadSize = SwiftObjectHelper<Direction>.GetTypeMetadata().Size;
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        SwiftSafeHandle<Direction> _payload = SwiftSafeHandle<Direction>.Zero;
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        internal SwiftSafeHandle<Direction> Payload => _payload;
-        #pragma warning disable CS0649
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        internal bool _isCachedSingleton;
-        #pragma warning restore CS0649
-        
-        public void Dispose()
+        North = 0,
+        South = 1,
+        East = 2,
+        West = 3,
+    }
+    
+    public static partial class DirectionExtensions
+    {
+        public static Direction Opposite(this Direction self)
         {
-            if (_isCachedSingleton) return;
-            _payload.Dispose();
-            GC.SuppressFinalize(this);
-        }
-        ~Direction()
-        {
-            if (!_isCachedSingleton)
-                Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
+            return (Direction)PInvoke_Opposite((int)self);
         }
         
-        private static readonly Lazy<Direction> _lazy_north = new(() =>
-        {
-            unsafe
-            {
-                var result = new Direction();
-                var metadata = SwiftObjectHelper<Direction>.GetTypeMetadata();
-                IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
-                metadata.ValueWitnessTable->DestructiveInjectEnumTag((void*)buffer, (uint)0, metadata);
-                result._payload = new SwiftSafeHandle<Direction>(buffer);
-                result._isCachedSingleton = true;
-                return result;
-            }
-        });
-        /// <summary>
-        /// Gets the 'north' case of Direction.
-        /// </summary>
-        public static Direction North => _lazy_north.Value;
-        
-        private static readonly Lazy<Direction> _lazy_south = new(() =>
-        {
-            unsafe
-            {
-                var result = new Direction();
-                var metadata = SwiftObjectHelper<Direction>.GetTypeMetadata();
-                IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
-                metadata.ValueWitnessTable->DestructiveInjectEnumTag((void*)buffer, (uint)1, metadata);
-                result._payload = new SwiftSafeHandle<Direction>(buffer);
-                result._isCachedSingleton = true;
-                return result;
-            }
-        });
-        /// <summary>
-        /// Gets the 'south' case of Direction.
-        /// </summary>
-        public static Direction South => _lazy_south.Value;
-        
-        private static readonly Lazy<Direction> _lazy_east = new(() =>
-        {
-            unsafe
-            {
-                var result = new Direction();
-                var metadata = SwiftObjectHelper<Direction>.GetTypeMetadata();
-                IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
-                metadata.ValueWitnessTable->DestructiveInjectEnumTag((void*)buffer, (uint)2, metadata);
-                result._payload = new SwiftSafeHandle<Direction>(buffer);
-                result._isCachedSingleton = true;
-                return result;
-            }
-        });
-        /// <summary>
-        /// Gets the 'east' case of Direction.
-        /// </summary>
-        public static Direction East => _lazy_east.Value;
-        
-        private static readonly Lazy<Direction> _lazy_west = new(() =>
-        {
-            unsafe
-            {
-                var result = new Direction();
-                var metadata = SwiftObjectHelper<Direction>.GetTypeMetadata();
-                IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
-                metadata.ValueWitnessTable->DestructiveInjectEnumTag((void*)buffer, (uint)3, metadata);
-                result._payload = new SwiftSafeHandle<Direction>(buffer);
-                result._isCachedSingleton = true;
-                return result;
-            }
-        });
-        /// <summary>
-        /// Gets the 'west' case of Direction.
-        /// </summary>
-        public static Direction West => _lazy_west.Value;
-        
-        /// <summary>
-        /// Enum representing the possible cases of Direction.
-        /// Tag values follow Swift's ordering: payload cases first, then no-payload cases.
-        /// </summary>
-        public enum CaseTag : uint
-        {
-            North = 0,
-            South = 1,
-            East = 2,
-            West = 3,
-        }
-        
-        /// <summary>
-        /// Gets the current case of this enum instance.
-        /// </summary>
-        public CaseTag Tag
-        {
-            get
-            {
-                unsafe
-                {
-                    bool success = false;
-                    _payload.DangerousAddRef(ref success);
-                    try
-                    {
-                        var metadata = SwiftObjectHelper<Direction>.GetTypeMetadata();
-                        byte* payload = (byte*)_payload.DangerousGetHandle();
-                        return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
-                    }
-                    finally
-                    {
-                        if (success)
-                            _payload.DangerousRelease();
-                    }
-                }
-            }
-        }
-        
-        
-        private nint HashValue_Get()
-        {
-            unsafe
-            {
-                var success = false;
-                _payload.DangerousAddRef(ref success);
-                try
-                {
-                    var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
-                    
-                    
-                    
-                    var result = PInvoke_hashValue_Get_D11AB72C(self);
-                    
-                    return result;
-                }
-                
-                finally
-                {
-                    if (success)
-                       _payload.DangerousRelease();
-                }
-                
-            }
-        }
-        
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib9DirectionO9hashValueSivg")]
-        private static partial nint PInvoke_hashValue_Get_D11AB72C( SwiftSelf self);
-        
-        /// <summary>
-        /// The hash value.
-        /// </summary>
-        /// <remarks>
-        /// Important: <c>hashValue</c> is deprecated as a <c>Hashable</c> requirement. To conform to <c>Hashable</c>, implement the <c>hash(into:)</c> requirement instead. The compiler provides an implementation for <c>hashValue</c> for you.
-        /// </remarks>
-        public nint HashValue
-        {
-            get => HashValue_Get();
-        }
-        
-        static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
-        
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib9DirectionOMa")]
-        internal static partial TypeMetadata PInvoke_getMetadata();
-        
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
-        {
-            return new Direction(handle);
-        }
-        
-        Direction()
-        {
-        }
-        
-        Direction(SwiftHandle handle)
-        {
-            _payload = new SwiftSafeHandle<Direction>(handle);
-        }
-        
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
-        {
-            var metadata = SwiftObjectHelper<Direction>.GetTypeMetadata();
-            if ((int)metadata.Size > swiftDestSpan.Length)
-            {
-                throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
-            }
-            fixed (void* swiftDest = swiftDestSpan)
-            {
-                // Ensure that the instance is valid before making copy
-                bool success = false;
-                _payload.DangerousAddRef(ref success);
-                try
-                {
-                    metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
-                    return (int)metadata.Size;
-                }
-                finally
-                {
-                    if (success)
-                        _payload.DangerousRelease();
-                }
-            }
-        }
-        
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        private static Dictionary<Type, string> _protocolConformanceSymbols;
-        static Direction()
-        {
-            _protocolConformanceSymbols = new Dictionary<Type, string>
-            {
-                {typeof(IEquatable<Direction>), "$s20SwiftBindingsTestLib9DirectionOSQAAMc"},
-        {typeof(ISwiftHashable), "$s20SwiftBindingsTestLib9DirectionOSHAAMc"}
-            };
-        }
-        
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
-            where TProtocol : class
-        {
-            if (!_protocolConformanceSymbols.TryGetValue(typeof(TProtocol), out var symbolName))
-            {
-                throw new SwiftRuntimeException($"Attempted to retrieve protocol conformance descriptor for type Direction and protocol {typeof(TProtocol).Name}, but no conformance was found.");
-            }
-            return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
-        }
-        
-        /// <summary>
-        /// Method on a simple enum.
-        /// </summary>
-        public Swift.SwiftBindingsTestLib.Direction Opposite()
-        {
-            unsafe
-            {
-                var success = false;
-                _payload.DangerousAddRef(ref success);
-                try
-                {
-                    var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
-                    
-                    
-                    
-                    var result = PInvoke_opposite_46D7D667(self);
-                    
-                    return (Swift.SwiftBindingsTestLib.Direction)SwiftMarshal.MarshalFromSwift<Swift.SwiftBindingsTestLib.Direction>(result);
-                }
-                
-                finally
-                {
-                    if (success)
-                       _payload.DangerousRelease();
-                }
-                
-            }
-        }
-        
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib9DirectionO8oppositeACyF")]
-        private static partial IntPtr PInvoke_opposite_46D7D667( SwiftSelf self);
-        
-        
-        /// <summary>
-        /// Hashes the essential components of this value by feeding them into the given hasher.
-        /// </summary>
-        /// <param name="hasher">The hasher to use when combining the components of this instance.</param>
-        /// <remarks>
-        /// Important: In your implementation of <c>hash(into:)</c>, don't call <c>finalize()</c> on the <c>hasher</c> instance provided, or replace it with a different instance. Doing so may become a compile-time error in the future.
-        /// </remarks>
-        public void Hash( Swift.Hasher hasher)
-        {
-            unsafe
-            {
-                var success = false;
-                _payload.DangerousAddRef(ref success);
-                try
-                {
-                    var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
-                    
-                    
-                    
-                    PInvoke_hash_A79AF48D(hasher.Payload, self);
-                    
-                    return;
-                }
-                
-                finally
-                {
-                    if (success)
-                       _payload.DangerousRelease();
-                }
-                
-            }
-        }
-        
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib9DirectionO4hash4intoys6HasherVz_tF")]
-        private static partial void PInvoke_hash_A79AF48D( SafeHandle hasher,  SwiftSelf self);
-        
+        [LibraryImport("SwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Direction_opposite_46D7D667")]
+        private static partial int PInvoke_Opposite(int tag);
         
     }
     
@@ -7721,245 +7432,12 @@ namespace Swift.SwiftBindingsTestLib
     /// <summary>
     /// Enum with Int32 raw value.
     /// </summary>
-    public partial class Color : ISwiftObject, IDisposable
+    public enum Color : int
     {
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        static nuint _payloadSize = SwiftObjectHelper<Color>.GetTypeMetadata().Size;
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        SwiftSafeHandle<Color> _payload = SwiftSafeHandle<Color>.Zero;
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        internal SwiftSafeHandle<Color> Payload => _payload;
-        #pragma warning disable CS0649
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        internal bool _isCachedSingleton;
-        #pragma warning restore CS0649
-        
-        public void Dispose()
-        {
-            if (_isCachedSingleton) return;
-            _payload.Dispose();
-            GC.SuppressFinalize(this);
-        }
-        ~Color()
-        {
-            if (!_isCachedSingleton)
-                Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
-        }
-        
-        /// <summary>
-        /// Creates a Color from its raw value.
-        /// Returns null if the raw value doesn't correspond to a valid case.
-        /// </summary>
-        public static Color? FromRawValue(int rawValue)
-        {
-            IntPtr resultPtr = PInvoke_InitWithRawValue(rawValue);
-            if (resultPtr == IntPtr.Zero)
-            {
-                return null;
-            }
-            var result = new Color();
-            result._payload = new SwiftSafeHandle<Color>(resultPtr);
-            return result;
-        }
-        
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib5ColorO8rawValueACSgs5Int32V_tcfC")]
-        private static partial IntPtr PInvoke_InitWithRawValue(int rawValue);
-        
-        private static readonly Lazy<Color> _lazy_red = new(() =>
-        {
-            var result = FromRawValue(0)
-                ?? throw new InvalidOperationException("Failed to create Color.Red from raw value 0");
-            result._isCachedSingleton = true;
-            return result;
-        });
-        /// <summary>
-        /// Gets the 'red' case of Color.
-        /// </summary>
-        public static Color Red => _lazy_red.Value;
-        
-        private static readonly Lazy<Color> _lazy_green = new(() =>
-        {
-            var result = FromRawValue(1)
-                ?? throw new InvalidOperationException("Failed to create Color.Green from raw value 1");
-            result._isCachedSingleton = true;
-            return result;
-        });
-        /// <summary>
-        /// Gets the 'green' case of Color.
-        /// </summary>
-        public static Color Green => _lazy_green.Value;
-        
-        private static readonly Lazy<Color> _lazy_blue = new(() =>
-        {
-            var result = FromRawValue(2)
-                ?? throw new InvalidOperationException("Failed to create Color.Blue from raw value 2");
-            result._isCachedSingleton = true;
-            return result;
-        });
-        /// <summary>
-        /// Gets the 'blue' case of Color.
-        /// </summary>
-        public static Color Blue => _lazy_blue.Value;
-        
-        private static readonly Lazy<Color> _lazy_alpha = new(() =>
-        {
-            var result = FromRawValue(3)
-                ?? throw new InvalidOperationException("Failed to create Color.Alpha from raw value 3");
-            result._isCachedSingleton = true;
-            return result;
-        });
-        /// <summary>
-        /// Gets the 'alpha' case of Color.
-        /// </summary>
-        public static Color Alpha => _lazy_alpha.Value;
-        
-        /// <summary>
-        /// Enum representing the possible cases of Color.
-        /// Tag values follow Swift's ordering: payload cases first, then no-payload cases.
-        /// </summary>
-        public enum CaseTag : uint
-        {
-            Red = 0,
-            Green = 1,
-            Blue = 2,
-            Alpha = 3,
-        }
-        
-        /// <summary>
-        /// Gets the current case of this enum instance.
-        /// </summary>
-        public CaseTag Tag
-        {
-            get
-            {
-                unsafe
-                {
-                    bool success = false;
-                    _payload.DangerousAddRef(ref success);
-                    try
-                    {
-                        var metadata = SwiftObjectHelper<Color>.GetTypeMetadata();
-                        byte* payload = (byte*)_payload.DangerousGetHandle();
-                        return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
-                    }
-                    finally
-                    {
-                        if (success)
-                            _payload.DangerousRelease();
-                    }
-                }
-            }
-        }
-        
-        
-        private int RawValue_Get()
-        {
-            unsafe
-            {
-                var success = false;
-                _payload.DangerousAddRef(ref success);
-                try
-                {
-                    var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
-                    
-                    
-                    
-                    var result = PInvoke_rawValue_Get_1F3169E9(self);
-                    
-                    return result;
-                }
-                
-                finally
-                {
-                    if (success)
-                       _payload.DangerousRelease();
-                }
-                
-            }
-        }
-        
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib5ColorO8rawValues5Int32Vvg")]
-        private static partial int PInvoke_rawValue_Get_1F3169E9( SwiftSelf self);
-        
-        /// <summary>
-        /// The corresponding value of the raw type.
-        /// </summary>
-        public int RawValue
-        {
-            get => RawValue_Get();
-        }
-        
-        static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
-        
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib5ColorOMa")]
-        internal static partial TypeMetadata PInvoke_getMetadata();
-        
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
-        {
-            return new Color(handle);
-        }
-        
-        Color()
-        {
-        }
-        
-        Color(SwiftHandle handle)
-        {
-            _payload = new SwiftSafeHandle<Color>(handle);
-        }
-        
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
-        {
-            var metadata = SwiftObjectHelper<Color>.GetTypeMetadata();
-            if ((int)metadata.Size > swiftDestSpan.Length)
-            {
-                throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
-            }
-            fixed (void* swiftDest = swiftDestSpan)
-            {
-                // Ensure that the instance is valid before making copy
-                bool success = false;
-                _payload.DangerousAddRef(ref success);
-                try
-                {
-                    metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
-                    return (int)metadata.Size;
-                }
-                finally
-                {
-                    if (success)
-                        _payload.DangerousRelease();
-                }
-            }
-        }
-        
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        private static Dictionary<Type, string> _protocolConformanceSymbols;
-        static Color()
-        {
-            _protocolConformanceSymbols = new Dictionary<Type, string>
-            {
-                {typeof(IEquatable<Color>), "$s20SwiftBindingsTestLib5ColorOSQAAMc"},
-        {typeof(ISwiftHashable), "$s20SwiftBindingsTestLib5ColorOSHAAMc"}
-            };
-        }
-        
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
-            where TProtocol : class
-        {
-            if (!_protocolConformanceSymbols.TryGetValue(typeof(TProtocol), out var symbolName))
-            {
-                throw new SwiftRuntimeException($"Attempted to retrieve protocol conformance descriptor for type Color and protocol {typeof(TProtocol).Name}, but no conformance was found.");
-            }
-            return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
-        }
-        
+        Red = 0,
+        Green = 1,
+        Blue = 2,
+        Alpha = 3,
     }
     
     
@@ -7974,6 +7452,7 @@ namespace Swift.SwiftBindingsTestLib
         SwiftSafeHandle<StatusCode> _payload = SwiftSafeHandle<StatusCode>.Zero;
         [EditorBrowsable(EditorBrowsableState.Never)]
         internal SwiftSafeHandle<StatusCode> Payload => _payload;
+        IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
         #pragma warning disable CS0649
         [EditorBrowsable(EditorBrowsableState.Never)]
         internal bool _isCachedSingleton;
@@ -8265,6 +7744,7 @@ namespace Swift.SwiftBindingsTestLib
         SwiftSafeHandle<Shape> _payload = SwiftSafeHandle<Shape>.Zero;
         [EditorBrowsable(EditorBrowsableState.Never)]
         internal SwiftSafeHandle<Shape> Payload => _payload;
+        IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
         #pragma warning disable CS0649
         [EditorBrowsable(EditorBrowsableState.Never)]
         internal bool _isCachedSingleton;
@@ -8697,6 +8177,7 @@ namespace Swift.SwiftBindingsTestLib
         SwiftSafeHandle<GenericResult<T>> _payload = SwiftSafeHandle<GenericResult<T>>.Zero;
         [EditorBrowsable(EditorBrowsableState.Never)]
         internal SwiftSafeHandle<GenericResult<T>> Payload => _payload;
+        IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
         #pragma warning disable CS0649
         [EditorBrowsable(EditorBrowsableState.Never)]
         internal bool _isCachedSingleton;
@@ -9146,6 +8627,7 @@ namespace Swift.SwiftBindingsTestLib
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         internal SwiftSafeHandle<EnumPropertyHolder> Payload => _payload;
+        IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
         
         public void Dispose()
         {
@@ -9434,6 +8916,7 @@ namespace Swift.SwiftBindingsTestLib
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         internal SwiftSafeHandle<Animal> Payload => _payload;
+        IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
         
         public void Dispose()
         {
@@ -9935,6 +9418,7 @@ namespace Swift.SwiftBindingsTestLib
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         internal SwiftSafeHandle<FinalCounter> Payload => _payload;
+        IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
         
         public void Dispose()
         {
@@ -10393,6 +9877,7 @@ namespace Swift.SwiftBindingsTestLib
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         internal SwiftSafeHandle<ClassWithProperties> Payload => _payload;
+        IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
         
         public void Dispose()
         {
@@ -10825,6 +10310,7 @@ namespace Swift.SwiftBindingsTestLib
         
         [EditorBrowsable(EditorBrowsableState.Never)]
         internal SwiftSafeHandle<FrozenStructWithProperties> Payload => _payload;
+        IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
         
         public void Dispose()
         {
@@ -11359,6 +10845,7 @@ public partial class NonFrozenPoint : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<NonFrozenPoint> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -11634,6 +11121,7 @@ public partial class NonFrozenStructWithProperties : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<NonFrozenStructWithProperties> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -11740,6 +11228,7 @@ public partial class NestedOuter : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<NestedOuter> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -12242,6 +11731,7 @@ public partial class StructBuilder : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<StructBuilder> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -12417,6 +11907,7 @@ public partial class FetchError : ISwiftObject, IDisposable
     SwiftSafeHandle<FetchError> _payload = SwiftSafeHandle<FetchError>.Zero;
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<FetchError> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     #pragma warning disable CS0649
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal bool _isCachedSingleton;
@@ -12762,6 +12253,7 @@ public partial class FetchResult : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<FetchResult> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -12876,6 +12368,7 @@ public partial class ResultClosureTest : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<ResultClosureTest> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -13050,6 +12543,7 @@ public partial class BatchConfig : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<BatchConfig> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -13778,6 +13272,7 @@ public partial class Registry : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<Registry> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -14179,6 +13674,7 @@ public partial class EventHandler : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<EventHandler> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -15431,6 +14927,7 @@ public partial class ParseError : ISwiftObject, IDisposable
     SwiftSafeHandle<ParseError> _payload = SwiftSafeHandle<ParseError>.Zero;
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<ParseError> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     #pragma warning disable CS0649
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal bool _isCachedSingleton;
@@ -15645,6 +15142,7 @@ public partial class RangeError : ISwiftObject, IDisposable
     SwiftSafeHandle<RangeError> _payload = SwiftSafeHandle<RangeError>.Zero;
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<RangeError> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     #pragma warning disable CS0649
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal bool _isCachedSingleton;
@@ -15990,6 +15488,7 @@ public partial class TypedThrowingParser : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<TypedThrowingParser> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -16375,6 +15874,7 @@ public partial class ValidationError : ISwiftObject, IDisposable
     SwiftSafeHandle<ValidationError> _payload = SwiftSafeHandle<ValidationError>.Zero;
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<ValidationError> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     #pragma warning disable CS0649
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal bool _isCachedSingleton;
@@ -16640,271 +16140,11 @@ public partial class ValidationError : ISwiftObject, IDisposable
 /// <summary>
 /// Math error enum.
 /// </summary>
-public partial class MathError : ISwiftObject, IDisposable
+public enum MathError : int
 {
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    static nuint _payloadSize = SwiftObjectHelper<MathError>.GetTypeMetadata().Size;
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    SwiftSafeHandle<MathError> _payload = SwiftSafeHandle<MathError>.Zero;
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    internal SwiftSafeHandle<MathError> Payload => _payload;
-    #pragma warning disable CS0649
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    internal bool _isCachedSingleton;
-    #pragma warning restore CS0649
-    
-    public void Dispose()
-    {
-        if (_isCachedSingleton) return;
-        _payload.Dispose();
-        GC.SuppressFinalize(this);
-    }
-    ~MathError()
-    {
-        if (!_isCachedSingleton)
-            Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
-    }
-    
-    private static readonly Lazy<MathError> _lazy_divisionByZero = new(() =>
-    {
-        unsafe
-        {
-            var result = new MathError();
-            var metadata = SwiftObjectHelper<MathError>.GetTypeMetadata();
-            IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
-            metadata.ValueWitnessTable->DestructiveInjectEnumTag((void*)buffer, (uint)0, metadata);
-            result._payload = new SwiftSafeHandle<MathError>(buffer);
-            result._isCachedSingleton = true;
-            return result;
-        }
-    });
-    /// <summary>
-    /// Gets the 'divisionByZero' case of MathError.
-    /// </summary>
-    public static MathError DivisionByZero => _lazy_divisionByZero.Value;
-    
-    private static readonly Lazy<MathError> _lazy_overflow = new(() =>
-    {
-        unsafe
-        {
-            var result = new MathError();
-            var metadata = SwiftObjectHelper<MathError>.GetTypeMetadata();
-            IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
-            metadata.ValueWitnessTable->DestructiveInjectEnumTag((void*)buffer, (uint)1, metadata);
-            result._payload = new SwiftSafeHandle<MathError>(buffer);
-            result._isCachedSingleton = true;
-            return result;
-        }
-    });
-    /// <summary>
-    /// Gets the 'overflow' case of MathError.
-    /// </summary>
-    public static MathError Overflow => _lazy_overflow.Value;
-    
-    private static readonly Lazy<MathError> _lazy_negativeInput = new(() =>
-    {
-        unsafe
-        {
-            var result = new MathError();
-            var metadata = SwiftObjectHelper<MathError>.GetTypeMetadata();
-            IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
-            metadata.ValueWitnessTable->DestructiveInjectEnumTag((void*)buffer, (uint)2, metadata);
-            result._payload = new SwiftSafeHandle<MathError>(buffer);
-            result._isCachedSingleton = true;
-            return result;
-        }
-    });
-    /// <summary>
-    /// Gets the 'negativeInput' case of MathError.
-    /// </summary>
-    public static MathError NegativeInput => _lazy_negativeInput.Value;
-    
-    /// <summary>
-    /// Enum representing the possible cases of MathError.
-    /// Tag values follow Swift's ordering: payload cases first, then no-payload cases.
-    /// </summary>
-    public enum CaseTag : uint
-    {
-        DivisionByZero = 0,
-        Overflow = 1,
-        NegativeInput = 2,
-    }
-    
-    /// <summary>
-    /// Gets the current case of this enum instance.
-    /// </summary>
-    public CaseTag Tag
-    {
-        get
-        {
-            unsafe
-            {
-                bool success = false;
-                _payload.DangerousAddRef(ref success);
-                try
-                {
-                    var metadata = SwiftObjectHelper<MathError>.GetTypeMetadata();
-                    byte* payload = (byte*)_payload.DangerousGetHandle();
-                    return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
-                }
-                finally
-                {
-                    if (success)
-                        _payload.DangerousRelease();
-                }
-            }
-        }
-    }
-    
-    
-    private nint HashValue_Get()
-    {
-        unsafe
-        {
-            var success = false;
-            _payload.DangerousAddRef(ref success);
-            try
-            {
-                var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
-                
-                
-                
-                var result = PInvoke_hashValue_Get_F6FFEC7F(self);
-                
-                return result;
-            }
-            
-            finally
-            {
-                if (success)
-                   _payload.DangerousRelease();
-            }
-            
-        }
-    }
-    
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib9MathErrorO9hashValueSivg")]
-    private static partial nint PInvoke_hashValue_Get_F6FFEC7F( SwiftSelf self);
-    
-    /// <summary>
-    /// The hash value.
-    /// </summary>
-    /// <remarks>
-    /// Important: <c>hashValue</c> is deprecated as a <c>Hashable</c> requirement. To conform to <c>Hashable</c>, implement the <c>hash(into:)</c> requirement instead. The compiler provides an implementation for <c>hashValue</c> for you.
-    /// </remarks>
-    public nint HashValue
-    {
-        get => HashValue_Get();
-    }
-    
-    static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
-    
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib9MathErrorOMa")]
-    internal static partial TypeMetadata PInvoke_getMetadata();
-    
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
-    {
-        return new MathError(handle);
-    }
-    
-    MathError()
-    {
-    }
-    
-    MathError(SwiftHandle handle)
-    {
-        _payload = new SwiftSafeHandle<MathError>(handle);
-    }
-    
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
-    {
-        var metadata = SwiftObjectHelper<MathError>.GetTypeMetadata();
-        if ((int)metadata.Size > swiftDestSpan.Length)
-        {
-            throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
-        }
-        fixed (void* swiftDest = swiftDestSpan)
-        {
-            // Ensure that the instance is valid before making copy
-            bool success = false;
-            _payload.DangerousAddRef(ref success);
-            try
-            {
-                metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
-                return (int)metadata.Size;
-            }
-            finally
-            {
-                if (success)
-                    _payload.DangerousRelease();
-            }
-        }
-    }
-    
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    private static Dictionary<Type, string> _protocolConformanceSymbols;
-    static MathError()
-    {
-        _protocolConformanceSymbols = new Dictionary<Type, string>
-        {
-            {typeof(IEquatable<MathError>), "$s20SwiftBindingsTestLib9MathErrorOSQAAMc"},
-    {typeof(ISwiftHashable), "$s20SwiftBindingsTestLib9MathErrorOSHAAMc"}
-        };
-    }
-    
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
-        where TProtocol : class
-    {
-        if (!_protocolConformanceSymbols.TryGetValue(typeof(TProtocol), out var symbolName))
-        {
-            throw new SwiftRuntimeException($"Attempted to retrieve protocol conformance descriptor for type MathError and protocol {typeof(TProtocol).Name}, but no conformance was found.");
-        }
-        return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
-    }
-    
-    /// <summary>
-    /// Hashes the essential components of this value by feeding them into the given hasher.
-    /// </summary>
-    /// <param name="hasher">The hasher to use when combining the components of this instance.</param>
-    /// <remarks>
-    /// Important: In your implementation of <c>hash(into:)</c>, don't call <c>finalize()</c> on the <c>hasher</c> instance provided, or replace it with a different instance. Doing so may become a compile-time error in the future.
-    /// </remarks>
-    public void Hash( Swift.Hasher hasher)
-    {
-        unsafe
-        {
-            var success = false;
-            _payload.DangerousAddRef(ref success);
-            try
-            {
-                var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
-                
-                
-                
-                PInvoke_hash_582D43F2(hasher.Payload, self);
-                
-                return;
-            }
-            
-            finally
-            {
-                if (success)
-                   _payload.DangerousRelease();
-            }
-            
-        }
-    }
-    
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib9MathErrorO4hash4intoys6HasherVz_tF")]
-    private static partial void PInvoke_hash_582D43F2( SafeHandle hasher,  SwiftSelf self);
-    
-    
+    DivisionByZero = 0,
+    Overflow = 1,
+    NegativeInput = 2,
 }
 
 
@@ -16955,6 +16195,7 @@ public partial class ThrowingStruct : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<ThrowingStruct> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -17526,6 +16767,7 @@ public partial class AsyncConfig : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<AsyncConfig> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -17695,6 +16937,7 @@ public partial class AsyncDataSource : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<AsyncDataSource> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -17798,252 +17041,10 @@ public partial class AsyncDataSource : ISwiftObject, IDisposable
 /// <summary>
 /// Error type for async throwing tests.
 /// </summary>
-public partial class AsyncError : ISwiftObject, IDisposable
+public enum AsyncError : int
 {
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    static nuint _payloadSize = SwiftObjectHelper<AsyncError>.GetTypeMetadata().Size;
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    SwiftSafeHandle<AsyncError> _payload = SwiftSafeHandle<AsyncError>.Zero;
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    internal SwiftSafeHandle<AsyncError> Payload => _payload;
-    #pragma warning disable CS0649
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    internal bool _isCachedSingleton;
-    #pragma warning restore CS0649
-    
-    public void Dispose()
-    {
-        if (_isCachedSingleton) return;
-        _payload.Dispose();
-        GC.SuppressFinalize(this);
-    }
-    ~AsyncError()
-    {
-        if (!_isCachedSingleton)
-            Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
-    }
-    
-    private static readonly Lazy<AsyncError> _lazy_requestedThrow = new(() =>
-    {
-        unsafe
-        {
-            var result = new AsyncError();
-            var metadata = SwiftObjectHelper<AsyncError>.GetTypeMetadata();
-            IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
-            metadata.ValueWitnessTable->DestructiveInjectEnumTag((void*)buffer, (uint)0, metadata);
-            result._payload = new SwiftSafeHandle<AsyncError>(buffer);
-            result._isCachedSingleton = true;
-            return result;
-        }
-    });
-    /// <summary>
-    /// Gets the 'requestedThrow' case of AsyncError.
-    /// </summary>
-    public static AsyncError RequestedThrow => _lazy_requestedThrow.Value;
-    
-    private static readonly Lazy<AsyncError> _lazy_timeout = new(() =>
-    {
-        unsafe
-        {
-            var result = new AsyncError();
-            var metadata = SwiftObjectHelper<AsyncError>.GetTypeMetadata();
-            IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
-            metadata.ValueWitnessTable->DestructiveInjectEnumTag((void*)buffer, (uint)1, metadata);
-            result._payload = new SwiftSafeHandle<AsyncError>(buffer);
-            result._isCachedSingleton = true;
-            return result;
-        }
-    });
-    /// <summary>
-    /// Gets the 'timeout' case of AsyncError.
-    /// </summary>
-    public static AsyncError Timeout => _lazy_timeout.Value;
-    
-    /// <summary>
-    /// Enum representing the possible cases of AsyncError.
-    /// Tag values follow Swift's ordering: payload cases first, then no-payload cases.
-    /// </summary>
-    public enum CaseTag : uint
-    {
-        RequestedThrow = 0,
-        Timeout = 1,
-    }
-    
-    /// <summary>
-    /// Gets the current case of this enum instance.
-    /// </summary>
-    public CaseTag Tag
-    {
-        get
-        {
-            unsafe
-            {
-                bool success = false;
-                _payload.DangerousAddRef(ref success);
-                try
-                {
-                    var metadata = SwiftObjectHelper<AsyncError>.GetTypeMetadata();
-                    byte* payload = (byte*)_payload.DangerousGetHandle();
-                    return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
-                }
-                finally
-                {
-                    if (success)
-                        _payload.DangerousRelease();
-                }
-            }
-        }
-    }
-    
-    
-    private nint HashValue_Get()
-    {
-        unsafe
-        {
-            var success = false;
-            _payload.DangerousAddRef(ref success);
-            try
-            {
-                var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
-                
-                
-                
-                var result = PInvoke_hashValue_Get_B0153639(self);
-                
-                return result;
-            }
-            
-            finally
-            {
-                if (success)
-                   _payload.DangerousRelease();
-            }
-            
-        }
-    }
-    
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10AsyncErrorO9hashValueSivg")]
-    private static partial nint PInvoke_hashValue_Get_B0153639( SwiftSelf self);
-    
-    /// <summary>
-    /// The hash value.
-    /// </summary>
-    /// <remarks>
-    /// Important: <c>hashValue</c> is deprecated as a <c>Hashable</c> requirement. To conform to <c>Hashable</c>, implement the <c>hash(into:)</c> requirement instead. The compiler provides an implementation for <c>hashValue</c> for you.
-    /// </remarks>
-    public nint HashValue
-    {
-        get => HashValue_Get();
-    }
-    
-    static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
-    
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10AsyncErrorOMa")]
-    internal static partial TypeMetadata PInvoke_getMetadata();
-    
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
-    {
-        return new AsyncError(handle);
-    }
-    
-    AsyncError()
-    {
-    }
-    
-    AsyncError(SwiftHandle handle)
-    {
-        _payload = new SwiftSafeHandle<AsyncError>(handle);
-    }
-    
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
-    {
-        var metadata = SwiftObjectHelper<AsyncError>.GetTypeMetadata();
-        if ((int)metadata.Size > swiftDestSpan.Length)
-        {
-            throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
-        }
-        fixed (void* swiftDest = swiftDestSpan)
-        {
-            // Ensure that the instance is valid before making copy
-            bool success = false;
-            _payload.DangerousAddRef(ref success);
-            try
-            {
-                metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
-                return (int)metadata.Size;
-            }
-            finally
-            {
-                if (success)
-                    _payload.DangerousRelease();
-            }
-        }
-    }
-    
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    private static Dictionary<Type, string> _protocolConformanceSymbols;
-    static AsyncError()
-    {
-        _protocolConformanceSymbols = new Dictionary<Type, string>
-        {
-            {typeof(IEquatable<AsyncError>), "$s20SwiftBindingsTestLib10AsyncErrorOSQAAMc"},
-    {typeof(ISwiftHashable), "$s20SwiftBindingsTestLib10AsyncErrorOSHAAMc"}
-        };
-    }
-    
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
-        where TProtocol : class
-    {
-        if (!_protocolConformanceSymbols.TryGetValue(typeof(TProtocol), out var symbolName))
-        {
-            throw new SwiftRuntimeException($"Attempted to retrieve protocol conformance descriptor for type AsyncError and protocol {typeof(TProtocol).Name}, but no conformance was found.");
-        }
-        return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
-    }
-    
-    /// <summary>
-    /// Hashes the essential components of this value by feeding them into the given hasher.
-    /// </summary>
-    /// <param name="hasher">The hasher to use when combining the components of this instance.</param>
-    /// <remarks>
-    /// Important: In your implementation of <c>hash(into:)</c>, don't call <c>finalize()</c> on the <c>hasher</c> instance provided, or replace it with a different instance. Doing so may become a compile-time error in the future.
-    /// </remarks>
-    public void Hash( Swift.Hasher hasher)
-    {
-        unsafe
-        {
-            var success = false;
-            _payload.DangerousAddRef(ref success);
-            try
-            {
-                var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
-                
-                
-                
-                PInvoke_hash_59235A04(hasher.Payload, self);
-                
-                return;
-            }
-            
-            finally
-            {
-                if (success)
-                   _payload.DangerousRelease();
-            }
-            
-        }
-    }
-    
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10AsyncErrorO4hash4intoys6HasherVz_tF")]
-    private static partial void PInvoke_hash_59235A04( SafeHandle hasher,  SwiftSelf self);
-    
-    
+    RequestedThrow = 0,
+    Timeout = 1,
 }
 
 
@@ -18096,6 +17097,7 @@ public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<AsyncThrowingWorker> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -18733,6 +17735,7 @@ public partial class AsyncResult : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<AsyncResult> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -18969,6 +17972,7 @@ public partial class AsyncStatus : ISwiftObject, IDisposable
     SwiftSafeHandle<AsyncStatus> _payload = SwiftSafeHandle<AsyncStatus>.Zero;
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<AsyncStatus> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     #pragma warning disable CS0649
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal bool _isCachedSingleton;
@@ -19415,6 +18419,7 @@ public partial class AsyncTask : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<AsyncTask> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -19616,6 +18621,7 @@ public partial class AsyncStringWorker : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<AsyncStringWorker> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -20670,6 +19676,7 @@ public partial class AsyncArrayWorker : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<AsyncArrayWorker> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -22207,6 +21214,7 @@ public partial class AsyncComplexWorker : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<AsyncComplexWorker> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -23889,6 +22897,7 @@ public partial class MainActorViewModel : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<MainActorViewModel> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -24288,6 +23297,7 @@ public partial class MainActorMethods : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<MainActorMethods> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -24505,6 +23515,7 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<AsyncWorker> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -25707,6 +24718,7 @@ public partial class Counter : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<Counter> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -26012,6 +25024,7 @@ public partial class AsyncProcessor : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<AsyncProcessor> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -26668,6 +25681,7 @@ public partial class SharedState : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<SharedState> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -26980,6 +25994,7 @@ public partial class SendablePoint : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<SendablePoint> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -27199,6 +26214,7 @@ public partial class SendableConfig : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<SendableConfig> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -27462,6 +26478,7 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<NetworkConfig> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -27549,6 +26566,7 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
         SwiftSafeHandle<HttpMethod> _payload = SwiftSafeHandle<HttpMethod>.Zero;
         [EditorBrowsable(EditorBrowsableState.Never)]
         internal SwiftSafeHandle<HttpMethod> Payload => _payload;
+        IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
         #pragma warning disable CS0649
         [EditorBrowsable(EditorBrowsableState.Never)]
         internal bool _isCachedSingleton;
@@ -27853,6 +26871,7 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
         SwiftSafeHandle<ContentType> _payload = SwiftSafeHandle<ContentType>.Zero;
         [EditorBrowsable(EditorBrowsableState.Never)]
         internal SwiftSafeHandle<ContentType> Payload => _payload;
+        IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
         #pragma warning disable CS0649
         [EditorBrowsable(EditorBrowsableState.Never)]
         internal bool _isCachedSingleton;
@@ -28243,6 +27262,7 @@ public partial class OrderContainer : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<OrderContainer> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -28330,6 +27350,7 @@ public partial class OrderContainer : ISwiftObject, IDisposable
         SwiftSafeHandle<Status> _payload = SwiftSafeHandle<Status>.Zero;
         [EditorBrowsable(EditorBrowsableState.Never)]
         internal SwiftSafeHandle<Status> Payload => _payload;
+        IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
         #pragma warning disable CS0649
         [EditorBrowsable(EditorBrowsableState.Never)]
         internal bool _isCachedSingleton;
@@ -28733,6 +27754,7 @@ public partial class PaymentContainer : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<PaymentContainer> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -28820,6 +27842,7 @@ public partial class PaymentContainer : ISwiftObject, IDisposable
         SwiftSafeHandle<Status> _payload = SwiftSafeHandle<Status>.Zero;
         [EditorBrowsable(EditorBrowsableState.Never)]
         internal SwiftSafeHandle<Status> Payload => _payload;
+        IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
         #pragma warning disable CS0649
         [EditorBrowsable(EditorBrowsableState.Never)]
         internal bool _isCachedSingleton;
@@ -29146,6 +28169,7 @@ public partial class LogLevel : ISwiftObject, IDisposable
     SwiftSafeHandle<LogLevel> _payload = SwiftSafeHandle<LogLevel>.Zero;
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<LogLevel> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     #pragma warning disable CS0649
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal bool _isCachedSingleton;
@@ -29450,6 +28474,7 @@ public partial class Greeting : ISwiftObject, IDisposable
     SwiftSafeHandle<Greeting> _payload = SwiftSafeHandle<Greeting>.Zero;
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<Greeting> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     #pragma warning disable CS0649
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal bool _isCachedSingleton;
@@ -29754,6 +28779,7 @@ public partial class EdgeCaseStrings : ISwiftObject, IDisposable
     SwiftSafeHandle<EdgeCaseStrings> _payload = SwiftSafeHandle<EdgeCaseStrings>.Zero;
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<EdgeCaseStrings> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     #pragma warning disable CS0649
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal bool _isCachedSingleton;
@@ -30071,6 +29097,7 @@ public partial class CaseSensitiveEnum : ISwiftObject, IDisposable
     SwiftSafeHandle<CaseSensitiveEnum> _payload = SwiftSafeHandle<CaseSensitiveEnum>.Zero;
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<CaseSensitiveEnum> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     #pragma warning disable CS0649
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal bool _isCachedSingleton;
@@ -30374,6 +29401,7 @@ public partial class MutableProps : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<MutableProps> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -30772,6 +29800,7 @@ public partial class NonFrozenMutableProps : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<NonFrozenMutableProps> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -31022,6 +30051,7 @@ public partial class MutableClass : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<MutableClass> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -31518,6 +30548,7 @@ public partial class StaticProps : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<StaticProps> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -31626,6 +30657,7 @@ public partial class StaticMethods : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<StaticMethods> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -32151,6 +31183,7 @@ public partial class ReadOnlyProps : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<ReadOnlyProps> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -32566,6 +31599,7 @@ public partial class NonFrozenReadOnlyProps : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<NonFrozenReadOnlyProps> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -32674,6 +31708,7 @@ public partial class OptionalConfig : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<OptionalConfig> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -33129,6 +32164,7 @@ public partial class PointerWorker : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<PointerWorker> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -33375,6 +32411,7 @@ public partial class RawMemoryWorker : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<RawMemoryWorker> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -33588,6 +32625,7 @@ public partial class HandleWrapper : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<HandleWrapper> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -34129,6 +33167,7 @@ public partial class SliceProcessor : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<SliceProcessor> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -34515,6 +33554,7 @@ public unsafe partial class DescribableProxy : IDescribable, ISwiftObject, IDisp
         var container = *(ExistentialContainer1*)payload;
         return new DescribableProxy(container);
     }
+    IntPtr ISwiftObject.SwiftHandle => _swiftContainer.Payload0;
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().Name);
@@ -34787,6 +33827,7 @@ public unsafe partial class TestIdentifiableProxy : ITestIdentifiable, ISwiftObj
         var container = *(ExistentialContainer1*)payload;
         return new TestIdentifiableProxy(container);
     }
+    IntPtr ISwiftObject.SwiftHandle => _swiftContainer.Payload0;
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().Name);
@@ -35049,6 +34090,7 @@ public unsafe partial class DisplayableProxy : IDisplayable, ISwiftObject, IDisp
         var container = *(ExistentialContainer1*)payload;
         return new DisplayableProxy(container);
     }
+    IntPtr ISwiftObject.SwiftHandle => _swiftContainer.Payload0;
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().Name);
@@ -35390,6 +34432,7 @@ public unsafe partial class HasValueProxy : IHasValue, ISwiftObject, IDisposable
         var container = *(ExistentialContainer1*)payload;
         return new HasValueProxy(container);
     }
+    IntPtr ISwiftObject.SwiftHandle => _swiftContainer.Payload0;
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().Name);
@@ -35603,6 +34646,7 @@ public partial class SimpleItem : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<SimpleItem> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -35817,6 +34861,7 @@ public partial class MutableItem : ISwiftObject, IDisposable, IHasValue
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<MutableItem> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -36061,6 +35106,7 @@ public partial class DisplayItem : ISwiftObject, IDisposable, IDisplayable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<DisplayItem> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -36312,6 +35358,7 @@ public partial class Person : ISwiftObject, IDisposable, IAgeable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<Person> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -36601,6 +35648,7 @@ public unsafe partial class NameableProxy : INameable, ISwiftObject, IDisposable
         var container = *(ExistentialContainer1*)payload;
         return new NameableProxy(container);
     }
+    IntPtr ISwiftObject.SwiftHandle => _swiftContainer.Payload0;
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().Name);
@@ -36857,6 +35905,7 @@ public unsafe partial class AgeableProxy : IAgeable, ISwiftObject, IDisposable, 
         var container = *(ExistentialContainer1*)payload;
         return new AgeableProxy(container);
     }
+    IntPtr ISwiftObject.SwiftHandle => _swiftContainer.Payload0;
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().Name);
@@ -37115,6 +36164,7 @@ public unsafe partial class AddableProxy : IAddable, ISwiftObject, IDisposable, 
         var container = *(ExistentialContainer1*)payload;
         return new AddableProxy(container);
     }
+    IntPtr ISwiftObject.SwiftHandle => _swiftContainer.Payload0;
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().Name);
@@ -37373,6 +36423,7 @@ public unsafe partial class SubtractableProxy : ISubtractable, ISwiftObject, IDi
         var container = *(ExistentialContainer1*)payload;
         return new SubtractableProxy(container);
     }
+    IntPtr ISwiftObject.SwiftHandle => _swiftContainer.Payload0;
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().Name);
@@ -37631,6 +36682,7 @@ public unsafe partial class MultipliableProxy : IMultipliable, ISwiftObject, IDi
         var container = *(ExistentialContainer1*)payload;
         return new MultipliableProxy(container);
     }
+    IntPtr ISwiftObject.SwiftHandle => _swiftContainer.Payload0;
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().Name);
@@ -37889,6 +36941,7 @@ public unsafe partial class DividableProxy : IDividable, ISwiftObject, IDisposab
         var container = *(ExistentialContainer1*)payload;
         return new DividableProxy(container);
     }
+    IntPtr ISwiftObject.SwiftHandle => _swiftContainer.Payload0;
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().Name);
@@ -38222,245 +37275,12 @@ public unsafe partial struct MultiConformingValue : ISwiftObject, IDisposable, I
 /// <summary>
 /// Status enum for protocol testing.
 /// </summary>
-public partial class TaskStatus : ISwiftObject, IDisposable
+public enum TaskStatus : int
 {
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    static nuint _payloadSize = SwiftObjectHelper<TaskStatus>.GetTypeMetadata().Size;
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    SwiftSafeHandle<TaskStatus> _payload = SwiftSafeHandle<TaskStatus>.Zero;
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    internal SwiftSafeHandle<TaskStatus> Payload => _payload;
-    #pragma warning disable CS0649
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    internal bool _isCachedSingleton;
-    #pragma warning restore CS0649
-    
-    public void Dispose()
-    {
-        if (_isCachedSingleton) return;
-        _payload.Dispose();
-        GC.SuppressFinalize(this);
-    }
-    ~TaskStatus()
-    {
-        if (!_isCachedSingleton)
-            Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
-    }
-    
-    /// <summary>
-    /// Creates a TaskStatus from its raw value.
-    /// Returns null if the raw value doesn't correspond to a valid case.
-    /// </summary>
-    public static TaskStatus? FromRawValue(int rawValue)
-    {
-        IntPtr resultPtr = PInvoke_InitWithRawValue(rawValue);
-        if (resultPtr == IntPtr.Zero)
-        {
-            return null;
-        }
-        var result = new TaskStatus();
-        result._payload = new SwiftSafeHandle<TaskStatus>(resultPtr);
-        return result;
-    }
-    
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10TaskStatusO8rawValueACSgs5Int32V_tcfC")]
-    private static partial IntPtr PInvoke_InitWithRawValue(int rawValue);
-    
-    private static readonly Lazy<TaskStatus> _lazy_pending = new(() =>
-    {
-        var result = FromRawValue(0)
-            ?? throw new InvalidOperationException("Failed to create TaskStatus.Pending from raw value 0");
-        result._isCachedSingleton = true;
-        return result;
-    });
-    /// <summary>
-    /// Gets the 'pending' case of TaskStatus.
-    /// </summary>
-    public static TaskStatus Pending => _lazy_pending.Value;
-    
-    private static readonly Lazy<TaskStatus> _lazy_running = new(() =>
-    {
-        var result = FromRawValue(1)
-            ?? throw new InvalidOperationException("Failed to create TaskStatus.Running from raw value 1");
-        result._isCachedSingleton = true;
-        return result;
-    });
-    /// <summary>
-    /// Gets the 'running' case of TaskStatus.
-    /// </summary>
-    public static TaskStatus Running => _lazy_running.Value;
-    
-    private static readonly Lazy<TaskStatus> _lazy_completed = new(() =>
-    {
-        var result = FromRawValue(2)
-            ?? throw new InvalidOperationException("Failed to create TaskStatus.Completed from raw value 2");
-        result._isCachedSingleton = true;
-        return result;
-    });
-    /// <summary>
-    /// Gets the 'completed' case of TaskStatus.
-    /// </summary>
-    public static TaskStatus Completed => _lazy_completed.Value;
-    
-    private static readonly Lazy<TaskStatus> _lazy_failed = new(() =>
-    {
-        var result = FromRawValue(3)
-            ?? throw new InvalidOperationException("Failed to create TaskStatus.Failed from raw value 3");
-        result._isCachedSingleton = true;
-        return result;
-    });
-    /// <summary>
-    /// Gets the 'failed' case of TaskStatus.
-    /// </summary>
-    public static TaskStatus Failed => _lazy_failed.Value;
-    
-    /// <summary>
-    /// Enum representing the possible cases of TaskStatus.
-    /// Tag values follow Swift's ordering: payload cases first, then no-payload cases.
-    /// </summary>
-    public enum CaseTag : uint
-    {
-        Pending = 0,
-        Running = 1,
-        Completed = 2,
-        Failed = 3,
-    }
-    
-    /// <summary>
-    /// Gets the current case of this enum instance.
-    /// </summary>
-    public CaseTag Tag
-    {
-        get
-        {
-            unsafe
-            {
-                bool success = false;
-                _payload.DangerousAddRef(ref success);
-                try
-                {
-                    var metadata = SwiftObjectHelper<TaskStatus>.GetTypeMetadata();
-                    byte* payload = (byte*)_payload.DangerousGetHandle();
-                    return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
-                }
-                finally
-                {
-                    if (success)
-                        _payload.DangerousRelease();
-                }
-            }
-        }
-    }
-    
-    
-    private int RawValue_Get()
-    {
-        unsafe
-        {
-            var success = false;
-            _payload.DangerousAddRef(ref success);
-            try
-            {
-                var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
-                
-                
-                
-                var result = PInvoke_rawValue_Get_E79CBDE5(self);
-                
-                return result;
-            }
-            
-            finally
-            {
-                if (success)
-                   _payload.DangerousRelease();
-            }
-            
-        }
-    }
-    
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10TaskStatusO8rawValues5Int32Vvg")]
-    private static partial int PInvoke_rawValue_Get_E79CBDE5( SwiftSelf self);
-    
-    /// <summary>
-    /// The corresponding value of the raw type.
-    /// </summary>
-    public int RawValue
-    {
-        get => RawValue_Get();
-    }
-    
-    static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
-    
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10TaskStatusOMa")]
-    internal static partial TypeMetadata PInvoke_getMetadata();
-    
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
-    {
-        return new TaskStatus(handle);
-    }
-    
-    TaskStatus()
-    {
-    }
-    
-    TaskStatus(SwiftHandle handle)
-    {
-        _payload = new SwiftSafeHandle<TaskStatus>(handle);
-    }
-    
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
-    {
-        var metadata = SwiftObjectHelper<TaskStatus>.GetTypeMetadata();
-        if ((int)metadata.Size > swiftDestSpan.Length)
-        {
-            throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
-        }
-        fixed (void* swiftDest = swiftDestSpan)
-        {
-            // Ensure that the instance is valid before making copy
-            bool success = false;
-            _payload.DangerousAddRef(ref success);
-            try
-            {
-                metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
-                return (int)metadata.Size;
-            }
-            finally
-            {
-                if (success)
-                    _payload.DangerousRelease();
-            }
-        }
-    }
-    
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    private static Dictionary<Type, string> _protocolConformanceSymbols;
-    static TaskStatus()
-    {
-        _protocolConformanceSymbols = new Dictionary<Type, string>
-        {
-            {typeof(IEquatable<TaskStatus>), "$s20SwiftBindingsTestLib10TaskStatusOSQAAMc"},
-    {typeof(ISwiftHashable), "$s20SwiftBindingsTestLib10TaskStatusOSHAAMc"}
-        };
-    }
-    
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
-        where TProtocol : class
-    {
-        if (!_protocolConformanceSymbols.TryGetValue(typeof(TProtocol), out var symbolName))
-        {
-            throw new SwiftRuntimeException($"Attempted to retrieve protocol conformance descriptor for type TaskStatus and protocol {typeof(TProtocol).Name}, but no conformance was found.");
-        }
-        return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
-    }
-    
+    Pending = 0,
+    Running = 1,
+    Completed = 2,
+    Failed = 3,
 }
 
 
@@ -38475,6 +37295,7 @@ public partial class TaskPriority : ISwiftObject, IDisposable
     SwiftSafeHandle<TaskPriority> _payload = SwiftSafeHandle<TaskPriority>.Zero;
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<TaskPriority> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     #pragma warning disable CS0649
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal bool _isCachedSingleton;
@@ -38948,6 +37769,7 @@ public unsafe partial class NamedProxy : INamed, ISwiftObject, IDisposable, Swif
         var container = *(ExistentialContainer1*)payload;
         return new NamedProxy(container);
     }
+    IntPtr ISwiftObject.SwiftHandle => _swiftContainer.Payload0;
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().Name);
@@ -39246,6 +38068,7 @@ public unsafe partial class MutableNamedProxy : IMutableNamed, ISwiftObject, IDi
         var container = *(ExistentialContainer1*)payload;
         return new MutableNamedProxy(container);
     }
+    IntPtr ISwiftObject.SwiftHandle => _swiftContainer.Payload0;
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().Name);
@@ -39510,6 +38333,7 @@ public unsafe partial class PrioritizedProxy : IPrioritized, ISwiftObject, IDisp
         var container = *(ExistentialContainer1*)payload;
         return new PrioritizedProxy(container);
     }
+    IntPtr ISwiftObject.SwiftHandle => _swiftContainer.Payload0;
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().Name);
@@ -39786,6 +38610,7 @@ public unsafe partial class MutablePrioritizedProxy : IMutablePrioritized, ISwif
         var container = *(ExistentialContainer1*)payload;
         return new MutablePrioritizedProxy(container);
     }
+    IntPtr ISwiftObject.SwiftHandle => _swiftContainer.Payload0;
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().Name);
@@ -40104,6 +38929,7 @@ public unsafe partial class TaskDescriptorProxy : ITaskDescriptor, ISwiftObject,
         var container = *(ExistentialContainer1*)payload;
         return new TaskDescriptorProxy(container);
     }
+    IntPtr ISwiftObject.SwiftHandle => _swiftContainer.Payload0;
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().Name);
@@ -40421,6 +39247,7 @@ public unsafe partial class StringProcessorProxy : IStringProcessor, ISwiftObjec
         var container = *(ExistentialContainer1*)payload;
         return new StringProcessorProxy(container);
     }
+    IntPtr ISwiftObject.SwiftHandle => _swiftContainer.Payload0;
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().Name);
@@ -40752,6 +39579,7 @@ public unsafe partial class StatusHandlerProxy : IStatusHandler, ISwiftObject, I
         var container = *(ExistentialContainer1*)payload;
         return new StatusHandlerProxy(container);
     }
+    IntPtr ISwiftObject.SwiftHandle => _swiftContainer.Payload0;
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().Name);
@@ -41067,6 +39895,7 @@ public unsafe partial class PriorityHandlerProxy : IPriorityHandler, ISwiftObjec
         var container = *(ExistentialContainer1*)payload;
         return new PriorityHandlerProxy(container);
     }
+    IntPtr ISwiftObject.SwiftHandle => _swiftContainer.Payload0;
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().Name);
@@ -41185,6 +40014,7 @@ public partial class NamedItem : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<NamedItem> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -41367,6 +40197,7 @@ public partial class MutableNamedItem : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<MutableNamedItem> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -41519,6 +40350,7 @@ public partial class PrioritizedItem : ISwiftObject, IDisposable, IPrioritized
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<PrioritizedItem> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -41700,6 +40532,7 @@ public partial class MutablePrioritizedItem : ISwiftObject, IDisposable, IMutabl
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<MutablePrioritizedItem> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -41852,7 +40685,7 @@ public partial class SimpleTask : ISwiftObject, IDisposable
                 
                 var result = PInvoke_status_Get_919A50A0(self);
                 
-                return (Swift.SwiftBindingsTestLib.TaskStatus)SwiftMarshal.MarshalFromSwift<Swift.SwiftBindingsTestLib.TaskStatus>(result);
+                return (Swift.SwiftBindingsTestLib.TaskStatus)result;
             }
             
             finally
@@ -41866,7 +40699,7 @@ public partial class SimpleTask : ISwiftObject, IDisposable
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10SimpleTaskV6statusAA0F6StatusOvg")]
-    private static partial IntPtr PInvoke_status_Get_919A50A0( SwiftSelf self);
+    private static partial int PInvoke_status_Get_919A50A0( SwiftSelf self);
     
     public Swift.SwiftBindingsTestLib.TaskStatus StatusProperty
     {
@@ -41919,6 +40752,7 @@ public partial class SimpleTask : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<SimpleTask> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -42004,14 +40838,14 @@ public partial class SimpleTask : ISwiftObject, IDisposable
             
             using var taskNameSwift = new SwiftString(taskName);
             using var taskNameDisposable = taskNameSwift.PayloadBuffer;
-            PInvoke_init_C8043FE1(swiftIndirectResult, taskNameDisposable.Buffer, status.Payload.DangerousGetHandle(), priority.Payload.DangerousGetHandle());
+            PInvoke_init_C8043FE1(swiftIndirectResult, taskNameDisposable.Buffer, (int)status, priority.Payload.DangerousGetHandle());
             
         }
     }
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10SimpleTaskV8taskName6status8priorityACSS_AA0F6StatusOAA0F8PriorityOtcfC")]
-    private static partial void PInvoke_init_C8043FE1( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer taskName,  IntPtr status,  IntPtr priority);
+    private static partial void PInvoke_init_C8043FE1( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer taskName,  int status,  IntPtr priority);
     
     
 }
@@ -42066,6 +40900,7 @@ public partial class EchoProcessor : ISwiftObject, IDisposable, IStringProcessor
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<EchoProcessor> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -42250,6 +41085,7 @@ public partial class SimpleStatusHandler : ISwiftObject, IDisposable, IStatusHan
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<SimpleStatusHandler> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -42333,14 +41169,14 @@ public partial class SimpleStatusHandler : ISwiftObject, IDisposable, IStatusHan
             _payload = new SwiftSafeHandle<SimpleStatusHandler>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_E2985DF5(swiftIndirectResult, initialStatus.Payload.DangerousGetHandle());
+            PInvoke_init_E2985DF5(swiftIndirectResult, (int)initialStatus);
             
         }
     }
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib19SimpleStatusHandlerV07initialF0AcA04TaskF0O_tcfC")]
-    private static partial void PInvoke_init_E2985DF5( SwiftIndirectResult swiftIndirectResult,  IntPtr initialStatus);
+    private static partial void PInvoke_init_E2985DF5( SwiftIndirectResult swiftIndirectResult,  int initialStatus);
     public SimpleStatusHandler()
     {
         unsafe
@@ -42373,7 +41209,7 @@ public partial class SimpleStatusHandler : ISwiftObject, IDisposable, IStatusHan
                 
                 
                 
-                PInvoke_handleStatus_7ECA307A(status.Payload.DangerousGetHandle(), self);
+                PInvoke_handleStatus_7ECA307A((int)status, self);
                 
                 return;
             }
@@ -42389,7 +41225,7 @@ public partial class SimpleStatusHandler : ISwiftObject, IDisposable, IStatusHan
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib19SimpleStatusHandlerV06handleF0yyAA04TaskF0OF")]
-    private static partial void PInvoke_handleStatus_7ECA307A( IntPtr status,  SwiftSelf self);
+    private static partial void PInvoke_handleStatus_7ECA307A( int status,  SwiftSelf self);
     
     
     /// <summary>
@@ -42409,7 +41245,7 @@ public partial class SimpleStatusHandler : ISwiftObject, IDisposable, IStatusHan
                 
                 var result = PInvoke_getCurrentStatus_EC698059(self);
                 
-                return (Swift.SwiftBindingsTestLib.TaskStatus)SwiftMarshal.MarshalFromSwift<Swift.SwiftBindingsTestLib.TaskStatus>(result);
+                return (Swift.SwiftBindingsTestLib.TaskStatus)result;
             }
             
             finally
@@ -42423,7 +41259,7 @@ public partial class SimpleStatusHandler : ISwiftObject, IDisposable, IStatusHan
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib19SimpleStatusHandlerV010getCurrentF0AA04TaskF0OyF")]
-    private static partial IntPtr PInvoke_getCurrentStatus_EC698059( SwiftSelf self);
+    private static partial int PInvoke_getCurrentStatus_EC698059( SwiftSelf self);
     
     
     /// <summary>
@@ -42441,9 +41277,9 @@ public partial class SimpleStatusHandler : ISwiftObject, IDisposable, IStatusHan
                 
                 
                 
-                var result = PInvoke_transitionStatus_8A5239D7(from.Payload.DangerousGetHandle(), self);
+                var result = PInvoke_transitionStatus_8A5239D7((int)from, self);
                 
-                return (Swift.SwiftBindingsTestLib.TaskStatus)SwiftMarshal.MarshalFromSwift<Swift.SwiftBindingsTestLib.TaskStatus>(result);
+                return (Swift.SwiftBindingsTestLib.TaskStatus)result;
             }
             
             finally
@@ -42457,7 +41293,7 @@ public partial class SimpleStatusHandler : ISwiftObject, IDisposable, IStatusHan
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib19SimpleStatusHandlerV010transitionF04fromAA04TaskF0OAG_tF")]
-    private static partial IntPtr PInvoke_transitionStatus_8A5239D7( IntPtr from,  SwiftSelf self);
+    private static partial int PInvoke_transitionStatus_8A5239D7( int from,  SwiftSelf self);
     
     
 }
@@ -42475,6 +41311,7 @@ public partial class SimplePriorityHandler : ISwiftObject, IDisposable, IPriorit
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<SimplePriorityHandler> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -42878,6 +41715,7 @@ public unsafe partial class ExistentialParamDelegateProxy : IExistentialParamDel
         var container = *(ExistentialContainer1*)payload;
         return new ExistentialParamDelegateProxy(container);
     }
+    IntPtr ISwiftObject.SwiftHandle => _swiftContainer.Payload0;
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().Name);
@@ -42947,232 +41785,11 @@ public unsafe partial class ExistentialParamDelegateProxy : IExistentialParamDel
 /// <summary>
 /// Simple enum for BoundEnum parameter testing.
 /// </summary>
-public partial class AlertStyle : ISwiftObject, IDisposable
+public enum AlertStyle : int
 {
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    static nuint _payloadSize = SwiftObjectHelper<AlertStyle>.GetTypeMetadata().Size;
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    SwiftSafeHandle<AlertStyle> _payload = SwiftSafeHandle<AlertStyle>.Zero;
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    internal SwiftSafeHandle<AlertStyle> Payload => _payload;
-    #pragma warning disable CS0649
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    internal bool _isCachedSingleton;
-    #pragma warning restore CS0649
-    
-    public void Dispose()
-    {
-        if (_isCachedSingleton) return;
-        _payload.Dispose();
-        GC.SuppressFinalize(this);
-    }
-    ~AlertStyle()
-    {
-        if (!_isCachedSingleton)
-            Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
-    }
-    
-    /// <summary>
-    /// Creates a AlertStyle from its raw value.
-    /// Returns null if the raw value doesn't correspond to a valid case.
-    /// </summary>
-    public static AlertStyle? FromRawValue(int rawValue)
-    {
-        IntPtr resultPtr = PInvoke_InitWithRawValue(rawValue);
-        if (resultPtr == IntPtr.Zero)
-        {
-            return null;
-        }
-        var result = new AlertStyle();
-        result._payload = new SwiftSafeHandle<AlertStyle>(resultPtr);
-        return result;
-    }
-    
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10AlertStyleO8rawValueACSgs5Int32V_tcfC")]
-    private static partial IntPtr PInvoke_InitWithRawValue(int rawValue);
-    
-    private static readonly Lazy<AlertStyle> _lazy_info = new(() =>
-    {
-        var result = FromRawValue(0)
-            ?? throw new InvalidOperationException("Failed to create AlertStyle.Info from raw value 0");
-        result._isCachedSingleton = true;
-        return result;
-    });
-    /// <summary>
-    /// Gets the 'info' case of AlertStyle.
-    /// </summary>
-    public static AlertStyle Info => _lazy_info.Value;
-    
-    private static readonly Lazy<AlertStyle> _lazy_warning = new(() =>
-    {
-        var result = FromRawValue(1)
-            ?? throw new InvalidOperationException("Failed to create AlertStyle.Warning from raw value 1");
-        result._isCachedSingleton = true;
-        return result;
-    });
-    /// <summary>
-    /// Gets the 'warning' case of AlertStyle.
-    /// </summary>
-    public static AlertStyle Warning => _lazy_warning.Value;
-    
-    private static readonly Lazy<AlertStyle> _lazy_error = new(() =>
-    {
-        var result = FromRawValue(2)
-            ?? throw new InvalidOperationException("Failed to create AlertStyle.Error from raw value 2");
-        result._isCachedSingleton = true;
-        return result;
-    });
-    /// <summary>
-    /// Gets the 'error' case of AlertStyle.
-    /// </summary>
-    public static AlertStyle Error => _lazy_error.Value;
-    
-    /// <summary>
-    /// Enum representing the possible cases of AlertStyle.
-    /// Tag values follow Swift's ordering: payload cases first, then no-payload cases.
-    /// </summary>
-    public enum CaseTag : uint
-    {
-        Info = 0,
-        Warning = 1,
-        Error = 2,
-    }
-    
-    /// <summary>
-    /// Gets the current case of this enum instance.
-    /// </summary>
-    public CaseTag Tag
-    {
-        get
-        {
-            unsafe
-            {
-                bool success = false;
-                _payload.DangerousAddRef(ref success);
-                try
-                {
-                    var metadata = SwiftObjectHelper<AlertStyle>.GetTypeMetadata();
-                    byte* payload = (byte*)_payload.DangerousGetHandle();
-                    return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
-                }
-                finally
-                {
-                    if (success)
-                        _payload.DangerousRelease();
-                }
-            }
-        }
-    }
-    
-    
-    private int RawValue_Get()
-    {
-        unsafe
-        {
-            var success = false;
-            _payload.DangerousAddRef(ref success);
-            try
-            {
-                var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
-                
-                
-                
-                var result = PInvoke_rawValue_Get_D5361B11(self);
-                
-                return result;
-            }
-            
-            finally
-            {
-                if (success)
-                   _payload.DangerousRelease();
-            }
-            
-        }
-    }
-    
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10AlertStyleO8rawValues5Int32Vvg")]
-    private static partial int PInvoke_rawValue_Get_D5361B11( SwiftSelf self);
-    
-    /// <summary>
-    /// The corresponding value of the raw type.
-    /// </summary>
-    public int RawValue
-    {
-        get => RawValue_Get();
-    }
-    
-    static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
-    
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10AlertStyleOMa")]
-    internal static partial TypeMetadata PInvoke_getMetadata();
-    
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
-    {
-        return new AlertStyle(handle);
-    }
-    
-    AlertStyle()
-    {
-    }
-    
-    AlertStyle(SwiftHandle handle)
-    {
-        _payload = new SwiftSafeHandle<AlertStyle>(handle);
-    }
-    
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
-    {
-        var metadata = SwiftObjectHelper<AlertStyle>.GetTypeMetadata();
-        if ((int)metadata.Size > swiftDestSpan.Length)
-        {
-            throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
-        }
-        fixed (void* swiftDest = swiftDestSpan)
-        {
-            // Ensure that the instance is valid before making copy
-            bool success = false;
-            _payload.DangerousAddRef(ref success);
-            try
-            {
-                metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
-                return (int)metadata.Size;
-            }
-            finally
-            {
-                if (success)
-                    _payload.DangerousRelease();
-            }
-        }
-    }
-    
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    private static Dictionary<Type, string> _protocolConformanceSymbols;
-    static AlertStyle()
-    {
-        _protocolConformanceSymbols = new Dictionary<Type, string>
-        {
-            {typeof(IEquatable<AlertStyle>), "$s20SwiftBindingsTestLib10AlertStyleOSQAAMc"},
-    {typeof(ISwiftHashable), "$s20SwiftBindingsTestLib10AlertStyleOSHAAMc"}
-        };
-    }
-    
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
-        where TProtocol : class
-    {
-        if (!_protocolConformanceSymbols.TryGetValue(typeof(TProtocol), out var symbolName))
-        {
-            throw new SwiftRuntimeException($"Attempted to retrieve protocol conformance descriptor for type AlertStyle and protocol {typeof(TProtocol).Name}, but no conformance was found.");
-        }
-        return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
-    }
-    
+    Info = 0,
+    Warning = 1,
+    Error = 2,
 }
 
 
@@ -43307,6 +41924,7 @@ public partial class SimpleModel : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<SimpleModel> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -43490,6 +42108,7 @@ public partial class AsyncService : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<AsyncService> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -43879,6 +42498,7 @@ public partial class Processor : ISwiftObject, IDisposable
     
     [EditorBrowsable(EditorBrowsableState.Never)]
     internal SwiftSafeHandle<Processor> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
     
     public void Dispose()
     {
@@ -44032,6 +42652,7 @@ public unsafe class AgeableAndNameableProxy : IAgeableAndNameable, ISwiftObject,
     
     public Swift.Runtime.ExistentialContainer2 GetExistentialContainer() => _swiftContainer;
     
+    IntPtr ISwiftObject.SwiftHandle => _swiftContainer.Payload0;
     public static TypeMetadata GetTypeMetadata()
     {
         throw new NotSupportedException("Composition proxy has no single EveryProtocol metadata.");
@@ -44084,6 +42705,7 @@ public unsafe class DescribableAndTestIdentifiableProxy : IDescribableAndTestIde
     
     public Swift.Runtime.ExistentialContainer2 GetExistentialContainer() => _swiftContainer;
     
+    IntPtr ISwiftObject.SwiftHandle => _swiftContainer.Payload0;
     public static TypeMetadata GetTypeMetadata()
     {
         throw new NotSupportedException("Composition proxy has no single EveryProtocol metadata.");

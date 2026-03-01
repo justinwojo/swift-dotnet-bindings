@@ -121,6 +121,12 @@ namespace BindingsGeneration
         private readonly Dictionary<NamedTypeSpec, TypeDecl> _moduleTypes = new();
 
         /// <summary>
+        /// TypeWitness mappings from conformance entries.
+        /// Populated during HandleConformance, assigned to ModuleDecl at end of ParseModule.
+        /// </summary>
+        private readonly ConformanceGraph _conformanceGraph = new();
+
+        /// <summary>
         /// The Swift demangler.
         /// </summary>
         private readonly Swift5Demangler demangler = new();
@@ -384,6 +390,8 @@ namespace BindingsGeneration
                 _moduleTypes.Add(new NamedTypeSpec(type.SwiftTypeName.ModuleQualifiedName), type);
             }
 
+            moduleDecl.ConformanceGraph = _conformanceGraph;
+
             return new ModuleParsingResult(moduleDecl, _moduleTypes);
         }
 
@@ -555,6 +563,27 @@ namespace BindingsGeneration
             }
 
             var conformance = new TypeConformance(typeName, protocolName, protocolConformanceDescriptor);
+
+            // Extract TypeWitness entries from conformance children.
+            // These map associated types to concrete types for this conformance.
+            foreach (var child in node.Children)
+            {
+                if (child.Kind != "TypeWitness") continue;
+                if (!child.Children.Any()) continue;
+                try
+                {
+                    var resolvedType = CreateTypeSpec(child.Children.First());
+                    _conformanceGraph.AddWitness(
+                        typeName.ModuleQualifiedName,
+                        protocolName.ModuleQualifiedName,
+                        child.Name,  // e.g., "Element"
+                        resolvedType);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning($"Failed to parse TypeWitness {typeName}.{child.Name}: {ex.Message}");
+                }
+            }
 
             return conformance;
         }
@@ -1498,7 +1527,7 @@ namespace BindingsGeneration
         /// <summary>
         /// Creates a type spec from a given node parsing the printed name
         /// </summary>
-        TypeSpec CreateTypeSpec(Node node)
+        internal TypeSpec CreateTypeSpec(Node node)
         {
             switch (node.Kind)
             {
@@ -1518,6 +1547,14 @@ namespace BindingsGeneration
                     if (node.Name == "OpaqueTypeArchetype")
                     {
                         return CreateOpaqueReturnTypeSpec(node);
+                    }
+                    // Handle DependentMember (associated type references like "τ_0_0.Element").
+                    // In ABI JSON, these appear as TypeNominal with name="DependentMember",
+                    // so they match the kNominal case — the separate case "DependentMember"
+                    // branch below was dead code.
+                    if (node.Name == "DependentMember")
+                    {
+                        return new AssociatedTypeReferenceSpec(node.PrintedName);
                     }
                     var spec = TypeSpecParser.Parse(node.PrintedName);
                     if (spec is null)
@@ -1546,10 +1583,6 @@ namespace BindingsGeneration
                         throw new Exception($"Error parsing generic type param from \"{node.PrintedName}\"");
                     }
                     return genericSpec;
-                case "DependentMember":
-                    // Dependent member type - represents a reference to a protocol's associated type
-                    // For example, "Self.Element" or "τ_0_0.Element"
-                    return new AssociatedTypeReferenceSpec(node.PrintedName);
                 default:
                     throw new NotImplementedException($"Can't handle node type {node.Kind} yet.");
             }

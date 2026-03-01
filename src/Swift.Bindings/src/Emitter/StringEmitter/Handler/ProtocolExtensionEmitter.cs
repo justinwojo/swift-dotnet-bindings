@@ -1489,10 +1489,12 @@ public static class ProtocolExtensionEmitter
     {
         var csSignature = new List<ArgumentDecl>();
 
-        // Resolve Self.Element → τ_0_0 in return type
-        if (conformingType.IsGeneric && returnTypeSpec != null)
+        // Resolve Self.Element → τ_0_0 (generic) or concrete type (graph) in return type
+        var conformanceGraph = moduleDecl.ConformanceGraph;
+        if ((conformingType.IsGeneric || conformanceGraph.Count > 0) && returnTypeSpec != null)
         {
-            returnTypeSpec = ResolveSelfElement(returnTypeSpec, conformingType);
+            returnTypeSpec = ResolveSelfElement(returnTypeSpec, conformingType,
+                conformanceGraph, extMethod.ProtocolQualifiedName);
         }
 
         // Return type
@@ -1525,9 +1527,10 @@ public static class ProtocolExtensionEmitter
         foreach (var (label, typeSpec, _) in parameters)
         {
             var resolvedTypeSpec = typeSpec;
-            if (conformingType.IsGeneric)
+            if (conformingType.IsGeneric || conformanceGraph.Count > 0)
             {
-                resolvedTypeSpec = ResolveSelfElement(typeSpec, conformingType);
+                resolvedTypeSpec = ResolveSelfElement(typeSpec, conformingType,
+                    conformanceGraph, extMethod.ProtocolQualifiedName);
             }
 
             string internalName;
@@ -1609,10 +1612,12 @@ public static class ProtocolExtensionEmitter
         // Build CSSignature: [returnType, param1, param2, ...]
         var csSignature = new List<ArgumentDecl>();
 
-        // For generic conforming types, resolve Self.Element → τ_0_0 in the return type
-        if (conformingType.IsGeneric && returnTypeSpec != null)
+        // Resolve Self.Element → τ_0_0 (generic) or concrete type (graph) in the return type
+        var conformanceGraph = moduleDecl.ConformanceGraph;
+        if ((conformingType.IsGeneric || conformanceGraph.Count > 0) && returnTypeSpec != null)
         {
-            returnTypeSpec = ResolveSelfElement(returnTypeSpec, conformingType);
+            returnTypeSpec = ResolveSelfElement(returnTypeSpec, conformingType,
+                conformanceGraph, extMethod.ProtocolQualifiedName);
         }
 
         // Return type (first element of CSSignature)
@@ -1689,7 +1694,8 @@ public static class ProtocolExtensionEmitter
     /// For example, Observable<Element> conforming to ObservableType:
     ///   Self.Element → τ_0_0 (the first generic parameter of Observable)
     /// </summary>
-    private static TypeSpec ResolveSelfElement(TypeSpec typeSpec, TypeDecl conformingType)
+    private static TypeSpec ResolveSelfElement(TypeSpec typeSpec, TypeDecl conformingType,
+        ConformanceGraph? conformanceGraph = null, string? protocolQualifiedName = null)
     {
         if (typeSpec is NamedTypeSpec namedType)
         {
@@ -1705,8 +1711,26 @@ public static class ProtocolExtensionEmitter
                         return new NamedTypeSpec(conformingType.GenericParameters[i].TypeName);
                     }
                 }
-                // If no matching generic parameter found, return unchanged so
-                // downstream gates reject the unresolvable Self.X reference.
+
+                // ConformanceGraph fallback — resolve via TypeWitness data
+                if (conformanceGraph != null && protocolQualifiedName != null &&
+                    conformanceGraph.TryResolve(
+                        conformingType.SwiftTypeName.ModuleQualifiedName,
+                        protocolQualifiedName,
+                        assocTypeName,
+                        out var resolved) &&
+                    resolved != null)
+                {
+                    // Concrete resolution (e.g., Self.Element → GRDB.Statement)
+                    // or generic forwarding (e.g., Self.Element → τ_0_0).
+                    // Chained references (AssociatedTypeReferenceSpec) fall through
+                    // to unchanged → AnyType downstream.
+                    if (resolved is not AssociatedTypeReferenceSpec)
+                        return resolved;
+                }
+
+                // If no matching generic parameter or graph entry found, return
+                // unchanged so downstream gates reject the unresolvable Self.X reference.
                 // Do NOT silently fall back to GenericParameters[0] — that could
                 // produce a valid-but-wrong signature for protocols with multiple
                 // or differently-named associated types.
@@ -1716,7 +1740,7 @@ public static class ProtocolExtensionEmitter
             if (namedType.ContainsGenericParameters)
             {
                 var resolvedGenericParams = namedType.GenericParameters
-                    .Select(gp => ResolveSelfElement(gp, conformingType))
+                    .Select(gp => ResolveSelfElement(gp, conformingType, conformanceGraph, protocolQualifiedName))
                     .ToList();
 
                 // Check if any were actually resolved
@@ -1746,7 +1770,7 @@ public static class ProtocolExtensionEmitter
             TypeSpec resolvedArgs;
             if (closureType.HasArguments())
             {
-                resolvedArgs = ResolveSelfElement(closureType.Arguments, conformingType);
+                resolvedArgs = ResolveSelfElement(closureType.Arguments, conformingType, conformanceGraph, protocolQualifiedName);
                 if (!ReferenceEquals(resolvedArgs, closureType.Arguments))
                     changed = true;
             }
@@ -1756,7 +1780,7 @@ public static class ProtocolExtensionEmitter
             }
 
             // Resolve closure return type
-            var resolvedReturn = ResolveSelfElement(closureType.ReturnType, conformingType);
+            var resolvedReturn = ResolveSelfElement(closureType.ReturnType, conformingType, conformanceGraph, protocolQualifiedName);
             if (!ReferenceEquals(resolvedReturn, closureType.ReturnType))
                 changed = true;
 
