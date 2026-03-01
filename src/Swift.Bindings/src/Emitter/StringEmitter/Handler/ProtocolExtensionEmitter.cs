@@ -32,7 +32,7 @@ public static class ProtocolExtensionEmitter
         if (protocolExtensionMethods.Count == 0)
             return;
 
-        // Build protocol name → list of conforming ClassDecl map
+        // Build protocol name → list of conforming TypeDecl map (ClassDecl + non-frozen StructDecl)
         var conformanceMap = BuildConformanceMap(moduleDecl);
 
         foreach (var (protocolQualifiedName, extensionMethods) in protocolExtensionMethods)
@@ -101,32 +101,44 @@ public static class ProtocolExtensionEmitter
     }
 
     /// <summary>
-    /// Builds a map from unqualified protocol name → list of conforming ClassDecls.
-    /// Only includes class types (struct self ABI is different — deferred to later sessions).
+    /// Builds a map from unqualified protocol name → list of conforming TypeDecls.
+    /// Includes ClassDecl types and non-frozen StructDecl types.
     /// </summary>
-    private static Dictionary<string, List<ClassDecl>> BuildConformanceMap(ModuleDecl moduleDecl)
+    private static Dictionary<string, List<TypeDecl>> BuildConformanceMap(ModuleDecl moduleDecl)
     {
-        var map = new Dictionary<string, List<ClassDecl>>();
+        var map = new Dictionary<string, List<TypeDecl>>();
         CollectConformances(moduleDecl.Types, map);
         return map;
     }
 
     /// <summary>
     /// Recursively collects conformances from types and their nested types.
+    /// Includes ClassDecl and non-frozen StructDecl types.
     /// </summary>
-    private static void CollectConformances(IEnumerable<TypeDecl> types, Dictionary<string, List<ClassDecl>> map)
+    private static void CollectConformances(IEnumerable<TypeDecl> types, Dictionary<string, List<TypeDecl>> map)
     {
         foreach (var type in types)
         {
+            List<TypeConformance>? conformances = null;
+
             if (type is ClassDecl classDecl)
             {
-                foreach (var conformance in classDecl.Conformances)
+                conformances = classDecl.Conformances;
+            }
+            else if (type is StructDecl structDecl && !structDecl.IsFrozen)
+            {
+                conformances = structDecl.Conformances;
+            }
+
+            if (conformances != null)
+            {
+                foreach (var conformance in conformances)
                 {
                     var protocolName = conformance.Protocol.Name;
                     if (!map.ContainsKey(protocolName))
-                        map[protocolName] = new List<ClassDecl>();
-                    if (!map[protocolName].Contains(classDecl))
-                        map[protocolName].Add(classDecl);
+                        map[protocolName] = new List<TypeDecl>();
+                    if (!map[protocolName].Contains(type))
+                        map[protocolName].Add(type);
                 }
             }
 
@@ -139,12 +151,12 @@ public static class ProtocolExtensionEmitter
     }
 
     /// <summary>
-    /// Attempts to inject a single protocol extension method onto a conforming class type.
+    /// Attempts to inject a single protocol extension method onto a conforming type (class or non-frozen struct).
     /// Applies conservative gates and generates the Swift wrapper + synthetic MethodDecl.
     /// </summary>
     private static void TryInjectMethod(
         ModuleDecl moduleDecl,
-        ClassDecl conformingType,
+        TypeDecl conformingType,
         ProtocolExtensionMethodDecl extMethod,
         ITypeDatabase typeDatabase,
         ILogger logger,
@@ -902,9 +914,10 @@ public static class ProtocolExtensionEmitter
     /// Emits the @_silgen_name Swift wrapper function for a protocol extension method.
     /// For generic conforming types, emits a generic wrapper with unsafeBitCast and
     /// explicit T.Type metatype parameters (required by Swift 6).
+    /// Handles both class self (Unmanaged) and struct self (assumingMemoryBound).
     /// </summary>
     private static void EmitSwiftWrapper(
-        ClassDecl conformingType,
+        TypeDecl conformingType,
         ProtocolExtensionMethodDecl extMethod,
         List<(string label, TypeSpec typeSpec, string swiftType)> parameters,
         TypeSpec? returnTypeSpec,
@@ -1015,10 +1028,18 @@ public static class ProtocolExtensionEmitter
         }
         ctx.AddProtocolExtWrapperLine($"public func {symbolName}{genericClause}({string.Join(", ", swiftParams)}){returnArrow} {{");
 
+        var isStructConformer = conformingType is StructDecl;
+
         // Emit self conversion
-        if (isGenericConforming)
+        if (isStructConformer)
         {
-            // Generic types use unsafeBitCast to cast the opaque pointer to the
+            // Struct types: load value from opaque pointer via assumingMemoryBound.
+            // Works for both generic and non-generic structs.
+            ctx.AddProtocolExtWrapperLine($"    var instance = self_.assumingMemoryBound(to: {qualifiedTypeName}.self).pointee");
+        }
+        else if (isGenericConforming)
+        {
+            // Generic class types use unsafeBitCast to cast the opaque pointer to the
             // parameterized type. Unmanaged<T>.fromOpaque requires non-generic T.
             ctx.AddProtocolExtWrapperLine($"    let instance = unsafeBitCast(self_, to: {qualifiedTypeName}.self)");
         }
@@ -1053,21 +1074,60 @@ public static class ProtocolExtensionEmitter
         // Emit method call
         var callStr = $"instance.{NameProvider.EscapeSwiftKeyword(extMethod.MethodName)}({string.Join(", ", callArgs)})";
 
+        // For mutating methods on struct conformers, write back the mutated value
+        // to the original pointer after the call. Non-frozen structs are heap-allocated
+        // (ClassWithOpaquePayload), so the pointer is to a mutable buffer owned by
+        // the C# SafeHandle.
+        bool needsWriteBack = isStructConformer && extMethod.IsMutating;
+
         if (extMethod.ReturnsSelf || returnIsClass)
         {
-            // passRetained transfers +1 ownership to the caller so the object
-            // stays alive after this wrapper returns. The C# SafeHandle calls
-            // Arc.Release on Dispose to balance.
-            ctx.AddProtocolExtWrapperLine($"    let result = {callStr}");
-            ctx.AddProtocolExtWrapperLine($"    return Unmanaged.passRetained(result).toOpaque()");
+            if (isStructConformer && extMethod.ReturnsSelf)
+            {
+                // Struct Self-return: allocate buffer, initialize with result value, return pointer.
+                // The C# side receives this as IntPtr → SafeHandle (ClassWithOpaquePayload).
+                ctx.AddProtocolExtWrapperLine($"    let result = {callStr}");
+                if (needsWriteBack)
+                {
+                    ctx.AddProtocolExtWrapperLine($"    self_.assumingMemoryBound(to: {qualifiedTypeName}.self).pointee = instance");
+                }
+                ctx.AddProtocolExtWrapperLine($"    let buf = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{qualifiedTypeName}>.size, alignment: MemoryLayout<{qualifiedTypeName}>.alignment)");
+                ctx.AddProtocolExtWrapperLine($"    buf.initializeMemory(as: {qualifiedTypeName}.self, repeating: result, count: 1)");
+                ctx.AddProtocolExtWrapperLine($"    return buf");
+            }
+            else
+            {
+                // Class return: passRetained transfers +1 ownership to the caller so the object
+                // stays alive after this wrapper returns. The C# SafeHandle calls
+                // Arc.Release on Dispose to balance.
+                ctx.AddProtocolExtWrapperLine($"    let result = {callStr}");
+                if (needsWriteBack)
+                {
+                    ctx.AddProtocolExtWrapperLine($"    self_.assumingMemoryBound(to: {qualifiedTypeName}.self).pointee = instance");
+                }
+                ctx.AddProtocolExtWrapperLine($"    return Unmanaged.passRetained(result).toOpaque()");
+            }
         }
         else if (string.IsNullOrEmpty(swiftReturnType))
         {
             ctx.AddProtocolExtWrapperLine($"    {callStr}");
+            if (needsWriteBack)
+            {
+                ctx.AddProtocolExtWrapperLine($"    self_.assumingMemoryBound(to: {qualifiedTypeName}.self).pointee = instance");
+            }
         }
         else
         {
-            ctx.AddProtocolExtWrapperLine($"    return {callStr}");
+            if (needsWriteBack)
+            {
+                ctx.AddProtocolExtWrapperLine($"    let result = {callStr}");
+                ctx.AddProtocolExtWrapperLine($"    self_.assumingMemoryBound(to: {qualifiedTypeName}.self).pointee = instance");
+                ctx.AddProtocolExtWrapperLine($"    return result");
+            }
+            else
+            {
+                ctx.AddProtocolExtWrapperLine($"    return {callStr}");
+            }
         }
 
         ctx.AddProtocolExtWrapperLine("}");
@@ -1079,7 +1139,7 @@ public static class ProtocolExtensionEmitter
     /// marshalling via buffer allocation.
     /// </summary>
     private static void EmitClosureSwiftWrapper(
-        ClassDecl conformingType,
+        TypeDecl conformingType,
         ProtocolExtensionMethodDecl extMethod,
         List<(string label, TypeSpec typeSpec, string swiftType)> parameters,
         TypeSpec? returnTypeSpec,
@@ -1206,8 +1266,15 @@ public static class ProtocolExtensionEmitter
         }
         ctx.AddProtocolExtWrapperLine($"public func {symbolName}{genericClause}({string.Join(", ", swiftParams)}){returnArrow} {{");
 
+        var isStructConformer = conformingType is StructDecl;
+
         // Self conversion
-        if (isGenericConforming)
+        if (isStructConformer)
+        {
+            // Struct types: load value from opaque pointer via assumingMemoryBound.
+            ctx.AddProtocolExtWrapperLine($"    var instance = self_.assumingMemoryBound(to: {qualifiedTypeName}.self).pointee");
+        }
+        else if (isGenericConforming)
         {
             ctx.AddProtocolExtWrapperLine($"    let instance = unsafeBitCast(self_, to: {qualifiedTypeName}.self)");
         }
@@ -1352,18 +1419,53 @@ public static class ProtocolExtensionEmitter
         if (closureTypeSpec.Throws)
             callStr = $"try! {callStr}";
 
+        // For mutating methods on struct conformers, write back the mutated value
+        bool needsWriteBack = isStructConformer && extMethod.IsMutating;
+
         if (extMethod.ReturnsSelf || returnIsClass)
         {
-            ctx.AddProtocolExtWrapperLine($"    let result = {callStr}");
-            ctx.AddProtocolExtWrapperLine($"    return Unmanaged.passRetained(result).toOpaque()");
+            if (isStructConformer && extMethod.ReturnsSelf)
+            {
+                // Struct Self-return: allocate buffer, initialize with result value, return pointer
+                ctx.AddProtocolExtWrapperLine($"    let result = {callStr}");
+                if (needsWriteBack)
+                {
+                    ctx.AddProtocolExtWrapperLine($"    self_.assumingMemoryBound(to: {qualifiedTypeName}.self).pointee = instance");
+                }
+                ctx.AddProtocolExtWrapperLine($"    let buf = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{qualifiedTypeName}>.size, alignment: MemoryLayout<{qualifiedTypeName}>.alignment)");
+                ctx.AddProtocolExtWrapperLine($"    buf.initializeMemory(as: {qualifiedTypeName}.self, repeating: result, count: 1)");
+                ctx.AddProtocolExtWrapperLine($"    return buf");
+            }
+            else
+            {
+                ctx.AddProtocolExtWrapperLine($"    let result = {callStr}");
+                if (needsWriteBack)
+                {
+                    ctx.AddProtocolExtWrapperLine($"    self_.assumingMemoryBound(to: {qualifiedTypeName}.self).pointee = instance");
+                }
+                ctx.AddProtocolExtWrapperLine($"    return Unmanaged.passRetained(result).toOpaque()");
+            }
         }
         else if (string.IsNullOrEmpty(swiftReturnType))
         {
             ctx.AddProtocolExtWrapperLine($"    {callStr}");
+            if (needsWriteBack)
+            {
+                ctx.AddProtocolExtWrapperLine($"    self_.assumingMemoryBound(to: {qualifiedTypeName}.self).pointee = instance");
+            }
         }
         else
         {
-            ctx.AddProtocolExtWrapperLine($"    return {callStr}");
+            if (needsWriteBack)
+            {
+                ctx.AddProtocolExtWrapperLine($"    let result = {callStr}");
+                ctx.AddProtocolExtWrapperLine($"    self_.assumingMemoryBound(to: {qualifiedTypeName}.self).pointee = instance");
+                ctx.AddProtocolExtWrapperLine($"    return result");
+            }
+            else
+            {
+                ctx.AddProtocolExtWrapperLine($"    return {callStr}");
+            }
         }
 
         ctx.AddProtocolExtWrapperLine("}");
@@ -1376,7 +1478,7 @@ public static class ProtocolExtensionEmitter
     /// </summary>
     private static MethodDecl BuildClosureSyntheticMethodDecl(
         ModuleDecl moduleDecl,
-        ClassDecl conformingType,
+        TypeDecl conformingType,
         ProtocolExtensionMethodDecl extMethod,
         List<(string label, TypeSpec typeSpec, string swiftType)> parameters,
         TypeSpec? returnTypeSpec,
@@ -1497,7 +1599,7 @@ public static class ProtocolExtensionEmitter
     /// </summary>
     private static MethodDecl BuildSyntheticMethodDecl(
         ModuleDecl moduleDecl,
-        ClassDecl conformingType,
+        TypeDecl conformingType,
         ProtocolExtensionMethodDecl extMethod,
         List<(string label, TypeSpec typeSpec, string swiftType)> parameters,
         TypeSpec? returnTypeSpec,
@@ -1587,7 +1689,7 @@ public static class ProtocolExtensionEmitter
     /// For example, Observable<Element> conforming to ObservableType:
     ///   Self.Element → τ_0_0 (the first generic parameter of Observable)
     /// </summary>
-    private static TypeSpec ResolveSelfElement(TypeSpec typeSpec, ClassDecl conformingType)
+    private static TypeSpec ResolveSelfElement(TypeSpec typeSpec, TypeDecl conformingType)
     {
         if (typeSpec is NamedTypeSpec namedType)
         {

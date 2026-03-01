@@ -1,7 +1,10 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
+
+[assembly: InternalsVisibleTo("Swift.Bindings.Unit.Tests")]
 
 namespace BindingsGeneration;
 
@@ -644,7 +647,7 @@ public static class SwiftInterfaceAccessParser
 
     // Regex for public/open func in extension (captures function name)
     private static readonly Regex ExtensionFuncRegex = new(
-        @"(?:@\S+\s+)*(?:public|open)\s+(?:static\s+)?func\s+(\w+)\s*(?:<[^>]*>\s*)?\(",
+        @"(?:@\S+\s+)*(?:public|open)\s+(?:static\s+)?(?:mutating\s+)?func\s+(\w+)\s*(?:<[^>]*>\s*)?\(",
         RegexOptions.Compiled);
 
     // Regex for public/open var in extension (captures property name)
@@ -858,6 +861,15 @@ public static class SwiftInterfaceAccessParser
     /// Processes a single func/var line within a protocol extension block and adds
     /// the parsed ProtocolExtensionMethodDecl to the result dictionary.
     /// </summary>
+    /// <summary>
+    /// Test-accessible entry point for ProcessProtocolExtensionMember.
+    /// </summary>
+    internal static void ProcessProtocolExtensionMemberForTesting(
+        string line, string protocolQualifiedName,
+        List<string> whereConstraints, bool isMainActorIsolated,
+        Dictionary<string, List<ProtocolExtensionMethodDecl>> result)
+        => ProcessProtocolExtensionMember(line, protocolQualifiedName, whereConstraints, isMainActorIsolated, result);
+
     private static void ProcessProtocolExtensionMember(
         string line, string protocolQualifiedName,
         List<string> whereConstraints, bool isMainActorIsolated,
@@ -872,6 +884,8 @@ public static class SwiftInterfaceAccessParser
             bool isStatic = line.Contains("static func ");
             bool returnsSelf = DetectSelfReturn(line);
 
+            bool isMutating = line.Contains("mutating func ");
+
             var decl = new ProtocolExtensionMethodDecl
             {
                 ProtocolQualifiedName = protocolQualifiedName,
@@ -881,6 +895,7 @@ public static class SwiftInterfaceAccessParser
                 ReturnsSelf = returnsSelf,
                 IsMainActorIsolated = isMainActorIsolated || MainActorAnnotationRegex.IsMatch(line),
                 IsStatic = isStatic,
+                IsMutating = isMutating,
                 IsProperty = false,
                 WhereConstraints = new List<string>(whereConstraints)
             };
@@ -1189,6 +1204,8 @@ public static class SwiftInterfaceAccessParser
             bool isStatic = line.Contains("static func ");
             bool returnsSelf = DetectSelfReturn(line);
 
+            bool isMutatingForeign = line.Contains("mutating func ");
+
             var decl = new ProtocolExtensionMethodDecl
             {
                 ProtocolQualifiedName = foreignTypeQualifiedName,
@@ -1198,6 +1215,7 @@ public static class SwiftInterfaceAccessParser
                 ReturnsSelf = returnsSelf,
                 IsMainActorIsolated = isMainActorIsolated || MainActorAnnotationRegex.IsMatch(line),
                 IsStatic = isStatic,
+                IsMutating = isMutatingForeign,
                 IsProperty = false,
                 IsDeprecated = isDeprecated || DeprecatedAnnotationRegex.IsMatch(line),
                 WhereConstraints = new List<string>(whereConstraints)

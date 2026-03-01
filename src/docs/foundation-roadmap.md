@@ -333,10 +333,10 @@ Details: [Pillar 4 § P4.1](#session-p41-general-protocol-conformance-check-45-m
 
 ---
 
-**A2: Struct Conformers in Protocol Extensions** | Direct
+**A2: Struct Conformers in Protocol Extensions** | Direct | **COMPLETE**
 *Pillar: 1 (struct conformers) | GRDB query builder chain unlocked*
 
-Add `StructDecl` to `ProtocolExtensionEmitter.CollectConformances()` L121. Struct-self Swift wrappers use `assumingMemoryBound` (same pattern as witness dispatch). Return path uses value-copy semantics. Self-return substitution at `BuildSyntheticMethodDecl` L1518 already works for both class and struct.
+**Done.** `CollectConformances()` now includes non-frozen `StructDecl` alongside `ClassDecl`. All internal methods generalized from `ClassDecl` to `TypeDecl` (`TryInjectMethod`, `EmitSwiftWrapper`, `EmitClosureSwiftWrapper`, `BuildSyntheticMethodDecl`, `BuildClosureSyntheticMethodDecl`, `ResolveSelfElement`). Struct self uses `assumingMemoryBound(to: T.self).pointee` (value copy). Struct Self-return uses `UnsafeMutableRawPointer.allocate` + `initializeMemory` (buffer allocation, C# wraps in SafeHandle via `MarshalFromSwift<T>()`). Mutating methods: write-back (`self_.pointee = instance`) after call in all return paths (void, Self, class, existential). `IsMutating` tracked in `ProtocolExtensionMethodDecl`, parsed via `mutating func` detection in `ExtensionFuncRegex`. Class paths unchanged. GRDB +70 lines, RxSwift +838 lines (new struct conformer methods). 21 unit tests. 53/53 validation, 4877 unit tests passing.
 
 Details: [Pillar 1 § P1.1](#session-p11-struct-conformers-in-protocol-extensions)
 

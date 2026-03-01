@@ -64,6 +64,12 @@ public class ProtocolExtensionMethodDecl
     public bool IsDeprecated { get; set; }
 
     /// <summary>
+    /// Whether the method is declared as `mutating func`.
+    /// Struct conformers need write-back semantics for mutating methods.
+    /// </summary>
+    public bool IsMutating { get; set; }
+
+    /// <summary>
     /// Where constraints from the extension header (e.g., "Self : SomeClass").
     /// Empty for unconstrained extensions. Used to filter out methods that
     /// don't apply to a given conforming type.
