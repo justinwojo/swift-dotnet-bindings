@@ -1,0 +1,207 @@
+# Feature Roadmap
+
+**Date**: March 1, 2026
+**Prerequisite**: Foundation Roadmap pillars complete (or the specific pillar each feature depends on)
+**Goal**: Push binding quality scores from ~3.50 toward 4.0+ across all libraries
+
+This roadmap covers features that BUILD ON the foundation pillars. Each item depends on one or more pillars being solid. Do not start feature work until its prerequisite pillar is complete.
+
+---
+
+## Feature Priority Matrix
+
+| Feature | Pillar Dependency | Score Impact | Effort | Libraries Affected |
+|---------|:-----------------:|:-----------:|:------:|:---------:|
+| nint return/property overloads | None | +0.10-0.15 avg | Small | Nearly all |
+| Noise reduction | None | +0.05-0.08 avg | Medium | GRDB, Alamofire, Stripe |
+| Protocol extension param gate lifts | P1.1 (struct conformers) | +0.10-0.15 avg | Medium | GRDB, Kingfisher |
+| Collection witness dispatch | P2.1 (dispatch table) | +0.10-0.15 avg | 1.5 sessions | All proxy libraries |
+| String enum raw values | None | +0.02-0.05 avg | Small | GRDB, CryptoSwift |
+| Safety (Dispose, finalizer) | None | +0.00 (production) | 1 session | All |
+| Runtime metadata prototype | P1.2 (conformance graph) | +0.00 (enabler) | 1 session | Future |
+
+---
+
+## Feature F1: nint Return/Property Overloads
+**Pillar dependency**: None
+**Score impact**: +0.10-0.15 combined average (TypeFidelity)
+**Effort**: 0.5-1 session
+
+300+ `public nint` declarations across all libraries have no `int` convenience overloads. `NativeIntOverloadEmitter` (EP1) only covers method PARAMETERS, not return types or properties.
+
+**Sub-tasks**:
+- Extend `NativeIntOverloadEmitter` to emit `int` overloads for `nint` return types
+- Extend to emit `int` property wrappers (get: `(int)nativeProperty`, set: cast)
+- Handle `Optional<nint>` → `int?` for nullable returns
+- Protocol interface method overloads (the remaining real gap from original analysis)
+
+**Key files**: `NativeIntOverloadEmitter.cs`, `PropertyHandler.cs`
+
+---
+
+## Feature F2: Noise Reduction
+**Pillar dependency**: None
+**Score impact**: +0.05-0.08 combined average (Noise category)
+**Effort**: 1 session
+
+Three noise sources drag scores:
+
+1. **`_`-prefixed internal types** (~1,247 names in ABI JSON, most already filtered)
+   - Add `_`-prefix heuristic in `SwiftABIParser` after `IsInternalFromPublicTypeNames` check
+   - Guard with `publicTypeNames` override (some `_`-prefixed types are intentionally public)
+
+2. **ExistentialContainer leakage** in callback signatures
+   - `AsyncRead(Action<SwiftResult<Database, ExistentialContainer1>>)` → hide or wrap
+   - Consider: `ExistentialContainer1` → type-erased `object` with runtime cast helper
+
+3. **SwiftResult in public Func<>**
+   - `PrepareDatabase(Func<Database, SwiftResult<SwiftVoid, SwiftError>> setup)` → consider Result→Exception translation
+
+**Key files**: `SwiftABIParser.cs`, `ClosureHandler.cs`, callback emission paths
+
+---
+
+## Feature F3: Protocol Extension Parameter Gate Lifts
+**Pillar dependency**: P1.1 (struct conformers)
+**Score impact**: +0.10-0.15 combined average
+**Effort**: 1-1.5 sessions
+
+37 of 77 KFOptionSetter methods are blocked by parameter gates (not Self-return). Similar ratios for GRDB protocol extensions. Lifting gates incrementally:
+
+- **Existential params**: Extend `IsCdeclCompatibleType` for constrained existentials (reuse `ConstrainedExistentialBridge` pattern)
+- **Array params**: Add array marshaling to `@_silgen_name` wrappers
+- **Throwing methods**: Add throw dispatch to protocol extension Swift wrappers (reuse `ThrowingBlittableOrString` pattern)
+- **Foundation.Data params**: Extend `IsCdeclCompatibleType` for `DataProjection` types
+
+**Key files**: `ProtocolExtensionEmitter.cs` (`IsCdeclCompatibleType`, `TryInjectMethod`)
+
+---
+
+## Feature F4: Collection Returns in Witness Dispatch
+**Pillar dependency**: P2.1 (dispatch table)
+**Score impact**: +0.10-0.15 combined average (largest single feature)
+**Effort**: 1.5 sessions
+
+New dispatch kinds for proxy methods returning collections/interfaces:
+
+- **BoundGenericReturn** dispatch kind in `WitnessDispatchEmitter` — Swift wrapper boxes `[T]`, `Dictionary<K,V>`, `Set<T>` into transferable form
+- **Optional existential return** sub-variant — `ICardTerminal?` style returns
+- Wire up in `ProtocolProxyEmitter.InterfaceImpl`
+
+**Key files**: `WitnessDispatchEmitter.cs`, `ProtocolProxyEmitter.cs`
+
+---
+
+## Feature F5: String Enum Raw Values
+**Pillar dependency**: None
+**Score impact**: +0.02-0.05 (GRDB ResultCode, CryptoSwift error codes)
+**Effort**: 0.5 session
+
+ABI JSON doesn't include string/integer raw values for enums. Swiftinterface does. Parse actual raw value strings for enums like `GRDB.ResultCode`.
+
+**Key files**: `SwiftInterfaceAccessParser.cs`, `EnumHandler.cs`
+
+---
+
+## Feature F6: Safety & Production Hardening
+**Pillar dependency**: None
+**Score impact**: +0.00 (not measured in scores, critical for production)
+**Effort**: 1 session
+
+- **Proxy Dispose() cleanup**: GCHandle/EveryProtocol leak prevention
+- **Finalizer safety**: Prevent double-free and leaked handles
+- **SB0003 message improvement**: Include specific skip reason (not just "non-dispatchable")
+- **Roslyn analyzer prototype**: Warn when `ISwiftObject` lacks `using`/`Dispose`
+
+**Key files**: Protocol proxy emitters, `SwiftSafeHandle.cs`
+
+---
+
+## Feature F7: Runtime Metadata Prototype (A2)
+**Pillar dependency**: P1.2 (conformance graph)
+**Score impact**: +0.00 (future enabler)
+**Effort**: 1 session
+
+Prove `swift_conformsToProtocol` callable from C# at runtime:
+- `ProtocolDescriptor` struct (IntPtr wrapper) in Swift.Runtime
+- P/Invoke for `swift_conformsToProtocol` (Cdecl, trivial)
+- Symbol loading for protocol descriptors (`$s...Mp` mangled names)
+- Dynamic conformance check matches static lookup result
+- Stretch: C shim for `swift_getAssociatedTypeWitness` (SwiftCC)
+
+**Key files**: `ProtocolDescriptor.cs` (new), `SwiftConformance.cs` (new)
+Research: [`swift-runtime-metadata-feasibility.md`]
+
+---
+
+## Suggested Sequencing
+
+Features can be interleaved with foundation work. Independence from pillars noted.
+
+```
+IMMEDIATE (no pillar dependency):
+  F1: nint overloads           ── 0.5-1 session
+  F2: Noise reduction          ── 1 session
+  F5: String enum raw values   ── 0.5 session
+  F6: Safety                   ── 1 session
+
+AFTER P1.1 (struct conformers):
+  F3: Protocol ext param lifts ── 1-1.5 sessions
+
+AFTER P2.1 (dispatch table):
+  F4: Collection witness dispatch ── 1.5 sessions
+
+AFTER P1.2 (conformance graph):
+  F7: Runtime metadata         ── 1 session
+```
+
+---
+
+## Score Projections
+
+Starting from current combined average of ~3.50. Three scenarios account for estimation uncertainty — each feature's impact depends on how many methods actually compile and how scoring categories weight them.
+
+| Work | Base | Likely | Stretch | Notes |
+|------|:----:|:------:|:-------:|-------|
+| Foundation pillars (all) | 3.58 | 3.65 | 3.72 | P1.1/P4.1 unlock methods; P2/P1.3 are refactors |
+| + F1 (nint) | 3.68 | 3.75 | 3.82 | Broad TypeFidelity lift, 300+ declarations |
+| + F2 (noise) | 3.73 | 3.80 | 3.88 | Noise category, depends on ExistentialContainer hiding |
+| + F3 (param gate lifts) | 3.80 | 3.88 | 3.96 | Per-library variance: GRDB/Kingfisher benefit most |
+| + F4 (collection dispatch) | 3.88 | 3.98 | 4.10 | Largest single feature, high per-library variance |
+| + F5 + F6 | 3.90 | 4.00 | 4.15 | Polish + production hardening |
+
+**Scenario definitions**:
+- **Base** (~25th percentile): Some feature impacts lower than estimated — e.g., nint overloads don't improve all libraries equally, noise reduction harder to scope than expected
+- **Likely** (~50th percentile): Features deliver near estimated impact, no major surprises
+- **Stretch** (~75th percentile): Features compound — e.g., struct conformers + param gate lifts together unlock more than the sum of parts
+
+**Per-library confidence** (likely scenario):
+- **High confidence ≥4.0**: SmartCardIO (4.56→4.8+), Nuke (3.55→4.0+), Kingfisher (3.40→4.0+), Alamofire (3.45→3.9-4.1)
+- **Medium confidence 3.5-4.0**: GRDB (3.45→3.7-4.0), Stripe (3.30→3.6-3.9), CryptoSwift (3.60→3.9-4.1)
+- **Structural ceiling <4.0**: RxSwift (~3.5, associated types + class-level generics), ObjectMapper (~3.5, heavy generic constraints)
+
+**Getting 90% of libraries above 4.0** requires: all foundation pillars + F1-F4 (likely scenario)
+**Getting 90% above 4.0 in base scenario** requires: all of the above + F5 + some library-specific patches
+
+---
+
+## Research Files Index
+
+All supporting research in `src/docs/research/`:
+
+| File | Topic |
+|------|-------|
+| `swiftinterface-conformance-audit.md` | ABI JSON TypeWitness data coverage |
+| `swift-runtime-metadata-feasibility.md` | Runtime introspection API feasibility |
+| `composition-helper-plan.md` | 4 helpers, 21 call sites, ~217 lines |
+| `method-handler-dispatch-design.md` | 19-step pipeline, 5 ordering invariants |
+| `self-return-investigation.md` | DynamicSelf ≠ τ_0_0, accidental correctness |
+| `dispatch-table-dedup-investigation.md` | EmittedProjectedSignatures safe to refactor |
+| `implementation-roadmap.md` | Quick win analysis (original, partially superseded) |
+
+| `gap-root-cause-analysis.md` | Root cause breakdown per library to 4.0 |
+| `anytype-integration-trace.md` | 5 concrete AnyType code path traces |
+| `typwitness-coverage-validation.md` | TypeWitness coverage: 30-40% of AnyType gaps |
+| `self-return-protocol-extension-trace.md` | Self-return already works for classes |
+| `closure-gap-classification.md` | 14 categories, 184 methods classified |
+| `iswiftobject-constraint-investigation.md` | 45 of 65 are incomplete `SatisfiesConstraint` |
