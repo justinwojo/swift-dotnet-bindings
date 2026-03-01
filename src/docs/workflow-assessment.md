@@ -6,7 +6,7 @@ Tracks binary workflow completion for target libraries and prioritized architect
 
 ## Current Status
 
-**Compile gate: 53/53 passing. 7/9 target libraries usable. Sessions 1–2 complete.**
+**Compile gate: 53/53 passing. 7/9 target libraries usable. Sessions 1–3 complete.**
 
 | Library | Lines | Types | Verdict | Key gap |
 |---|---|---|---|---|
@@ -50,14 +50,22 @@ Tracks binary workflow completion for target libraries and prioritized architect
 | **ClassReturn dispatch** (Swift class → `Unmanaged.passRetained` → `SwiftMarshal.MarshalFromSwift<T>`) | SmartCardIO (+1: `Transmit → ResponseAPDU`), StripePayments (-1 SB0003) |
 | **StructReturn dispatch** (Non-frozen struct → `SwiftIndirectResult` buffer → `SwiftMarshal.MarshalFromSwift<T>`) | BlinkIDUX (-21: 22 Color/Font theme properties on IUXThemeProtocol) |
 
-## SB0003 Analysis — 162 Non-Dispatchable Proxy Members (post-Session 2)
+### Capabilities gained in Session 3
 
-Originally 186 pre-Session 1. Session 1 dispatched ~24 (throwing + void). Session 2 dispatched 24 more (class/struct returns). 162 remaining.
+| Capability | Libraries improved |
+|---|---|
+| **Class/struct param dispatch** (C# `.Payload.DangerousGetHandle()` → Swift `Unmanaged<T>.fromOpaque` for classes, `assumingMemoryBound(to:).pointee` for structs) | Mappedin (**-7**: delegate callbacks), Nuke (**-10**: pipeline delegate + class return unlocks), StripePaymentSheet (**-3**), StripeCore (**-1**), Lottie (**-2**), SmartCardIO (**-1**) |
+
+Session 3 scope was broader than "VoidNonBlitParams=33" — extended param dispatch across ALL dispatch kinds (BlittableOrString, ThrowingBlittableOrString, ExistentialReturn, ClassReturn, StructReturn). This unlocked previously-blocked ClassReturn/StructReturn methods that had class/struct params, accounting for ~10 bonus dispatches beyond the 24 pure VoidNonBlitParams target.
+
+## SB0003 Analysis — 128 Non-Dispatchable Proxy Members (post-Session 3)
+
+Originally 186 pre-Session 1. Session 1 dispatched ~24 (throwing + void). Session 2 dispatched 24 (class/struct returns). Session 3 dispatched 34 (class/struct params across all dispatch kinds — 24 VoidNonBlitParams + ~10 bonus from previously-blocked return methods). 128 remaining.
 
 | Category | Original | Dispatched | Remaining | Notes |
 |---|---|---|---|---|
-| **NonBlittableReturn** | 58 | 24 (S2) | 34 | Class/struct returns dispatched; byte[]/collection returns remain |
-| **VoidNonBlitParams** | 33 | 0 | 33 | Session 3 |
+| **NonBlittableReturn** | 58 | 24 (S2) + ~10 (S3 bonus) | ~24 | S3 unlocked class/struct returns that had class/struct params |
+| **VoidNonBlitParams** | 33 | ~24 (S3) | ~9 | Remaining have enum/closure/other non-dispatchable params |
 | **InterfaceReturn** | 28 | 0 | 28 | Collection returns + optional existentials deferred |
 | **ThrowingString** | 21 | 21 (S1) | 0 | ✅ All dispatched |
 | **AnyTypeReturn** | 13 | 0 | 13 | Fundamentally opaque |
@@ -69,19 +77,19 @@ Originally 186 pre-Session 1. Session 1 dispatched ~24 (throwing + void). Sessio
 
 ### Distribution across target libraries
 
-| Library | Pre-S1 | Post-S1 | Post-S2 | Change |
-|---|---|---|---|---|
-| StripePayments | 18 | — | 17 | -1 (ClassReturn) |
-| StripeCore | 29 | — | 29 | 0 |
-| StripePaymentSheet | 23 | — | 23 | 0 |
-| Mappedin | 9 | — | 9 | 0 |
-| Nuke | 27 | — | 26 | -1 |
-| Lottie | 21 | — | 21 | 0 |
-| BlinkIDUX | 32 | — | 11 | **-21** (StructReturn theme properties) |
-| SmartCardIO | 19 | 9 | 8 | **-1** (Transmit → ResponseAPDU) |
-| BlinkID | 5 | — | 5 | 0 |
-| MicroblinkPlatform | 3 | — | 3 | 0 |
-| **Total** | **186** | — | **162** | **-24** |
+| Library | Pre-S1 | Post-S1 | Post-S2 | Post-S3 | Change (S3) |
+|---|---|---|---|---|---|
+| StripePayments | 18 | — | 17 | 17 | 0 |
+| StripeCore | 29 | — | 29 | 28 | **-1** |
+| StripePaymentSheet | 23 | — | 23 | 20 | **-3** |
+| Mappedin | 9 | — | 9 | 2 | **-7** (delegate callbacks) |
+| Nuke | 27 | — | 26 | 16 | **-10** (pipeline delegate + return unlocks) |
+| Lottie | 21 | — | 21 | 19 | **-2** |
+| BlinkIDUX | 32 | — | 11 | 11 | 0 |
+| SmartCardIO | 19 | 9 | 8 | 7 | **-1** |
+| BlinkID | 5 | — | 5 | 5 | 0 |
+| MicroblinkPlatform | 3 | — | 3 | 3 | 0 |
+| **Total** | **186** | — | **162** | **128** | **-34** |
 
 ---
 
@@ -138,21 +146,33 @@ The 28 InterfaceReturn SB0003 break down into:
 
 ---
 
-### Session 3: Void dispatch with struct params
+### Session 3: Class/struct param dispatch ✅ COMPLETE
 
-**Impact: 33 SB0003 → dispatched**
+**Result: 34 SB0003 dispatched (24 VoidNonBlitParams + ~10 bonus from previously-blocked return methods). Mappedin 9→2, Nuke 26→16, StripePaymentSheet 23→20.**
 
-Delegate callback methods that receive Swift struct/class event data. The proxy needs to pass these through witness dispatch. Currently blocked because params contain non-blittable types. This is the reverse direction from Session 2 — instead of returning structs FROM Swift, this is passing structs TO Swift through witness dispatch.
+Extended `IsTypeDispatchable` to accept Swift classes (`TypeRecordKind.Class`, non-ObjC, non-generic) and indirect structs (non-frozen, or frozen+RefFields). This unlocked ALL dispatch kinds for methods with class/struct params — not just VoidNonBlitParams.
 
-Key unlocks:
-- Mappedin: All 8 `IMPIMapViewDelegate` callbacks (OnMapChanged, OnBlueDotPositionUpdate, etc.)
-- Nuke: 7 `IImagePipelineDelegate` callbacks
-- MicroblinkPlatform: 3 `IMicroblinkPlatformSDKDelegate` callbacks
-- Stripe: 11 callbacks across 3 modules
-- BlinkIDUX: 2 camera model callbacks
-- Lottie: 2 callbacks
+**Core changes:**
+- Extracted `IsSwiftClassType(TypeSpec?)` and `IsIndirectStructType(TypeSpec?)` from `IsClassReturn`/`IsStructReturn` for raw type identification without circular dependency
+- C# marshalling: `.Payload.DangerousGetHandle()` extracts IntPtr from SafeHandle for both class and indirect struct params
+- Swift class unmarshal: `Unmanaged<Module.ClassName>.fromOpaque(rawPtr).takeUnretainedValue()` (C# retains ownership)
+- Swift struct unmarshal: `rawPtr.assumingMemoryBound(to: Module.StructName.self).pointee` (creates copy)
+- Refactored 3 inline param loops (`EmitMethodAccessor`, `EmitThrowingMethodAccessor`, `EmitExistentialMethodAccessor`) to use shared `EmitParameterUnmarshal` helper
+- Property dispatch regression prevention: class/struct getters route through ClassReturn/StructReturn path, not blittable
+- Native-remapped type exclusion: `IsSwiftClassType`/`IsIndirectStructType` reject types with `NativeTypeName` (e.g., `Foundation.URL → NSUrl`) — these use different marshalling (FromX/ToX), not `.Payload`
+- P/Invoke emission fix: `ProtocolProxyEmitter.SwiftObject.cs` property getter/setter branches exclude class/struct types (with `Swift.String` carve-out) so they fall through to ClassReturn/StructReturn P/Invoke emission
 
-**Estimated effort**: Large. Requires witness dispatch to marshal C# struct/class values into Swift ABI format for the witness call.
+Key unlocks achieved:
+- Mappedin: 7 `IMPIMapViewDelegate` callbacks (`OnMapChanged(MPIMap)`, etc.) ✅
+- Nuke: 10 methods (pipeline delegate + class return methods unblocked by param fix) ✅
+- StripePaymentSheet: 3 callbacks ✅
+- StripeCore: 1 callback ✅
+- Lottie: 2 callbacks ✅
+- SmartCardIO: 1 callback ✅
+
+Remaining 2 Mappedin SB0003: `OnStateChanged(MPIState)` (non-simple enum param) and `Matches → IReadOnlyList` (collection return).
+
+**Tests**: 24 new tests (16 WitnessDispatchEmitter, 8 ProtocolProxyEmitter). Includes regression tests for property P/Invoke emission and native-remapped type exclusion.
 
 ---
 
@@ -183,7 +203,7 @@ Key unlocks:
 1. ~~**`SmartCardIO.ICardTerminal.IsCardPresent() → bool`**~~ — ✅ Session 1a (ThrowingBlittable)
 2. ~~**`SmartCardIO.ICardChannel.Transmit(CommandAPDU) → ResponseAPDU`**~~ — ✅ Session 2a (StructReturn)
 3. **`StripePaymentSheet.ICustomerAdapter.AttachPaymentMethodAsync(string)`** — Session 1b: async, stays deferred
-4. **`Mappedin.IMPIMapViewDelegate.OnMapChanged(MPIMap)`** — Session 3 (VoidNonBlitParams)
+4. ~~**`Mappedin.IMPIMapViewDelegate.OnMapChanged(MPIMap)`**~~ — ✅ Session 3 (ClassParamDispatch)
 5. ~~**`StripePaymentSheet.IVerifyKYCInfo.City/Country/Line1... → string?`** (×11)~~ — ✅ Session 1a (ThrowingString)
 6. ~~**`SmartCardIO.ICardTerminal.WaitForCardPresent(timeout) → bool`**~~ — ✅ Session 1a (ThrowingBlittable)
 7. ~~**`BlinkIDUX.IUXThemeProtocol` 22 Color/Font properties**~~ — ✅ Session 2a (StructReturn, 21 dispatched)
@@ -194,10 +214,10 @@ Key unlocks:
 ## Projected End State
 
 ```
-Session 1: Throwing dispatch + void fix + nint    [~34 SB0003, Medium]    ✅ COMPLETE — SmartCardIO 19→9
+Session 1: Throwing dispatch + void fix + nint    [~24 SB0003, Medium]    ✅ COMPLETE — SmartCardIO 19→9
 Session 2: Non-blittable + interface returns      [24 SB0003, Large]      ✅ COMPLETE — BlinkIDUX 32→11, SmartCardIO 9→8
-Session 3: Void dispatch with struct params       [33 SB0003, Large]      → ~129 remaining
-Session 4: Constrained existential params         [BlinkIDUX, Large]      → ~129 remaining, 8/9 usable
+Session 3: Class/struct param dispatch            [34 SB0003, Large]      ✅ COMPLETE — Mappedin 9→2, Nuke 26→16
+Session 4: Constrained existential params         [BlinkIDUX, Large]      → ~128 remaining, 8/9 usable
 ```
 
-After all 4 sessions: **~57/186 SB0003 eliminated (31%) + 33 from Session 3 = ~90/186 (48%)**, **8/9 target libraries usable**. The ~96 remaining are interface/collection returns (28), closure-in-proxy (10), AnyType/opaque (13), blittable+non-blit-params (3), class-return-with-class-params (~34), and async/regen edge cases (~8). Many "NonBlittableReturn" methods have non-dispatchable params — Session 3 (struct params) will unlock additional class/struct returns that are currently blocked on params, not on the return type itself.
+After Sessions 1–3: **58/186 SB0003 eliminated (31%)**. After Session 4: **8/9 target libraries usable**. The 128 remaining are: collection/interface returns (28), non-blittable returns with remaining non-dispatchable params (~24), non-simple enum params (~9), closure-in-proxy (10), AnyType/opaque (13), async/regen edge cases (6), blittable+non-blit-params (3), and other (~35).

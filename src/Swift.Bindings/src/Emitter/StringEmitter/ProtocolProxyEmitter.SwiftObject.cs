@@ -179,7 +179,14 @@ public partial class ProtocolProxyEmitter
                 continue;
 
             var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
-            if (hasGetter && dispatchEmitter.IsPropertyGetterDispatchable(property))
+            // Only emit blittable/string getter P/Invokes here — class/struct properties
+            // fall through to IsPropertyClassReturn/IsPropertyStructReturn branches below.
+            // Note: Swift.String is a frozen+RefFields struct, so IsIndirectStructType matches it.
+            // We must check IsStringDispatchType first to keep string on the blittable path.
+            var isStringProp = WitnessDispatchEmitter.IsStringDispatchType(property.SwiftTypeSpec);
+            if (hasGetter && dispatchEmitter.IsPropertyGetterDispatchable(property)
+                && (isStringProp || (!dispatchEmitter.IsSwiftClassType(property.SwiftTypeSpec)
+                    && !dispatchEmitter.IsIndirectStructType(property.SwiftTypeSpec))))
             {
                 var csharpTypeName = GetInterfaceCompatiblePropertyTypeName(property);
                 var isStringProperty = WitnessDispatchEmitter.IsStringDispatchType(property.SwiftTypeSpec);
@@ -263,7 +270,11 @@ public partial class ProtocolProxyEmitter
                 continue;
 
             var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
-            if (hasSetter && dispatchEmitter.IsPropertySetterDispatchable(property))
+            // Only emit blittable/string setter P/Invokes — no setter dispatch for class/struct types yet.
+            var isSetterStringProp = WitnessDispatchEmitter.IsStringDispatchType(property.SwiftTypeSpec);
+            if (hasSetter && dispatchEmitter.IsPropertySetterDispatchable(property)
+                && (isSetterStringProp || (!dispatchEmitter.IsSwiftClassType(property.SwiftTypeSpec)
+                    && !dispatchEmitter.IsIndirectStructType(property.SwiftTypeSpec))))
             {
                 var csharpTypeName = GetInterfaceCompatiblePropertyTypeName(property);
                 var isStringProperty = WitnessDispatchEmitter.IsStringDispatchType(property.SwiftTypeSpec);

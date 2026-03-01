@@ -145,7 +145,10 @@ public class WitnessDispatchEmitter
             var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
             if (hasGetter)
             {
-                if (IsPropertyGetterDispatchable(property))
+                // Property getter dispatch: blittable/string use the blittable accessor,
+                // class/struct types use ClassReturn/StructReturn accessor paths
+                bool isBlittableOrString = IsTypeBlittable(property.SwiftTypeSpec) || IsStringType(property.SwiftTypeSpec);
+                if (isBlittableOrString)
                 {
                     if (!anyEmitted)
                     {
@@ -187,7 +190,9 @@ public class WitnessDispatchEmitter
             if (!emittedPropertyNames.Add(property.Name + "_set"))
                 continue;
             var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
-            if (hasSetter && IsPropertySetterDispatchable(property))
+            // Property setter dispatch: only blittable/string (no class/struct setter dispatch yet)
+            bool isSetterBlittableOrString = IsTypeBlittable(property.SwiftTypeSpec) || IsStringType(property.SwiftTypeSpec);
+            if (hasSetter && isSetterBlittableOrString)
             {
                 if (!anyEmitted)
                 {
@@ -447,17 +452,13 @@ public class WitnessDispatchEmitter
     }
 
     /// <summary>
-    /// Checks if a return type is a Swift class (TypeRecordKind.Class) that can be
-    /// dispatched through the witness table using Unmanaged.passRetained.
+    /// Checks if a TypeSpec represents a Swift class (TypeRecordKind.Class) in the type database.
     /// Rejects generic types (ContainsGenericParameters) and ObjC module types.
+    /// Does NOT check IsTypeBlittable/IsStringType — use for raw type identification only.
     /// </summary>
-    public bool IsClassReturn(TypeSpec returnType)
+    public bool IsSwiftClassType(TypeSpec? typeSpec)
     {
-        // Already handled by blittable/String dispatch
-        if (IsTypeDispatchable(returnType))
-            return false;
-
-        if (returnType is not NamedTypeSpec namedType)
+        if (typeSpec is not NamedTypeSpec namedType)
             return false;
         if (namedType.ContainsGenericParameters)
             return false;
@@ -468,7 +469,8 @@ public class WitnessDispatchEmitter
         {
             var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
             if (_typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord))
-                return typeRecord.Kind == TypeRecordKind.Class;
+                return typeRecord.Kind == TypeRecordKind.Class
+                    && typeRecord.NativeTypeName == null; // Exclude native-remapped (e.g., Foundation.URL → NSUrl)
         }
         catch (ArgumentException)
         {
@@ -479,17 +481,13 @@ public class WitnessDispatchEmitter
     }
 
     /// <summary>
-    /// Checks if a return type is a struct that requires indirect result buffer
+    /// Checks if a TypeSpec represents a struct that requires indirect dispatch
     /// (non-frozen struct or frozen struct with RequiresMemoryManagement).
-    /// Matches ExtensionMarshallingHelper.ClassifyReturnType logic for NonFrozenStruct.
+    /// Does NOT check IsTypeBlittable/IsStringType — use for raw type identification only.
     /// </summary>
-    public bool IsStructReturn(TypeSpec returnType)
+    public bool IsIndirectStructType(TypeSpec? typeSpec)
     {
-        // Already handled by blittable/String dispatch
-        if (IsTypeDispatchable(returnType))
-            return false;
-
-        if (returnType is not NamedTypeSpec namedType)
+        if (typeSpec is not NamedTypeSpec namedType)
             return false;
         if (namedType.ContainsGenericParameters)
             return false;
@@ -501,6 +499,8 @@ public class WitnessDispatchEmitter
             {
                 if (typeRecord.Kind != TypeRecordKind.Struct)
                     return false;
+                if (typeRecord.NativeTypeName != null)
+                    return false; // Exclude native-remapped (e.g., Foundation.Data → NSData)
                 bool isFrozen = typeRecord.Flags.HasFlag(TypeRecordFlags.Frozen);
                 bool hasRefFields = typeRecord.Flags.HasFlag(TypeRecordFlags.RequiresMemoryManagement);
                 // Frozen value-type structs not supported (would be blittable)
@@ -516,6 +516,34 @@ public class WitnessDispatchEmitter
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Checks if a return type is a Swift class (TypeRecordKind.Class) that can be
+    /// dispatched through the witness table using Unmanaged.passRetained.
+    /// Rejects generic types (ContainsGenericParameters) and ObjC module types.
+    /// </summary>
+    public bool IsClassReturn(TypeSpec returnType)
+    {
+        // Already handled by blittable/String dispatch — use explicit checks to avoid circular dependency
+        if (IsTypeBlittable(returnType) || IsStringType(returnType))
+            return false;
+
+        return IsSwiftClassType(returnType);
+    }
+
+    /// <summary>
+    /// Checks if a return type is a struct that requires indirect result buffer
+    /// (non-frozen struct or frozen struct with RequiresMemoryManagement).
+    /// Matches ExtensionMarshallingHelper.ClassifyReturnType logic for NonFrozenStruct.
+    /// </summary>
+    public bool IsStructReturn(TypeSpec returnType)
+    {
+        // Already handled by blittable/String dispatch — use explicit checks to avoid circular dependency
+        if (IsTypeBlittable(returnType) || IsStringType(returnType))
+            return false;
+
+        return IsIndirectStructType(returnType);
     }
 
     /// <summary>
@@ -603,11 +631,13 @@ public class WitnessDispatchEmitter
 
     /// <summary>
     /// Checks if a type can be dispatched through witness accessors.
-    /// This includes blittable primitives and Swift.String (via UTF-8 bridge).
+    /// This includes blittable primitives, Swift.String (via UTF-8 bridge),
+    /// Swift classes (via Unmanaged pointer), and indirect structs (non-frozen or frozen+RefFields).
     /// </summary>
     public bool IsTypeDispatchable(TypeSpec? typeSpec)
     {
-        return IsTypeBlittable(typeSpec) || IsStringType(typeSpec);
+        return IsTypeBlittable(typeSpec) || IsStringType(typeSpec)
+            || IsSwiftClassType(typeSpec) || IsIndirectStructType(typeSpec);
     }
 
     /// <summary>
@@ -894,53 +924,18 @@ public class WitnessDispatchEmitter
         // Load existential — use var for methods that may be mutating in the future
         writer.WriteLine($"let existential = containerPtr.load(as: (any {moduleQualifiedName}).self)");
 
-        // Unmarshal parameters — per-parameter branching for String vs blittable
+        // Unmarshal parameters
         var callArgs = new List<string>();
         int argIdx = 0;
         foreach (var param in method.CSSignature.Skip(1))
         {
-            if (IsStringType(param.SwiftTypeSpec))
-            {
-                // String parameter: decode SBW_Utf8Slice → Swift String
-                writer.WriteLine($"let arg{argIdx}Slice = arg{argIdx}Ptr.load(as: SBW_Utf8Slice.self)");
-                writer.WriteLine($"let arg{argIdx}: String");
-                writer.WriteLine($"if arg{argIdx}Slice.len > 0 {{");
-                writer.Indent++;
-                writer.WriteLine($"arg{argIdx} = String(unsafeUninitializedCapacity: arg{argIdx}Slice.len) {{ buf in");
-                writer.Indent++;
-                writer.WriteLine($"UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: arg{argIdx}Slice.ptr, byteCount: arg{argIdx}Slice.len)");
-                writer.WriteLine($"return arg{argIdx}Slice.len");
-                writer.Indent--;
-                writer.WriteLine("}");
-                writer.Indent--;
-                writer.WriteLine("} else {");
-                writer.Indent++;
-                writer.WriteLine($"arg{argIdx} = \"\"");
-                writer.Indent--;
-                writer.WriteLine("}");
-            }
-            else
-            {
-                // Blittable parameter: direct load
-                var csharpType = GetCSharpTypeName(param.SwiftTypeSpec);
-                var swiftType = GetSwiftPrimitiveType(csharpType);
-                writer.WriteLine($"let arg{argIdx} = arg{argIdx}Ptr.load(as: {swiftType}.self)");
-            }
+            EmitParameterUnmarshal(writer, param, argIdx);
             callArgs.Add($"arg{argIdx}");
             argIdx++;
         }
 
-        // Build method call with Swift parameter labels
-        var labeledArgs = new List<string>();
-        argIdx = 0;
-        for (int i = 1; i < method.CSSignature.Count; i++)
-        {
-            var param = method.CSSignature[i];
-            var label = GetSwiftParameterLabel(param);
-            var argRef = callArgs[argIdx];
-            labeledArgs.Add(label == "_" ? argRef : $"{label}: {argRef}");
-            argIdx++;
-        }
+        // Build labeled args
+        var labeledArgs = BuildLabeledArgs(method, callArgs);
         var callArgsString = string.Join(", ", labeledArgs);
 
         if (hasReturn)
@@ -1054,51 +1049,18 @@ public class WitnessDispatchEmitter
 
         writer.WriteLine($"let existential = containerPtr.load(as: (any {moduleQualifiedName}).self)");
 
-        // Unmarshal parameters — same pattern as EmitMethodAccessor
+        // Unmarshal parameters
         var callArgs = new List<string>();
         int argIdx = 0;
         foreach (var param in method.CSSignature.Skip(1))
         {
-            if (IsStringType(param.SwiftTypeSpec))
-            {
-                writer.WriteLine($"let arg{argIdx}Slice = arg{argIdx}Ptr.load(as: SBW_Utf8Slice.self)");
-                writer.WriteLine($"let arg{argIdx}: String");
-                writer.WriteLine($"if arg{argIdx}Slice.len > 0 {{");
-                writer.Indent++;
-                writer.WriteLine($"arg{argIdx} = String(unsafeUninitializedCapacity: arg{argIdx}Slice.len) {{ buf in");
-                writer.Indent++;
-                writer.WriteLine($"UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: arg{argIdx}Slice.ptr, byteCount: arg{argIdx}Slice.len)");
-                writer.WriteLine($"return arg{argIdx}Slice.len");
-                writer.Indent--;
-                writer.WriteLine("}");
-                writer.Indent--;
-                writer.WriteLine("} else {");
-                writer.Indent++;
-                writer.WriteLine($"arg{argIdx} = \"\"");
-                writer.Indent--;
-                writer.WriteLine("}");
-            }
-            else
-            {
-                var csharpType = GetCSharpTypeName(param.SwiftTypeSpec);
-                var swiftType = GetSwiftPrimitiveType(csharpType);
-                writer.WriteLine($"let arg{argIdx} = arg{argIdx}Ptr.load(as: {swiftType}.self)");
-            }
+            EmitParameterUnmarshal(writer, param, argIdx);
             callArgs.Add($"arg{argIdx}");
             argIdx++;
         }
 
-        // Build method call with Swift parameter labels
-        var labeledArgs = new List<string>();
-        argIdx = 0;
-        for (int i = 1; i < method.CSSignature.Count; i++)
-        {
-            var param = method.CSSignature[i];
-            var label = GetSwiftParameterLabel(param);
-            var argRef = callArgs[argIdx];
-            labeledArgs.Add(label == "_" ? argRef : $"{label}: {argRef}");
-            argIdx++;
-        }
+        // Build labeled args
+        var labeledArgs = BuildLabeledArgs(method, callArgs);
         var callArgsString = string.Join(", ", labeledArgs);
 
         // do/catch with error out-parameter
@@ -1254,51 +1216,18 @@ public class WitnessDispatchEmitter
         // Load existential from container
         writer.WriteLine($"let existential = containerPtr.load(as: (any {moduleQualifiedName}).self)");
 
-        // Unmarshal parameters — same pattern as EmitMethodAccessor
+        // Unmarshal parameters
         var callArgs = new List<string>();
         int argIdx = 0;
         foreach (var param in method.CSSignature.Skip(1))
         {
-            if (IsStringType(param.SwiftTypeSpec))
-            {
-                writer.WriteLine($"let arg{argIdx}Slice = arg{argIdx}Ptr.load(as: SBW_Utf8Slice.self)");
-                writer.WriteLine($"let arg{argIdx}: String");
-                writer.WriteLine($"if arg{argIdx}Slice.len > 0 {{");
-                writer.Indent++;
-                writer.WriteLine($"arg{argIdx} = String(unsafeUninitializedCapacity: arg{argIdx}Slice.len) {{ buf in");
-                writer.Indent++;
-                writer.WriteLine($"UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: arg{argIdx}Slice.ptr, byteCount: arg{argIdx}Slice.len)");
-                writer.WriteLine($"return arg{argIdx}Slice.len");
-                writer.Indent--;
-                writer.WriteLine("}");
-                writer.Indent--;
-                writer.WriteLine("} else {");
-                writer.Indent++;
-                writer.WriteLine($"arg{argIdx} = \"\"");
-                writer.Indent--;
-                writer.WriteLine("}");
-            }
-            else
-            {
-                var csharpType = GetCSharpTypeName(param.SwiftTypeSpec);
-                var swiftType = GetSwiftPrimitiveType(csharpType);
-                writer.WriteLine($"let arg{argIdx} = arg{argIdx}Ptr.load(as: {swiftType}.self)");
-            }
+            EmitParameterUnmarshal(writer, param, argIdx);
             callArgs.Add($"arg{argIdx}");
             argIdx++;
         }
 
-        // Build method call with Swift parameter labels
-        var labeledArgs = new List<string>();
-        argIdx = 0;
-        for (int i = 1; i < method.CSSignature.Count; i++)
-        {
-            var param = method.CSSignature[i];
-            var label = GetSwiftParameterLabel(param);
-            var argRef = callArgs[argIdx];
-            labeledArgs.Add(label == "_" ? argRef : $"{label}: {argRef}");
-            argIdx++;
-        }
+        // Build labeled args
+        var labeledArgs = BuildLabeledArgs(method, callArgs);
         var callArgsString = string.Join(", ", labeledArgs);
 
         var tryPrefix = method.Throws ? "try " : "";
@@ -1548,11 +1477,14 @@ public class WitnessDispatchEmitter
 
     /// <summary>
     /// Emits parameter unmarshalling for a single argument (shared by all accessor types).
+    /// Supports String (UTF-8 decode), class (Unmanaged.fromOpaque), struct (assumingMemoryBound),
+    /// and blittable (direct load).
     /// </summary>
     private void EmitParameterUnmarshal(SwiftWriter writer, ArgumentDecl param, int argIdx)
     {
         if (IsStringType(param.SwiftTypeSpec))
         {
+            // String parameter: decode SBW_Utf8Slice → Swift String
             writer.WriteLine($"let arg{argIdx}Slice = arg{argIdx}Ptr.load(as: SBW_Utf8Slice.self)");
             writer.WriteLine($"let arg{argIdx}: String");
             writer.WriteLine($"if arg{argIdx}Slice.len > 0 {{");
@@ -1570,8 +1502,23 @@ public class WitnessDispatchEmitter
             writer.Indent--;
             writer.WriteLine("}");
         }
+        else if (IsSwiftClassType(param.SwiftTypeSpec))
+        {
+            // Class parameter: load raw pointer, then Unmanaged<T>.fromOpaque().takeUnretainedValue()
+            var swiftTypeName = GetSwiftConcreteTypeName(param.SwiftTypeSpec);
+            writer.WriteLine($"let rawPtr{argIdx} = arg{argIdx}Ptr.load(as: UnsafeMutableRawPointer.self)");
+            writer.WriteLine($"let arg{argIdx} = Unmanaged<{swiftTypeName}>.fromOpaque(rawPtr{argIdx}).takeUnretainedValue()");
+        }
+        else if (IsIndirectStructType(param.SwiftTypeSpec))
+        {
+            // Struct parameter: load raw pointer, then assumingMemoryBound(to:).pointee
+            var swiftTypeName = GetSwiftConcreteTypeName(param.SwiftTypeSpec);
+            writer.WriteLine($"let rawPtr{argIdx} = arg{argIdx}Ptr.load(as: UnsafeMutableRawPointer.self)");
+            writer.WriteLine($"let arg{argIdx} = rawPtr{argIdx}.assumingMemoryBound(to: {swiftTypeName}.self).pointee");
+        }
         else
         {
+            // Blittable parameter: direct load
             var csharpType = GetCSharpTypeName(param.SwiftTypeSpec);
             var swiftType = GetSwiftPrimitiveType(csharpType);
             writer.WriteLine($"let arg{argIdx} = arg{argIdx}Ptr.load(as: {swiftType}.self)");

@@ -3942,6 +3942,24 @@ public class ProtocolProxyEmitterTests
         });
     }
 
+    private void RegisterNativeRemappedClass(string name, string nativeTypeName)
+    {
+        _typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", name),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Class,
+                NativeTypeName = CSharpTypeName.FromNamespaceAndName(
+                    nativeTypeName.Contains('.') ? nativeTypeName[..nativeTypeName.LastIndexOf('.')] : "",
+                    nativeTypeName.Contains('.') ? nativeTypeName[(nativeTypeName.LastIndexOf('.') + 1)..] : nativeTypeName)
+            })
+        });
+    }
+
     private void RegisterFrozenRefFieldStruct(string name)
     {
         _typeDatabase.AddOutOfModuleTypes(new[]
@@ -4214,6 +4232,229 @@ public class ProtocolProxyEmitterTests
         Assert.Contains("errorOut != IntPtr.Zero", output);
         Assert.Contains("SwiftException", output);
         Assert.Contains("SwiftIndirectResult", output);
+    }
+
+    #endregion
+
+    #region Class/Struct Param Dispatch Tests
+
+    [Fact]
+    public void EmitProxyClass_ClassParam_EmitsPayloadDangerousGetHandle()
+    {
+        RegisterClass("MPIMap");
+        var protocolDecl = CreateSimpleProtocol("MapDelegate");
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "onMapChanged",
+            MangledName = "$sonMapChanged",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null },
+                new() { Name = "map", PrivateName = "map",
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.MPIMap"),
+                    IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false, Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains(".Payload.DangerousGetHandle()", output);
+        Assert.DoesNotContain("DiagnosticId = \"SB0003\"", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_StructParam_EmitsPayloadDangerousGetHandle()
+    {
+        RegisterNonFrozenStruct("CardStatus");
+        var protocolDecl = CreateSimpleProtocol("StatusDelegate");
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "onStatus",
+            MangledName = "$sonStatus",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null },
+                new() { Name = "status", PrivateName = "status",
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.CardStatus"),
+                    IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false, Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains(".Payload.DangerousGetHandle()", output);
+        Assert.DoesNotContain("DiagnosticId = \"SB0003\"", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_MixedParams_StringClassBlittable_CorrectMarshalling()
+    {
+        RegisterSwiftString();
+        RegisterClass("Config");
+        RegisterSwiftInt32();
+        var protocolDecl = CreateSimpleProtocol("Handler");
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "configure",
+            MangledName = "$sconfigure",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null },
+                new() { Name = "name", PrivateName = "name",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                    IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null },
+                new() { Name = "config", PrivateName = "config",
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.Config"),
+                    IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null },
+                new() { Name = "count", PrivateName = "count",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int32"),
+                    IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false, Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // String: UTF-8 encoding
+        Assert.Contains("System.Text.Encoding.UTF8.GetBytes", output);
+        // Class: SafeHandle payload
+        Assert.Contains("config.Payload.DangerousGetHandle()", output);
+        // Blittable: simple copy
+        Assert.Contains("var arg2Slice = count", output);
+        // All dispatched, no SB0003 attribute
+        Assert.DoesNotContain("DiagnosticId = \"SB0003\"", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ClassReturnProperty_StillUsesClassReturnGetterPath()
+    {
+        // Regression test: class/struct properties should still use ClassReturn/StructReturn
+        // getter path, not be treated as blittable dispatch
+        RegisterClass("ResponseAPDU");
+        var protocolDecl = CreateProtocolWithProperty("CardChannel", "lastResponse",
+            hasGetter: true, hasSetter: false, new NamedTypeSpec("TestModule.ResponseAPDU"));
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // Should use ClassReturn getter path with SwiftMarshal
+        Assert.Contains("Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<TestModule.ResponseAPDU>", output);
+        // Should NOT be marked as SB0003
+        Assert.DoesNotContain("DiagnosticId = \"SB0003\"", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ClassReturnPropertyGetter_EmitsPInvokeInNativeMethods()
+    {
+        // Regression test for Finding 1: class/struct property getters must have
+        // matching P/Invoke declarations in NativeMethods. Previously, IsPropertyGetterDispatchable
+        // returned true for class types (because IsTypeDispatchable was widened), causing the
+        // property to enter the blittable P/Invoke branch where it was rejected by the
+        // string/blittable filter → no P/Invoke emitted → missing NativeMethods members.
+        RegisterClass("ResponseAPDU");
+        var protocolDecl = CreateProtocolWithProperty("CardChannel", "lastResponse",
+            hasGetter: true, hasSetter: false, new NamedTypeSpec("TestModule.ResponseAPDU"));
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // ClassReturn getter P/Invoke must be present in NativeMethods
+        Assert.Contains("SBW_CardChannel_get_lastResponse_0", output);
+        // Should use ClassReturn getter path (returns IntPtr, no free function)
+        Assert.Contains("Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<TestModule.ResponseAPDU>", output);
+        // No SB0003
+        Assert.DoesNotContain("DiagnosticId = \"SB0003\"", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ClassReturnMethodWithClassParam_BothDispatch()
+    {
+        // Method with class return AND class param should both dispatch correctly
+        RegisterClass("ResponseAPDU");
+        RegisterClass("CommandAPDU");
+        var protocolDecl = CreateSimpleProtocol("CardChannel");
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "transmit",
+            MangledName = "$stransmit",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.ResponseAPDU"),
+                    IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null },
+                new() { Name = "command", PrivateName = "command",
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.CommandAPDU"),
+                    IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false, Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // Class param marshalled via Payload
+        Assert.Contains(".Payload.DangerousGetHandle()", output);
+        // Class return via SwiftMarshal
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<TestModule.ResponseAPDU>", output);
+        // No SB0003
+        Assert.DoesNotContain("DiagnosticId = \"SB0003\"", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_NativeRemappedClassParam_NotDispatchedAsClassParam()
+    {
+        // Regression test for Finding 2: native-remapped classes (e.g., Foundation.URL → NSUrl)
+        // should NOT be treated as dispatchable class params because they use different
+        // marshalling (FromX/ToX) and don't have .Payload.
+        RegisterNativeRemappedClass("NativeUrl", "Foundation.NSUrl");
+        var protocolDecl = CreateSimpleProtocol("UrlHandler");
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "handleUrl",
+            MangledName = "$shandleUrl",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null },
+                new() { Name = "url", PrivateName = "url",
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.NativeUrl"),
+                    IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false, Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // Native-remapped param should NOT be dispatched via .Payload.DangerousGetHandle()
+        Assert.DoesNotContain(".Payload.DangerousGetHandle()", output);
+        // Should be SB0003 since native-remapped is not dispatchable
+        Assert.Contains("DiagnosticId = \"SB0003\"", output);
     }
 
     #endregion

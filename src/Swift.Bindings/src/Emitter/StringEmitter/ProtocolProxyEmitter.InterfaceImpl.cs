@@ -124,10 +124,24 @@ public partial class ProtocolProxyEmitter
                 if (!IsSwiftStringProjectedType(csharpTypeName))
                     isGetterDispatchable = false;
             }
+            else if (dispatchEmitter.IsSwiftClassType(property.SwiftTypeSpec) ||
+                     dispatchEmitter.IsIndirectStructType(property.SwiftTypeSpec))
+            {
+                // Class/struct properties use ClassReturn/StructReturn getter path,
+                // not the blittable dispatch path. Force off so they fall through
+                // to isClassReturnGetter/isStructReturnGetter (computed above with !isGetterDispatchable).
+                isGetterDispatchable = false;
+            }
             else if (!WitnessDispatchEmitter.IsBlittablePrimitive(csharpTypeName))
             {
                 isGetterDispatchable = false;
             }
+        }
+        // Re-evaluate ClassReturn/StructReturn now that class/struct types are forced off the blittable path
+        if (!isGetterDispatchable && !isClassReturnGetter && !isStructReturnGetter)
+        {
+            isClassReturnGetter = hasGetter && dispatchEmitter.IsPropertyClassReturn(property);
+            isStructReturnGetter = hasGetter && !isClassReturnGetter && dispatchEmitter.IsPropertyStructReturn(property);
         }
         if (isSetterDispatchable)
         {
@@ -135,6 +149,12 @@ public partial class ProtocolProxyEmitter
             {
                 if (!IsSwiftStringProjectedType(csharpTypeName))
                     isSetterDispatchable = false;
+            }
+            else if (dispatchEmitter.IsSwiftClassType(property.SwiftTypeSpec) ||
+                     dispatchEmitter.IsIndirectStructType(property.SwiftTypeSpec))
+            {
+                // No setter dispatch for class/struct types yet — defer
+                isSetterDispatchable = false;
             }
             else if (!WitnessDispatchEmitter.IsBlittablePrimitive(csharpTypeName))
             {
@@ -518,23 +538,8 @@ public partial class ProtocolProxyEmitter
 
             if (dispatchKind == MethodDispatchKind.BlittableOrString)
             {
-                for (int i = 0; i < projectedParamTypes.Count; i++)
-                {
-                    var isStringParam = WitnessDispatchEmitter.IsStringDispatchType(paramSwiftTypeSpecs[i]);
-                    if (isStringParam)
-                    {
-                        if (!IsIdiomaticStringType(projectedParamTypes[i]))
-                        {
-                            dispatchKind = MethodDispatchKind.NotDispatchable;
-                            break;
-                        }
-                    }
-                    else if (!WitnessDispatchEmitter.IsBlittablePrimitive(projectedParamTypes[i]))
-                    {
-                        dispatchKind = MethodDispatchKind.NotDispatchable;
-                        break;
-                    }
-                }
+                if (!ValidateParamProjections(projectedParamTypes, paramSwiftTypeSpecs, dispatchEmitter))
+                    dispatchKind = MethodDispatchKind.NotDispatchable;
             }
         }
 
@@ -556,46 +561,16 @@ public partial class ProtocolProxyEmitter
 
             if (dispatchKind == MethodDispatchKind.ThrowingBlittableOrString)
             {
-                for (int i = 0; i < projectedParamTypes.Count; i++)
-                {
-                    var isStringParam = WitnessDispatchEmitter.IsStringDispatchType(paramSwiftTypeSpecs[i]);
-                    if (isStringParam)
-                    {
-                        if (!IsIdiomaticStringType(projectedParamTypes[i]))
-                        {
-                            dispatchKind = MethodDispatchKind.NotDispatchable;
-                            break;
-                        }
-                    }
-                    else if (!WitnessDispatchEmitter.IsBlittablePrimitive(projectedParamTypes[i]))
-                    {
-                        dispatchKind = MethodDispatchKind.NotDispatchable;
-                        break;
-                    }
-                }
+                if (!ValidateParamProjections(projectedParamTypes, paramSwiftTypeSpecs, dispatchEmitter))
+                    dispatchKind = MethodDispatchKind.NotDispatchable;
             }
         }
 
         // Validate params for ExistentialReturn dispatch (same param validation)
         if (dispatchKind == MethodDispatchKind.ExistentialReturn)
         {
-            for (int i = 0; i < projectedParamTypes.Count; i++)
-            {
-                var isStringParam = WitnessDispatchEmitter.IsStringDispatchType(paramSwiftTypeSpecs[i]);
-                if (isStringParam)
-                {
-                    if (!IsIdiomaticStringType(projectedParamTypes[i]))
-                    {
-                        dispatchKind = MethodDispatchKind.NotDispatchable;
-                        break;
-                    }
-                }
-                else if (!WitnessDispatchEmitter.IsBlittablePrimitive(projectedParamTypes[i]))
-                {
-                    dispatchKind = MethodDispatchKind.NotDispatchable;
-                    break;
-                }
-            }
+            if (!ValidateParamProjections(projectedParamTypes, paramSwiftTypeSpecs, dispatchEmitter))
+                dispatchKind = MethodDispatchKind.NotDispatchable;
         }
 
         // Secondary C#-side validation for ClassReturn and StructReturn:
@@ -608,26 +583,11 @@ public partial class ProtocolProxyEmitter
                 dispatchKind = MethodDispatchKind.NotDispatchable;
             }
 
-            // Validate params (same as ExistentialReturn)
+            // Validate params
             if (dispatchKind == MethodDispatchKind.ClassReturn || dispatchKind == MethodDispatchKind.StructReturn)
             {
-                for (int i = 0; i < projectedParamTypes.Count; i++)
-                {
-                    var isStringParam = WitnessDispatchEmitter.IsStringDispatchType(paramSwiftTypeSpecs[i]);
-                    if (isStringParam)
-                    {
-                        if (!IsIdiomaticStringType(projectedParamTypes[i]))
-                        {
-                            dispatchKind = MethodDispatchKind.NotDispatchable;
-                            break;
-                        }
-                    }
-                    else if (!WitnessDispatchEmitter.IsBlittablePrimitive(projectedParamTypes[i]))
-                    {
-                        dispatchKind = MethodDispatchKind.NotDispatchable;
-                        break;
-                    }
-                }
+                if (!ValidateParamProjections(projectedParamTypes, paramSwiftTypeSpecs, dispatchEmitter))
+                    dispatchKind = MethodDispatchKind.NotDispatchable;
             }
         }
 
@@ -649,7 +609,7 @@ public partial class ProtocolProxyEmitter
 
         if (dispatchKind == MethodDispatchKind.ExistentialReturn)
         {
-            EmitExistentialReturnMethodBody(writer, method, protocolDecl, methodIndex, methodName, argsString, argNames, paramSwiftTypeSpecs, returnType!, returnTypeName);
+            EmitExistentialReturnMethodBody(writer, method, protocolDecl, dispatchEmitter, methodIndex, methodName, argsString, argNames, paramSwiftTypeSpecs, returnType!, returnTypeName);
         }
         else if (dispatchKind == MethodDispatchKind.BlittableOrString)
         {
@@ -679,7 +639,7 @@ public partial class ProtocolProxyEmitter
                 }
 
                 // Marshal each parameter — String via GCHandle-pinned Utf8Slice, blittable via copy
-                EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs);
+                EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, dispatchEmitter);
 
                 // Build P/Invoke call
                 var pInvokeArgs = new List<string> { "(IntPtr)containerPtr" };
@@ -774,7 +734,7 @@ public partial class ProtocolProxyEmitter
                 }
 
                 // Marshal each parameter — String via GCHandle-pinned Utf8Slice, blittable via copy
-                EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs);
+                EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, dispatchEmitter);
 
                 var pInvokeArgs = new List<string> { "(IntPtr)containerPtr" };
                 for (int i = 0; i < argNames.Count; i++)
@@ -867,6 +827,7 @@ public partial class ProtocolProxyEmitter
     /// </summary>
     private void EmitExistentialReturnMethodBody(
         CSharpWriter writer, MethodDecl method, ProtocolDecl protocolDecl,
+        WitnessDispatchEmitter dispatchEmitter,
         int methodIndex, string methodName, string argsString,
         List<string> argNames, List<TypeSpec?> paramSwiftTypeSpecs,
         TypeSpec returnType, string returnTypeName)
@@ -900,7 +861,7 @@ public partial class ProtocolProxyEmitter
         }
 
         // Marshal each parameter
-        EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs);
+        EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, dispatchEmitter);
 
         // Build P/Invoke call args
         var pInvokeArgs = new List<string> { "(IntPtr)containerPtr" };
@@ -1013,7 +974,7 @@ public partial class ProtocolProxyEmitter
             }
 
             // Marshal each parameter
-            EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs);
+            EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, dispatchEmitter);
 
             // Build P/Invoke call args
             var pInvokeArgs = new List<string> { "(IntPtr)containerPtr" };
@@ -1133,7 +1094,7 @@ public partial class ProtocolProxyEmitter
                 writer.Indent++;
             }
 
-            EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs);
+            EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, dispatchEmitter);
 
             var pInvokeArgs = new List<string> { "(IntPtr)containerPtr" };
             for (int i = 0; i < argNames.Count; i++)
@@ -1217,7 +1178,7 @@ public partial class ProtocolProxyEmitter
         }
 
         // Marshal each parameter
-        EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs);
+        EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, dispatchEmitter);
 
         // Build P/Invoke call args
         var pInvokeArgs = new List<string> { "(IntPtr)containerPtr" };
@@ -1339,7 +1300,7 @@ public partial class ProtocolProxyEmitter
         }
 
         // Marshal each parameter
-        EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs);
+        EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, dispatchEmitter);
 
         // Build P/Invoke call args: containerPtr + resultBuf + params + errorOut
         var pInvokeArgs = new List<string> { "(IntPtr)containerPtr" };
@@ -1438,11 +1399,12 @@ public partial class ProtocolProxyEmitter
     /// <summary>
     /// Emits parameter marshalling for dispatched methods.
     /// String params: encode to UTF-8 bytes, pin via GCHandle, wrap in Utf8Slice.
+    /// Class/struct params: extract SafeHandle payload pointer via Payload.DangerousGetHandle().
     /// Blittable params: simple copy.
     /// All params end up as arg{i}Slice for uniform pointer passing.
     /// Handle variables must be pre-declared by EmitPinHandleDeclarations before the enclosing try block.
     /// </summary>
-    private static void EmitMethodParameterMarshalling(CSharpWriter writer, List<string> argNames, List<TypeSpec?> paramSwiftTypeSpecs)
+    private static void EmitMethodParameterMarshalling(CSharpWriter writer, List<string> argNames, List<TypeSpec?> paramSwiftTypeSpecs, WitnessDispatchEmitter? dispatchEmitter = null)
     {
         for (int i = 0; i < argNames.Count; i++)
         {
@@ -1453,6 +1415,13 @@ public partial class ProtocolProxyEmitter
                 writer.WriteLine($"var arg{i}Bytes = global::System.Text.Encoding.UTF8.GetBytes({argNames[i]} ?? string.Empty);");
                 writer.WriteLine($"{handleName} = GCHandle.Alloc(arg{i}Bytes, GCHandleType.Pinned);");
                 writer.WriteLine($"var arg{i}Slice = new Utf8Slice {{ Ptr = {handleName}.AddrOfPinnedObject(), Len = (nint)arg{i}Bytes.Length }};");
+            }
+            else if (dispatchEmitter != null &&
+                     (dispatchEmitter.IsSwiftClassType(paramSwiftTypeSpecs[i]) ||
+                      dispatchEmitter.IsIndirectStructType(paramSwiftTypeSpecs[i])))
+            {
+                // Class/struct parameter: extract SafeHandle payload pointer
+                writer.WriteLine($"var arg{i}Slice = {argNames[i]}.Payload.DangerousGetHandle();");
             }
             else
             {
@@ -1492,6 +1461,40 @@ public partial class ProtocolProxyEmitter
             }
         }
         return pinHandles;
+    }
+
+    /// <summary>
+    /// Validates that all param projections are compatible with witness dispatch.
+    /// Returns false if any param has an incompatible projection.
+    /// </summary>
+    private static bool ValidateParamProjections(List<string> projectedParamTypes, List<TypeSpec?> paramSwiftTypeSpecs, WitnessDispatchEmitter dispatchEmitter)
+    {
+        for (int i = 0; i < projectedParamTypes.Count; i++)
+        {
+            if (!IsParamProjectionValid(paramSwiftTypeSpecs[i], projectedParamTypes[i], dispatchEmitter))
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Checks if a single param's projected C# type is valid for witness dispatch.
+    /// String: must be idiomatic string type. Class/struct: must not be degraded to "object" or AnyType.
+    /// Otherwise: must be blittable primitive.
+    /// </summary>
+    private static bool IsParamProjectionValid(TypeSpec? swiftType, string projectedType, WitnessDispatchEmitter dispatchEmitter)
+    {
+        if (WitnessDispatchEmitter.IsStringDispatchType(swiftType))
+            return IsIdiomaticStringType(projectedType);
+
+        if (dispatchEmitter.IsSwiftClassType(swiftType) || dispatchEmitter.IsIndirectStructType(swiftType))
+        {
+            // Class/struct param: reject if projected type degraded to "object" or AnyType
+            return projectedType != "object" &&
+                   projectedType != TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
+        }
+
+        return WitnessDispatchEmitter.IsBlittablePrimitive(projectedType);
     }
 
     /// <summary>

@@ -1698,4 +1698,268 @@ public class WitnessDispatchEmitterTests
     }
 
     #endregion
+
+    #region IsSwiftClassType / IsIndirectStructType Tests
+
+    [Fact]
+    public void IsSwiftClassType_ReturnsTrue_ForClassInTypeDatabase()
+    {
+        var db = CreateTypeDatabaseWithClassesAndStructs(
+            classes: new[] { "TestModule.ResponseAPDU" },
+            structs: Array.Empty<string>(),
+            nonFrozenStructs: Array.Empty<string>());
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule");
+        Assert.True(emitter.IsSwiftClassType(new NamedTypeSpec("TestModule.ResponseAPDU")));
+    }
+
+    [Fact]
+    public void IsSwiftClassType_ReturnsFalse_ForObjCModule()
+    {
+        var db = CreateTypeDatabaseWithClassesAndStructs(
+            classes: Array.Empty<string>(),
+            structs: Array.Empty<string>(),
+            nonFrozenStructs: Array.Empty<string>());
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule");
+        Assert.False(emitter.IsSwiftClassType(new NamedTypeSpec("UIKit.UIView")));
+    }
+
+    [Fact]
+    public void IsSwiftClassType_ReturnsFalse_ForGenericType()
+    {
+        var db = CreateTypeDatabaseWithClassesAndStructs(
+            classes: new[] { "TestModule.Container" },
+            structs: Array.Empty<string>(),
+            nonFrozenStructs: Array.Empty<string>());
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule");
+        var genericType = new NamedTypeSpec("TestModule.Container", new[] { new NamedTypeSpec("Swift.Int32") });
+        Assert.False(emitter.IsSwiftClassType(genericType));
+    }
+
+    [Fact]
+    public void IsIndirectStructType_ReturnsTrue_ForNonFrozenStruct()
+    {
+        var db = CreateTypeDatabaseWithClassesAndStructs(
+            classes: Array.Empty<string>(),
+            structs: Array.Empty<string>(),
+            nonFrozenStructs: new[] { "TestModule.CardStatus" });
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule");
+        Assert.True(emitter.IsIndirectStructType(new NamedTypeSpec("TestModule.CardStatus")));
+    }
+
+    [Fact]
+    public void IsIndirectStructType_ReturnsTrue_ForFrozenRefFieldStruct()
+    {
+        var db = CreateTypeDatabaseWithClassesAndStructs(
+            classes: Array.Empty<string>(),
+            structs: Array.Empty<string>(),
+            nonFrozenStructs: Array.Empty<string>(),
+            frozenRefFieldStructs: new[] { "TestModule.BufferedData" });
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule");
+        Assert.True(emitter.IsIndirectStructType(new NamedTypeSpec("TestModule.BufferedData")));
+    }
+
+    [Fact]
+    public void IsIndirectStructType_ReturnsFalse_ForFrozenValueStruct()
+    {
+        var db = CreateTypeDatabaseWithClassesAndStructs(
+            classes: Array.Empty<string>(),
+            structs: new[] { "TestModule.Point" },
+            nonFrozenStructs: Array.Empty<string>());
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule");
+        Assert.False(emitter.IsIndirectStructType(new NamedTypeSpec("TestModule.Point")));
+    }
+
+    [Fact]
+    public void IsSwiftClassType_ReturnsFalse_ForNativeRemappedClass()
+    {
+        // Native-remapped classes (e.g., Foundation.URL → NSUrl) don't have .Payload
+        var typeDatabase = new TypeDatabase();
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.NativeClass"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "NativeClass"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.NativeClass"),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Class,
+                NativeTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSUrl")
+            });
+        typeDatabase.AddModuleDatabase(testModule);
+        var emitter = new WitnessDispatchEmitter(typeDatabase, NullLogger.Instance, "TestModule");
+        Assert.False(emitter.IsSwiftClassType(new NamedTypeSpec("TestModule.NativeClass")));
+    }
+
+    [Fact]
+    public void IsIndirectStructType_ReturnsFalse_ForNativeRemappedStruct()
+    {
+        // Native-remapped structs (e.g., Foundation.Data → NSData) use FromX/ToX, not .Payload
+        var typeDatabase = new TypeDatabase();
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.NativeStruct"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "NativeStruct"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.NativeStruct"),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.None, // non-frozen
+                Kind = TypeRecordKind.Struct,
+                NativeTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSData")
+            });
+        typeDatabase.AddModuleDatabase(testModule);
+        var emitter = new WitnessDispatchEmitter(typeDatabase, NullLogger.Instance, "TestModule");
+        Assert.False(emitter.IsIndirectStructType(new NamedTypeSpec("TestModule.NativeStruct")));
+    }
+
+    #endregion
+
+    #region Class/Struct Param Dispatch Tests
+
+    [Fact]
+    public void ClassifyMethodDispatch_VoidWithClassParam_ReturnsBlittableOrString()
+    {
+        var db = CreateTypeDatabaseWithClassesAndStructs(
+            classes: new[] { "TestModule.MPIMap" },
+            structs: Array.Empty<string>(),
+            nonFrozenStructs: Array.Empty<string>());
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule");
+        var method = CreateMethodWithParams("onMapChanged", TupleTypeSpec.Empty,
+            new[] { ("map", (TypeSpec)new NamedTypeSpec("TestModule.MPIMap")) });
+        var result = emitter.ClassifyMethodDispatch(method);
+        Assert.Equal(MethodDispatchKind.BlittableOrString, result);
+    }
+
+    [Fact]
+    public void ClassifyMethodDispatch_VoidWithStructParam_ReturnsBlittableOrString()
+    {
+        var db = CreateTypeDatabaseWithClassesAndStructs(
+            classes: Array.Empty<string>(),
+            structs: Array.Empty<string>(),
+            nonFrozenStructs: new[] { "TestModule.CardStatus" });
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule");
+        var method = CreateMethodWithParams("onStatus", TupleTypeSpec.Empty,
+            new[] { ("status", (TypeSpec)new NamedTypeSpec("TestModule.CardStatus")) });
+        var result = emitter.ClassifyMethodDispatch(method);
+        Assert.Equal(MethodDispatchKind.BlittableOrString, result);
+    }
+
+    [Fact]
+    public void ClassifyMethodDispatch_ClassReturnWithStructParam_ReturnsClassReturn()
+    {
+        var db = CreateTypeDatabaseWithClassesAndStructs(
+            classes: new[] { "TestModule.ResponseAPDU" },
+            structs: Array.Empty<string>(),
+            nonFrozenStructs: new[] { "TestModule.CommandAPDU" });
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule");
+        var method = CreateMethodWithParams("transmit", new NamedTypeSpec("TestModule.ResponseAPDU"),
+            new[] { ("command", (TypeSpec)new NamedTypeSpec("TestModule.CommandAPDU")) });
+        var result = emitter.ClassifyMethodDispatch(method);
+        Assert.Equal(MethodDispatchKind.ClassReturn, result);
+    }
+
+    [Fact]
+    public void ClassifyMethodDispatch_MixedParamTypes_StringAndClassAndBlittable()
+    {
+        var db = CreateTypeDatabaseWithClassesAndStructs(
+            classes: new[] { "TestModule.Config" },
+            structs: Array.Empty<string>(),
+            nonFrozenStructs: Array.Empty<string>());
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule");
+        var method = CreateMethodWithParams("configure", TupleTypeSpec.Empty,
+            new[] {
+                ("name", (TypeSpec)new NamedTypeSpec("Swift.String")),
+                ("config", (TypeSpec)new NamedTypeSpec("TestModule.Config")),
+                ("count", (TypeSpec)new NamedTypeSpec("Swift.Int32"))
+            });
+        var result = emitter.ClassifyMethodDispatch(method);
+        Assert.Equal(MethodDispatchKind.BlittableOrString, result);
+    }
+
+    [Fact]
+    public void EmitParameterUnmarshal_ClassParam_EmitsUnmanagedFromOpaque()
+    {
+        var db = CreateTypeDatabaseWithClassesAndStructs(
+            classes: new[] { "TestModule.MPIMap" },
+            structs: Array.Empty<string>(),
+            nonFrozenStructs: Array.Empty<string>());
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule");
+        var ctx = new ModuleEmissionContext();
+        var emitterWithCtx = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule", ctx);
+
+        var protocol = CreateProtocolWithMethodAndParams("MapDelegate", "onMapChanged", TupleTypeSpec.Empty,
+            new[] { ("map", (TypeSpec)new NamedTypeSpec("TestModule.MPIMap")) });
+        var output = EmitDispatchWithEmitter(emitterWithCtx, protocol, ctx);
+
+        Assert.Contains("Unmanaged<TestModule.MPIMap>.fromOpaque(rawPtr0).takeUnretainedValue()", output);
+    }
+
+    [Fact]
+    public void EmitParameterUnmarshal_StructParam_EmitsAssumingMemoryBound()
+    {
+        var db = CreateTypeDatabaseWithClassesAndStructs(
+            classes: Array.Empty<string>(),
+            structs: Array.Empty<string>(),
+            nonFrozenStructs: new[] { "TestModule.CardStatus" });
+        var ctx = new ModuleEmissionContext();
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule", ctx);
+
+        var protocol = CreateProtocolWithMethodAndParams("StatusDelegate", "onStatus", TupleTypeSpec.Empty,
+            new[] { ("status", (TypeSpec)new NamedTypeSpec("TestModule.CardStatus")) });
+        var output = EmitDispatchWithEmitter(emitter, protocol, ctx);
+
+        Assert.Contains("assumingMemoryBound(to: TestModule.CardStatus.self).pointee", output);
+    }
+
+    [Fact]
+    public void EmitAccessor_VoidMethodWithClassParam_EmitsCorrectSwift()
+    {
+        var db = CreateTypeDatabaseWithClassesAndStructs(
+            classes: new[] { "TestModule.MPIMap" },
+            structs: Array.Empty<string>(),
+            nonFrozenStructs: Array.Empty<string>());
+        var ctx = new ModuleEmissionContext();
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule", ctx);
+
+        var protocol = CreateProtocolWithMethodAndParams("MapDelegate", "onMapChanged", TupleTypeSpec.Empty,
+            new[] { ("map", (TypeSpec)new NamedTypeSpec("TestModule.MPIMap")) });
+        var output = EmitDispatchWithEmitter(emitter, protocol, ctx);
+
+        // Verify @_silgen_name generated
+        Assert.Contains("@_silgen_name(\"SBW_MapDelegate_method_onMapChanged_0\")", output);
+        // Verify param unmarshal uses Unmanaged pattern
+        Assert.Contains("rawPtr0", output);
+        Assert.Contains("takeUnretainedValue()", output);
+        // Verify labeled call
+        Assert.Contains("existential.onMapChanged(map: arg0)", output);
+    }
+
+    [Fact]
+    public void EmitAccessor_MixedParamTypes_StringAndClassAndBlittable()
+    {
+        var db = CreateTypeDatabaseWithClassesAndStructs(
+            classes: new[] { "TestModule.Config" },
+            structs: Array.Empty<string>(),
+            nonFrozenStructs: Array.Empty<string>());
+        var ctx = new ModuleEmissionContext();
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule", ctx);
+
+        var protocol = CreateProtocolWithMethodAndParams("Handler", "configure", TupleTypeSpec.Empty,
+            new[] {
+                ("name", (TypeSpec)new NamedTypeSpec("Swift.String")),
+                ("config", (TypeSpec)new NamedTypeSpec("TestModule.Config")),
+                ("count", (TypeSpec)new NamedTypeSpec("Swift.Int32"))
+            });
+        var output = EmitDispatchWithEmitter(emitter, protocol, ctx);
+
+        // String param: Utf8Slice decode
+        Assert.Contains("arg0Slice = arg0Ptr.load(as: SBW_Utf8Slice.self)", output);
+        // Class param: Unmanaged pattern
+        Assert.Contains("Unmanaged<TestModule.Config>.fromOpaque(rawPtr1).takeUnretainedValue()", output);
+        // Blittable param: direct load
+        Assert.Contains("arg2 = arg2Ptr.load(as: Int32.self)", output);
+    }
+
+    #endregion
 }
