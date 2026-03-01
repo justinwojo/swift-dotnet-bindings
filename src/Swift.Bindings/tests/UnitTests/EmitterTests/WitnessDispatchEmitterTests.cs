@@ -1064,6 +1064,312 @@ public class WitnessDispatchEmitterTests
 
     #endregion
 
+    #region ClassReturn / StructReturn Classification Tests
+
+    [Fact]
+    public void ClassifyMethodDispatch_ClassReturn_ReturnsClassReturn()
+    {
+        var db = CreateTypeDatabaseWithClassesAndStructs(
+            classes: new[] { "TestModule.ResponseAPDU" },
+            structs: Array.Empty<string>(),
+            nonFrozenStructs: Array.Empty<string>());
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule");
+        var method = CreateMethod("transmit", new NamedTypeSpec("TestModule.ResponseAPDU"));
+        var result = emitter.ClassifyMethodDispatch(method);
+        Assert.Equal(MethodDispatchKind.ClassReturn, result);
+    }
+
+    [Fact]
+    public void ClassifyMethodDispatch_NonFrozenStructReturn_ReturnsStructReturn()
+    {
+        var db = CreateTypeDatabaseWithClassesAndStructs(
+            classes: Array.Empty<string>(),
+            structs: Array.Empty<string>(),
+            nonFrozenStructs: new[] { "TestModule.CardStatus" });
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule");
+        var method = CreateMethod("getStatus", new NamedTypeSpec("TestModule.CardStatus"));
+        var result = emitter.ClassifyMethodDispatch(method);
+        Assert.Equal(MethodDispatchKind.StructReturn, result);
+    }
+
+    [Fact]
+    public void ClassifyMethodDispatch_FrozenStructWithRefFields_ReturnsStructReturn()
+    {
+        var db = CreateTypeDatabaseWithClassesAndStructs(
+            classes: Array.Empty<string>(),
+            structs: Array.Empty<string>(),
+            nonFrozenStructs: Array.Empty<string>(),
+            frozenRefFieldStructs: new[] { "TestModule.BufferedData" });
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule");
+        var method = CreateMethod("getData", new NamedTypeSpec("TestModule.BufferedData"));
+        var result = emitter.ClassifyMethodDispatch(method);
+        Assert.Equal(MethodDispatchKind.StructReturn, result);
+    }
+
+    [Fact]
+    public void ClassifyMethodDispatch_FrozenValueStructReturn_NotDispatchable()
+    {
+        var db = CreateTypeDatabaseWithClassesAndStructs(
+            classes: Array.Empty<string>(),
+            structs: new[] { "TestModule.Point" },
+            nonFrozenStructs: Array.Empty<string>());
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule");
+        var method = CreateMethod("getOrigin", new NamedTypeSpec("TestModule.Point"));
+        var result = emitter.ClassifyMethodDispatch(method);
+        Assert.Equal(MethodDispatchKind.NotDispatchable, result);
+    }
+
+    [Fact]
+    public void ClassifyMethodDispatch_ThrowingClassReturn_ReturnsClassReturn()
+    {
+        var db = CreateTypeDatabaseWithClassesAndStructs(
+            classes: new[] { "TestModule.ResponseAPDU" },
+            structs: Array.Empty<string>(),
+            nonFrozenStructs: Array.Empty<string>());
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule");
+        var method = CreateMethod("tryTransmit", new NamedTypeSpec("TestModule.ResponseAPDU"));
+        method.Throws = true;
+        var result = emitter.ClassifyMethodDispatch(method);
+        Assert.Equal(MethodDispatchKind.ClassReturn, result);
+    }
+
+    [Fact]
+    public void ClassifyMethodDispatch_ThrowingStructReturn_ReturnsStructReturn()
+    {
+        var db = CreateTypeDatabaseWithClassesAndStructs(
+            classes: Array.Empty<string>(),
+            structs: Array.Empty<string>(),
+            nonFrozenStructs: new[] { "TestModule.CardStatus" });
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule");
+        var method = CreateMethod("tryGetStatus", new NamedTypeSpec("TestModule.CardStatus"));
+        method.Throws = true;
+        var result = emitter.ClassifyMethodDispatch(method);
+        Assert.Equal(MethodDispatchKind.StructReturn, result);
+    }
+
+    [Fact]
+    public void ClassifyMethodDispatch_GenericTypeReturn_NotDispatchable()
+    {
+        var db = CreateTypeDatabaseWithClassesAndStructs(
+            classes: new[] { "TestModule.Container" },
+            structs: Array.Empty<string>(),
+            nonFrozenStructs: Array.Empty<string>());
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule");
+        var genericReturn = new NamedTypeSpec("TestModule.Container");
+        genericReturn.GenericParameters.Add(new NamedTypeSpec("Swift.Int32"));
+        var method = CreateMethod("getContainer", genericReturn);
+        var result = emitter.ClassifyMethodDispatch(method);
+        Assert.Equal(MethodDispatchKind.NotDispatchable, result);
+    }
+
+    [Fact]
+    public void ClassifyMethodDispatch_ConcreteReturnNonBlittableParam_NotDispatchable()
+    {
+        var db = CreateTypeDatabaseWithClassesAndStructs(
+            classes: new[] { "TestModule.ResponseAPDU" },
+            structs: Array.Empty<string>(),
+            nonFrozenStructs: Array.Empty<string>());
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule");
+        // param is a non-blittable type not in TypeDatabase
+        var method = CreateMethodWithParams("process",
+            new NamedTypeSpec("TestModule.ResponseAPDU"),
+            new[] { ("input", (TypeSpec)new NamedTypeSpec("TestModule.SomeStruct")) });
+        var result = emitter.ClassifyMethodDispatch(method);
+        Assert.Equal(MethodDispatchKind.NotDispatchable, result);
+    }
+
+    [Fact]
+    public void IsPropertyClassReturn_Class_ReturnsTrue()
+    {
+        var db = CreateTypeDatabaseWithClassesAndStructs(
+            classes: new[] { "TestModule.ResponseAPDU" },
+            structs: Array.Empty<string>(),
+            nonFrozenStructs: Array.Empty<string>());
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule");
+        var property = CreateProperty("response", new NamedTypeSpec("TestModule.ResponseAPDU"));
+        Assert.True(emitter.IsPropertyClassReturn(property));
+        Assert.False(emitter.IsPropertyStructReturn(property));
+    }
+
+    [Fact]
+    public void IsPropertyStructReturn_NonFrozenStruct_ReturnsTrue()
+    {
+        var db = CreateTypeDatabaseWithClassesAndStructs(
+            classes: Array.Empty<string>(),
+            structs: Array.Empty<string>(),
+            nonFrozenStructs: new[] { "TestModule.CardStatus" });
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule");
+        var property = CreateProperty("status", new NamedTypeSpec("TestModule.CardStatus"));
+        Assert.False(emitter.IsPropertyClassReturn(property));
+        Assert.True(emitter.IsPropertyStructReturn(property));
+    }
+
+    #endregion
+
+    #region ClassReturn / StructReturn Swift Emission Tests
+
+    [Fact]
+    public void EmitClassReturn_UsesUnmanagedPassRetained()
+    {
+        var db = CreateTypeDatabaseWithClassesAndStructs(
+            classes: new[] { "TestModule.ResponseAPDU" },
+            structs: Array.Empty<string>(),
+            nonFrozenStructs: Array.Empty<string>());
+        var ctx = new ModuleEmissionContext();
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule", ctx);
+        var protocolDecl = CreateProtocolWithMethod("CardChannel", "transmit",
+            returnType: new NamedTypeSpec("TestModule.ResponseAPDU"));
+        var output = EmitDispatchWithEmitter(emitter, protocolDecl, ctx);
+
+        Assert.Contains("Unmanaged.passRetained(result as AnyObject).toOpaque()", output);
+    }
+
+    [Fact]
+    public void EmitClassReturn_HasNoFreeFunction()
+    {
+        var db = CreateTypeDatabaseWithClassesAndStructs(
+            classes: new[] { "TestModule.ResponseAPDU" },
+            structs: Array.Empty<string>(),
+            nonFrozenStructs: Array.Empty<string>());
+        var ctx = new ModuleEmissionContext();
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule", ctx);
+        var protocolDecl = CreateProtocolWithMethod("CardChannel", "transmit",
+            returnType: new NamedTypeSpec("TestModule.ResponseAPDU"));
+        var output = EmitDispatchWithEmitter(emitter, protocolDecl, ctx);
+
+        Assert.Contains("SBW_CardChannel_method_transmit_0", output);
+        Assert.DoesNotContain("SBW_CardChannel_free_method_transmit_0", output);
+    }
+
+    [Fact]
+    public void EmitStructReturn_UsesAssumingMemoryBoundInitialize()
+    {
+        var db = CreateTypeDatabaseWithClassesAndStructs(
+            classes: Array.Empty<string>(),
+            structs: Array.Empty<string>(),
+            nonFrozenStructs: new[] { "TestModule.CardStatus" });
+        var ctx = new ModuleEmissionContext();
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule", ctx);
+        var protocolDecl = CreateProtocolWithMethod("Card", "getStatus",
+            returnType: new NamedTypeSpec("TestModule.CardStatus"));
+        var output = EmitDispatchWithEmitter(emitter, protocolDecl, ctx);
+
+        Assert.Contains("resultBuf.assumingMemoryBound(to: TestModule.CardStatus.self).initialize(to: result)", output);
+    }
+
+    [Fact]
+    public void EmitStructReturn_HasNoFreeFunction()
+    {
+        var db = CreateTypeDatabaseWithClassesAndStructs(
+            classes: Array.Empty<string>(),
+            structs: Array.Empty<string>(),
+            nonFrozenStructs: new[] { "TestModule.CardStatus" });
+        var ctx = new ModuleEmissionContext();
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule", ctx);
+        var protocolDecl = CreateProtocolWithMethod("Card", "getStatus",
+            returnType: new NamedTypeSpec("TestModule.CardStatus"));
+        var output = EmitDispatchWithEmitter(emitter, protocolDecl, ctx);
+
+        Assert.Contains("SBW_Card_method_getStatus_0", output);
+        Assert.DoesNotContain("SBW_Card_free_method_getStatus_0", output);
+    }
+
+    [Fact]
+    public void EmitStructReturn_AcceptsResultBufParam()
+    {
+        var db = CreateTypeDatabaseWithClassesAndStructs(
+            classes: Array.Empty<string>(),
+            structs: Array.Empty<string>(),
+            nonFrozenStructs: new[] { "TestModule.CardStatus" });
+        var ctx = new ModuleEmissionContext();
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule", ctx);
+        var protocolDecl = CreateProtocolWithMethod("Card", "getStatus",
+            returnType: new NamedTypeSpec("TestModule.CardStatus"));
+        var output = EmitDispatchWithEmitter(emitter, protocolDecl, ctx);
+
+        Assert.Contains("_ resultBuf: UnsafeMutableRawPointer", output);
+    }
+
+    [Fact]
+    public void EmitThrowingClassReturn_UsesDoCatchAndErrorOut()
+    {
+        var db = CreateTypeDatabaseWithClassesAndStructs(
+            classes: new[] { "TestModule.ResponseAPDU" },
+            structs: Array.Empty<string>(),
+            nonFrozenStructs: Array.Empty<string>());
+        var ctx = new ModuleEmissionContext();
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule", ctx);
+        var protocolDecl = CreateSimpleProtocol("CardChannel");
+        var method = CreateMethod("tryTransmit", new NamedTypeSpec("TestModule.ResponseAPDU"));
+        method.Throws = true;
+        protocolDecl.Methods.Add(method);
+        var output = EmitDispatchWithEmitter(emitter, protocolDecl, ctx);
+
+        Assert.Contains("do {", output);
+        Assert.Contains("} catch {", output);
+        Assert.Contains("errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()", output);
+        Assert.Contains("return nil", output);
+        Assert.Contains("-> UnsafeMutableRawPointer?", output);
+    }
+
+    [Fact]
+    public void EmitThrowingStructReturn_UsesDoCatchVoidReturn()
+    {
+        var db = CreateTypeDatabaseWithClassesAndStructs(
+            classes: Array.Empty<string>(),
+            structs: Array.Empty<string>(),
+            nonFrozenStructs: new[] { "TestModule.CardStatus" });
+        var ctx = new ModuleEmissionContext();
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule", ctx);
+        var protocolDecl = CreateSimpleProtocol("Card");
+        var method = CreateMethod("tryGetStatus", new NamedTypeSpec("TestModule.CardStatus"));
+        method.Throws = true;
+        protocolDecl.Methods.Add(method);
+        var output = EmitDispatchWithEmitter(emitter, protocolDecl, ctx);
+
+        Assert.Contains("do {", output);
+        Assert.Contains("} catch {", output);
+        Assert.Contains("errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()", output);
+        // Struct return is always void (result written to buffer)
+        Assert.DoesNotContain("-> UnsafeMutableRawPointer", output);
+    }
+
+    [Fact]
+    public void EmitClassReturnPropertyGetter_UsesPassRetained()
+    {
+        var db = CreateTypeDatabaseWithClassesAndStructs(
+            classes: new[] { "TestModule.ResponseAPDU" },
+            structs: Array.Empty<string>(),
+            nonFrozenStructs: Array.Empty<string>());
+        var ctx = new ModuleEmissionContext();
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule", ctx);
+        var protocolDecl = CreateProtocolWithProperty("Card", "response",
+            new NamedTypeSpec("TestModule.ResponseAPDU"));
+        var output = EmitDispatchWithEmitter(emitter, protocolDecl, ctx);
+
+        Assert.Contains("Unmanaged.passRetained(result as AnyObject).toOpaque()", output);
+        Assert.DoesNotContain("free", output.ToLowerInvariant());
+    }
+
+    [Fact]
+    public void EmitStructReturnPropertyGetter_UsesResultBuf()
+    {
+        var db = CreateTypeDatabaseWithClassesAndStructs(
+            classes: Array.Empty<string>(),
+            structs: Array.Empty<string>(),
+            nonFrozenStructs: new[] { "TestModule.CardStatus" });
+        var ctx = new ModuleEmissionContext();
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule", ctx);
+        var protocolDecl = CreateProtocolWithProperty("Card", "status",
+            new NamedTypeSpec("TestModule.CardStatus"));
+        var output = EmitDispatchWithEmitter(emitter, protocolDecl, ctx);
+
+        Assert.Contains("_ resultBuf: UnsafeMutableRawPointer", output);
+        Assert.Contains("resultBuf.assumingMemoryBound(to: TestModule.CardStatus.self).initialize(to: result)", output);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private string EmitDispatch(ProtocolDecl protocolDecl)
@@ -1112,6 +1418,84 @@ public class WitnessDispatchEmitterTests
                     Kind = TypeRecordKind.Protocol
                 });
         }
+        typeDatabase.AddModuleDatabase(testModule);
+        return typeDatabase;
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithClassesAndStructs(
+        string[] classes, string[] structs, string[] nonFrozenStructs,
+        string[] frozenRefFieldStructs = null)
+    {
+        var typeDatabase = new TypeDatabase();
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+
+        foreach (var className in classes)
+        {
+            var parts = className.Split('.');
+            var shortName = parts[^1];
+            testModule.RegisterType(
+                SwiftTypeName.FromModuleQualifiedName(className),
+                new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", shortName),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(className),
+                    MetadataAccessor = $"$sMa",
+                    Flags = TypeRecordFlags.None,
+                    Kind = TypeRecordKind.Class
+                });
+        }
+
+        foreach (var structName in structs)
+        {
+            var parts = structName.Split('.');
+            var shortName = parts[^1];
+            testModule.RegisterType(
+                SwiftTypeName.FromModuleQualifiedName(structName),
+                new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", shortName),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(structName),
+                    MetadataAccessor = $"$sMa",
+                    Flags = TypeRecordFlags.Frozen,
+                    Kind = TypeRecordKind.Struct
+                });
+        }
+
+        foreach (var structName in nonFrozenStructs)
+        {
+            var parts = structName.Split('.');
+            var shortName = parts[^1];
+            testModule.RegisterType(
+                SwiftTypeName.FromModuleQualifiedName(structName),
+                new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", shortName),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(structName),
+                    MetadataAccessor = $"$sMa",
+                    Flags = TypeRecordFlags.None,
+                    Kind = TypeRecordKind.Struct
+                });
+        }
+
+        if (frozenRefFieldStructs != null)
+        {
+            foreach (var structName in frozenRefFieldStructs)
+            {
+                var parts = structName.Split('.');
+                var shortName = parts[^1];
+                testModule.RegisterType(
+                    SwiftTypeName.FromModuleQualifiedName(structName),
+                    new TypeRecord
+                    {
+                        CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", shortName),
+                        SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(structName),
+                        MetadataAccessor = $"$sMa",
+                        Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                        Kind = TypeRecordKind.Struct
+                    });
+            }
+        }
+
         typeDatabase.AddModuleDatabase(testModule);
         return typeDatabase;
     }

@@ -108,6 +108,8 @@ public partial class ProtocolProxyEmitter
         var isGetterDispatchable = hasGetter && dispatchEmitter.IsPropertyGetterDispatchable(property);
         var isSetterDispatchable = hasSetter && dispatchEmitter.IsPropertySetterDispatchable(property);
         var isStringProperty = WitnessDispatchEmitter.IsStringDispatchType(property.SwiftTypeSpec);
+        var isClassReturnGetter = hasGetter && !isGetterDispatchable && dispatchEmitter.IsPropertyClassReturn(property);
+        var isStructReturnGetter = hasGetter && !isGetterDispatchable && !isClassReturnGetter && dispatchEmitter.IsPropertyStructReturn(property);
 
         // Validate that the projected C# property type matches the dispatch strategy.
         // IsPropertyGetterDispatchable checks Swift-side dispatchability, but if the
@@ -139,9 +141,20 @@ public partial class ProtocolProxyEmitter
                 isSetterDispatchable = false;
             }
         }
+        // Secondary validation for ClassReturn/StructReturn getters: reject if projected type is AnyType
+        if (isClassReturnGetter || isStructReturnGetter)
+        {
+            if (csharpTypeName == "object" ||
+                csharpTypeName == TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName)
+            {
+                isClassReturnGetter = false;
+                isStructReturnGetter = false;
+            }
+        }
 
+        bool isGetterDispatched = isGetterDispatchable || isClassReturnGetter || isStructReturnGetter;
         bool isAnyAccessorNonDispatchable =
-            (hasGetter && !isGetterDispatchable) || (hasSetter && !isSetterDispatchable);
+            (hasGetter && !isGetterDispatched) || (hasSetter && !isSetterDispatchable);
         if (isAnyAccessorNonDispatchable)
         {
             writer.WriteLine("[Obsolete(\"This member is not dispatchable to Swift and throws NotSupportedException \" +");
@@ -203,6 +216,61 @@ public partial class ProtocolProxyEmitter
                             IntPtr resultPtr = NativeMethods.{{accessorSymbol}}((IntPtr)containerPtr);
                             try { return MarshalFromSwift<{{marshalType}}>(resultPtr); }
                             finally { NativeMethods.{{freeSymbol}}(resultPtr); }
+                        }
+                    }
+                    """);
+            }
+            else if (isClassReturnGetter)
+            {
+                // ClassReturn getter: Unmanaged.passRetained on Swift side, NativeMemory+SwiftMarshal on C# side
+                writer.WriteLines($$"""
+                    get
+                    {
+                        if (_disposed) throw new ObjectDisposedException(GetType().Name);
+                        if (_csharpImpl != null)
+                            return _csharpImpl.{{propertyName}};
+                        fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
+                        {
+                            IntPtr resultPtr = NativeMethods.{{accessorSymbol}}((IntPtr)containerPtr);
+                            unsafe
+                            {
+                                var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));
+                                try
+                                {
+                                    *(IntPtr*)classPayload = resultPtr;
+                                    return ({{csharpTypeName}})Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{{csharpTypeName}}>(new IntPtr(classPayload));
+                                }
+                                catch { NativeMemory.Free(classPayload); Arc.Release(resultPtr); throw; }
+                            }
+                        }
+                    }
+                    """);
+            }
+            else if (isStructReturnGetter)
+            {
+                // StructReturn getter: pre-allocate buffer, Swift writes into it
+                // Frozen+RefFields structs: NewFromPayload copies to a new buffer, so original must be freed on success
+                bool isFrozenRefFields = dispatchEmitter.IsFrozenStructWithRefFields(property.SwiftTypeSpec);
+                var cleanupKeyword = isFrozenRefFields ? "finally" : "catch";
+                writer.WriteLines($$"""
+                    get
+                    {
+                        if (_disposed) throw new ObjectDisposedException(GetType().Name);
+                        if (_csharpImpl != null)
+                            return _csharpImpl.{{propertyName}};
+                        fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
+                        {
+                            unsafe
+                            {
+                                var metadata = SwiftObjectHelper<{{csharpTypeName}}>.GetTypeMetadata();
+                                IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
+                                try
+                                {
+                                    NativeMethods.{{accessorSymbol}}((IntPtr)containerPtr, buffer);
+                                    return ({{csharpTypeName}})Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{{csharpTypeName}}>(buffer);
+                                }
+                                {{cleanupKeyword}} { NativeMemory.Free((void*)buffer);{{(isFrozenRefFields ? "" : " throw;")}} }
+                            }
                         }
                     }
                     """);
@@ -530,6 +598,39 @@ public partial class ProtocolProxyEmitter
             }
         }
 
+        // Secondary C#-side validation for ClassReturn and StructReturn:
+        // Reject if projected return type is "object" or "AnyType" (TypeDatabase degradation)
+        if (dispatchKind == MethodDispatchKind.ClassReturn || dispatchKind == MethodDispatchKind.StructReturn)
+        {
+            if (returnTypeName == "object" ||
+                returnTypeName == TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName)
+            {
+                dispatchKind = MethodDispatchKind.NotDispatchable;
+            }
+
+            // Validate params (same as ExistentialReturn)
+            if (dispatchKind == MethodDispatchKind.ClassReturn || dispatchKind == MethodDispatchKind.StructReturn)
+            {
+                for (int i = 0; i < projectedParamTypes.Count; i++)
+                {
+                    var isStringParam = WitnessDispatchEmitter.IsStringDispatchType(paramSwiftTypeSpecs[i]);
+                    if (isStringParam)
+                    {
+                        if (!IsIdiomaticStringType(projectedParamTypes[i]))
+                        {
+                            dispatchKind = MethodDispatchKind.NotDispatchable;
+                            break;
+                        }
+                    }
+                    else if (!WitnessDispatchEmitter.IsBlittablePrimitive(projectedParamTypes[i]))
+                    {
+                        dispatchKind = MethodDispatchKind.NotDispatchable;
+                        break;
+                    }
+                }
+            }
+        }
+
         var isDispatchable = dispatchKind != MethodDispatchKind.NotDispatchable;
 
         if (!isDispatchable)
@@ -703,6 +804,14 @@ public partial class ProtocolProxyEmitter
         else if (dispatchKind == MethodDispatchKind.ThrowingBlittableOrString)
         {
             EmitThrowingBlittableMethodBody(writer, method, protocolDecl, dispatchEmitter, methodIndex, methodName, argsString, argNames, paramSwiftTypeSpecs, returnType, returnTypeName, hasReturn, isStringReturn);
+        }
+        else if (dispatchKind == MethodDispatchKind.ClassReturn)
+        {
+            EmitClassReturnMethodBody(writer, method, protocolDecl, dispatchEmitter, methodIndex, methodName, argsString, argNames, paramSwiftTypeSpecs, returnType!, returnTypeName);
+        }
+        else if (dispatchKind == MethodDispatchKind.StructReturn)
+        {
+            EmitStructReturnMethodBody(writer, method, protocolDecl, dispatchEmitter, methodIndex, methodName, argsString, argNames, paramSwiftTypeSpecs, returnType!, returnTypeName);
         }
         else
         {
@@ -1071,6 +1180,259 @@ public partial class ProtocolProxyEmitter
             writer.Indent--;
             writer.WriteLine("}");
         }
+    }
+
+    /// <summary>
+    /// Emits the C# dispatch body for methods that return a Swift class.
+    /// Uses Unmanaged.passRetained on Swift side; C# wraps IntPtr in NativeMemory + SwiftMarshal.
+    /// Matches ExtensionMarshallingHelper.SwiftClass pattern (try/catch, not try/finally).
+    /// Throwing: resultPtr == IntPtr.Zero means error (same as ExistentialReturn throwing).
+    /// </summary>
+    private void EmitClassReturnMethodBody(
+        CSharpWriter writer, MethodDecl method, ProtocolDecl protocolDecl,
+        WitnessDispatchEmitter dispatchEmitter,
+        int methodIndex, string methodName, string argsString,
+        List<string> argNames, List<TypeSpec?> paramSwiftTypeSpecs,
+        TypeSpec returnType, string returnTypeName)
+    {
+        var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolDecl.Name, "method", method.Name, methodIndex);
+
+        writer.WriteLines($$"""
+            if (_csharpImpl != null)
+                return _csharpImpl.{{methodName}}({{argsString}});
+            fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
+            {
+            """);
+        writer.Indent++;
+
+        // Declare pin handles before try for exception-safe cleanup
+        var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs);
+        bool needsOuterTry = pinHandles.Count > 0;
+
+        if (needsOuterTry)
+        {
+            writer.WriteLine("try");
+            writer.WriteLine("{");
+            writer.Indent++;
+        }
+
+        // Marshal each parameter
+        EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs);
+
+        // Build P/Invoke call args
+        var pInvokeArgs = new List<string> { "(IntPtr)containerPtr" };
+        for (int i = 0; i < argNames.Count; i++)
+        {
+            pInvokeArgs.Add($"(IntPtr)(&arg{i}Slice)");
+        }
+
+        if (method.Throws)
+        {
+            pInvokeArgs.Add("(IntPtr)(&errorOut)");
+            var pInvokeArgsString = string.Join(", ", pInvokeArgs);
+
+            // Throwing: error out-parameter, null result means error
+            writer.WriteLines($$"""
+                IntPtr errorOut = IntPtr.Zero;
+                IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
+                if (resultPtr == IntPtr.Zero)
+                {
+                    string _errorMessage;
+                    var _descPtr = NativeMethods.SBW_GetErrorDescription(errorOut);
+                    try
+                    {
+                        _errorMessage = _descPtr != IntPtr.Zero
+                            ? global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
+                            : "Unknown Swift error";
+                    }
+                    finally
+                    {
+                        if (_descPtr != IntPtr.Zero) NativeMethods.SBW_Free(_descPtr);
+                        NativeMethods.SBW_ReleaseError(errorOut);
+                    }
+                    throw new Swift.Runtime.SwiftException(_errorMessage);
+                }
+                unsafe
+                {
+                    var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));
+                    try
+                    {
+                        *(IntPtr*)classPayload = resultPtr;
+                        return ({{returnTypeName}})Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{{returnTypeName}}>(new IntPtr(classPayload));
+                    }
+                    catch { NativeMemory.Free(classPayload); Arc.Release(resultPtr); throw; }
+                }
+                """);
+        }
+        else
+        {
+            var pInvokeArgsString = string.Join(", ", pInvokeArgs);
+
+            // Non-throwing: direct class return
+            writer.WriteLines($$"""
+                IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
+                unsafe
+                {
+                    var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));
+                    try
+                    {
+                        *(IntPtr*)classPayload = resultPtr;
+                        return ({{returnTypeName}})Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{{returnTypeName}}>(new IntPtr(classPayload));
+                    }
+                    catch { NativeMemory.Free(classPayload); Arc.Release(resultPtr); throw; }
+                }
+                """);
+        }
+
+        if (needsOuterTry)
+        {
+            writer.Indent--;
+            writer.WriteLine("}");
+            writer.WriteLine("finally");
+            writer.WriteLine("{");
+            writer.Indent++;
+            EmitPinHandleCleanup(writer, pinHandles);
+            writer.Indent--;
+            writer.WriteLine("}");
+        }
+
+        writer.Indent--;
+        writer.WriteLine("}");
+    }
+
+    /// <summary>
+    /// Emits the C# dispatch body for methods that return a non-frozen struct.
+    /// C# pre-allocates buffer via NativeMemory.Alloc(metadata.Size), passes as resultBuf.
+    /// Swift writes into buffer. SafeHandle takes ownership via SwiftMarshal.MarshalFromSwift.
+    /// Non-frozen structs: try/catch (SafeHandle takes buffer ownership on success).
+    /// Frozen+RefFields structs: try/finally (NewFromPayload copies to new buffer, original must be freed).
+    /// Throwing: errorOut != IntPtr.Zero means error (same as void throwing pattern).
+    /// </summary>
+    private void EmitStructReturnMethodBody(
+        CSharpWriter writer, MethodDecl method, ProtocolDecl protocolDecl,
+        WitnessDispatchEmitter dispatchEmitter,
+        int methodIndex, string methodName, string argsString,
+        List<string> argNames, List<TypeSpec?> paramSwiftTypeSpecs,
+        TypeSpec returnType, string returnTypeName)
+    {
+        var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolDecl.Name, "method", method.Name, methodIndex);
+        bool isFrozenRefFields = dispatchEmitter.IsFrozenStructWithRefFields(returnType);
+        var cleanupKeyword = isFrozenRefFields ? "finally" : "catch";
+
+        writer.WriteLines($$"""
+            if (_csharpImpl != null)
+                return _csharpImpl.{{methodName}}({{argsString}});
+            fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
+            {
+            """);
+        writer.Indent++;
+
+        // Declare pin handles before try for exception-safe cleanup
+        var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs);
+        bool needsOuterTry = pinHandles.Count > 0;
+
+        if (needsOuterTry)
+        {
+            writer.WriteLine("try");
+            writer.WriteLine("{");
+            writer.Indent++;
+        }
+
+        // Marshal each parameter
+        EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs);
+
+        // Build P/Invoke call args: containerPtr + resultBuf + params + errorOut
+        var pInvokeArgs = new List<string> { "(IntPtr)containerPtr" };
+        // resultBuf inserted below after buffer allocation
+        var argPInvokeList = new List<string>();
+        for (int i = 0; i < argNames.Count; i++)
+        {
+            argPInvokeList.Add($"(IntPtr)(&arg{i}Slice)");
+        }
+
+        if (method.Throws)
+        {
+            // Throwing struct return: errorOut check, void P/Invoke
+            writer.WriteLines($$"""
+                unsafe
+                {
+                    var metadata = SwiftObjectHelper<{{returnTypeName}}>.GetTypeMetadata();
+                    IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
+                    try
+                    {
+                        var indirectResult = new SwiftIndirectResult((void*)buffer);
+                        IntPtr errorOut = IntPtr.Zero;
+                """);
+            writer.Indent += 2;
+
+            var throwingPInvokeArgs = new List<string> { "(IntPtr)containerPtr", "(IntPtr)indirectResult.Value" };
+            throwingPInvokeArgs.AddRange(argPInvokeList);
+            throwingPInvokeArgs.Add("(IntPtr)(&errorOut)");
+            var throwingPInvokeArgsString = string.Join(", ", throwingPInvokeArgs);
+
+            writer.WriteLines($$"""
+                        NativeMethods.{{accessorSymbol}}({{throwingPInvokeArgsString}});
+                        if (errorOut != IntPtr.Zero)
+                        {
+                            string _errorMessage;
+                            var _descPtr = NativeMethods.SBW_GetErrorDescription(errorOut);
+                            try
+                            {
+                                _errorMessage = _descPtr != IntPtr.Zero
+                                    ? global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
+                                    : "Unknown Swift error";
+                            }
+                            finally
+                            {
+                                if (_descPtr != IntPtr.Zero) NativeMethods.SBW_Free(_descPtr);
+                                NativeMethods.SBW_ReleaseError(errorOut);
+                            }
+                            throw new Swift.Runtime.SwiftException(_errorMessage);
+                        }
+                        return ({{returnTypeName}})Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{{returnTypeName}}>(buffer);
+                    }
+                    {{cleanupKeyword}} { NativeMemory.Free((void*)buffer);{{(isFrozenRefFields ? "" : " throw;")}} }
+                }
+                """);
+            writer.Indent -= 2;
+        }
+        else
+        {
+            // Non-throwing struct return
+            var nonThrowingPInvokeArgs = new List<string> { "(IntPtr)containerPtr", "(IntPtr)indirectResult.Value" };
+            nonThrowingPInvokeArgs.AddRange(argPInvokeList);
+            var nonThrowingPInvokeArgsString = string.Join(", ", nonThrowingPInvokeArgs);
+
+            writer.WriteLines($$"""
+                unsafe
+                {
+                    var metadata = SwiftObjectHelper<{{returnTypeName}}>.GetTypeMetadata();
+                    IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
+                    try
+                    {
+                        var indirectResult = new SwiftIndirectResult((void*)buffer);
+                        NativeMethods.{{accessorSymbol}}({{nonThrowingPInvokeArgsString}});
+                        return ({{returnTypeName}})Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{{returnTypeName}}>(buffer);
+                    }
+                    {{cleanupKeyword}} { NativeMemory.Free((void*)buffer);{{(isFrozenRefFields ? "" : " throw;")}} }
+                }
+                """);
+        }
+
+        if (needsOuterTry)
+        {
+            writer.Indent--;
+            writer.WriteLine("}");
+            writer.WriteLine("finally");
+            writer.WriteLine("{");
+            writer.Indent++;
+            EmitPinHandleCleanup(writer, pinHandles);
+            writer.Indent--;
+            writer.WriteLine("}");
+        }
+
+        writer.Indent--;
+        writer.WriteLine("}");
     }
 
     /// <summary>

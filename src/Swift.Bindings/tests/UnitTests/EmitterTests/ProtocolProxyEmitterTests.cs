@@ -3912,5 +3912,309 @@ public class ProtocolProxyEmitterTests
         });
     }
 
+    private void RegisterClass(string name)
+    {
+        _typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", name),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Class
+            })
+        });
+    }
+
+    private void RegisterNonFrozenStruct(string name)
+    {
+        _typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", name),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Struct
+            })
+        });
+    }
+
+    private void RegisterFrozenRefFieldStruct(string name)
+    {
+        _typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", name),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct
+            })
+        });
+    }
+
+    #endregion
+
+    #region ClassReturn / StructReturn C# Emission Tests
+
+    [Fact]
+    public void EmitProxyClass_ClassReturnMethod_EmitsArcReleaseInCatch()
+    {
+        // ClassReturn catch block must release the retained Swift object
+        RegisterClass("ResponseAPDU");
+        var protocolDecl = CreateSimpleProtocol("CardChannel");
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "transmit",
+            MangledName = "$stransmit",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.ResponseAPDU"),
+                    IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false, Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("Arc.Release(resultPtr)", output);
+        Assert.Contains("NativeMemory.Free(classPayload)", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ClassReturnMethod_UsesFullyQualifiedSwiftMarshal()
+    {
+        // Must use Swift.Runtime.InteropServices.SwiftMarshal, not local MarshalFromSwift
+        RegisterClass("ResponseAPDU");
+        var protocolDecl = CreateSimpleProtocol("CardChannel");
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "transmit",
+            MangledName = "$stransmit",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.ResponseAPDU"),
+                    IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false, Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // Type is fully qualified in the generated code
+        Assert.Contains("Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<TestModule.ResponseAPDU>", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_StructReturnMethod_NonFrozen_UsesCatchNotFinally()
+    {
+        // Non-frozen struct: SafeHandle takes buffer ownership, catch-only cleanup
+        RegisterNonFrozenStruct("CardStatus");
+        var protocolDecl = CreateSimpleProtocol("Card");
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "getStatus",
+            MangledName = "$sgetStatus",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.CardStatus"),
+                    IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false, Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("SwiftIndirectResult", output);
+        Assert.Contains("catch { NativeMemory.Free((void*)buffer); throw; }", output);
+        Assert.DoesNotContain("finally { NativeMemory.Free((void*)buffer); }", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_StructReturnProperty_FrozenRefFields_UsesFinallyNotCatch()
+    {
+        // Frozen+RefFields: NewFromPayload copies to new buffer, original must be freed on success
+        RegisterFrozenRefFieldStruct("BufferedData");
+        var protocolDecl = CreateProtocolWithProperty("DataSource", "data",
+            hasGetter: true, hasSetter: false, new NamedTypeSpec("TestModule.BufferedData"));
+
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("finally { NativeMemory.Free((void*)buffer); }", output);
+        Assert.DoesNotContain("catch { NativeMemory.Free((void*)buffer); throw; }", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_StructReturnMethod_EmitsSwiftIndirectResult()
+    {
+        // StructReturn must use SwiftIndirectResult + SwiftMarshal.MarshalFromSwift
+        RegisterNonFrozenStruct("CardStatus");
+        var protocolDecl = CreateSimpleProtocol("Card");
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "getStatus",
+            MangledName = "$sgetStatus",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.CardStatus"),
+                    IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false, Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("SwiftIndirectResult", output);
+        Assert.Contains("SwiftObjectHelper<TestModule.CardStatus>.GetTypeMetadata()", output);
+        Assert.Contains("Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<TestModule.CardStatus>", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ClassReturnMethod_PInvokeReturnsIntPtr()
+    {
+        // ClassReturn P/Invoke should return IntPtr, no free function
+        RegisterClass("ResponseAPDU");
+        var protocolDecl = CreateSimpleProtocol("CardChannel");
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "transmit",
+            MangledName = "$stransmit",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.ResponseAPDU"),
+                    IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false, Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // P/Invoke returns IntPtr (public static partial)
+        Assert.Contains("partial IntPtr SBW_CardChannel_method_transmit_0", output);
+        // No free function (SafeHandle handles ARC release)
+        Assert.DoesNotContain("SBW_CardChannel_free_method_transmit_0", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_StructReturnMethod_PInvokeReturnsVoidWithResultBuf()
+    {
+        // StructReturn P/Invoke should return void and have resultBuf param
+        RegisterNonFrozenStruct("CardStatus");
+        var protocolDecl = CreateSimpleProtocol("Card");
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "getStatus",
+            MangledName = "$sgetStatus",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.CardStatus"),
+                    IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false, Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // P/Invoke returns void with resultBuf param (public static partial)
+        Assert.Contains("partial void SBW_Card_method_getStatus_0", output);
+        Assert.Contains("IntPtr resultBuf", output);
+        // No free function (SafeHandle owns buffer)
+        Assert.DoesNotContain("SBW_Card_free_method_getStatus_0", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ThrowingClassReturn_ChecksResultPtrZero()
+    {
+        // Throwing class return: check resultPtr == IntPtr.Zero for error
+        RegisterClass("ResponseAPDU");
+        var protocolDecl = CreateSimpleProtocol("CardChannel");
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "tryTransmit",
+            MangledName = "$stryTransmit",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.ResponseAPDU"),
+                    IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = true, IsAsync = false, Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("resultPtr == IntPtr.Zero", output);
+        Assert.Contains("SwiftException", output);
+        Assert.Contains("Arc.Release(resultPtr)", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ThrowingStructReturn_ChecksErrorOutNonZero()
+    {
+        // Throwing struct return: check errorOut != IntPtr.Zero for error
+        RegisterNonFrozenStruct("CardStatus");
+        var protocolDecl = CreateSimpleProtocol("Card");
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "tryGetStatus",
+            MangledName = "$stryGetStatus",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.CardStatus"),
+                    IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = true, IsAsync = false, Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("errorOut != IntPtr.Zero", output);
+        Assert.Contains("SwiftException", output);
+        Assert.Contains("SwiftIndirectResult", output);
+    }
+
     #endregion
 }

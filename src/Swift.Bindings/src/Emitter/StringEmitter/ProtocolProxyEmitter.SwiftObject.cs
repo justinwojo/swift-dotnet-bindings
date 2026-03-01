@@ -216,6 +216,44 @@ public partial class ProtocolProxyEmitter
                     Visibility = PInvokeVisibility.Public
                 });
             }
+            else if (hasGetter && dispatchEmitter.IsPropertyClassReturn(property))
+            {
+                // ClassReturn getter: returns IntPtr, no free function
+                var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolName, "get", property.Name, 0);
+                if (!emittedPInvokes.Add(accessorSymbol))
+                    continue;
+
+                writer.WriteLine();
+                PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+                {
+                    LibraryPath = wrapperLibPath,
+                    EntryPoint = accessorSymbol,
+                    MethodName = accessorSymbol,
+                    ReturnType = "IntPtr",
+                    ParametersString = "IntPtr containerPtr",
+                    CallingConvention = PInvokeCallingConvention.Cdecl,
+                    Visibility = PInvokeVisibility.Public
+                });
+            }
+            else if (hasGetter && dispatchEmitter.IsPropertyStructReturn(property))
+            {
+                // StructReturn getter: returns void, has resultBuf param, no free function
+                var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolName, "get", property.Name, 0);
+                if (!emittedPInvokes.Add(accessorSymbol))
+                    continue;
+
+                writer.WriteLine();
+                PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+                {
+                    LibraryPath = wrapperLibPath,
+                    EntryPoint = accessorSymbol,
+                    MethodName = accessorSymbol,
+                    ReturnType = "void",
+                    ParametersString = "IntPtr containerPtr, IntPtr resultBuf",
+                    CallingConvention = PInvokeCallingConvention.Cdecl,
+                    Visibility = PInvokeVisibility.Public
+                });
+            }
         }
 
         // Property setters (skip static properties - not part of witness table)
@@ -283,12 +321,14 @@ public partial class ProtocolProxyEmitter
             if (!emittedPInvokes.Add(accessorSymbol))
                 continue;
 
-            if (dispatchKind == MethodDispatchKind.ExistentialReturn || dispatchKind == MethodDispatchKind.ThrowingBlittableOrString)
+            if (dispatchKind == MethodDispatchKind.ExistentialReturn || dispatchKind == MethodDispatchKind.ThrowingBlittableOrString || dispatchKind == MethodDispatchKind.ClassReturn)
             {
-                // Both ExistentialReturn and ThrowingBlittableOrString use error out-parameter pattern
-                // params: containerPtr + per-param IntPtrs + errorOut (always present for throwing)
+                // ExistentialReturn, ThrowingBlittableOrString, and ClassReturn share the same P/Invoke shape:
+                // params: containerPtr + per-param IntPtrs + errorOut (if throwing)
+                // return: IntPtr (or void for ThrowingBlittableOrString void)
                 var isThrowingKind = dispatchKind == MethodDispatchKind.ThrowingBlittableOrString ||
-                                     (dispatchKind == MethodDispatchKind.ExistentialReturn && method.Throws);
+                                     (dispatchKind == MethodDispatchKind.ExistentialReturn && method.Throws) ||
+                                     (dispatchKind == MethodDispatchKind.ClassReturn && method.Throws);
 
                 var pInvokeParams = new List<string> { "IntPtr containerPtr" };
                 for (int i = 0; i < paramCount; i++)
@@ -302,7 +342,7 @@ public partial class ProtocolProxyEmitter
                 var pInvokeParamsString = string.Join(", ", pInvokeParams);
 
                 // ThrowingBlittableOrString: value-returning uses IntPtr (nil=error), void uses void
-                // ExistentialReturn: always IntPtr
+                // ExistentialReturn / ClassReturn: always IntPtr
                 var pInvokeReturnType = (dispatchKind == MethodDispatchKind.ThrowingBlittableOrString && !hasReturn)
                     ? "void"
                     : "IntPtr";
@@ -319,8 +359,10 @@ public partial class ProtocolProxyEmitter
                     Visibility = PInvokeVisibility.Public
                 });
 
-                // Free function: always for ExistentialReturn, only for value-returning ThrowingBlittableOrString
-                var needsFree = dispatchKind == MethodDispatchKind.ExistentialReturn || hasReturn;
+                // Free function: always for ExistentialReturn, for value-returning ThrowingBlittableOrString,
+                // never for ClassReturn (SafeHandle handles ARC release)
+                var needsFree = dispatchKind == MethodDispatchKind.ExistentialReturn ||
+                                (dispatchKind == MethodDispatchKind.ThrowingBlittableOrString && hasReturn);
                 if (needsFree)
                 {
                     var freeSymbol = WitnessDispatchEmitter.GetFreeSymbol(protocolName, "method", method.Name, idx);
@@ -339,6 +381,90 @@ public partial class ProtocolProxyEmitter
 
                 // Emit error helper P/Invokes for throwing methods
                 if (isThrowingKind)
+                {
+                    var proxyClassName = GetProxyClassName(protocolDecl);
+                    if (!ErrorDescriptionEmitter.HasErrorPInvokeForType(proxyClassName, _emissionContext))
+                    {
+                        ErrorDescriptionEmitter.MarkErrorPInvokeEmittedForType(proxyClassName, _emissionContext);
+
+                        var descSymbol = ErrorDescriptionEmitter.GetDescriptionSymbolName(_moduleName);
+                        var releaseSymbol = ErrorDescriptionEmitter.GetReleaseSymbolName(_moduleName);
+
+                        writer.WriteLine();
+                        PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+                        {
+                            LibraryPath = wrapperLibPath,
+                            EntryPoint = descSymbol,
+                            MethodName = "SBW_GetErrorDescription",
+                            ReturnType = "IntPtr",
+                            ParametersString = "IntPtr error",
+                            CallingConvention = PInvokeCallingConvention.Cdecl,
+                            Visibility = PInvokeVisibility.Public
+                        });
+
+                        writer.WriteLine();
+                        PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+                        {
+                            LibraryPath = wrapperLibPath,
+                            EntryPoint = releaseSymbol,
+                            MethodName = "SBW_ReleaseError",
+                            ReturnType = "void",
+                            ParametersString = "IntPtr error",
+                            CallingConvention = PInvokeCallingConvention.Cdecl,
+                            Visibility = PInvokeVisibility.Public
+                        });
+
+                        if (!Utf8SliceEmitter.HasFreePInvokeForType(proxyClassName, _emissionContext))
+                        {
+                            Utf8SliceEmitter.MarkFreePInvokeEmittedForType(proxyClassName, _emissionContext);
+                            var freeSwiftSymbol = Utf8SliceEmitter.GetFreeSymbolName(_moduleName);
+
+                            writer.WriteLine();
+                            PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+                            {
+                                LibraryPath = wrapperLibPath,
+                                EntryPoint = freeSwiftSymbol,
+                                MethodName = "SBW_Free",
+                                ReturnType = "void",
+                                ParametersString = "IntPtr ptr",
+                                CallingConvention = PInvokeCallingConvention.Cdecl,
+                                Visibility = PInvokeVisibility.Public
+                            });
+                        }
+                    }
+                }
+            }
+            else if (dispatchKind == MethodDispatchKind.StructReturn)
+            {
+                // StructReturn: different P/Invoke shape — returns void, has resultBuf param
+                var isThrowingStruct = method.Throws;
+
+                var pInvokeParams = new List<string> { "IntPtr containerPtr", "IntPtr resultBuf" };
+                for (int i = 0; i < paramCount; i++)
+                {
+                    pInvokeParams.Add($"IntPtr arg{i}Ptr");
+                }
+                if (isThrowingStruct)
+                {
+                    pInvokeParams.Add("IntPtr errorOut");
+                }
+                var pInvokeParamsString = string.Join(", ", pInvokeParams);
+
+                writer.WriteLine();
+                PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+                {
+                    LibraryPath = wrapperLibPath,
+                    EntryPoint = accessorSymbol,
+                    MethodName = accessorSymbol,
+                    ReturnType = "void",
+                    ParametersString = pInvokeParamsString,
+                    CallingConvention = PInvokeCallingConvention.Cdecl,
+                    Visibility = PInvokeVisibility.Public
+                });
+                // No free function — SafeHandle owns the buffer
+
+                // Emit error helper P/Invokes for throwing struct return methods
+                if (isThrowingStruct)
                 {
                     var proxyClassName = GetProxyClassName(protocolDecl);
                     if (!ErrorDescriptionEmitter.HasErrorPInvokeForType(proxyClassName, _emissionContext))

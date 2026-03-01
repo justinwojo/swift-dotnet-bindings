@@ -6,7 +6,7 @@ Tracks binary workflow completion for target libraries and prioritized architect
 
 ## Current Status
 
-**Compile gate: 53/53 passing. 7/9 target libraries usable. Session 1 complete.**
+**Compile gate: 53/53 passing. 7/9 target libraries usable. Sessions 1–2 complete.**
 
 | Library | Lines | Types | Verdict | Key gap |
 |---|---|---|---|---|
@@ -16,7 +16,7 @@ Tracks binary workflow completion for target libraries and prioritized architect
 | **Stripe** (3 modules) | 184,403 | 642 | USABLE | nint params on microdeposit verify |
 | **MicroblinkPlatform** | 4,997 | 10 | USABLE (NativeAOT) | SB0001 on SDK constructor |
 | **Mappedin** | 51,722 | 120 | USABLE | All SB0001 methods have async/no-callback alternatives |
-| **SmartCardIO** | 5,162 | 17 | USABLE | `Transmit(apdu)` SB0003 (Session 2a); throwing methods now dispatch |
+| **SmartCardIO** | 5,162 | 17 | USABLE | `Transmit(apdu)` now dispatches; remaining: collection returns + existential property |
 | **BlinkIDUX** | 11,794 | 57 | BLOCKED | Constructor takes constrained existential |
 | **BRLMPrinterKit** | 43 | 0 | NOT APPLICABLE | 99% ObjC SDK, 1 Swift method with unsupported params |
 
@@ -43,37 +43,45 @@ Tracks binary workflow completion for target libraries and prioritized architect
 | **ThrowingBlittableOrString dispatch** | SmartCardIO (19→9 SB0003), Stripe (ThrowingString properties dispatch), Lottie, BlinkID |
 | **Optional nint→int overloads** | BlinkID (DateOfBirth.Day/Month/Year as `int?`), SmartCardIO (APDU Nc/Ne/Nr), Stripe (DateOfBirth fields) |
 
-## SB0003 Analysis — 186 Non-Dispatchable Proxy Members (pre-Session 1)
+### Capabilities gained in Session 2
 
-These are methods on protocol proxy classes that throw `NotSupportedException` because the `WitnessDispatchEmitter` can't generate Swift wrapper dispatch for them.
+| Capability | Libraries improved |
+|---|---|
+| **ClassReturn dispatch** (Swift class → `Unmanaged.passRetained` → `SwiftMarshal.MarshalFromSwift<T>`) | SmartCardIO (+1: `Transmit → ResponseAPDU`), StripePayments (-1 SB0003) |
+| **StructReturn dispatch** (Non-frozen struct → `SwiftIndirectResult` buffer → `SwiftMarshal.MarshalFromSwift<T>`) | BlinkIDUX (-21: 22 Color/Font theme properties on IUXThemeProtocol) |
 
-| Category | Count | Description |
-|---|---|---|
-| **NonBlittableReturn** | 58 | Returns class/struct/byte[] |
-| **VoidNonBlitParams** | 33 | Void return, Swift struct/class params |
-| **InterfaceReturn** | 28 | Returns protocol existential (`I*` type) |
-| **ThrowingString** | 21 | Returns string but method throws |
-| **AnyTypeReturn** | 13 | Returns AnyType/object/AnyHashable (opaque) |
-| **VoidDispatchable** | 11 | Should already dispatch (void, simple params) — investigate |
-| **ClosureParams** | 10 | Closure callback params in protocol method |
-| **ThrowingBlittable** | 6 | Returns bool/byte/int but throws |
-| **BlittableNonBlitParams** | 3 | Returns blittable but non-blittable param blocks |
-| **VoidThrowing** | 2 | Void return, throws |
+## SB0003 Analysis — 162 Non-Dispatchable Proxy Members (post-Session 2)
+
+Originally 186 pre-Session 1. Session 1 dispatched ~24 (throwing + void). Session 2 dispatched 24 more (class/struct returns). 162 remaining.
+
+| Category | Original | Dispatched | Remaining | Notes |
+|---|---|---|---|---|
+| **NonBlittableReturn** | 58 | 24 (S2) | 34 | Class/struct returns dispatched; byte[]/collection returns remain |
+| **VoidNonBlitParams** | 33 | 0 | 33 | Session 3 |
+| **InterfaceReturn** | 28 | 0 | 28 | Collection returns + optional existentials deferred |
+| **ThrowingString** | 21 | 21 (S1) | 0 | ✅ All dispatched |
+| **AnyTypeReturn** | 13 | 0 | 13 | Fundamentally opaque |
+| **VoidDispatchable** | 11 | 5 (S1) | 6 | 5 were throwing-void, 4 async, 2 regen |
+| **ClosureParams** | 10 | 0 | 10 | Complex — deferred |
+| **ThrowingBlittable** | 6 | 6 (S1) | 0 | ✅ All dispatched |
+| **BlittableNonBlitParams** | 3 | 0 | 3 | Rare, low ROI |
+| **VoidThrowing** | 2 | 2 (S1) | 0 | ✅ All dispatched |
 
 ### Distribution across target libraries
 
-| Library | SB0003 | SB0001 | SB0002 |
-|---|---|---|---|
-| StripePayments | 18 | 41 | 72 |
-| StripeCore | 29 | 11 | 3 |
-| StripePaymentSheet | 23 | 5 | 7 |
-| Mappedin | 9 | 45 | 1 |
-| Nuke | 27 | 5 | 0 |
-| Lottie | 21 | 24 | 10 |
-| BlinkIDUX | 32 | 0 | 0 |
-| SmartCardIO | ~~19~~ 9 | 1 | 0 |
-| BlinkID | 5 | 3 | 0 |
-| MicroblinkPlatform | 3 | 1 | 0 |
+| Library | Pre-S1 | Post-S1 | Post-S2 | Change |
+|---|---|---|---|---|
+| StripePayments | 18 | — | 17 | -1 (ClassReturn) |
+| StripeCore | 29 | — | 29 | 0 |
+| StripePaymentSheet | 23 | — | 23 | 0 |
+| Mappedin | 9 | — | 9 | 0 |
+| Nuke | 27 | — | 26 | -1 |
+| Lottie | 21 | — | 21 | 0 |
+| BlinkIDUX | 32 | — | 11 | **-21** (StructReturn theme properties) |
+| SmartCardIO | 19 | 9 | 8 | **-1** (Transmit → ResponseAPDU) |
+| BlinkID | 5 | — | 5 | 0 |
+| MicroblinkPlatform | 3 | — | 3 | 0 |
+| **Total** | **186** | — | **162** | **-24** |
 
 ---
 
@@ -101,36 +109,32 @@ Extended `NativeIntOverloadEmitter` to unwrap `Optional<Swift.Int>` → `int?` a
 
 ---
 
-### Session 2: Non-blittable returns + interface returns
+### Session 2: Non-blittable returns + interface returns ✅ COMPLETE
 
-**Impact: 86 SB0003 → dispatched (58 NonBlittableReturn + 28 InterfaceReturn)**
+**Result: 24 SB0003 dispatched. BlinkIDUX 32→11, SmartCardIO 9→8, StripePayments 18→17, Nuke 27→26.**
 
-Two related problems — dispatch through witness table when the return type isn't a simple scalar:
+Two new `MethodDispatchKind` values added:
 
-**2a: Concrete struct/class returns (58 SB0003)**
+**2a: Concrete struct/class returns ✅**
 
-Requires witness dispatch returning a Swift struct/class through the existential witness table. Two sub-paths:
-- Class returns (reference type) — wrapper allocates and returns a pointer, C# wraps in SafeHandle. Closest pattern: `ExistentialReturn` already handles returning existential containers.
-- Struct returns (non-frozen) — `SwiftIndirectResult` pattern through witness dispatch. Caller pre-allocates return buffer.
+Added `ClassReturn` and `StructReturn` dispatch kinds. ClassReturn: Swift returns `UnsafeMutableRawPointer` via `Unmanaged.passRetained(result as AnyObject).toOpaque()`, C# marshals via `SwiftMarshal.MarshalFromSwift<T>()` with `NativeMemory.Alloc(sizeof(IntPtr))` wrapper. StructReturn: C# pre-allocates buffer via `NativeMemory.Alloc(metadata.Size)`, Swift writes via `resultBuf.assumingMemoryBound(to: T.self).initialize(to: result)`. Non-frozen structs use `try/catch` (SafeHandle takes buffer ownership). Frozen+ref-field structs (`ClassWithBufferStruct`) use `try/finally` because `NewFromPayload` copies to a new buffer — original must be freed on success. ClassReturn catch blocks include `Arc.Release(resultPtr)` to release the `+1` retain on marshalling failure. No free functions — SafeHandle takes ownership. Throwing variants follow established error-out-parameter patterns.
 
-Key unlocks:
-- SmartCardIO: `Transmit(CommandAPDU) → ResponseAPDU` (the #1 most-wanted method)
-- BlinkIDUX: 22 SwiftUI.Color/Font theme properties on `IUXThemeProtocol`
-- Nuke: 8 struct/class returns (ImageContainer, ImageResponse, etc.)
-- BlinkID: 4 struct returns
-- Stripe: 12 struct/class returns across 3 modules
+Key unlocks achieved:
+- SmartCardIO: `Transmit(CommandAPDU) → ResponseAPDU` (the #2 most-wanted method) ✅
+- BlinkIDUX: 21 SwiftUI.Color/Font theme properties on `IUXThemeProtocol` ✅
+- StripePayments: 1 class return ✅
+- Nuke: 1 class/struct return ✅
 
-**2b: Interface/existential returns in proxies (28 SB0003)**
+Lower-than-estimated impact (24 vs 58) because many "NonBlittableReturn" methods also have non-dispatchable params (class/struct params → Session 3 will unlock more).
 
-Protocol methods returning other protocol existentials. The `ExistentialReturn` dispatch kind already handles this for concrete class methods, but proxy witness dispatch doesn't use it. Extending `ExistentialReturn` infrastructure to the proxy witness dispatch context.
+**2b: Interface/existential returns — diagnosed, deferred**
 
-Key unlocks:
-- SmartCardIO: `Connect() → ICard`, `GetList() → IReadOnlyList<ICardTerminal>`, `Terminal(name) → ICardTerminal?`
-- StripeCore: 10 analytics protocol methods returning `IReadOnlyDictionary<string, object>`
-- Nuke: 5 delegate factory methods
-- Stripe: 5 protocol methods across PaymentSheet/Payments
+The 28 InterfaceReturn SB0003 break down into:
+- Collection returns (`IReadOnlyList<T>`, `IReadOnlyDictionary<K,V>`) — bound generic types, NOT existentials → need bound generic witness dispatch (complex, deferred)
+- Optional existentials (`ICardTerminal?`) — need Optional unwrapping in witness dispatch (deferred)
+- Existential property getters (`ICard`) — `ExistentialReturn` handles methods but not property getters in witness dispatch (deferred, could be a small follow-up)
 
-**Estimated effort**: Large.
+**Tests**: 29 new tests (10 classification, 10 Swift emission, 9 C# body/P/Invoke emission).
 
 ---
 
@@ -177,12 +181,12 @@ Key unlocks:
 ## Top 10 Most-Wanted Methods
 
 1. ~~**`SmartCardIO.ICardTerminal.IsCardPresent() → bool`**~~ — ✅ Session 1a (ThrowingBlittable)
-2. **`SmartCardIO.ICardChannel.Transmit(CommandAPDU) → ResponseAPDU`** — Session 2a (NonBlittableReturn)
+2. ~~**`SmartCardIO.ICardChannel.Transmit(CommandAPDU) → ResponseAPDU`**~~ — ✅ Session 2a (StructReturn)
 3. **`StripePaymentSheet.ICustomerAdapter.AttachPaymentMethodAsync(string)`** — Session 1b: async, stays deferred
 4. **`Mappedin.IMPIMapViewDelegate.OnMapChanged(MPIMap)`** — Session 3 (VoidNonBlitParams)
 5. ~~**`StripePaymentSheet.IVerifyKYCInfo.City/Country/Line1... → string?`** (×11)~~ — ✅ Session 1a (ThrowingString)
 6. ~~**`SmartCardIO.ICardTerminal.WaitForCardPresent(timeout) → bool`**~~ — ✅ Session 1a (ThrowingBlittable)
-7. **`BlinkIDUX.IUXThemeProtocol` 22 Color/Font properties** — Session 2a (NonBlittableReturn)
+7. ~~**`BlinkIDUX.IUXThemeProtocol` 22 Color/Font properties**~~ — ✅ Session 2a (StructReturn, 21 dispatched)
 8. **`Nuke.IImagePipelineDelegate.DataLoader() → IDataLoading`** — Session 2b (InterfaceReturn)
 9. **`StripeCore.IAnalytic.Params → IReadOnlyDictionary`** — Session 2b (InterfaceReturn)
 10. **`BlinkIDUX.BlinkIDUXModel` constructor** — Session 4 (ConstrainedExistential)
@@ -191,9 +195,9 @@ Key unlocks:
 
 ```
 Session 1: Throwing dispatch + void fix + nint    [~34 SB0003, Medium]    ✅ COMPLETE — SmartCardIO 19→9
-Session 2: Non-blittable + interface returns      [86 SB0003, Large]      → ~60 remaining
-Session 3: Void dispatch with struct params       [33 SB0003, Large]      → ~27 remaining
-Session 4: Constrained existential params         [BlinkIDUX, Large]      → ~27 remaining, 8/9 usable
+Session 2: Non-blittable + interface returns      [24 SB0003, Large]      ✅ COMPLETE — BlinkIDUX 32→11, SmartCardIO 9→8
+Session 3: Void dispatch with struct params       [33 SB0003, Large]      → ~129 remaining
+Session 4: Constrained existential params         [BlinkIDUX, Large]      → ~129 remaining, 8/9 usable
 ```
 
-After all 4 sessions: **~159/186 SB0003 eliminated (86%)**, **8/9 target libraries usable**. The ~27 remaining are closure-in-proxy (10), AnyType/opaque (13), and edge cases (4) — all deferred.
+After all 4 sessions: **~57/186 SB0003 eliminated (31%) + 33 from Session 3 = ~90/186 (48%)**, **8/9 target libraries usable**. The ~96 remaining are interface/collection returns (28), closure-in-proxy (10), AnyType/opaque (13), blittable+non-blit-params (3), class-return-with-class-params (~34), and async/regen edge cases (~8). Many "NonBlittableReturn" methods have non-dispatchable params — Session 3 (struct params) will unlock additional class/struct returns that are currently blocked on params, not on the return type itself.

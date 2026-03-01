@@ -17,7 +17,11 @@ public enum MethodDispatchKind
     /// <summary>Method returns a protocol existential (new dispatch path with ARC-safe typed pointer).</summary>
     ExistentialReturn,
     /// <summary>Throwing method with blittable/String/void return (error out-parameter pattern).</summary>
-    ThrowingBlittableOrString
+    ThrowingBlittableOrString,
+    /// <summary>Method returns a Swift class (ARC via Unmanaged.passRetained). Handles throwing internally.</summary>
+    ClassReturn,
+    /// <summary>Method returns a non-frozen struct or frozen+RefFields struct (indirect result buffer). Handles throwing internally.</summary>
+    StructReturn
 }
 
 /// <summary>
@@ -139,18 +143,39 @@ public class WitnessDispatchEmitter
             if (!emittedPropertyNames.Add(property.Name + "_get"))
                 continue;
             var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
-            if (hasGetter && IsPropertyGetterDispatchable(property))
+            if (hasGetter)
             {
-                if (!anyEmitted)
+                if (IsPropertyGetterDispatchable(property))
                 {
-                    writer.WriteLine($"// Witness dispatch accessors for {protocolName}");
-                    anyEmitted = true;
+                    if (!anyEmitted)
+                    {
+                        writer.WriteLine($"// Witness dispatch accessors for {protocolName}");
+                        anyEmitted = true;
+                    }
+                    if (NeedsUtf8Slice(protocolDecl))
+                    {
+                        Utf8SliceEmitter.EmitIfNeeded(writer, _emissionContext);
+                    }
+                    EmitPropertyGetterAccessor(writer, property, protocolDecl, moduleQualifiedName);
                 }
-                if (NeedsUtf8Slice(protocolDecl))
+                else if (IsPropertyClassReturn(property))
                 {
-                    Utf8SliceEmitter.EmitIfNeeded(writer, _emissionContext);
+                    if (!anyEmitted)
+                    {
+                        writer.WriteLine($"// Witness dispatch accessors for {protocolName}");
+                        anyEmitted = true;
+                    }
+                    EmitClassReturnPropertyGetterAccessor(writer, property, protocolDecl, moduleQualifiedName);
                 }
-                EmitPropertyGetterAccessor(writer, property, protocolDecl, moduleQualifiedName);
+                else if (IsPropertyStructReturn(property))
+                {
+                    if (!anyEmitted)
+                    {
+                        writer.WriteLine($"// Witness dispatch accessors for {protocolName}");
+                        anyEmitted = true;
+                    }
+                    EmitStructReturnPropertyGetterAccessor(writer, property, protocolDecl, moduleQualifiedName);
+                }
             }
         }
 
@@ -237,6 +262,42 @@ public class WitnessDispatchEmitter
                 }
                 EmitExistentialMethodAccessor(writer, method, protocolDecl, moduleQualifiedName, idx);
             }
+            else if (kind == MethodDispatchKind.ClassReturn)
+            {
+                if (!anyEmitted)
+                {
+                    writer.WriteLine($"// Witness dispatch accessors for {protocolName}");
+                    anyEmitted = true;
+                }
+                if (NeedsUtf8Slice(protocolDecl))
+                {
+                    Utf8SliceEmitter.EmitIfNeeded(writer, _emissionContext);
+                }
+                if (method.Throws)
+                {
+                    ErrorDescriptionEmitter.EmitIfNeeded(writer, _moduleName, _emissionContext);
+                    Utf8SliceEmitter.EmitFreeIfNeeded(writer, _moduleName, _emissionContext);
+                }
+                EmitClassReturnMethodAccessor(writer, method, protocolDecl, moduleQualifiedName, idx);
+            }
+            else if (kind == MethodDispatchKind.StructReturn)
+            {
+                if (!anyEmitted)
+                {
+                    writer.WriteLine($"// Witness dispatch accessors for {protocolName}");
+                    anyEmitted = true;
+                }
+                if (NeedsUtf8Slice(protocolDecl))
+                {
+                    Utf8SliceEmitter.EmitIfNeeded(writer, _emissionContext);
+                }
+                if (method.Throws)
+                {
+                    ErrorDescriptionEmitter.EmitIfNeeded(writer, _moduleName, _emissionContext);
+                    Utf8SliceEmitter.EmitFreeIfNeeded(writer, _moduleName, _emissionContext);
+                }
+                EmitStructReturnMethodAccessor(writer, method, protocolDecl, moduleQualifiedName, idx);
+            }
         }
 
         if (anyEmitted)
@@ -287,6 +348,30 @@ public class WitnessDispatchEmitter
                     return MethodDispatchKind.NotDispatchable;
             }
             return MethodDispatchKind.ExistentialReturn;
+        }
+
+        // Check if return type is a concrete class (ARC via Unmanaged.passRetained)
+        // Handles throwing internally (same as ExistentialReturn)
+        if (hasReturn && IsClassReturn(returnType!))
+        {
+            foreach (var param in method.CSSignature.Skip(1))
+            {
+                if (!IsTypeDispatchable(param.SwiftTypeSpec))
+                    return MethodDispatchKind.NotDispatchable;
+            }
+            return MethodDispatchKind.ClassReturn;
+        }
+
+        // Check if return type is a non-frozen struct (indirect result buffer)
+        // Handles throwing internally (same as ClassReturn)
+        if (hasReturn && IsStructReturn(returnType!))
+        {
+            foreach (var param in method.CSSignature.Skip(1))
+            {
+                if (!IsTypeDispatchable(param.SwiftTypeSpec))
+                    return MethodDispatchKind.NotDispatchable;
+            }
+            return MethodDispatchKind.StructReturn;
         }
 
         // Throwing methods with blittable/String/void return use error out-parameter pattern
@@ -359,6 +444,152 @@ public class WitnessDispatchEmitter
             return false;
 
         return true;
+    }
+
+    /// <summary>
+    /// Checks if a return type is a Swift class (TypeRecordKind.Class) that can be
+    /// dispatched through the witness table using Unmanaged.passRetained.
+    /// Rejects generic types (ContainsGenericParameters) and ObjC module types.
+    /// </summary>
+    public bool IsClassReturn(TypeSpec returnType)
+    {
+        // Already handled by blittable/String dispatch
+        if (IsTypeDispatchable(returnType))
+            return false;
+
+        if (returnType is not NamedTypeSpec namedType)
+            return false;
+        if (namedType.ContainsGenericParameters)
+            return false;
+        if (TypeDatabaseExtensions.IsObjCModuleType(namedType))
+            return false;
+
+        try
+        {
+            var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+            if (_typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord))
+                return typeRecord.Kind == TypeRecordKind.Class;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Checks if a return type is a struct that requires indirect result buffer
+    /// (non-frozen struct or frozen struct with RequiresMemoryManagement).
+    /// Matches ExtensionMarshallingHelper.ClassifyReturnType logic for NonFrozenStruct.
+    /// </summary>
+    public bool IsStructReturn(TypeSpec returnType)
+    {
+        // Already handled by blittable/String dispatch
+        if (IsTypeDispatchable(returnType))
+            return false;
+
+        if (returnType is not NamedTypeSpec namedType)
+            return false;
+        if (namedType.ContainsGenericParameters)
+            return false;
+
+        try
+        {
+            var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+            if (_typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord))
+            {
+                if (typeRecord.Kind != TypeRecordKind.Struct)
+                    return false;
+                bool isFrozen = typeRecord.Flags.HasFlag(TypeRecordFlags.Frozen);
+                bool hasRefFields = typeRecord.Flags.HasFlag(TypeRecordFlags.RequiresMemoryManagement);
+                // Frozen value-type structs not supported (would be blittable)
+                if (isFrozen && !hasRefFields)
+                    return false;
+                // Non-frozen OR frozen+RefFields → indirect result buffer
+                return true;
+            }
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Checks if a struct return type is a frozen struct with reference-type fields (ClassWithBufferStruct).
+    /// For this subtype, NewFromPayload copies to a new buffer, so the original buffer must be freed on success.
+    /// </summary>
+    public bool IsFrozenStructWithRefFields(TypeSpec returnType)
+    {
+        if (returnType is not NamedTypeSpec namedType)
+            return false;
+        try
+        {
+            var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+            if (_typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord))
+            {
+                return MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord);
+            }
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Checks if a property getter returns a Swift class (dispatchable via ClassReturn pattern).
+    /// </summary>
+    public bool IsPropertyClassReturn(PropertyDecl property)
+    {
+        return IsClassReturn(property.SwiftTypeSpec);
+    }
+
+    /// <summary>
+    /// Checks if a property getter returns a struct requiring indirect result buffer.
+    /// </summary>
+    public bool IsPropertyStructReturn(PropertyDecl property)
+    {
+        return IsStructReturn(property.SwiftTypeSpec);
+    }
+
+    /// <summary>
+    /// Gets the module-qualified Swift type name for a concrete TypeSpec.
+    /// Used for struct return's assumingMemoryBound(to:) and class return's type cast.
+    /// Returns null if the type cannot be resolved.
+    /// </summary>
+    public string? GetSwiftConcreteTypeName(TypeSpec typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec namedType)
+            return null;
+        // The Swift name is the module-qualified name from the TypeSpec itself
+        return namedType.Name;
+    }
+
+    /// <summary>
+    /// Gets the C# type name for a concrete class/struct return, suitable for
+    /// SwiftMarshal.MarshalFromSwift&lt;T&gt;() calls.
+    /// Returns null if the type cannot be resolved.
+    /// </summary>
+    public string? GetConcreteReturnCSharpType(TypeSpec typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec namedType)
+            return null;
+        try
+        {
+            var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+            if (_typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord))
+                return typeRecord.CSharpTypeName.FullyQualifiedName;
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+        return null;
     }
 
     /// <summary>
@@ -1111,6 +1342,258 @@ public class WitnessDispatchEmitter
             }
 
             """);
+    }
+
+    /// <summary>
+    /// Emits a witness dispatch accessor for methods returning a Swift class.
+    /// Non-throwing: returns UnsafeMutableRawPointer via Unmanaged.passRetained.
+    /// Throwing: do/catch with errorOut, returns nil on error.
+    /// No free function — C# SafeHandle handles ARC release.
+    /// </summary>
+    private void EmitClassReturnMethodAccessor(SwiftWriter writer, MethodDecl method, ProtocolDecl protocolDecl, string moduleQualifiedName, int index)
+    {
+        var protocolName = protocolDecl.Name;
+        var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+        var swiftConcreteType = GetSwiftConcreteTypeName(returnType!);
+        if (swiftConcreteType == null)
+            return;
+
+        var accessorSymbol = GetAccessorSymbol(protocolName, "method", method.Name, index);
+
+        // Build Swift parameter list
+        var swiftParams = new List<string> { "_ containerPtr: UnsafeRawPointer" };
+        for (int i = 0; i < method.CSSignature.Count - 1; i++)
+        {
+            swiftParams.Add($"_ arg{i}Ptr: UnsafeRawPointer");
+        }
+        if (method.Throws)
+        {
+            swiftParams.Add("_ errorOut: UnsafeMutablePointer<UnsafeRawPointer?>");
+        }
+        var swiftParamsString = string.Join(", ", swiftParams);
+
+        var swiftReturnDecl = method.Throws
+            ? " -> UnsafeMutableRawPointer?"
+            : " -> UnsafeMutableRawPointer";
+
+        writer.WriteLine($"@_silgen_name(\"{accessorSymbol}\")");
+        writer.WriteLine($"public func {accessorSymbol}({swiftParamsString}){swiftReturnDecl} {{");
+        writer.Indent++;
+
+        writer.WriteLine($"let existential = containerPtr.load(as: (any {moduleQualifiedName}).self)");
+
+        // Unmarshal parameters
+        var callArgs = new List<string>();
+        int argIdx = 0;
+        foreach (var param in method.CSSignature.Skip(1))
+        {
+            EmitParameterUnmarshal(writer, param, argIdx);
+            callArgs.Add($"arg{argIdx}");
+            argIdx++;
+        }
+
+        // Build labeled args
+        var labeledArgs = BuildLabeledArgs(method, callArgs);
+        var callArgsString = string.Join(", ", labeledArgs);
+
+        var tryPrefix = method.Throws ? "try " : "";
+
+        if (method.Throws)
+        {
+            writer.WriteLine("do {");
+            writer.Indent++;
+            writer.WriteLine($"let result = {tryPrefix}existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
+            writer.WriteLine("return Unmanaged.passRetained(result as AnyObject).toOpaque()");
+            writer.Indent--;
+            writer.WriteLine("} catch {");
+            writer.Indent++;
+            writer.WriteLine("errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()");
+            writer.WriteLine("return nil");
+            writer.Indent--;
+            writer.WriteLine("}");
+        }
+        else
+        {
+            writer.WriteLine($"let result = existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
+            writer.WriteLine("return Unmanaged.passRetained(result as AnyObject).toOpaque()");
+        }
+
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.WriteLine();
+        // No free function — SafeHandle handles ARC release
+    }
+
+    /// <summary>
+    /// Emits a witness dispatch accessor for methods returning a non-frozen struct.
+    /// Caller provides resultBuf; Swift writes into it via assumingMemoryBound(to:).initialize(to:).
+    /// Throwing: do/catch with errorOut, void return.
+    /// No free function — SafeHandle owns the buffer.
+    /// </summary>
+    private void EmitStructReturnMethodAccessor(SwiftWriter writer, MethodDecl method, ProtocolDecl protocolDecl, string moduleQualifiedName, int index)
+    {
+        var protocolName = protocolDecl.Name;
+        var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+        var swiftConcreteType = GetSwiftConcreteTypeName(returnType!);
+        if (swiftConcreteType == null)
+            return;
+
+        var accessorSymbol = GetAccessorSymbol(protocolName, "method", method.Name, index);
+
+        // Build Swift parameter list: containerPtr + resultBuf + per-param + errorOut
+        var swiftParams = new List<string> { "_ containerPtr: UnsafeRawPointer", "_ resultBuf: UnsafeMutableRawPointer" };
+        for (int i = 0; i < method.CSSignature.Count - 1; i++)
+        {
+            swiftParams.Add($"_ arg{i}Ptr: UnsafeRawPointer");
+        }
+        if (method.Throws)
+        {
+            swiftParams.Add("_ errorOut: UnsafeMutablePointer<UnsafeRawPointer?>");
+        }
+        var swiftParamsString = string.Join(", ", swiftParams);
+
+        // Struct return always returns void (result written into buffer)
+        writer.WriteLine($"@_silgen_name(\"{accessorSymbol}\")");
+        writer.WriteLine($"public func {accessorSymbol}({swiftParamsString}) {{");
+        writer.Indent++;
+
+        writer.WriteLine($"let existential = containerPtr.load(as: (any {moduleQualifiedName}).self)");
+
+        // Unmarshal parameters
+        var callArgs = new List<string>();
+        int argIdx = 0;
+        foreach (var param in method.CSSignature.Skip(1))
+        {
+            EmitParameterUnmarshal(writer, param, argIdx);
+            callArgs.Add($"arg{argIdx}");
+            argIdx++;
+        }
+
+        // Build labeled args
+        var labeledArgs = BuildLabeledArgs(method, callArgs);
+        var callArgsString = string.Join(", ", labeledArgs);
+
+        var tryPrefix = method.Throws ? "try " : "";
+
+        if (method.Throws)
+        {
+            writer.WriteLine("do {");
+            writer.Indent++;
+            writer.WriteLine($"let result = {tryPrefix}existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
+            writer.WriteLine($"resultBuf.assumingMemoryBound(to: {swiftConcreteType}.self).initialize(to: result)");
+            writer.Indent--;
+            writer.WriteLine("} catch {");
+            writer.Indent++;
+            writer.WriteLine("errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()");
+            writer.Indent--;
+            writer.WriteLine("}");
+        }
+        else
+        {
+            writer.WriteLine($"let result = existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
+            writer.WriteLine($"resultBuf.assumingMemoryBound(to: {swiftConcreteType}.self).initialize(to: result)");
+        }
+
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.WriteLine();
+        // No free function — SafeHandle owns the buffer
+    }
+
+    /// <summary>
+    /// Emits a property getter accessor for class return types.
+    /// Returns UnsafeMutableRawPointer via Unmanaged.passRetained.
+    /// </summary>
+    private void EmitClassReturnPropertyGetterAccessor(SwiftWriter writer, PropertyDecl property, ProtocolDecl protocolDecl, string moduleQualifiedName)
+    {
+        var protocolName = protocolDecl.Name;
+        var accessorSymbol = GetAccessorSymbol(protocolName, "get", property.Name, 0);
+
+        writer.WriteLines($$"""
+            @_silgen_name("{{accessorSymbol}}")
+            public func {{accessorSymbol}}(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
+                let existential = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
+                let result = existential.{{property.Name}}
+                return Unmanaged.passRetained(result as AnyObject).toOpaque()
+            }
+
+            """);
+        // No free function — SafeHandle handles ARC release
+    }
+
+    /// <summary>
+    /// Emits a property getter accessor for struct return types.
+    /// Caller provides resultBuf; Swift writes into it.
+    /// </summary>
+    private void EmitStructReturnPropertyGetterAccessor(SwiftWriter writer, PropertyDecl property, ProtocolDecl protocolDecl, string moduleQualifiedName)
+    {
+        var protocolName = protocolDecl.Name;
+        var swiftConcreteType = GetSwiftConcreteTypeName(property.SwiftTypeSpec);
+        if (swiftConcreteType == null)
+            return;
+
+        var accessorSymbol = GetAccessorSymbol(protocolName, "get", property.Name, 0);
+
+        writer.WriteLines($$"""
+            @_silgen_name("{{accessorSymbol}}")
+            public func {{accessorSymbol}}(_ containerPtr: UnsafeRawPointer, _ resultBuf: UnsafeMutableRawPointer) {
+                let existential = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
+                let result = existential.{{property.Name}}
+                resultBuf.assumingMemoryBound(to: {{swiftConcreteType}}.self).initialize(to: result)
+            }
+
+            """);
+        // No free function — SafeHandle owns the buffer
+    }
+
+    /// <summary>
+    /// Emits parameter unmarshalling for a single argument (shared by all accessor types).
+    /// </summary>
+    private void EmitParameterUnmarshal(SwiftWriter writer, ArgumentDecl param, int argIdx)
+    {
+        if (IsStringType(param.SwiftTypeSpec))
+        {
+            writer.WriteLine($"let arg{argIdx}Slice = arg{argIdx}Ptr.load(as: SBW_Utf8Slice.self)");
+            writer.WriteLine($"let arg{argIdx}: String");
+            writer.WriteLine($"if arg{argIdx}Slice.len > 0 {{");
+            writer.Indent++;
+            writer.WriteLine($"arg{argIdx} = String(unsafeUninitializedCapacity: arg{argIdx}Slice.len) {{ buf in");
+            writer.Indent++;
+            writer.WriteLine($"UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: arg{argIdx}Slice.ptr, byteCount: arg{argIdx}Slice.len)");
+            writer.WriteLine($"return arg{argIdx}Slice.len");
+            writer.Indent--;
+            writer.WriteLine("}");
+            writer.Indent--;
+            writer.WriteLine("} else {");
+            writer.Indent++;
+            writer.WriteLine($"arg{argIdx} = \"\"");
+            writer.Indent--;
+            writer.WriteLine("}");
+        }
+        else
+        {
+            var csharpType = GetCSharpTypeName(param.SwiftTypeSpec);
+            var swiftType = GetSwiftPrimitiveType(csharpType);
+            writer.WriteLine($"let arg{argIdx} = arg{argIdx}Ptr.load(as: {swiftType}.self)");
+        }
+    }
+
+    /// <summary>
+    /// Builds labeled Swift argument list from method signature and call args.
+    /// </summary>
+    private static List<string> BuildLabeledArgs(MethodDecl method, List<string> callArgs)
+    {
+        var labeledArgs = new List<string>();
+        int argIdx = 0;
+        for (int i = 1; i < method.CSSignature.Count; i++)
+        {
+            var param = method.CSSignature[i];
+            var label = GetSwiftParameterLabel(param);
+            var argRef = callArgs[argIdx];
+            labeledArgs.Add(label == "_" ? argRef : $"{label}: {argRef}");
+            argIdx++;
+        }
+        return labeledArgs;
     }
 
     /// <summary>
