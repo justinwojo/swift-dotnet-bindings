@@ -283,20 +283,29 @@ public partial class ProtocolProxyEmitter
             if (!emittedPInvokes.Add(accessorSymbol))
                 continue;
 
-            if (dispatchKind == MethodDispatchKind.ExistentialReturn)
+            if (dispatchKind == MethodDispatchKind.ExistentialReturn || dispatchKind == MethodDispatchKind.ThrowingBlittableOrString)
             {
-                // ExistentialReturn: accessor returns IntPtr (nullable for throwing)
-                // params: containerPtr + per-param IntPtrs + errorOut if throwing
+                // Both ExistentialReturn and ThrowingBlittableOrString use error out-parameter pattern
+                // params: containerPtr + per-param IntPtrs + errorOut (always present for throwing)
+                var isThrowingKind = dispatchKind == MethodDispatchKind.ThrowingBlittableOrString ||
+                                     (dispatchKind == MethodDispatchKind.ExistentialReturn && method.Throws);
+
                 var pInvokeParams = new List<string> { "IntPtr containerPtr" };
                 for (int i = 0; i < paramCount; i++)
                 {
                     pInvokeParams.Add($"IntPtr arg{i}Ptr");
                 }
-                if (method.Throws)
+                if (isThrowingKind)
                 {
                     pInvokeParams.Add("IntPtr errorOut");
                 }
                 var pInvokeParamsString = string.Join(", ", pInvokeParams);
+
+                // ThrowingBlittableOrString: value-returning uses IntPtr (nil=error), void uses void
+                // ExistentialReturn: always IntPtr
+                var pInvokeReturnType = (dispatchKind == MethodDispatchKind.ThrowingBlittableOrString && !hasReturn)
+                    ? "void"
+                    : "IntPtr";
 
                 writer.WriteLine();
                 PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
@@ -304,28 +313,32 @@ public partial class ProtocolProxyEmitter
                     LibraryPath = wrapperLibPath,
                     EntryPoint = accessorSymbol,
                     MethodName = accessorSymbol,
-                    ReturnType = "IntPtr",
+                    ReturnType = pInvokeReturnType,
                     ParametersString = pInvokeParamsString,
                     CallingConvention = PInvokeCallingConvention.Cdecl,
                     Visibility = PInvokeVisibility.Public
                 });
 
-                // Free function (always needed — existential return always has a value)
-                var freeSymbol = WitnessDispatchEmitter.GetFreeSymbol(protocolName, "method", method.Name, idx);
-                writer.WriteLine();
-                PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+                // Free function: always for ExistentialReturn, only for value-returning ThrowingBlittableOrString
+                var needsFree = dispatchKind == MethodDispatchKind.ExistentialReturn || hasReturn;
+                if (needsFree)
                 {
-                    LibraryPath = wrapperLibPath,
-                    EntryPoint = freeSymbol,
-                    MethodName = freeSymbol,
-                    ReturnType = "void",
-                    ParametersString = "IntPtr ptr",
-                    CallingConvention = PInvokeCallingConvention.Cdecl,
-                    Visibility = PInvokeVisibility.Public
-                });
+                    var freeSymbol = WitnessDispatchEmitter.GetFreeSymbol(protocolName, "method", method.Name, idx);
+                    writer.WriteLine();
+                    PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+                    {
+                        LibraryPath = wrapperLibPath,
+                        EntryPoint = freeSymbol,
+                        MethodName = freeSymbol,
+                        ReturnType = "void",
+                        ParametersString = "IntPtr ptr",
+                        CallingConvention = PInvokeCallingConvention.Cdecl,
+                        Visibility = PInvokeVisibility.Public
+                    });
+                }
 
-                // Emit error helper P/Invokes for throwing existential methods
-                if (method.Throws)
+                // Emit error helper P/Invokes for throwing methods
+                if (isThrowingKind)
                 {
                     var proxyClassName = GetProxyClassName(protocolDecl);
                     if (!ErrorDescriptionEmitter.HasErrorPInvokeForType(proxyClassName, _emissionContext))

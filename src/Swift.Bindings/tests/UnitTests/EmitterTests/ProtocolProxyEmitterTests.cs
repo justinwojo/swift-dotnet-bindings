@@ -1084,8 +1084,51 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
-    public void EmitProxyClass_ThrowingMethod_EmitsNotSupportedException()
+    public void EmitProxyClass_ThrowingBlittableMethod_EmitsDispatchWithErrorOut()
     {
+        RegisterSwiftInt32();
+        var protocolDecl = CreateSimpleProtocol("TestProtocol");
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "tryGetValue",
+            MangledName = "$stryGetValue",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = true,
+            IsAsync = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int32"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            Visibility = Visibility.Public
+        });
+        var output = EmitProxyClass(protocolDecl);
+
+        // Throwing blittable methods now dispatch via P/Invoke with error-out
+        Assert.Contains("SBW_TestProtocol_method_tryGetValue", output);
+        Assert.Contains("resultPtr == IntPtr.Zero", output);
+        Assert.Contains("SwiftException", output);
+        Assert.DoesNotContain("Cannot call method 'TryGetValue'", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ThrowingMethod_ProjectedNonBlittable_DisablesDispatch()
+    {
+        // Without TypeDatabase registration, Swift.Int projects to Swift.AnyType (non-blittable).
+        // Even though ClassifyMethodDispatch returns ThrowingBlittableOrString (Swift-side check passes),
+        // the secondary C#-side validation must catch the degraded projection and fall back to SB0003.
         var protocolDecl = CreateSimpleProtocol("TestProtocol");
         protocolDecl.Methods.Add(new MethodDecl
         {
@@ -1115,9 +1158,10 @@ public class ProtocolProxyEmitterTests
         });
         var output = EmitProxyClass(protocolDecl);
 
-        // Throwing methods should NOT be dispatched, even with blittable types
+        // Projected type is AnyType (not blittable) — dispatch disabled despite throwing classification
+        Assert.Contains("SB0003", output);
         Assert.Contains("Cannot call method 'TryGetValue'", output);
-        Assert.DoesNotContain("SBW_TestProtocol_method_tryGetValue", output);
+        Assert.DoesNotContain("SwiftException", output);
     }
 
     [Fact]
@@ -1155,6 +1199,125 @@ public class ProtocolProxyEmitterTests
         // Async methods should NOT be dispatched, even with blittable types
         Assert.Contains("Cannot call method 'FetchValueAsync'", output);
         Assert.DoesNotContain("SBW_TestProtocol_method_fetchValue", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ThrowingVoidMethod_EmitsErrorOutCheck()
+    {
+        var protocolDecl = CreateSimpleProtocol("TestProtocol");
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "disconnect",
+            MangledName = "$sdisconnect",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = true,
+            IsAsync = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            Visibility = Visibility.Public
+        });
+        var output = EmitProxyClass(protocolDecl);
+
+        // Throwing void methods dispatch with errorOut check
+        Assert.Contains("SBW_TestProtocol_method_disconnect", output);
+        Assert.Contains("if (errorOut != IntPtr.Zero)", output);
+        Assert.Contains("SwiftException", output);
+        Assert.DoesNotContain("Cannot call method 'Disconnect'", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ThrowingStringMethod_EmitsUtf8DecodeWithError()
+    {
+        RegisterSwiftString();
+        var protocolDecl = CreateSimpleProtocol("TestProtocol");
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "tryGetName",
+            MangledName = "$stryGetName",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = true,
+            IsAsync = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            Visibility = Visibility.Public
+        });
+        var output = EmitProxyClass(protocolDecl);
+
+        // Throwing string methods dispatch with error check + UTF-8 decode
+        Assert.Contains("SBW_TestProtocol_method_tryGetName", output);
+        Assert.Contains("resultPtr == IntPtr.Zero", output);
+        Assert.Contains("Encoding.UTF8.GetString", output);
+        Assert.Contains("SwiftException", output);
+        Assert.DoesNotContain("Cannot call method", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ThrowingBlittableMethod_EmitsPInvokeWithErrorOut()
+    {
+        RegisterSwiftInt32();
+        var protocolDecl = CreateSimpleProtocol("TestProtocol");
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "tryGetBool",
+            MangledName = "$stryGetBool",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = true,
+            IsAsync = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Bool"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            Visibility = Visibility.Public
+        });
+        var output = EmitProxyClass(protocolDecl);
+
+        // P/Invoke should have errorOut parameter
+        Assert.Contains("SBW_TestProtocol_method_tryGetBool", output);
+        Assert.Contains("SBW_GetErrorDescription", output);
+        Assert.Contains("SBW_ReleaseError", output);
     }
 
     [Fact]

@@ -289,11 +289,11 @@ public class WitnessDispatchEmitterTests
     }
 
     [Fact]
-    public void IsMethodDispatchable_ThrowingMethod_ReturnsFalse()
+    public void IsMethodDispatchable_ThrowingBlittableMethod_ReturnsTrue()
     {
         var method = CreateMethod("getValue", returnType: new NamedTypeSpec("Swift.Int32"));
         method.Throws = true;
-        Assert.False(_emitter.IsMethodDispatchable(method));
+        Assert.True(_emitter.IsMethodDispatchable(method));
     }
 
     [Fact]
@@ -703,11 +703,11 @@ public class WitnessDispatchEmitterTests
     }
 
     [Fact]
-    public void ClassifyMethodDispatch_ThrowingBlittableReturn_StillNotDispatchable()
+    public void ClassifyMethodDispatch_ThrowingBlittableReturn_ReturnsThrowingBlittableOrString()
     {
         var method = CreateMethod("getValue", new NamedTypeSpec("Swift.Int32"));
         method.Throws = true;
-        Assert.Equal(MethodDispatchKind.NotDispatchable, _emitter.ClassifyMethodDispatch(method));
+        Assert.Equal(MethodDispatchKind.ThrowingBlittableOrString, _emitter.ClassifyMethodDispatch(method));
     }
 
     [Fact]
@@ -899,6 +899,167 @@ public class WitnessDispatchEmitterTests
         var method = CreateMethod("connect", CreateExistentialReturnType("TestModule.Card"));
         method.Throws = true;
         Assert.True(emitter.IsMethodDispatchable(method));
+    }
+
+    #endregion
+
+    #region Throwing Blittable/String/Void Classification Tests
+
+    [Fact]
+    public void ClassifyMethodDispatch_ThrowingVoidReturn_ReturnsThrowingBlittableOrString()
+    {
+        var method = CreateMethod("disconnect", TupleTypeSpec.Empty);
+        method.Throws = true;
+        Assert.Equal(MethodDispatchKind.ThrowingBlittableOrString, _emitter.ClassifyMethodDispatch(method));
+    }
+
+    [Fact]
+    public void ClassifyMethodDispatch_ThrowingStringReturn_ReturnsThrowingBlittableOrString()
+    {
+        var method = CreateMethod("getName", new NamedTypeSpec("Swift.String"));
+        method.Throws = true;
+        Assert.Equal(MethodDispatchKind.ThrowingBlittableOrString, _emitter.ClassifyMethodDispatch(method));
+    }
+
+    [Fact]
+    public void ClassifyMethodDispatch_ThrowingWithNonBlittableParam_NotDispatchable()
+    {
+        var arrayType = new NamedTypeSpec("Swift.Array");
+        arrayType.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var method = CreateMethodWithParams("process",
+            new NamedTypeSpec("Swift.Int32"),
+            new[] { ("items", arrayType as TypeSpec) });
+        method.Throws = true;
+        Assert.Equal(MethodDispatchKind.NotDispatchable, _emitter.ClassifyMethodDispatch(method));
+    }
+
+    [Fact]
+    public void ClassifyMethodDispatch_AsyncThrowingBlittable_NotDispatchable()
+    {
+        var method = CreateMethod("getValue", new NamedTypeSpec("Swift.Int32"));
+        method.Throws = true;
+        method.IsAsync = true;
+        Assert.Equal(MethodDispatchKind.NotDispatchable, _emitter.ClassifyMethodDispatch(method));
+    }
+
+    #endregion
+
+    #region Throwing Blittable/String/Void Swift Emission Tests
+
+    [Fact]
+    public void EmitThrowingMethodAccessor_BlittableReturn_EmitsDoCatch()
+    {
+        var protocolDecl = CreateSimpleProtocol("TestProtocol");
+        var method = CreateMethod("tryGetValue", new NamedTypeSpec("Swift.Int32"));
+        method.Throws = true;
+        protocolDecl.Methods.Add(method);
+        var output = EmitDispatch(protocolDecl);
+
+        Assert.Contains("do {", output);
+        Assert.Contains("try existential.", output);
+        Assert.Contains("} catch {", output);
+    }
+
+    [Fact]
+    public void EmitThrowingMethodAccessor_VoidReturn_NoReturnType()
+    {
+        var protocolDecl = CreateSimpleProtocol("TestProtocol");
+        var method = CreateMethod("disconnect", TupleTypeSpec.Empty);
+        method.Throws = true;
+        protocolDecl.Methods.Add(method);
+        var output = EmitDispatch(protocolDecl);
+
+        Assert.DoesNotContain("-> UnsafeMutableRawPointer", output);
+        Assert.Contains("errorOut: UnsafeMutablePointer<UnsafeRawPointer?>", output);
+    }
+
+    [Fact]
+    public void EmitThrowingMethodAccessor_VoidReturn_NoFreeFunction()
+    {
+        var protocolDecl = CreateSimpleProtocol("TestProtocol");
+        var method = CreateMethod("disconnect", TupleTypeSpec.Empty);
+        method.Throws = true;
+        protocolDecl.Methods.Add(method);
+        var output = EmitDispatch(protocolDecl);
+
+        Assert.DoesNotContain("SBW_TestProtocol_free_method_disconnect_0", output);
+    }
+
+    [Fact]
+    public void EmitThrowingMethodAccessor_BlittableReturn_EmitsFreeFunction()
+    {
+        var protocolDecl = CreateSimpleProtocol("TestProtocol");
+        var method = CreateMethod("tryGetValue", new NamedTypeSpec("Swift.Int32"));
+        method.Throws = true;
+        protocolDecl.Methods.Add(method);
+        var output = EmitDispatch(protocolDecl);
+
+        Assert.Contains("SBW_TestProtocol_free_method_tryGetValue_0", output);
+    }
+
+    [Fact]
+    public void EmitThrowingMethodAccessor_StringReturn_EmitsUtf8SliceInDoCatch()
+    {
+        var protocolDecl = CreateSimpleProtocol("TestProtocol");
+        var method = CreateMethod("tryGetName", new NamedTypeSpec("Swift.String"));
+        method.Throws = true;
+        protocolDecl.Methods.Add(method);
+        var output = EmitDispatch(protocolDecl);
+
+        Assert.Contains("do {", output);
+        Assert.Contains("try existential.", output);
+        Assert.Contains("SBW_Utf8Slice", output);
+        Assert.Contains("Array(result.utf8)", output);
+    }
+
+    [Fact]
+    public void EmitThrowingMethodAccessor_EmitsErrorOutParam()
+    {
+        var protocolDecl = CreateSimpleProtocol("TestProtocol");
+        var method = CreateMethod("tryGetValue", new NamedTypeSpec("Swift.Int32"));
+        method.Throws = true;
+        protocolDecl.Methods.Add(method);
+        var output = EmitDispatch(protocolDecl);
+
+        Assert.Contains("errorOut: UnsafeMutablePointer<UnsafeRawPointer?>", output);
+    }
+
+    [Fact]
+    public void EmitThrowingMethodAccessor_EmitsPassRetainedError()
+    {
+        var protocolDecl = CreateSimpleProtocol("TestProtocol");
+        var method = CreateMethod("tryGetValue", new NamedTypeSpec("Swift.Int32"));
+        method.Throws = true;
+        protocolDecl.Methods.Add(method);
+        var output = EmitDispatch(protocolDecl);
+
+        Assert.Contains("Unmanaged.passRetained(error as AnyObject).toOpaque()", output);
+    }
+
+    [Fact]
+    public void EmitThrowingMethodAccessor_ValueReturning_ReturnsOptionalPointer()
+    {
+        var protocolDecl = CreateSimpleProtocol("TestProtocol");
+        var method = CreateMethod("tryGetValue", new NamedTypeSpec("Swift.Int32"));
+        method.Throws = true;
+        protocolDecl.Methods.Add(method);
+        var output = EmitDispatch(protocolDecl);
+
+        Assert.Contains("-> UnsafeMutableRawPointer?", output);
+        Assert.Contains("return nil", output);
+    }
+
+    [Fact]
+    public void EmitThrowingMethodAccessor_EmitsErrorDescriptionInfra()
+    {
+        var protocolDecl = CreateSimpleProtocol("TestProtocol");
+        var method = CreateMethod("tryGetValue", new NamedTypeSpec("Swift.Int32"));
+        method.Throws = true;
+        protocolDecl.Methods.Add(method);
+        var output = EmitDispatch(protocolDecl);
+
+        Assert.Contains("SBW_GetErrorDescription", output);
+        Assert.Contains("SBW_ReleaseError", output);
     }
 
     #endregion

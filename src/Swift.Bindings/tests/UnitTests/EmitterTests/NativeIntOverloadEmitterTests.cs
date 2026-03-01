@@ -328,6 +328,72 @@ public class NativeIntOverloadEmitterTests
         Assert.Equal(string.Empty, writer.ToString());
     }
 
+    #region Optional nint/nuint Tests
+
+    [Fact]
+    public void TryEmitOverload_OptionalNintParam_EmitsOptionalIntOverload()
+    {
+        var optNint = new NamedTypeSpec("Swift.Optional");
+        optNint.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var method = CreateMethodWithOptionalParam("setLimit", MethodType.Instance,
+            returnType: TupleTypeSpec.Empty,
+            ("limit", optNint));
+
+        var output = EmitMethodOverload(method);
+
+        Assert.Contains("int? limit", output);
+        Assert.Contains("(nint?)limit", output);
+    }
+
+    [Fact]
+    public void TryEmitOverload_OptionalNuintParam_EmitsOptionalUintOverload()
+    {
+        var optNuint = new NamedTypeSpec("Swift.Optional");
+        optNuint.GenericParameters.Add(new NamedTypeSpec("Swift.UInt"));
+        var method = CreateMethodWithOptionalParam("setIndex", MethodType.Instance,
+            returnType: TupleTypeSpec.Empty,
+            ("index", optNuint));
+
+        var output = EmitMethodOverload(method);
+
+        Assert.Contains("uint? index", output);
+        Assert.Contains("(nuint?)index", output);
+    }
+
+    [Fact]
+    public void TryEmitOverload_MixedOptionalAndNonOptional_ConvertsBoth()
+    {
+        var optNint = new NamedTypeSpec("Swift.Optional");
+        optNint.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var method = CreateMethodWithMixedParams("setRange", MethodType.Instance,
+            returnType: TupleTypeSpec.Empty,
+            ("count", new NamedTypeSpec("Swift.Int")),
+            ("limit", optNint));
+
+        var output = EmitMethodOverload(method);
+
+        Assert.Contains("int count", output);
+        Assert.Contains("int? limit", output);
+        Assert.Contains("(nint)count", output);
+        Assert.Contains("(nint?)limit", output);
+    }
+
+    [Fact]
+    public void TryEmitOverload_OptionalNonNintParam_EmitsNothing()
+    {
+        var optString = new NamedTypeSpec("Swift.Optional");
+        optString.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        var method = CreateMethodWithOptionalParam("setName", MethodType.Instance,
+            returnType: TupleTypeSpec.Empty,
+            ("name", optString));
+
+        var output = EmitMethodOverload(method);
+
+        Assert.Equal(string.Empty, output);
+    }
+
+    #endregion
+
     #region Helpers
 
     private static ModuleDecl CreateModuleDecl()
@@ -520,6 +586,129 @@ public class NativeIntOverloadEmitterTests
         var env = new MethodEnvironment(method, typeDb);
         NativeIntOverloadEmitter.TryEmitOverload(csWriter, env);
         return writer.ToString();
+    }
+
+    private static MethodDecl CreateMethodWithOptionalParam(
+        string name,
+        MethodType methodType,
+        object returnType,
+        (string name, TypeSpec swiftType) parameter)
+    {
+        var moduleDecl = CreateModuleDecl();
+        var parentType = CreateClassDecl("TestClass", moduleDecl);
+
+        TypeSpec returnTypeSpec = returnType switch
+        {
+            string s => new NamedTypeSpec(s),
+            TypeSpec ts => ts,
+            _ => TupleTypeSpec.Empty
+        };
+
+        var csSignature = new List<ArgumentDecl>
+        {
+            new()
+            {
+                Name = "",
+                PrivateName = "",
+                SwiftTypeSpec = returnTypeSpec,
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = parentType,
+                ModuleDecl = moduleDecl
+            },
+            new()
+            {
+                Name = parameter.name,
+                PrivateName = parameter.name,
+                SwiftTypeSpec = parameter.swiftType,
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = parentType,
+                ModuleDecl = moduleDecl
+            }
+        };
+
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = "$s10TestModule9TestClassC",
+            MethodType = methodType,
+            IsConstructor = false,
+            CSSignature = csSignature,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentType,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+    }
+
+    private static MethodDecl CreateMethodWithMixedParams(
+        string name,
+        MethodType methodType,
+        object returnType,
+        (string name, TypeSpec swiftType) param1,
+        (string name, TypeSpec swiftType) param2)
+    {
+        var moduleDecl = CreateModuleDecl();
+        var parentType = CreateClassDecl("TestClass", moduleDecl);
+
+        TypeSpec returnTypeSpec = returnType switch
+        {
+            string s => new NamedTypeSpec(s),
+            TypeSpec ts => ts,
+            _ => TupleTypeSpec.Empty
+        };
+
+        var csSignature = new List<ArgumentDecl>
+        {
+            new()
+            {
+                Name = "",
+                PrivateName = "",
+                SwiftTypeSpec = returnTypeSpec,
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = parentType,
+                ModuleDecl = moduleDecl
+            },
+            new()
+            {
+                Name = param1.name,
+                PrivateName = param1.name,
+                SwiftTypeSpec = param1.swiftType,
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = parentType,
+                ModuleDecl = moduleDecl
+            },
+            new()
+            {
+                Name = param2.name,
+                PrivateName = param2.name,
+                SwiftTypeSpec = param2.swiftType,
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = parentType,
+                ModuleDecl = moduleDecl
+            }
+        };
+
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = "$s10TestModule9TestClassC",
+            MethodType = methodType,
+            IsConstructor = false,
+            CSSignature = csSignature,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentType,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
     }
 
     #endregion

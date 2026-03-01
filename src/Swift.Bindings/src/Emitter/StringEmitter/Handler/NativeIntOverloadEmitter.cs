@@ -45,15 +45,25 @@ internal static class NativeIntOverloadEmitter
         if (csSignature.Count < 2)
             return;
 
-        // Detect nint/nuint params (skip return type at index 0)
-        var conversions = new List<(int index, string nativeType, string convType)>();
+        // Detect nint/nuint params (skip return type at index 0), including Optional<Swift.Int> → int?
+        var conversions = new List<(int index, string nativeType, string convType, bool isOptional)>();
         for (int i = 1; i < csSignature.Count; i++)
         {
             var arg = csSignature[i];
             if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
                 continue;
             if (arg.SwiftTypeSpec is NamedTypeSpec ns && NativeIntMap.TryGetValue(ns.Name, out var mapping))
-                conversions.Add((i, mapping.NativeType, mapping.ConvenienceType));
+            {
+                conversions.Add((i, mapping.NativeType, mapping.ConvenienceType, isOptional: false));
+            }
+            else if (arg.SwiftTypeSpec is NamedTypeSpec optNs &&
+                     optNs.Name == "Swift.Optional" &&
+                     optNs.GenericParameters.Count == 1 &&
+                     optNs.GenericParameters[0] is NamedTypeSpec innerNs &&
+                     NativeIntMap.TryGetValue(innerNs.Name, out var optMapping))
+            {
+                conversions.Add((i, optMapping.NativeType, optMapping.ConvenienceType, isOptional: true));
+            }
         }
 
         if (conversions.Count == 0)
@@ -89,8 +99,16 @@ internal static class NativeIntOverloadEmitter
             var conv = conversions.Find(c => c.index == i);
             if (conv != default)
             {
-                paramParts.Add($"{conv.convType} {paramName}");
-                callArgs.Add($"({conv.nativeType}){paramName}");
+                if (conv.isOptional)
+                {
+                    paramParts.Add($"{conv.convType}? {paramName}");
+                    callArgs.Add($"({conv.nativeType}?){paramName}");
+                }
+                else
+                {
+                    paramParts.Add($"{conv.convType} {paramName}");
+                    callArgs.Add($"({conv.nativeType}){paramName}");
+                }
             }
             else
             {
@@ -236,7 +254,7 @@ internal static class NativeIntOverloadEmitter
         return typeSpec.ToString();
     }
 
-    private static string BuildOverloadKey(MethodEnvironment methodEnv, List<(int index, string nativeType, string convType)> conversions)
+    private static string BuildOverloadKey(MethodEnvironment methodEnv, List<(int index, string nativeType, string convType, bool isOptional)> conversions)
     {
         var methodDecl = methodEnv.MethodDecl;
         var methodName = methodEnv.CSharpMethodName;
@@ -251,7 +269,7 @@ internal static class NativeIntOverloadEmitter
             var conv = conversions.Find(c => c.index == i);
             if (conv != default)
             {
-                paramTypes.Add(conv.convType);
+                paramTypes.Add(conv.isOptional ? $"{conv.convType}?" : conv.convType);
             }
             else
             {

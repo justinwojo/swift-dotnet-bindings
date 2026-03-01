@@ -470,6 +470,44 @@ public partial class ProtocolProxyEmitter
             }
         }
 
+        // Validate projected types for ThrowingBlittableOrString dispatch (same return + param checks)
+        if (dispatchKind == MethodDispatchKind.ThrowingBlittableOrString)
+        {
+            if (hasReturn)
+            {
+                if (isStringReturn)
+                {
+                    if (!IsIdiomaticStringType(returnTypeName))
+                        dispatchKind = MethodDispatchKind.NotDispatchable;
+                }
+                else if (!WitnessDispatchEmitter.IsBlittablePrimitive(returnTypeName))
+                {
+                    dispatchKind = MethodDispatchKind.NotDispatchable;
+                }
+            }
+
+            if (dispatchKind == MethodDispatchKind.ThrowingBlittableOrString)
+            {
+                for (int i = 0; i < projectedParamTypes.Count; i++)
+                {
+                    var isStringParam = WitnessDispatchEmitter.IsStringDispatchType(paramSwiftTypeSpecs[i]);
+                    if (isStringParam)
+                    {
+                        if (!IsIdiomaticStringType(projectedParamTypes[i]))
+                        {
+                            dispatchKind = MethodDispatchKind.NotDispatchable;
+                            break;
+                        }
+                    }
+                    else if (!WitnessDispatchEmitter.IsBlittablePrimitive(projectedParamTypes[i]))
+                    {
+                        dispatchKind = MethodDispatchKind.NotDispatchable;
+                        break;
+                    }
+                }
+            }
+        }
+
         // Validate params for ExistentialReturn dispatch (same param validation)
         if (dispatchKind == MethodDispatchKind.ExistentialReturn)
         {
@@ -662,6 +700,10 @@ public partial class ProtocolProxyEmitter
                 writer.WriteLine("}");
             }
         }
+        else if (dispatchKind == MethodDispatchKind.ThrowingBlittableOrString)
+        {
+            EmitThrowingBlittableMethodBody(writer, method, protocolDecl, dispatchEmitter, methodIndex, methodName, argsString, argNames, paramSwiftTypeSpecs, returnType, returnTypeName, hasReturn, isStringReturn);
+        }
         else
         {
             // Non-dispatchable: keep NotSupportedException
@@ -822,6 +864,213 @@ public partial class ProtocolProxyEmitter
 
         writer.Indent--;
         writer.WriteLine("}");
+    }
+
+    /// <summary>
+    /// Emits the C# dispatch body for throwing methods that return blittable/String/void types.
+    /// Value-returning: resultPtr == IntPtr.Zero means error; otherwise MarshalFromSwift/Utf8Decode.
+    /// Void: errorOut != IntPtr.Zero means error.
+    /// </summary>
+    private void EmitThrowingBlittableMethodBody(
+        CSharpWriter writer, MethodDecl method, ProtocolDecl protocolDecl,
+        WitnessDispatchEmitter dispatchEmitter,
+        int methodIndex, string methodName, string argsString,
+        List<string> argNames, List<TypeSpec?> paramSwiftTypeSpecs,
+        TypeSpec? returnType, string returnTypeName, bool hasReturn, bool isStringReturn)
+    {
+        var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolDecl.Name, "method", method.Name, methodIndex);
+
+        if (hasReturn)
+        {
+            var freeSymbol = WitnessDispatchEmitter.GetFreeSymbol(protocolDecl.Name, "method", method.Name, methodIndex);
+
+            writer.WriteLines($$"""
+                if (_csharpImpl != null)
+                    return _csharpImpl.{{methodName}}({{argsString}});
+                fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
+                {
+                """);
+            writer.Indent++;
+
+            // Declare pin handles before try for exception-safe cleanup
+            var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs);
+            bool needsOuterTry = pinHandles.Count > 0;
+
+            if (needsOuterTry)
+            {
+                writer.WriteLine("try");
+                writer.WriteLine("{");
+                writer.Indent++;
+            }
+
+            // Marshal each parameter
+            EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs);
+
+            // Build P/Invoke call args
+            var pInvokeArgs = new List<string> { "(IntPtr)containerPtr" };
+            for (int i = 0; i < argNames.Count; i++)
+            {
+                pInvokeArgs.Add($"(IntPtr)(&arg{i}Slice)");
+            }
+            pInvokeArgs.Add("(IntPtr)(&errorOut)");
+            var pInvokeArgsString = string.Join(", ", pInvokeArgs);
+
+            if (isStringReturn)
+            {
+                // String return with error check: resultPtr == IntPtr.Zero means error
+                writer.WriteLines($$"""
+                    IntPtr errorOut = IntPtr.Zero;
+                    IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
+                    if (resultPtr == IntPtr.Zero)
+                    {
+                        string _errorMessage;
+                        var _descPtr = NativeMethods.SBW_GetErrorDescription(errorOut);
+                        try
+                        {
+                            _errorMessage = _descPtr != IntPtr.Zero
+                                ? global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
+                                : "Unknown Swift error";
+                        }
+                        finally
+                        {
+                            if (_descPtr != IntPtr.Zero) NativeMethods.SBW_Free(_descPtr);
+                            NativeMethods.SBW_ReleaseError(errorOut);
+                        }
+                        throw new Swift.Runtime.SwiftException(_errorMessage);
+                    }
+                    try
+                    {
+                        var slice = *(Utf8Slice*)resultPtr;
+                        return slice.Len > 0
+                            ? global::System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)
+                            : string.Empty;
+                    }
+                    finally
+                    {
+                        NativeMethods.{{freeSymbol}}(resultPtr);
+                    }
+                    """);
+            }
+            else
+            {
+                // Blittable return with error check
+                var marshalReturnType = dispatchEmitter.GetBlittableCSharpType(returnType!) ?? GetCSharpTypeName(returnType!);
+
+                writer.WriteLines($$"""
+                    IntPtr errorOut = IntPtr.Zero;
+                    IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
+                    if (resultPtr == IntPtr.Zero)
+                    {
+                        string _errorMessage;
+                        var _descPtr = NativeMethods.SBW_GetErrorDescription(errorOut);
+                        try
+                        {
+                            _errorMessage = _descPtr != IntPtr.Zero
+                                ? global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
+                                : "Unknown Swift error";
+                        }
+                        finally
+                        {
+                            if (_descPtr != IntPtr.Zero) NativeMethods.SBW_Free(_descPtr);
+                            NativeMethods.SBW_ReleaseError(errorOut);
+                        }
+                        throw new Swift.Runtime.SwiftException(_errorMessage);
+                    }
+                    try { return MarshalFromSwift<{{marshalReturnType}}>(resultPtr); }
+                    finally
+                    {
+                        NativeMethods.{{freeSymbol}}(resultPtr);
+                    }
+                    """);
+            }
+
+            if (needsOuterTry)
+            {
+                writer.Indent--;
+                writer.WriteLine("}");
+                writer.WriteLine("finally");
+                writer.WriteLine("{");
+                writer.Indent++;
+                EmitPinHandleCleanup(writer, pinHandles);
+                writer.Indent--;
+                writer.WriteLine("}");
+            }
+
+            writer.Indent--;
+            writer.WriteLine("}");
+        }
+        else
+        {
+            // Void throwing: check errorOut after call
+            writer.WriteLines($$"""
+                if (_csharpImpl != null)
+                {
+                    _csharpImpl.{{methodName}}({{argsString}});
+                    return;
+                }
+                fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
+                {
+                """);
+            writer.Indent++;
+
+            // Declare pin handles before try for exception-safe cleanup
+            var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs);
+            bool needsOuterTry = pinHandles.Count > 0;
+
+            if (needsOuterTry)
+            {
+                writer.WriteLine("try");
+                writer.WriteLine("{");
+                writer.Indent++;
+            }
+
+            EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs);
+
+            var pInvokeArgs = new List<string> { "(IntPtr)containerPtr" };
+            for (int i = 0; i < argNames.Count; i++)
+            {
+                pInvokeArgs.Add($"(IntPtr)(&arg{i}Slice)");
+            }
+            pInvokeArgs.Add("(IntPtr)(&errorOut)");
+            var pInvokeArgsString = string.Join(", ", pInvokeArgs);
+
+            writer.WriteLines($$"""
+                IntPtr errorOut = IntPtr.Zero;
+                NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
+                if (errorOut != IntPtr.Zero)
+                {
+                    string _errorMessage;
+                    var _descPtr = NativeMethods.SBW_GetErrorDescription(errorOut);
+                    try
+                    {
+                        _errorMessage = _descPtr != IntPtr.Zero
+                            ? global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
+                            : "Unknown Swift error";
+                    }
+                    finally
+                    {
+                        if (_descPtr != IntPtr.Zero) NativeMethods.SBW_Free(_descPtr);
+                        NativeMethods.SBW_ReleaseError(errorOut);
+                    }
+                    throw new Swift.Runtime.SwiftException(_errorMessage);
+                }
+                """);
+
+            if (needsOuterTry)
+            {
+                writer.Indent--;
+                writer.WriteLine("}");
+                writer.WriteLine("finally");
+                writer.WriteLine("{");
+                writer.Indent++;
+                EmitPinHandleCleanup(writer, pinHandles);
+                writer.Indent--;
+                writer.WriteLine("}");
+            }
+
+            writer.Indent--;
+            writer.WriteLine("}");
+        }
     }
 
     /// <summary>
