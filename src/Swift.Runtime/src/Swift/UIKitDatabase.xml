@@ -13,5 +13,11 @@
         <entity managedNameSpace="UIKit" managedTypeName="UIEdgeInsets">
             <typedeclaration kind="struct" name="UIEdgeInsets" module="UIKit" mangledName="$sSo12UIEdgeInsetsV" frozen="true" requiresMemoryManagement="false" />
         </entity>
+        <entity managedNameSpace="UIKit" managedTypeName="UIView" objcBridged="true">
+            <typedeclaration kind="class" name="UIView" module="UIKit" mangledName="$sSo6UIViewC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="UIKit" managedTypeName="UIImageView" objcBridged="true">
+            <typedeclaration kind="class" name="UIImageView" module="UIKit" mangledName="$sSo11UIImageViewC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
     </entities>
 </swifttypedatabase>

@@ -328,18 +328,23 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
-    public void Emit_SimpleEnumWithUnsupportedMethod_FallsToClassPath()
+    public void Emit_SimpleEnumWithSynthesizedHashMethod_EmitsAsSimpleEnum()
     {
-        // CanSafelyEmitAsSimpleEnum detects incompatible instance method → class-based emission
-        // to avoid silently dropping the method that the class path would have emitted.
+        // Synthesized hash(into:) is filtered out by CanSafelyEmitAsSimpleEnum —
+        // C# enums inherit GetHashCode() natively. The enum should NOT fall to class path.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("Color", moduleDecl, isFrozen: true);
         enumDecl.RawValueTypeName = "Int32";
         enumDecl.Cases.Add(CreateCase("red"));
         enumDecl.Cases.Add(CreateCase("blue"));
+        // Conformance-aware: hash(into:) is only synthesized if enum conforms to Hashable
+        enumDecl.Conformances.Add(new TypeConformance(
+            enumDecl.SwiftTypeName,
+            SwiftTypeName.FromModuleQualifiedName("Swift.Hashable"),
+            ""));
 
-        // Add a method with unsupported parameter type (Hasher)
+        // Add the synthesized hash(into:) method — same shape as Swift compiler generates
         var hashMethod = new MethodDecl
         {
             Name = "hash",
@@ -380,9 +385,276 @@ public class EnumHandlerOutputTests
 
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
-        // Should fall to class-based emission (CanSafelyEmitAsSimpleEnum returns false)
-        Assert.Contains("class Color", csOutput);
-        Assert.DoesNotContain("public enum Color", csOutput);
+        // Synthesized hash(into:) is excluded — emits as simple C# enum
+        Assert.Contains("public enum Color", csOutput);
+        Assert.DoesNotContain("class Color", csOutput);
+    }
+
+    [Fact]
+    public void Emit_SimpleEnumWithSynthesizedProperties_EmitsAsSimpleEnum()
+    {
+        // Synthesized Hashable/RawRepresentable properties (hashValue, rawValue) should
+        // NOT block simple enum emission — C# enums handle these natively.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Priority", moduleDecl, isFrozen: true);
+        enumDecl.RawValueTypeName = "Int32";
+        enumDecl.Cases.Add(CreateCase("low"));
+        enumDecl.Cases.Add(CreateCase("high"));
+        // Conformance-aware: properties only excluded if enum conforms to their source protocol
+        enumDecl.Conformances.Add(new TypeConformance(
+            enumDecl.SwiftTypeName,
+            SwiftTypeName.FromModuleQualifiedName("Swift.Hashable"),
+            ""));
+        enumDecl.Conformances.Add(new TypeConformance(
+            enumDecl.SwiftTypeName,
+            SwiftTypeName.FromModuleQualifiedName("Swift.RawRepresentable"),
+            ""));
+
+        // Add synthesized properties: hashValue (Hashable) and rawValue (RawRepresentable)
+        enumDecl.Properties.Add(new PropertyDecl
+        {
+            Name = "hashValue",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            HasStorage = false,
+            IsStatic = false,
+            Accessors = Array.Empty<AccessorDecl>(),
+            ParentDecl = enumDecl,
+            ModuleDecl = moduleDecl
+        });
+        enumDecl.Properties.Add(new PropertyDecl
+        {
+            Name = "rawValue",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            HasStorage = false,
+            IsStatic = false,
+            Accessors = Array.Empty<AccessorDecl>(),
+            ParentDecl = enumDecl,
+            ModuleDecl = moduleDecl
+        });
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // Synthesized properties excluded — emits as C# enum, not class
+        Assert.Contains("public enum Priority", csOutput);
+        Assert.DoesNotContain("class Priority", csOutput);
+    }
+
+    [Fact]
+    public void Emit_SimpleEnumWithNonSynthesizedProperty_FallsToClassPath()
+    {
+        // A real (non-synthesized) property like "description" should still force class-based emission
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Status", moduleDecl, isFrozen: true);
+        enumDecl.RawValueTypeName = "Int32";
+        enumDecl.Cases.Add(CreateCase("active"));
+        enumDecl.Cases.Add(CreateCase("inactive"));
+
+        // Add a real property that the class path would emit
+        enumDecl.Properties.Add(new PropertyDecl
+        {
+            Name = "description",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+            HasStorage = false,
+            IsStatic = false,
+            Accessors = Array.Empty<AccessorDecl>(),
+            ParentDecl = enumDecl,
+            ModuleDecl = moduleDecl
+        });
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // Non-synthesized property → class-based emission
+        Assert.Contains("class Status", csOutput);
+        Assert.DoesNotContain("public enum Status", csOutput);
+    }
+
+    [Fact]
+    public void Emit_RawValuePropertyWithoutConformance_FallsToClassPath()
+    {
+        // If an enum has a "rawValue" property but does NOT conform to RawRepresentable,
+        // the property is user-defined, not synthesized → should block simple enum path.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Flavor", moduleDecl, isFrozen: true);
+        enumDecl.Cases.Add(CreateCase("sweet"));
+        enumDecl.Cases.Add(CreateCase("sour"));
+        // NO RawRepresentable conformance added — rawValue is user-defined
+        enumDecl.Properties.Add(new PropertyDecl
+        {
+            Name = "rawValue",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            HasStorage = false,
+            IsStatic = false,
+            Accessors = Array.Empty<AccessorDecl>(),
+            ParentDecl = enumDecl,
+            ModuleDecl = moduleDecl
+        });
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // Without conformance, rawValue is NOT synthesized → class path
+        Assert.Contains("class Flavor", csOutput);
+        Assert.DoesNotContain("public enum Flavor", csOutput);
+    }
+
+    [Fact]
+    public void Emit_ModuleInternalMethodDoesNotBlockSimpleEnum()
+    {
+        // Module-internal methods (@usableFromInline internal) appear in ABI JSON but
+        // cannot be called from external Swift wrappers. They should not block simple
+        // enum emission or be emitted as extension methods.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Bit", moduleDecl, isFrozen: true);
+        enumDecl.Cases.Add(CreateCase("zero"));
+        enumDecl.Cases.Add(CreateCase("one"));
+
+        // Add an internal method with unsupported param type — would block simple path
+        // if not filtered by IsModuleInternal
+        var internalMethod = new MethodDecl
+        {
+            Name = "inverted",
+            MangledName = "$s10TestModule3BitO8invertedACyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            IsModuleInternal = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.Bit"),
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = enumDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        enumDecl.Methods.Add(internalMethod);
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // Internal method excluded — emits as simple C# enum
+        Assert.Contains("public enum Bit", csOutput);
+        Assert.DoesNotContain("class Bit", csOutput);
+        // Internal method should NOT appear as extension method
+        Assert.DoesNotContain("Inverted", csOutput);
+    }
+
+    [Fact]
+    public void Emit_ModuleInternalStaticMethodDoesNotBlockSimpleEnum()
+    {
+        // Module-internal static methods should not block simple enum emission,
+        // just like module-internal instance methods.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Flag", moduleDecl, isFrozen: true);
+        enumDecl.Cases.Add(CreateCase("on"));
+        enumDecl.Cases.Add(CreateCase("off"));
+
+        var internalStaticMethod = new MethodDecl
+        {
+            Name = "makeDefault",
+            MangledName = "$s10TestModule4FlagO11makeDefaultACyFZ",
+            MethodType = MethodType.Static,
+            IsConstructor = false,
+            IsModuleInternal = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.Flag"),
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = enumDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        enumDecl.Methods.Add(internalStaticMethod);
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // Internal static method excluded — emits as simple C# enum
+        Assert.Contains("public enum Flag", csOutput);
+        Assert.DoesNotContain("class Flag", csOutput);
+        Assert.DoesNotContain("MakeDefault", csOutput);
+    }
+
+    [Fact]
+    public void Emit_HashIntoWithoutHashableConformance_FallsToClassPath()
+    {
+        // If an enum has a hash(into:) method but does NOT conform to Hashable,
+        // the method is user-defined, not synthesized → should block simple enum path.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Token", moduleDecl, isFrozen: true);
+        enumDecl.Cases.Add(CreateCase("a"));
+        enumDecl.Cases.Add(CreateCase("b"));
+        // NO Hashable conformance added
+
+        var hashMethod = new MethodDecl
+        {
+            Name = "hash",
+            MangledName = "$s10TestModule5TokenO4hashySHzF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    SwiftTypeSpec = new TupleTypeSpec(new List<TypeSpec>()),
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                },
+                new()
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Hasher"),
+                    Name = "into",
+                    PrivateName = "hasher",
+                    IsInOut = true,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = enumDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        enumDecl.Methods.Add(hashMethod);
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // Without Hashable conformance, hash(into:) is NOT synthesized → class path
+        // (hash(into:) has Hasher param which is unsupported → fails signature check)
+        Assert.Contains("class Token", csOutput);
+        Assert.DoesNotContain("public enum Token", csOutput);
     }
 
     [Fact]
@@ -1222,11 +1494,11 @@ public class EnumHandlerOutputTests
         enumDecl.Cases.Add(CreateCase("info"));
         enumDecl.Methods.Add(CreateStringRawValueInitializer(enumDecl, moduleDecl));
 
-        // Add an instance method with a complex parameter type (Hasher — not a primitive/string/bool)
-        var hashMethod = new MethodDecl
+        // Add a genuinely complex instance method (non-synthesized, unsupported param type)
+        var describeMethod = new MethodDecl
         {
-            Name = "hash",
-            MangledName = "$s10TestModule8LogLevelO4hashySHzF",
+            Name = "describe",
+            MangledName = "$s10TestModule8LogLevelO8describeyAA7OptionsVF",
             MethodType = MethodType.Instance,
             IsConstructor = false,
             CSSignature = new List<ArgumentDecl>
@@ -1243,10 +1515,10 @@ public class EnumHandlerOutputTests
                 },
                 new()
                 {
-                    SwiftTypeSpec = new NamedTypeSpec("Swift.Hasher"),
-                    Name = "into",
-                    PrivateName = "hasher",
-                    IsInOut = true,
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.Options"),
+                    Name = "options",
+                    PrivateName = "options",
+                    IsInOut = false,
                     IsGeneric = false,
                     ParentDecl = null,
                     ModuleDecl = moduleDecl
@@ -1259,7 +1531,7 @@ public class EnumHandlerOutputTests
             IsAsync = false,
             Visibility = Visibility.Public
         };
-        enumDecl.Methods.Add(hashMethod);
+        enumDecl.Methods.Add(describeMethod);
 
         // Context-based tracking: tests use default context (no parallelism)
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);

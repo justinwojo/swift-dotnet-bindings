@@ -1363,6 +1363,10 @@ namespace BindingsGeneration
             if (typeSpec is not NamedTypeSpec namedType)
                 return false;
 
+            // Guard against DynamicSelf or unqualified names
+            if (!namedType.Name.Contains('.'))
+                return false;
+
             // Check if it's Swift.Array
             var typeName = SwiftTypeName.FromTypeSpec(namedType);
             if (typeName.ModuleQualifiedName != "Swift.Array")

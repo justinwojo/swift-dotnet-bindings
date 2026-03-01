@@ -40,5 +40,35 @@
         <entity managedNameSpace="Foundation" managedTypeName="NSIndexPath" objcBridged="true">
             <typedeclaration kind="class" name="IndexPath" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSUrlSessionTask" objcBridged="true">
+            <typedeclaration kind="class" name="URLSessionTask" module="Foundation" mangledName="$sSo20NSURLSessionTaskC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSUrlSessionDataTask" objcBridged="true">
+            <typedeclaration kind="class" name="URLSessionDataTask" module="Foundation" mangledName="$sSo24NSURLSessionDataTaskC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSUrlSessionDownloadTask" objcBridged="true">
+            <typedeclaration kind="class" name="URLSessionDownloadTask" module="Foundation" mangledName="$sSo28NSURLSessionDownloadTaskC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSHttpUrlResponse" objcBridged="true">
+            <typedeclaration kind="class" name="HTTPURLResponse" module="Foundation" mangledName="$sSo19NSHTTPURLResponseC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSUrlAuthenticationChallenge" objcBridged="true">
+            <typedeclaration kind="class" name="URLAuthenticationChallenge" module="Foundation" mangledName="$sSo29NSURLAuthenticationChallengeC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSUrlSessionTaskMetrics" objcBridged="true">
+            <typedeclaration kind="class" name="URLSessionTaskMetrics" module="Foundation" mangledName="$sSo27NSURLSessionTaskMetricsC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSCachedUrlResponse" objcBridged="true">
+            <typedeclaration kind="class" name="CachedURLResponse" module="Foundation" mangledName="$sSo21NSCachedURLResponseC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSInputStream" objcBridged="true">
+            <typedeclaration kind="class" name="InputStream" module="Foundation" mangledName="$sSo13NSInputStreamC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSProgress" objcBridged="true">
+            <typedeclaration kind="class" name="Progress" module="Foundation" mangledName="$sSo10NSProgressC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSError" objcBridged="true">
+            <typedeclaration kind="class" name="NSError" module="Foundation" mangledName="$sSo7NSErrorC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
     </entities>
 </swifttypedatabase>

@@ -107,10 +107,18 @@ namespace BindingsGeneration
                 EmitStringRawValueExtensions(csWriter, enumDecl, enumName, caseNameMap);
             }
 
-            // Emit extension methods class if there are instance methods or properties
-            var instanceMethods = enumDecl.Methods.Where(m => !m.IsConstructor && m.MethodType != MethodType.Static).ToList();
-            var staticMethods = enumDecl.Methods.Where(m => !m.IsConstructor && m.MethodType == MethodType.Static).ToList();
-            var instanceProperties = enumDecl.Properties.Where(p => !p.IsStatic).ToList();
+            // Emit extension methods class if there are instance methods or properties.
+            // Module-internal methods are excluded — they cannot be called from Swift wrappers.
+            // Synthesized protocol conformance members are excluded — C# enums handle them natively.
+            var instanceMethods = enumDecl.Methods
+                .Where(m => !m.IsConstructor && m.MethodType != MethodType.Static && !m.IsModuleInternal)
+                .Where(m => !IsSynthesizedMethod(m, enumDecl))
+                .ToList();
+            var staticMethods = enumDecl.Methods.Where(m => !m.IsConstructor && m.MethodType == MethodType.Static && !m.IsModuleInternal).ToList();
+            var instanceProperties = enumDecl.Properties
+                .Where(p => !p.IsStatic)
+                .Where(p => !IsSynthesizedProperty(p, enumDecl))
+                .ToList();
 
             // Record enum operators — equality is handled by C# enum semantics
             foreach (var operatorDecl in enumDecl.Operators)
@@ -124,6 +132,14 @@ namespace BindingsGeneration
             // Record constructors as emitted
             foreach (var methodDecl in enumDecl.Methods.Where(m => m.IsConstructor))
                 ReportCollector.RecordMemberEmitted(BindingItemKind.Method, methodDecl.Name, enumDecl);
+
+            // Record synthesized protocol conformance members as emitted — C# enums handle
+            // Hashable (GetHashCode), RawRepresentable (underlying value), CaseIterable
+            // (Enum.GetValues), etc. natively. These are not "skipped" — they're implicit.
+            foreach (var prop in enumDecl.Properties.Where(p => !p.IsStatic && IsSynthesizedProperty(p, enumDecl)))
+                ReportCollector.RecordMemberEmitted(BindingItemKind.Property, prop.Name, enumDecl);
+            foreach (var method in enumDecl.Methods.Where(m => !m.IsConstructor && m.MethodType != MethodType.Static && IsSynthesizedMethod(m, enumDecl)))
+                ReportCollector.RecordMemberEmitted(BindingItemKind.Method, method.Name, enumDecl);
 
             if (instanceMethods.Count > 0 || staticMethods.Count > 0 || instanceProperties.Count > 0)
             {
@@ -633,6 +649,36 @@ namespace BindingsGeneration
         /// Returns false if the enum has properties (instance or static), static methods,
         /// non-equality operators, or incompatible instance method signatures.
         /// </summary>
+        // Maps synthesized property names to the protocol conformance that generates them.
+        // Only filtered when the enum actually conforms to the relevant protocol.
+        private static readonly Dictionary<string, string> SynthesizedPropertyProtocols = new(StringComparer.Ordinal)
+        {
+            ["hashValue"]      = "Hashable",
+            ["rawValue"]       = "RawRepresentable",
+            ["allCases"]       = "CaseIterable",
+            ["stringValue"]    = "CodingKey",
+            ["intValue"]       = "CodingKey",
+            ["_nsErrorDomain"] = "_ObjectiveCBridgeableError",
+        };
+
+        private static bool IsSynthesizedProperty(PropertyDecl prop, EnumDecl enumDecl)
+        {
+            if (!SynthesizedPropertyProtocols.TryGetValue(prop.Name, out var requiredProtocol))
+                return false;
+            // Note: a user-defined allCases on a CaseIterable enum can't be distinguished from
+            // the synthesized one via ABI JSON alone. This is safe because allCases returns
+            // [Self] (Array<EnumType>) which isn't emittable on the class path either — simple
+            // enum types don't conform to ISwiftObject, so Array projection would fail.
+            return enumDecl.Conformances.Any(c => c.Protocol.Name == requiredProtocol);
+        }
+
+        private static bool IsSynthesizedMethod(MethodDecl method, EnumDecl enumDecl)
+            => !method.IsConstructor
+               && method.MethodType != MethodType.Static
+               && method.Name == "hash"
+               && method.CSSignature.Skip(1).Any(a => a.Name == "into")
+               && enumDecl.Conformances.Any(c => c.Protocol.Name == "Hashable");
+
         internal static bool CanSafelyEmitAsSimpleEnum(EnumDecl enumDecl)
         {
             // C# enums cannot contain nested types — if the enum has nested types,
@@ -640,19 +686,25 @@ namespace BindingsGeneration
             if (enumDecl.Types.Any())
                 return false;
 
-            // All properties are skipped on the simple path (instance AND static)
-            if (enumDecl.Properties.Any())
+            // All non-synthesized properties are skipped on the simple path (instance AND static).
+            // Synthesized Hashable/RawRepresentable/CaseIterable/CodingKey properties are
+            // handled natively by C# enums (GetHashCode, underlying value, Enum.GetValues, etc.).
+            // Conformance-aware: only exclude a property as synthesized if the enum conforms
+            // to the protocol that would generate it (prevents misclassifying user-defined members).
+            if (enumDecl.Properties.Any(p => !IsSynthesizedProperty(p, enumDecl)))
                 return false;
 
-            // Static methods are always skipped on the simple path
-            if (enumDecl.Methods.Any(m => !m.IsConstructor && m.MethodType == MethodType.Static))
+            // Static methods are always skipped on the simple path.
+            // Module-internal static methods are excluded (not callable from external code).
+            if (enumDecl.Methods.Any(m => !m.IsConstructor && m.MethodType == MethodType.Static && !m.IsModuleInternal))
                 return false;
 
             // Non-equality operators are always skipped on the simple path
             if (enumDecl.Operators.Any(o => o.Name != "==" && o.Name != "!="))
                 return false;
 
-            // Instance methods must have simple-emitter-compatible signatures
+            // Instance methods must have simple-emitter-compatible signatures.
+            // Exclude synthesized hash(into:) — C# enums inherit GetHashCode().
             if (!AreAllInstanceMethodsSimpleEmitterCompatible(enumDecl))
                 return false;
 
@@ -665,11 +717,16 @@ namespace BindingsGeneration
         /// types are within the supported primitive/string/bool/void/same-enum set qualify.
         /// If any instance method has an unsupported signature, the enum should stay class-based
         /// to avoid silently dropping members that the class path would have emitted.
+        /// Module-internal methods (@usableFromInline internal) are excluded — they appear in
+        /// ABI JSON but cannot be called from external Swift wrappers, so they must not block
+        /// the simple path or be emitted as extension methods.
         /// </summary>
         internal static bool AreAllInstanceMethodsSimpleEmitterCompatible(EnumDecl enumDecl)
         {
             var instanceMethods = enumDecl.Methods
-                .Where(m => !m.IsConstructor && m.MethodType != MethodType.Static);
+                .Where(m => !m.IsConstructor && m.MethodType != MethodType.Static)
+                .Where(m => !IsSynthesizedMethod(m, enumDecl))
+                .Where(m => !m.IsModuleInternal);
 
             foreach (var method in instanceMethods)
             {

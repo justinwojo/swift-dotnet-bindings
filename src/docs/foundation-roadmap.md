@@ -342,10 +342,10 @@ Details: [Pillar 1 § P1.1](#session-p11-struct-conformers-in-protocol-extension
 
 ---
 
-**A3: Closure Data Fixes** | Direct
-*Pillar: 3 (closure data) | ~54-58 closure methods unlocked*
+**A3: Closure Data Fixes + SimpleEnum + DynamicSelf Guard** | Direct | **COMPLETE**
+*Pillar: 3 (closure data) + enum quality | ObjC closure methods + 176 enums fixed*
 
-Register missing ObjC Foundation types (`URLSession`, `URLResponse`, `HTTPURLResponse`, `NSError`, etc.) in TypeDatabase XML. Fix `simpleEnum` detection for plain enums without raw types. `IsCdeclCompatibleType` already handles `IsObjCBridgedClass` — once DB entries exist, paths open.
+**Done.** Registered 11 missing ObjC Foundation types (`URLSessionTask`, `URLSessionDataTask`, `URLSessionDownloadTask`, `HTTPURLResponse`, `URLAuthenticationChallenge`, `URLSessionTaskMetrics`, `CachedURLResponse`, `InputStream`, `Progress`, `NSError`) and 2 UIKit types (`UIView`, `UIImageView`) in TypeDatabase XML with `objcBridged="true"`. Fixed `CanSafelyEmitAsSimpleEnum` to exclude synthesized Hashable/Equatable/RawRepresentable/CaseIterable/CodingKey members (`hashValue`, `rawValue`, `allCases`, `stringValue`, `intValue`, `_nsErrorDomain` properties and `hash(into:)` method) — 176 enums across validation libraries now emit as proper C# enums instead of heavyweight class-based types. Fixed `IsArrayOfString` crash on DynamicSelf return types (guard `!namedType.Name.Contains('.')`). 4 new/updated unit tests. 53/53 validation, 4879 unit tests passing.
 
 Details: [Pillar 3 § P3.1](#session-p31-data-fixes-58-methods)
 
