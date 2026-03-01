@@ -237,6 +237,20 @@ public class MarshallingHelpersTests
         Assert.True(MarshallingHelpers.MethodRequiresIndirectResult(env));
     }
 
+    [Fact]
+    public void MethodRequiresIndirectResult_DynamicSelfReturn_ReturnsTrue()
+    {
+        // A1 DynamicSelf hardening: "Self" return type always requires indirect result.
+        // The explicit IsDynamicSelf guard fires early (before GetTypeRecordOrThrow).
+        // Companion test TryGetAnyTypeFallbackInfo_DynamicSelf_IsNotFallback verifies
+        // DynamicSelf is NOT classified as an existential — that test would fail if
+        // the explicit guard were removed.
+        var selfReturn = new NamedTypeSpec("Self");
+        Assert.True(selfReturn.IsDynamicSelf);
+        var env = CreateMethodEnv(returnType: selfReturn);
+        Assert.True(MarshallingHelpers.MethodRequiresIndirectResult(env));
+    }
+
     #endregion
 
     #region Helper Methods

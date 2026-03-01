@@ -324,10 +324,10 @@ All Phase A sessions are independent — no ordering required between them.
 
 ---
 
-**A1: Generic Constraint Check + DynamicSelf Hardening** | Direct
+**A1: Generic Constraint Check + DynamicSelf Hardening** | Direct | **COMPLETE**
 *Pillars: 4 (SatisfiesConstraint) + 1 (DynamicSelf) | ~45 methods unlocked + 100 hardened*
 
-Implement the `SatisfiesConstraint` TODO at `BoundGenericsHandler.cs` L835 — check `typeArgumentDecl.Conformances` for the protocol constraint instead of returning `false`. Then add two DynamicSelf guards (`MarshallingHelpers.cs`, `TypeDatabaseExtensions.cs`). Staged rollout: 53-target validation diff before/after, unit tests per unblocked pattern, runtime spot-checks.
+**Done.** `SatisfiesConstraint` now checks all protocol conformances via `HasConformance` (direct) + `HasTransitiveConformance` (inherited). 6 DynamicSelf `IsDynamicSelf` guards added across `MarshallingHelpers.cs` and `TypeDatabaseExtensions.cs` (5 type-resolution entry points + `TryGetAnyTypeFallbackInfo`). +610 net lines across Alamofire/GRDB/Lottie/XMLCoder. Kingfisher -17 / Swinject -3 from diagnostic annotation cleanup (Self no longer misclassified as existential fallback). 12 new unit tests. 53/53 validation, 4856 unit tests passing.
 
 Details: [Pillar 4 § P4.1](#session-p41-general-protocol-conformance-check-45-methods), [Pillar 1 § P1.3](#session-p13-dynamicself-hardening)
 

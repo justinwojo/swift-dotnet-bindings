@@ -298,6 +298,211 @@ public class BoundGenericsHandlerTests
     }
 
     [Fact]
+    public void TryGetFirstUnsatisfiedConstraint_GeneralProtocolConformance_ReturnsFalse()
+    {
+        // A1: SatisfiesConstraint now checks all protocol conformances, not just Equatable.
+        // Setup: Container<T> where T: Serializable, and DataModel conforms to Serializable.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var serializableProtocol = new ProtocolDecl
+        {
+            Name = "Serializable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Serializable"),
+            MangledName = "$s10TestModule12SerializableP",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+        };
+        moduleDecl.Protocols.Add(serializableProtocol);
+
+        CreateGenericStructDecl("Container", moduleDecl, "T", "TestModule.Serializable");
+        CreateStructDecl("DataModel", moduleDecl, new[] { "TestModule.Serializable" });
+
+        var boundGeneric = new NamedTypeSpec("TestModule.Container", new NamedTypeSpec("TestModule.DataModel"));
+        var contextDecl = CreatePropertyContext(boundGeneric, moduleDecl);
+
+        var found = _handler.TryGetFirstUnsatisfiedConstraint(boundGeneric, contextDecl, out var details);
+
+        Assert.False(found);
+        Assert.Equal(string.Empty, details);
+    }
+
+    [Fact]
+    public void TryGetFirstUnsatisfiedConstraint_GeneralProtocolConformance_ClassDecl_ReturnsFalse()
+    {
+        // A1: Verify SatisfiesConstraint works for ClassDecl types with non-Equatable conformances.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        CreateGenericStructDecl("Processor", moduleDecl, "T", "TestModule.ImageProcessor");
+        CreateClassDecl("ResizingProcessor", moduleDecl, new[] { "TestModule.ImageProcessor" });
+
+        var boundGeneric = new NamedTypeSpec("TestModule.Processor", new NamedTypeSpec("TestModule.ResizingProcessor"));
+        var contextDecl = CreatePropertyContext(boundGeneric, moduleDecl);
+
+        var found = _handler.TryGetFirstUnsatisfiedConstraint(boundGeneric, contextDecl, out var details);
+
+        Assert.False(found);
+        Assert.Equal(string.Empty, details);
+    }
+
+    [Fact]
+    public void TryGetFirstUnsatisfiedConstraint_GeneralProtocolConformance_NoConformance_ReturnsTrue()
+    {
+        // A1: Type argument has NO conformance to the constraint protocol — should still fail.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        CreateGenericStructDecl("Container", moduleDecl, "T", "TestModule.Serializable");
+        CreateStructDecl("RawData", moduleDecl); // No conformance to Serializable
+
+        var boundGeneric = new NamedTypeSpec("TestModule.Container", new NamedTypeSpec("TestModule.RawData"));
+        var contextDecl = CreatePropertyContext(boundGeneric, moduleDecl);
+
+        var found = _handler.TryGetFirstUnsatisfiedConstraint(boundGeneric, contextDecl, out var details);
+
+        Assert.True(found);
+        Assert.Contains("does not satisfy constraint", details);
+    }
+
+    [Fact]
+    public void TryGetFirstUnsatisfiedConstraint_GeneralProtocolConformance_EnumDecl_ReturnsFalse()
+    {
+        // A1: Verify SatisfiesConstraint works for EnumDecl types with non-Equatable conformances.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        CreateGenericStructDecl("Wrapper", moduleDecl, "T", "TestModule.Codable");
+        CreateEnumDecl("Status", moduleDecl, new[] { "TestModule.Codable" });
+
+        var boundGeneric = new NamedTypeSpec("TestModule.Wrapper", new NamedTypeSpec("TestModule.Status"));
+        var contextDecl = CreatePropertyContext(boundGeneric, moduleDecl);
+
+        var found = _handler.TryGetFirstUnsatisfiedConstraint(boundGeneric, contextDecl, out var details);
+
+        Assert.False(found);
+        Assert.Equal(string.Empty, details);
+    }
+
+    [Fact]
+    public void TryGetFirstUnsatisfiedConstraint_ConcreteTypeTransitiveConformance_ReturnsFalse()
+    {
+        // A1 fix for Codex finding #1: ConcreteType : ChildProtocol should satisfy
+        // T : ParentProtocol when ChildProtocol : ParentProtocol.
+        // This tests the concrete-type path (not generic-parameter path).
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        // Create ParentProtocol
+        var parentProtocol = new ProtocolDecl
+        {
+            Name = "ParentProtocol",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ParentProtocol"),
+            MangledName = "$s10TestModule14ParentProtocolMp",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(parentProtocol);
+
+        // Create ChildProtocol : ParentProtocol
+        var childProtocol = new ProtocolDecl
+        {
+            Name = "ChildProtocol",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ChildProtocol"),
+            MangledName = "$s10TestModule13ChildProtocolMp",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec> { new NamedTypeSpec("TestModule.ParentProtocol") },
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(childProtocol);
+
+        // Container<T> where T: ParentProtocol
+        CreateGenericStructDecl("Container", moduleDecl, "T", "TestModule.ParentProtocol");
+
+        // ConcreteModel conforms to ChildProtocol (NOT directly to ParentProtocol)
+        CreateStructDecl("ConcreteModel", moduleDecl, new[] { "TestModule.ChildProtocol" });
+
+        // Container<ConcreteModel> — should satisfy constraint via transitive inheritance
+        var boundGeneric = new NamedTypeSpec("TestModule.Container", new NamedTypeSpec("TestModule.ConcreteModel"));
+        var contextDecl = CreatePropertyContext(boundGeneric, moduleDecl);
+
+        var found = _handler.TryGetFirstUnsatisfiedConstraint(boundGeneric, contextDecl, out var details);
+
+        Assert.False(found);
+        Assert.Equal(string.Empty, details);
+    }
+
+    [Fact]
+    public void TryGetFirstUnsatisfiedConstraint_ConcreteTypeUnrelatedProtocol_ReturnsTrue()
+    {
+        // Negative test for transitive conformance: ConcreteType : UnrelatedProtocol
+        // does NOT satisfy T : RequiredProtocol.
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var requiredProtocol = new ProtocolDecl
+        {
+            Name = "RequiredProtocol",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.RequiredProtocol"),
+            MangledName = "$s10TestModule16RequiredProtocolMp",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(requiredProtocol);
+
+        var unrelatedProtocol = new ProtocolDecl
+        {
+            Name = "UnrelatedProtocol",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.UnrelatedProtocol"),
+            MangledName = "$s10TestModule17UnrelatedProtocolMp",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(unrelatedProtocol);
+
+        // Container<T> where T: RequiredProtocol
+        CreateGenericStructDecl("Container", moduleDecl, "T", "TestModule.RequiredProtocol");
+
+        // Widget conforms to UnrelatedProtocol (NOT RequiredProtocol or child of it)
+        CreateStructDecl("Widget", moduleDecl, new[] { "TestModule.UnrelatedProtocol" });
+
+        var boundGeneric = new NamedTypeSpec("TestModule.Container", new NamedTypeSpec("TestModule.Widget"));
+        var contextDecl = CreatePropertyContext(boundGeneric, moduleDecl);
+
+        var found = _handler.TryGetFirstUnsatisfiedConstraint(boundGeneric, contextDecl, out var details);
+
+        Assert.True(found);
+        Assert.Contains("does not satisfy constraint", details);
+    }
+
+    [Fact]
     public void TryGetFirstUnsatisfiedConstraint_ExternalConcreteType_ReturnsTrue()
     {
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -1013,6 +1218,62 @@ public class BoundGenericsHandlerTests
         };
 
         return structDecl;
+    }
+
+    private static ClassDecl CreateClassDecl(string className, ModuleDecl moduleDecl, IEnumerable<string> protocolConformances = null)
+    {
+        var conformances = protocolConformances?.Select(protocol => new TypeConformance(
+            SwiftTypeName.FromModuleQualifiedName($"{moduleDecl.Name}.{className}"),
+            SwiftTypeName.FromModuleQualifiedName(protocol),
+            ProtocolConformanceDescriptor: string.Empty)).ToList()
+            ?? new List<TypeConformance>();
+
+        var classDecl = new ClassDecl
+        {
+            Name = className,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleDecl.Name}.{className}"),
+            MangledName = $"$s{moduleDecl.Name.Length}{moduleDecl.Name}{className.Length}{className}CN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = conformances,
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+        };
+        moduleDecl.Types.Add(classDecl);
+        return classDecl;
+    }
+
+    private static EnumDecl CreateEnumDecl(string enumName, ModuleDecl moduleDecl, IEnumerable<string> protocolConformances = null)
+    {
+        var conformances = protocolConformances?.Select(protocol => new TypeConformance(
+            SwiftTypeName.FromModuleQualifiedName($"{moduleDecl.Name}.{enumName}"),
+            SwiftTypeName.FromModuleQualifiedName(protocol),
+            ProtocolConformanceDescriptor: string.Empty)).ToList()
+            ?? new List<TypeConformance>();
+
+        var enumDecl = new EnumDecl
+        {
+            Name = enumName,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleDecl.Name}.{enumName}"),
+            MangledName = $"$s{moduleDecl.Name.Length}{moduleDecl.Name}{enumName.Length}{enumName}ON",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = conformances,
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = $"$s{moduleDecl.Name.Length}{moduleDecl.Name}{enumName.Length}{enumName}OMa"
+        };
+        moduleDecl.Types.Add(enumDecl);
+        return enumDecl;
     }
 
     private static StructDecl CreateNestedGenericStructDecl(

@@ -51,6 +51,72 @@ public class TypeDatabaseExtensionsTests
         Assert.Equal("any Swift.Encoder", fallbackInfo.Value.SwiftType);
     }
 
+    // --- DynamicSelf hardening tests (A1) ---
+    // These tests verify that DynamicSelf ("Self") is handled by explicit IsDynamicSelf guards,
+    // NOT by the IsExistentialTypeName fallback. The key behavioral difference:
+    // TryGetAnyTypeFallbackInfo returns false for DynamicSelf (intentionally handled),
+    // but would return true with reason "Existential type fallback" if the heuristic path were used.
+
+    [Fact]
+    public void GetTypeRecordOrThrow_DynamicSelf_ReturnsAnyType()
+    {
+        var typeDatabase = new TypeDatabase();
+        var selfSpec = new NamedTypeSpec("Self");
+
+        var record = typeDatabase.GetTypeRecordOrThrow(selfSpec);
+
+        Assert.Equal(TypeDatabaseExtensions.AnyType, record);
+    }
+
+    [Fact]
+    public void GetTypeRecordOrAnyType_DynamicSelf_ReturnsAnyType()
+    {
+        var typeDatabase = new TypeDatabase();
+        var selfSpec = new NamedTypeSpec("Self");
+
+        var record = typeDatabase.GetTypeRecordOrAnyType(selfSpec);
+
+        Assert.Equal(TypeDatabaseExtensions.AnyType, record);
+    }
+
+    [Fact]
+    public void TryGetTypeRecord_DynamicSelf_ReturnsAnyType()
+    {
+        var typeDatabase = new TypeDatabase();
+        var selfSpec = new NamedTypeSpec("Self");
+
+        var found = typeDatabase.TryGetTypeRecord(selfSpec, out var record);
+
+        Assert.True(found);
+        Assert.Equal(TypeDatabaseExtensions.AnyType, record);
+    }
+
+    [Fact]
+    public void IsTypeProcessed_DynamicSelf_ReturnsTrue()
+    {
+        var typeDatabase = new TypeDatabase();
+        var selfSpec = new NamedTypeSpec("Self");
+
+        Assert.True(typeDatabase.IsTypeProcessed(selfSpec));
+    }
+
+    [Fact]
+    public void TryGetAnyTypeFallbackInfo_DynamicSelf_IsNotFallback()
+    {
+        // This is the key hardening test: DynamicSelf must NOT be reported as an
+        // existential fallback. Without the explicit IsDynamicSelf guard, "Self"
+        // would match IsExistentialTypeName (no module qualifier) and return
+        // fallbackInfo with reason "Existential type fallback".
+        // The guard ensures DynamicSelf is a known, intentionally-handled case.
+        var typeDatabase = new TypeDatabase();
+        var selfSpec = new NamedTypeSpec("Self");
+
+        var isFallback = typeDatabase.TryGetAnyTypeFallbackInfo(selfSpec, out var fallbackInfo);
+
+        Assert.False(isFallback);
+        Assert.Null(fallbackInfo);
+    }
+
     // --- Pointer type tests ---
 
     [Theory]

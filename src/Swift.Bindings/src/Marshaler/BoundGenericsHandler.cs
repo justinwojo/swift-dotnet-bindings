@@ -867,12 +867,13 @@ public class BoundGenericsHandler
         if (typeArgumentDecl is ProtocolDecl && typeArgumentName == protocolConstraint)
             return true;
 
-        // Only Equatable is currently emitted as a concrete conformance.
-        if (protocolConstraint.Name == "Equatable")
-            return HasConformance(typeArgumentDecl, protocolConstraint);
+        // Check if the type argument has a direct conformance to the protocol constraint.
+        if (HasConformance(typeArgumentDecl, protocolConstraint))
+            return true;
 
-        // General protocol conformance emission is handled in a later task.
-        return false;
+        // Check transitive conformance: ConcreteType : ChildProtocol should satisfy
+        // T : ParentProtocol when ChildProtocol : ParentProtocol.
+        return HasTransitiveConformance(typeArgumentDecl, protocolConstraint, moduleDecl);
     }
 
     /// <summary>
@@ -1063,6 +1064,32 @@ public class BoundGenericsHandler
             EnumDecl enumDecl => enumDecl.Conformances.Any(c => c.Protocol == protocolType),
             _ => false
         };
+
+    /// <summary>
+    /// Checks whether a concrete type transitively satisfies a protocol constraint via protocol inheritance.
+    /// For example, ConcreteType : ChildProtocol satisfies T : ParentProtocol when ChildProtocol : ParentProtocol.
+    /// </summary>
+    private static bool HasTransitiveConformance(TypeDecl typeDecl, SwiftTypeName targetProtocol, ModuleDecl moduleDecl)
+    {
+        var conformances = typeDecl switch
+        {
+            StructDecl s => s.Conformances,
+            ClassDecl c => c.Conformances,
+            EnumDecl e => e.Conformances,
+            _ => null
+        };
+
+        if (conformances == null)
+            return false;
+
+        foreach (var conformance in conformances)
+        {
+            if (ProtocolInheritsFrom(conformance.Protocol, targetProtocol, moduleDecl))
+                return true;
+        }
+
+        return false;
+    }
 
     private static TypeDecl? FindTypeDecl(ModuleDecl moduleDecl, SwiftTypeName swiftTypeName)
     {

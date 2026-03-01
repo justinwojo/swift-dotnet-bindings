@@ -46,6 +46,12 @@ public static class TypeDatabaseExtensions
     /// <returns>True if the type has been processed; otherwise, false.</returns>
     public static bool IsTypeProcessed(this ITypeDatabase typeDatabase, NamedTypeSpec typeSpec)
     {
+        // DynamicSelf (Self return type) is always considered processed
+        if (typeSpec.IsDynamicSelf)
+        {
+            return true;
+        }
+
         // Generic type parameters are handled as AnyType (considered "processed")
         if (TypeSpecHelpers.IsGenericTypeParameter(typeSpec.Name))
         {
@@ -105,6 +111,12 @@ public static class TypeDatabaseExtensions
     /// <returns>The type record.</returns>
     public static TypeRecord GetTypeRecordOrAnyType(this ITypeDatabase typeDatabase, NamedTypeSpec typeSpec)
     {
+        // DynamicSelf (Self return type) maps to AnyType
+        if (typeSpec.IsDynamicSelf)
+        {
+            return AnyType;
+        }
+
         // Generic type parameters (τ_0_0, T, Element, etc.) should return AnyType
         // since their concrete types aren't known at binding generation time
         if (TypeSpecHelpers.IsGenericTypeParameter(typeSpec.Name))
@@ -177,6 +189,13 @@ public static class TypeDatabaseExtensions
     /// <returns>True if the type record was found; otherwise, false.</returns>
     public static bool TryGetTypeRecord(this ITypeDatabase typeDatabase, NamedTypeSpec typeSpec, [NotNullWhen(returnValue: true)] out TypeRecord? record)
     {
+        // DynamicSelf (Self return type) maps to AnyType
+        if (typeSpec.IsDynamicSelf)
+        {
+            record = AnyType;
+            return true;
+        }
+
         // Generic type parameters return AnyType
         if (TypeSpecHelpers.IsGenericTypeParameter(typeSpec.Name))
         {
@@ -245,6 +264,14 @@ public static class TypeDatabaseExtensions
     /// <returns>The type record.</returns>
     public static TypeRecord GetTypeRecordOrThrow(this ITypeDatabase typeDatabase, NamedTypeSpec typeSpec)
     {
+        // DynamicSelf (Self return type) maps to AnyType — it represents the runtime type
+        // of the receiver, which is unknown at binding generation time.
+        // This explicit guard prevents breakage if IsExistentialTypeName heuristic changes.
+        if (typeSpec.IsDynamicSelf)
+        {
+            return AnyType;
+        }
+
         // Generic type parameters return AnyType (they can't be resolved to concrete types)
         if (TypeSpecHelpers.IsGenericTypeParameter(typeSpec.Name))
         {
@@ -353,6 +380,13 @@ public static class TypeDatabaseExtensions
     /// </summary>
     public static bool TryGetAnyTypeFallbackInfo(this ITypeDatabase typeDatabase, NamedTypeSpec typeSpec, [NotNullWhen(true)] out AnyTypeFallbackInfo? fallbackInfo)
     {
+        // DynamicSelf (Self return type) is intentionally mapped to AnyType — not a fallback.
+        if (typeSpec.IsDynamicSelf)
+        {
+            fallbackInfo = null;
+            return false;
+        }
+
         // Generic type parameters (T, τ_0_0, Element, etc.) are expected and should not be marked as unsupported.
         if (TypeSpecHelpers.IsGenericTypeParameter(typeSpec.Name))
         {

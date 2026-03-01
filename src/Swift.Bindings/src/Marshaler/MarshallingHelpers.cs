@@ -97,6 +97,12 @@ namespace BindingsGeneration
 
             var returnType = env.MethodDecl.CSSignature.First();
 
+            // DynamicSelf (Self return type) always requires indirect result.
+            // Currently this works via the accidental path: IsExistentialTypeName("Self") → AnyType → not frozen → true.
+            // This explicit guard prevents breakage if IsExistentialTypeName heuristic changes.
+            if (returnType.SwiftTypeSpec.IsDynamicSelf)
+                return true;
+
             // Closure return types don't require indirect result - they are passed as function pointers
             if (returnType.SwiftTypeSpec is ClosureTypeSpec)
                 return false;
