@@ -642,6 +642,8 @@ namespace BindingsGeneration
 
             // ISwiftObject implementation
             csWriter.WriteLines($$"""
+                IntPtr ISwiftObject.SwiftHandle => _swiftContainer.Payload0;
+
                 public static TypeMetadata GetTypeMetadata()
                 {
                     throw new NotSupportedException("Composition proxy has no single EveryProtocol metadata.");

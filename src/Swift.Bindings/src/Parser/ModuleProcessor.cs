@@ -588,6 +588,9 @@ namespace BindingsGeneration
                     flags |= TypeRecordFlags.InheritedRequirementsOnly;
             }
 
+            if (protocolDecl.IsClassBound)
+                flags |= TypeRecordFlags.ClassBound;
+
             var typeRecord = new TypeRecord
             {
                 SwiftTypeName = protocolDecl.SwiftTypeName,

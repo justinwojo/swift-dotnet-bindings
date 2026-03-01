@@ -27,6 +27,8 @@ public sealed class Hasher : ISwiftObject, IDisposable
     /// </summary>
     public SwiftSafeHandle<Hasher> Payload => _payload;
 
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
+
     #region ISwiftObject Implementation
 
     static TypeMetadata ISwiftObject.GetTypeMetadata()

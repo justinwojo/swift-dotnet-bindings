@@ -65,6 +65,8 @@ public class SwiftArray<Element> : ISwiftObject, IReadOnlyList<Element>, IList<E
         };
     }
 
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
+
     static TypeMetadata ISwiftObject.GetTypeMetadata()
     {
         return TypeMetadata.Cache.GetOrAdd(typeof(SwiftArray<Element>), _ => SwiftArrayPInvokes.PInvoke_getMetadata(TypeMetadataRequest.Complete, ElementTypeMetadata));

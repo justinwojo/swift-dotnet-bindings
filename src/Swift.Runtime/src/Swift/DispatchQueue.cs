@@ -36,6 +36,8 @@ public sealed class DispatchQueue : ISwiftObject, IDisposable
     /// </summary>
     public static DispatchQueue Global() => PInvoke_GetGlobal();
 
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
+
     #region ISwiftObject Implementation
 
     static TypeMetadata ISwiftObject.GetTypeMetadata()

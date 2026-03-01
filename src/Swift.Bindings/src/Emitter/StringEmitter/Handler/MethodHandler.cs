@@ -194,6 +194,20 @@ namespace BindingsGeneration
                     return;
                 }
 
+                // Try constrained existential bridge (e.g., any CameraFrameAnalyzer<CameraFrame, UIEvent>)
+                if (ConstrainedExistentialBridge.TryEmitConstructor(csWriter, swiftWriter, methodEnv, _logger, context.GetEmissionContext()))
+                {
+                    ReportCollector.RecordMemberWrapped(
+                        BindingItemKind.Method,
+                        methodEnv.MethodDecl.Name,
+                        methodEnv.MethodDecl.MangledName,
+                        methodEnv.MethodDecl.ParentDecl,
+                        "ConstrainedExistentialBridge",
+                        "Constrained existential parameter(s) bridged via @_silgen_name wrapper.");
+                    methodEnv.MethodDecl.WasEmitted = true;
+                    return;
+                }
+
                 // Fallback: skip as before
                 _logger.LogWarning($"Skipping constructor {methodEnv.MethodDecl.Name}: bound generic contains unsupported existential type argument '{firstExistentialType}'.");
                 ReportCollector.RecordMemberSkipped(
@@ -254,6 +268,20 @@ namespace BindingsGeneration
                     methodEnv.MethodDecl.ParentDecl,
                     SkipReason.UnsupportedClosure,
                     "Optional closure parameter(s) with defaults, but constructor shape incompatible with bypass.");
+                return;
+            }
+
+            // Try constrained existential bridge (e.g., any CameraFrameAnalyzer<CameraFrame, UIEvent>)
+            if (ConstrainedExistentialBridge.TryEmitConstructor(csWriter, swiftWriter, methodEnv, _logger, context.GetEmissionContext()))
+            {
+                ReportCollector.RecordMemberWrapped(
+                    BindingItemKind.Method,
+                    methodEnv.MethodDecl.Name,
+                    methodEnv.MethodDecl.MangledName,
+                    methodEnv.MethodDecl.ParentDecl,
+                    "ConstrainedExistentialBridge",
+                    "Constrained existential parameter(s) bridged via @_silgen_name wrapper.");
+                methodEnv.MethodDecl.WasEmitted = true;
                 return;
             }
 

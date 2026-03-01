@@ -60,6 +60,8 @@ public class SwiftString : ISwiftObject, IDisposable
 
     public unsafe PayloadBuffer<SwiftString.Buffer> PayloadBuffer => new PayloadBuffer<SwiftString.Buffer>(_payload);
 
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
+
     static TypeMetadata ISwiftObject.GetTypeMetadata()
     {
         return TypeMetadata.Cache.GetOrAdd(typeof(SwiftString), _ => PInvoke_getMetadata());

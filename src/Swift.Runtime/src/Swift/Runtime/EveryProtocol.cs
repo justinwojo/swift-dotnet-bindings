@@ -66,6 +66,8 @@ public sealed class EveryProtocol : ISwiftObject
     /// </summary>
     public SwiftSafeHandle<EveryProtocol> Payload => _handle;
 
+    IntPtr ISwiftObject.SwiftHandle => _handle.DangerousGetHandle();
+
     /// <summary>
     /// Gets the Swift type metadata for EveryProtocol.
     /// The metadata is loaded from the generated Swift wrapper library.

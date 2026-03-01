@@ -6,7 +6,7 @@ Tracks binary workflow completion for target libraries and prioritized architect
 
 ## Current Status
 
-**Compile gate: 53/53 passing. 7/9 target libraries usable. Sessions 1–3 complete.**
+**Compile gate: 53/53 passing. 8/9 target libraries usable. Sessions 1–4 complete.**
 
 | Library | Lines | Types | Verdict | Key gap |
 |---|---|---|---|---|
@@ -17,7 +17,7 @@ Tracks binary workflow completion for target libraries and prioritized architect
 | **MicroblinkPlatform** | 4,997 | 10 | USABLE (NativeAOT) | SB0001 on SDK constructor |
 | **Mappedin** | 51,722 | 120 | USABLE | All SB0001 methods have async/no-callback alternatives |
 | **SmartCardIO** | 5,162 | 17 | USABLE | `Transmit(apdu)` now dispatches; remaining: collection returns + existential property |
-| **BlinkIDUX** | 11,794 | 57 | BLOCKED | Constructor takes constrained existential |
+| **BlinkIDUX** | 12,055 | 57 | USABLE | ConstrainedExistentialBridge unblocked constructor |
 | **BRLMPrinterKit** | 43 | 0 | NOT APPLICABLE | 99% ObjC SDK, 1 Swift method with unsupported params |
 
 ### Corrections from v1
@@ -57,6 +57,13 @@ Tracks binary workflow completion for target libraries and prioritized architect
 | **Class/struct param dispatch** (C# `.Payload.DangerousGetHandle()` → Swift `Unmanaged<T>.fromOpaque` for classes, `assumingMemoryBound(to:).pointee` for structs) | Mappedin (**-7**: delegate callbacks), Nuke (**-10**: pipeline delegate + class return unlocks), StripePaymentSheet (**-3**), StripeCore (**-1**), Lottie (**-2**), SmartCardIO (**-1**) |
 
 Session 3 scope was broader than "VoidNonBlitParams=33" — extended param dispatch across ALL dispatch kinds (BlittableOrString, ThrowingBlittableOrString, ExistentialReturn, ClassReturn, StructReturn). This unlocked previously-blocked ClassReturn/StructReturn methods that had class/struct params, accounting for ~10 bonus dispatches beyond the 24 pure VoidNonBlitParams target.
+
+### Capabilities gained in Session 4
+
+| Capability | Libraries improved |
+|---|---|
+| **ConstrainedExistentialBridge** (`@_silgen_name` wrapper for `any Protocol<ConcreteA, ConcreteB>` params) | BlinkIDUX (**BLOCKED → USABLE**: +2 constructors) |
+| **ISwiftObject.SwiftHandle** (DIM for raw handle extraction) | All generated types (infrastructure) |
 
 ## SB0003 Analysis — 128 Non-Dispatchable Proxy Members (post-Session 3)
 
@@ -176,16 +183,24 @@ Remaining 2 Mappedin SB0003: `OnStateChanged(MPIState)` (non-simple enum param) 
 
 ---
 
-### Session 4: Constrained existential parameters
+### Session 4: Constrained existential parameters ✅ COMPLETE
 
-**Impact: Unblocks BlinkIDUX → 8/9 target libraries usable**
+**Result: BlinkIDUX BLOCKED → USABLE. 8/9 target libraries usable. +2 constructors bridged (BlinkIDUXModel + ScanningViewModel).**
 
-`BlinkIDUXModel.init(analyzer: any CameraFrameAnalyzer<CameraFrame, UIEvent>, ...)` requires supporting constrained existentials — protocol types with associated type constraints applied at the call site. May need type metadata for the constrained protocol witness table.
+`ConstrainedExistentialBridge` emitter generates `@_silgen_name` Swift wrappers that accept `UnsafeMutableRawPointer` for constrained existential params (e.g., `any CameraFrameAnalyzer<CameraFrame, UIEvent>`). Swift wrapper casts via `Unmanaged<AnyObject>.fromOpaque(...).takeUnretainedValue() as! any Protocol<A, B>`. Class return via `Unmanaged.passRetained(result).toOpaque()`.
+
+**Core changes:**
+- `ISwiftObject.SwiftHandle` — default interface member (DIM) on `ISwiftObject` for raw pointer extraction. Overridden by all heap-backed runtime types (17 files) and emitted by generators (ClassHandler, NonFrozenStructHandler, EnumHandler, FrozenStructHandler, ProtocolProxyEmitter, ModuleHandler)
+- `IsConstrainedExistential(TypeSpec, ITypeDatabase)` — detects both `ProtocolListTypeSpec` and `NamedTypeSpec` forms (ABI JSON parses constrained existentials as NamedTypeSpec with generic params from printedName)
+- `ClassBound` flag (`TypeRecordFlags.1<<7`) — serialized/deserialized in module database. Set from `ProtocolDecl.IsClassBound`. Infrastructure prepared but bridge does NOT gate on class-bound (ISwiftObject.SwiftHandle provides runtime safety for non-class-bound protocols)
+- Demangling resilience — `demangler.Run()` wrapped in try-catch in `CreateMethodDecl` (constrained existential mangled names contain `AssociatedType` node kind that throws `NotImplementedException`)
+- MethodHandler integration — bridge check inserted inside `hasExistentialArg` block, between ExistentialBypassEmitter and fallback skip. Also retained after the block for non-flagged paths
 
 Key unlocks:
-- BlinkIDUX: `BlinkIDUXModel` constructor (the only way to create the main scanning model)
+- BlinkIDUX: `BlinkIDUXModel(ISwiftObject analyzer, ScanningUXSettings uxSettings, nint sessionNumber)` ✅
+- BlinkIDUX: `ScanningViewModel(ISwiftObject analyzer, ScanningUXSettings uxSettings, nint sessionNumber)` ✅
 
-**Estimated effort**: Large.
+**Tests**: 23 new tests (6 IsConstrainedExistential, 2 ClassBound flag, 6 bridge emission, 3 RenderConstrainedExistentialSwiftType, 2 gate tests, 4 NamedTypeSpec form tests).
 
 ---
 
@@ -217,7 +232,7 @@ Key unlocks:
 Session 1: Throwing dispatch + void fix + nint    [~24 SB0003, Medium]    ✅ COMPLETE — SmartCardIO 19→9
 Session 2: Non-blittable + interface returns      [24 SB0003, Large]      ✅ COMPLETE — BlinkIDUX 32→11, SmartCardIO 9→8
 Session 3: Class/struct param dispatch            [34 SB0003, Large]      ✅ COMPLETE — Mappedin 9→2, Nuke 26→16
-Session 4: Constrained existential params         [BlinkIDUX, Large]      → ~128 remaining, 8/9 usable
+Session 4: Constrained existential params         [BlinkIDUX, Large]      ✅ COMPLETE — 8/9 usable
 ```
 
 After Sessions 1–3: **58/186 SB0003 eliminated (31%)**. After Session 4: **8/9 target libraries usable**. The 128 remaining are: collection/interface returns (28), non-blittable returns with remaining non-dispatchable params (~24), non-simple enum params (~9), closure-in-proxy (10), AnyType/opaque (13), async/regen edge cases (6), blittable+non-blit-params (3), and other (~35).

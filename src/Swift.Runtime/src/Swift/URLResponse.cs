@@ -83,6 +83,8 @@ public sealed class URLResponse : ISwiftObject, IDisposable
         }
     }
 
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
+
     #region ISwiftObject Implementation
 
     static TypeMetadata ISwiftObject.GetTypeMetadata()

@@ -135,6 +135,8 @@ public sealed class URL : ISwiftObject, IDisposable
     /// </summary>
     public bool IsFileURL => PInvoke_GetIsFileURL(this);
 
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
+
     #region ISwiftObject Implementation
 
     static TypeMetadata ISwiftObject.GetTypeMetadata()

@@ -28,6 +28,14 @@ public interface ISwiftObject : IDisposable
     /// Gets the protocol conformance descriptor for the given type
     /// </summary>
     public static abstract ProtocolConformanceDescriptor GetProtocolConformanceDescriptor<TProtocol>() where TProtocol : class;
+
+    /// <summary>
+    /// Gets the raw Swift handle for interop marshalling.
+    /// Types backed by a SafeHandle or existential container override this.
+    /// Value-type structs (frozen) do not have meaningful handles and retain the default throw.
+    /// </summary>
+    IntPtr SwiftHandle => throw new NotSupportedException(
+        $"SwiftHandle is not available for {GetType().Name}. Only heap-backed Swift types support handle extraction.");
 }
 
 /// <summary>

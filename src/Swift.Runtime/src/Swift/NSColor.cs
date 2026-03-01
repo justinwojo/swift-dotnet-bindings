@@ -46,6 +46,8 @@ public sealed class NSColor : ISwiftObject, IDisposable
     /// </summary>
     public static NSColor Clear => PInvoke_GetClear();
 
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
+
     #region ISwiftObject Implementation
 
     static TypeMetadata ISwiftObject.GetTypeMetadata()
@@ -161,6 +163,7 @@ public sealed class NSColor : ISwiftObject, IDisposable
     static TypeMetadata ISwiftObject.GetTypeMetadata() => throw new PlatformNotSupportedException("NSColor is only available on macOS/Mac Catalyst.");
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle) => throw new PlatformNotSupportedException("NSColor is only available on macOS/Mac Catalyst.");
     int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan) => throw new PlatformNotSupportedException("NSColor is only available on macOS/Mac Catalyst.");
+    IntPtr ISwiftObject.SwiftHandle => throw new PlatformNotSupportedException("NSColor is only available on macOS/Mac Catalyst.");
     static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>() => throw new PlatformNotSupportedException("NSColor is only available on macOS/Mac Catalyst.");
     public void Dispose() { }
 }

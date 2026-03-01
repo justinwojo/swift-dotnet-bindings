@@ -35,6 +35,8 @@ public sealed class CIContext : ISwiftObject, IDisposable
         _payload = context._payload;
     }
 
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
+
     #region ISwiftObject Implementation
 
     static TypeMetadata ISwiftObject.GetTypeMetadata()

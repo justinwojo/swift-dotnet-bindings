@@ -115,6 +115,9 @@ namespace BindingsGeneration
             if ((record.Flags & TypeRecordFlags.InheritedRequirementsOnly) != 0)
                 writer.WriteAttributeString("inheritedRequirementsOnly", "true");
 
+            if ((record.Flags & TypeRecordFlags.ClassBound) != 0)
+                writer.WriteAttributeString("classBound", "true");
+
             if (!string.IsNullOrEmpty(record.RawValueTypeName))
                 writer.WriteAttributeString("rawValueType", record.RawValueTypeName);
 

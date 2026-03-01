@@ -42,6 +42,8 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, IReadOnlyDictionary<T
         };
     }
 
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
+
     static TypeMetadata ISwiftObject.GetTypeMetadata()
     {
         var witnessTable = ProtocolWitnessTable.GetOrThrow<TKey, ISwiftHashable>();

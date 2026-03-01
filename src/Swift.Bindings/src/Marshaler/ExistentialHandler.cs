@@ -380,6 +380,49 @@ public class ExistentialHandler
     }
 
     /// <summary>
+    /// Returns true if the TypeSpec represents a constrained existential — a protocol type with
+    /// concrete generic arguments (e.g., any CameraFrameAnalyzer&lt;CameraFrame, UIEvent&gt;).
+    /// Handles both ProtocolListTypeSpec (from protocol composition) and NamedTypeSpec (from ABI JSON
+    /// where constrained existentials are parsed as NamedTypeSpec with generic params via printedName).
+    /// Does NOT gate on ClassBound — see ConstrainedExistentialBridge for safety constraints.
+    /// </summary>
+    public static bool IsConstrainedExistential(TypeSpec? typeSpec, ITypeDatabase typeDatabase)
+    {
+        NamedTypeSpec? protocolSpec = null;
+
+        if (typeSpec is ProtocolListTypeSpec protocolList && protocolList.Protocols.Count == 1)
+        {
+            protocolSpec = protocolList.Protocols.Keys[0];
+        }
+        else if (typeSpec is NamedTypeSpec named && named.GenericParameters.Count > 0)
+        {
+            protocolSpec = named;
+        }
+
+        if (protocolSpec == null || protocolSpec.GenericParameters.Count == 0)
+            return false;
+
+        // All generic args must be concrete (not τ_0_0 style generic params)
+        if (!protocolSpec.GenericParameters.All(gp =>
+            gp is NamedTypeSpec n && !TypeSpecHelpers.IsGenericTypeParameter(n.Name)))
+            return false;
+
+        // Must be a protocol type
+        try
+        {
+            var swiftTypeName = SwiftTypeName.FromTypeSpec(protocolSpec);
+            if (!typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord) ||
+                typeRecord.Kind != TypeRecordKind.Protocol)
+                return false;
+        }
+        catch
+        {
+            return false;
+        }
+        return true;
+    }
+
+    /// <summary>
     /// Checks whether ALL protocols in a composition have TypeRecords with Kind == Protocol.
     /// Returns false if any protocol is unknown/unregistered or not a Protocol kind.
     /// </summary>

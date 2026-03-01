@@ -68,6 +68,8 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, IDisposable
     /// Returns the TypeMetadata for this object
     /// </summary>
     /// <returns>The TypeMetadata for this object</returns>
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
+
     static TypeMetadata ISwiftObject.GetTypeMetadata()
     {
         return TypeMetadata.Cache.GetOrAdd(typeof(SwiftResult<TSuccess, TFailure>), _ =>

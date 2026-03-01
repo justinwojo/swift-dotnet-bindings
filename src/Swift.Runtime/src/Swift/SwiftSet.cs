@@ -64,6 +64,8 @@ public class SwiftSet<Element> : ISwiftObject, ICollection<Element>, IReadOnlyCo
         };
     }
 
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
+
     static TypeMetadata ISwiftObject.GetTypeMetadata()
     {
         var witnessTable = ProtocolWitnessTable.GetOrThrow<Element, ISwiftHashable>();

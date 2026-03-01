@@ -36,6 +36,8 @@ public sealed class NSImage : ISwiftObject, IDisposable
     /// </summary>
     public CGSize Size => PInvoke_GetSize(this);
 
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
+
     #region ISwiftObject Implementation
 
     static TypeMetadata ISwiftObject.GetTypeMetadata()
@@ -139,6 +141,7 @@ public sealed class NSImage : ISwiftObject, IDisposable
     static TypeMetadata ISwiftObject.GetTypeMetadata() => throw new PlatformNotSupportedException("NSImage is only available on macOS/Mac Catalyst.");
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle) => throw new PlatformNotSupportedException("NSImage is only available on macOS/Mac Catalyst.");
     int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan) => throw new PlatformNotSupportedException("NSImage is only available on macOS/Mac Catalyst.");
+    IntPtr ISwiftObject.SwiftHandle => throw new PlatformNotSupportedException("NSImage is only available on macOS/Mac Catalyst.");
     static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>() => throw new PlatformNotSupportedException("NSImage is only available on macOS/Mac Catalyst.");
     public void Dispose() { }
 }

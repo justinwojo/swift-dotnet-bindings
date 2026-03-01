@@ -41,6 +41,8 @@ public sealed class UIImage : ISwiftObject, IDisposable
     /// </summary>
     public double Scale => PInvoke_GetScale(this);
 
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
+
     #region ISwiftObject Implementation
 
     static TypeMetadata ISwiftObject.GetTypeMetadata()
@@ -148,6 +150,7 @@ public sealed class UIImage : ISwiftObject, IDisposable
     static TypeMetadata ISwiftObject.GetTypeMetadata() => throw new PlatformNotSupportedException("UIImage is only available on iOS/tvOS.");
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle) => throw new PlatformNotSupportedException("UIImage is only available on iOS/tvOS.");
     int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan) => throw new PlatformNotSupportedException("UIImage is only available on iOS/tvOS.");
+    IntPtr ISwiftObject.SwiftHandle => throw new PlatformNotSupportedException("UIImage is only available on iOS/tvOS.");
     static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>() => throw new PlatformNotSupportedException("UIImage is only available on iOS/tvOS.");
     public void Dispose() { }
 }

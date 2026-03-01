@@ -907,7 +907,15 @@ namespace BindingsGeneration
             var paramNames = ExtractParameterNames(node.PrintedName);
             string mangledName = node.Kind == "Constructor" ? PatchMangledName(node.MangledName) : node.MangledName;
 
-            var reduction = demangler.Run(mangledName);
+            IReduction? reduction = null;
+            try
+            {
+                reduction = demangler.Run(mangledName);
+            }
+            catch (Exception e)
+            {
+                _logger.LogWarning($"Demangling failed for '{node.Name}' ({mangledName}): {e.Message}");
+            }
             FunctionReduction? functionReduction = reduction as FunctionReduction;
 
             // Detect failable initializer: init? returns Optional<Self>

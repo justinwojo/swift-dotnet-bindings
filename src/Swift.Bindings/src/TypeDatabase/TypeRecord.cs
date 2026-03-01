@@ -42,6 +42,10 @@ public enum TypeRecordFlags
     // protocols with requirements. ProtocolProxyEmitter skips proxy emission for these
     // (would produce CS0535 — missing inherited interface members).
     InheritedRequirementsOnly = 1 << 6,
+    // This flag indicates a protocol is class-bound (inherits AnyObject).
+    // Only class-bound protocols can be bridged via Unmanaged<AnyObject> cast
+    // in @_silgen_name wrappers for constrained existential parameters.
+    ClassBound = 1 << 7,
 }
 
 /// <summary>

@@ -45,6 +45,8 @@ public sealed class OperationQueue : ISwiftObject, IDisposable
         _payload = queue._payload;
     }
 
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
+
     #region ISwiftObject Implementation
 
     static TypeMetadata ISwiftObject.GetTypeMetadata()

@@ -62,6 +62,8 @@ public partial class ProtocolProxyEmitter
                 return new {{proxyClassName}}(container);
             }
 
+            IntPtr ISwiftObject.SwiftHandle => _swiftContainer.Payload0;
+
             public int MarshalToSwift(ref Span<byte> swiftDestSpan)
             {
                 if (_disposed) throw new ObjectDisposedException(GetType().Name);
