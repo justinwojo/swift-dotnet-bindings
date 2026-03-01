@@ -794,6 +794,12 @@ public static class MemberEmissionValidator
                         continue;
                     }
 
+                    // Allow methods with nested closures eligible for NestedClosureBridge through
+                    if (NestedClosureBridge.IsEligible(method, closureHandler, typeDatabase))
+                    {
+                        continue;
+                    }
+
                     // Allow Optional<Closure> params with default values through —
                     // ExistentialBypassEmitter omits these, letting Swift fill nil.
                     if (closureHandler.IsOptionalClosure(arg.SwiftTypeSpec) && arg.HasDefaultArg)

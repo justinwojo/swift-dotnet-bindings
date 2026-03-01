@@ -405,7 +405,7 @@ public static partial class ClosureEmitter
     /// Complex types (String, non-frozen structs, complex enums) require full marshalling
     /// which is not yet implemented in the Cdecl wrapper path.
     /// </summary>
-    private static bool IsCdeclCompatibleType(TypeSpec typeSpec, ClosureHandler closureHandler)
+    internal static bool IsCdeclCompatibleType(TypeSpec typeSpec, ClosureHandler closureHandler)
     {
         if (typeSpec.IsEmptyTuple)
             return true;

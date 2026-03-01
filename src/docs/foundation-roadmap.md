@@ -351,10 +351,10 @@ Details: [Pillar 3 § P3.1](#session-p31-data-fixes-58-methods)
 
 ---
 
-**A4: Nested Closure Spike** | Plan
-*Pillar: 3 (nested closures) | De-risk only, 0 methods*
+**A4: Nested Closure Spike** | ✅ COMPLETE
+*Pillar: 3 (nested closures) | Spike proved, Alamofire onHTTPResponse + FlexLayout methods emitting*
 
-Prototype spike targeting ONE method (e.g., Alamofire `Interceptor.init(adapt:retry:)`). Prove two-level closure bridge ABI works: inner closure gets its own cdecl wrapper with separate funcPtr+context. If spike fails, roadmap adjusts before Phase C. If it succeeds, C2 applies the proven pattern.
+Two-level closure bridge ABI proven via `NestedClosureBridge` emitter. Target: `Alamofire.DataRequest.onHTTPResponse(on:perform:)`. Outer closure C#→Swift (existing pattern), inner closure Swift→C# (new): decomposed into funcPtr+context at cdecl boundary, reconstructed as `Action<T>` in C#. Inner trampoline via `@convention(c)`, closure boxed via `Unmanaged.passRetained(as AnyObject)`. Spike succeeds — C2 applies proven pattern. Known spike limitation: one leaked retain count per outer invocation (C2 adds cleanup).
 
 Details: [Pillar 3 § P3.3](#session-p33-nested-closures--class-params-41-methods)
 
@@ -404,10 +404,10 @@ Details: [Pillar 2 § P2.2](#session-p22-imethodpostprocessor--constructorhandle
 
 ---
 
-**C2: Nested Closures + Class Params (full)** | Direct (if A4 spike succeeded)
+**C2: Nested Closures + Class Params (full)** | Direct (A4 spike succeeded)
 *Pillar: 3 (nested closures) | ~26-41 methods unlocked*
 
-Apply the two-level bridge ABI proven in A4 across all nested-closure methods. Extend `IsInvocableParameter` for class types. If A4 spike failed, this becomes **Plan** (redesign).
+Apply the two-level bridge ABI proven in A4 across all nested-closure methods. Extend `IsInvocableParameter` for class types. Add inner closure lifetime cleanup (release mechanism for `passRetained` leak). Extend to Optional<ref> args, multiple nested closures, non-void inner returns.
 
 Details: [Pillar 3 § P3.3](#session-p33-nested-closures--class-params-41-methods)
 

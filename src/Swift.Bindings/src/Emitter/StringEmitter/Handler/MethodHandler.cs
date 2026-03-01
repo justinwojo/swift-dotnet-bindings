@@ -503,9 +503,11 @@ namespace BindingsGeneration
                 bool isAsync = methodEnv.MethodDecl.IsAsync;
                 if (hasThunkClosure || isAsync)
                 {
-                    // Allow MethodClosureBridge-eligible methods through —
-                    // it hoists callbacks to the helper class like ProtocolExtensionClosureBridge.
+                    // Allow MethodClosureBridge/NestedClosureBridge-eligible methods through —
+                    // they hoist callbacks to the helper class like ProtocolExtensionClosureBridge.
                     if (!MethodClosureBridge.IsEligible(methodEnv.MethodDecl, methodEnv.ClosureHandler,
+                            methodEnv.TypeDatabase) &&
+                        !NestedClosureBridge.IsEligible(methodEnv.MethodDecl, methodEnv.ClosureHandler,
                             methodEnv.TypeDatabase))
                     {
                         if (!methodEnv.MethodDecl.IsAccessor)
@@ -699,11 +701,27 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Try nested closure bridge — emits two-level bridge for methods with
+            // closure-in-closure params (e.g., onHTTPResponse with inner completion handler).
+            if (!isAccessor && NestedClosureBridge.TryEmit(
+                csWriter, swiftWriter, methodEnv, methodEnv.ParentDecl as TypeDecl, context.GetEmissionContext()))
+            {
+                ReportCollector.RecordMemberWrapped(
+                    BindingItemKind.Method,
+                    methodEnv.MethodDecl.Name,
+                    methodEnv.MethodDecl.MangledName,
+                    methodEnv.MethodDecl.ParentDecl,
+                    "NestedClosureBridge",
+                    "Nested closure parameter bridged via two-level trampoline.");
+                return;
+            }
+
             // Try Optional<Closure>+default bypass — omits unsupported optional closure params,
             // letting Swift fill nil. Runs AFTER bridge emitters so that bridge-eligible methods
-            // (GenericClosureBridge, ProtocolExtensionClosureBridge, MethodClosureBridge) are
-            // handled first — the bypass is narrower (void-return, non-static, non-async, non-throwing)
-            // and would incorrectly skip methods those bridges can handle.
+            // (GenericClosureBridge, ProtocolExtensionClosureBridge, MethodClosureBridge,
+            // NestedClosureBridge) are handled first — the bypass is narrower (void-return,
+            // non-static, non-async, non-throwing) and would incorrectly skip methods those
+            // bridges can handle.
             if (!isAccessor &&
                 ExistentialBypassEmitter.HasOptionalClosureWithDefault(methodEnv.MethodDecl, methodEnv.TypeDatabase))
             {
