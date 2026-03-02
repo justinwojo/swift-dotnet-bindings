@@ -92,12 +92,23 @@ New dispatch kinds for proxy methods returning collections/interfaces:
 
 ---
 
-## Feature F5: String Enum Raw Values
+## Feature F5: String Enum Raw Values — BLOCKED (no data source)
 **Pillar dependency**: None
 **Score impact**: +0.02-0.05 (GRDB ResultCode, CryptoSwift error codes)
 **Effort**: 0.5 session
+**Status**: Blocked — no viable data source in compiled xcframeworks
 
-ABI JSON doesn't include string/integer raw values for enums. Swiftinterface does. Parse actual raw value strings for enums like `GRDB.ResultCode`.
+ABI JSON doesn't include string/integer raw values for enums. The original assumption was that swiftinterface files would contain them, but **investigation (March 2026) confirmed they do not**:
+
+- Compiled `.swiftinterface` files preserve type signatures (`RawRepresentable`, `rawValue: Swift.Int`) but strip actual per-case values
+- Integer enums: `case cfb8` appears without `= 0` assignment
+- String enums: no `case foo = "bar"` syntax present
+- GRDB `ResultCode` is a `struct` with `static let` members in the swiftinterface — initializer values are compiled away
+
+**Possible future approaches** (none currently viable):
+- **Runtime introspection** (F7 dependency): call `init(rawValue:)` at generation time for candidate values — requires a running Swift runtime during generation
+- **Source-level swiftinterface**: pre-compilation `.swiftinterface` files may retain values, but published xcframeworks don't ship these
+- **Hardcoded mappings**: per-library override files with known raw values — doesn't scale
 
 **Key files**: `SwiftInterfaceAccessParser.cs`, `EnumHandler.cs`
 
@@ -142,7 +153,7 @@ Features can be interleaved with foundation work. Independence from pillars note
 IMMEDIATE (no pillar dependency):
   F1: nint overloads           ── 0.5-1 session
   F2: Noise reduction          ── 1 session
-  F5: String enum raw values   ── 0.5 session
+  F5: String enum raw values   ── BLOCKED (no data source in compiled xcframeworks)
   F6: Safety                   ── 1 session
 
 AFTER P1.1 (struct conformers):
@@ -152,7 +163,7 @@ AFTER P2.1 (dispatch table):
   F4: Collection witness dispatch ── 1.5 sessions
 
 AFTER P1.2 (conformance graph):
-  F7: Runtime metadata         ── 1 session
+  F7: Runtime metadata         ── 1 session (may also unblock F5 via runtime introspection)
 ```
 
 ---
@@ -168,7 +179,8 @@ Starting from current combined average of ~3.50. Three scenarios account for est
 | + F2 (noise) | 3.73 | 3.80 | 3.88 | Noise category, depends on ExistentialContainer hiding |
 | + F3 (param gate lifts) | 3.80 | 3.88 | 3.96 | Per-library variance: GRDB/Kingfisher benefit most |
 | + F4 (collection dispatch) | 3.88 | 3.98 | 4.10 | Largest single feature, high per-library variance |
-| + F5 + F6 | 3.90 | 4.00 | 4.15 | Polish + production hardening |
+| + F6 (safety) | 3.88 | 3.98 | 4.10 | Production hardening, no score change |
+| ~~+ F5 (string enums)~~ | — | — | — | BLOCKED: no data source in compiled xcframeworks |
 
 **Scenario definitions**:
 - **Base** (~25th percentile): Some feature impacts lower than estimated — e.g., nint overloads don't improve all libraries equally, noise reduction harder to scope than expected

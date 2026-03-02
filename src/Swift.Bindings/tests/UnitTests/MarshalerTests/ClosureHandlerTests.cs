@@ -1911,11 +1911,11 @@ public class ClosureHandlerTests
     #region Closure Constraint Tests (B7, B16, CL4)
 
     [Fact]
-    public void IsSupportedClosure_B7_GenericReturnWithMemoryManagementParam_ReturnsFalse()
+    public void IsSupportedClosure_B7_OptionalStringReturn_NowSupported_ReturnsTrue()
     {
-        // B7: Optional<String> as closure return type is unsupported because
-        // String requires memory management. The P/Invoke uses void* but the
-        // C# delegate expects the actual struct.
+        // C1 B7 lift: Optional<String> as closure return is now supported.
+        // String is allowed through the B7 gate — callback uses indirect return
+        // via void* + SwiftMarshal.
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
 
@@ -1925,7 +1925,7 @@ public class ClosureHandlerTests
         var closure = new ClosureTypeSpec(TupleTypeSpec.Empty, optionalReturn);
         closure.Attributes.Add(new TypeSpecAttribute("escaping"));
 
-        Assert.False(handler.IsSupportedClosure(closure));
+        Assert.True(handler.IsSupportedClosure(closure));
     }
 
     [Fact]
@@ -1943,6 +1943,39 @@ public class ClosureHandlerTests
         closure.Attributes.Add(new TypeSpecAttribute("escaping"));
 
         Assert.True(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_B7_ArrayStringReturn_ReturnsTrue()
+    {
+        // C1 B7 lift: [String] (Array<String>) as closure return is now supported.
+        // String is allowed through the B7 gate.
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var arrayReturn = new NamedTypeSpec("Swift.Array");
+        arrayReturn.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        var closure = new ClosureTypeSpec(TupleTypeSpec.Empty, arrayReturn);
+        closure.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        Assert.True(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_B7_OptionalClassReturn_StillBlocked()
+    {
+        // B7 remains for non-String memory-managed types (e.g., Optional<SomeClass>).
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var optionalReturn = new NamedTypeSpec("Swift.Optional");
+        optionalReturn.GenericParameters.Add(new NamedTypeSpec("Nuke.ImageTask"));
+
+        var closure = new ClosureTypeSpec(TupleTypeSpec.Empty, optionalReturn);
+        closure.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        Assert.False(handler.IsSupportedClosure(closure));
     }
 
     [Fact]

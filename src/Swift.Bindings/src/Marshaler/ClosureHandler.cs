@@ -340,14 +340,20 @@ public class ClosureHandler
                     if (!IsSupportedClosureParameterType(genericParam))
                         return false;
 
-                    // B7: Generic parameters that require memory management (e.g., SwiftString inside Optional)
-                    // The P/Invoke uses void* for these (line 868) but the C# delegate expects the actual struct.
+                    // B7: Generic parameters that require memory management (e.g., classes inside Optional)
+                    // The P/Invoke uses void* for these but the C# delegate expects the actual struct.
+                    // Exception: Swift.String — supported via indirect return (void* + SwiftMarshal).
+                    // This enables Optional<String> and [String] closure returns.
                     if (genericParam is NamedTypeSpec innerNamed && !innerNamed.ContainsGenericParameters && innerNamed.HasModule())
                     {
                         var innerTypeName = SwiftTypeName.FromModuleQualifiedName(innerNamed.Name);
                         if (_typeDatabase.TryGetTypeRecord(innerTypeName, out var innerRecord) &&
                             MarshallingHelpers.RequiresMemoryManagement(innerRecord))
                         {
+                            // Allow Swift.String through — the callback uses indirect return
+                            // via void* + SwiftMarshal for Optional<String> and [String] returns.
+                            if (MarshallingHelpers.IsSwiftString(genericParam))
+                                continue;
                             return false;
                         }
                     }

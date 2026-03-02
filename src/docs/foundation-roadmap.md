@@ -133,18 +133,14 @@ All bridge-dispatch types (`BridgeEmitterContext`, `BridgeEmitResult`, `IMethodB
 
 Key files: `IMethodBridgeEmitter.cs` (new), `MethodHandler.cs`, `IHandler.cs`, `BridgeDispatchTableTests.cs` (new)
 
-### Session P2.2: IMethodPostProcessor + ConstructorHandler Sharing
+### Session P2.2: IMethodPostProcessor + ConstructorHandler Sharing — DONE
 **Goal**: Wrap 4 post-processors in `IMethodPostProcessor` interface. Share dispatch table between `ConstructorHandler` and `MethodHandler` with scope filtering.
 **Effort**: 0.5-1 session
 **Impact**: 0 methods (refactor)
 
-Key changes:
-- Define `IMethodPostProcessor` interface: `void TryPostProcess(MethodDecl, TypeDecl, ...)`
-- Wrap DefaultParameterOverloadEmitter, CompletionHandlerDetector, NativeIntOverloadEmitter, ArraySliceNormalizationEmitter
-- `MethodBridgeScope` enum: `Methods`, `Constructors`, `Both`
-- Share dispatch table between ConstructorHandler and MethodHandler
+Implemented: `IMethodPostProcessor` interface with `PostProcessorContext` record and `PostProcessorScope` enum (`MethodsOnly`, `All`). 4 adapter classes: `DefaultParameterOverloadPostProcessor` (Scope=All), `CompletionHandlerPostProcessor` (MethodsOnly), `MarkerProtocolOverloadPostProcessor` (MethodsOnly), `NativeIntOverloadPostProcessor` (MethodsOnly). `TryEmitCompletionHandlerOverload` changed from `private void` to `internal static void` (no `this` references). Shared post-processor loop in both `MethodHandler.Emit()` and `ConstructorHandler.Emit()` — constructors filter `MethodsOnly` scope. 8 new `PostProcessorTableTests` (count, ordering, scope values, immutability).
 
-Key files: `MethodHandler.cs`, `ConstructorHandler.cs`, `IMethodPostProcessor.cs` (new)
+Key files: `MethodHandler.cs`, `ConstructorHandler.cs`, `IMethodPostProcessor.cs` (new), `PostProcessorTableTests.cs` (new)
 
 ### Pillar 2 Dependencies
 ```
@@ -187,17 +183,14 @@ Key changes:
 
 Key files: TypeDatabase XML files, `ModuleProcessor.cs` (simpleEnum detection)
 
-### Session P3.2: Multi-Closure + Return Type Extensions (~18 methods)
+### Session P3.2: Multi-Closure + Return Type Extensions (~18 methods) — DONE
 **Goal**: Extend bridge emitters to handle 2+ closure params. Lift B7 gate for `Optional<String>`, `[String]` closure returns.
 **Effort**: 1 session
 **Impact**: ~14-18 methods (M1 + M6)
 
-Key changes:
-- MethodClosureBridge: emit N callback+funcPtr pairs (one per closure), each with `MCB_{hash}_{i}` suffix
-- P/Invoke receives N funcPtr+context pairs
-- B7 gate: allow `Optional<String>` and `[String]` as closure return types
+Implemented: Lifted single-closure gate in `MethodClosureBridge.IsEligible()`. Added `ClosureInfo` record grouping per-closure data. Extended `EmitSwiftWrapper` for N closures — each gets funcPtr+context params, separate `unsafeBitCast` reconstruction. Pointer-wrapping path uses local closure adapter variables (`let __adapter{i}`) instead of trailing closure syntax. `EmitPInvoke` accepts N × (funcPtr, context) pairs. `EmitPublicMethod` handles N delegate params, N inner delegates, N GCHandles. Indexed naming: `MCB_{hash}_{i}` for i>0, `MCB_{hash}` for single (backward compat). B7 gate: `MarshallingHelpers.IsSwiftString(genericParam)` allows String through — `Optional<String>` and `[String]` closure returns now supported while non-String memory-managed types remain blocked. Zero-arg closure Swift syntax fix: omit `params in` when `paramDecls.Count == 0`. 9 new tests (7 multi-closure eligibility/emission, 2 B7). 2 Tier 3 runtime tests for B7 (Optional<String>, [String]).
 
-Key files: `MethodClosureBridge.cs`, `ClosureHandler.cs` (B7 gate)
+Key files: `MethodClosureBridge.cs`, `ClosureHandler.cs` (B7 gate), `MethodClosureBridgeTests.cs`, `ClosureHandlerTests.cs`
 
 ### Session P3.3: Nested Closures + Class Params (~41 methods)
 **Goal**: Two-level closure bridge for nested closures. Extend `IsInvocableParameter` for class types.
@@ -400,10 +393,10 @@ Details: [Pillar 4 § P4.2](#session-p42-conditional-extension-constraint-propag
 
 ---
 
-**C1: Post-Processors + Multi-Closure Bridge** | Direct
+**C1: Post-Processors + Multi-Closure Bridge** | ✅ COMPLETE
 *Pillars: 2 (post-processors) + 3 (multi-closure) | ~14-18 methods unlocked*
 
-Wrap 4 post-processors in `IMethodPostProcessor` (mechanical — follows B2 pattern). Then extend `MethodClosureBridge` to handle N closure params (N callback+funcPtr pairs). Lift B7 gate for `Optional<String>` and `[String]` closure returns.
+`IMethodPostProcessor` interface with `PostProcessorContext` record and `PostProcessorScope` enum (MethodsOnly/All). 4 adapter classes: `DefaultParameterOverloadPostProcessor` (Scope=All), `CompletionHandlerPostProcessor`, `MarkerProtocolOverloadPostProcessor`, `NativeIntOverloadPostProcessor` (all MethodsOnly). Shared post-processor loop in `MethodHandler.Emit()` and `ConstructorHandler.Emit()` (scope-filtered). `TryEmitCompletionHandlerOverload` changed to `internal static`. Multi-closure: lifted single-closure gate in `MethodClosureBridge.IsEligible()`, added `ClosureInfo` record, extended `EmitSwiftWrapper`/`EmitPInvoke`/`EmitPublicMethod` for N closures with indexed naming (`MCB_{hash}_{i}` for i>0, backward compat for single). B7 gate lifted for `Swift.String` inner type — `Optional<String>` and `[String]` closure returns now supported. Zero-arg closure Swift syntax fix (omit `params in` when no params). 17 new tests (8 post-processor table, 7 multi-closure, 2 B7). Runtime tests: 2 B7 Tier 3 cases (Optional<String>, [String]). 53/53 validation.
 
 Details: [Pillar 2 § P2.2](#session-p22-imethodpostprocessor--constructorhandler-sharing), [Pillar 3 § P3.2](#session-p32-multi-closure--return-type-extensions-18-methods)
 

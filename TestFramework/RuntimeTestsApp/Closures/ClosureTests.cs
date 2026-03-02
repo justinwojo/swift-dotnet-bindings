@@ -151,5 +151,34 @@ public class ClosureTests : TestBase
         TestLogger.Info("ClosureFactory tests passed");
     }
 
+    // B7 closure return tests — Optional<String> and [String] closure returns
+    // These use the normal ClosureEmitter pipeline with the B7 gate lifted for String.
+    // Tier 3: SwiftString through CallConvSwift triggers Mono JIT crash on simulator.
+
+    [TestTier(TestTier.Tier3)]
+    public void TestClosureWithOptionalStringReturn()
+    {
+        var result = SwiftBindingsTestLib.CallWithOptionalStringReturn(n => n > 0 ? $"value_{n}" : null);
+        AssertNotNull(result, "Optional<String> closure returned non-null");
+        AssertEqual("value_42", result, "CallWithOptionalStringReturn returned correct value");
+        TestLogger.Info($"CallWithOptionalStringReturn = {result}");
+    }
+
+    [TestTier(TestTier.Tier3)]
+    public void TestClosureWithStringArrayReturn()
+    {
+        var result = SwiftBindingsTestLib.CallWithStringArrayReturn(n =>
+        {
+            var list = new string[n];
+            for (int i = 0; i < n; i++)
+                list[i] = $"item_{i}";
+            return list;
+        });
+        AssertNotNull(result, "String array closure returned non-null");
+        AssertEqual(3, result!.Count, "Array has 3 elements");
+        AssertEqual("item_0", result[0]?.ToString(), "First element is item_0");
+        TestLogger.Info($"CallWithStringArrayReturn count = {result.Count}");
+    }
+
     #endregion
 }

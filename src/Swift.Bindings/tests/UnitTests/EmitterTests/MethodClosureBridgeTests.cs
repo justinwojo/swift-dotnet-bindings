@@ -591,6 +591,206 @@ public class MethodClosureBridgeTests
         Assert.Contains("SwiftMarshal.MarshalFromSwift<Swift.Runtime.SwiftResult<Swift.TestModule.MyData, Swift.TestModule.MyError>>", cs);
     }
 
+    // ─── Multi-Closure (C1) ──────────────────────────────────────────
+
+    [Fact]
+    public void IsEligible_TwoClosures_OneWithBoundGeneric_ReturnsTrue()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        // Closure 1: (DataResponse<MyData>) -> Void — bound generic
+        var boundGenericArg = new NamedTypeSpec("TestModule.DataResponse",
+            new NamedTypeSpec("TestModule.MyData"));
+        var closure1 = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)boundGenericArg }), TupleTypeSpec.Empty);
+        closure1.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        // Closure 2: (Int) -> Void — primitive-only
+        var closure2 = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }), TupleTypeSpec.Empty);
+        closure2.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDeclWithTwoClosures("dualCallback", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closure1, "onResult", closure2, "onProgress");
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.True(MethodClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    [Fact]
+    public void IsEligible_TwoClosures_NeitherBoundGeneric_ReturnsFalse()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        // Both closures have only primitives — no bound generics → not eligible
+        var closure1 = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }), TupleTypeSpec.Empty);
+        closure1.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var closure2 = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Bool") }), TupleTypeSpec.Empty);
+        closure2.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDeclWithTwoClosures("dualCallback", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closure1, "onA", closure2, "onB");
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.False(MethodClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    [Fact]
+    public void IsEligible_MultiClosure_AsyncClosure_ReturnsFalse()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        var boundGenericArg = new NamedTypeSpec("TestModule.DataResponse",
+            new NamedTypeSpec("TestModule.MyData"));
+        var closure1 = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)boundGenericArg }), TupleTypeSpec.Empty);
+        closure1.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var closure2 = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }), TupleTypeSpec.Empty);
+        closure2.Attributes.Add(new TypeSpecAttribute("escaping"));
+        closure2.IsAsync = true; // Async closure — not supported
+
+        var method = CreateMethodDeclWithTwoClosures("dualCallback", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closure1, "onResult", closure2, "onProgress");
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.False(MethodClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    [Fact]
+    public void IsEligible_MultiClosure_UnsupportedArg_ReturnsFalse()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        var boundGenericArg = new NamedTypeSpec("TestModule.DataResponse",
+            new NamedTypeSpec("TestModule.MyData"));
+        var closure1 = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)boundGenericArg }), TupleTypeSpec.Empty);
+        closure1.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        // Closure 2 has an unsupported arg (unknown type not in database)
+        var closure2 = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("UnknownModule.UnknownType") }), TupleTypeSpec.Empty);
+        closure2.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDeclWithTwoClosures("dualCallback", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closure1, "onResult", closure2, "onProgress");
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.False(MethodClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    [Fact]
+    public void IsEligible_SingleClosure_BackwardCompatible()
+    {
+        // Verify single-closure behavior is unchanged after multi-closure refactor
+        var (method, typeDatabase) = CreateMethodWithBoundGenericClosure();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.True(MethodClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    [Fact]
+    public void TryEmit_TwoClosures_EmitsTwoCallbacksAndFuncPtrFields()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        var boundGenericArg = new NamedTypeSpec("TestModule.DataResponse",
+            new NamedTypeSpec("TestModule.MyData"));
+        var closure1 = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)boundGenericArg }), TupleTypeSpec.Empty);
+        closure1.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var closure2 = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }), TupleTypeSpec.Empty);
+        closure2.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDeclWithTwoClosures("dualCallback", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closure1, "onResult", closure2, "onProgress");
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        var result = MethodClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
+
+        Assert.True(result);
+        var cs = csOutput.ToString();
+        var swift = swiftOutput.ToString();
+
+        // Two funcPtr+context pairs in Swift wrapper params
+        Assert.Contains("onResultFuncPtr", swift);
+        Assert.Contains("onResultContext", swift);
+        Assert.Contains("onProgressFuncPtr", swift);
+        Assert.Contains("onProgressContext", swift);
+
+        // Two separate callback methods in C# (MCB_xxx and MCB_xxx_1)
+        Assert.Contains("s_MCB_", cs); // funcPtr field references
+
+        // Two GCHandle allocations in public method
+        Assert.Contains("__gcHandle", cs);
+        Assert.Contains("__gcHandle_1", cs);
+
+        // Two delegate params in public method
+        Assert.Contains("onResult", cs);
+        Assert.Contains("onProgress", cs);
+    }
+
+    [Fact]
+    public void TryEmit_BoundGenericPlusVoidClosure_EmitsValidSwiftSyntax()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        // Closure 1: (DataResponse<MyData>) -> Void — bound generic (activates bridge)
+        var boundGenericArg = new NamedTypeSpec("TestModule.DataResponse",
+            new NamedTypeSpec("TestModule.MyData"));
+        var closure1 = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)boundGenericArg }), TupleTypeSpec.Empty);
+        closure1.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        // Closure 2: () -> Void — zero-arg closure
+        var closure2 = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+        closure2.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDeclWithTwoClosures("dualCallback", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closure1, "onResult", closure2, "onComplete");
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        var result = MethodClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
+
+        Assert.True(result);
+        var swift = swiftOutput.ToString();
+
+        // Zero-arg closure must NOT produce "{ in" or "{  in" — just "{ cdecl(...) }"
+        Assert.DoesNotMatch(@"\{\s+in\s", swift);
+        // The bound-generic closure SHOULD have "in" (it has params)
+        Assert.Contains("in", swift);
+        // Both closures should appear in wrapper
+        Assert.Contains("onResultFuncPtr", swift);
+        Assert.Contains("onCompleteFuncPtr", swift);
+    }
+
     // ─── Helper Methods ───────────────────────────────────────────────
 
     /// <summary>
@@ -894,6 +1094,38 @@ public class MethodClosureBridgeTests
                 CreateArgument(string.Empty, returnType, moduleDecl),
                 CreateArgument(nonClosureParamName, nonClosureType, moduleDecl),
                 CreateArgument(closureParamName, closureType, moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        parentDecl.Methods.Add(method);
+        return method;
+    }
+
+    /// <summary>
+    /// Creates a method with two closure parameters.
+    /// </summary>
+    private static MethodDecl CreateMethodDeclWithTwoClosures(
+        string name, ClassDecl parentDecl, ModuleDecl moduleDecl,
+        TypeSpec returnType,
+        ClosureTypeSpec closure1, string closure1Name,
+        ClosureTypeSpec closure2, string closure2Name)
+    {
+        var method = new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s10TestModule7MyClassC{name.Length}{name}yACyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, returnType, moduleDecl),
+                CreateArgument(closure1Name, closure1, moduleDecl),
+                CreateArgument(closure2Name, closure2, moduleDecl)
             },
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = parentDecl,

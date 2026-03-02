@@ -67,6 +67,20 @@ public func callMultipleTimes(_ callback: @escaping (Int32) -> Int32, times: Int
     return sum
 }
 
+// MARK: - B7 Closure Return Tests (Optional<String> and [String])
+
+/// Calls an escaping closure that returns Optional<String>.
+/// Used to test B7 gate lift for String in container return types.
+public func callWithOptionalStringReturn(_ handler: @escaping (Int32) -> String?) -> String? {
+    return handler(42)
+}
+
+/// Calls an escaping closure that returns [String].
+/// Used to test B7 gate lift for String in array return types.
+public func callWithStringArrayReturn(_ handler: @escaping (Int32) -> [String]) -> [String] {
+    return handler(3)
+}
+
 // MARK: - Throwing Closures (REMOVED)
 // Throwing closures cause emission errors (SwiftString→void* return mismatch in thunks).
 // Known generator limitation. ClosureError enum also removed to avoid orphan type.

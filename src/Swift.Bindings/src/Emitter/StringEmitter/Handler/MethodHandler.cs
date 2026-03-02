@@ -383,8 +383,15 @@ namespace BindingsGeneration
             methodEnv.MethodDecl.WasEmitted = true;
             ReportCollector.RecordMemberEmitted(BindingItemKind.Method, methodEnv.MethodDecl.Name, methodEnv.MethodDecl.ParentDecl);
 
-            // Emit constructor overloads for trailing default parameters
-            DefaultParameterOverloadEmitter.TryEmitOverloads(csWriter, swiftWriter, methodEnv, _logger, context.GetEmissionContext());
+            // Post-processor table: only Scope=All processors run for constructors
+            var postCtx = new PostProcessorContext(csWriter, swiftWriter, methodEnv, _logger,
+                context.GetEmissionContext(), context.MarkerProtocolConformances);
+            foreach (var pp in MethodHandler.PostProcessors)
+            {
+                if (pp.Scope == PostProcessorScope.MethodsOnly)
+                    continue;
+                pp.TryPostProcess(postCtx);
+            }
 
             csWriter.WriteLine();
         }
@@ -484,6 +491,23 @@ namespace BindingsGeneration
         /// Read-only view of the bridge dispatch table for testing and inspection.
         /// </summary>
         internal static IReadOnlyList<IMethodBridgeEmitter> BridgeEmitters => _bridgeEmitters;
+
+        /// <summary>
+        /// Post-processor table — ordered sequence of post-processors run after normal method emission.
+        /// Ordering: DefaultParameter first (emits Swift wrappers that other overloads reference).
+        /// </summary>
+        private static readonly IMethodPostProcessor[] _postProcessors =
+        [
+            new DefaultParameterOverloadPostProcessor(),    // Must be first: emits Swift wrappers
+            new CompletionHandlerPostProcessor(),           // Task-returning overloads (WU8)
+            new MarkerProtocolOverloadPostProcessor(),      // Typed marker protocol overloads
+            new NativeIntOverloadPostProcessor(),           // int/uint convenience overloads
+        ];
+
+        /// <summary>
+        /// Read-only view of the post-processor table for testing and inspection.
+        /// </summary>
+        internal static IReadOnlyList<IMethodPostProcessor> PostProcessors => _postProcessors;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="MethodHandler"/> class.
@@ -755,26 +779,15 @@ namespace BindingsGeneration
                 ReportCollector.RecordMemberEmitted(BindingItemKind.Method, methodEnv.MethodDecl.Name, methodEnv.MethodDecl.ParentDecl);
             }
 
-            // Emit default parameter overloads (additional convenience methods)
-            DefaultParameterOverloadEmitter.TryEmitOverloads(csWriter, swiftWriter, methodEnv, _logger, context.GetEmissionContext());
-
-            // Emit Task-returning overload for callback-based methods (WU8)
-            if (!isAccessor)
+            // Post-processor table: overload generation after normal emission
+            var postCtx = new PostProcessorContext(csWriter, swiftWriter, methodEnv, _logger,
+                context.GetEmissionContext(), context.MarkerProtocolConformances);
+            foreach (var pp in _postProcessors)
             {
-                TryEmitCompletionHandlerOverload(csWriter, methodEnv);
+                if (pp.Scope == PostProcessorScope.MethodsOnly && isAccessor)
+                    continue;
+                pp.TryPostProcess(postCtx);
             }
-
-            // Emit typed convenience overloads for marker protocol parameters
-            if (!isAccessor && context.MarkerProtocolConformances != null)
-            {
-                MarkerProtocolOverloadEmitter.EmitOverloads(
-                    csWriter, swiftWriter, methodEnv.MethodDecl, methodEnv,
-                    methodEnv.ParentDecl as TypeDecl, context.MarkerProtocolConformances);
-            }
-
-            // Emit int/uint convenience overloads for nint/nuint parameters
-            if (!isAccessor)
-                NativeIntOverloadEmitter.TryEmitOverload(csWriter, methodEnv);
 
             csWriter.WriteLine();
         }
@@ -810,7 +823,7 @@ namespace BindingsGeneration
         /// Emits a Task-returning overload for methods with completion handler closures.
         /// The overload calls the original method with a TCS-based lambda and returns the Task.
         /// </summary>
-        private void TryEmitCompletionHandlerOverload(CSharpWriter csWriter, MethodEnvironment methodEnv)
+        internal static void TryEmitCompletionHandlerOverload(CSharpWriter csWriter, MethodEnvironment methodEnv)
         {
             var methodDecl = methodEnv.MethodDecl;
             var parameters = methodDecl.CSSignature.Skip(1).ToList();

@@ -21,6 +21,18 @@ namespace BindingsGeneration;
 public static class MethodClosureBridge
 {
     /// <summary>
+    /// Groups per-closure data for multi-closure bridge emission.
+    /// </summary>
+    private record ClosureInfo(
+        ClosureTypeSpec Spec,
+        ArgumentDecl Arg,
+        List<TypeSpec> ClosureArgs,
+        bool ReturnIsVoid,
+        string CallbackBaseName,
+        string ParamName,
+        int Index);
+
+    /// <summary>
     /// Checks if a method is eligible for the MethodClosureBridge pattern.
     /// </summary>
     public static bool IsEligible(MethodDecl method, ClosureHandler closureHandler, ITypeDatabase typeDatabase)
@@ -32,22 +44,15 @@ public static class MethodClosureBridge
         if (method.IsAccessor) return false;
         if (method.Throws) return false;
 
-        // Find exactly one closure parameter with bound generic args
-        ClosureTypeSpec? closureSpec = null;
-        ArgumentDecl? closureArg = null;
+        // Collect ALL closure parameters — require at least one with bound generic args
+        var closureArgs = new List<(ClosureTypeSpec spec, ArgumentDecl arg)>();
         bool hasBoundGenericInClosure = false;
-        int closureCount = 0;
 
         foreach (var arg in method.CSSignature.Skip(1))
         {
             var cts = closureHandler.GetClosureTypeSpec(arg);
             if (cts != null)
             {
-                closureCount++;
-                if (closureCount > 1) return false; // Only single closure supported
-                closureSpec = cts;
-                closureArg = arg;
-
                 // Check if closure has async — not supported
                 if (cts.IsAsync) return false;
 
@@ -67,18 +72,21 @@ public static class MethodClosureBridge
                     if (!IsClosureReturnSupported(cts.ReturnType, typeDatabase))
                         return false;
                 }
+
+                closureArgs.Add((cts, arg));
             }
         }
 
-        if (closureSpec == null || closureArg == null) return false;
+        if (closureArgs.Count == 0) return false;
 
         // Key gate: ONLY activate when at least one closure arg is a bound generic type
         if (!hasBoundGenericInClosure) return false;
 
         // Check non-closure params: each must be a class (IntPtr), primitive, or have a default value
+        var closureArgSet = new HashSet<ArgumentDecl>(closureArgs.Select(c => c.arg));
         foreach (var arg in method.CSSignature.Skip(1))
         {
-            if (arg == closureArg) continue;
+            if (closureArgSet.Contains(arg)) continue;
             if (!IsNonClosureParamPassable(arg, typeDatabase))
                 return false;
         }
@@ -114,36 +122,40 @@ public static class MethodClosureBridge
         if (!IsEligible(method, env.ClosureHandler, env.TypeDatabase))
             return false;
 
-        // Find the closure parameter
-        ClosureTypeSpec? closureTypeSpec = null;
-        ArgumentDecl? closureArg = null;
+        // Collect all closure parameters
+        var closures = new List<ClosureInfo>();
+        var closureArgSet = new HashSet<ArgumentDecl>();
+        int closureIndex = 0;
+        var mangledHash = EmitterUtility.DeterministicHash8(method.MangledName);
+
         foreach (var arg in method.CSSignature.Skip(1))
         {
             var cts = env.ClosureHandler.GetClosureTypeSpec(arg);
             if (cts != null)
             {
-                closureTypeSpec = cts;
-                closureArg = arg;
-                break;
+                var cArgs = cts.EachArgument().ToList();
+                var retIsVoid = cts.ReturnType.IsEmptyTuple;
+                var paramName = NameProvider.GetCSharpParameterName(arg);
+                // When multiple closures, use indexed naming; single closure preserves backward compat
+                var cbName = $"MCB_{mangledHash}";
+                if (closureIndex > 0) cbName += $"_{closureIndex}";
+
+                closures.Add(new ClosureInfo(cts, arg, cArgs, retIsVoid, cbName, paramName, closureIndex));
+                closureArgSet.Add(arg);
+                closureIndex++;
             }
         }
 
-        if (closureTypeSpec == null || closureArg == null)
+        if (closures.Count == 0)
             return false;
 
-        var closureArgs = closureTypeSpec.EachArgument().ToList();
-        var closureReturnIsVoid = closureTypeSpec.ReturnType.IsEmptyTuple;
-
         var asyncLibName = env.TypeDatabase.AsyncLibraryName ?? "SwiftBindings";
-        var mangledHash = EmitterUtility.DeterministicHash8(method.MangledName);
-        var closureParamName = NameProvider.GetCSharpParameterName(closureArg);
-        var callbackBaseName = $"MCB_{mangledHash}";
 
         // Determine which non-closure params to pass through (not defaulted)
         var passableNonClosureParams = new List<(ArgumentDecl arg, string csName, string csType, ParamAbiCategory category)>();
         foreach (var arg in method.CSSignature.Skip(1))
         {
-            if (arg == closureArg) continue;
+            if (closureArgSet.Contains(arg)) continue;
             if (arg.HasDefaultArg) continue; // Omit defaulted params — Swift fills them
 
             var csName = NameProvider.GetCSharpParameterName(arg);
@@ -152,8 +164,7 @@ public static class MethodClosureBridge
         }
 
         // Emit Swift wrapper
-        EmitSwiftWrapper(swiftWriter, method, env, parentDecl, closureArg, closureTypeSpec,
-            closureArgs, passableNonClosureParams, callbackBaseName);
+        EmitSwiftWrapper(swiftWriter, method, env, parentDecl, closures, passableNonClosureParams);
 
         // Set method flags for wrapper library routing
         method.UsesWrapperLibrary = true;
@@ -168,26 +179,28 @@ public static class MethodClosureBridge
             var helperWriter = new System.IO.StringWriter();
             var helperCsWriter = new CSharpWriter(helperWriter) { Indent = 0 };
 
-            EmitCallback(helperCsWriter, closureArgs, closureReturnIsVoid, callbackBaseName, env);
-            EmitFunctionPointerField(helperCsWriter, closureArgs, closureReturnIsVoid, callbackBaseName, env);
-            EmitPInvoke(helperCsWriter, method, asyncLibName, closureArg, passableNonClosureParams,
-                callbackBaseName, env);
+            foreach (var ci in closures)
+            {
+                EmitCallback(helperCsWriter, ci.ClosureArgs, ci.ReturnIsVoid, ci.CallbackBaseName, env);
+                EmitFunctionPointerField(helperCsWriter, ci.ClosureArgs, ci.ReturnIsVoid, ci.CallbackBaseName, env);
+            }
+            EmitPInvoke(helperCsWriter, method, asyncLibName, closures, passableNonClosureParams, env);
 
             helperCsWriter.Flush();
             env.PInvokeHelperContext.RawCodeBlocks.Add(helperWriter.ToString());
         }
         else
         {
-            EmitCallback(csWriter, closureArgs, closureReturnIsVoid, callbackBaseName, env);
-            EmitFunctionPointerField(csWriter, closureArgs, closureReturnIsVoid, callbackBaseName, env);
-            EmitPInvoke(csWriter, method, asyncLibName, closureArg, passableNonClosureParams,
-                callbackBaseName, env);
+            foreach (var ci in closures)
+            {
+                EmitCallback(csWriter, ci.ClosureArgs, ci.ReturnIsVoid, ci.CallbackBaseName, env);
+                EmitFunctionPointerField(csWriter, ci.ClosureArgs, ci.ReturnIsVoid, ci.CallbackBaseName, env);
+            }
+            EmitPInvoke(csWriter, method, asyncLibName, closures, passableNonClosureParams, env);
         }
 
         // Public method always in the class body
-        EmitPublicMethod(csWriter, method, closureTypeSpec, closureArg, closureArgs,
-            closureReturnIsVoid, passableNonClosureParams, callbackBaseName, closureParamName,
-            env, parentDecl, helperClassName);
+        EmitPublicMethod(csWriter, method, closures, passableNonClosureParams, env, parentDecl, helperClassName);
 
         method.WasEmitted = true;
         return true;
@@ -200,17 +213,14 @@ public static class MethodClosureBridge
         MethodDecl method,
         MethodEnvironment env,
         TypeDecl? parentDecl,
-        ArgumentDecl closureArg,
-        ClosureTypeSpec closureTypeSpec,
-        List<TypeSpec> closureArgs,
-        List<(ArgumentDecl arg, string csName, string csType, ParamAbiCategory category)> passableNonClosureParams,
-        string callbackBaseName)
+        List<ClosureInfo> closures,
+        List<(ArgumentDecl arg, string csName, string csType, ParamAbiCategory category)> passableNonClosureParams)
     {
         bool isInstance = method.MethodType != MethodType.Static && parentDecl != null;
         var typeName = parentDecl?.SwiftTypeName?.ModuleQualifiedName ?? parentDecl?.Name ?? "";
 
-        // Build @_silgen_name symbol
-        var silgenName = $"SBW_{callbackBaseName}_{method.Name}";
+        // Use the first closure's callback base name for the silgen symbol (backward compat for single closure)
+        var silgenName = $"SBW_{closures[0].CallbackBaseName}_{method.Name}";
 
         // Build Swift wrapper params
         var swiftParams = new List<string>();
@@ -223,59 +233,12 @@ public static class MethodClosureBridge
             swiftParams.Add($"    _ {paramName}: {swiftType}");
         }
 
-        // Closure → funcPtr + context pair
-        var closureCsName = NameProvider.StripVerbatimPrefix(NameProvider.GetCSharpParameterName(closureArg));
-        swiftParams.Add($"    _ {closureCsName}FuncPtr: UnsafeMutableRawPointer?");
-        swiftParams.Add($"    _ {closureCsName}Context: UnsafeMutableRawPointer?");
-
-        // Build @convention(c) callback type for the cdecl funcPtr
-        var cdeclParamTypes = new List<string>();
-        for (int i = 0; i < closureArgs.Count; i++)
+        // Each closure → funcPtr + context pair
+        foreach (var ci in closures)
         {
-            cdeclParamTypes.Add(GetSwiftCdeclParamType(closureArgs[i], env));
-        }
-        cdeclParamTypes.Add("UnsafeMutableRawPointer?"); // context
-        var cdeclReturnType = closureTypeSpec.ReturnType.IsEmptyTuple ? "Void" : "UInt8"; // only Void/Bool supported
-        var cdeclType = $"(@convention(c) ({string.Join(", ", cdeclParamTypes)}) -> {cdeclReturnType}).self";
-
-        // Build closure adapter body — how each closure arg gets passed to cdecl
-        var closureParamDecls = new List<string>();
-        var pointerWrapArgs = new List<(int index, string swiftType)>(); // args needing withUnsafePointer
-        var directArgs = new List<(int index, string conversion)>(); // args passed directly or via conversion
-
-        for (int i = 0; i < closureArgs.Count; i++)
-        {
-            var argType = closureArgs[i];
-            var paramName = $"__p{i}";
-            var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(argType);
-            closureParamDecls.Add($"{paramName}");
-
-            if (argType is NamedTypeSpec named)
-            {
-                if (MarshallingHelpers.IsSwiftPrimitive(named.Name))
-                {
-                    // Primitives pass by value; Bool → UInt8 for cdecl boundary
-                    if (named.Name == "Swift.Bool")
-                        directArgs.Add((i, $"({paramName} ? 1 : 0)"));
-                    else
-                        directArgs.Add((i, paramName));
-                }
-                else if (IsClassTypeForSwift(named, env.TypeDatabase))
-                {
-                    // Class types: Unmanaged.passUnretained().toOpaque()
-                    directArgs.Add((i, $"Unmanaged.passUnretained({paramName}).toOpaque()"));
-                }
-                else
-                {
-                    // Value types (bound generics, structs): withUnsafePointer
-                    pointerWrapArgs.Add((i, swiftType));
-                }
-            }
-            else
-            {
-                // Fallback — treat as value type
-                pointerWrapArgs.Add((i, ExistentialBypassEmitter.RenderSwiftTypeSpec(argType)));
-            }
+            var closureCsName = NameProvider.StripVerbatimPrefix(ci.ParamName);
+            swiftParams.Add($"    _ {closureCsName}FuncPtr: UnsafeMutableRawPointer?");
+            swiftParams.Add($"    _ {closureCsName}Context: UnsafeMutableRawPointer?");
         }
 
         // Build return type
@@ -292,52 +255,125 @@ public static class MethodClosureBridge
         swiftWriter.WriteLine(string.Join(",\n", swiftParams));
         swiftWriter.WriteLine($"){swiftReturnType} {{");
 
-        // Reconstruct cdecl function from pointer
-        swiftWriter.WriteLine($"    let cdecl = unsafeBitCast({closureCsName}FuncPtr!, to: {cdeclType})");
-
-        // Build call to original method
-        var callLabel = GetSwiftArgLabel(closureArg);
-        var nonClosureCallArgs = new List<string>();
-        foreach (var (arg, csName, _, _) in passableNonClosureParams)
+        // Reconstruct cdecl functions from pointers — one per closure
+        foreach (var ci in closures)
         {
-            var label = GetSwiftArgLabel(arg);
-            var paramName = NameProvider.EscapeSwiftKeyword(csName);
-            nonClosureCallArgs.Add($"{label}{paramName}");
+            var closureCsName = NameProvider.StripVerbatimPrefix(ci.ParamName);
+            var cdeclParamTypes = new List<string>();
+            for (int i = 0; i < ci.ClosureArgs.Count; i++)
+            {
+                cdeclParamTypes.Add(GetSwiftCdeclParamType(ci.ClosureArgs[i], env));
+            }
+            cdeclParamTypes.Add("UnsafeMutableRawPointer?"); // context
+            var cdeclReturnType = ci.Spec.ReturnType.IsEmptyTuple ? "Void" : "UInt8";
+            var cdeclType = $"(@convention(c) ({string.Join(", ", cdeclParamTypes)}) -> {cdeclReturnType}).self";
+            var cdeclVarName = closures.Count > 1 ? $"cdecl{ci.Index}" : "cdecl";
+            swiftWriter.WriteLine($"    let {cdeclVarName} = unsafeBitCast({closureCsName}FuncPtr!, to: {cdeclType})");
         }
 
-        // For defaulted params, we simply don't pass them — Swift fills defaults.
-        // Build the closure adapter
-        var closureParamStr = string.Join(", ", closureParamDecls);
+        // Build original method call arguments in parameter order
         var returnPrefix = returnsValue ? "return " : "";
         var callTarget = isInstance ? "self" : "Self";
 
-        if (pointerWrapArgs.Count > 0)
+        // Collect all method call args in parameter order, interleaving non-closure and closure args
+        var methodCallArgs = new List<string>();
+        var closureArgSet = new HashSet<ArgumentDecl>(closures.Select(c => c.Arg));
+        var closureByArg = closures.ToDictionary(c => c.Arg);
+        var passableByArg = passableNonClosureParams.ToDictionary(p => p.arg);
+
+        // Track whether any closure needs withUnsafePointer wrapping
+        bool anyClosureNeedsPointerWrap = false;
+        var perClosureAnalysis = new Dictionary<ClosureInfo, (List<string> paramDecls, List<(int index, string swiftType)> pointerWrapArgs, List<(int index, string conversion)> directArgs)>();
+
+        foreach (var ci in closures)
         {
-            // Need withUnsafePointer wrapping for value-type args
-            EmitSwiftClosureWithPointerWrapping(swiftWriter, method, closureParamStr,
-                callLabel, nonClosureCallArgs, pointerWrapArgs, directArgs, closureArgs,
-                closureCsName, returnPrefix, callTarget, closureTypeSpec.ReturnType.IsEmptyTuple);
+            var paramDecls = new List<string>();
+            var pointerWrapArgs = new List<(int index, string swiftType)>();
+            var directArgs = new List<(int index, string conversion)>();
+
+            for (int i = 0; i < ci.ClosureArgs.Count; i++)
+            {
+                var argType = ci.ClosureArgs[i];
+                var paramName = $"__p{ci.Index}_{i}";
+                paramDecls.Add(paramName);
+
+                if (argType is NamedTypeSpec named)
+                {
+                    if (MarshallingHelpers.IsSwiftPrimitive(named.Name))
+                    {
+                        if (named.Name == "Swift.Bool")
+                            directArgs.Add((i, $"({paramName} ? 1 : 0)"));
+                        else
+                            directArgs.Add((i, paramName));
+                    }
+                    else if (IsClassTypeForSwift(named, env.TypeDatabase))
+                    {
+                        directArgs.Add((i, $"Unmanaged.passUnretained({paramName}).toOpaque()"));
+                    }
+                    else
+                    {
+                        pointerWrapArgs.Add((i, ExistentialBypassEmitter.RenderSwiftTypeSpec(argType)));
+                    }
+                }
+                else
+                {
+                    pointerWrapArgs.Add((i, ExistentialBypassEmitter.RenderSwiftTypeSpec(argType)));
+                }
+            }
+
+            if (pointerWrapArgs.Count > 0)
+                anyClosureNeedsPointerWrap = true;
+            perClosureAnalysis[ci] = (paramDecls, pointerWrapArgs, directArgs);
+        }
+
+        if (anyClosureNeedsPointerWrap)
+        {
+            // Complex path: at least one closure has value-type args needing withUnsafePointer
+            EmitSwiftMultiClosureWithPointerWrapping(swiftWriter, method, closures,
+                passableNonClosureParams, perClosureAnalysis, returnPrefix, callTarget);
         }
         else
         {
-            // All args are direct (primitives or classes)
-            var cdeclCallArgs = new List<string>();
-            for (int i = 0; i < closureArgs.Count; i++)
+            // Simple path: all closure args are direct (primitives or classes)
+            var allCallArgs = new List<string>();
+            foreach (var arg in method.CSSignature.Skip(1))
             {
-                var direct = directArgs.FirstOrDefault(d => d.index == i);
-                cdeclCallArgs.Add(direct.conversion);
+                if (arg.HasDefaultArg && !closureArgSet.Contains(arg) && !passableByArg.ContainsKey(arg))
+                    continue;
+
+                if (closureByArg.TryGetValue(arg, out var ci))
+                {
+                    var closureCsName = NameProvider.StripVerbatimPrefix(ci.ParamName);
+                    var analysis = perClosureAnalysis[ci];
+                    var cdeclCallArgs = new List<string>();
+                    for (int i = 0; i < ci.ClosureArgs.Count; i++)
+                    {
+                        var direct = analysis.directArgs.FirstOrDefault(d => d.index == i);
+                        cdeclCallArgs.Add(direct.conversion);
+                    }
+                    cdeclCallArgs.Add($"{closureCsName}Context");
+
+                    var cdeclVarName = closures.Count > 1 ? $"cdecl{ci.Index}" : "cdecl";
+                    var cdeclCall = $"{cdeclVarName}({string.Join(", ", cdeclCallArgs)})";
+                    if (!ci.Spec.ReturnType.IsEmptyTuple)
+                        cdeclCall += " != 0";
+
+                    var closureParamStr = string.Join(", ", analysis.paramDecls);
+                    var callLabel = GetSwiftArgLabel(ci.Arg);
+                    var closureBody = analysis.paramDecls.Count > 0
+                        ? $"{{ {closureParamStr} in {cdeclCall} }}"
+                        : $"{{ {cdeclCall} }}";
+                    allCallArgs.Add($"{callLabel}{closureBody}");
+                }
+                else if (passableByArg.TryGetValue(arg, out var passable))
+                {
+                    var label = GetSwiftArgLabel(passable.arg);
+                    var paramName = NameProvider.EscapeSwiftKeyword(passable.csName);
+                    allCallArgs.Add($"{label}{paramName}");
+                }
             }
-            cdeclCallArgs.Add($"{closureCsName}Context");
 
-            var cdeclCall = $"cdecl({string.Join(", ", cdeclCallArgs)})";
-            // Bool-returning closures: cdecl returns UInt8, original expects Bool
-            if (!closureTypeSpec.ReturnType.IsEmptyTuple)
-                cdeclCall += " != 0";
-
-            var methodCallArgs = new List<string>(nonClosureCallArgs);
-            methodCallArgs.Add($"{callLabel}{{ {closureParamStr} in {cdeclCall} }}");
-
-            swiftWriter.WriteLine($"    {returnPrefix}{callTarget}.{NameProvider.ParserNameToSwift(method)}({string.Join(", ", methodCallArgs)})");
+            swiftWriter.WriteLine($"    {returnPrefix}{callTarget}.{NameProvider.ParserNameToSwift(method)}({string.Join(", ", allCallArgs)})");
         }
 
         swiftWriter.WriteLine("}");
@@ -345,72 +381,126 @@ public static class MethodClosureBridge
         swiftWriter.WriteLine();
     }
 
-    private static void EmitSwiftClosureWithPointerWrapping(
+    /// <summary>
+    /// Emits the method call body when at least one closure has value-type args needing withUnsafePointer.
+    /// Handles N closures with interleaved non-closure params.
+    /// </summary>
+    private static void EmitSwiftMultiClosureWithPointerWrapping(
         SwiftWriter swiftWriter,
         MethodDecl method,
-        string closureParamStr,
-        string callLabel,
-        List<string> nonClosureCallArgs,
-        List<(int index, string swiftType)> pointerWrapArgs,
-        List<(int index, string conversion)> directArgs,
-        List<TypeSpec> closureArgs,
-        string closureCsName,
+        List<ClosureInfo> closures,
+        List<(ArgumentDecl arg, string csName, string csType, ParamAbiCategory category)> passableNonClosureParams,
+        Dictionary<ClosureInfo, (List<string> paramDecls, List<(int index, string swiftType)> pointerWrapArgs, List<(int index, string conversion)> directArgs)> perClosureAnalysis,
         string returnPrefix,
-        string callTarget,
-        bool closureReturnIsVoid)
+        string callTarget)
     {
+        // For the pointer wrapping path, we build let-bindings for each closure adapter,
+        // then emit the method call with all args.
         var indent = "    ";
+        var closureArgSet = new HashSet<ArgumentDecl>(closures.Select(c => c.Arg));
+        var closureByArg = closures.ToDictionary(c => c.Arg);
+        var passableByArg = passableNonClosureParams.ToDictionary(p => p.arg);
 
-        // Build the method call prefix (non-closure args before the closure)
-        var prefixArgs = new List<string>(nonClosureCallArgs);
-        var prefixStr = prefixArgs.Count > 0
-            ? string.Join(", ", prefixArgs) + ", "
-            : "";
-
-        // Open the method call with trailing closure syntax
-        swiftWriter.WriteLine($"{indent}{returnPrefix}{callTarget}.{NameProvider.ParserNameToSwift(method)}({prefixStr}{callLabel}{{ {closureParamStr} in");
-
-        // Nest withUnsafePointer calls
-        var currentIndent = indent + indent;
-        for (int w = 0; w < pointerWrapArgs.Count; w++)
+        // For each closure that has pointer-wrap args, we need withUnsafePointer nesting.
+        // Strategy: emit each closure adapter as a local closure variable, then call the method.
+        // This avoids deeply nested trailing closure syntax which doesn't work with multiple closures.
+        foreach (var ci in closures)
         {
-            var (idx, _) = pointerWrapArgs[w];
-            swiftWriter.WriteLine($"{currentIndent}withUnsafePointer(to: __p{idx}) {{ __ptr{idx} in");
-            currentIndent += indent;
-        }
+            var analysis = perClosureAnalysis[ci];
+            var closureCsName = NameProvider.StripVerbatimPrefix(ci.ParamName);
+            var cdeclVarName = closures.Count > 1 ? $"cdecl{ci.Index}" : "cdecl";
+            var adapterName = $"__adapter{ci.Index}";
 
-        // Build cdecl call with all resolved args
-        var cdeclCallArgs = new List<string>();
-        for (int i = 0; i < closureArgs.Count; i++)
-        {
-            var ptrArg = pointerWrapArgs.FirstOrDefault(p => p.index == i);
-            if (ptrArg != default)
+            // Build the closure adapter type signature
+            var swiftParamTypes = ci.ClosureArgs.Select(a => ExistentialBypassEmitter.RenderSwiftTypeSpec(a)).ToList();
+            var swiftRetType = ci.Spec.ReturnType.IsEmptyTuple ? "Void" : "Swift.Bool";
+            var closureType = $"({string.Join(", ", swiftParamTypes)}) -> {swiftRetType}";
+
+            var closureParamStr = string.Join(", ", analysis.paramDecls);
+            var adapterOpen = analysis.paramDecls.Count > 0
+                ? $"{{ {closureParamStr} in"
+                : "{";
+            swiftWriter.WriteLine($"{indent}let {adapterName}: {closureType} = {adapterOpen}");
+
+            if (analysis.pointerWrapArgs.Count > 0)
             {
-                cdeclCallArgs.Add($"UnsafeMutableRawPointer(mutating: __ptr{i})");
+                var currentIndent = indent + indent;
+                for (int w = 0; w < analysis.pointerWrapArgs.Count; w++)
+                {
+                    var (idx, _) = analysis.pointerWrapArgs[w];
+                    swiftWriter.WriteLine($"{currentIndent}withUnsafePointer(to: __p{ci.Index}_{idx}) {{ __ptr{ci.Index}_{idx} in");
+                    currentIndent += indent;
+                }
+
+                var cdeclCallArgs = new List<string>();
+                for (int i = 0; i < ci.ClosureArgs.Count; i++)
+                {
+                    var ptrArg = analysis.pointerWrapArgs.FirstOrDefault(p => p.index == i);
+                    if (ptrArg != default)
+                    {
+                        cdeclCallArgs.Add($"UnsafeMutableRawPointer(mutating: __ptr{ci.Index}_{i})");
+                    }
+                    else
+                    {
+                        var direct = analysis.directArgs.FirstOrDefault(d => d.index == i);
+                        cdeclCallArgs.Add(direct.conversion);
+                    }
+                }
+                cdeclCallArgs.Add($"{closureCsName}Context");
+
+                var cdeclExpr = $"{cdeclVarName}({string.Join(", ", cdeclCallArgs)})";
+                if (!ci.Spec.ReturnType.IsEmptyTuple)
+                    cdeclExpr += " != 0";
+                swiftWriter.WriteLine($"{currentIndent}{cdeclExpr}");
+
+                for (int w = analysis.pointerWrapArgs.Count - 1; w >= 0; w--)
+                {
+                    currentIndent = currentIndent.Substring(indent.Length);
+                    swiftWriter.WriteLine($"{currentIndent}}}");
+                }
             }
             else
             {
-                var direct = directArgs.FirstOrDefault(d => d.index == i);
-                cdeclCallArgs.Add(direct.conversion);
+                // All args direct
+                var cdeclCallArgs = new List<string>();
+                for (int i = 0; i < ci.ClosureArgs.Count; i++)
+                {
+                    var direct = analysis.directArgs.FirstOrDefault(d => d.index == i);
+                    cdeclCallArgs.Add(direct.conversion);
+                }
+                cdeclCallArgs.Add($"{closureCsName}Context");
+
+                var cdeclExpr = $"{cdeclVarName}({string.Join(", ", cdeclCallArgs)})";
+                if (!ci.Spec.ReturnType.IsEmptyTuple)
+                    cdeclExpr += " != 0";
+                swiftWriter.WriteLine($"{indent}{indent}{cdeclExpr}");
+            }
+
+            swiftWriter.WriteLine($"{indent}}}");
+        }
+
+        // Build method call with all args in parameter order
+        var allCallArgs = new List<string>();
+        foreach (var arg in method.CSSignature.Skip(1))
+        {
+            if (arg.HasDefaultArg && !closureArgSet.Contains(arg) && !passableByArg.ContainsKey(arg))
+                continue;
+
+            if (closureByArg.TryGetValue(arg, out var ci))
+            {
+                var callLabel = GetSwiftArgLabel(ci.Arg);
+                var adapterName = $"__adapter{ci.Index}";
+                allCallArgs.Add($"{callLabel}{adapterName}");
+            }
+            else if (passableByArg.TryGetValue(arg, out var passable))
+            {
+                var label = GetSwiftArgLabel(passable.arg);
+                var paramName = NameProvider.EscapeSwiftKeyword(passable.csName);
+                allCallArgs.Add($"{label}{paramName}");
             }
         }
-        cdeclCallArgs.Add($"{closureCsName}Context");
 
-        var cdeclExpr = $"cdecl({string.Join(", ", cdeclCallArgs)})";
-        // Bool-returning closures: cdecl returns UInt8, original expects Bool
-        if (!closureReturnIsVoid)
-            cdeclExpr += " != 0";
-        swiftWriter.WriteLine($"{currentIndent}{cdeclExpr}");
-
-        // Close withUnsafePointer braces
-        for (int w = pointerWrapArgs.Count - 1; w >= 0; w--)
-        {
-            currentIndent = currentIndent.Substring(indent.Length);
-            swiftWriter.WriteLine($"{currentIndent}}}");
-        }
-
-        // Close the closure and method call
-        swiftWriter.WriteLine($"{indent}}})");
+        swiftWriter.WriteLine($"{indent}{returnPrefix}{callTarget}.{NameProvider.ParserNameToSwift(method)}({string.Join(", ", allCallArgs)})");
     }
 
     // ─── C# Callback ───────────────────────────────────────────────────
@@ -515,9 +605,8 @@ public static class MethodClosureBridge
         CSharpWriter csWriter,
         MethodDecl method,
         string asyncLibName,
-        ArgumentDecl closureArg,
+        List<ClosureInfo> closures,
         List<(ArgumentDecl arg, string csName, string csType, ParamAbiCategory category)> passableNonClosureParams,
-        string callbackBaseName,
         MethodEnvironment env)
     {
         var pinvokeParams = new List<string>();
@@ -540,9 +629,13 @@ public static class MethodClosureBridge
             }
         }
 
-        // Closure → funcPtr + context
-        pinvokeParams.Add("IntPtr funcPtr");
-        pinvokeParams.Add("IntPtr context");
+        // N × (funcPtr, context) pairs — one per closure
+        foreach (var ci in closures)
+        {
+            var suffix = closures.Count > 1 ? $"_{ci.Index}" : "";
+            pinvokeParams.Add($"IntPtr funcPtr{suffix}");
+            pinvokeParams.Add($"IntPtr context{suffix}");
+        }
 
         // SwiftSelf last (standard Swift calling convention) — instance methods only
         bool isInstance = method.MethodType != MethodType.Static;
@@ -563,8 +656,8 @@ public static class MethodClosureBridge
             pinvokeReturnType = GetPInvokePrimitiveType(returnSpec);
         }
 
-        var silgenName = $"SBW_{callbackBaseName}_{method.Name}";
-        var pInvokeName = $"PInvoke_{callbackBaseName}";
+        var silgenName = $"SBW_{closures[0].CallbackBaseName}_{method.Name}";
+        var pInvokeName = $"PInvoke_{closures[0].CallbackBaseName}";
 
         PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
         {
@@ -583,40 +676,13 @@ public static class MethodClosureBridge
     private static void EmitPublicMethod(
         CSharpWriter csWriter,
         MethodDecl method,
-        ClosureTypeSpec closureTypeSpec,
-        ArgumentDecl closureArg,
-        List<TypeSpec> closureArgs,
-        bool closureReturnIsVoid,
+        List<ClosureInfo> closures,
         List<(ArgumentDecl arg, string csName, string csType, ParamAbiCategory category)> passableNonClosureParams,
-        string callbackBaseName,
-        string closureParamName,
         MethodEnvironment env,
         TypeDecl? parentDecl,
         string helperClassName)
     {
-        var pInvokeName = $"PInvoke_{callbackBaseName}";
-
-        // Build C# types for closure arguments
-        var closureArgCSharpTypes = new List<string>();
-        foreach (var arg in closureArgs)
-        {
-            closureArgCSharpTypes.Add(GetCSharpTypeForClosureArg(arg, env));
-        }
-
-        // Build delegate type
-        string delegateType;
-        if (closureReturnIsVoid)
-        {
-            delegateType = closureArgCSharpTypes.Count > 0
-                ? $"Action<{string.Join(", ", closureArgCSharpTypes)}>"
-                : "Action";
-        }
-        else
-        {
-            // Only Bool return supported for now
-            var allTypeArgs = new List<string>(closureArgCSharpTypes) { "bool" };
-            delegateType = $"Func<{string.Join(", ", allTypeArgs)}>";
-        }
+        var pInvokeName = $"PInvoke_{closures[0].CallbackBaseName}";
 
         // Build return type
         var returnSpec = method.CSSignature[0].SwiftTypeSpec;
@@ -633,13 +699,43 @@ public static class MethodClosureBridge
             returnsClass = returnSpec is NamedTypeSpec rn && !MarshallingHelpers.IsSwiftPrimitive(rn.Name);
         }
 
-        // Build public parameter list — non-closure passable + closure delegate
+        // Build per-closure delegate types
+        var closureDelegateTypes = new List<string>();
+        var closureArgCSharpTypesAll = new List<List<string>>();
+        foreach (var ci in closures)
+        {
+            var closureArgCSharpTypes = new List<string>();
+            foreach (var arg in ci.ClosureArgs)
+            {
+                closureArgCSharpTypes.Add(GetCSharpTypeForClosureArg(arg, env));
+            }
+            closureArgCSharpTypesAll.Add(closureArgCSharpTypes);
+
+            string delegateType;
+            if (ci.ReturnIsVoid)
+            {
+                delegateType = closureArgCSharpTypes.Count > 0
+                    ? $"Action<{string.Join(", ", closureArgCSharpTypes)}>"
+                    : "Action";
+            }
+            else
+            {
+                var allTypeArgs = new List<string>(closureArgCSharpTypes) { "bool" };
+                delegateType = $"Func<{string.Join(", ", allTypeArgs)}>";
+            }
+            closureDelegateTypes.Add(delegateType);
+        }
+
+        // Build public parameter list — non-closure passable + closure delegates
         var publicParams = new List<string>();
         foreach (var (_, csName, csType, _) in passableNonClosureParams)
         {
             publicParams.Add($"{csType} {csName}");
         }
-        publicParams.Add($"{delegateType} {closureParamName}");
+        for (int c = 0; c < closures.Count; c++)
+        {
+            publicParams.Add($"{closureDelegateTypes[c]} {closures[c].ParamName}");
+        }
 
         // Build method name using same logic as MethodEnvironment
         var methodName = NameProvider.GetPublicMethodName(
@@ -659,58 +755,63 @@ public static class MethodClosureBridge
         csWriter.WriteLine("{");
         csWriter.Indent++;
 
-        // Build inner callback delegate that maps cdecl-typed args to user-typed args.
-        // Primitives stay as their native types; bound generics/classes come as IntPtr.
-        var innerTypeArgs = new List<string>();
-        var innerParamDecls = new List<string>();
-        for (int i = 0; i < closureArgs.Count; i++)
+        // Build inner callback delegates — one per closure
+        // Each maps cdecl-typed args to user-typed args.
+        for (int c = 0; c < closures.Count; c++)
         {
-            var cbType = GetCallbackParamType(closureArgs[i], env);
-            innerTypeArgs.Add(cbType);
-            innerParamDecls.Add($"{cbType} __p{i}");
-        }
+            var ci = closures[c];
+            var closureArgCSharpTypes = closureArgCSharpTypesAll[c];
+            var innerSuffix = closures.Count > 1 ? $"_{c}" : "";
 
-        if (!closureReturnIsVoid)
-        {
-            // Bool return
-            innerTypeArgs.Add("bool");
-            csWriter.WriteLine($"Func<{string.Join(", ", innerTypeArgs)}> __inner = ({string.Join(", ", innerParamDecls)}) =>");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-            for (int i = 0; i < closureArgs.Count; i++)
+            var innerTypeArgs = new List<string>();
+            var innerParamDecls = new List<string>();
+            for (int i = 0; i < ci.ClosureArgs.Count; i++)
             {
-                EmitArgMarshal(csWriter, closureArgs[i], closureArgCSharpTypes[i], i);
+                var cbType = GetCallbackParamType(ci.ClosureArgs[i], env);
+                innerTypeArgs.Add(cbType);
+                innerParamDecls.Add($"{cbType} __p{i}");
             }
-            var userArgs = string.Join(", ", Enumerable.Range(0, closureArgs.Count).Select(i => $"__a{i}"));
-            csWriter.WriteLine($"return {closureParamName}({userArgs});");
-            csWriter.Indent--;
-            csWriter.WriteLine("};");
-        }
-        else
-        {
-            // Void return
-            if (innerTypeArgs.Count > 0)
+
+            if (!ci.ReturnIsVoid)
             {
-                csWriter.WriteLine($"Action<{string.Join(", ", innerTypeArgs)}> __inner = ({string.Join(", ", innerParamDecls)}) =>");
+                innerTypeArgs.Add("bool");
+                csWriter.WriteLine($"Func<{string.Join(", ", innerTypeArgs)}> __inner{innerSuffix} = ({string.Join(", ", innerParamDecls)}) =>");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
-                for (int i = 0; i < closureArgs.Count; i++)
+                for (int i = 0; i < ci.ClosureArgs.Count; i++)
                 {
-                    EmitArgMarshal(csWriter, closureArgs[i], closureArgCSharpTypes[i], i);
+                    EmitArgMarshal(csWriter, ci.ClosureArgs[i], closureArgCSharpTypes[i], i);
                 }
-                var userArgs = string.Join(", ", Enumerable.Range(0, closureArgs.Count).Select(i => $"__a{i}"));
-                csWriter.WriteLine($"{closureParamName}({userArgs});");
+                var userArgs = string.Join(", ", Enumerable.Range(0, ci.ClosureArgs.Count).Select(i => $"__a{i}"));
+                csWriter.WriteLine($"return {ci.ParamName}({userArgs});");
                 csWriter.Indent--;
                 csWriter.WriteLine("};");
             }
             else
             {
-                csWriter.WriteLine($"Action __inner = () => {closureParamName}();");
+                if (innerTypeArgs.Count > 0)
+                {
+                    csWriter.WriteLine($"Action<{string.Join(", ", innerTypeArgs)}> __inner{innerSuffix} = ({string.Join(", ", innerParamDecls)}) =>");
+                    csWriter.WriteLine("{");
+                    csWriter.Indent++;
+                    for (int i = 0; i < ci.ClosureArgs.Count; i++)
+                    {
+                        EmitArgMarshal(csWriter, ci.ClosureArgs[i], closureArgCSharpTypes[i], i);
+                    }
+                    var userArgs = string.Join(", ", Enumerable.Range(0, ci.ClosureArgs.Count).Select(i => $"__a{i}"));
+                    csWriter.WriteLine($"{ci.ParamName}({userArgs});");
+                    csWriter.Indent--;
+                    csWriter.WriteLine("};");
+                }
+                else
+                {
+                    csWriter.WriteLine($"Action __inner{innerSuffix} = () => {ci.ParamName}();");
+                }
             }
-        }
 
-        // Allocate GCHandle — intentionally leaked for @escaping closure lifetime
-        csWriter.WriteLine("var __gcHandle = GCHandle.Alloc(__inner);");
+            // Allocate GCHandle — intentionally leaked for @escaping closure lifetime
+            csWriter.WriteLine($"var __gcHandle{innerSuffix} = GCHandle.Alloc(__inner{innerSuffix});");
+        }
 
         // When in a generic type, callback pointer and P/Invoke live in the helper class
         var helperPrefix = string.IsNullOrEmpty(helperClassName) ? "" : $"{helperClassName}.";
@@ -735,9 +836,14 @@ public static class MethodClosureBridge
             }
         }
 
-        // Closure funcPtr + context
-        callArgs.Add($"{helperPrefix}s_{callbackBaseName}");
-        callArgs.Add("GCHandle.ToIntPtr(__gcHandle)");
+        // N × (funcPtr, context) pairs — one per closure
+        for (int c = 0; c < closures.Count; c++)
+        {
+            var ci = closures[c];
+            var innerSuffix = closures.Count > 1 ? $"_{c}" : "";
+            callArgs.Add($"{helperPrefix}s_{ci.CallbackBaseName}");
+            callArgs.Add($"GCHandle.ToIntPtr(__gcHandle{innerSuffix})");
+        }
 
         // SwiftSelf — instance methods only
         if (!isStatic)
