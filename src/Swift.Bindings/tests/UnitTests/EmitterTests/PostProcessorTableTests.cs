@@ -18,9 +18,9 @@ public class PostProcessorTableTests
     // ─── Table Structure ──────────────────────────────────────────────
 
     [Fact]
-    public void PostProcessors_HasExactly4Entries()
+    public void PostProcessors_HasExactly5Entries()
     {
-        Assert.Equal(4, MethodHandler.PostProcessors.Count);
+        Assert.Equal(5, MethodHandler.PostProcessors.Count);
     }
 
     [Fact]
@@ -38,6 +38,7 @@ public class PostProcessorTableTests
         Assert.Contains(typeof(CompletionHandlerPostProcessor), types);
         Assert.Contains(typeof(MarkerProtocolOverloadPostProcessor), types);
         Assert.Contains(typeof(NativeIntOverloadPostProcessor), types);
+        Assert.Contains(typeof(ThrowingClosureSimplificationPostProcessor), types);
     }
 
     [Fact]
@@ -78,5 +79,12 @@ public class PostProcessorTableTests
     {
         var ni = MethodHandler.PostProcessors.OfType<NativeIntOverloadPostProcessor>().Single();
         Assert.Equal(PostProcessorScope.MethodsOnly, ni.Scope);
+    }
+
+    [Fact]
+    public void PostProcessors_ThrowingClosureScope_IsMethodsOnly()
+    {
+        var tc = MethodHandler.PostProcessors.OfType<ThrowingClosureSimplificationPostProcessor>().Single();
+        Assert.Equal(PostProcessorScope.MethodsOnly, tc.Scope);
     }
 }

@@ -502,6 +502,7 @@ namespace BindingsGeneration
             new CompletionHandlerPostProcessor(),           // Task-returning overloads (WU8)
             new MarkerProtocolOverloadPostProcessor(),      // Typed marker protocol overloads
             new NativeIntOverloadPostProcessor(),           // int/uint convenience overloads
+            new ThrowingClosureSimplificationPostProcessor(), // Action/Func overloads for throwing closures
         ];
 
         /// <summary>
@@ -764,6 +765,15 @@ namespace BindingsGeneration
                         break;
                     }
                 }
+            }
+
+            // Pre-scan: flag methods that will get throwing closure simplification overloads
+            // so WrapperEmitter can annotate the original with [EditorBrowsable(Never)].
+            // ShouldSimplify includes dedup check (Contains, not Add) to avoid hiding the
+            // original when the overload would be blocked by a signature collision.
+            if (!isAccessor && ThrowingClosureSimplificationEmitter.ShouldSimplify(methodEnv))
+            {
+                methodEnv.MethodDecl.HasThrowingClosureSimplification = true;
             }
 
             var wrapperEmitter = new WrapperEmitter(methodEnv, signatureHandler, fallbackInfo, context.GetEmissionContext());

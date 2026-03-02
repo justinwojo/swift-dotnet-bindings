@@ -196,8 +196,19 @@ namespace BindingsGeneration
             var emittedProjectedSignatures = new HashSet<string>(StringComparer.Ordinal);
 
             var sortedDecl = TopologicallySortTypes(decl);
+            var emissionCtx = context.GetEmissionContext();
             foreach (var baseDecl in sortedDecl)
             {
+                // Suppress underscore-prefixed types that are not structurally required
+                if (baseDecl is TypeDecl typeDecl &&
+                    typeDecl.SwiftTypeName != null &&
+                    emissionCtx.IsUnderscoreSuppressed(typeDecl.SwiftTypeName.ToString()))
+                {
+                    ReportCollector.RecordTypeSkipped(typeDecl, SkipReason.UnderscorePrefixInternal,
+                        "Underscore-prefixed type suppressed from public API.");
+                    continue;
+                }
+
                 if (baseDecl is StructDecl structDecl)
                 {
                     if (SwiftUIViewDetector.IsSwiftUIView(structDecl))

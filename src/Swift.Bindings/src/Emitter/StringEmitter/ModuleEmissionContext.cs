@@ -20,6 +20,25 @@ public sealed class ModuleEmissionContext
     /// </summary>
     public static ModuleEmissionContext Default { get; } = new();
 
+    // ==================== Underscore-Prefix Suppression ====================
+
+    private static readonly IReadOnlySet<string> EmptyStringSet = new HashSet<string>();
+    private HashSet<string>? _underscoreSuppressedNames;
+
+    /// <summary>
+    /// Module-qualified names of underscore-prefixed types to suppress from C# output.
+    /// Set once at pipeline start; checked during HandleBaseDecl to skip type emission.
+    /// </summary>
+    public IReadOnlySet<string> UnderscoreSuppressedNames =>
+        _underscoreSuppressedNames ?? EmptyStringSet;
+
+    /// <summary>Sets the underscore-suppressed type names (called once per module).</summary>
+    public void SetUnderscoreSuppressedNames(HashSet<string> names) => _underscoreSuppressedNames = names;
+
+    /// <summary>Checks if a module-qualified type name is underscore-suppressed.</summary>
+    public bool IsUnderscoreSuppressed(string moduleQualifiedName) =>
+        _underscoreSuppressedNames?.Contains(moduleQualifiedName) == true;
+
     // ==================== Protocol Extension ====================
 
     private readonly List<string> _protocolExtWrapperLines = new();

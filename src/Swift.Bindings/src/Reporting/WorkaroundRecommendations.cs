@@ -44,6 +44,8 @@ public static class WorkaroundRecommendations
             "Static protocol members cannot be dispatched through witness tables. Use a Swift wrapper.",
         SkipReason.SynthesizedCodable =>
             "Synthesized Codable members are pruned. Use NSCoding or manual serialization from C#.",
+        SkipReason.UnderscorePrefixInternal =>
+            "Underscore-prefixed type treated as internal. If this type is needed, write a Swift wrapper that exposes the functionality through a public non-underscored type.",
         SkipReason.MissingHandler =>
             "No handler exists for this declaration kind.",
         SkipReason.UnsupportedType =>

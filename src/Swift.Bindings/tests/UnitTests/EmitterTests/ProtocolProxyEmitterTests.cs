@@ -61,6 +61,19 @@ public class ProtocolProxyEmitterTests
         Assert.Contains("private struct TestProtocolLocalVTable", output);
     }
 
+    [Fact]
+    public void EmitProxyClass_HasEditorBrowsableNever()
+    {
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("[System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]", output);
+        // Attribute should appear before the class declaration
+        var attrIdx = output.IndexOf("EditorBrowsable");
+        var classIdx = output.IndexOf("public unsafe partial class");
+        Assert.True(attrIdx < classIdx, "EditorBrowsable attribute should appear before class declaration");
+    }
+
     #endregion
 
     #region Static Fields Tests

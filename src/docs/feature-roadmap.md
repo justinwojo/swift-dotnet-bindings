@@ -13,7 +13,7 @@ This roadmap covers features that BUILD ON the foundation pillars. Each item dep
 | Feature | Pillar Dependency | Score Impact | Effort | Libraries Affected |
 |---------|:-----------------:|:-----------:|:------:|:---------:|
 | ~~nint return/property overloads~~ | None | +0.10-0.15 avg | Small | Nearly all | **DONE** |
-| Noise reduction | None | +0.05-0.08 avg | Medium | GRDB, Alamofire, Stripe |
+| ~~Noise reduction~~ | None | +0.05-0.08 avg | Medium | GRDB, Alamofire, Stripe | **DONE** |
 | Protocol extension param gate lifts | P1.1 (struct conformers) | +0.10-0.15 avg | Medium | GRDB, Kingfisher |
 | Collection witness dispatch | P2.1 (dispatch table) | +0.10-0.15 avg | 1.5 sessions | All proxy libraries |
 | String enum raw values | None | +0.02-0.05 avg | Small | GRDB, CryptoSwift |
@@ -43,25 +43,19 @@ This roadmap covers features that BUILD ON the foundation pillars. Each item dep
 
 ---
 
-## Feature F2: Noise Reduction
+## Feature F2: Noise Reduction — COMPLETE
 **Pillar dependency**: None
 **Score impact**: +0.05-0.08 combined average (Noise category)
-**Effort**: 1 session
+**Effort**: 1 session (completed March 2, 2026)
 
-Three noise sources drag scores:
+Three noise sources addressed:
 
-1. **`_`-prefixed internal types** (~1,247 names in ABI JSON, most already filtered)
-   - Add `_`-prefix heuristic in `SwiftABIParser` after `IsInternalFromPublicTypeNames` check
-   - Guard with `publicTypeNames` override (some `_`-prefixed types are intentionally public)
+**What shipped**:
+- **`_`-prefix type suppression**: Pre-computed `underscoreSuppressedNames` set in `CollectUnderscoreSuppressedTypeNames()`, checked in `HandleBaseDecl` to skip emission. Structurally required types (superclasses, protocol conformances of non-`_` types) are preserved with `[EditorBrowsable(Never)]`. `publicTypeNames` from swiftinterface wired as `keepUnderscoreTypes` override — explicitly public `_`-prefixed types are not suppressed. New `SkipReason.UnderscorePrefixInternal` in reporting.
+- **ExistentialContainer proxy hiding**: Proxy class declarations (`FooProxy`) and composition proxy classes now emit `[EditorBrowsable(Never)]`. Users interact with protocol interfaces (`IFoo`), not proxies. Optional existentials in closures (`ExistentialContainer1?`) deferred (runtime marshalling limitation).
+- **Throwing closure simplification**: Methods with `Func<..., SwiftResult<T, SwiftError>>` closure params get convenience overloads accepting `Action<...>` (void throws) or `Func<..., T>` (non-void throws). Wrapper lambda catches `SwiftErrorException` → `SwiftResult.FromFailure`. Methods returning `SwiftResult<T, SwiftError>` unwrap: success returns `T`, failure throws `SwiftErrorException`. Original methods hidden via `[EditorBrowsable(Never)]` with pre-scan dedup safety. New `SwiftErrorException` runtime type in `Swift.Runtime`.
 
-2. **ExistentialContainer leakage** in callback signatures
-   - `AsyncRead(Action<SwiftResult<Database, ExistentialContainer1>>)` → hide or wrap
-   - Consider: `ExistentialContainer1` → type-erased `object` with runtime cast helper
-
-3. **SwiftResult in public Func<>**
-   - `PrepareDatabase(Func<Database, SwiftResult<SwiftVoid, SwiftError>> setup)` → consider Result→Exception translation
-
-**Key files**: `SwiftABIParser.cs`, `ClosureHandler.cs`, callback emission paths
+**Key files**: `ThrowingClosureSimplificationEmitter.cs`, `Program.cs` (`CollectUnderscoreSuppressedTypeNames`), `ModuleEmissionContext.cs`, `ProtocolProxyEmitter.cs`, `ModuleHandler.cs`, `SwiftErrorException.cs`, `IHandler.cs` (HandleBaseDecl skip), `WrapperEmitter.Signature.cs` (EditorBrowsable emission)
 
 ---
 
@@ -156,7 +150,7 @@ Features can be interleaved with foundation work. Independence from pillars note
 ```
 IMMEDIATE (no pillar dependency):
   F1: nint overloads           ── DONE (March 2, 2026)
-  F2: Noise reduction          ── 1 session
+  F2: Noise reduction          ── DONE (March 2, 2026)
   F5: String enum raw values   ── BLOCKED (no data source in compiled xcframeworks)
   F6: Safety                   ── 1 session
 

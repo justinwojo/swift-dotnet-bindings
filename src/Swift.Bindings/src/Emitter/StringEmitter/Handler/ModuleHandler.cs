@@ -619,6 +619,7 @@ namespace BindingsGeneration
             csWriter.WriteLine($"/// Wrap-only proxy for the {compositionName} composition existential.");
             csWriter.WriteLine($"/// Wraps a Swift existential container; member access is not supported.");
             csWriter.WriteLine($"/// </summary>");
+            csWriter.WriteLine("[System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]");
             csWriter.WriteLine($"public unsafe class {proxyClassName} : {compositionName}, ISwiftObject, IDisposable, Swift.Runtime.ISwiftExistentialConvertible<{containerType}>");
             csWriter.WriteLine("{");
             csWriter.Indent++;

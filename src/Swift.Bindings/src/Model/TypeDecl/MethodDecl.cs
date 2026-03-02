@@ -183,6 +183,14 @@ namespace BindingsGeneration
         public bool HasGenericClosureBridge { get; set; } = false;
 
         /// <summary>
+        /// When true, this method has throwing closure parameters that will produce
+        /// simplified Action/Func overloads via <see cref="ThrowingClosureSimplificationEmitter"/>.
+        /// Set during pre-scan in MethodHandler before WrapperEmitter so the original method
+        /// gets [EditorBrowsable(Never)] in the standard attribute pipeline.
+        /// </summary>
+        public bool HasThrowingClosureSimplification { get; set; } = false;
+
+        /// <summary>
         /// When true, this method was synthesized from a protocol extension method
         /// parsed from a .swiftinterface file. Protocol extension methods use static
         /// dispatch and are called via generated @_silgen_name Swift wrappers.

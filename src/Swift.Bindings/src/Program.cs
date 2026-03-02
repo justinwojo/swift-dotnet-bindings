@@ -738,6 +738,29 @@ namespace BindingsGeneration
                 if (dependencyModuleNames != null)
                     decl.DependencyModuleNames = dependencyModuleNames;
                 internalTypeNames = CollectInternalTypeNames(decl);
+                // Wire publicTypeNames from swiftinterface as keep-override for underscore suppression.
+                // publicTypeNames are dot-qualified (e.g., "_InternalType"); underscore suppression
+                // uses module-qualified names (e.g., "Module._InternalType"). Normalize by prepending module.
+                HashSet<string>? keepUnderscoreTypes = null;
+                if (publicTypeNames != null)
+                {
+                    keepUnderscoreTypes = new HashSet<string>();
+                    foreach (var name in publicTypeNames)
+                    {
+                        if (name.StartsWith("_") || name.Contains("._"))
+                            keepUnderscoreTypes.Add($"{moduleName}.{name}");
+                    }
+                    if (keepUnderscoreTypes.Count == 0)
+                        keepUnderscoreTypes = null;
+                }
+                var underscoreSuppressedNames = CollectUnderscoreSuppressedTypeNames(decl, keepUnderscoreTypes);
+                // Merge underscore-suppressed names into internalTypeNames for wrapper post-processing
+                if (underscoreSuppressedNames.Count > 0)
+                {
+                    internalTypeNames ??= new HashSet<string>();
+                    internalTypeNames.UnionWith(underscoreSuppressedNames);
+                    logger.LogInformation("Suppressing {Count} underscore-prefixed types from C# output", underscoreSuppressedNames.Count);
+                }
                 ReportCollector.Start(decl);
 
                 // dylibPath is used for metadata extraction, runtimeLibraryName is used in generated DllImport
@@ -749,6 +772,7 @@ namespace BindingsGeneration
 
                 // Create per-module emission context (replaces static mutable state + ResetForModule)
                 var emissionContext = new ModuleEmissionContext();
+                emissionContext.SetUnderscoreSuppressedNames(underscoreSuppressedNames);
 
                 // Parse protocol names first — needed by both protocol and foreign extension paths
                 var protocolNames = !string.IsNullOrWhiteSpace(swiftInterfacePath) && File.Exists(swiftInterfacePath)
@@ -880,6 +904,85 @@ namespace BindingsGeneration
                     publicNames.Add(t.Name);  // Track public short names for collision detection
                 }
                 CollectTypeNames(t.Types, internalNames, publicNames);  // Recurse ALL children
+            }
+        }
+
+        /// <summary>
+        /// Collects underscore-prefixed type names to suppress from C# output.
+        /// Types with a leading underscore are considered internal implementation details
+        /// unless they are structurally required (e.g., as a superclass of a non-underscore type)
+        /// or explicitly kept via the override set.
+        /// </summary>
+        /// <param name="module">The parsed module declaration.</param>
+        /// <param name="keepUnderscoreTypes">
+        /// Optional set of module-qualified names to exempt from suppression.
+        /// When non-null, any underscore-prefixed type in this set is preserved.
+        /// </param>
+        /// <returns>Set of module-qualified type names to suppress.</returns>
+        internal static HashSet<string> CollectUnderscoreSuppressedTypeNames(
+            ModuleDecl module, HashSet<string>? keepUnderscoreTypes = null)
+        {
+            var underscoreTypes = new HashSet<string>();
+            var structurallyRequired = new HashSet<string>();
+
+            CollectUnderscoreTypeNames(module.Types, underscoreTypes, structurallyRequired);
+
+            // Remove structurally required types (superclasses/protocols of non-underscore types)
+            underscoreTypes.ExceptWith(structurallyRequired);
+
+            // Remove explicitly kept types
+            if (keepUnderscoreTypes != null)
+                underscoreTypes.ExceptWith(keepUnderscoreTypes);
+
+            return underscoreTypes;
+        }
+
+        private static void CollectUnderscoreTypeNames(
+            IEnumerable<TypeDecl> types,
+            HashSet<string> underscoreTypes,
+            HashSet<string> structurallyRequired)
+        {
+            foreach (var t in types)
+            {
+                var qualifiedName = t.SwiftTypeName?.ToString();
+                if (qualifiedName != null && t.Name.StartsWith("_"))
+                {
+                    underscoreTypes.Add(qualifiedName);
+                }
+
+                // Check if this non-underscore type references underscore-prefixed types
+                if (!t.Name.StartsWith("_"))
+                {
+                    // Superclass references (ClassDecl only)
+                    if (t is ClassDecl classDecl && classDecl.DirectSuperclassName != null
+                        && classDecl.DirectSuperclassName.Contains("._"))
+                    {
+                        structurallyRequired.Add(classDecl.DirectSuperclassName);
+                    }
+
+                    // Protocol conformance references
+                    var conformances = t switch
+                    {
+                        ClassDecl cd => cd.Conformances,
+                        StructDecl sd => sd.Conformances,
+                        EnumDecl ed => ed.Conformances,
+                        _ => null
+                    };
+                    if (conformances != null)
+                    {
+                        foreach (var conf in conformances)
+                        {
+                            var protoName = conf.Protocol.ToString();
+                            if (protoName.Contains("._"))
+                            {
+                                structurallyRequired.Add(protoName);
+                            }
+                        }
+                    }
+                }
+
+                // Recurse into nested types
+                CollectUnderscoreTypeNames(t.Types, underscoreTypes, structurallyRequired);
             }
         }
 

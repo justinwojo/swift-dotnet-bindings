@@ -205,6 +205,14 @@ namespace BindingsGeneration
                     $"DiagnosticId = \"{diagnosticId}\", " +
                     $"UrlFormat = \"https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md\")]");
             }
+
+            // Hide original method when a simplified throwing closure overload exists.
+            // The post-processor emits the user-facing convenience overload (Action/Func params);
+            // this hides the raw SwiftResult-based signature from IntelliSense.
+            if (!_env.MethodDecl.IsAccessor && _env.MethodDecl.HasThrowingClosureSimplification)
+            {
+                csWriter.WriteLine("[System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]");
+            }
         }
 
         /// <summary>

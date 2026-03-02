@@ -60,6 +60,7 @@ public enum SkipReason
     StaticProtocolMember,
     GenericTypeCallback,
     SynthesizedCodable,
+    UnderscorePrefixInternal,
     Unknown,
 }
 

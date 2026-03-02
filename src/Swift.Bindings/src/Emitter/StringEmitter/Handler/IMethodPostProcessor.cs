@@ -109,4 +109,18 @@ namespace BindingsGeneration
             NativeIntOverloadEmitter.TryEmitOverload(context.CsWriter, context.MethodEnv);
         }
     }
+
+    /// <summary>
+    /// Post-processor for simplified Action/Func overloads for throwing closure parameters.
+    /// Methods only — not constructors or accessors.
+    /// </summary>
+    internal sealed class ThrowingClosureSimplificationPostProcessor : IMethodPostProcessor
+    {
+        public PostProcessorScope Scope => PostProcessorScope.MethodsOnly;
+
+        public void TryPostProcess(PostProcessorContext context)
+        {
+            ThrowingClosureSimplificationEmitter.TryEmitOverload(context.CsWriter, context.MethodEnv);
+        }
+    }
 }

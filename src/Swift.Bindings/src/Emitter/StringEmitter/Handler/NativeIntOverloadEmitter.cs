@@ -221,7 +221,7 @@ internal static class NativeIntOverloadEmitter
     /// as MethodHandler (TypeProjectionFactory → TypeDatabase → ToString fallback),
     /// with generic type parameter substitution.
     /// </summary>
-    private static string ResolveType(TypeSpec typeSpec, MethodEnvironment methodEnv, bool isParameter)
+    internal static string ResolveType(TypeSpec typeSpec, MethodEnvironment methodEnv, bool isParameter)
     {
         // Handle generic type parameters via GenericTypeMapping
         if (typeSpec is NamedTypeSpec ns && methodEnv.GenericTypeMapping.TryGetValue(ns.ToString(), out var mapping))

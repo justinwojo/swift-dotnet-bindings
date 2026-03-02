@@ -105,6 +105,7 @@ public partial class ProtocolProxyEmitter
         writer.WriteLine($"/// Proxy class that enables C# implementations of the {protocolDecl.Name} protocol.");
         writer.WriteLine($"/// Can wrap either a C# implementation or receive Swift existential containers.");
         writer.WriteLine($"/// </summary>");
+        writer.WriteLine("[System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]");
         writer.WriteLine($"public unsafe partial class {proxyClassNameWithGenerics} : {interfaceNameWithGenerics}, ISwiftObject, IDisposable, Swift.Runtime.ISwiftExistentialConvertible<ExistentialContainer1>{constraints}");
         writer.WriteLine("{");
         writer.Indent++;
