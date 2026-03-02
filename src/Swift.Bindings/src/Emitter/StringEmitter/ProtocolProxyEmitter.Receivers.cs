@@ -89,6 +89,13 @@ public partial class ProtocolProxyEmitter
                 // but MarshalToSwiftBuffer expects Swift ABI types (SwiftString, SwiftOptional<SwiftString>, etc.).
                 // Projection-based conversion handles existentials, strings, arrays, dicts, and optionals.
                 var getterConversion = GetReceiverGetterConversion("result", property.SwiftTypeSpec);
+                // F1: If property is narrowed (int/uint), widen back to nint/nuint for Swift ABI MarshalToSwiftBuffer.
+                // Plain nint: result is int → (nint)result ensures 8-byte write.
+                // Plain nuint: result is uint → (nuint)result ensures 8-byte write.
+                // Optional<nint/nuint>: getterConversion builds SwiftOptional<nint>.NewSome(resultVal) where
+                //   resultVal is int/uint (unwrapped from int?/uint?) — implicit widening handles it.
+                if (getterConversion == null && NativeIntOverloadEmitter.TryGetAbiWideningType(property.SwiftTypeSpec, out var abiType))
+                    getterConversion = $"({abiType})result";
 
                 writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]");
                 writer.WriteLine($"private static IntPtr {receiverName}(IntPtr vtHandle, IntPtr selfContainer)");
@@ -122,6 +129,11 @@ public partial class ProtocolProxyEmitter
                 // Projection-based conversion handles existentials, strings, arrays, dicts, and optionals.
                 var returnConversion = GetReceiverSetterConversion("value", property.SwiftTypeSpec);
                 var assignmentExpr = returnConversion ?? "value";
+                // F1: Narrow nint/nuint ABI value to int/uint for property assignment.
+                // Plain nint: value is nint (MarshalFromSwift<nint>) → (int)value.
+                // Optional<nint>: returnConversion is "((nint?)value)" → (int?)((nint?)value).
+                if (NativeIntOverloadEmitter.TryGetNarrowedType(property.SwiftTypeSpec, out var narrowedType))
+                    assignmentExpr = $"({narrowedType}){assignmentExpr}";
 
                 writer.WriteLines($$"""
                     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]

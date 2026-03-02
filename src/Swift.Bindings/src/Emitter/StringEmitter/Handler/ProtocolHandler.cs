@@ -3,8 +3,11 @@
 // Licensed under the MIT License.
 
 using System.CodeDom.Compiler;
+using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
 using Swift.Runtime;
+
+[assembly: InternalsVisibleTo("Swift.Bindings.Unit.Tests")]
 
 namespace BindingsGeneration
 {
@@ -280,6 +283,10 @@ namespace BindingsGeneration
                 EmitInterfaceMethod(bodyWriter, methodDecl, env.TypeDatabase, closureHandler, protocolDecl, emittedCSharpPropertyNames);
                 emittedInterfaceMemberCount++;
                 ReportCollector.RecordMemberEmitted(BindingItemKind.Method, methodDecl.Name, protocolDecl);
+
+                // F1: Emit DIM (Default Interface Method) overload with narrowed nint→int params.
+                // Proxy classes inherit DIMs automatically — no changes needed in ProtocolProxyEmitter.
+                TryEmitInterfaceMethodNintOverload(bodyWriter, methodDecl, env.TypeDatabase, protocolDecl, emittedCSharpKeys, emittedCSharpPropertyNames);
             }
 
             // Record operators as skipped - C# interfaces cannot have operator overloads
@@ -410,6 +417,9 @@ namespace BindingsGeneration
 
             // Resolve property type using factory-first projection
             var csharpTypeName = GetCSharpTypeName(propertyDecl.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext, isParameter: false);
+
+            // F1: Narrow nint/nuint property types to int/uint for idiomatic C#.
+            csharpTypeName = NativeIntOverloadEmitter.NarrowNativeIntType(csharpTypeName);
 
             // Determine accessors
             var hasGetter = propertyDecl.Accessors.OfType<GetAccessorDecl>().Any();
@@ -744,6 +754,140 @@ namespace BindingsGeneration
             }
 
             return $"{methodName}({string.Join(",", paramTypes)})";
+        }
+
+        /// <summary>
+        /// Emits a DIM (Default Interface Method) overload with narrowed nint→int params.
+        /// E.g.: nint Skip(nint count); → DIM: int Skip(int count) => (int)Skip((nint)count);
+        /// Proxy classes inherit DIMs automatically.
+        /// </summary>
+        internal void TryEmitInterfaceMethodNintOverload(
+            CSharpWriter csWriter, MethodDecl methodDecl, ITypeDatabase typeDatabase,
+            ProtocolDecl? protocolContext, HashSet<string> emittedCSharpKeys,
+            IReadOnlySet<string>? propertyNames = null)
+        {
+            // Skip async methods — async interface methods are reshaped to Task<T> with CancellationToken.
+            // Generating correct DIM for these requires mirroring the Task wrapping + await + token forwarding.
+            if (methodDecl.IsAsync)
+                return;
+
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+            var csSignature = methodDecl.CSSignature;
+            if (csSignature.Count < 2)
+                return;
+
+            // Detect nint/nuint params (skip return type at index 0), including Optional<Swift.Int> → int?
+            var conversions = new List<(int index, string nativeType, string convType, bool isOptional)>();
+            for (int i = 1; i < csSignature.Count; i++)
+            {
+                var arg = csSignature[i];
+                if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
+                    continue;
+                if (arg.SwiftTypeSpec.IsEmptyTuple)
+                    continue;
+                if (arg.SwiftTypeSpec is NamedTypeSpec ns && NativeIntOverloadEmitter.TryGetAbiWideningType(ns, out var nativeType))
+                {
+                    var isUnsigned = nativeType == "nuint";
+                    conversions.Add((i, isUnsigned ? "nuint" : "nint", isUnsigned ? "uint" : "int", isOptional: false));
+                }
+                else if (arg.SwiftTypeSpec is NamedTypeSpec optNs &&
+                         optNs.Name == "Swift.Optional" &&
+                         optNs.GenericParameters.Count == 1 &&
+                         optNs.GenericParameters[0] is NamedTypeSpec innerNs &&
+                         NativeIntOverloadEmitter.TryGetAbiWideningType(innerNs, out var optNativeType))
+                {
+                    var isUnsigned = optNativeType == "nuint";
+                    conversions.Add((i, isUnsigned ? "nuint" : "nint", isUnsigned ? "uint" : "int", isOptional: true));
+                }
+            }
+
+            if (conversions.Count == 0)
+                return;
+
+            // Return type stays as-is (nint/nuint) — same overload resolution safety as class method overloads.
+            var returnTypeSpec = csSignature[0].SwiftTypeSpec;
+            bool hasReturn = !returnTypeSpec.IsEmptyTuple;
+
+            // Dedup: build projected key with narrowed types
+            var dimParamTypes = new List<string>();
+            for (int i = 1; i < csSignature.Count; i++)
+            {
+                var arg = csSignature[i];
+                if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
+                    continue;
+                if (arg.SwiftTypeSpec.IsEmptyTuple)
+                    continue;
+                var conv = conversions.Find(c => c.index == i);
+                if (conv != default)
+                    dimParamTypes.Add(conv.isOptional ? $"{conv.convType}?" : conv.convType);
+                else
+                {
+                    var paramType = GetCSharpTypeName(arg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext, isParameter: true);
+                    paramType = ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity(paramType, arg.SwiftTypeSpec, typeDatabase);
+                    dimParamTypes.Add(paramType);
+                }
+            }
+
+            var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(methodDecl);
+            var methodName = NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: hasReturn,
+                propertyNames: propertyNames, isSelfReturning: isSelfReturning,
+                parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
+
+            var dimKey = $"{methodName}({string.Join(",", dimParamTypes)})";
+            if (!emittedCSharpKeys.Add(dimKey))
+                return;
+
+            // Build parameter list and call arguments
+            var paramParts = new List<string>();
+            var callArgs = new List<string>();
+            for (int i = 1; i < csSignature.Count; i++)
+            {
+                var arg = csSignature[i];
+                if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
+                    continue;
+                if (arg.SwiftTypeSpec.IsEmptyTuple)
+                    continue;
+
+                var paramName = NameProvider.GetCSharpParameterName(arg);
+                var conv = conversions.Find(c => c.index == i);
+                if (conv != default)
+                {
+                    if (conv.isOptional)
+                    {
+                        paramParts.Add($"{conv.convType}? {paramName}");
+                        callArgs.Add($"({conv.nativeType}?){paramName}");
+                    }
+                    else
+                    {
+                        paramParts.Add($"{conv.convType} {paramName}");
+                        callArgs.Add($"({conv.nativeType}){paramName}");
+                    }
+                }
+                else
+                {
+                    var typeName = GetCSharpTypeName(arg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext, isParameter: true);
+                    paramParts.Add($"{typeName} {paramName}");
+                    callArgs.Add(paramName);
+                }
+            }
+
+            var paramStr = string.Join(", ", paramParts);
+            var argsStr = string.Join(", ", callArgs);
+
+            // Determine return type — keep nint/nuint, don't narrow
+            string returnType = hasReturn
+                ? GetCSharpTypeName(returnTypeSpec, typeDatabase, boundGenericsHandler, protocolContext, isParameter: false)
+                : "void";
+
+            // Emit DIM — no access modifier (interface members are implicitly public)
+            if (hasReturn)
+            {
+                csWriter.WriteLine($"{returnType} {methodName}({paramStr}) => {methodName}({argsStr});");
+            }
+            else
+            {
+                csWriter.WriteLine($"void {methodName}({paramStr}) => {methodName}({argsStr});");
+            }
         }
 
         /// <summary>

@@ -102,16 +102,18 @@ public partial class ProtocolProxyEmitter
             GenericContext = propGenericContext
         });
         if (propProjection != null)
-            return propProjection.PublicType;
+            return NativeIntOverloadEmitter.NarrowNativeIntType(propProjection.PublicType);
 
         // Bound generic fallback: produce full type name with generic args
         if (property.SwiftTypeSpec is NamedTypeSpec propBoundGeneric && propBoundGeneric.ContainsGenericParameters)
         {
             var bgh = new BoundGenericsHandler(_typeDatabase);
-            return bgh.TranslateBoundGenericTypeToCSharp(property.SwiftTypeSpec, propGenericContext);
+            return NativeIntOverloadEmitter.NarrowNativeIntType(
+                bgh.TranslateBoundGenericTypeToCSharp(property.SwiftTypeSpec, propGenericContext));
         }
 
-        return _typeDatabase.GetTypeRecordOrAnyType(property.SwiftTypeSpec).CSharpTypeName.FullyQualifiedName;
+        return NativeIntOverloadEmitter.NarrowNativeIntType(
+            _typeDatabase.GetTypeRecordOrAnyType(property.SwiftTypeSpec).CSharpTypeName.FullyQualifiedName);
     }
 
     /// <summary>

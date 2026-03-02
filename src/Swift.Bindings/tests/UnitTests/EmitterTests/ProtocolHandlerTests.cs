@@ -1,6 +1,9 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+#nullable enable
+
+using System.IO;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -474,6 +477,338 @@ public class ProtocolHandlerTests
         var protocolDecl = CreateProtocolDecl("EmptyProtocol");
 
         Assert.False(ModuleHandler.HasMembersReferencingUnsupportedModule(protocolDecl));
+    }
+
+    #endregion
+
+    #region F1: DIM Overload Tests
+
+    [Fact]
+    public void DimOverload_NintParam_EmitsIntDim()
+    {
+        var method = CreateMethodDeclWithNintParam("skip", "count", "Swift.Int");
+        var output = EmitDimOverload(method);
+
+        Assert.Contains("void Skip(int count) => Skip((nint)count);", output);
+    }
+
+    [Fact]
+    public void DimOverload_NuintParam_EmitsUintDim()
+    {
+        var method = CreateMethodDeclWithNintParam("index", "position", "Swift.UInt");
+        var output = EmitDimOverload(method);
+
+        Assert.Contains("void Index(uint position) => Index((nuint)position);", output);
+    }
+
+    [Fact]
+    public void DimOverload_OptionalNintParam_EmitsNullableIntDim()
+    {
+        var optNint = new NamedTypeSpec("Swift.Optional");
+        optNint.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var method = CreateMethodDeclWithTypeSpecParam("setLimit", "limit", optNint);
+        var output = EmitDimOverload(method);
+
+        Assert.Contains("int? limit", output);
+        Assert.Contains("(nint?)limit", output);
+    }
+
+    [Fact]
+    public void DimOverload_OptionalNuintParam_EmitsNullableUintDim()
+    {
+        var optNuint = new NamedTypeSpec("Swift.Optional");
+        optNuint.GenericParameters.Add(new NamedTypeSpec("Swift.UInt"));
+        var method = CreateMethodDeclWithTypeSpecParam("setIndex", "position", optNuint);
+        var output = EmitDimOverload(method);
+
+        Assert.Contains("uint? position", output);
+        Assert.Contains("(nuint?)position", output);
+    }
+
+    [Fact]
+    public void DimOverload_NoNintParams_EmitsNothing()
+    {
+        var method = CreateMethodDeclWithNintParam("getName", "id", "Swift.String");
+        var output = EmitDimOverload(method);
+
+        Assert.Equal(string.Empty, output);
+    }
+
+    [Fact]
+    public void DimOverload_AsyncMethod_Skipped()
+    {
+        var method = CreateMethodDeclWithNintParam("fetch", "count", "Swift.Int");
+        method.IsAsync = true;
+        var output = EmitDimOverload(method);
+
+        Assert.Equal(string.Empty, output);
+    }
+
+    [Fact]
+    public void DimOverload_ReturnTypeNotNarrowed()
+    {
+        // DIM return types stay as nint/nuint — same overload resolution safety
+        var method = CreateMethodDeclWithNintParam("getCount", "offset", "Swift.Int",
+            returnType: new NamedTypeSpec("Swift.Int"));
+        var output = EmitDimOverload(method);
+
+        // Return type should resolve to nint (not narrowed to int)
+        Assert.Contains("GetCount(int offset) => GetCount((nint)offset);", output);
+        Assert.DoesNotContain("(int)GetCount", output);
+    }
+
+    [Fact]
+    public void DimOverload_DuplicateKey_SkipsSecond()
+    {
+        var method = CreateMethodDeclWithNintParam("process", "count", "Swift.Int");
+        var typeDb = CreateDimTypeDatabase();
+        var keys = new HashSet<string>();
+        var handler = new ProtocolHandler(NullLogger.Instance);
+
+        // First emission
+        var writer1 = new StringWriter();
+        var csWriter1 = new CSharpWriter(writer1);
+        handler.TryEmitInterfaceMethodNintOverload(csWriter1, method, typeDb, null, keys);
+        var firstOutput = writer1.ToString();
+
+        // Second emission with same method
+        var writer2 = new StringWriter();
+        var csWriter2 = new CSharpWriter(writer2);
+        handler.TryEmitInterfaceMethodNintOverload(csWriter2, method, typeDb, null, keys);
+        var secondOutput = writer2.ToString();
+
+        Assert.NotEmpty(firstOutput);
+        Assert.Equal(string.Empty, secondOutput);
+    }
+
+    [Fact]
+    public void DimOverload_NullableRefParamNormalized_CollidesWithNonNullable()
+    {
+        // C# overload identity ignores nullable annotations on reference types:
+        // Method(int, string?) ≡ Method(int, string) for overload resolution.
+        // DIM key must normalize nullable ref params to match normal protocol dedup.
+        var typeDb = CreateDimTypeDatabase();
+        var keys = new HashSet<string>();
+        var handler = new ProtocolHandler(NullLogger.Instance);
+
+        // Pre-populate with the non-nullable signature (as if EmitInterfaceMethod already emitted it)
+        keys.Add("SetItem(int,string)");
+
+        // Method with nint param + Optional<String> param → DIM key should normalize to SetItem(int,string)
+        var optString = new NamedTypeSpec("Swift.Optional");
+        optString.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        var method = CreateMethodDeclWithTwoParams("setItem",
+            ("index", new NamedTypeSpec("Swift.Int")),
+            ("name", optString));
+
+        var writer = new StringWriter();
+        var csWriter = new CSharpWriter(writer);
+        handler.TryEmitInterfaceMethodNintOverload(csWriter, method, typeDb, null, keys);
+
+        // DIM should be skipped because normalized key "SetItem(int,string)" already exists
+        Assert.Equal(string.Empty, writer.ToString());
+    }
+
+    [Fact]
+    public void DimOverload_NoAccessModifier()
+    {
+        // Interface members are implicitly public — no access modifier in DIM
+        var method = CreateMethodDeclWithNintParam("skip", "count", "Swift.Int");
+        var output = EmitDimOverload(method);
+
+        Assert.DoesNotContain("public ", output);
+        Assert.DoesNotContain("private ", output);
+    }
+
+    private string EmitDimOverload(MethodDecl method)
+    {
+        var typeDb = CreateDimTypeDatabase();
+        var keys = new HashSet<string>();
+        var handler = new ProtocolHandler(NullLogger.Instance);
+        var writer = new StringWriter();
+        var csWriter = new CSharpWriter(writer);
+        handler.TryEmitInterfaceMethodNintOverload(csWriter, method, typeDb, null, keys);
+        return writer.ToString();
+    }
+
+    private static TypeDatabase CreateDimTypeDatabase()
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "IntPtr"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.UInt"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "UIntPtr"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.UInt"),
+                MetadataAccessor = "$sSuMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "String"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+                MetadataAccessor = "$sSSMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+        return typeDatabase;
+    }
+
+    private static MethodDecl CreateMethodDeclWithNintParam(
+        string name, string paramName, string paramSwiftType,
+        TypeSpec? returnType = null)
+    {
+        var csSignature = new List<ArgumentDecl>
+        {
+            new()
+            {
+                SwiftTypeSpec = returnType ?? TupleTypeSpec.Empty,
+                Name = "",
+                PrivateName = "",
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = null,
+                ModuleDecl = null
+            },
+            new()
+            {
+                SwiftTypeSpec = new NamedTypeSpec(paramSwiftType),
+                Name = paramName,
+                PrivateName = paramName,
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = null,
+                ModuleDecl = null
+            }
+        };
+
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s{name}",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = csSignature,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+    }
+
+    private static MethodDecl CreateMethodDeclWithTypeSpecParam(
+        string name, string paramName, TypeSpec paramType)
+    {
+        var csSignature = new List<ArgumentDecl>
+        {
+            new()
+            {
+                SwiftTypeSpec = TupleTypeSpec.Empty,
+                Name = "",
+                PrivateName = "",
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = null,
+                ModuleDecl = null
+            },
+            new()
+            {
+                SwiftTypeSpec = paramType,
+                Name = paramName,
+                PrivateName = paramName,
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = null,
+                ModuleDecl = null
+            }
+        };
+
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s{name}",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = csSignature,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+    }
+
+    private static MethodDecl CreateMethodDeclWithTwoParams(
+        string name,
+        (string name, TypeSpec type) param1,
+        (string name, TypeSpec type) param2)
+    {
+        var csSignature = new List<ArgumentDecl>
+        {
+            new()
+            {
+                SwiftTypeSpec = TupleTypeSpec.Empty,
+                Name = "",
+                PrivateName = "",
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = null,
+                ModuleDecl = null
+            },
+            new()
+            {
+                SwiftTypeSpec = param1.type,
+                Name = param1.name,
+                PrivateName = param1.name,
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = null,
+                ModuleDecl = null
+            },
+            new()
+            {
+                SwiftTypeSpec = param2.type,
+                Name = param2.name,
+                PrivateName = param2.name,
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = null,
+                ModuleDecl = null
+            }
+        };
+
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s{name}",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = csSignature,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
     }
 
     #endregion

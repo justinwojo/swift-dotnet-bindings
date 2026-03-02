@@ -297,6 +297,22 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             }
         }
 
+        // F1: Narrow nint/nuint properties to int/uint for idiomatic C#.
+        // P/Invoke accessor methods still use nint; getter/setter add casts.
+        // Only narrow non-existential, non-closure properties.
+        bool isNarrowedNint = false;
+        string? nativePropertyType = null;
+        if (!isExistential && !isOptionalExistential && !isClosure)
+        {
+            var narrowed = NativeIntOverloadEmitter.NarrowNativeIntType(csTypeName);
+            if (narrowed != csTypeName)
+            {
+                nativePropertyType = csTypeName;
+                csTypeName = narrowed;
+                isNarrowedNint = true;
+            }
+        }
+
         // Skip properties with AnyType - the accessor methods will be skipped due to unsupported types.
         // This check runs AFTER factory projection, so types that the factory can resolve (e.g.,
         // Optional<τ_0_0> with GenericContext) won't be incorrectly skipped.
@@ -452,13 +468,15 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         var getter = propertyDecl.Accessors.OfType<GetAccessorDecl>().FirstOrDefault();
         if (getter != null)
         {
-            EmitGetter(csWriter, getter, propertyEnv, propertyDecl, isExistential, isOptionalExistential, propertyGenericContext);
+            EmitGetter(csWriter, getter, propertyEnv, propertyDecl, isExistential, isOptionalExistential, propertyGenericContext,
+                isNarrowedNint, csTypeName);
         }
 
         var setter = propertyDecl.Accessors.OfType<SetAccessorDecl>().FirstOrDefault();
         if (setter != null)
         {
-            EmitSetter(csWriter, setter, propertyEnv, propertyDecl, isExistential, isOptionalExistential, propertyGenericContext);
+            EmitSetter(csWriter, setter, propertyEnv, propertyDecl, isExistential, isOptionalExistential, propertyGenericContext,
+                isNarrowedNint, nativePropertyType);
         }
 
         csWriter.Indent--;
@@ -561,7 +579,8 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
     /// from Swift ABI to idiomatic C# (e.g., SwiftString → string, SwiftArray → IReadOnlyList).
     /// </summary>
     private void EmitGetter(CSharpWriter csWriter, GetAccessorDecl getter, PropertyEnvironment propertyEnv, PropertyDecl propertyDecl,
-        bool isExistential = false, bool isOptionalExistential = false, GenericContext? genericContext = null)
+        bool isExistential = false, bool isOptionalExistential = false, GenericContext? genericContext = null,
+        bool isNarrowedNint = false, string? narrowedTypeName = null)
     {
         var methodName = NameProvider.GetMethodName(getter.Method.Name, null);
 
@@ -580,19 +599,40 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             var (conv, requiresDisposal) = GetAccessorGetterConversion(projection, $"{methodName}()");
             if (conv != null)
             {
-                if (requiresDisposal)
+                // F1: Wrap projection getter conversion with narrowing cast.
+                // For Optional<nint>, projection returns ((nint?)MethodName()) but property is int?.
+                if (isNarrowedNint)
                 {
-                    var (usingConv, _) = GetAccessorGetterConversion(projection, "__ret");
-                    csWriter.WriteLine($"get {{ using var __ret = {methodName}(); return {usingConv}; }}");
+                    if (requiresDisposal)
+                    {
+                        var (usingConv, _) = GetAccessorGetterConversion(projection, "__ret");
+                        csWriter.WriteLine($"get {{ using var __ret = {methodName}(); return ({narrowedTypeName})({usingConv}); }}");
+                    }
+                    else
+                    {
+                        csWriter.WriteLine($"get => ({narrowedTypeName})({conv});");
+                    }
                 }
                 else
                 {
-                    csWriter.WriteLine($"get => {conv};");
+                    if (requiresDisposal)
+                    {
+                        var (usingConv, _) = GetAccessorGetterConversion(projection, "__ret");
+                        csWriter.WriteLine($"get {{ using var __ret = {methodName}(); return {usingConv}; }}");
+                    }
+                    else
+                    {
+                        csWriter.WriteLine($"get => {conv};");
+                    }
                 }
                 return;
             }
         }
-        csWriter.WriteLine($"get => {methodName}();");
+        // F1: Passthrough path — narrow nint→int with explicit cast
+        if (isNarrowedNint)
+            csWriter.WriteLine($"get => ({narrowedTypeName}){methodName}();");
+        else
+            csWriter.WriteLine($"get => {methodName}();");
     }
 
     /// <summary>
@@ -601,7 +641,8 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
     /// from idiomatic C# to Swift ABI (e.g., string → SwiftString, IEnumerable → SwiftArray).
     /// </summary>
     private void EmitSetter(CSharpWriter csWriter, SetAccessorDecl setter, PropertyEnvironment propertyEnv, PropertyDecl propertyDecl,
-        bool isExistential = false, bool isOptionalExistential = false, GenericContext? genericContext = null)
+        bool isExistential = false, bool isOptionalExistential = false, GenericContext? genericContext = null,
+        bool isNarrowedNint = false, string? nativePropertyType = null)
     {
         var methodName = NameProvider.GetMethodName(setter.Method.Name, null);
 
@@ -620,6 +661,8 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             var (conv, requiresDisposal) = GetAccessorSetterConversion(projection, "value");
             if (conv != null)
             {
+                // F1: Setter projections use implicit int→nint widening (e.g., SwiftOptional<nint>.NewSome(int)),
+                // so no explicit cast needed in the projection path.
                 if (requiresDisposal)
                 {
                     csWriter.WriteLine($"set {{ using var __val = {conv}; {methodName}(__val); }}");
@@ -631,7 +674,11 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 return;
             }
         }
-        csWriter.WriteLine($"set => {methodName}(value);");
+        // F1: Passthrough path — widen int→nint for the accessor method
+        if (isNarrowedNint)
+            csWriter.WriteLine($"set => {methodName}(({nativePropertyType})value);");
+        else
+            csWriter.WriteLine($"set => {methodName}(value);");
     }
 
     /// <summary>

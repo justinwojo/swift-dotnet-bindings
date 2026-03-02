@@ -21,7 +21,8 @@ public class NativeIntOverloadEmitterTests
 
         var output = EmitMethodOverload(method);
 
-        // Return type resolves via TypeDatabase: Swift.Int → System.IntPtr (nint in real pipeline)
+        // Return type stays as nint — narrowing method returns would change overload resolution
+        // and silently truncate 64-bit values when callers use int literals.
         Assert.Contains("Skip(int count) => Skip((nint)count);", output);
     }
 
@@ -34,7 +35,7 @@ public class NativeIntOverloadEmitterTests
 
         var output = EmitMethodOverload(method);
 
-        // Return type resolves via TypeDatabase: Swift.UInt → System.UIntPtr (nuint in real pipeline)
+        // Return type stays as nuint — same overload resolution safety
         Assert.Contains("Index(uint position) => Index((nuint)position);", output);
     }
 
@@ -390,6 +391,140 @@ public class NativeIntOverloadEmitterTests
         var output = EmitMethodOverload(method);
 
         Assert.Equal(string.Empty, output);
+    }
+
+    #endregion
+
+    #region F1: Method Return NOT Narrowed Tests
+
+    [Fact]
+    public void TryEmitOverload_NintParamAndNintReturn_ReturnStaysNint()
+    {
+        // Method return types are NOT narrowed — only params get narrowed.
+        // Narrowing returns would change overload resolution: int literals prefer
+        // int overload → silent truncation for 64-bit nint values.
+        var method = CreateMethod("getCount", MethodType.Instance,
+            returnType: "Swift.Int",
+            ("offset", "Swift.Int"));
+
+        var output = EmitMethodOverload(method);
+
+        // Return type resolves via TypeDatabase: Swift.Int → System.IntPtr (nint)
+        Assert.Contains("GetCount(int offset) => GetCount((nint)offset);", output);
+        Assert.DoesNotContain("(int)GetCount", output);
+    }
+
+    [Fact]
+    public void TryEmitOverload_NintParamButNonNintReturn_ReturnUnchanged()
+    {
+        var method = CreateMethod("getName", MethodType.Instance,
+            returnType: "Swift.String",
+            ("index", "Swift.Int"));
+
+        var output = EmitMethodOverload(method);
+
+        Assert.Contains("string GetName(int index) => GetName((nint)index);", output);
+        Assert.DoesNotContain("(string)", output);
+    }
+
+    [Fact]
+    public void TryEmitOverload_VoidReturn_Unchanged()
+    {
+        var method = CreateMethod("doWork", MethodType.Instance,
+            returnType: TupleTypeSpec.Empty,
+            ("count", "Swift.Int"));
+
+        var output = EmitMethodOverload(method);
+
+        Assert.Contains("public void DoWork(int count) => DoWork((nint)count);", output);
+    }
+
+    #endregion
+
+    #region F1: Shared Helper Tests
+
+    [Theory]
+    [InlineData("nint", "int")]
+    [InlineData("nuint", "uint")]
+    [InlineData("nint?", "int?")]
+    [InlineData("nuint?", "uint?")]
+    [InlineData("string", "string")]
+    [InlineData("bool", "bool")]
+    public void NarrowNativeIntType_ReturnsExpected(string input, string expected)
+    {
+        Assert.Equal(expected, NativeIntOverloadEmitter.NarrowNativeIntType(input));
+    }
+
+    [Fact]
+    public void TryGetAbiWideningType_SwiftInt_ReturnsNint()
+    {
+        var typeSpec = new NamedTypeSpec("Swift.Int");
+        Assert.True(NativeIntOverloadEmitter.TryGetAbiWideningType(typeSpec, out var abiType));
+        Assert.Equal("nint", abiType);
+    }
+
+    [Fact]
+    public void TryGetAbiWideningType_SwiftUInt_ReturnsNuint()
+    {
+        var typeSpec = new NamedTypeSpec("Swift.UInt");
+        Assert.True(NativeIntOverloadEmitter.TryGetAbiWideningType(typeSpec, out var abiType));
+        Assert.Equal("nuint", abiType);
+    }
+
+    [Fact]
+    public void TryGetAbiWideningType_OptionalSwiftInt_ReturnsFalse()
+    {
+        var typeSpec = new NamedTypeSpec("Swift.Optional");
+        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        Assert.False(NativeIntOverloadEmitter.TryGetAbiWideningType(typeSpec, out _));
+    }
+
+    [Fact]
+    public void TryGetAbiWideningType_NonNint_ReturnsFalse()
+    {
+        var typeSpec = new NamedTypeSpec("Swift.String");
+        Assert.False(NativeIntOverloadEmitter.TryGetAbiWideningType(typeSpec, out _));
+    }
+
+    [Fact]
+    public void TryGetNarrowedType_SwiftInt_ReturnsInt()
+    {
+        var typeSpec = new NamedTypeSpec("Swift.Int");
+        Assert.True(NativeIntOverloadEmitter.TryGetNarrowedType(typeSpec, out var narrowed));
+        Assert.Equal("int", narrowed);
+    }
+
+    [Fact]
+    public void TryGetNarrowedType_SwiftUInt_ReturnsUint()
+    {
+        var typeSpec = new NamedTypeSpec("Swift.UInt");
+        Assert.True(NativeIntOverloadEmitter.TryGetNarrowedType(typeSpec, out var narrowed));
+        Assert.Equal("uint", narrowed);
+    }
+
+    [Fact]
+    public void TryGetNarrowedType_OptionalSwiftInt_ReturnsNullableInt()
+    {
+        var typeSpec = new NamedTypeSpec("Swift.Optional");
+        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        Assert.True(NativeIntOverloadEmitter.TryGetNarrowedType(typeSpec, out var narrowed));
+        Assert.Equal("int?", narrowed);
+    }
+
+    [Fact]
+    public void TryGetNarrowedType_OptionalSwiftUInt_ReturnsNullableUint()
+    {
+        var typeSpec = new NamedTypeSpec("Swift.Optional");
+        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.UInt"));
+        Assert.True(NativeIntOverloadEmitter.TryGetNarrowedType(typeSpec, out var narrowed));
+        Assert.Equal("uint?", narrowed);
+    }
+
+    [Fact]
+    public void TryGetNarrowedType_NonNint_ReturnsFalse()
+    {
+        var typeSpec = new NamedTypeSpec("Swift.String");
+        Assert.False(NativeIntOverloadEmitter.TryGetNarrowedType(typeSpec, out _));
     }
 
     #endregion

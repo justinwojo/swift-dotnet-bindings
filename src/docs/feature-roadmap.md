@@ -1,6 +1,6 @@
 # Feature Roadmap
 
-**Date**: March 1, 2026
+**Date**: March 2, 2026
 **Prerequisite**: Foundation Roadmap pillars complete (or the specific pillar each feature depends on)
 **Goal**: Push binding quality scores from ~3.50 toward 4.0+ across all libraries
 
@@ -12,7 +12,7 @@ This roadmap covers features that BUILD ON the foundation pillars. Each item dep
 
 | Feature | Pillar Dependency | Score Impact | Effort | Libraries Affected |
 |---------|:-----------------:|:-----------:|:------:|:---------:|
-| nint return/property overloads | None | +0.10-0.15 avg | Small | Nearly all |
+| ~~nint return/property overloads~~ | None | +0.10-0.15 avg | Small | Nearly all | **DONE** |
 | Noise reduction | None | +0.05-0.08 avg | Medium | GRDB, Alamofire, Stripe |
 | Protocol extension param gate lifts | P1.1 (struct conformers) | +0.10-0.15 avg | Medium | GRDB, Kingfisher |
 | Collection witness dispatch | P2.1 (dispatch table) | +0.10-0.15 avg | 1.5 sessions | All proxy libraries |
@@ -22,20 +22,24 @@ This roadmap covers features that BUILD ON the foundation pillars. Each item dep
 
 ---
 
-## Feature F1: nint Return/Property Overloads
+## Feature F1: nint Return/Property Overloads — COMPLETE
 **Pillar dependency**: None
 **Score impact**: +0.10-0.15 combined average (TypeFidelity)
-**Effort**: 0.5-1 session
+**Effort**: 1 session (completed March 2, 2026)
 
-300+ `public nint` declarations across all libraries have no `int` convenience overloads. `NativeIntOverloadEmitter` (EP1) only covers method PARAMETERS, not return types or properties.
+300+ `public nint` declarations across all libraries now have idiomatic `int`/`uint` types.
 
-**Sub-tasks**:
-- Extend `NativeIntOverloadEmitter` to emit `int` overloads for `nint` return types
-- Extend to emit `int` property wrappers (get: `(int)nativeProperty`, set: cast)
-- Handle `Optional<nint>` → `int?` for nullable returns
-- Protocol interface method overloads (the remaining real gap from original analysis)
+**What shipped**:
+- **Property narrowing**: `nint`→`int`, `nuint`→`uint`, `nint?`→`int?`, `nuint?`→`uint?` in PropertyHandler with getter/setter ABI casts
+- **Protocol interface narrowing**: Interface properties use narrowed types; proxy receivers widen for ABI (getter: `(nint)result`, setter: `(int)value`)
+- **InterfaceImpl dispatch casts**: `(int)MarshalFromSwift<nint>(ptr)` for blittable property dispatch
+- **DIM overloads**: Protocol interface methods with nint params get default implementation overloads with int params
+- **Shared helpers**: `NarrowNativeIntType`, `TryGetAbiWideningType`, `TryGetNarrowedType` on `NativeIntOverloadEmitter`
 
-**Key files**: `NativeIntOverloadEmitter.cs`, `PropertyHandler.cs`
+**What was NOT shipped** (by design):
+- Method return type narrowing was implemented then reverted — C# overload resolution prefers `int` overloads for int literals (`Skip(3)`), causing silent 64-bit truncation. Properties are safe (no overload ambiguity).
+
+**Key files**: `NativeIntOverloadEmitter.cs`, `PropertyHandler.cs`, `ProtocolHandler.cs`, `ProtocolProxyEmitter.Helpers.cs`, `ProtocolProxyEmitter.Receivers.cs`, `ProtocolProxyEmitter.InterfaceImpl.cs`
 
 ---
 
@@ -151,7 +155,7 @@ Features can be interleaved with foundation work. Independence from pillars note
 
 ```
 IMMEDIATE (no pillar dependency):
-  F1: nint overloads           ── 0.5-1 session
+  F1: nint overloads           ── DONE (March 2, 2026)
   F2: Noise reduction          ── 1 session
   F5: String enum raw values   ── BLOCKED (no data source in compiled xcframeworks)
   F6: Safety                   ── 1 session

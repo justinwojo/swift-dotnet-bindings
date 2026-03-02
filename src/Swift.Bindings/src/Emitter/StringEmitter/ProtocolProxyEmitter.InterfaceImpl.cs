@@ -224,6 +224,10 @@ public partial class ProtocolProxyEmitter
                 // Use the dispatch emitter's canonical blittable type for marshalling,
                 // not the interface-projected type which may differ (e.g. Swift.AnyType)
                 var marshalType = dispatchEmitter.GetBlittableCSharpType(property.SwiftTypeSpec) ?? csharpTypeName;
+                // F1: If property type is narrowed (int/uint), MarshalFromSwift returns nint/nuint — add cast.
+                var returnExpr = marshalType != csharpTypeName
+                    ? $"({csharpTypeName})MarshalFromSwift<{marshalType}>(resultPtr)"
+                    : $"MarshalFromSwift<{marshalType}>(resultPtr)";
 
                 writer.WriteLines($$"""
                     get
@@ -234,7 +238,7 @@ public partial class ProtocolProxyEmitter
                         fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
                         {
                             IntPtr resultPtr = NativeMethods.{{accessorSymbol}}((IntPtr)containerPtr);
-                            try { return MarshalFromSwift<{{marshalType}}>(resultPtr); }
+                            try { return {{returnExpr}}; }
                             finally { NativeMethods.{{freeSymbol}}(resultPtr); }
                         }
                     }

@@ -238,8 +238,11 @@ public class ProtocolProxyEmitterTests
     [Fact]
     public void EmitProxyClass_GetterReceiver_BlittableType_NoConversion()
     {
-        // Non-convertible (blittable) types should NOT get intermediate conversion
-        var protocolDecl = CreateProtocolWithProperty("IntProto", "count", hasGetter: true, hasSetter: false);
+        // Non-convertible (blittable) types should NOT get intermediate conversion.
+        // F1: Swift.Int properties ARE narrowed (int) and get ABI widening cast (nint)result.
+        // Use Swift.Int32 to test a truly non-narrowed blittable type.
+        RegisterSwiftInt32();
+        var protocolDecl = CreateProtocolWithProperty("IntProto", "count", hasGetter: true, hasSetter: false, new NamedTypeSpec("Swift.Int32"));
         var output = EmitProxyClass(protocolDecl);
 
         Assert.Contains("Receive_count_get", output);
@@ -2360,6 +2363,98 @@ public class ProtocolProxyEmitterTests
 
     #endregion
 
+    #region F1: nint→int Property Narrowing in Proxy
+
+    [Fact]
+    public void EmitProxyClass_NintProperty_InterfaceUsesInt()
+    {
+        // F1: Protocol interface property with Swift.Int type → narrowed to int
+        RegisterSwiftInt();
+        var protocolDecl = CreateProtocolWithProperty("CountableProto", "count", hasGetter: true, hasSetter: false, new NamedTypeSpec("Swift.Int"));
+        var output = EmitProxyClass(protocolDecl);
+
+        // The proxy's property should be int (not nint)
+        Assert.Contains("public int Count", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_NuintProperty_InterfaceUsesUint()
+    {
+        // F1: Protocol interface property with Swift.UInt type → narrowed to uint
+        RegisterSwiftUInt();
+        var protocolDecl = CreateProtocolWithProperty("SizeProto", "size", hasGetter: true, hasSetter: false, new NamedTypeSpec("Swift.UInt"));
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("public uint Size", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_NintGetterReceiver_WidensToNint()
+    {
+        // F1: Getter receiver must widen int result → (nint)result for 8-byte ABI
+        RegisterSwiftInt();
+        var protocolDecl = CreateProtocolWithProperty("IndexProto", "index", hasGetter: true, hasSetter: false, new NamedTypeSpec("Swift.Int"));
+        var output = EmitProxyClass(protocolDecl);
+
+        // Receiver should have (nint)result widening cast
+        var receiverSection = output.Substring(output.IndexOf("Receive_index_get"));
+        Assert.Contains("(nint)result", receiverSection);
+        Assert.Contains("MarshalToSwiftBuffer", receiverSection);
+    }
+
+    [Fact]
+    public void EmitProxyClass_NintSetterReceiver_NarrowsToInt()
+    {
+        // F1: Setter receiver must narrow nint ABI value → (int)value for property assignment
+        RegisterSwiftInt();
+        var protocolDecl = CreateProtocolWithProperty("MutableIndexProto", "index", hasGetter: true, hasSetter: true, new NamedTypeSpec("Swift.Int"));
+        var output = EmitProxyClass(protocolDecl);
+
+        // Setter receiver should have (int) narrowing cast
+        var setterSection = output.Substring(output.IndexOf("Receive_index_set"));
+        Assert.Contains("(int)", setterSection);
+    }
+
+    [Fact]
+    public void EmitProxyClass_NuintGetterReceiver_WidensToNuint()
+    {
+        // F1: Getter receiver for Swift.UInt → (nuint)result for ABI
+        RegisterSwiftUInt();
+        var protocolDecl = CreateProtocolWithProperty("UnsignedProto", "offset", hasGetter: true, hasSetter: false, new NamedTypeSpec("Swift.UInt"));
+        var output = EmitProxyClass(protocolDecl);
+
+        var receiverSection = output.Substring(output.IndexOf("Receive_offset_get"));
+        Assert.Contains("(nuint)result", receiverSection);
+    }
+
+    [Fact]
+    public void EmitProxyClass_NintDispatch_CastsFromNint()
+    {
+        // F1: InterfaceImpl dispatch should cast: (int)MarshalFromSwift<nint>(ptr)
+        RegisterSwiftInt();
+        var protocolDecl = CreateProtocolWithProperty("DispatchProto", "position", hasGetter: true, hasSetter: false, new NamedTypeSpec("Swift.Int"));
+        var output = EmitProxyClass(protocolDecl);
+
+        // Dispatch getter should narrow from nint to int
+        Assert.Contains("(int)MarshalFromSwift<nint>", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_OptionalNintProperty_NarrowsToNullableInt()
+    {
+        // F1: Optional<Swift.Int> property → int? with ABI casts
+        RegisterSwiftInt();
+        var optNint = new NamedTypeSpec("Swift.Optional");
+        optNint.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var protocolDecl = CreateProtocolWithProperty("OptionalCountProto", "count", hasGetter: true, hasSetter: false, optNint);
+        var output = EmitProxyClass(protocolDecl);
+
+        // Property type should be int? (not nint?)
+        Assert.Contains("int? Count", output);
+    }
+
+    #endregion
+
     #region Generic Type Preservation in Closure Params
 
     [Fact]
@@ -3906,6 +4001,46 @@ public class ProtocolProxyEmitterTests
                 CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int32"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int32"),
                 MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            })
+        });
+    }
+
+    /// <summary>
+    /// Registers Swift.Int → nint in the test TypeDatabase.
+    /// Uses CSharpTypeName.NIntType (FullyQualifiedName = "nint") to match
+    /// the real Swift type database. F1 narrowing converts property type to int.
+    /// </summary>
+    private void RegisterSwiftInt()
+    {
+        _typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("Swift.Int"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.NIntType,
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            })
+        });
+    }
+
+    /// <summary>
+    /// Registers Swift.UInt → nuint in the test TypeDatabase.
+    /// Uses CSharpTypeName.NUIntType (FullyQualifiedName = "nuint") to match
+    /// the real Swift type database. F1 narrowing converts property type to uint.
+    /// </summary>
+    private void RegisterSwiftUInt()
+    {
+        _typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("Swift.UInt"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.NUIntType,
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.UInt"),
+                MetadataAccessor = "$sSuMa",
                 Flags = TypeRecordFlags.Frozen,
                 Kind = TypeRecordKind.Struct
             })

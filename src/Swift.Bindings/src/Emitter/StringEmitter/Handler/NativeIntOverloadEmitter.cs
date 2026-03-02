@@ -77,8 +77,10 @@ internal static class NativeIntOverloadEmitter
                 return;
         }
 
-        // Determine return type — keep nint/nuint return type as-is to avoid truncation.
-        // Only parameters get narrowed (int → nint upcast is safe; nint → int downcast is not).
+        // Determine return type — keep nint/nuint return type as-is for method overloads.
+        // Narrowing the return would change overload resolution: int literals (e.g., Skip(3)) would
+        // pick the int overload → silent truncation for values exceeding Int32 range.
+        // Property types ARE narrowed (no overload ambiguity there).
         var returnTypeSpec = csSignature[0].SwiftTypeSpec;
         bool hasReturn = !returnTypeSpec.IsEmptyTuple;
         string returnType = hasReturn ? ResolveType(returnTypeSpec, methodEnv, isParameter: false) : "void";
@@ -252,6 +254,60 @@ internal static class NativeIntOverloadEmitter
             return record.CSharpTypeName.FullyQualifiedName;
 
         return typeSpec.ToString();
+    }
+
+    /// <summary>
+    /// Narrows nint/nuint C# type names to int/uint for idiomatic APIs.
+    /// Returns the input unchanged if not a native int type.
+    /// </summary>
+    public static string NarrowNativeIntType(string typeName) => typeName switch
+    {
+        "nint" => "int",
+        "nuint" => "uint",
+        "nint?" => "int?",
+        "nuint?" => "uint?",
+        _ => typeName
+    };
+
+    /// <summary>
+    /// For plain Swift.Int/Swift.UInt, returns the ABI widening type ("nint"/"nuint").
+    /// Used in receiver getters to widen narrowed int/uint back to nint/nuint for MarshalToSwiftBuffer.
+    /// Returns false for Optional variants (their implicit widening in SwiftOptional.NewSome handles it).
+    /// </summary>
+    public static bool TryGetAbiWideningType(TypeSpec typeSpec, out string abiType)
+    {
+        if (typeSpec is NamedTypeSpec ns && NativeIntMap.TryGetValue(ns.Name, out var mapping))
+        {
+            abiType = mapping.NativeType; // "nint" for Swift.Int, "nuint" for Swift.UInt
+            return true;
+        }
+        abiType = "";
+        return false;
+    }
+
+    /// <summary>
+    /// For Swift.Int/Swift.UInt (plain or Optional), returns the narrowed C# type.
+    /// Used in receiver setters to narrow ABI nint/nuint to int/uint for property assignment.
+    /// Returns "int" for Swift.Int, "uint" for Swift.UInt,
+    /// "int?" for Optional&lt;Swift.Int&gt;, "uint?" for Optional&lt;Swift.UInt&gt;.
+    /// </summary>
+    public static bool TryGetNarrowedType(TypeSpec typeSpec, out string narrowedType)
+    {
+        if (typeSpec is NamedTypeSpec ns && NativeIntMap.TryGetValue(ns.Name, out var mapping))
+        {
+            narrowedType = mapping.ConvenienceType; // "int" or "uint"
+            return true;
+        }
+        if (typeSpec is NamedTypeSpec optNs && optNs.Name == "Swift.Optional"
+            && optNs.GenericParameters.Count == 1
+            && optNs.GenericParameters[0] is NamedTypeSpec inner
+            && NativeIntMap.TryGetValue(inner.Name, out var optMapping))
+        {
+            narrowedType = $"{optMapping.ConvenienceType}?"; // "int?" or "uint?"
+            return true;
+        }
+        narrowedType = "";
+        return false;
     }
 
     private static string BuildOverloadKey(MethodEnvironment methodEnv, List<(int index, string nativeType, string convType, bool isOptional)> conversions)
