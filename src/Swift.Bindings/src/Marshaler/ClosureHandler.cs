@@ -361,13 +361,11 @@ public class ClosureHandler
                 return true;
             }
 
-            // Check if type requires memory management - now supported via indirect return
-            var baseType = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
-            if (_typeDatabase.TryGetTypeRecord(baseType, out var typeRecord))
-            {
-                // Types requiring memory management are now supported via indirect return
-                // They just need to be in the database
-            }
+            // D1: Complex enums as closure RETURN types are not supported.
+            // GetSwiftReturnConversion and RequiresIndirectReturnMarshalling don't handle
+            // complex enum returns. Only complex enum parameters are supported (via heap alloc).
+            if (IsComplexEnum(typeSpec))
+                return false;
 
             return true;
         }
@@ -441,18 +439,9 @@ public class ClosureHandler
         // Named types should be resolvable in the type database
         if (typeSpec is NamedTypeSpec namedType)
         {
-            // B16: Complex enums are non-blittable value types requiring structural wrapper changes.
+            // D1: Complex enums pass via heap-allocated pointer ABI (UnsafeMutableRawPointer/IntPtr).
             // Simple enums pass as their underlying integer type (blittable).
-            if (!namedType.ContainsGenericParameters && namedType.HasModule())
-            {
-                var enumSwiftName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
-                if (_typeDatabase.TryGetTypeRecord(enumSwiftName, out var enumRecord) &&
-                    enumRecord.Kind == TypeRecordKind.Enum &&
-                    (enumRecord.Flags & TypeRecordFlags.SimpleEnum) == 0)
-                {
-                    return false; // Complex enum — still blocked
-                }
-            }
+            // Both are now supported as closure parameters.
             // Generic type parameters (τ_0_0, τ_0_1, T, etc.) are not supported in closures
             // because their concrete types aren't known at binding generation time
             if (IsGenericTypeParameter(namedType.Name))
@@ -1425,6 +1414,29 @@ public class ClosureHandler
     /// </summary>
     public bool IsReferenceType(TypeSpec typeSpec) =>
         IsClassType(typeSpec) || IsObjCBridgedClass(typeSpec);
+
+    /// <summary>
+    /// Checks if a type is a complex enum (enum with associated values) in the type database.
+    /// Complex enums are non-blittable and require heap allocation for closure parameter passing.
+    /// </summary>
+    public bool IsComplexEnum(TypeSpec typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec namedType)
+            return false;
+
+        if (namedType.ContainsGenericParameters)
+            return false;
+
+        if (!namedType.HasModule())
+            return false;
+
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+        if (!_typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord))
+            return false;
+
+        return typeRecord.Kind == TypeRecordKind.Enum &&
+               (typeRecord.Flags & TypeRecordFlags.SimpleEnum) == 0;
+    }
 
     /// <summary>
     /// Checks if invoking a closure from C# requires struct marshalling for any parameter.

@@ -240,9 +240,9 @@ public class ThirdPartyValidationFixTestsV3
     }
 
     [Fact]
-    public void IsSupportedClosureParameterType_ComplexEnum_ReturnsFalse()
+    public void IsSupportedClosureParameterType_ComplexEnum_ReturnsTrue()
     {
-        // B16: Complex enums are still blocked — non-blittable value types.
+        // D1: Complex enums now supported — heap-allocated pointer ABI via MethodClosureBridge.
         var typeDatabase = CreateTypeDatabaseWithEnum(isSimple: false, requiresMemMgmt: true);
         var handler = new ClosureHandler(typeDatabase);
 
@@ -251,7 +251,7 @@ public class ThirdPartyValidationFixTestsV3
             new NamedTypeSpec("TestModule.ComplexEnum"),
             TupleTypeSpec.Empty);
 
-        Assert.False(handler.IsSupportedClosure(closureTypeSpec));
+        Assert.True(handler.IsSupportedClosure(closureTypeSpec));
     }
 
     [Fact]

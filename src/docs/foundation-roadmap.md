@@ -207,15 +207,14 @@ Key files: `ClosureHandler.cs`, `ClosureEmitter.SwiftWrapper.cs`, `PropertyHandl
 
 **De-risk strategy**: Prototype spike in Phase A targets ONE concrete method (e.g., Alamofire `Interceptor.init(adapt:retry:)`). Proves the two-level bridge ABI works before committing to full implementation. If the spike fails, the roadmap adjusts before Phase C — not after.
 
-### Session P3.4: Complex Enum Bridge (~17 methods)
+### Session P3.4: Complex Enum Bridge (~17 methods) — DONE
 **Goal**: Bridge closures with enum params that have associated values.
 **Effort**: 1 session
 **Impact**: ~17 methods (M3a)
 
-Key changes:
-- Swift wrapper deconstructs enum: passes (tag + payload bytes) as separate cdecl args
-- C# callback reconstructs discriminated union from tag + payload
-- Requires C# `readonly struct` representation for each complex enum at the cdecl boundary
+Implemented: Complex enums pass across the cdecl boundary as heap-allocated `UnsafeMutableRawPointer` / `IntPtr` (same pointer ABI as bound generics and classes). Swift side: `UnsafeMutableRawPointer.allocate` + `initializeMemory` creates a heap copy. C# side: `SwiftMarshal.MarshalFromSwift<T>()` wraps in `SwiftSafeHandle` which owns the memory. Both `MethodClosureBridge` and `ClosureEmitter.SwiftWrapper` paths handle heap allocation. Complex enum returns remain blocked (no `GetSwiftReturnConversion` support). Simple enums excluded from MCB pointer ABI (blittable integers incompatible with `MarshalFromSwift<T>` for C# enum types).
+
+Key files: `ClosureHandler.cs`, `MethodClosureBridge.cs`, `ClosureEmitter.SwiftWrapper.cs`
 
 ### Session P3.5: Architectural Generics (~45 methods, DEFERRED)
 Categories M8, M9, M11, M12 have class-level generic params in closure args. Monomorphizing `τ_0_0=UnsafeMutableRawPointer` would violate generic constraints. These require either:
@@ -415,10 +414,10 @@ Details: [Pillar 3 § P3.3](#session-p33-nested-closures--class-params-41-method
 
 ---
 
-**D1: Complex Enum Closure Bridge** | Plan
+**D1: Complex Enum Closure Bridge** | Done
 *Pillar: 3 (complex enums) | ~17 methods unlocked*
 
-New territory: Swift wrapper deconstructs enum (tag + payload bytes as separate cdecl args), C# callback reconstructs discriminated union. Tag+payload encoding scheme and C# `readonly struct` representation need design before coding.
+Complex enums in closure parameters now pass via heap-allocated pointer ABI (`UnsafeMutableRawPointer`/`IntPtr`). Swift wrapper uses `UnsafeMutableRawPointer.allocate` + `initializeMemory`; C# side uses `SwiftMarshal.MarshalFromSwift<T>()` with `SwiftSafeHandle` ownership. Complex enum returns remain blocked (no `GetSwiftReturnConversion` support). Both `MethodClosureBridge` and `ClosureEmitter.SwiftWrapper` paths handle heap allocation.
 
 Details: [Pillar 3 § P3.4](#session-p34-complex-enum-bridge-17-methods)
 
@@ -478,7 +477,7 @@ Each pillar is "done" when:
 
 2. **Dispatch Architecture**: `MethodHandler.Emit()` uses `foreach` over `IMethodBridgeEmitter[]`. All bridge emitters set `WasEmitted`. Adding a new bridge emitter is "create class, add to array."
 
-3. **Closure Bridge**: ObjC Foundation types resolvable. Multi-closure methods emit. Plain enums not blocked. Remaining gaps (nested closures, complex enums) have clear implementation paths, not ad-hoc workarounds.
+3. **Closure Bridge**: ObjC Foundation types resolvable. Multi-closure methods emit. Plain enums not blocked. Nested closures bridged via two-level funcPtr+context ABI. Complex enums bridged via heap-allocated pointer ABI. Remaining gap: architectural generics (P3.5, deferred post-launch).
 
 4. **Generic Constraints**: `SatisfiesConstraint` checks real conformance data. Conditional extension constraints propagated. Known limitations documented.
 

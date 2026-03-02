@@ -44,9 +44,10 @@ public static class MethodClosureBridge
         if (method.IsAccessor) return false;
         if (method.Throws) return false;
 
-        // Collect ALL closure parameters — require at least one with bound generic args
+        // Collect ALL closure parameters — require at least one with bound generic or complex enum args
         var closureArgs = new List<(ClosureTypeSpec spec, ArgumentDecl arg)>();
         bool hasBoundGenericInClosure = false;
+        bool hasComplexEnumInClosure = false;
 
         foreach (var arg in method.CSSignature.Skip(1))
         {
@@ -56,11 +57,14 @@ public static class MethodClosureBridge
                 // Check if closure has async — not supported
                 if (cts.IsAsync) return false;
 
-                // Check closure args for bound generic types
+                // Check closure args for bound generic types and complex enums
                 foreach (var closureArgType in cts.EachArgument())
                 {
                     if (IsBoundGenericClosureArg(closureArgType))
                         hasBoundGenericInClosure = true;
+
+                    if (closureHandler.IsComplexEnum(closureArgType))
+                        hasComplexEnumInClosure = true;
 
                     if (!IsClosureArgSupported(closureArgType, typeDatabase))
                         return false;
@@ -80,7 +84,8 @@ public static class MethodClosureBridge
         if (closureArgs.Count == 0) return false;
 
         // Key gate: ONLY activate when at least one closure arg is a bound generic type
-        if (!hasBoundGenericInClosure) return false;
+        // or a complex enum (D1: complex enums need heap allocation in Swift wrapper)
+        if (!hasBoundGenericInClosure && !hasComplexEnumInClosure) return false;
 
         // Check non-closure params: each must be a class (IntPtr), primitive, or have a default value
         var closureArgSet = new HashSet<ArgumentDecl>(closureArgs.Select(c => c.arg));
@@ -281,15 +286,16 @@ public static class MethodClosureBridge
         var closureByArg = closures.ToDictionary(c => c.Arg);
         var passableByArg = passableNonClosureParams.ToDictionary(p => p.arg);
 
-        // Track whether any closure needs withUnsafePointer wrapping
-        bool anyClosureNeedsPointerWrap = false;
-        var perClosureAnalysis = new Dictionary<ClosureInfo, (List<string> paramDecls, List<(int index, string swiftType)> pointerWrapArgs, List<(int index, string conversion)> directArgs)>();
+        // Track whether any closure needs withUnsafePointer wrapping or heap allocation
+        bool anyClosureNeedsComplexPath = false;
+        var perClosureAnalysis = new Dictionary<ClosureInfo, (List<string> paramDecls, List<(int index, string swiftType)> pointerWrapArgs, List<(int index, string conversion)> directArgs, List<(int index, string swiftType)> heapAllocArgs)>();
 
         foreach (var ci in closures)
         {
             var paramDecls = new List<string>();
             var pointerWrapArgs = new List<(int index, string swiftType)>();
             var directArgs = new List<(int index, string conversion)>();
+            var heapAllocArgs = new List<(int index, string swiftType)>();
 
             for (int i = 0; i < ci.ClosureArgs.Count; i++)
             {
@@ -310,6 +316,11 @@ public static class MethodClosureBridge
                     {
                         directArgs.Add((i, $"Unmanaged.passUnretained({paramName}).toOpaque()"));
                     }
+                    else if (env.ClosureHandler.IsComplexEnum(argType))
+                    {
+                        // D1: Complex enums use heap allocation — C# takes ownership via SwiftSafeHandle
+                        heapAllocArgs.Add((i, ExistentialBypassEmitter.RenderSwiftTypeSpec(argType)));
+                    }
                     else
                     {
                         pointerWrapArgs.Add((i, ExistentialBypassEmitter.RenderSwiftTypeSpec(argType)));
@@ -321,14 +332,14 @@ public static class MethodClosureBridge
                 }
             }
 
-            if (pointerWrapArgs.Count > 0)
-                anyClosureNeedsPointerWrap = true;
-            perClosureAnalysis[ci] = (paramDecls, pointerWrapArgs, directArgs);
+            if (pointerWrapArgs.Count > 0 || heapAllocArgs.Count > 0)
+                anyClosureNeedsComplexPath = true;
+            perClosureAnalysis[ci] = (paramDecls, pointerWrapArgs, directArgs, heapAllocArgs);
         }
 
-        if (anyClosureNeedsPointerWrap)
+        if (anyClosureNeedsComplexPath)
         {
-            // Complex path: at least one closure has value-type args needing withUnsafePointer
+            // Complex path: at least one closure has value-type args needing withUnsafePointer or heap allocation
             EmitSwiftMultiClosureWithPointerWrapping(swiftWriter, method, closures,
                 passableNonClosureParams, perClosureAnalysis, returnPrefix, callTarget);
         }
@@ -390,7 +401,7 @@ public static class MethodClosureBridge
         MethodDecl method,
         List<ClosureInfo> closures,
         List<(ArgumentDecl arg, string csName, string csType, ParamAbiCategory category)> passableNonClosureParams,
-        Dictionary<ClosureInfo, (List<string> paramDecls, List<(int index, string swiftType)> pointerWrapArgs, List<(int index, string conversion)> directArgs)> perClosureAnalysis,
+        Dictionary<ClosureInfo, (List<string> paramDecls, List<(int index, string swiftType)> pointerWrapArgs, List<(int index, string conversion)> directArgs, List<(int index, string swiftType)> heapAllocArgs)> perClosureAnalysis,
         string returnPrefix,
         string callTarget)
     {
@@ -422,9 +433,18 @@ public static class MethodClosureBridge
                 : "{";
             swiftWriter.WriteLine($"{indent}let {adapterName}: {closureType} = {adapterOpen}");
 
-            if (analysis.pointerWrapArgs.Count > 0)
+            if (analysis.pointerWrapArgs.Count > 0 || analysis.heapAllocArgs.Count > 0)
             {
                 var currentIndent = indent + indent;
+
+                // D1: Emit heap allocation for complex enum args (flat, before withUnsafePointer nesting)
+                foreach (var (idx, swiftType) in analysis.heapAllocArgs)
+                {
+                    swiftWriter.WriteLine($"{currentIndent}let __heap{ci.Index}_{idx} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{swiftType}>.size, alignment: MemoryLayout<{swiftType}>.alignment)");
+                    swiftWriter.WriteLine($"{currentIndent}__heap{ci.Index}_{idx}.initializeMemory(as: {swiftType}.self, repeating: __p{ci.Index}_{idx}, count: 1)");
+                }
+
+                // withUnsafePointer nesting for bound generic struct args
                 for (int w = 0; w < analysis.pointerWrapArgs.Count; w++)
                 {
                     var (idx, _) = analysis.pointerWrapArgs[w];
@@ -435,15 +455,23 @@ public static class MethodClosureBridge
                 var cdeclCallArgs = new List<string>();
                 for (int i = 0; i < ci.ClosureArgs.Count; i++)
                 {
-                    var ptrArg = analysis.pointerWrapArgs.FirstOrDefault(p => p.index == i);
-                    if (ptrArg != default)
+                    var heapArg = analysis.heapAllocArgs.FirstOrDefault(h => h.index == i);
+                    if (heapArg != default)
                     {
-                        cdeclCallArgs.Add($"UnsafeMutableRawPointer(mutating: __ptr{ci.Index}_{i})");
+                        cdeclCallArgs.Add($"__heap{ci.Index}_{i}");
                     }
                     else
                     {
-                        var direct = analysis.directArgs.FirstOrDefault(d => d.index == i);
-                        cdeclCallArgs.Add(direct.conversion);
+                        var ptrArg = analysis.pointerWrapArgs.FirstOrDefault(p => p.index == i);
+                        if (ptrArg != default)
+                        {
+                            cdeclCallArgs.Add($"UnsafeMutableRawPointer(mutating: __ptr{ci.Index}_{i})");
+                        }
+                        else
+                        {
+                            var direct = analysis.directArgs.FirstOrDefault(d => d.index == i);
+                            cdeclCallArgs.Add(direct.conversion);
+                        }
                     }
                 }
                 cdeclCallArgs.Add($"{closureCsName}Context");
@@ -984,12 +1012,19 @@ public static class MethodClosureBridge
             return true;
         }
 
-        // Class / struct types — check TypeDatabase
+        // Class / struct / enum types — check TypeDatabase
         try
         {
             if (typeDatabase.TryGetTypeRecord(
                 SwiftTypeName.FromModuleQualifiedName(named.Name), out var record))
             {
+                // D1: Complex enums supported via heap-allocated pointer ABI.
+                // Simple enums are excluded — they're blittable integers but MCB's
+                // pointer ABI (IntPtr + MarshalFromSwift<T>) doesn't support C# enum types.
+                if (record.Kind == TypeRecordKind.Enum &&
+                    (record.Flags & TypeRecordFlags.SimpleEnum) == 0)
+                    return true;
+
                 return record.Kind == TypeRecordKind.Class ||
                        MarshallingHelpers.IsObjCBridged(record);
             }
@@ -1096,7 +1131,7 @@ public static class MethodClosureBridge
                     argType, GenericContext.Empty);
             }
 
-            // Class type
+            // Class or enum type
             if (env.TypeDatabase.TryGetTypeRecord(argType, out var record))
                 return record.CSharpTypeName.FullyQualifiedName;
         }

@@ -2007,19 +2007,19 @@ public class ClosureHandlerTests
     }
 
     [Fact]
-    public void IsSupportedClosure_B16_ComplexEnumInCallbackParameter_ReturnsFalse()
+    public void IsSupportedClosure_D1_ComplexEnumInCallbackParameter_ReturnsTrue()
     {
-        // B16: Complex enums (no SimpleEnum flag) are non-blittable value types requiring
-        // structural wrapper changes. Swift.Result is a complex enum in MockTypeDatabase.
+        // D1: Complex enums are now supported as closure parameters via heap-allocated pointer ABI.
+        // TestModule.LoadingState is a non-generic complex enum in MockTypeDatabase.
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
 
         var closure = new ClosureTypeSpec(
-            new NamedTypeSpec("Swift.Result"),
+            new NamedTypeSpec("TestModule.LoadingState"),
             TupleTypeSpec.Empty);
         closure.Attributes.Add(new TypeSpecAttribute("escaping"));
 
-        Assert.False(handler.IsSupportedClosure(closure));
+        Assert.True(handler.IsSupportedClosure(closure));
     }
 
     [Fact]
@@ -2145,6 +2145,70 @@ public class ClosureHandlerTests
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
         Assert.False(handler.IsReferenceType(new NamedTypeSpec("Swift.Int")));
+    }
+
+    [Fact]
+    public void IsComplexEnum_ComplexEnum_ReturnsTrue()
+    {
+        // D1: TestModule.LoadingState is a non-generic complex enum (no SimpleEnum flag).
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+        Assert.True(handler.IsComplexEnum(new NamedTypeSpec("TestModule.LoadingState")));
+    }
+
+    [Fact]
+    public void IsComplexEnum_SimpleEnum_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+        Assert.False(handler.IsComplexEnum(new NamedTypeSpec("TestModule.ColorMode")));
+    }
+
+    [Fact]
+    public void IsComplexEnum_Class_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+        Assert.False(handler.IsComplexEnum(new NamedTypeSpec("Nuke.ImageTask")));
+    }
+
+    [Fact]
+    public void IsComplexEnum_Primitive_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+        Assert.False(handler.IsComplexEnum(new NamedTypeSpec("Swift.Int")));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_D1_ComplexEnumReturn_ReturnsFalse()
+    {
+        // D1: Complex enums as closure RETURN types are blocked.
+        // Only parameters are supported via heap allocation.
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closure = new ClosureTypeSpec(
+            TupleTypeSpec.Empty,
+            new NamedTypeSpec("TestModule.LoadingState"));
+        closure.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        Assert.False(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_D1_ComplexEnumParamWithVoidReturn_ReturnsTrue()
+    {
+        // D1: Complex enum as parameter with Void return — fully supported.
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closure = new ClosureTypeSpec(
+            new NamedTypeSpec("TestModule.LoadingState"),
+            TupleTypeSpec.Empty);
+        closure.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        Assert.True(handler.IsSupportedClosure(closure));
     }
 
     [Fact]
@@ -2417,6 +2481,15 @@ public class ClosureHandlerTests
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,
                     Kind = TypeRecordKind.Class
+                },
+                // D1: Non-generic complex enum for testing closure parameter heap allocation
+                ["TestModule.LoadingState"] = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "LoadingState"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.LoadingState"),
+                    MetadataAccessor = "",
+                    Flags = TypeRecordFlags.RequiresMemoryManagement, // No SimpleEnum flag
+                    Kind = TypeRecordKind.Enum
                 }
             };
         }

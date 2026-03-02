@@ -181,13 +181,19 @@ public static partial class ClosureEmitter
         var hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;
         var letPrefix = useLet ? "let " : "";
 
-        // Build closure parameter list
+        // Build closure parameter list and identify complex enum args needing heap allocation
         var closureParams = new List<string>();
+        var heapAllocArgs = new List<(int index, string swiftType)>();
         int argIndex = 0;
         foreach (var arg in closureTypeSpec.EachArgument())
         {
             var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg);
             closureParams.Add($"p{argIndex}: {swiftType}");
+
+            // D1: Complex enums use heap allocation — track for cdecl arg substitution
+            if (closureHandler != null && closureHandler.IsComplexEnum(arg))
+                heapAllocArgs.Add((argIndex, swiftType));
+
             argIndex++;
         }
 
@@ -203,7 +209,16 @@ public static partial class ClosureEmitter
         argIndex = 0;
         foreach (var arg in closureTypeSpec.EachArgument())
         {
-            cdeclArgs.Add(GetSwiftArgConversion(arg, $"p{argIndex}", closureHandler));
+            var heapArg = heapAllocArgs.FirstOrDefault(h => h.index == argIndex);
+            if (heapArg != default)
+            {
+                // Complex enum: use heap pointer (allocation emitted before cdecl call)
+                cdeclArgs.Add($"__heap_{argIndex}");
+            }
+            else
+            {
+                cdeclArgs.Add(GetSwiftArgConversion(arg, $"p{argIndex}", closureHandler));
+            }
             argIndex++;
         }
 
@@ -229,11 +244,20 @@ public static partial class ClosureEmitter
             ? $" -> {ExistentialBypassEmitter.RenderSwiftTypeSpec(closureTypeSpec.ReturnType)}"
             : "";
 
+        // D1: Generate heap allocation lines for complex enum args
+        var heapAllocLines = new List<string>();
+        foreach (var (idx, swiftType) in heapAllocArgs)
+        {
+            heapAllocLines.Add($"{indent}    let __heap_{idx} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{swiftType}>.size, alignment: MemoryLayout<{swiftType}>.alignment)");
+            heapAllocLines.Add($"{indent}    __heap_{idx}.initializeMemory(as: {swiftType}.self, repeating: p{idx}, count: 1)");
+        }
+
         if (isIndirectReturn)
         {
             // Indirect return: closure writes result to buffer, returns void
             var returnSwiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(closureTypeSpec.ReturnType);
             lines.Add($"{indent}{letPrefix}{adapterName} = {{ ({closureParamsStr}) -> {returnSwiftType} in");
+            lines.AddRange(heapAllocLines);
             lines.Add($"{indent}    let resultBuf = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{returnSwiftType}>.size, alignment: MemoryLayout<{returnSwiftType}>.alignment)");
             lines.Add($"{indent}    {cdeclVarName}({cdeclArgsStr})");
             lines.Add($"{indent}    let result = resultBuf.load(as: {returnSwiftType}.self)");
@@ -245,6 +269,7 @@ public static partial class ClosureEmitter
         {
             var returnSwiftType = hasReturn ? ExistentialBypassEmitter.RenderSwiftTypeSpec(closureTypeSpec.ReturnType) : "Void";
             lines.Add($"{indent}{letPrefix}{adapterName} = {{ ({closureParamsStr}) throws{returnTypeStr} in");
+            lines.AddRange(heapAllocLines);
             lines.Add($"{indent}    var errorPtr: UnsafeMutableRawPointer? = nil");
 
             if (hasReturn)
@@ -272,6 +297,7 @@ public static partial class ClosureEmitter
         {
             // Regular closure
             lines.Add($"{indent}{letPrefix}{adapterName} = {{ ({closureParamsStr}){returnTypeStr} in");
+            lines.AddRange(heapAllocLines);
 
             if (hasReturn)
             {

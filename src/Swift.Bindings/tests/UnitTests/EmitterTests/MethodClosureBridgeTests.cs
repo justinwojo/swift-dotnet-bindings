@@ -791,6 +791,165 @@ public class MethodClosureBridgeTests
         Assert.Contains("onCompleteFuncPtr", swift);
     }
 
+    // ─── D1: Complex Enum Closure Bridge ────────────────────────────
+
+    [Fact]
+    public void IsEligible_ClosureWithComplexEnumArg_ReturnsTrue()
+    {
+        // D1: A closure with a complex enum arg (no bound generics) should trigger MCB
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        // Closure: (MyError) -> Void — complex enum
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("TestModule.MyError") }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("onError", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closureType, "handler");
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.True(MethodClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    [Fact]
+    public void IsEligible_ClosureWithComplexEnumAndPrimitive_ReturnsTrue()
+    {
+        // D1: Mixed complex enum + primitive closure args
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new TypeSpec[] {
+                new NamedTypeSpec("TestModule.MyError"),
+                new NamedTypeSpec("Swift.Int")
+            }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("onError", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closureType, "handler");
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.True(MethodClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    [Fact]
+    public void TryEmit_ComplexEnumClosure_EmitsHeapAllocation()
+    {
+        // D1: Verify Swift wrapper contains heap allocation for complex enum
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("TestModule.MyError") }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("onError", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closureType, "handler");
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        var result = MethodClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
+
+        Assert.True(result);
+        var swift = swiftOutput.ToString();
+        var cs = csOutput.ToString();
+
+        // Swift wrapper should contain heap allocation
+        Assert.Contains("UnsafeMutableRawPointer.allocate", swift);
+        Assert.Contains("initializeMemory", swift);
+        Assert.Contains("MemoryLayout<MyError>", swift);
+
+        // C# callback should marshal via SwiftMarshal
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<Swift.TestModule.MyError>", cs);
+    }
+
+    [Fact]
+    public void TryEmit_ComplexEnumClosure_EmitsCorrectDelegateType()
+    {
+        // D1: Public method should use typed Action<MyError>
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("TestModule.MyError") }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("onError", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closureType, "handler");
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(new StringWriter());
+
+        MethodClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
+
+        var cs = csOutput.ToString();
+        // Public method should have Action<Swift.TestModule.MyError>
+        Assert.Contains("Action<Swift.TestModule.MyError>", cs);
+    }
+
+    // ─── Simple Enum Regression (P1 from Codex review) ────────────────
+
+    [Fact]
+    public void IsEligible_BoundGenericClosureWithSimpleEnumArg_ReturnsFalse()
+    {
+        // Regression: simple enums are blittable integers — MCB's pointer ABI
+        // (IntPtr + MarshalFromSwift<T>) doesn't support C# enum types.
+        // Methods with bound-generic + simple-enum closure args must be skipped.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        // Closure: (DataResponse<MyData>, Direction) -> Void
+        var boundGenericArg = new NamedTypeSpec("TestModule.DataResponse",
+            new NamedTypeSpec("TestModule.MyData"));
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new TypeSpec[] {
+                boundGenericArg,
+                new NamedTypeSpec("TestModule.Direction")
+            }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("onResult", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closureType, "handler");
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.False(MethodClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    [Fact]
+    public void IsEligible_ClosureWithOnlySimpleEnumArg_ReturnsFalse()
+    {
+        // Simple enum alone should not trigger MCB — it goes through normal pipeline
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("TestModule.Direction") }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("onDirection", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closureType, "handler");
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.False(MethodClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
     // ─── Helper Methods ───────────────────────────────────────────────
 
     /// <summary>
@@ -1004,6 +1163,28 @@ public class MethodClosureBridgeTests
                 MetadataAccessor = "$s10TestModule6MyDataCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
                 Kind = TypeRecordKind.Class
+            });
+        // D1: Complex enum for closure bridge testing
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.MyError"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "MyError"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyError"),
+                MetadataAccessor = "$s10TestModule7MyErrorOMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Enum
+            });
+        // Simple enum — blittable integer, NOT supported in MCB pointer ABI
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Direction"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Direction"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Direction"),
+                MetadataAccessor = "$s10TestModule9DirectionOMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
+                Kind = TypeRecordKind.Enum
             });
         typeDatabase.AddModuleDatabase(testModule);
 
