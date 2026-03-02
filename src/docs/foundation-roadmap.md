@@ -115,22 +115,23 @@ P1.3 (DynamicSelf)         ────── independent (combine with P1.1 or 
 **Effort**: 1 session
 **Impact**: 0 methods (refactor), but every future dispatch kind is safer to add
 
-Key changes:
-- Define `IMethodBridgeEmitter` interface: `bool TryEmit(MethodDecl, TypeDecl, ...)`
-- Create adapter classes for 6 bridge emitters (ExistentialBypass, ArraySlice, GenericClosureBridge, ProtocolExtensionClosureBridge, MethodClosureBridge, ConstrainedExistentialBridge)
-- Replace cascade with `foreach` loop
-- Set `WasEmitted = true` in loop (fixes latent bug in 5 bridges)
-- `OptionalClosureBypass` adapter: internalize Contains-then-conditional-Add dedup pattern
+Implemented: `IMethodBridgeEmitter` interface with `BridgeEmitterContext` record and `BridgeEmitResult` record.
+7 adapter classes in method-path dispatch table (ordered):
+1. `ExistentialBypassBridgeAdapter` — must be first (existential-blocked methods handled before other bridges)
+2. `ArraySliceBridgeAdapter`
+3. `GenericClosureBridgeAdapter`
+4. `ProtocolExtensionClosureBridgeAdapter` — before MethodClosureBridge (invariant #2)
+5. `MethodClosureBridgeAdapter`
+6. `NestedClosureBridgeAdapter` (added A4, included here)
+7. `OptionalClosureBypassAdapter` — last (narrowest scope), internalizes dedup pattern
 
-5 hard ordering invariants to preserve:
-1. ExistentialBypass before ConstrainedExistentialBridge
-2. ProtocolExtensionClosureBridge before MethodClosureBridge
-3. All closure bridges before DefaultParameterOverloadEmitter
-4. CompletionHandlerDetector before NativeIntOverloadEmitter
-5. WasEmitted set before override detection queries
+WasEmitted bug fixed in 5 locations: method-path ArraySlice/ExistentialBypass/OptionalClosureBypass (via dispatch loop), constructor-path ExistentialBypass and OptionalClosureBypass (direct fix).
+ConstrainedExistentialBridge is constructor-only — deferred to P2.2 (constructor sharing).
+`GetProjectedCSharpMethodKey` widened from `protected` to `internal` for adapter access.
+All bridge-dispatch types (`BridgeEmitterContext`, `BridgeEmitResult`, `IMethodBridgeEmitter`) are `internal`. `BridgeEmitters` exposed as `IReadOnlyList<>` (immutable).
+13 new unit tests in `BridgeDispatchTableTests.cs` (structural invariants, result semantics, constructor WasEmitted behavior, immutability).
 
-Key files: `MethodHandler.cs`, `IMethodBridgeEmitter.cs` (new), adapter classes
-Research: [`method-handler-dispatch-design.md`], [`dispatch-table-dedup-investigation.md`]
+Key files: `IMethodBridgeEmitter.cs` (new), `MethodHandler.cs`, `IHandler.cs`, `BridgeDispatchTableTests.cs` (new)
 
 ### Session P2.2: IMethodPostProcessor + ConstructorHandler Sharing
 **Goal**: Wrap 4 post-processors in `IMethodPostProcessor` interface. Share dispatch table between `ConstructorHandler` and `MethodHandler` with scope filtering.
@@ -373,7 +374,7 @@ Details: [Pillar 1 § P1.4](#session-p14-dependentmember-parsing-fix), [Pillar 1
 
 ---
 
-**B2: Dispatch Table Refactor** | Plan
+**B2: Dispatch Table Refactor** | Done
 *Pillar: 2 (dispatch architecture) | 0 methods (refactor)*
 
 Replace 19-step `MethodHandler.Emit()` cascade with declarative `IMethodBridgeEmitter[]` dispatch table. Fix latent `WasEmitted` bug in 5 bridges. Must verify 5 ordering invariants hold under new `foreach` design — one wrong adapter ordering = silent emission bugs across all libraries.

@@ -184,6 +184,7 @@ namespace BindingsGeneration
                 // Try to generate a bypass wrapper instead of skipping
                 if (ExistentialBypassEmitter.TryEmitConstructorBypass(csWriter, swiftWriter, methodEnv, _logger))
                 {
+                    methodEnv.MethodDecl.WasEmitted = true;
                     ReportCollector.RecordMemberWrapped(
                         BindingItemKind.Method,
                         methodEnv.MethodDecl.Name,
@@ -251,6 +252,7 @@ namespace BindingsGeneration
                     // Reserve the reduced key now that emission succeeded
                     if (reducedCtorKey != null)
                         methodEnv.EmittedProjectedSignatures?.Add(reducedCtorKey);
+                    methodEnv.MethodDecl.WasEmitted = true;
                     ReportCollector.RecordMemberWrapped(
                         BindingItemKind.Method,
                         methodEnv.MethodDecl.Name,
@@ -461,6 +463,29 @@ namespace BindingsGeneration
     public class MethodHandler : BaseHandler, IMethodHandler
     {
         /// <summary>
+        /// Bridge dispatch table — ordered sequence of bridge adapters tried before Section C (normal emission).
+        /// Ordering invariants:
+        /// 1. ExistentialBypass FIRST — existential-blocked methods must be handled/skipped before other bridges
+        /// 2. ProtocolExtensionClosureBridge before MethodClosureBridge
+        /// 3. OptionalClosureBypass LAST — narrowest scope
+        /// </summary>
+        private static readonly IMethodBridgeEmitter[] _bridgeEmitters =
+        [
+            new ExistentialBypassBridgeAdapter(),          // Must be first: existential-blocked methods
+            new ArraySliceBridgeAdapter(),                 // ArraySlice normalization
+            new GenericClosureBridgeAdapter(),             // Generic closures
+            new ProtocolExtensionClosureBridgeAdapter(),   // Invariant #2: before MethodClosureBridge
+            new MethodClosureBridgeAdapter(),              // Bound generic closure args
+            new NestedClosureBridgeAdapter(),              // Two-level trampoline
+            new OptionalClosureBypassAdapter(),            // Last: narrowest scope
+        ];
+
+        /// <summary>
+        /// Read-only view of the bridge dispatch table for testing and inspection.
+        /// </summary>
+        internal static IReadOnlyList<IMethodBridgeEmitter> BridgeEmitters => _bridgeEmitters;
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="MethodHandler"/> class.
         /// </summary>
         /// <param name="logger">The logger instance.</param>
@@ -534,13 +559,17 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Existential state accumulated by validation loop, passed to bridge dispatch table.
+            // Declared at method scope so BridgeEmitterContext can reference them for both accessor
+            // and non-accessor paths (accessors skip validation, so these stay at defaults).
+            bool hasMethodExistentialArg = false;
+            string? firstMethodExistentialType = null;
+
             if (!isAccessor)
             {
-                // MH-specific gates: bare generic, non-ISwiftObject, unsatisfied constraints, existential accumulate+bypass
+                // MH-specific gates: bare generic, non-ISwiftObject, unsatisfied constraints, existential accumulation
                 // Note: unsupported-module gate intentionally NOT here — MethodHandler never had it.
                 // ShouldSkipMethodEmission handles B19 for non-constructors; adding it here would change semantics.
-                bool hasMethodExistentialArg = false;
-                string? firstMethodExistentialType = null;
 
                 foreach (var argument in methodEnv.MethodDecl.CSSignature)
                 {
@@ -610,167 +639,34 @@ namespace BindingsGeneration
                         }
                     }
                 }
+            }
 
-                // After checking all args, attempt bypass if any existential args were found
-                if (hasMethodExistentialArg)
+            // B2: Bridge dispatch table — try each bridge adapter in order.
+            // Non-null result means the method was handled (emitted or explicitly skipped).
+            // On success, set WasEmitted and record the bridge; on skip, just return.
+            // Accessors skip bridges (all adapters guard !isAccessor via eligibility checks).
+            if (!isAccessor)
+            {
+                var bridgeContext = new BridgeEmitterContext(
+                    csWriter, swiftWriter, methodEnv, _logger, context.GetEmissionContext(),
+                    hasMethodExistentialArg, firstMethodExistentialType);
+
+                foreach (var bridge in _bridgeEmitters)
                 {
-                    if (ExistentialBypassEmitter.TryEmitMethodBypass(csWriter, swiftWriter, methodEnv, _logger))
+                    var result = bridge.TryEmit(bridgeContext);
+                    if (result != null)
                     {
-                        ReportCollector.RecordMemberWrapped(
-                            BindingItemKind.Method,
-                            methodEnv.MethodDecl.Name,
-                            methodEnv.MethodDecl.MangledName,
-                            methodEnv.MethodDecl.ParentDecl,
-                            "ExistentialBypass",
-                            "Existential parameter(s) omitted; Swift defaults used.");
-                        return;
-                    }
-
-                    // Fallback: skip as before
-                    _logger.LogWarning($"Skipping method {methodEnv.MethodDecl.Name}: bound generic contains unsupported existential type argument '{firstMethodExistentialType}'.");
-                    ReportCollector.RecordMemberSkipped(
-                        BindingItemKind.Method,
-                        methodEnv.MethodDecl.Name,
-                        methodEnv.MethodDecl.ParentDecl,
-                        SkipReason.UnsupportedExistential,
-                        $"Bound generic contains existential type argument '{firstMethodExistentialType}'.");
-                    return;
-                }
-
-            }
-
-            // Try ArraySlice normalization — emits Swift wrapper + normalized C# method
-            if (!isAccessor && ArraySliceNormalizationEmitter.TryEmitNormalizedMethod(
-                csWriter, swiftWriter, methodEnv, _logger, context.GetEmissionContext()))
-            {
-                ReportCollector.RecordMemberWrapped(
-                    BindingItemKind.Method,
-                    methodEnv.MethodDecl.Name,
-                    methodEnv.MethodDecl.MangledName,
-                    methodEnv.MethodDecl.ParentDecl,
-                    "ArraySliceNormalization",
-                    "ArraySlice parameters normalized to Array via Swift wrapper.");
-                return;
-            }
-
-            // Try generic closure bridge — emits monomorphized Swift wrapper + C# for methods
-            // with generic closure parameters (e.g., func read<T>(_ block: (Database) throws -> T) -> T).
-            // Must happen before SignatureHandler because generic closures produce placeholders.
-            if (!isAccessor && GenericClosureBridgeEmitter.TryEmit(
-                csWriter, swiftWriter, methodEnv, methodEnv.ParentDecl as TypeDecl, ctx: context.GetEmissionContext()))
-            {
-                ReportCollector.RecordMemberWrapped(
-                    BindingItemKind.Method,
-                    methodEnv.MethodDecl.Name,
-                    methodEnv.MethodDecl.MangledName,
-                    methodEnv.MethodDecl.ParentDecl,
-                    "GenericClosureBridge",
-                    "Generic closure parameter bridged via monomorphized Swift wrapper.");
-                return;
-            }
-
-            // Try protocol extension closure bridge — emits Swift wrapper with closure bridging
-            // + C# callbacks + P/Invoke + public method for protocol extension methods with
-            // closure parameters (e.g., Observable.filter, Observable.map).
-            if (!isAccessor && ProtocolExtensionClosureBridge.TryEmit(
-                csWriter, swiftWriter, methodEnv, methodEnv.ParentDecl as TypeDecl))
-            {
-                ReportCollector.RecordMemberWrapped(
-                    BindingItemKind.Method,
-                    methodEnv.MethodDecl.Name,
-                    methodEnv.MethodDecl.MangledName,
-                    methodEnv.MethodDecl.ParentDecl,
-                    "ProtocolExtensionClosureBridge",
-                    "Protocol extension closure parameter bridged via @_silgen_name wrapper.");
-                return;
-            }
-
-            // Try method closure bridge — emits Swift wrapper + C# callbacks + P/Invoke + public method
-            // for regular methods with closure parameters containing bound generic types
-            // (e.g., Alamofire responseData with AFDataResponse<Data> closure arg).
-            if (!isAccessor && MethodClosureBridge.TryEmit(
-                csWriter, swiftWriter, methodEnv, methodEnv.ParentDecl as TypeDecl, context.GetEmissionContext()))
-            {
-                ReportCollector.RecordMemberWrapped(
-                    BindingItemKind.Method,
-                    methodEnv.MethodDecl.Name,
-                    methodEnv.MethodDecl.MangledName,
-                    methodEnv.MethodDecl.ParentDecl,
-                    "MethodClosureBridge",
-                    "Closure parameter with bound generic args bridged via @_silgen_name wrapper.");
-                return;
-            }
-
-            // Try nested closure bridge — emits two-level bridge for methods with
-            // closure-in-closure params (e.g., onHTTPResponse with inner completion handler).
-            if (!isAccessor && NestedClosureBridge.TryEmit(
-                csWriter, swiftWriter, methodEnv, methodEnv.ParentDecl as TypeDecl, context.GetEmissionContext()))
-            {
-                ReportCollector.RecordMemberWrapped(
-                    BindingItemKind.Method,
-                    methodEnv.MethodDecl.Name,
-                    methodEnv.MethodDecl.MangledName,
-                    methodEnv.MethodDecl.ParentDecl,
-                    "NestedClosureBridge",
-                    "Nested closure parameter bridged via two-level trampoline.");
-                return;
-            }
-
-            // Try Optional<Closure>+default bypass — omits unsupported optional closure params,
-            // letting Swift fill nil. Runs AFTER bridge emitters so that bridge-eligible methods
-            // (GenericClosureBridge, ProtocolExtensionClosureBridge, MethodClosureBridge,
-            // NestedClosureBridge) are handled first — the bypass is narrower (void-return,
-            // non-static, non-async, non-throwing) and would incorrectly skip methods those
-            // bridges can handle.
-            if (!isAccessor &&
-                ExistentialBypassEmitter.HasOptionalClosureWithDefault(methodEnv.MethodDecl, methodEnv.TypeDatabase))
-            {
-                // Reduced-signature dedup — bypass strips params, so check the reduced
-                // projected key against EmittedProjectedSignatures to avoid CS0111 duplicates.
-                // Use Contains() first; only Add() after bypass succeeds, so a failed bypass
-                // doesn't poison the set and cause false duplicate skips for later members.
-                var reducedMethodDecl = ExistentialBypassEmitter.BuildReducedMethodDecl(
-                    methodEnv.MethodDecl, methodEnv.TypeDatabase);
-                string? reducedMethodKey = null;
-                if (reducedMethodDecl != null && methodEnv.EmittedProjectedSignatures != null)
-                {
-                    reducedMethodKey = GetProjectedCSharpMethodKey(reducedMethodDecl, methodEnv.TypeDatabase, _logger);
-                    if (methodEnv.EmittedProjectedSignatures.Contains(reducedMethodKey))
-                    {
-                        _logger.LogDebug($"Skipping method {methodEnv.MethodDecl.Name}: optional closure bypass reduced signature collides: {reducedMethodKey}");
-                        ReportCollector.RecordMemberSkipped(
-                            BindingItemKind.Method,
-                            methodEnv.MethodDecl.Name,
-                            methodEnv.MethodDecl.ParentDecl,
-                            SkipReason.DuplicateSignature,
-                            $"Optional closure bypass reduced C# signature collides: {reducedMethodKey}");
+                        if (result.WasEmitted)
+                        {
+                            methodEnv.MethodDecl.WasEmitted = true;
+                            ReportCollector.RecordMemberWrapped(
+                                BindingItemKind.Method, methodEnv.MethodDecl.Name,
+                                methodEnv.MethodDecl.MangledName, methodEnv.MethodDecl.ParentDecl,
+                                result.BridgeName, result.Description);
+                        }
                         return;
                     }
                 }
-
-                if (ExistentialBypassEmitter.TryEmitMethodBypass(csWriter, swiftWriter, methodEnv, _logger))
-                {
-                    // Reserve the reduced key now that emission succeeded
-                    if (reducedMethodKey != null)
-                        methodEnv.EmittedProjectedSignatures?.Add(reducedMethodKey);
-                    ReportCollector.RecordMemberWrapped(
-                        BindingItemKind.Method,
-                        methodEnv.MethodDecl.Name,
-                        methodEnv.MethodDecl.MangledName,
-                        methodEnv.MethodDecl.ParentDecl,
-                        "OptionalClosureBypass",
-                        "Optional closure parameter(s) with defaults omitted; Swift fills nil.");
-                    return;
-                }
-                // Explicit fallback skip — bypass failed (async/throws/static/non-void)
-                _logger.LogWarning($"Skipping method {methodEnv.MethodDecl.Name}: optional closure params with defaults but bypass not applicable.");
-                ReportCollector.RecordMemberSkipped(
-                    BindingItemKind.Method,
-                    methodEnv.MethodDecl.Name,
-                    methodEnv.MethodDecl.ParentDecl,
-                    SkipReason.UnsupportedClosure,
-                    "Optional closure parameter(s) with defaults, but method shape incompatible with bypass (async/throws/static/non-void).");
-                return;
             }
 
             // Emit Swift wrapper for methods with debug params (#file, #line, etc.)

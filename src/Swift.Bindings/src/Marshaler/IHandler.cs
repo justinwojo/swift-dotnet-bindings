@@ -361,7 +361,7 @@ namespace BindingsGeneration
         /// Uses the public method name and projected C# parameter types,
         /// so different Swift overloads that produce identical C# signatures are deduplicated.
         /// </summary>
-        protected static string GetProjectedCSharpMethodKey(MethodDecl methodDecl, ITypeDatabase typeDatabase, ILogger? logger = null)
+        internal static string GetProjectedCSharpMethodKey(MethodDecl methodDecl, ITypeDatabase typeDatabase, ILogger? logger = null)
         {
             var returnTypeSpec = methodDecl.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
             bool hasReturnValue = returnTypeSpec != null && !returnTypeSpec.IsEmptyTuple;
