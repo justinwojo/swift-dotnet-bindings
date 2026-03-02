@@ -77,9 +77,9 @@ public class NestedClosureBridgeTests
     }
 
     [Fact]
-    public void IsEligible_MultipleNestedClosures_ReturnsFalse()
+    public void IsEligible_MultipleInnerClosures_ReturnsTrue()
     {
-        // Outer closure with TWO inner closures — not supported in spike
+        // Outer closure with TWO inner closures — now supported
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("MyClass", moduleDecl);
@@ -102,17 +102,144 @@ public class NestedClosureBridgeTests
             TupleTypeSpec.Empty, outerClosureType, "handler");
         var closureHandler = new ClosureHandler(typeDatabase);
 
+        Assert.True(NestedClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    [Fact]
+    public void IsEligible_TwoOuterClosures_ReturnsFalse()
+    {
+        // Multiple outer nested closures require single-wrapper architecture (not yet implemented)
+        var typeDatabase = CreateTypeDatabaseWithEnumTypes();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("DataRequest", moduleDecl);
+
+        // First outer closure: (NSObject, (ResponseDisposition) -> Void) -> Void
+        var innerClosure1 = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("TestModule.ResponseDisposition") }),
+            TupleTypeSpec.Empty);
+        var outerClosure1 = new ClosureTypeSpec(
+            new TupleTypeSpec(new TypeSpec[] {
+                new NamedTypeSpec("Foundation.NSObject"),
+                innerClosure1
+            }),
+            TupleTypeSpec.Empty);
+        outerClosure1.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        // Second outer closure: (Int, (Bool) -> Void) -> Void
+        var innerClosure2 = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Bool") }),
+            TupleTypeSpec.Empty);
+        var outerClosure2 = new ClosureTypeSpec(
+            new TupleTypeSpec(new TypeSpec[] {
+                new NamedTypeSpec("Swift.Int"),
+                innerClosure2
+            }),
+            TupleTypeSpec.Empty);
+        outerClosure2.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDeclWithTwoClosures("onEvent", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, outerClosure1, "handler", outerClosure2, "completion");
+        var closureHandler = new ClosureHandler(typeDatabase);
+
         Assert.False(NestedClosureBridge.IsEligible(method, closureHandler, typeDatabase));
     }
 
     [Fact]
-    public void IsEligible_InnerClosureWithNonVoidReturn_ReturnsFalse()
+    public void TryEmit_TwoInnerClosures_EmitsIndexedNames()
+    {
+        // Two inner closures in one outer closure — should get indexed names
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("DataRequest", moduleDecl);
+
+        var innerClosure1 = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
+            TupleTypeSpec.Empty);
+        var innerClosure2 = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Bool") }),
+            TupleTypeSpec.Empty);
+
+        var outerClosureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new TypeSpec[] { innerClosure1, innerClosure2 }),
+            TupleTypeSpec.Empty);
+        outerClosureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("onEvent", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, outerClosureType, "_perform");
+
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        NestedClosureBridge.TryEmit(csWriter, swiftWriter, env, parentDecl);
+
+        var cs = csOutput.ToString();
+        var swift = swiftOutput.ToString();
+        // Indexed inner names: innerFuncPtr0/innerContext0, innerFuncPtr1/innerContext1
+        Assert.Contains("innerFuncPtr0", cs);
+        Assert.Contains("innerContext0", cs);
+        Assert.Contains("innerFuncPtr1", cs);
+        Assert.Contains("innerContext1", cs);
+        // Swift should have indexed trampolines and boxes
+        Assert.Contains("__innerBox0", swift);
+        Assert.Contains("__innerBox1", swift);
+        Assert.Contains("__closureBox0", swift);
+        Assert.Contains("__closureBox1", swift);
+    }
+
+    [Fact]
+    public void TryEmit_TwoOuterClosures_ReturnsFalse()
+    {
+        // Multi-outer gated until single-wrapper architecture is implemented
+        var typeDatabase = CreateTypeDatabaseWithEnumTypes();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("DataRequest", moduleDecl);
+
+        var innerClosure1 = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("TestModule.ResponseDisposition") }),
+            TupleTypeSpec.Empty);
+        var outerClosure1 = new ClosureTypeSpec(
+            new TupleTypeSpec(new TypeSpec[] {
+                new NamedTypeSpec("Foundation.NSObject"),
+                innerClosure1
+            }),
+            TupleTypeSpec.Empty);
+        outerClosure1.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var innerClosure2 = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Bool") }),
+            TupleTypeSpec.Empty);
+        var outerClosure2 = new ClosureTypeSpec(
+            new TupleTypeSpec(new TypeSpec[] {
+                new NamedTypeSpec("Swift.Int"),
+                innerClosure2
+            }),
+            TupleTypeSpec.Empty);
+        outerClosure2.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDeclWithTwoClosures("onEvent", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, outerClosure1, "handler", outerClosure2, "completion");
+
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(new StringWriter());
+
+        var result = NestedClosureBridge.TryEmit(csWriter, swiftWriter, env, parentDecl);
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void IsEligible_InnerClosureWithPrimitiveReturn_ReturnsTrue()
     {
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("MyClass", moduleDecl);
 
-        // Inner closure: (Int) -> Bool (non-void return)
+        // Inner closure: (Int) -> Bool (primitive return — allowed)
         var innerClosure = new ClosureTypeSpec(
             new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
             new NamedTypeSpec("Swift.Bool"));
@@ -129,7 +256,127 @@ public class NestedClosureBridgeTests
             TupleTypeSpec.Empty, outerClosureType, "handler");
         var closureHandler = new ClosureHandler(typeDatabase);
 
+        Assert.True(NestedClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    [Fact]
+    public void IsEligible_InnerClosureWithIntReturn_ReturnsTrue()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        // Inner closure: () -> Int (primitive return)
+        var innerClosure = new ClosureTypeSpec(
+            TupleTypeSpec.Empty,
+            new NamedTypeSpec("Swift.Int"));
+
+        var outerClosureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new TypeSpec[] {
+                new NamedTypeSpec("Swift.Int"),
+                innerClosure
+            }),
+            TupleTypeSpec.Empty);
+        outerClosureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("doWork", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, outerClosureType, "handler");
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.True(NestedClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    [Fact]
+    public void IsEligible_InnerClosureWithEnumReturn_ReturnsFalse()
+    {
+        var typeDatabase = CreateTypeDatabaseWithEnumTypes();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        // Inner closure: (Int) -> ResponseDisposition (enum return — not allowed)
+        var innerClosure = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
+            new NamedTypeSpec("TestModule.ResponseDisposition"));
+
+        var outerClosureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new TypeSpec[] {
+                new NamedTypeSpec("Swift.Int"),
+                innerClosure
+            }),
+            TupleTypeSpec.Empty);
+        outerClosureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("doWork", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, outerClosureType, "handler");
+        var closureHandler = new ClosureHandler(typeDatabase);
+
         Assert.False(NestedClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    [Fact]
+    public void IsEligible_InnerClosureWithClassReturn_ReturnsFalse()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        // Inner closure: () -> DataRequest (class return — not allowed)
+        var innerClosure = new ClosureTypeSpec(
+            TupleTypeSpec.Empty,
+            new NamedTypeSpec("TestModule.DataRequest"));
+
+        var outerClosureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new TypeSpec[] {
+                new NamedTypeSpec("Swift.Int"),
+                innerClosure
+            }),
+            TupleTypeSpec.Empty);
+        outerClosureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("doWork", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, outerClosureType, "handler");
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.False(NestedClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    [Fact]
+    public void TryEmit_InnerClosureWithBoolReturn_EmitsFuncDelegate()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("DataRequest", moduleDecl);
+
+        // Inner closure: (Int) -> Bool
+        var innerClosure = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
+            new NamedTypeSpec("Swift.Bool"));
+
+        var outerClosureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new TypeSpec[] {
+                new NamedTypeSpec("Swift.Int"),
+                innerClosure
+            }),
+            TupleTypeSpec.Empty);
+        outerClosureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("onEvent", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, outerClosureType, "_perform");
+
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        NestedClosureBridge.TryEmit(csWriter, swiftWriter, env, parentDecl);
+
+        var cs = csOutput.ToString();
+        var swift = swiftOutput.ToString();
+        // C# should use Func<...> instead of Action<...> for the inner delegate
+        Assert.Contains("Func<", cs);
+        // Swift inner trampoline should return non-void
+        Assert.Contains("-> UInt8", swift);
     }
 
     [Fact]
@@ -215,10 +462,9 @@ public class NestedClosureBridgeTests
     }
 
     [Fact]
-    public void IsEligible_OptionalRefOuterArg_ReturnsFalse()
+    public void IsEligible_OptionalRefOuterArg_ReturnsTrue()
     {
-        // Optional<NSObject> as outer arg — IsCdeclCompatibleType allows it
-        // but our trampoline can't marshal it (would emit Unmanaged<Optional<T>>)
+        // Optional<NSObject> as outer arg — nil-pointer ABI is now supported
         var typeDatabase = CreateTypeDatabaseWithEnumTypes();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("MyClass", moduleDecl);
@@ -242,13 +488,13 @@ public class NestedClosureBridgeTests
             TupleTypeSpec.Empty, outerClosureType, "handler");
         var closureHandler = new ClosureHandler(typeDatabase);
 
-        Assert.False(NestedClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+        Assert.True(NestedClosureBridge.IsEligible(method, closureHandler, typeDatabase));
     }
 
     [Fact]
-    public void IsEligible_OptionalRefInnerArg_ReturnsFalse()
+    public void IsEligible_OptionalRefInnerArg_ReturnsTrue()
     {
-        // Inner closure with Optional<NSObject> arg — not handled by trampoline
+        // Inner closure with Optional<NSObject> arg — nil-pointer ABI is now supported
         var typeDatabase = CreateTypeDatabaseWithEnumTypes();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("MyClass", moduleDecl);
@@ -272,7 +518,48 @@ public class NestedClosureBridgeTests
             TupleTypeSpec.Empty, outerClosureType, "handler");
         var closureHandler = new ClosureHandler(typeDatabase);
 
-        Assert.False(NestedClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+        Assert.True(NestedClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    [Fact]
+    public void TryEmit_OptionalRefOuterArg_EmitsNilCheckPattern()
+    {
+        var typeDatabase = CreateTypeDatabaseWithEnumTypes();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("DataRequest", moduleDecl);
+
+        var innerClosure = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("TestModule.ResponseDisposition") }),
+            TupleTypeSpec.Empty);
+
+        var optionalNSObject = new NamedTypeSpec("Swift.Optional",
+            new[] { new NamedTypeSpec("Foundation.NSObject") });
+
+        var outerClosureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new TypeSpec[] {
+                optionalNSObject,
+                innerClosure
+            }),
+            TupleTypeSpec.Empty);
+        outerClosureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("onEvent", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, outerClosureType, "_perform");
+
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        NestedClosureBridge.TryEmit(csWriter, swiftWriter, env, parentDecl);
+
+        var cs = csOutput.ToString();
+        var swift = swiftOutput.ToString();
+        // C# should have null-check for Optional<ref> marshalling
+        Assert.Contains("IntPtr.Zero", cs);
+        // Swift should use nullable pointer type
+        Assert.Contains("UnsafeMutableRawPointer?", swift);
     }
 
     // ─── TryEmit: Swift Wrapper ───────────────────────────────────────
@@ -325,6 +612,24 @@ public class NestedClosureBridgeTests
         var swift = swiftOutput.ToString();
         Assert.Contains("Unmanaged.passRetained", swift);
         Assert.Contains("as AnyObject", swift);
+    }
+
+    [Fact]
+    public void TryEmit_InnerTrampolineUsesUnretainedValue()
+    {
+        var (method, typeDatabase) = CreateMethodWithNestedClosure();
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csWriter = new CSharpWriter(new StringWriter());
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        NestedClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
+
+        var swift = swiftOutput.ToString();
+        // takeUnretainedValue — bounded leak is safe for multi-call inner closures.
+        // passRetained(+1) keeps box alive for escaping closures; leak is bounded.
+        Assert.Contains("takeUnretainedValue", swift);
+        Assert.DoesNotContain("takeRetainedValue", swift);
     }
 
     [Fact]
@@ -765,6 +1070,34 @@ public class NestedClosureBridgeTests
             {
                 CreateArgument(string.Empty, returnType, moduleDecl),
                 CreateArgument(closureParamName, closureType, moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        parentDecl.Methods.Add(method);
+        return method;
+    }
+
+    private static MethodDecl CreateMethodDeclWithTwoClosures(
+        string name, ClassDecl parentDecl, ModuleDecl moduleDecl,
+        TypeSpec returnType, ClosureTypeSpec closureType1, string closureParamName1,
+        ClosureTypeSpec closureType2, string closureParamName2)
+    {
+        var method = new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s10TestModule11DataRequestC{name.Length}{name}yACyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, returnType, moduleDecl),
+                CreateArgument(closureParamName1, closureType1, moduleDecl),
+                CreateArgument(closureParamName2, closureType2, moduleDecl)
             },
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = parentDecl,

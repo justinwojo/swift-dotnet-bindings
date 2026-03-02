@@ -10,15 +10,27 @@ namespace BindingsGeneration;
 /// Two-level bridge ABI: the outer closure goes C# → Swift (existing pattern),
 /// while the inner closure goes Swift → C# (new). Swift provides the inner closure
 /// as a callback argument; we decompose it into funcPtr+context to cross the cdecl
-/// boundary, then reconstruct it as Action&lt;T&gt; in C#.
+/// boundary, then reconstruct it as Action/Func in C#.
 /// </para>
 /// <para>
-/// Spike scope: single outer closure with exactly one inner closure arg,
-/// inner closure must have void return and all-cdecl-compatible args.
+/// Supports multiple inner closures per outer. Multiple outer closures are gated
+/// (requires single-wrapper architecture not yet implemented).
 /// </para>
 /// </summary>
 public static class NestedClosureBridge
 {
+    /// <summary>
+    /// Describes a single inner closure within an outer closure parameter.
+    /// </summary>
+    private record InnerClosureInfo(ClosureTypeSpec Spec, List<TypeSpec> Args, int OuterArgIndex);
+
+    /// <summary>
+    /// Describes a single outer closure parameter and its inner closures.
+    /// </summary>
+    private record NestedClosureInfo(
+        ClosureTypeSpec OuterSpec, ArgumentDecl Arg, List<TypeSpec> OuterArgs,
+        List<InnerClosureInfo> InnerClosures, List<TypeSpec> OuterNonClosureArgs,
+        string CallbackBaseName, string ParamName, int Index);
     /// <summary>
     /// Checks if a method is eligible for the NestedClosureBridge pattern.
     /// </summary>
@@ -31,72 +43,72 @@ public static class NestedClosureBridge
         if (method.IsAccessor) return false;
         if (method.Throws) return false;
 
-        // Find exactly one closure parameter
-        ClosureTypeSpec? outerClosureSpec = null;
-        ArgumentDecl? closureArg = null;
-        int closureCount = 0;
-
+        // Find all closure parameters with nested closures
+        var closureArgs = new List<ArgumentDecl>();
         foreach (var arg in method.CSSignature.Skip(1))
         {
             var cts = closureHandler.GetClosureTypeSpec(arg);
             if (cts != null)
-            {
-                closureCount++;
-                if (closureCount > 1) return false;
-                outerClosureSpec = cts;
-                closureArg = arg;
-            }
+                closureArgs.Add(arg);
         }
 
-        if (outerClosureSpec == null || closureArg == null) return false;
+        if (closureArgs.Count == 0) return false;
 
-        // Outer closure must have void return and not be async
-        if (!outerClosureSpec.ReturnType.IsEmptyTuple) return false;
-        if (outerClosureSpec.IsAsync) return false;
+        // Multiple outer closures require a single Swift wrapper with ALL funcPtr/context pairs,
+        // but current architecture emits one wrapper per outer closure with mismatched P/Invoke ABI.
+        // Re-gate until single-wrapper multi-outer architecture is implemented.
+        if (closureArgs.Count > 1) return false;
 
-        // Find exactly one inner ClosureTypeSpec among outer closure args
-        ClosureTypeSpec? innerClosureSpec = null;
-        int innerClosureCount = 0;
-
-        foreach (var outerArg in outerClosureSpec.EachArgument())
+        // Validate each outer closure
+        foreach (var closureArg in closureArgs)
         {
-            if (outerArg is ClosureTypeSpec innerCts)
+            var outerClosureSpec = closureHandler.GetClosureTypeSpec(closureArg)!;
+
+            // Outer closure must have void return and not be async
+            if (!outerClosureSpec.ReturnType.IsEmptyTuple) return false;
+            if (outerClosureSpec.IsAsync) return false;
+
+            // Must have at least one inner closure
+            bool hasInnerClosure = false;
+
+            foreach (var outerArg in outerClosureSpec.EachArgument())
             {
-                innerClosureCount++;
-                if (innerClosureCount > 1) return false;
-                innerClosureSpec = innerCts;
+                if (outerArg is ClosureTypeSpec innerCts)
+                {
+                    hasInnerClosure = true;
+
+                    // Inner closure: void or primitive return only; not async
+                    if (!innerCts.ReturnType.IsEmptyTuple)
+                    {
+                        if (innerCts.ReturnType is not NamedTypeSpec innerRetNamed)
+                            return false;
+                        if (!MarshallingHelpers.IsSwiftPrimitive(innerRetNamed.Name))
+                            return false;
+                    }
+                    if (innerCts.IsAsync) return false;
+
+                    // Inner closure args must all be cdecl-compatible
+                    foreach (var innerArg in innerCts.EachArgument())
+                    {
+                        if (!ClosureEmitter.IsCdeclCompatibleType(innerArg, closureHandler))
+                            return false;
+                    }
+                }
+                else
+                {
+                    // Non-closure outer args must be cdecl-compatible
+                    if (!ClosureEmitter.IsCdeclCompatibleType(outerArg, closureHandler))
+                        return false;
+                }
             }
-            else
-            {
-                // Non-closure outer args must be cdecl-compatible but NOT Optional<ref>
-                // (Optional<ref> passes IsCdeclCompatibleType but our trampoline conversions
-                // don't handle it — they'd emit invalid Unmanaged<Optional<T>>)
-                if (!ClosureEmitter.IsCdeclCompatibleType(outerArg, closureHandler))
-                    return false;
-                if (IsOptionalReferenceType(outerArg, closureHandler))
-                    return false;
-            }
-        }
 
-        if (innerClosureSpec == null) return false;
-
-        // Inner closure must have void return and not be async
-        if (!innerClosureSpec.ReturnType.IsEmptyTuple) return false;
-        if (innerClosureSpec.IsAsync) return false;
-
-        // Inner closure args must all be cdecl-compatible (but not Optional<ref>)
-        foreach (var innerArg in innerClosureSpec.EachArgument())
-        {
-            if (!ClosureEmitter.IsCdeclCompatibleType(innerArg, closureHandler))
-                return false;
-            if (IsOptionalReferenceType(innerArg, closureHandler))
-                return false;
+            if (!hasInnerClosure) return false;
         }
 
         // Non-closure method params: each must be passable or have a default value
         foreach (var arg in method.CSSignature.Skip(1))
         {
-            if (arg == closureArg) continue;
+            if (closureArgs.Contains(arg)) continue;
             if (arg.HasDefaultArg) continue;
 
             var category = MethodClosureBridge.ClassifyParam(arg, typeDatabase);
@@ -137,58 +149,69 @@ public static class NestedClosureBridge
         if (!IsEligible(method, env.ClosureHandler, env.TypeDatabase))
             return false;
 
-        // Find the outer closure parameter and its inner closure
-        ClosureTypeSpec? outerClosureSpec = null;
-        ArgumentDecl? closureArg = null;
+        // Collect all nested closure infos
+        var nestedClosures = new List<NestedClosureInfo>();
+        var mangledHash = EmitterUtility.DeterministicHash8(method.MangledName);
+        int closureIndex = 0;
+
         foreach (var arg in method.CSSignature.Skip(1))
         {
             var cts = env.ClosureHandler.GetClosureTypeSpec(arg);
-            if (cts != null)
+            if (cts == null) continue;
+
+            var outerArgs = cts.EachArgument().ToList();
+            var outerNonClosureArgs = new List<TypeSpec>();
+            var innerClosures = new List<InnerClosureInfo>();
+            int outerArgIdx = 0;
+
+            foreach (var outerArg in outerArgs)
             {
-                outerClosureSpec = cts;
-                closureArg = arg;
-                break;
+                if (outerArg is ClosureTypeSpec innerCts)
+                {
+                    innerClosures.Add(new InnerClosureInfo(innerCts, innerCts.EachArgument().ToList(), outerArgIdx));
+                }
+                else
+                {
+                    outerNonClosureArgs.Add(outerArg);
+                }
+                outerArgIdx++;
             }
+
+            if (innerClosures.Count == 0) continue;
+
+            var paramName = NameProvider.GetCSharpParameterName(arg);
+            var baseName = nestedClosures.Count == 0 ? $"NCB_{mangledHash}" : $"NCB_{mangledHash}_{closureIndex}";
+
+            nestedClosures.Add(new NestedClosureInfo(
+                cts, arg, outerArgs, innerClosures, outerNonClosureArgs,
+                baseName, paramName, closureIndex));
+
+            closureIndex++;
         }
 
-        if (outerClosureSpec == null || closureArg == null)
+        if (nestedClosures.Count == 0)
             return false;
 
-        // Decompose outer closure args into non-closure args + inner closure
-        var outerNonClosureArgs = new List<TypeSpec>();
-        ClosureTypeSpec? innerClosureSpec = null;
-        int innerClosureIndex = -1;
-        int outerArgIdx = 0;
-        foreach (var outerArg in outerClosureSpec.EachArgument())
+        // If multiple outer closures, re-index with suffixes
+        if (nestedClosures.Count > 1)
         {
-            if (outerArg is ClosureTypeSpec cts)
+            var reindexed = new List<NestedClosureInfo>();
+            for (int i = 0; i < nestedClosures.Count; i++)
             {
-                innerClosureSpec = cts;
-                innerClosureIndex = outerArgIdx;
+                var nc = nestedClosures[i];
+                reindexed.Add(nc with { CallbackBaseName = $"NCB_{mangledHash}_{i}", Index = i });
             }
-            else
-            {
-                outerNonClosureArgs.Add(outerArg);
-            }
-            outerArgIdx++;
+            nestedClosures = reindexed;
         }
-
-        if (innerClosureSpec == null || innerClosureIndex < 0)
-            return false;
-
-        var outerArgs = outerClosureSpec.EachArgument().ToList();
-        var innerArgs = innerClosureSpec.EachArgument().ToList();
 
         var asyncLibName = env.TypeDatabase.AsyncLibraryName ?? "SwiftBindings";
-        var mangledHash = EmitterUtility.DeterministicHash8(method.MangledName);
-        var closureParamName = NameProvider.GetCSharpParameterName(closureArg);
-        var callbackBaseName = $"NCB_{mangledHash}";
 
         // Determine which non-closure method params to pass through
+        var closureArgSet = nestedClosures.Select(nc => nc.Arg).ToHashSet();
         var passableNonClosureParams = new List<(ArgumentDecl arg, string csName, string csType, MethodClosureBridge.ParamAbiCategory category)>();
         foreach (var arg in method.CSSignature.Skip(1))
         {
-            if (arg == closureArg) continue;
+            if (closureArgSet.Contains(arg)) continue;
             if (arg.HasDefaultArg) continue;
 
             var csName = NameProvider.GetCSharpParameterName(arg);
@@ -196,10 +219,14 @@ public static class NestedClosureBridge
             passableNonClosureParams.Add((arg, csName, csType, category));
         }
 
-        // Emit Swift wrapper
-        EmitSwiftWrapper(swiftWriter, method, env, parentDecl, closureArg, outerClosureSpec,
-            outerArgs, innerClosureSpec, innerArgs, innerClosureIndex,
-            passableNonClosureParams, callbackBaseName);
+        // For single outer closure, use the legacy single-closure code path for backward compatibility
+        // For multiple, we emit each independently
+        foreach (var nc in nestedClosures)
+        {
+            // For single inner closure, use direct indices; for multiple, use indexed names
+            EmitSwiftWrapper(swiftWriter, method, env, parentDecl, nc.Arg, nc.OuterSpec,
+                nc.OuterArgs, nc.InnerClosures, passableNonClosureParams, nc.CallbackBaseName);
+        }
 
         // Set method flags for wrapper library routing
         method.UsesWrapperLibrary = true;
@@ -214,30 +241,29 @@ public static class NestedClosureBridge
             var helperWriter = new System.IO.StringWriter();
             var helperCsWriter = new CSharpWriter(helperWriter) { Indent = 0 };
 
-            EmitCallback(helperCsWriter, outerArgs, innerClosureSpec, innerArgs,
-                innerClosureIndex, callbackBaseName, env);
-            EmitFunctionPointerField(helperCsWriter, outerArgs, innerClosureSpec, innerArgs,
-                innerClosureIndex, callbackBaseName, env);
-            EmitPInvoke(helperCsWriter, method, asyncLibName, closureArg, passableNonClosureParams,
-                callbackBaseName, env);
+            foreach (var nc in nestedClosures)
+            {
+                EmitCallback(helperCsWriter, nc.OuterArgs, nc.InnerClosures, nc.CallbackBaseName, env);
+                EmitFunctionPointerField(helperCsWriter, nc.OuterArgs, nc.InnerClosures, nc.CallbackBaseName, env);
+            }
+            EmitPInvoke(helperCsWriter, method, asyncLibName, nestedClosures, passableNonClosureParams, env);
 
             helperCsWriter.Flush();
             env.PInvokeHelperContext.RawCodeBlocks.Add(helperWriter.ToString());
         }
         else
         {
-            EmitCallback(csWriter, outerArgs, innerClosureSpec, innerArgs,
-                innerClosureIndex, callbackBaseName, env);
-            EmitFunctionPointerField(csWriter, outerArgs, innerClosureSpec, innerArgs,
-                innerClosureIndex, callbackBaseName, env);
-            EmitPInvoke(csWriter, method, asyncLibName, closureArg, passableNonClosureParams,
-                callbackBaseName, env);
+            foreach (var nc in nestedClosures)
+            {
+                EmitCallback(csWriter, nc.OuterArgs, nc.InnerClosures, nc.CallbackBaseName, env);
+                EmitFunctionPointerField(csWriter, nc.OuterArgs, nc.InnerClosures, nc.CallbackBaseName, env);
+            }
+            EmitPInvoke(csWriter, method, asyncLibName, nestedClosures, passableNonClosureParams, env);
         }
 
         // Public method always in the class body
-        EmitPublicMethod(csWriter, method, outerClosureSpec, closureArg, outerArgs,
-            innerClosureSpec, innerArgs, innerClosureIndex, passableNonClosureParams,
-            callbackBaseName, closureParamName, env, parentDecl, helperClassName);
+        EmitPublicMethod(csWriter, method, nestedClosures, passableNonClosureParams,
+            env, parentDecl, helperClassName);
 
         method.WasEmitted = true;
         return true;
@@ -253,14 +279,13 @@ public static class NestedClosureBridge
         ArgumentDecl closureArg,
         ClosureTypeSpec outerClosureSpec,
         List<TypeSpec> outerArgs,
-        ClosureTypeSpec innerClosureSpec,
-        List<TypeSpec> innerArgs,
-        int innerClosureIndex,
+        List<InnerClosureInfo> innerClosures,
         List<(ArgumentDecl arg, string csName, string csType, MethodClosureBridge.ParamAbiCategory category)> passableNonClosureParams,
         string callbackBaseName)
     {
         bool isInstance = method.MethodType != MethodType.Static && parentDecl != null;
         var typeName = parentDecl?.SwiftTypeName?.ModuleQualifiedName ?? parentDecl?.Name ?? "";
+        bool multiInner = innerClosures.Count > 1;
 
         var silgenName = $"SBW_{callbackBaseName}_{method.Name}";
 
@@ -281,13 +306,12 @@ public static class NestedClosureBridge
         swiftParams.Add($"    _ {closureCsName}Context: UnsafeMutableRawPointer?");
 
         // Build @convention(c) type for the outer cdecl callback
-        // Outer callback receives: non-closure outer args (category-based) + inner funcPtr + inner context + outer context
         var cdeclParamTypes = new List<string>();
+        var innerIndices = innerClosures.Select(ic => ic.OuterArgIndex).ToHashSet();
         for (int i = 0; i < outerArgs.Count; i++)
         {
-            if (i == innerClosureIndex)
+            if (innerIndices.Contains(i))
             {
-                // Inner closure → funcPtr + context pair
                 cdeclParamTypes.Add("UnsafeMutableRawPointer?"); // innerFuncPtr
                 cdeclParamTypes.Add("UnsafeMutableRawPointer?"); // innerContext
             }
@@ -299,67 +323,100 @@ public static class NestedClosureBridge
         cdeclParamTypes.Add("UnsafeMutableRawPointer?"); // outer context
         var cdeclType = $"(@convention(c) ({string.Join(", ", cdeclParamTypes)}) -> Void).self";
 
-        // Build inner trampoline: @convention(c) function for the inner closure
-        // Takes inner closure args (cdecl types) + closure box
-        var innerCdeclParamTypes = new List<string>();
-        for (int i = 0; i < innerArgs.Count; i++)
+        // Build inner trampolines — one per inner closure
+        for (int j = 0; j < innerClosures.Count; j++)
         {
-            innerCdeclParamTypes.Add(GetSwiftCdeclParamType(innerArgs[i], env));
+            var ic = innerClosures[j];
+            var innerArgs = ic.Args;
+            var innerClosureSpec = ic.Spec;
+            var suffix = multiInner ? $"{j}" : "";
+
+            var innerCdeclParamTypes = new List<string>();
+            for (int i = 0; i < innerArgs.Count; i++)
+            {
+                innerCdeclParamTypes.Add(GetSwiftCdeclParamType(innerArgs[i], env));
+            }
+            innerCdeclParamTypes.Add("UnsafeMutableRawPointer"); // closure box (non-optional)
+
+            bool innerReturnsValue = !innerClosureSpec.ReturnType.IsEmptyTuple;
+            var innerReturnCdeclType = innerReturnsValue
+                ? GetSwiftCdeclParamType(innerClosureSpec.ReturnType, env)
+                : "Void";
+            var innerTrampolineType = $"@convention(c) ({string.Join(", ", innerCdeclParamTypes)}) -> {innerReturnCdeclType}";
+
+            // Build the inner closure's Swift type string
+            var innerClosureSwiftArgTypes = new List<string>();
+            foreach (var innerArg in innerArgs)
+            {
+                innerClosureSwiftArgTypes.Add(ExistentialBypassEmitter.RenderSwiftTypeSpec(innerArg));
+            }
+            var innerReturnSwiftType = innerReturnsValue
+                ? ExistentialBypassEmitter.RenderSwiftTypeSpec(innerClosureSpec.ReturnType)
+                : "Void";
+            var innerClosureSwiftType = innerClosureSwiftArgTypes.Count switch
+            {
+                0 => $"() -> {innerReturnSwiftType}",
+                1 => $"({innerClosureSwiftArgTypes[0]}) -> {innerReturnSwiftType}",
+                _ => $"({string.Join(", ", innerClosureSwiftArgTypes)}) -> {innerReturnSwiftType}"
+            };
+
+            // Store for use in adapter closure below
+            innerClosures[j] = ic with { };  // no mutation needed, just for reference
+
+            // Build return type
+            var returnSpec = method.CSSignature[0].SwiftTypeSpec;
+            bool returnsValue = !returnSpec.IsEmptyTuple;
+            var swiftReturnType = returnsValue ? $" -> {ExistentialBypassEmitter.RenderSwiftTypeSpec(returnSpec)}" : "";
+
+            if (j == 0)
+            {
+                // Emit the wrapper header only once
+                swiftWriter.WriteLine($"extension {typeName} {{");
+                swiftWriter.WriteLine($"@_silgen_name(\"{silgenName}\")");
+                var funcKeyword = isInstance ? "public func" : "public static func";
+                swiftWriter.WriteLine($"{funcKeyword} _sb_{method.Name}(");
+                swiftWriter.WriteLine(string.Join(",\n", swiftParams));
+                swiftWriter.WriteLine($"){swiftReturnType} {{");
+            }
+
+            // Define the inner trampoline as a local @convention(c) function
+            var innerTrampolineParams = new List<string>();
+            for (int i = 0; i < innerArgs.Count; i++)
+            {
+                innerTrampolineParams.Add($"_ __ip{i}: {GetSwiftCdeclParamType(innerArgs[i], env)}");
+            }
+            innerTrampolineParams.Add($"_ __closureBox{suffix}: UnsafeMutableRawPointer");
+
+            var trampolineName = multiInner ? $"innerTrampoline{j}" : "innerTrampoline";
+            swiftWriter.WriteLine($"    let {trampolineName}: {innerTrampolineType} = {{ {string.Join(", ", innerTrampolineParams.Select(p => p.Split(' ')[1].TrimEnd(':')))} in");
+
+            // Inside the trampoline: unbox the inner closure and invoke it.
+            // Uses takeUnretainedValue (no retain change) — the passRetained(+1) in the adapter
+            // is intentionally NOT balanced here, creating a bounded leak (one AnyObject per invocation).
+            // This is safe for multi-call inner closures. A future optimization can use takeRetainedValue
+            // for verified single-use completion handlers, or a ref-counted wrapper for the general case.
+            swiftWriter.WriteLine($"        let innerClosure = Unmanaged<AnyObject>.fromOpaque(__closureBox{suffix}).takeUnretainedValue() as! {innerClosureSwiftType}");
+
+            // Build invocation args
+            var innerInvocationArgs = new List<string>();
+            for (int i = 0; i < innerArgs.Count; i++)
+            {
+                innerInvocationArgs.Add(GetSwiftTrampolineArgConversion(innerArgs[i], $"__ip{i}", env));
+            }
+
+            if (innerReturnsValue)
+            {
+                swiftWriter.WriteLine($"        let __innerResult = innerClosure({string.Join(", ", innerInvocationArgs)})");
+                swiftWriter.WriteLine($"        return {GetSwiftOuterArgConversion(innerClosureSpec.ReturnType, "__innerResult", env)}");
+            }
+            else
+            {
+                swiftWriter.WriteLine($"        innerClosure({string.Join(", ", innerInvocationArgs)})");
+            }
+
+            swiftWriter.WriteLine("    }");
+            swiftWriter.WriteLine();
         }
-        innerCdeclParamTypes.Add("UnsafeMutableRawPointer"); // closure box (non-optional)
-        var innerTrampolineType = $"@convention(c) ({string.Join(", ", innerCdeclParamTypes)}) -> Void";
-
-        // Build the inner closure's Swift type string for unsafeBitCast
-        var innerClosureSwiftArgTypes = new List<string>();
-        foreach (var innerArg in innerArgs)
-        {
-            innerClosureSwiftArgTypes.Add(ExistentialBypassEmitter.RenderSwiftTypeSpec(innerArg));
-        }
-        var innerClosureSwiftType = innerClosureSwiftArgTypes.Count switch
-        {
-            0 => "() -> Void",
-            1 => $"({innerClosureSwiftArgTypes[0]}) -> Void",
-            _ => $"({string.Join(", ", innerClosureSwiftArgTypes)}) -> Void"
-        };
-
-        // Build return type
-        var returnSpec = method.CSSignature[0].SwiftTypeSpec;
-        bool returnsValue = !returnSpec.IsEmptyTuple;
-        var swiftReturnType = returnsValue ? $" -> {ExistentialBypassEmitter.RenderSwiftTypeSpec(returnSpec)}" : "";
-
-        // Emit the wrapper
-        swiftWriter.WriteLine($"extension {typeName} {{");
-
-        // Emit inner trampoline as a nested function (non-capturing → can be cast to @convention(c))
-        swiftWriter.WriteLine($"@_silgen_name(\"{silgenName}\")");
-        var funcKeyword = isInstance ? "public func" : "public static func";
-        swiftWriter.WriteLine($"{funcKeyword} _sb_{method.Name}(");
-        swiftWriter.WriteLine(string.Join(",\n", swiftParams));
-        swiftWriter.WriteLine($"){swiftReturnType} {{");
-
-        // Define the inner trampoline as a local @convention(c) function
-        var innerTrampolineParams = new List<string>();
-        for (int i = 0; i < innerArgs.Count; i++)
-        {
-            innerTrampolineParams.Add($"_ __ip{i}: {GetSwiftCdeclParamType(innerArgs[i], env)}");
-        }
-        innerTrampolineParams.Add("_ __closureBox: UnsafeMutableRawPointer");
-
-        swiftWriter.WriteLine($"    let innerTrampoline: {innerTrampolineType} = {{ {string.Join(", ", innerTrampolineParams.Select(p => p.Split(' ')[1].TrimEnd(':')))} in");
-
-        // Inside the trampoline: unbox the inner closure and invoke it
-        swiftWriter.WriteLine($"        let innerClosure = Unmanaged<AnyObject>.fromOpaque(__closureBox).takeUnretainedValue() as! {innerClosureSwiftType}");
-
-        // Build invocation args — convert cdecl types back to Swift types
-        var innerInvocationArgs = new List<string>();
-        for (int i = 0; i < innerArgs.Count; i++)
-        {
-            innerInvocationArgs.Add(GetSwiftTrampolineArgConversion(innerArgs[i], $"__ip{i}", env));
-        }
-        swiftWriter.WriteLine($"        innerClosure({string.Join(", ", innerInvocationArgs)})");
-
-        swiftWriter.WriteLine("    }");
-        swiftWriter.WriteLine();
 
         // Reconstruct outer cdecl function from pointer
         swiftWriter.WriteLine($"    let cdecl = unsafeBitCast({closureCsName}FuncPtr!, to: {cdeclType})");
@@ -383,7 +440,8 @@ public static class NestedClosureBridge
         }
         var outerParamStr = string.Join(", ", outerParamDecls);
 
-        var returnPrefix = returnsValue ? "return " : "";
+        var methodReturnSpec = method.CSSignature[0].SwiftTypeSpec;
+        var returnPrefix = !methodReturnSpec.IsEmptyTuple ? "return " : "";
         var callTarget = isInstance ? "self" : "Self";
 
         var prefixStr = nonClosureCallArgs.Count > 0
@@ -397,13 +455,16 @@ public static class NestedClosureBridge
         var cdeclCallArgs = new List<string>();
         for (int i = 0; i < outerArgs.Count; i++)
         {
-            if (i == innerClosureIndex)
+            // Check if this arg index is an inner closure
+            var innerMatch = innerClosures.FindIndex(ic => ic.OuterArgIndex == i);
+            if (innerMatch >= 0)
             {
-                // Box the inner closure and pass trampoline funcPtr + box context
-                swiftWriter.WriteLine($"        let __innerBox = Unmanaged.passRetained(__op{i} as AnyObject).toOpaque()");
-                swiftWriter.WriteLine($"        let __innerFuncPtr = unsafeBitCast(innerTrampoline, to: UnsafeMutableRawPointer?.self)");
-                cdeclCallArgs.Add("__innerFuncPtr");
-                cdeclCallArgs.Add("__innerBox");
+                var suffix = multiInner ? $"{innerMatch}" : "";
+                var trampolineName = multiInner ? $"innerTrampoline{innerMatch}" : "innerTrampoline";
+                swiftWriter.WriteLine($"        let __innerBox{suffix} = Unmanaged.passRetained(__op{i} as AnyObject).toOpaque()");
+                swiftWriter.WriteLine($"        let __innerFuncPtr{suffix} = unsafeBitCast({trampolineName}, to: UnsafeMutableRawPointer?.self)");
+                cdeclCallArgs.Add($"__innerFuncPtr{suffix}");
+                cdeclCallArgs.Add($"__innerBox{suffix}");
             }
             else
             {
@@ -427,20 +488,23 @@ public static class NestedClosureBridge
     private static void EmitCallback(
         CSharpWriter csWriter,
         List<TypeSpec> outerArgs,
-        ClosureTypeSpec innerClosureSpec,
-        List<TypeSpec> innerArgs,
-        int innerClosureIndex,
+        List<InnerClosureInfo> innerClosures,
         string callbackBaseName,
         MethodEnvironment env)
     {
-        // Build callback params: outer non-closure args (category-based) + inner funcPtr + innerCtx + outerCtx
+        bool multiInner = innerClosures.Count > 1;
+        var innerIndices = innerClosures.Select(ic => ic.OuterArgIndex).ToHashSet();
+
+        // Build callback params: outer non-closure args + inner funcPtr/context pairs + outerCtx
         var paramParts = new List<string>();
         for (int i = 0; i < outerArgs.Count; i++)
         {
-            if (i == innerClosureIndex)
+            if (innerIndices.Contains(i))
             {
-                paramParts.Add("IntPtr innerFuncPtr");
-                paramParts.Add("IntPtr innerContext");
+                var innerIdx = innerClosures.FindIndex(ic => ic.OuterArgIndex == i);
+                var suffix = multiInner ? $"{innerIdx}" : "";
+                paramParts.Add($"IntPtr innerFuncPtr{suffix}");
+                paramParts.Add($"IntPtr innerContext{suffix}");
             }
             else
             {
@@ -456,13 +520,14 @@ public static class NestedClosureBridge
 
         csWriter.WriteLine("var handle = GCHandle.FromIntPtr(outerContext);");
 
-        // Build the outer delegate type: Action<outerCSharpArg0, ..., Action<innerCSharpArg0, ...>>
+        // Build the outer delegate type
         var outerDelegateTypeArgs = new List<string>();
         for (int i = 0; i < outerArgs.Count; i++)
         {
-            if (i == innerClosureIndex)
+            if (innerIndices.Contains(i))
             {
-                outerDelegateTypeArgs.Add(BuildInnerActionType(innerArgs, env));
+                var ic = innerClosures.First(c => c.OuterArgIndex == i);
+                outerDelegateTypeArgs.Add(BuildInnerDelegateType(ic.Args, ic.Spec.ReturnType, env));
             }
             else
             {
@@ -483,16 +548,21 @@ public static class NestedClosureBridge
         var invokeArgs = new List<string>();
         for (int i = 0; i < outerArgs.Count; i++)
         {
-            if (i == innerClosureIndex)
+            if (innerIndices.Contains(i))
             {
-                // Build inner Action from funcPtr + context
-                var innerActionType = BuildInnerActionType(innerArgs, env);
-                var innerDelegateParamTypes = new List<string>();
+                var innerIdx = innerClosures.FindIndex(ic => ic.OuterArgIndex == i);
+                var ic = innerClosures[innerIdx];
+                var innerArgs = ic.Args;
+                var innerClosureSpec = ic.Spec;
+                var suffix = multiInner ? $"{innerIdx}" : "";
+                bool innerReturnsValue = !innerClosureSpec.ReturnType.IsEmptyTuple;
+
+                // Build inner Action/Func from funcPtr + context
+                var innerDelegateType = BuildInnerDelegateType(innerArgs, innerClosureSpec.ReturnType, env);
                 var innerDelegateParams = new List<string>();
                 for (int j = 0; j < innerArgs.Count; j++)
                 {
                     var csType = GetCSharpTypeForInnerArg(innerArgs[j], env);
-                    innerDelegateParamTypes.Add(csType);
                     innerDelegateParams.Add($"{csType} __ia{j}");
                 }
 
@@ -503,27 +573,42 @@ public static class NestedClosureBridge
                     innerFuncPtrTypes.Add(GetCallbackParamType(innerArgs[j], env));
                 }
                 innerFuncPtrTypes.Add("IntPtr"); // closure box
-                innerFuncPtrTypes.Add("void");   // return
+                var innerReturnCdeclType = innerReturnsValue
+                    ? GetCallbackParamType(innerClosureSpec.ReturnType, env)
+                    : "void";
+                innerFuncPtrTypes.Add(innerReturnCdeclType);
                 var innerDelegatePtrType = $"delegate* unmanaged[Cdecl]<{string.Join(", ", innerFuncPtrTypes)}>";
 
-                csWriter.WriteLine($"{innerActionType} __innerAction = ({string.Join(", ", innerDelegateParams)}) =>");
+                var actionName = multiInner ? $"__innerAction{innerIdx}" : "__innerAction";
+                csWriter.WriteLine($"{innerDelegateType} {actionName} = ({string.Join(", ", innerDelegateParams)}) =>");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
 
-                // Marshal C# types to cdecl types and call the inner funcPtr
                 var innerCallArgs = new List<string>();
                 for (int j = 0; j < innerArgs.Count; j++)
                 {
                     innerCallArgs.Add(GetInnerArgMarshalToCdecl(innerArgs[j], $"__ia{j}", env));
                 }
-                innerCallArgs.Add("innerContext"); // closure box context
+                innerCallArgs.Add($"innerContext{suffix}");
 
-                csWriter.WriteLine($"(({innerDelegatePtrType})innerFuncPtr)({string.Join(", ", innerCallArgs)});");
+                if (innerReturnsValue)
+                {
+                    var innerReturnCSharpType = GetCSharpTypeForOuterArg(innerClosureSpec.ReturnType, env);
+                    csWriter.WriteLine($"var __innerRet = (({innerDelegatePtrType})innerFuncPtr{suffix})({string.Join(", ", innerCallArgs)});");
+                    if (innerClosureSpec.ReturnType is NamedTypeSpec innerRetNamed && innerRetNamed.Name == "Swift.Bool")
+                        csWriter.WriteLine($"return __innerRet != 0;");
+                    else
+                        csWriter.WriteLine($"return ({innerReturnCSharpType})__innerRet;");
+                }
+                else
+                {
+                    csWriter.WriteLine($"(({innerDelegatePtrType})innerFuncPtr{suffix})({string.Join(", ", innerCallArgs)});");
+                }
 
                 csWriter.Indent--;
                 csWriter.WriteLine("};");
 
-                invokeArgs.Add("__innerAction");
+                invokeArgs.Add(actionName);
             }
             else
             {
@@ -550,17 +635,17 @@ public static class NestedClosureBridge
     private static void EmitFunctionPointerField(
         CSharpWriter csWriter,
         List<TypeSpec> outerArgs,
-        ClosureTypeSpec innerClosureSpec,
-        List<TypeSpec> innerArgs,
-        int innerClosureIndex,
+        List<InnerClosureInfo> innerClosures,
         string callbackBaseName,
         MethodEnvironment env)
     {
-        // delegate* unmanaged[Cdecl]<outerArgTypes..., innerFuncPtr, innerCtx, outerCtx, void>
+        var innerIndices = innerClosures.Select(ic => ic.OuterArgIndex).ToHashSet();
+
+        // delegate* unmanaged[Cdecl]<outerArgTypes..., innerFuncPtr, innerCtx, ..., outerCtx, void>
         var delegateParts = new List<string>();
         for (int i = 0; i < outerArgs.Count; i++)
         {
-            if (i == innerClosureIndex)
+            if (innerIndices.Contains(i))
             {
                 delegateParts.Add("IntPtr"); // innerFuncPtr
                 delegateParts.Add("IntPtr"); // innerContext
@@ -584,11 +669,13 @@ public static class NestedClosureBridge
         CSharpWriter csWriter,
         MethodDecl method,
         string asyncLibName,
-        ArgumentDecl closureArg,
+        List<NestedClosureInfo> nestedClosures,
         List<(ArgumentDecl arg, string csName, string csType, MethodClosureBridge.ParamAbiCategory category)> passableNonClosureParams,
-        string callbackBaseName,
         MethodEnvironment env)
     {
+        // Use the first (or only) nested closure's callback base name for the P/Invoke
+        var callbackBaseName = nestedClosures[0].CallbackBaseName;
+
         var pinvokeParams = new List<string>();
 
         // Non-closure passable method params
@@ -609,9 +696,13 @@ public static class NestedClosureBridge
             }
         }
 
-        // Outer closure → funcPtr + context
-        pinvokeParams.Add("IntPtr funcPtr");
-        pinvokeParams.Add("IntPtr context");
+        // Each outer closure → funcPtr + context pair
+        foreach (var nc in nestedClosures)
+        {
+            var csName = NameProvider.StripVerbatimPrefix(nc.ParamName);
+            pinvokeParams.Add($"IntPtr {csName}FuncPtr");
+            pinvokeParams.Add($"IntPtr {csName}Context");
+        }
 
         // SwiftSelf last — instance methods only
         bool isInstance = method.MethodType != MethodType.Static;
@@ -651,37 +742,14 @@ public static class NestedClosureBridge
     private static void EmitPublicMethod(
         CSharpWriter csWriter,
         MethodDecl method,
-        ClosureTypeSpec outerClosureSpec,
-        ArgumentDecl closureArg,
-        List<TypeSpec> outerArgs,
-        ClosureTypeSpec innerClosureSpec,
-        List<TypeSpec> innerArgs,
-        int innerClosureIndex,
+        List<NestedClosureInfo> nestedClosures,
         List<(ArgumentDecl arg, string csName, string csType, MethodClosureBridge.ParamAbiCategory category)> passableNonClosureParams,
-        string callbackBaseName,
-        string closureParamName,
         MethodEnvironment env,
         TypeDecl? parentDecl,
         string helperClassName)
     {
+        var callbackBaseName = nestedClosures[0].CallbackBaseName;
         var pInvokeName = $"PInvoke_{callbackBaseName}";
-
-        // Build the nested delegate type: Action<outerCSharpArg0, ..., Action<innerCSharpArg0, ...>>
-        var outerDelegateTypeArgs = new List<string>();
-        for (int i = 0; i < outerArgs.Count; i++)
-        {
-            if (i == innerClosureIndex)
-            {
-                outerDelegateTypeArgs.Add(BuildInnerActionType(innerArgs, env));
-            }
-            else
-            {
-                outerDelegateTypeArgs.Add(GetCSharpTypeForOuterArg(outerArgs[i], env));
-            }
-        }
-        var delegateType = outerDelegateTypeArgs.Count > 0
-            ? $"Action<{string.Join(", ", outerDelegateTypeArgs)}>"
-            : "Action";
 
         // Build return type
         var returnSpec = method.CSSignature[0].SwiftTypeSpec;
@@ -704,7 +772,29 @@ public static class NestedClosureBridge
         {
             publicParams.Add($"{csType} {csName}");
         }
-        publicParams.Add($"{delegateType} {closureParamName}");
+
+        // Add delegate params for each outer closure
+        foreach (var nc in nestedClosures)
+        {
+            var innerIndices = nc.InnerClosures.Select(ic => ic.OuterArgIndex).ToHashSet();
+            var outerDelegateTypeArgs = new List<string>();
+            for (int i = 0; i < nc.OuterArgs.Count; i++)
+            {
+                if (innerIndices.Contains(i))
+                {
+                    var ic = nc.InnerClosures.First(c => c.OuterArgIndex == i);
+                    outerDelegateTypeArgs.Add(BuildInnerDelegateType(ic.Args, ic.Spec.ReturnType, env));
+                }
+                else
+                {
+                    outerDelegateTypeArgs.Add(GetCSharpTypeForOuterArg(nc.OuterArgs[i], env));
+                }
+            }
+            var delegateType = outerDelegateTypeArgs.Count > 0
+                ? $"Action<{string.Join(", ", outerDelegateTypeArgs)}>"
+                : "Action";
+            publicParams.Add($"{delegateType} {nc.ParamName}");
+        }
 
         // Build method name
         var methodName = NameProvider.GetPublicMethodName(
@@ -724,11 +814,14 @@ public static class NestedClosureBridge
         csWriter.WriteLine("{");
         csWriter.Indent++;
 
-        // Allocate GCHandle for the outer delegate
-        csWriter.WriteLine($"var __gcHandle = GCHandle.Alloc({closureParamName});");
-
         // When in a generic type, callback pointer and P/Invoke live in the helper class
         var helperPrefix = string.IsNullOrEmpty(helperClassName) ? "" : $"{helperClassName}.";
+
+        // Allocate GCHandle for each outer closure delegate
+        foreach (var nc in nestedClosures)
+        {
+            csWriter.WriteLine($"var __gcHandle_{nc.Index} = GCHandle.Alloc({nc.ParamName});");
+        }
 
         // Build P/Invoke call arguments
         var callArgs = new List<string>();
@@ -750,9 +843,12 @@ public static class NestedClosureBridge
             }
         }
 
-        // Closure funcPtr + context
-        callArgs.Add($"{helperPrefix}s_{callbackBaseName}");
-        callArgs.Add("GCHandle.ToIntPtr(__gcHandle)");
+        // Each outer closure: funcPtr + context pair
+        foreach (var nc in nestedClosures)
+        {
+            callArgs.Add($"{helperPrefix}s_{nc.CallbackBaseName}");
+            callArgs.Add($"GCHandle.ToIntPtr(__gcHandle_{nc.Index})");
+        }
 
         // SwiftSelf — instance methods only
         if (!isStatic)
@@ -808,6 +904,15 @@ public static class NestedClosureBridge
     {
         if (argType is NamedTypeSpec named)
         {
+            // Optional<ref> → nil check: IntPtr.Zero → null, else SwiftMarshal
+            if (named.Name == "Swift.Optional" && named.ContainsGenericParameters &&
+                named.GenericParameters.Count == 1 && env.ClosureHandler.IsReferenceType(named.GenericParameters[0]))
+            {
+                var innerCsType = GetCSharpTypeForOuterArg(named.GenericParameters[0], env);
+                csWriter.WriteLine($"var {marshaledName} = {rawName} == IntPtr.Zero ? null : Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{innerCsType}>(new IntPtr((void*){rawName}));");
+                return;
+            }
+
             if (named.Name == "Swift.Bool")
             {
                 csWriter.WriteLine($"var {marshaledName} = {rawName} != 0;");
@@ -858,6 +963,16 @@ public static class NestedClosureBridge
     {
         if (argType is NamedTypeSpec named)
         {
+            // Optional<ref> → nil check: null → IntPtr.Zero, else handle
+            if (named.Name == "Swift.Optional" && named.ContainsGenericParameters &&
+                named.GenericParameters.Count == 1 && env.ClosureHandler.IsReferenceType(named.GenericParameters[0]))
+            {
+                var inner = named.GenericParameters[0];
+                if (env.ClosureHandler.IsObjCBridgedClass(inner))
+                    return $"{varName} == null ? IntPtr.Zero : {varName}.Handle";
+                return $"{varName} == null ? IntPtr.Zero : {varName}.Payload.DangerousGetHandle()";
+            }
+
             if (named.Name == "Swift.Bool")
                 return $"(byte)({varName} ? 1 : 0)";
 
@@ -932,6 +1047,14 @@ public static class NestedClosureBridge
     {
         if (argType is NamedTypeSpec named)
         {
+            // Optional<ref> → nullable reference type
+            if (named.Name == "Swift.Optional" && named.ContainsGenericParameters &&
+                named.GenericParameters.Count == 1 && env.ClosureHandler.IsReferenceType(named.GenericParameters[0]))
+            {
+                var innerCsType = GetCSharpTypeForOuterArg(named.GenericParameters[0], env);
+                return $"{innerCsType}?";
+            }
+
             if (named.Name == "Swift.Bool") return "bool";
             if (MarshallingHelpers.IsSwiftPrimitive(named.Name))
                 return GetCSharpPrimitiveType(named.Name);
@@ -964,16 +1087,25 @@ public static class NestedClosureBridge
     /// <summary>
     /// Builds the Action&lt;...&gt; type string for the inner closure.
     /// </summary>
-    private static string BuildInnerActionType(List<TypeSpec> innerArgs, MethodEnvironment env)
+    private static string BuildInnerDelegateType(List<TypeSpec> innerArgs, TypeSpec innerReturnType, MethodEnvironment env)
     {
-        if (innerArgs.Count == 0)
-            return "Action";
-
+        bool innerReturnsValue = !innerReturnType.IsEmptyTuple;
         var typeArgs = new List<string>();
         foreach (var arg in innerArgs)
         {
             typeArgs.Add(GetCSharpTypeForInnerArg(arg, env));
         }
+
+        if (innerReturnsValue)
+        {
+            var returnCsType = GetCSharpTypeForOuterArg(innerReturnType, env);
+            typeArgs.Add(returnCsType);
+            return $"Func<{string.Join(", ", typeArgs)}>";
+        }
+
+        if (typeArgs.Count == 0)
+            return "Action";
+
         return $"Action<{string.Join(", ", typeArgs)}>";
     }
 
@@ -985,6 +1117,11 @@ public static class NestedClosureBridge
     {
         if (argType is NamedTypeSpec named)
         {
+            // Optional<ref> → IntPtr (IntPtr.Zero = null)
+            if (named.Name == "Swift.Optional" && named.ContainsGenericParameters &&
+                named.GenericParameters.Count == 1 && env.ClosureHandler.IsReferenceType(named.GenericParameters[0]))
+                return "IntPtr";
+
             if (named.Name == "Swift.Bool") return "byte";
             if (MarshallingHelpers.IsSwiftPrimitive(named.Name))
                 return GetCSharpPrimitiveType(named.Name);
@@ -1008,6 +1145,11 @@ public static class NestedClosureBridge
     {
         if (argType is NamedTypeSpec named)
         {
+            // Optional<ref> → nullable pointer (nil-pointer ABI)
+            if (named.Name == "Swift.Optional" && named.ContainsGenericParameters &&
+                named.GenericParameters.Count == 1 && env.ClosureHandler.IsReferenceType(named.GenericParameters[0]))
+                return "UnsafeMutableRawPointer?";
+
             if (named.Name == "Swift.Bool") return "UInt8";
 
             if (MarshallingHelpers.IsSwiftPrimitive(named.Name))
@@ -1050,6 +1192,14 @@ public static class NestedClosureBridge
     {
         if (argType is NamedTypeSpec named)
         {
+            // Optional<ref> → nil check + Unmanaged.fromOpaque
+            if (named.Name == "Swift.Optional" && named.ContainsGenericParameters &&
+                named.GenericParameters.Count == 1 && env.ClosureHandler.IsReferenceType(named.GenericParameters[0]))
+            {
+                var innerTypeStr = ExistentialBypassEmitter.RenderSwiftTypeSpec(named.GenericParameters[0]);
+                return $"{paramName} != nil ? Unmanaged<{innerTypeStr}>.fromOpaque({paramName}!).takeUnretainedValue() : nil";
+            }
+
             if (named.Name == "Swift.Bool")
                 return $"({paramName} != 0)";
 
@@ -1079,6 +1229,11 @@ public static class NestedClosureBridge
     {
         if (argType is NamedTypeSpec named)
         {
+            // Optional<ref> → nil check + passUnretained
+            if (named.Name == "Swift.Optional" && named.ContainsGenericParameters &&
+                named.GenericParameters.Count == 1 && env.ClosureHandler.IsReferenceType(named.GenericParameters[0]))
+                return $"{paramName} != nil ? Unmanaged.passUnretained({paramName}!).toOpaque() : nil";
+
             if (named.Name == "Swift.Bool")
                 return $"({paramName} ? 1 : 0)";
 

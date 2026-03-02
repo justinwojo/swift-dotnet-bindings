@@ -1748,6 +1748,34 @@ public class ClosureHandlerTests
         Assert.True(handler.RequiresNonFrozenMarshalling(closureTypeSpec));
     }
 
+    [Fact]
+    public void CanInvokeFromCSharp_ClassType_ReturnsTrue()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Closure: (ImageTask) -> Void — class type should be invocable
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Nuke.ImageTask"),
+            TupleTypeSpec.Empty);
+
+        Assert.True(handler.CanInvokeFromCSharp(closureTypeSpec));
+    }
+
+    [Fact]
+    public void CanInvokeFromCSharp_ObjCBridgedType_ReturnsTrue()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Closure: (NSError) -> Void — ObjC-bridged type should be invocable
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Foundation.NSError"),
+            TupleTypeSpec.Empty);
+
+        Assert.True(handler.CanInvokeFromCSharp(closureTypeSpec));
+    }
+
     #endregion
 
     #region Async+Throwing Closure Tests (Phase 28)

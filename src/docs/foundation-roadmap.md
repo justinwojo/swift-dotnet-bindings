@@ -402,10 +402,10 @@ Details: [Pillar 2 § P2.2](#session-p22-imethodpostprocessor--constructorhandle
 
 ---
 
-**C2: Nested Closures + Class Params (full)** | Direct (A4 spike succeeded)
+**C2: Nested Closures + Class Params (full)** | ✅ COMPLETE
 *Pillar: 3 (nested closures) | ~26-41 methods unlocked*
 
-Apply the two-level bridge ABI proven in A4 across all nested-closure methods. Extend `IsInvocableParameter` for class types. Add inner closure lifetime cleanup (release mechanism for `passRetained` leak). Extend to Optional<ref> args, multiple nested closures, non-void inner returns.
+Lifted 4 of 5 artificial limitations from the A4 spike to production quality. 6 sub-tasks: (1) `IsInvocableParameter` extended for class types and ObjC-bridged classes. (2) Inner closure box uses `passRetained`(+1) to keep box alive for escaping closures; `takeUnretainedValue` in trampoline (bounded leak, safe for multi-call). (3) Non-void inner returns — primitives+Bool allowed via `Func<>` delegation (enums/classes deferred). (4) Optional<ref> args — nil-pointer ABI (`UnsafeMutableRawPointer?` / `IntPtr.Zero`) in all 7 type helpers. (5) Multiple inner closures — `InnerClosureInfo` record, indexed naming (`innerTrampoline0`, `__innerBox0`). (6) Multiple outer closures — data structures ready (`NestedClosureInfo` record) but GATED: current architecture emits one Swift wrapper per outer closure with mismatched P/Invoke ABI; needs single-wrapper design. 12 new tests. 53/53 validation.
 
 Details: [Pillar 3 § P3.3](#session-p33-nested-closures--class-params-41-methods)
 

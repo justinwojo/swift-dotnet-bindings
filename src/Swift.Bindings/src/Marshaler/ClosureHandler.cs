@@ -1255,6 +1255,14 @@ public class ClosureHandler
             if (IsNonFrozenStruct(namedType))
                 return true;
 
+            // Class types are supported (via IntPtr / Unmanaged patterns)
+            if (IsClassType(namedType))
+                return true;
+
+            // ObjC-bridged types are supported (via Handle patterns)
+            if (IsObjCBridgedClass(namedType))
+                return true;
+
             return false;
         }
 
