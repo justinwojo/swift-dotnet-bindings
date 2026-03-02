@@ -292,19 +292,32 @@ public static class MemberEmissionValidator
             // This affects type conversion behavior (e.g., native remapping is skipped for accessors)
             accessorMethod.IsAccessor = true;
 
-            // Check generic protocol constraints on accessor
+            // Check generic protocol constraints on accessor — parent-baseline constraints
+            // on SUPPORTED protocols are skipped (handled by type-level where clause).
+            // Unsupported protocols (PAT or Self) always block, even if parent-declared.
+            // Extra constraints (conditional extension) on supported protocols pass through.
             if (accessorMethod.IsGeneric)
             {
+                var parentTypeGenericParams = accessorMethod.ParentDecl is TypeDecl accessorParentType
+                    ? accessorParentType.GenericParameters
+                    : null;
+
                 foreach (var param in accessorMethod.GenericParameters)
                 {
                     foreach (var conformance in param.GenericConformances)
                     {
-                        if (conformance.Kind == ConformanceKind.Protocol &&
-                            typeDatabase.TryGetTypeRecord(conformance.ConformanceTarget, out var record) &&
-                            record.Kind == TypeRecordKind.Protocol &&
-                            record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes))
+                        if (conformance.Kind != ConformanceKind.Protocol)
+                            continue;
+
+                        // Skip parent-baseline constraints only when the protocol is supported
+                        if (!MethodValidationGates.IsConditionalExtensionConstraint(param, conformance, parentTypeGenericParams) &&
+                            !MethodValidationGates.IsUnsupportedProtocolConstraint(conformance.ConformanceTarget, typeDatabase))
+                            continue;
+
+                        // Block if unsupported (associated types or Self)
+                        if (MethodValidationGates.IsUnsupportedProtocolConstraint(conformance.ConformanceTarget, typeDatabase))
                         {
-                            skipDetails = $"Accessor '{accessorMethod.Name}' has constraints on protocols with associated types.";
+                            skipDetails = $"Accessor '{accessorMethod.Name}' has constraints on protocols with associated types or self requirements.";
                             return SkipReason.GenericProtocolConstraint;
                         }
                     }
@@ -375,24 +388,33 @@ public static class MemberEmissionValidator
 
         var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
 
-        // Check for protocol constraints with associated types
+        // Check for protocol constraints with associated types — parent-baseline constraints
+        // on SUPPORTED protocols are skipped (handled by type-level where clause).
+        // Unsupported protocols (PAT or Self) always block, even if parent-declared.
+        // Extra constraints (conditional extension) on supported protocols pass through.
         if (method.IsGeneric)
         {
+            var parentTypeGenericParams = method.ParentDecl is TypeDecl methodParentType
+                ? methodParentType.GenericParameters
+                : null;
+
             foreach (var param in method.GenericParameters)
             {
                 foreach (var conformance in param.GenericConformances)
                 {
-                    if (conformance.Kind == ConformanceKind.Protocol)
+                    if (conformance.Kind != ConformanceKind.Protocol)
+                        continue;
+
+                    // Skip parent-baseline constraints only when the protocol is supported
+                    if (!MethodValidationGates.IsConditionalExtensionConstraint(param, conformance, parentTypeGenericParams) &&
+                        !MethodValidationGates.IsUnsupportedProtocolConstraint(conformance.ConformanceTarget, typeDatabase))
+                        continue;
+
+                    // Block if unsupported (associated types or Self)
+                    if (MethodValidationGates.IsUnsupportedProtocolConstraint(conformance.ConformanceTarget, typeDatabase))
                     {
-                        if (typeDatabase.TryGetTypeRecord(conformance.ConformanceTarget, out var record))
-                        {
-                            if (record.Kind == TypeRecordKind.Protocol &&
-                                record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes))
-                            {
-                                skipDetails = "Method has constraints on protocols with associated types.";
-                                return SkipReason.GenericProtocolConstraint;
-                            }
-                        }
+                        skipDetails = "Method has constraints on protocols with associated types or self requirements.";
+                        return SkipReason.GenericProtocolConstraint;
                     }
                 }
             }

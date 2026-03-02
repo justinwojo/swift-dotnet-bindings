@@ -551,10 +551,10 @@ namespace BindingsGeneration
             // (these protocols generate generic C# interfaces which can't be used as constraints without type arguments)
             if (MethodValidationGates.HasUnsupportedProtocolConstraints(methodEnv))
             {
-                _logger.LogWarning($"Skipping method {methodEnv.MethodDecl.Name}: has constraints on protocols with associated types");
+                _logger.LogWarning($"Skipping method {methodEnv.MethodDecl.Name}: has constraints on protocols with associated types or self requirements");
                 if (!isAccessor)
                 {
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodEnv.MethodDecl.Name, methodEnv.MethodDecl.ParentDecl, SkipReason.GenericProtocolConstraint, "Method has constraints on protocols with associated types.");
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodEnv.MethodDecl.Name, methodEnv.MethodDecl.ParentDecl, SkipReason.GenericProtocolConstraint, "Method has constraints on protocols with associated types or self requirements.");
                 }
                 return;
             }

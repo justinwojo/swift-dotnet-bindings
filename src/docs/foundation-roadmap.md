@@ -274,22 +274,26 @@ Key changes:
 Key files: `BoundGenericsHandler.cs`
 Research: [`research/iswiftobject-constraint-investigation.md`]
 
-### Session P4.2: Conditional Extension Constraint Propagation (~10-15 methods)
-**Goal**: When a method is from a conditional Swift extension, add the extension's constraints to the C# method's `where` clause.
+### Session P4.2: Conditional Extension Constraint Propagation — DONE
+**Goal**: Emit methods from conditional Swift extensions unconditionally with runtime witness table enforcement.
 **Effort**: 1 session
-**Impact**: ~10-15 methods (GRDB `fetchAll`, `fetchOne`, `fetchCursor` patterns)
+**Impact**: ~67 methods (GRDB `fetchAll`, `fetchOne`, `fetchCursor` patterns + cursor subclass methods)
+
+**Approach**: C# does NOT allow `where` clauses on methods to further constrain the enclosing type's type parameters (CS0699). Instead, methods are emitted unconditionally and rely on runtime witness table extraction (`ProtocolWitnessTable.GetOrThrow<T, IProtocol>()`) to enforce the constraint. The P/Invoke and witness table infrastructure already handles this correctly.
 
 Key changes:
-- Parse method's `genericSig` from ABI JSON for constraints beyond parent type
-- `GenericTypeEmitter` — emit method-level `where` clauses with additional constraints
-- `BoundGenericsHandler.TryGetFirstUnsatisfiedConstraint` — don't reject when constraint can be added to method
+- `MethodValidationGates.HasUnsupportedProtocolConstraints` — skip parent-baseline constraints on supported protocols (type-level where handles); still block unsupported protocols (PAT/Self) even if parent-declared
+- `BoundGenericsHandler.GenericTypeParamSatisfiesConstraint` — fall back to method's conditional extension constraints when parent type doesn't satisfy
+- `BoundGenericsHandler.ShouldSkipConstraint` — aligned with `PInvokeEmitter.IsProtocolAvailableForConstraint` (added `HasSelfRequirement` check)
+- `MemberEmissionValidator` — parallel constraint filter updates for dispatch-table-driven emission
 
-Key files: `GenericTypeEmitter.cs`, `BoundGenericsHandler.cs`, `MethodHandler.cs`
+Key files: `MethodValidationGates.cs`, `BoundGenericsHandler.cs`, `MemberEmissionValidator.cs`
 
-### Session P4.3: Document Category 1 Limitation
+### Session P4.3: Document Category 1 Limitation — DONE
 **Goal**: Accept and document that ~5 methods with primitive/ObjC type arguments can't satisfy `ISwiftObject`. Clear diagnostics.
 **Effort**: 0.25 session
 **Impact**: Better developer experience, no code fix
+**Location**: `src/docs/known-issues-workarounds.md` — "Primitive/ObjC Types Cannot Satisfy ISwiftObject Constraint"
 
 ### Pillar 4 Dependencies
 ```
@@ -383,12 +387,12 @@ Details: [Pillar 2 § P2.1](#session-p21-dispatch-table-with-imethodbridgeemitte
 
 ---
 
-**B3: Conditional Extension Constraints + Category 1 Docs** | Plan
-*Pillar: 4 (conditional extensions) | ~10-15 GRDB fetch methods unlocked*
+**B3: Conditional Extension Constraints + Category 1 Docs** | Done
+*Pillar: 4 (conditional extensions) | ~67 methods unlocked*
 
-Parse `genericSig` from ABI JSON for constraints beyond parent type. Emit method-level `where` clauses. Need to explore how `GenericTypeEmitter` currently works and whether method-level clauses interact with existing constraint propagation. Also document ~5 methods with primitive/ObjC type arguments as known limitations (P4.3 — 15 min add-on).
+Methods from conditional extensions emitted unconditionally with runtime witness table enforcement. C# CS0699 prohibits method-level `where` clauses on parent-type params, so constraints are enforced at runtime via `ProtocolWitnessTable.GetOrThrow<T, IProtocol>()`. Gates refined to skip parent-baseline constraints on supported protocols while still blocking unsupported ones (PAT/Self). Category 1 limitation (primitive/ObjC type args) documented in known-issues.
 
-Details: [Pillar 4 § P4.2](#session-p42-conditional-extension-constraint-propagation-10-15-methods), [Pillar 4 § P4.3](#session-p43-document-category-1-limitation)
+Details: [Pillar 4 § P4.2](#session-p42-conditional-extension-constraint-propagation--done), [Pillar 4 § P4.3](#session-p43-document-category-1-limitation--done)
 
 ---
 

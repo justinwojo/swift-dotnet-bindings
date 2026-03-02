@@ -345,7 +345,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 if (MethodValidationGates.HasUnsupportedProtocolConstraints(accessorEnv))
                 {
                     _logger.LogWarning($"PropertyHandler: Skipping property {propertyDecl.Name} because accessor {accessor.Method.Name} has unsupported protocol constraints.");
-                    SkipProperty(SkipReason.GenericProtocolConstraint, $"Accessor '{accessor.Method.Name}' has constraints on protocols with associated types.");
+                    SkipProperty(SkipReason.GenericProtocolConstraint, $"Accessor '{accessor.Method.Name}' has constraints on protocols with associated types or self requirements.");
                     return;
                 }
 

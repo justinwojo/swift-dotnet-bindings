@@ -372,7 +372,16 @@ public class BoundGenericsHandler
             ? parentType.GenericParameters
             : null;
 
-        return TryGetFirstUnsatisfiedConstraint(typeSpec, moduleDecl, parentTypeGenericParams, out details);
+        // Extract method-level generic params for conditional extension constraint fallback.
+        // When contextDecl is a MethodDecl, its GenericParameters include both parent-type
+        // constraints AND conditional extension constraints. The fallback in
+        // GenericTypeParamSatisfiesConstraint uses these to accept constraints that the
+        // parent type doesn't declare but the extension does.
+        var methodGenericParams = contextDecl is MethodDecl methodDecl
+            ? methodDecl.GenericParameters
+            : null;
+
+        return TryGetFirstUnsatisfiedConstraint(typeSpec, moduleDecl, parentTypeGenericParams, methodGenericParams, out details);
     }
 
     /// <summary>
@@ -831,7 +840,8 @@ public class BoundGenericsHandler
     }
 
     private bool TryGetFirstUnsatisfiedConstraint(TypeSpec typeSpec, ModuleDecl moduleDecl,
-        IReadOnlyList<GenericArgumentDecl>? parentTypeGenericParams, out string details)
+        IReadOnlyList<GenericArgumentDecl>? parentTypeGenericParams,
+        IReadOnlyList<GenericArgumentDecl>? methodGenericParams, out string details)
     {
         details = string.Empty;
 
@@ -839,14 +849,14 @@ public class BoundGenericsHandler
         {
             case NamedTypeSpec namedTypeSpec:
                 if (namedTypeSpec.ContainsGenericParameters &&
-                    TryValidateGenericTypeConstraints(namedTypeSpec, moduleDecl, parentTypeGenericParams, out details))
+                    TryValidateGenericTypeConstraints(namedTypeSpec, moduleDecl, parentTypeGenericParams, methodGenericParams, out details))
                 {
                     return true;
                 }
 
                 foreach (var genericParameter in namedTypeSpec.GenericParameters)
                 {
-                    if (TryGetFirstUnsatisfiedConstraint(genericParameter, moduleDecl, parentTypeGenericParams, out details))
+                    if (TryGetFirstUnsatisfiedConstraint(genericParameter, moduleDecl, parentTypeGenericParams, methodGenericParams, out details))
                         return true;
                 }
                 return false;
@@ -854,15 +864,15 @@ public class BoundGenericsHandler
             case TupleTypeSpec tupleTypeSpec:
                 foreach (var element in tupleTypeSpec.Elements)
                 {
-                    if (TryGetFirstUnsatisfiedConstraint(element, moduleDecl, parentTypeGenericParams, out details))
+                    if (TryGetFirstUnsatisfiedConstraint(element, moduleDecl, parentTypeGenericParams, methodGenericParams, out details))
                         return true;
                 }
                 return false;
 
             case ClosureTypeSpec closureTypeSpec:
-                if (TryGetFirstUnsatisfiedConstraint(closureTypeSpec.Arguments, moduleDecl, parentTypeGenericParams, out details))
+                if (TryGetFirstUnsatisfiedConstraint(closureTypeSpec.Arguments, moduleDecl, parentTypeGenericParams, methodGenericParams, out details))
                     return true;
-                return TryGetFirstUnsatisfiedConstraint(closureTypeSpec.ReturnType, moduleDecl, parentTypeGenericParams, out details);
+                return TryGetFirstUnsatisfiedConstraint(closureTypeSpec.ReturnType, moduleDecl, parentTypeGenericParams, methodGenericParams, out details);
 
             default:
                 return false;
@@ -870,7 +880,8 @@ public class BoundGenericsHandler
     }
 
     private bool TryValidateGenericTypeConstraints(NamedTypeSpec boundGenericType, ModuleDecl moduleDecl,
-        IReadOnlyList<GenericArgumentDecl>? parentTypeGenericParams, out string details)
+        IReadOnlyList<GenericArgumentDecl>? parentTypeGenericParams,
+        IReadOnlyList<GenericArgumentDecl>? methodGenericParams, out string details)
     {
         details = string.Empty;
 
@@ -896,7 +907,7 @@ public class BoundGenericsHandler
                 if (ShouldSkipConstraint(conformance.ConformanceTarget))
                     continue;
 
-                if (SatisfiesConstraint(typeArgument, conformance.ConformanceTarget, moduleDecl, parentTypeGenericParams))
+                if (SatisfiesConstraint(typeArgument, conformance.ConformanceTarget, moduleDecl, parentTypeGenericParams, methodGenericParams))
                     continue;
 
                 details = $"Type argument '{typeArgument}' does not satisfy constraint '{conformance.ConformanceTarget.ModuleQualifiedName}' on '{boundGenericType.NameWithoutModule}'.";
@@ -917,7 +928,8 @@ public class BoundGenericsHandler
 
         if (_typeDatabase.TryGetTypeRecord(protocolType, out var protocolRecord) &&
             protocolRecord.Kind == TypeRecordKind.Protocol &&
-            protocolRecord.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes))
+            (protocolRecord.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes) ||
+             protocolRecord.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement)))
         {
             return true;
         }
@@ -926,17 +938,16 @@ public class BoundGenericsHandler
     }
 
     private bool SatisfiesConstraint(TypeSpec typeArgument, SwiftTypeName protocolConstraint, ModuleDecl moduleDecl,
-        IReadOnlyList<GenericArgumentDecl>? parentTypeGenericParams)
+        IReadOnlyList<GenericArgumentDecl>? parentTypeGenericParams,
+        IReadOnlyList<GenericArgumentDecl>? methodGenericParams = null)
     {
         if (TypeSpecHelpers.IsGenericTypeParameter(typeArgument))
         {
-            // A generic type parameter (e.g., τ_0_0 / T0) only satisfies a constraint
-            // if the parent type's generic declaration includes that constraint.
-            // Swift conditional extensions add constraints in the method's genericSig
-            // (e.g., Table<T> where T: FetchableRecord), but these are NOT reflected
-            // on the C# type declaration (Table<T0> where T0 : ISwiftObject).
-            // Without the constraint on the parent type, C# rejects the usage (CS0314).
-            return GenericTypeParamSatisfiesConstraint(typeArgument, protocolConstraint, parentTypeGenericParams, moduleDecl);
+            // A generic type parameter (e.g., τ_0_0 / T0) satisfies a constraint if:
+            // 1. The parent type's generic declaration includes that constraint, OR
+            // 2. The method's generic parameters include a conditional extension constraint
+            //    for that protocol (and the protocol is emittable — no associated types or Self).
+            return GenericTypeParamSatisfiesConstraint(typeArgument, protocolConstraint, parentTypeGenericParams, moduleDecl, methodGenericParams);
         }
 
         if (typeArgument is not NamedTypeSpec namedTypeArgument || !namedTypeArgument.HasModule())
@@ -973,11 +984,17 @@ public class BoundGenericsHandler
     /// Checks whether a generic type parameter satisfies a protocol constraint based on
     /// the parent type's generic declarations. When no parent type generic parameters are
     /// available (e.g., free functions), the check is permissive and returns true.
+    ///
+    /// When the parent type doesn't satisfy the constraint, falls back to the method's
+    /// generic parameters to check for conditional extension constraints. The constraint
+    /// is accepted if the protocol is emittable (no associated types or Self requirements),
+    /// since the P/Invoke infrastructure already generates witness table extraction for these.
     /// </summary>
-    private static bool GenericTypeParamSatisfiesConstraint(
+    private bool GenericTypeParamSatisfiesConstraint(
         TypeSpec typeArgument, SwiftTypeName protocolConstraint,
         IReadOnlyList<GenericArgumentDecl>? parentTypeGenericParams,
-        ModuleDecl? moduleDecl = null)
+        ModuleDecl? moduleDecl = null,
+        IReadOnlyList<GenericArgumentDecl>? methodGenericParams = null)
     {
         // If no parent type generic parameters are available (e.g., free functions,
         // non-generic parent types), be permissive — the constraint can't be
@@ -1014,8 +1031,58 @@ public class BoundGenericsHandler
                 return true;
         }
 
-        // The parent type does not constrain this parameter to conform to the required protocol.
-        // This is a conditional extension constraint that cannot be expressed in C#.
+        // Fallback: check if the method has a conditional extension constraint that satisfies
+        // this requirement. Conditional extension methods inherit constraints from the extension
+        // (e.g., `extension Table<T> where T: FetchableRecord`), which appear in the method's
+        // GenericParameters but not on the parent type. These are emitted unconditionally in C#
+        // with runtime witness table enforcement via ProtocolWitnessTable.GetOrThrow<T, IProtocol>().
+        if (methodGenericParams != null)
+        {
+            var methodParam = methodGenericParams.FirstOrDefault(p => p.TypeName == paramName);
+            if (methodParam != null)
+            {
+                foreach (var conformance in methodParam.GenericConformances)
+                {
+                    if (conformance.Kind != ConformanceKind.Protocol)
+                        continue;
+
+                    if (conformance.ConformanceTarget != protocolConstraint)
+                    {
+                        // Also check protocol inheritance
+                        if (moduleDecl == null || !ProtocolInheritsFrom(conformance.ConformanceTarget, protocolConstraint, moduleDecl))
+                            continue;
+                    }
+
+                    // Only accept if the protocol is emittable (no associated types or Self)
+                    // — aligned with IsProtocolAvailableForConstraint in PInvokeEmitter.
+                    if (!IsProtocolEmittableForConditionalConstraint(conformance.ConformanceTarget))
+                        continue;
+
+                    return true;
+                }
+            }
+        }
+
+        // The parent type does not constrain this parameter to conform to the required protocol,
+        // and no conditional extension constraint was found.
+        return false;
+    }
+
+    /// <summary>
+    /// Checks whether a protocol can be used for a conditional extension constraint.
+    /// Returns false for protocols with associated types or Self requirements,
+    /// aligned with PInvokeEmitter.IsProtocolAvailableForConstraint.
+    /// </summary>
+    private bool IsProtocolEmittableForConditionalConstraint(SwiftTypeName protocolTypeName)
+    {
+        if (_typeDatabase.TryGetTypeRecord(protocolTypeName, out var record))
+        {
+            return record.Kind == TypeRecordKind.Protocol &&
+                   !record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes) &&
+                   !record.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement);
+        }
+
+        // Unknown protocol — fail closed
         return false;
     }
 

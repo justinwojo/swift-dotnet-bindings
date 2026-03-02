@@ -311,3 +311,37 @@ Three Mono runtime issues have been documented with minimal reproduction cases, 
 - [#64215](https://github.com/dotnet/runtime/issues/64215) — Introduce `CallConvSwift`
 
 **Next step**: File after swift-bindings repo is public (so issues can link to concrete repro code).
+
+---
+
+## Primitive/ObjC Types Cannot Satisfy ISwiftObject Constraint
+
+**Severity**: Low — Affects ~5 methods across all validated libraries
+**Status**: Documented limitation (by design)
+**Affects**: Methods where a bound generic type parameter is instantiated with a primitive or ObjC-bridged type
+
+### Symptoms
+
+Methods are skipped with:
+```
+Type argument 'Swift.Int' does not satisfy constraint 'SomeProtocol' on 'Container'.
+```
+
+### Root Cause
+
+Some Swift APIs use generic types (e.g., `Container<T>`) where `T` is constrained to a protocol. When `T` is instantiated with a primitive type (`Int`, `Bool`, `Double`) or an ObjC-bridged type (`String`, `URL`), the C# binding cannot satisfy the constraint because these types map to .NET primitives (`System.Int64`, `System.Boolean`) or ObjC interop types (`NSUrl`) that do not implement `ISwiftObject`.
+
+### Why This Cannot Be Fixed
+
+C# generic constraints require `where T : ISwiftObject` for Swift interop types. Primitive types like `System.Int64` fundamentally cannot implement this interface. This is a design boundary between Swift's universal generics and C#'s constrained generics.
+
+### Affected Patterns
+
+| Pattern | Example | Count |
+|---------|---------|-------|
+| Primitive type arg | `Container<Int>` → `Container<System.Int64>` | ~3 |
+| ObjC-bridged type arg | `Container<URL>` → `Container<NSUrl>` | ~2 |
+
+### Workaround
+
+No workaround — these methods cannot be bound. Use the equivalent non-generic Swift API directly if available, or write a Swift wrapper that hides the generic constraint.
