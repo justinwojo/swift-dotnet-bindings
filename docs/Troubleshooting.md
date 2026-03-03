@@ -231,6 +231,21 @@ Common skip reasons and what they mean:
 
 ---
 
+## Binding Diagnostic IDs
+
+Generated bindings use custom diagnostic IDs (via `[Obsolete]` attributes) to flag specific conditions at compile time:
+
+| ID | Meaning | Action |
+|----|---------|--------|
+| `SB0001` | **Mono JIT crash risk** — method may crash on Mono (iOS Simulator). Safe on NativeAOT (device). | Suppressed automatically in NativeAOT builds. See [NativeAOT Deployment](NativeAOT-Deployment). |
+| `SB0002` | **Missing symbol** — P/Invoke entry point not found in the library. Will throw `EntryPointNotFoundException`. | The Swift symbol wasn't exported. May need `BUILD_LIBRARY_FOR_DISTRIBUTION=YES`. |
+| `SB0003` | **Non-dispatchable protocol member** — can't dispatch through the witness table. Throws `NotSupportedException` on Swift-backed existentials. | Concrete type calls work fine. Only affects existential dispatch. |
+| `SB0004` | **Empty protocol interface** — all members were skipped. Interface exists for type identity only. | Check `binding-report.json` for skip reasons. |
+
+These IDs are scoped to Swift binding packages — suppressing them doesn't affect other `[Obsolete]` warnings.
+
+---
+
 ## Reporting Issues
 
 When filing an issue, include:

@@ -30,7 +30,7 @@ Swift Bindings automates the entire process. You point it at a compiled framewor
 // Nuke (popular Swift image library), fully generated binding
 var pipeline = ImagePipeline.Shared;
 var request = new ImageRequest("https://picsum.photos/200/200");
-var image = await pipeline.Image(request);
+var image = await pipeline.ImageAsync(request);
 Console.WriteLine($"Image loaded: {image.Size.Width}x{image.Size.Height}");
 ```
 
@@ -48,21 +48,13 @@ The generator covers the full breadth of Swift's type system:
 
 ## Validated Against Real Libraries
 
-| Library | Errors | Member Coverage |
-|---------|--------|-----------------|
-| Nuke (image loading) | 0 | 94.4% |
-| BlinkID (document scanning) | 0 | 99.1% |
-| Lottie (animation) | 0 | 90.4% |
-| CryptoSwift (cryptography) | 0 | 88.0% |
+The compile gate passes for all 53 targets across 40 libraries — including Alamofire, Nuke, Kingfisher, Lottie, CryptoSwift, all Stripe frameworks, GRDB, RxSwift, BlinkID, and more. Zero generator errors. See [Supported Features](Supported-Features) for details.
 
-## Where This Comes From
-
-This project is a fork of Microsoft's [`dotnet/runtimelab` (feature/swift-bindings branch)](https://github.com/dotnet/runtimelab/tree/feature/swift-bindings) — an experimental effort that established the foundational architecture. That experiment went inactive in an early state, handling only basic classes, structs, and simple method signatures.
-
-This fork extends the generator substantially: 70+ phases of development have added protocols, generics, closures, async, SwiftUI bridging, and much more — validated against real-world libraries with zero generator errors.
+This project is a fork of Microsoft's [`dotnet/runtimelab` (feature/swift-bindings branch)](https://github.com/dotnet/runtimelab/tree/feature/swift-bindings), substantially extended with protocols, generics, closures, async, SwiftUI bridging, and more. See [Architecture](Architecture) for the full history.
 
 ## Next Steps
 
 - **[Getting Started](Getting-Started)** — Set up your first binding
 - **[Supported Features](Supported-Features)** — What Swift features are covered
+- **[How Bindings Map](How-Bindings-Map)** — Side-by-side Swift → C# examples
 - **[Architecture](Architecture)** — How the generator works under the hood

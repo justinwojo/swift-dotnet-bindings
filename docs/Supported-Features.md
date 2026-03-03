@@ -7,7 +7,7 @@
 | **Classes** | C# class with `IDisposable` | ARC via SafeHandle. Constructors, properties, methods all projected. |
 | **Structs (frozen)** | C# struct or class | Blittable frozen structs → C# struct. Non-blittable (contains ref types) → C# class with buffer. |
 | **Structs (non-frozen)** | C# class with SafeHandle | Opaque payload — size not known at compile time. |
-| **Enums** | C# class | Associated values, raw representable, `init?(rawValue:)` as `TryFromRawValue()`. |
+| **Enums** | C# class | Associated values, raw representable, `init?(rawValue:)` as `FromRawValue()`. |
 | **Protocols** | C# interface + proxy class | Interface for calling Swift, proxy class for implementing from C#. |
 | **Generics** | Bound generics | `Array<Int>`, `Optional<String>`, generic classes/enums. Unbound type parameters in properties/methods/constructors. |
 | **Actors** | C# class | Detected via Actor conformance. Isolation enforcement not yet projected. |
@@ -31,9 +31,9 @@
 
 Method signatures are automatically converted to idiomatic C# types:
 
-| Swift Type | C# Type (in methods) | Notes |
-|------------|----------------------|-------|
-| `String` | `string` | Automatic `SwiftString` ↔ `string` marshalling |
+| Swift Type | C# Type | Notes |
+|------------|---------|-------|
+| `String` | `string` | Automatic marshalling at the boundary |
 | `Array<T>` | `IReadOnlyList<T>` (return) / `IEnumerable<T>` (param) | .NET collection interfaces |
 | `Optional<T>` | `T?` | C# nullable syntax |
 | `Int` / `Int32` / `Int64` | `nint` / `int` / `long` | .NET numeric types |
@@ -44,7 +44,7 @@ Method signatures are automatically converted to idiomatic C# types:
 | `UUID` | `Guid` | .NET GUID |
 | `UnsafePointer<T>`, `OpaquePointer` | `IntPtr` | All Swift pointer types |
 
-> **Properties** retain Swift wrapper types (`SwiftString`, `SwiftArray<T>`) for getter/setter consistency. **Methods** use the idiomatic conversions above.
+> Both properties and methods use idiomatic C# types. Marshalling between Swift and C# types (`SwiftString` ↔ `string`, `SwiftArray<T>` ↔ `IReadOnlyList<T>`) is handled automatically in the getter/setter/method bodies.
 
 ## Protocol Support
 
@@ -57,7 +57,7 @@ Protocols are projected as C# interfaces. You can:
 // Implement a Swift protocol in C#
 public class MyProcessor : IImageProcessing
 {
-    public SwiftString Identifier => new SwiftString("my-processor");
+    public string Identifier => "my-processor";
     public UIImage? Process(UIImage image) => image;
 }
 
@@ -70,7 +70,9 @@ var proxy = new ImageProcessingProxy(new MyProcessor());
 Protocol properties and methods are dispatched through Swift's witness table mechanism:
 - **Blittable types** (Int, Bool, Double, etc.) — fully supported for getters and setters
 - **String types** — fully supported via UTF-8 slice marshalling
-- **Mutating methods, throws, async** — not yet supported through witness dispatch
+- **Collection returns** (`Array<T>`, `Dictionary<K,V>`, `Set<T>`) — fully supported via heap-allocated pointer dispatch
+- **Optional existential returns** (`Optional<any Protocol>`) — fully supported via `if let` pattern dispatch
+- **Mutating methods, async** — not yet supported through witness dispatch
 
 ## Async Support
 
@@ -78,7 +80,7 @@ Swift async methods are projected as C# `Task<T>` / `Task`:
 
 ```csharp
 // Swift: func loadImage(_ url: URL) async -> UIImage
-var image = await pipeline.LoadImage(url);
+var image = await pipeline.LoadImageAsync(url);
 ```
 
 The generator creates a Swift wrapper function that bridges the async boundary using a `@_cdecl` callback. The C# side uses `TaskCompletionSource<T>` to convert the callback into a standard .NET `Task`.
@@ -115,23 +117,23 @@ var result = Result.Success(42);
 ```
 
 - **Simple enums** — static readonly instances
-- **Raw representable** — `RawValue` property + `TryFromRawValue()` factory
+- **Raw representable** — `RawValue` property + `FromRawValue()` factory
 - **Associated values** — factory methods with parameters
 
 ## Real-World Coverage
 
-The generator produces 0 errors across **25 production Swift libraries** including Nuke, Alamofire, CryptoSwift, Lottie, BlinkID, all Stripe frameworks, Mappedin, Mixpanel, and more.
+The generator produces 0 errors across **40 production Swift libraries** (53 validation targets) including Nuke, Alamofire, Kingfisher, CryptoSwift, Lottie, BlinkID, GRDB, RxSwift, all Stripe frameworks, Mappedin, Mixpanel, and more. All 53 targets compile successfully.
 
 Four libraries have full test apps with runtime validation on iOS Simulator:
 
-| Library | Types Bound | Member Coverage | Runtime Validated |
-|---------|-------------|-----------------|-------------------|
-| **Nuke** | 60/60 (100%) | 295/352 (83.8%) | Yes (9 tests) |
-| **BlinkID** | 116/116 (100%) | 609/619 (98.4%) | Yes (6 tests) |
-| **Lottie** | 77/80 (96%) | 345/475 (72.6%) | Yes (9 tests) |
-| **CryptoSwift** | 103/103 (100%) | 429/501 (85.6%) | Yes (10 tests) |
+| Library | Runtime Tests |
+|---------|---------------|
+| **Nuke** (image loading) | 9 tests |
+| **BlinkID** (document scanning) | 6 tests |
+| **Lottie** (animation) | 9 tests |
+| **CryptoSwift** (cryptography) | 10 tests |
 
-Skipped members are primarily exotic patterns: existential arguments in bound generics, Combine publishers, unsatisfied generic constraints, and compound assignment operators with no C# equivalent.
+Skipped members are primarily exotic patterns: existential arguments in bound generics, Combine publishers, unsatisfied generic constraints, and compound assignment operators with no C# equivalent. The binding report (`binding-report.json`) documents exactly which members are skipped and why.
 
 ---
 

@@ -165,10 +165,16 @@ src/
 ├── Swift.Bindings.Sdk/          MSBuild SDK package
 └── Swift.Bindings.Templates/    dotnet new template
 
-TestFramework/                   Comprehensive test library (93 features)
-validation-libraries.json        Library validation manifest (31 targets)
+TestFramework/                   Comprehensive test library + runtime tests
+validation-libraries.json        Library validation manifest (40 libraries, 53 targets)
 scripts/                         Fetch + build infrastructure
 ```
+
+## History
+
+This project is a fork of Microsoft's [`dotnet/runtimelab` (feature/swift-bindings branch)](https://github.com/dotnet/runtimelab/tree/feature/swift-bindings) — an experimental effort that established the foundational architecture: the ABI parser, type database, marshaler/emitter pipeline, and the core runtime types (`SwiftString`, `SwiftSafeHandle`, `TypeMetadata`).
+
+That experiment went inactive in an early state, handling only basic classes, structs, and simple method signatures. This fork extends the generator through 70+ phases of development — adding protocols, generics, closures, async/await, enums with associated values, SwiftUI bridging, protocol extensions, witness table dispatch, and much more.
 
 ---
 

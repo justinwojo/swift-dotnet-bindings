@@ -105,10 +105,12 @@ The generator uses custom diagnostic IDs instead of generic `CS0618`/`CS0619`:
 |----|---------|---------------|
 | `SB0001` | **Mono JIT crash risk** — method uses `CallConvSwift` P/Invoke patterns that crash on Mono. Safe on NativeAOT. | Yes — auto-suppressed in `Direct` mode |
 | `SB0002` | **Missing symbol** — P/Invoke entry point not exported by the library. Will throw `EntryPointNotFoundException` at runtime on any runtime. | No — always relevant |
+| `SB0003` | **Non-dispatchable protocol member** — can't dispatch through the witness table (e.g., mutating, async, or unsupported return type). Throws `NotSupportedException` on Swift-backed existentials. Concrete type calls work. | No — always relevant |
+| `SB0004` | **Empty protocol interface** — all members were skipped during binding generation. The interface exists for type identity but has no callable API surface. | No — always relevant |
 
 ### Why Custom Diagnostic IDs?
 
-Custom IDs (`SB0001`, `SB0002`) are scoped to Swift binding packages. Suppressing `SB0001` does not affect `[Obsolete]` warnings from other packages — unlike suppressing `CS0618` globally, which would hide unrelated deprecation warnings.
+Custom IDs (`SB0001`–`SB0004`) are scoped to Swift binding packages. Suppressing `SB0001` does not affect `[Obsolete]` warnings from other packages — unlike suppressing `CS0618` globally, which would hide unrelated deprecation warnings.
 
 ## Dual-Runtime Compatibility
 
@@ -184,6 +186,6 @@ Generated bindings use `[ModuleInitializer]` to register a `DllImportResolver` f
 
 ## Further Reading
 
-- [Known Issues and Workarounds](known-issues-workarounds.md) — detailed Mono JIT workaround documentation
-- [NativeAOT Investigation](nativeaot-investigation.md) — deep technical analysis of all three blockers
+- **[Known Limitations](Known-Limitations)** — platform and runtime constraints
+- **[Troubleshooting](Troubleshooting)** — common errors and how to fix them
 - [Microsoft NativeAOT iOS docs](https://learn.microsoft.com/en-us/dotnet/maui/deployment/nativeaot) — general .NET MAUI NativeAOT deployment

@@ -105,6 +105,8 @@ We're not trying to look complete. We're trying to make sure that when someone s
 - [ ] License file present and correct (MIT)
 - [ ] No secrets, credentials, or internal paths in committed files
 - [ ] CI pipeline (if applicable) — builds, tests, packs on clean checkout
+- [ ] **GitHub release tagging + changelog workflow** — tag releases (e.g., `v0.1.0-preview.1`), create GitHub Releases with changelogs. Changelogs live in GitHub Releases (not wiki docs). Needs GitHub Actions workflow for: build → test → pack → publish NuGet → create GitHub Release with auto-generated or curated notes.
+- [ ] Update `UrlFormat` in SB diagnostic attributes (SB0001–SB0004) — currently point to `malinicr/swift-bindings`, need to match the public repo URL
 
 **Deliverable**: Repo is clean and ready for public eyes.
 
