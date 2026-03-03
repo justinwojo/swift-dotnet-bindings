@@ -285,22 +285,8 @@ namespace BindingsGeneration
                                 dep.ModuleName, dep.XCFrameworkPath);
                         foreach (var unresolved in analysisResult.UnresolvedDependencies)
                         {
-                            if (unresolved.UnresolvedReason == "missing-slice")
-                            {
-                                logger.LogWarning(
-                                    "SWIFTBIND060: Detected dependency '{Name}' but its xcframework " +
-                                    "lacks the required platform slice. " +
-                                    "Use --framework-dependency to specify a complete xcframework.",
-                                    unresolved.FrameworkName);
-                            }
-                            else
-                            {
-                                logger.LogWarning(
-                                    "SWIFTBIND060: Detected dependency '{Name}' but no matching " +
-                                    "{Name}.xcframework found. " +
-                                    "Use --framework-dependency to specify its location.",
-                                    unresolved.FrameworkName, unresolved.FrameworkName);
-                            }
+                            logger.LogWarning("{Message}",
+                                FormatDependencyWarning(unresolved.FrameworkName, unresolved.UnresolvedReason ?? "missing-xcframework"));
                         }
                     }
                 }
@@ -609,6 +595,8 @@ namespace BindingsGeneration
         private static bool GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory, out HashSet<string>? internalTypeNames, List<string>? dependencyModuleNames = null, string[]? moduleDatabasePaths = null)
         {
             internalTypeNames = null;
+            try
+            {
             var typeDatabase = new TypeDatabase();
             typeDatabase.AsyncLibraryName = asyncLibraryName;
             string[] builtInDatabases = { "FoundationDatabase.xml", "SwiftDatabase.xml", "CoreGraphicsDatabase.xml", "DispatchDatabase.xml", "AppKitDatabase.xml", "CoreImageDatabase.xml", "UIKitDatabase.xml", "SwiftUIDatabase.xml", "AVFoundationDatabase.xml", "CoreTextDatabase.xml", "SecurityDatabase.xml" };
@@ -827,6 +815,14 @@ namespace BindingsGeneration
                 logger.LogWarning("Bindings generation already completed for {SwiftAbiPath}.", swiftAbiPath);
 
             return true;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError("Binding generation failed: {Message}", ex.Message);
+                logger.LogDebug("Stack trace:\n{StackTrace}", ex.ToString());
+                ReportCollector.Reset();
+                return false;
+            }
         }
 
         /// <summary>
@@ -1309,7 +1305,9 @@ namespace BindingsGeneration
             {
                 var message = compilationException != null
                     ? $"Swift wrapper compilation failed: {compilationException.Message}. " +
-                      "Generated C# references the wrapper library but no compiled wrapper exists."
+                      "Generated C# references the wrapper library but no compiled wrapper exists. " +
+                      "Common causes: missing dependency framework (use --framework-dependency or <SwiftFrameworkDependency>), " +
+                      "or internal types in the library's API. See Troubleshooting docs for details."
                     : $"All Swift wrapper code was stripped as broken ({compilationResult?.StrippedBlockCount ?? 0} block(s)). " +
                       "Generated C# references the wrapper library but no compiled wrapper exists. " +
                       "Use --async-library explicitly or report this as a generator bug.";
@@ -1319,11 +1317,16 @@ namespace BindingsGeneration
             if (rawOutcome == WrapperCompilationOutcome.Fatal && sdkMode)
             {
                 // Downgraded from Fatal → Warning in SDK mode
+                const string actionableHint =
+                    " Common causes: missing dependency framework (use --framework-dependency or <SwiftFrameworkDependency>), " +
+                    "or internal types in the library's API. See Troubleshooting docs for details.";
                 var message = compilationException != null
                     ? $"SWIFTBIND050: Swift wrapper compilation failed: {compilationException.Message}. " +
-                      "C# bindings are still valid — wrapper-dependent methods will throw DllNotFoundException at runtime."
+                      "C# bindings are still valid — wrapper-dependent methods will throw DllNotFoundException at runtime." +
+                      actionableHint
                     : $"SWIFTBIND050: All Swift wrapper code was stripped as broken ({compilationResult?.StrippedBlockCount ?? 0} block(s)). " +
-                      "C# bindings are still valid — wrapper-dependent methods will throw DllNotFoundException at runtime.";
+                      "C# bindings are still valid — wrapper-dependent methods will throw DllNotFoundException at runtime." +
+                      actionableHint;
                 return (0, "SWIFTBIND050", message);
             }
 
@@ -1336,6 +1339,29 @@ namespace BindingsGeneration
             }
 
             return (0, null, "");
+        }
+
+        /// <summary>
+        /// Formats a SWIFTBIND060 dependency warning message with actionable guidance.
+        /// </summary>
+        /// <param name="frameworkName">The dependency framework name.</param>
+        /// <param name="unresolvedReason">The reason: "missing-slice" or "missing-xcframework".</param>
+        internal static string FormatDependencyWarning(string frameworkName, string unresolvedReason)
+        {
+            if (unresolvedReason == "missing-slice")
+            {
+                return $"SWIFTBIND060: Detected dependency '{frameworkName}' but its xcframework " +
+                    "lacks the required platform slice. " +
+                    "Use --framework-dependency to specify a complete xcframework. " +
+                    "Verify the dependency xcframework contains both device and simulator slices.";
+            }
+            else
+            {
+                return $"SWIFTBIND060: Detected dependency '{frameworkName}' but no matching " +
+                    $"{frameworkName}.xcframework found. " +
+                    "Use --framework-dependency to specify its location. " +
+                    "You may need to build the dependency separately or obtain it from the library author.";
+            }
         }
 
         private static string ResolveNamespacePattern(string? cliNamespacePattern, string? configPath, ILogger logger)

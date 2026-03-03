@@ -178,6 +178,61 @@ namespace BindingsGeneration.Tests
             }
         }
 
+        [Fact]
+        public void EmptyModuleName_ReturnsNonZeroExitCode_NoUnhandledException()
+        {
+            // Craft an ABI JSON with empty module name to trigger the try-catch in GenerateBindings
+            var dir = Path.Combine(Path.GetTempPath(), $"audit_catch_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(dir);
+            try
+            {
+                var abiJson = """
+                    {
+                      "ABIRoot": {
+                        "kind": "Root",
+                        "name": "",
+                        "printedName": "",
+                        "children": [
+                          {
+                            "kind": "TypeDecl",
+                            "name": "Foo",
+                            "moduleName": ""
+                          }
+                        ]
+                      }
+                    }
+                    """;
+                var abiPath = Path.Combine(dir, "abi.json");
+                File.WriteAllText(abiPath, abiJson);
+                // Create stub tbd and dylib
+                var tbdPath = Path.Combine(dir, "lib.tbd");
+                File.WriteAllText(tbdPath, "--- !tapi-tbd\ntbd-version: 4\ntargets: []\ninstall-name: /usr/lib/lib.dylib\n...\n");
+                var dylibPath = Path.Combine(dir, "lib.dylib");
+                File.WriteAllText(dylibPath, "");
+
+                var writer = new StringWriter();
+                Console.SetOut(writer);
+                try
+                {
+                    var exitCode = BindingsGenerator.Main(new[]
+                    {
+                        "-a", abiPath,
+                        "-d", dylibPath,
+                        "-t", tbdPath,
+                        "-o", dir,
+                        "-l", "TestLib"
+                    });
+                    // Should fail gracefully (non-zero exit) rather than crashing
+                    Assert.NotEqual(0, exitCode);
+                }
+                finally
+                {
+                    Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+                }
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
         private static string CaptureHelp()
         {
             var writer = new StringWriter();
@@ -209,6 +264,7 @@ namespace BindingsGeneration.Tests
             Assert.Equal("SWIFTBIND050", diagnosticCode);
             Assert.Contains("SWIFTBIND050", message);
             Assert.Contains("swiftc failed", message);
+            Assert.Contains("dependency framework", message);
         }
 
         [Fact]
@@ -240,6 +296,38 @@ namespace BindingsGeneration.Tests
                 compilationException: null, compilationResult: null);
             Assert.Equal(0, exitCode);
             Assert.Null(diagnosticCode);
+        }
+    }
+
+    /// <summary>
+    /// Tests for FormatDependencyWarning — SWIFTBIND060 message formatting.
+    /// </summary>
+    public class FormatDependencyWarningTests
+    {
+        [Fact]
+        public void FormatDependencyWarning_MissingSlice_ContainsVerifySlices()
+        {
+            var message = BindingsGenerator.FormatDependencyWarning("SomeDep", "missing-slice");
+            Assert.Contains("SWIFTBIND060", message);
+            Assert.Contains("SomeDep", message);
+            Assert.Contains("device and simulator slices", message);
+        }
+
+        [Fact]
+        public void FormatDependencyWarning_MissingXcframework_ContainsBuildSuggestion()
+        {
+            var message = BindingsGenerator.FormatDependencyWarning("OtherDep", "missing-xcframework");
+            Assert.Contains("SWIFTBIND060", message);
+            Assert.Contains("OtherDep", message);
+            Assert.Contains("build the dependency separately", message);
+        }
+
+        [Fact]
+        public void FormatDependencyWarning_UnknownReason_TreatedAsMissingXcframework()
+        {
+            var message = BindingsGenerator.FormatDependencyWarning("Dep", "something-else");
+            Assert.Contains("SWIFTBIND060", message);
+            Assert.Contains("build the dependency separately", message);
         }
     }
 

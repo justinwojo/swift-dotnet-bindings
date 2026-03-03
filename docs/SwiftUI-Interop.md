@@ -33,10 +33,55 @@ View initializer parameters are automatically bridged:
 |----------------|---------|---------|
 | Primitives | `Int`, `Bool`, `Double`, `Float` | Fully supported |
 | String | `String` | Fully supported |
-| Closures | `() -> Void`, `(Int, Bool) -> Void` | Up to 4 params, primitive args |
+| Closures | `() -> Void`, `(Int, String) -> Void` | Up to 4 params; primitive, String, and class args |
 | Enums | Enum types with raw values | Via raw value conversion |
 | Classes | Reference types | Via opaque pointer |
+| Structs | Non-frozen and frozen-with-memory structs | Via opaque pointer with `.pointee` reconstruction |
 | Optionals | `Optional<T>` for all above types | Fully supported |
+
+## Generic Views
+
+Generic SwiftUI Views with View-constrained type parameters (e.g., `AnimatedImage<Placeholder: View>`) are automatically bridged. The generator analyzes each generic parameter and substitutes `EmptyView` as the default placeholder, including for `@ViewBuilder` closure parameters.
+
+Views with non-View generic constraints (e.g., `<T: Identifiable>`) currently fall back to template generation.
+
+You can control placeholder behavior via [bridge hints](#bridge-hints):
+
+```json
+{
+  "views": {
+    "AnimatedImage": {
+      "placeholder": "empty"
+    }
+  }
+}
+```
+
+## Two-Way State Binding
+
+Views with updatable parameters (primitives, strings, enums, classes, structs) get `Update{Param}()` methods on their session class. Updates flow through SwiftUI's `ObservableObject`/`@Published` reactivity system, so the view re-renders immediately:
+
+```csharp
+var session = CounterViewSession.Create(count: 0, label: "Score");
+session.UpdateCount(42);        // SwiftUI re-renders
+session.UpdateLabel("Points");  // String update via UTF-8 encoding
+```
+
+Closure parameters are set-once at creation (not updatable). Views with only closures or no parameters skip the state pattern entirely.
+
+## View Modifier Chains
+
+Self-returning modifier methods (e.g., `.playing()`, `.animationSpeed(2.0)`, `.looping(.loop)`) are detected and bridged as methods on the session class:
+
+```csharp
+var session = LottieViewSession.Create(animation: anim);
+session.AnimationSpeed(2.0);    // Double modifier
+session.Looping(LottieLoopMode.Loop);  // Enum modifier
+session.Playing();              // Parameterless toggle
+session.AnimationSpeed(null);   // Reset modifier (nil = not applied)
+```
+
+Supported modifier parameter types: primitives, `Bool`, `String`, and enums. Multi-param, closure-param, and generic-param modifiers are not yet supported.
 
 ## Async View Factories
 
@@ -124,12 +169,14 @@ PresentViewController(nativeVC, animated: true, completionHandler: null);
 
 - **Composing SwiftUI views from C#** — no `VStack`, `HStack`, etc.
 - **Implementing the `View` protocol from C#** — no C# types conforming to `SwiftUI.View`
-- **`@State` / `@Binding` / `@Environment`** — deep state management stays in Swift
-- **`@ViewBuilder` closures** — no SwiftUI view-building closures from C#
+- **`@Environment`** — environment values stay in Swift
+- **`@ViewBuilder` closures** — no SwiftUI view-building closures from C# (generic View-constrained params are substituted with `EmptyView`)
 - **Reactive bindings** — no Combine ↔ `INotifyPropertyChanged` bridge
-- **Closures with String/class arguments** — only primitive closure arguments in bridge
+- **Frozen blittable struct params** — C# value types needing pinning (e.g., `CGPoint`)
+- **Closure non-primitive returns** — closures returning String or class types across the bridge
+- **Generic views with non-View constraints** — `<T: Identifiable>`, `<T: Hashable>` (template fallback)
 
-The bridge handles configuration and presentation. The SwiftUI rendering pipeline stays entirely in Swift.
+The bridge handles configuration, dynamic state updates, and presentation. The SwiftUI rendering pipeline stays entirely in Swift.
 
 ---
 

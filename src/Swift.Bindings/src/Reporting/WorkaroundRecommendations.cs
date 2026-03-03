@@ -54,4 +54,51 @@ public static class WorkaroundRecommendations
             "Investigate the specific member in the generator output.",
         _ => null,
     };
+
+    /// <summary>
+    /// Returns a short human-readable description of the given skip reason
+    /// for console output, or null if no description is available.
+    /// </summary>
+    public static string? GetDescription(SkipReason reason) => reason switch
+    {
+        SkipReason.UnsupportedExistential =>
+            "protocol-typed parameter/return not yet projected",
+        SkipReason.AnyTypeFallback =>
+            "type could not be resolved to a concrete projection",
+        SkipReason.UnsupportedSignature =>
+            "parameter or return type not yet supported",
+        SkipReason.AsyncProperty =>
+            "async properties require wrapper conversion",
+        SkipReason.SwiftUIConstraint =>
+            "generic constraint on SwiftUI View type",
+        SkipReason.SwiftUIView =>
+            "SwiftUI View type (bridge file generated instead)",
+        SkipReason.CombineFramework =>
+            "Combine framework type excluded",
+        SkipReason.GenericProtocolConstraint =>
+            "protocol with associated types used as constraint",
+        SkipReason.UnsatisfiedGenericConstraint =>
+            "generic constraint could not be satisfied",
+        SkipReason.UnsupportedClosure =>
+            "closure signature not yet supported",
+        SkipReason.UnsupportedAsyncStream =>
+            "async stream element type not supported",
+        SkipReason.DuplicateSignature =>
+            "C# signature collides with another member",
+        SkipReason.GenericTypeCallback =>
+            "closure or async in generic type member",
+        SkipReason.StaticProtocolMember =>
+            "static protocol member cannot be dispatched",
+        SkipReason.SynthesizedCodable =>
+            "synthesized Codable member pruned by design",
+        SkipReason.UnderscorePrefixInternal =>
+            "underscore-prefixed type treated as internal",
+        SkipReason.MissingHandler =>
+            "no handler for this declaration kind",
+        SkipReason.UnsupportedType =>
+            "type not exported in the module's public ABI",
+        SkipReason.Unknown =>
+            "unclassified skip reason",
+        _ => null,
+    };
 }

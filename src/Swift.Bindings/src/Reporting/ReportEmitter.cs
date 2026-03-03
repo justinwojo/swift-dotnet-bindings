@@ -50,8 +50,14 @@ public static class ReportEmitter
             logger.LogInformation("Skipped items by reason:");
             foreach (var group in report.SkippedItems.GroupBy(i => i.Reason).OrderByDescending(g => g.Count()))
             {
-                logger.LogInformation("  {Reason}: {Count}", group.Key, group.Count());
+                var description = WorkaroundRecommendations.GetDescription(group.Key);
+                if (description != null)
+                    logger.LogInformation("  {Reason}: {Count} — {Description}", group.Key, group.Count(), description);
+                else
+                    logger.LogInformation("  {Reason}: {Count}", group.Key, group.Count());
             }
+            logger.LogInformation("Skipped items are excluded from C# output but don't affect the rest of the generated API.");
+            logger.LogInformation("See binding-report.json for per-item skip reasons and workaround suggestions.");
         }
 
         logger.LogInformation("Full details in: {ReportPath}", reportPath);

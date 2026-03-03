@@ -481,6 +481,42 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void InvokeSwiftCompiler_LongStderr_TruncatesAt2000Chars()
+        {
+            var runner = new MockCommandRunner();
+            var longError = new string('x', 3000);
+            runner.SetResponse("swiftc", 1, "", longError);
+
+            var files = new List<string> { "/tmp/a.swift" };
+            var ex = Assert.Throws<InvalidOperationException>(() =>
+                SwiftWrapperCompiler.InvokeSwiftCompiler(
+                    files, "/tmp/out/Binary", "TestSwiftBindings",
+                    "arm64-apple-ios15.0-simulator", "/sdk/path", "/fw/search",
+                    runner, NullLogger.Instance));
+            // Should truncate at 2000 + "..."
+            Assert.Contains("...", ex.Message);
+            // The error preview in the message should be at most 2003 chars (2000 + "...")
+            // but the full message includes the prefix text too
+            Assert.True(ex.Message.Length < longError.Length + 100);
+        }
+
+        [Fact]
+        public void InvokeSwiftCompiler_ShortStderr_NoTruncation()
+        {
+            var runner = new MockCommandRunner();
+            runner.SetResponse("swiftc", 1, "", "short error message");
+
+            var files = new List<string> { "/tmp/a.swift" };
+            var ex = Assert.Throws<InvalidOperationException>(() =>
+                SwiftWrapperCompiler.InvokeSwiftCompiler(
+                    files, "/tmp/out/Binary", "TestSwiftBindings",
+                    "arm64-apple-ios15.0-simulator", "/sdk/path", "/fw/search",
+                    runner, NullLogger.Instance));
+            Assert.Contains("short error message", ex.Message);
+            Assert.DoesNotContain("...", ex.Message);
+        }
+
+        [Fact]
         public void InvokeSwiftCompiler_IncludesStrictConcurrencyMinimal()
         {
             var runner = new MockCommandRunner();

@@ -25,6 +25,7 @@ public class WorkaroundRecommendationsTests
     [InlineData(SkipReason.StaticProtocolMember)]
     [InlineData(SkipReason.GenericTypeCallback)]
     [InlineData(SkipReason.SynthesizedCodable)]
+    [InlineData(SkipReason.UnderscorePrefixInternal)]
     [InlineData(SkipReason.MissingHandler)]
     [InlineData(SkipReason.UnsupportedType)]
     [InlineData(SkipReason.Unknown)]
@@ -58,5 +59,33 @@ public class WorkaroundRecommendationsTests
         var recommendation = WorkaroundRecommendations.GetRecommendation(SkipReason.DuplicateSignature);
 
         Assert.Contains("Rename", recommendation);
+    }
+
+    [Theory]
+    [InlineData(SkipReason.UnsupportedExistential)]
+    [InlineData(SkipReason.AnyTypeFallback)]
+    [InlineData(SkipReason.UnsupportedSignature)]
+    [InlineData(SkipReason.AsyncProperty)]
+    [InlineData(SkipReason.SwiftUIConstraint)]
+    [InlineData(SkipReason.SwiftUIView)]
+    [InlineData(SkipReason.CombineFramework)]
+    [InlineData(SkipReason.GenericProtocolConstraint)]
+    [InlineData(SkipReason.UnsatisfiedGenericConstraint)]
+    [InlineData(SkipReason.UnsupportedClosure)]
+    [InlineData(SkipReason.UnsupportedAsyncStream)]
+    [InlineData(SkipReason.DuplicateSignature)]
+    [InlineData(SkipReason.StaticProtocolMember)]
+    [InlineData(SkipReason.GenericTypeCallback)]
+    [InlineData(SkipReason.SynthesizedCodable)]
+    [InlineData(SkipReason.UnderscorePrefixInternal)]
+    [InlineData(SkipReason.MissingHandler)]
+    [InlineData(SkipReason.UnsupportedType)]
+    [InlineData(SkipReason.Unknown)]
+    public void GetDescription_ReturnsNonNullForAllSkipReasons(SkipReason reason)
+    {
+        var description = WorkaroundRecommendations.GetDescription(reason);
+
+        Assert.NotNull(description);
+        Assert.NotEmpty(description);
     }
 }

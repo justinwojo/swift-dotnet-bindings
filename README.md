@@ -199,11 +199,10 @@ For full details, see [Known Limitations](docs/Known-Limitations.md).
 
 ## Project Status
 
-Swift Bindings is under active development. The core generator, MSBuild SDK, and NuGet packaging are all functional — validated across 40 libraries (53 framework targets) with zero compilation errors, and tested with **4,500+ unit tests**, **700+ integration tests**, and **220+ end-to-end runtime tests** on iOS Simulator.
+Swift Bindings is under active development. The core generator, MSBuild SDK, and NuGet packaging are all functional — validated across 40 libraries (53 framework targets) with zero compilation errors, and tested with **5,100+ unit tests**, **700+ integration tests**, and **240+ end-to-end runtime tests** on iOS Simulator.
 
 | Area | Status |
 |------|--------|
-| Safety improvements (proxy Dispose, finalizer leak mitigation) | In progress |
 | Objective-C binding generation | Under consideration |
 
 ### Objective-C Support (Under Consideration)

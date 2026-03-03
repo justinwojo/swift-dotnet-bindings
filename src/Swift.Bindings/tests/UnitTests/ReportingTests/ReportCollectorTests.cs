@@ -3,6 +3,7 @@
 
 #nullable enable
 
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -210,6 +211,94 @@ public class ReportCollectorTests
         ReportCollector.Reset();
     }
 
+    [Fact]
+    public void ReportEmitter_SkippedItems_ShowsReassuranceMessage()
+    {
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordMemberSkipped(BindingItemKind.Method, "Fetch", classDecl, SkipReason.UnsupportedExistential, "test");
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+
+        var outputDir = Path.Combine(Path.GetTempPath(), $"swift-bindings-report-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(outputDir);
+
+        try
+        {
+            var logger = new CapturingLogger();
+            ReportEmitter.Emit(report, outputDir, logger);
+            var allMessages = string.Join("\n", logger.Messages);
+            Assert.Contains("excluded from C# output", allMessages);
+            Assert.Contains("binding-report.json", allMessages);
+        }
+        finally
+        {
+            Directory.Delete(outputDir, true);
+            ReportCollector.Reset();
+        }
+    }
+
+    [Fact]
+    public void ReportEmitter_SkippedItems_ShowsDescriptionSuffix()
+    {
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordMemberSkipped(BindingItemKind.Method, "Fetch", classDecl, SkipReason.UnsupportedExistential, "test");
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+
+        var outputDir = Path.Combine(Path.GetTempPath(), $"swift-bindings-report-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(outputDir);
+
+        try
+        {
+            var logger = new CapturingLogger();
+            ReportEmitter.Emit(report, outputDir, logger);
+            var allMessages = string.Join("\n", logger.Messages);
+            Assert.Contains("protocol-typed parameter/return not yet projected", allMessages);
+        }
+        finally
+        {
+            Directory.Delete(outputDir, true);
+            ReportCollector.Reset();
+        }
+    }
+
+    [Fact]
+    public void ReportEmitter_NoSkippedItems_NoReassuranceMessage()
+    {
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordTypeEmitted(classDecl);
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+
+        var outputDir = Path.Combine(Path.GetTempPath(), $"swift-bindings-report-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(outputDir);
+
+        try
+        {
+            var logger = new CapturingLogger();
+            ReportEmitter.Emit(report, outputDir, logger);
+            var allMessages = string.Join("\n", logger.Messages);
+            Assert.DoesNotContain("excluded from C# output", allMessages);
+        }
+        finally
+        {
+            Directory.Delete(outputDir, true);
+            ReportCollector.Reset();
+        }
+    }
+
     private static ModuleDecl CreateModuleDecl()
     {
         var moduleDecl = new ModuleDecl
@@ -321,4 +410,21 @@ public class ReportCollectorTests
         ParentDecl = moduleDecl,
         ModuleDecl = moduleDecl
     };
+
+    /// <summary>
+    /// Simple ILogger that captures log messages for assertions.
+    /// </summary>
+    private sealed class CapturingLogger : ILogger
+    {
+        public List<string> Messages { get; } = new();
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state,
+            Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            Messages.Add(formatter(state, exception));
+        }
+    }
 }

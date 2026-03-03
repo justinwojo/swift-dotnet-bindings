@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-03-03T03:52:13Z",
-  "git_sha": "936d5ed",
+  "timestamp": "2026-03-03T04:47:19Z",
+  "git_sha": "ed6ef6b",
   "runtime_version": "0.1.0-preview.5",
   "compile_gate": {
     "total": 53,
@@ -26,7 +26,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 11167,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "BRLMPrinterKit": {
         "generate": "ok",
@@ -61,21 +61,21 @@
         "compile": "ok",
         "errors": 0,
         "lines": 58396,
-        "gen_seconds": 4
+        "gen_seconds": 3
       },
       "Lottie": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 34790,
-        "gen_seconds": 3
+        "gen_seconds": 4
       },
       "Mappedin": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 51182,
-        "gen_seconds": 2
+        "gen_seconds": 3
       },
       "MicroblinkPlatform": {
         "generate": "ok",
@@ -89,14 +89,14 @@
         "compile": "ok",
         "errors": 0,
         "lines": 9049,
-        "gen_seconds": 2
+        "gen_seconds": 3
       },
       "Nuke": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 24415,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "RxSwift": {
         "generate": "fail",
@@ -124,7 +124,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 11598,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "Starscream": {
         "generate": "ok",
@@ -145,7 +145,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 1808,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "StripeCameraCore": {
         "generate": "fail",
@@ -173,14 +173,14 @@
         "compile": "ok",
         "errors": 0,
         "lines": 34283,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "StripeCryptoOnramp": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 6450,
-        "gen_seconds": 38
+        "gen_seconds": 33
       },
       "StripeFinancialConnections": {
         "generate": "ok",
@@ -215,14 +215,14 @@
         "compile": "ok",
         "errors": 0,
         "lines": 46710,
-        "gen_seconds": 15
+        "gen_seconds": 10
       },
       "StripePaymentsUI": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 14894,
-        "gen_seconds": 5
+        "gen_seconds": 6
       },
       "StripeUICore": {
         "generate": "fail",
@@ -236,14 +236,14 @@
         "compile": "ok",
         "errors": 0,
         "lines": 6738,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "Swinject": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 5085,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "PhoneNumberKit": {
         "generate": "fail",
@@ -257,7 +257,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 6628,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "SwiftyBeaver": {
         "generate": "fail",
@@ -285,14 +285,14 @@
         "compile": "ok",
         "errors": 0,
         "lines": 5347,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "BonMot": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 15919,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "Parchment": {
         "generate": "ok",
@@ -313,7 +313,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 8758,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "FSPagerView": {
         "generate": "fail",
@@ -327,7 +327,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 1210,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "Quick": {
         "generate": "fail",
@@ -341,21 +341,21 @@
         "compile": "ok",
         "errors": 0,
         "lines": 4620,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "TinyConstraints": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 2067,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "AMPopTip": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 5027,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "XMLCoder": {
         "generate": "fail",

@@ -599,7 +599,8 @@ namespace BindingsGeneration
 
             if (exitCode != 0)
             {
-                var errorPreview = stderr.Length > 500 ? stderr.Substring(0, 500) + "..." : stderr;
+                logger.LogDebug("Full swiftc stderr:\n{Stderr}", stderr);
+                var errorPreview = stderr.Length > 2000 ? stderr.Substring(0, 2000) + "..." : stderr;
                 throw new InvalidOperationException(
                     $"Swift wrapper compilation failed (exit code {exitCode}): {errorPreview}");
             }

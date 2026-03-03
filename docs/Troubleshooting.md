@@ -40,6 +40,12 @@ These errors come from the SDK's build targets and have clear remediation steps.
 | `SWIFTBIND030` | Packing without `SwiftWrapperArchitectures=all` | Set `<SwiftWrapperArchitectures>all</SwiftWrapperArchitectures>` before running `dotnet pack` |
 | `SWIFTBIND031` | Wrapper xcframework missing device or simulator slice | Rebuild with `SwiftWrapperArchitectures=all` to compile both slices |
 | `SWIFTBIND040` | `SwiftFrameworkDependency` missing metadata | Add `PackageId` and `PackageVersion` metadata to each `<SwiftFrameworkDependency>` item for correct NuGet dependency propagation |
+| `SWIFTBIND050` | Swift wrapper compilation failed | Check for missing dependency frameworks (use `--framework-dependency` or `<SwiftFrameworkDependency>`). C# bindings remain valid — wrapper-dependent methods will throw `DllNotFoundException` at runtime. |
+| `SWIFTBIND060` | Dependency detected but xcframework not found | Use `--framework-dependency` (CLI) or `<SwiftFrameworkDependency>` (SDK) to provide the dependency xcframework. |
+| `SWIFTBIND070` | Module database not found | Check path in `--module-database` or `ModuleDatabasePath` metadata. |
+| `SWIFTBIND071` | Module database targets current module | Don't pass the current module's own database as a dependency. |
+| `SWIFTBIND072` | Invalid module database XML | Verify XML validity; regenerate by building the dependency project. |
+| `SWIFTBIND073` | Module database path doesn't exist (SDK) | Build dependency project first, or remove `ModuleDatabasePath` metadata. |
 | `SWIFTBIND100` | `<SwiftPackage>` used (not yet available) | SPM support is planned. Build your SPM package into an xcframework first, then use `<SwiftFramework>`. |
 
 ---
