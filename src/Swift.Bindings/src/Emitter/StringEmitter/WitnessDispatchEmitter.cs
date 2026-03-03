@@ -21,7 +21,9 @@ public enum MethodDispatchKind
     /// <summary>Method returns a Swift class (ARC via Unmanaged.passRetained). Handles throwing internally.</summary>
     ClassReturn,
     /// <summary>Method returns a non-frozen struct or frozen+RefFields struct (indirect result buffer). Handles throwing internally.</summary>
-    StructReturn
+    StructReturn,
+    /// <summary>Method returns a bound generic collection (Array, Dictionary, Set). Uses heap-allocated pointer pattern like ExistentialReturn.</summary>
+    BoundGenericReturn
 }
 
 /// <summary>
@@ -179,6 +181,15 @@ public class WitnessDispatchEmitter
                     }
                     EmitStructReturnPropertyGetterAccessor(writer, property, protocolDecl, moduleQualifiedName);
                 }
+                else if (IsPropertyCollectionReturn(property))
+                {
+                    if (!anyEmitted)
+                    {
+                        writer.WriteLine($"// Witness dispatch accessors for {protocolName}");
+                        anyEmitted = true;
+                    }
+                    EmitCollectionReturnPropertyGetterAccessor(writer, property, protocolDecl, moduleQualifiedName);
+                }
             }
         }
 
@@ -303,6 +314,24 @@ public class WitnessDispatchEmitter
                 }
                 EmitStructReturnMethodAccessor(writer, method, protocolDecl, moduleQualifiedName, idx);
             }
+            else if (kind == MethodDispatchKind.BoundGenericReturn)
+            {
+                if (!anyEmitted)
+                {
+                    writer.WriteLine($"// Witness dispatch accessors for {protocolName}");
+                    anyEmitted = true;
+                }
+                if (NeedsUtf8Slice(protocolDecl))
+                {
+                    Utf8SliceEmitter.EmitIfNeeded(writer, _emissionContext);
+                }
+                if (method.Throws)
+                {
+                    ErrorDescriptionEmitter.EmitIfNeeded(writer, _moduleName, _emissionContext);
+                    Utf8SliceEmitter.EmitFreeIfNeeded(writer, _moduleName, _emissionContext);
+                }
+                EmitCollectionReturnMethodAccessor(writer, method, protocolDecl, moduleQualifiedName, idx);
+            }
         }
 
         if (anyEmitted)
@@ -345,6 +374,11 @@ public class WitnessDispatchEmitter
         // Check if return type is an existential that can be dispatched
         if (hasReturn && IsExistentialDispatchable(returnType!))
         {
+            // Throwing + optional existential conflict: IntPtr.Zero is used as error sentinel,
+            // which collides with the .none sentinel for optionals. Block this combination.
+            if (method.Throws && MarshallingHelpers.IsSwiftOptional(returnType!))
+                return MethodDispatchKind.NotDispatchable;
+
             // Existential return path: allows throwing (uses error out-parameter)
             // All params must still be blittable/String
             foreach (var param in method.CSSignature.Skip(1))
@@ -353,6 +387,18 @@ public class WitnessDispatchEmitter
                     return MethodDispatchKind.NotDispatchable;
             }
             return MethodDispatchKind.ExistentialReturn;
+        }
+
+        // Check if return type is a bound generic collection (Array, Dictionary, Set)
+        // Must be before class/struct checks because Array could match IsIndirectStructType
+        if (hasReturn && IsBoundGenericReturnDispatchable(returnType!))
+        {
+            foreach (var param in method.CSSignature.Skip(1))
+            {
+                if (!IsTypeDispatchable(param.SwiftTypeSpec))
+                    return MethodDispatchKind.NotDispatchable;
+            }
+            return MethodDispatchKind.BoundGenericReturn;
         }
 
         // Check if return type is a concrete class (ARC via Unmanaged.passRetained)
@@ -424,6 +470,55 @@ public class WitnessDispatchEmitter
     /// </summary>
     public bool IsExistentialDispatchable(TypeSpec returnType)
     {
+        var existentialHandler = new ExistentialHandler(_typeDatabase);
+
+        // Check for Optional<any Protocol> — unwrap and validate the inner existential
+        // Must apply the same safety gates as IsSupportedExistentialReturn (via IsSupportedExistentialCore)
+        if (existentialHandler.IsOptionalExistential(returnType))
+        {
+            var innerProtocolList = existentialHandler.UnwrapOptionalExistential(returnType);
+            if (innerProtocolList == null)
+                return false;
+
+            // IsSupportedExistential checks (witness table count limit)
+            if (!existentialHandler.IsSupportedExistential(innerProtocolList))
+                return false;
+
+            // Well-known types (e.g., "any Error" → AnyError) use different wrappers, not proxy classes
+            if (existentialHandler.TryGetWellKnownProtocolType(innerProtocolList, out _))
+                return false;
+
+            // Zero-protocol "Any" has no proxy class
+            if (existentialHandler.IsAnyType(innerProtocolList))
+                return false;
+
+            // All protocols must have TypeRecords in the database
+            if (!existentialHandler.AllProtocolsHaveTypeRecords(innerProtocolList))
+                return false;
+
+            // Block unresolved/unknown protocols and generic protocol existentials
+            var publicType = existentialHandler.GetPublicExistentialType(innerProtocolList);
+            if (publicType == "object" ||
+                publicType == TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName)
+                return false;
+
+            // ObjC filtering guard: if filtering drops protocols, ExistentialContainer size mismatches
+            var filteredCount = innerProtocolList.Protocols.Keys
+                .Count(p => !TypeDatabaseExtensions.IsObjCModuleType(p));
+            if (filteredCount != innerProtocolList.Protocols.Count)
+                return false;
+
+            // Must have a valid proxy class name (filters ObjC-only protocols)
+            if (!existentialHandler.TryGetFilteredProxyClassName(innerProtocolList, out _))
+                return false;
+
+            // Reject protocols with flags that prevent proxy emission (PAT, Self, InheritedRequirementsOnly)
+            if (ProtocolExtensionEmitter.HasBlockingProtocolFlagsForReturn(innerProtocolList, _typeDatabase))
+                return false;
+
+            return true;
+        }
+
         // Delegate to the existing comprehensive existential validation
         if (!ProtocolExtensionEmitter.IsSupportedExistentialReturn(returnType, _typeDatabase))
             return false;
@@ -431,7 +526,6 @@ public class WitnessDispatchEmitter
         // IsSupportedExistentialReturn allows well-known types (e.g., Swift.Error → AnyError)
         // and zero-protocol "Any" → ExistentialContainer0. These use different C# wrappers,
         // not proxy classes, so they can't use the existential dispatch pattern.
-        var existentialHandler = new ExistentialHandler(_typeDatabase);
         var protocolList = existentialHandler.ToProtocolListTypeSpec(returnType);
         if (protocolList == null)
             return false;
@@ -586,6 +680,96 @@ public class WitnessDispatchEmitter
     }
 
     /// <summary>
+    /// Checks if a TypeSpec represents a collection type (Array, Dictionary, or Set).
+    /// </summary>
+    public static bool IsCollectionType(TypeSpec? typeSpec)
+    {
+        return MarshallingHelpers.IsSwiftArray(typeSpec) ||
+               MarshallingHelpers.IsSwiftDictionary(typeSpec) ||
+               MarshallingHelpers.IsSwiftSet(typeSpec);
+    }
+
+    /// <summary>
+    /// Checks if a property getter returns a collection type that can be dispatched.
+    /// </summary>
+    public bool IsPropertyCollectionReturn(PropertyDecl property)
+    {
+        return IsCollectionType(property.SwiftTypeSpec) && IsBoundGenericReturnDispatchable(property.SwiftTypeSpec);
+    }
+
+    /// <summary>
+    /// Validates that a collection return type can be dispatched:
+    /// - Outer type is Array, Dictionary, or Set
+    /// - Element types resolve in TypeDatabase (not AnyType)
+    /// - For Dictionary: both key AND value must resolve
+    /// </summary>
+    public bool IsBoundGenericReturnDispatchable(TypeSpec? typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec namedType)
+            return false;
+
+        if (!IsCollectionType(typeSpec))
+            return false;
+
+        var genericParams = namedType.GenericParameters;
+        if (genericParams.Count == 0)
+            return false;
+
+        // Validate each element type resolves (not AnyType)
+        foreach (var elemType in genericParams)
+        {
+            if (!IsElementTypeResolvable(elemType))
+                return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Gets the Swift collection type string for heap allocation in witness dispatch.
+    /// E.g., Swift.Array&lt;Swift.String&gt; → "[String]", Swift.Dictionary → "[K: V]", Swift.Set → "Set&lt;T&gt;".
+    /// </summary>
+    public string? GetSwiftCollectionTypeString(TypeSpec typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec namedType)
+            return null;
+
+        string MapElement(TypeSpec elemType)
+        {
+            if (elemType is NamedTypeSpec namedElem)
+            {
+                // Known Swift primitives (Swift.Int, Swift.Bool, etc.) — strip module prefix
+                if (SwiftToCSharpPrimitiveMap.ContainsKey(namedElem.Name))
+                    return namedElem.NameWithoutModule;
+                // Swift.String — strip module prefix
+                if (IsStringType(elemType))
+                    return namedElem.NameWithoutModule;
+                // Keep module-qualified for user types
+                return namedElem.Name;
+            }
+            return "Any";
+        }
+
+        if (MarshallingHelpers.IsSwiftArray(typeSpec))
+        {
+            var elem = MapElement(namedType.GenericParameters[0]);
+            return $"[{elem}]";
+        }
+        if (MarshallingHelpers.IsSwiftDictionary(typeSpec))
+        {
+            var key = MapElement(namedType.GenericParameters[0]);
+            var value = MapElement(namedType.GenericParameters[1]);
+            return $"[{key}: {value}]";
+        }
+        if (MarshallingHelpers.IsSwiftSet(typeSpec))
+        {
+            var elem = MapElement(namedType.GenericParameters[0]);
+            return $"Set<{elem}>";
+        }
+        return null;
+    }
+
+    /// <summary>
     /// Gets the module-qualified Swift type name for a concrete TypeSpec.
     /// Used for struct return's assumingMemoryBound(to:) and class return's type cast.
     /// Returns null if the type cannot be resolved.
@@ -737,6 +921,37 @@ public class WitnessDispatchEmitter
                 if (IsStringType(param.SwiftTypeSpec))
                     return true;
             }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Checks if an element type (used inside a collection) can be resolved
+    /// in the type database to a concrete type (not AnyType).
+    /// </summary>
+    private bool IsElementTypeResolvable(TypeSpec elemType)
+    {
+        if (elemType is not NamedTypeSpec namedElem)
+            return false;
+
+        // Known Swift primitive types are always resolvable
+        if (SwiftToCSharpPrimitiveMap.ContainsKey(namedElem.Name))
+            return true;
+
+        // Swift.String is always resolvable (not in primitive map since it's not blittable)
+        if (IsStringType(elemType))
+            return true;
+
+        // Check type database
+        try
+        {
+            var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedElem.Name);
+            if (_typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord))
+                return typeRecord != TypeDatabaseExtensions.AnyType;
+        }
+        catch (ArgumentException)
+        {
+            return false;
         }
         return false;
     }
@@ -1161,7 +1376,14 @@ public class WitnessDispatchEmitter
     private string? GetSwiftExistentialTypeName(TypeSpec returnType)
     {
         var existentialHandler = new ExistentialHandler(_typeDatabase);
-        var protocolList = existentialHandler.ToProtocolListTypeSpec(returnType);
+
+        // Handle Optional<any Protocol> — unwrap to get the inner protocol list
+        ProtocolListTypeSpec? protocolList;
+        if (existentialHandler.IsOptionalExistential(returnType))
+            protocolList = existentialHandler.UnwrapOptionalExistential(returnType);
+        else
+            protocolList = existentialHandler.ToProtocolListTypeSpec(returnType);
+
         if (protocolList == null)
             return null;
 
@@ -1188,6 +1410,10 @@ public class WitnessDispatchEmitter
         if (swiftExistentialType == null)
             return; // Should not happen — IsExistentialDispatchable already validated
 
+        // Detect optional existential return
+        var existentialHandler = new ExistentialHandler(_typeDatabase);
+        bool isOptionalReturn = existentialHandler.IsOptionalExistential(returnType!);
+
         var accessorSymbol = GetAccessorSymbol(protocolName, "method", method.Name, index);
         var freeSymbol = GetFreeSymbol(protocolName, "method", method.Name, index);
 
@@ -1204,8 +1430,8 @@ public class WitnessDispatchEmitter
         }
         var swiftParamsString = string.Join(", ", swiftParams);
 
-        // Return type: UnsafeMutableRawPointer (nullable if throwing — nil means error)
-        var swiftReturnDecl = method.Throws
+        // Return type: UnsafeMutableRawPointer? for optional (nil = .none) and for throwing (nil = error)
+        var swiftReturnDecl = (method.Throws || isOptionalReturn)
             ? " -> UnsafeMutableRawPointer?"
             : " -> UnsafeMutableRawPointer";
 
@@ -1235,6 +1461,7 @@ public class WitnessDispatchEmitter
         if (method.Throws)
         {
             // Throwing pattern: do/catch with error out-parameter
+            // Note: throwing + optional is gated out in ClassifyMethodDispatch
             writer.WriteLine("do {");
             writer.Indent++;
             writer.WriteLine($"let result: any {swiftExistentialType} = {tryPrefix}existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
@@ -1249,9 +1476,22 @@ public class WitnessDispatchEmitter
             writer.Indent--;
             writer.WriteLine("}");
         }
+        else if (isOptionalReturn)
+        {
+            // Optional existential pattern: if let unwrap, nil = .none
+            writer.WriteLine($"let result: (any {swiftExistentialType})? = existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
+            writer.WriteLine("if let unwrapped = result {");
+            writer.Indent++;
+            writer.WriteLine($"let ptr = UnsafeMutablePointer<any {swiftExistentialType}>.allocate(capacity: 1)");
+            writer.WriteLine("ptr.initialize(to: unwrapped)");
+            writer.WriteLine("return UnsafeMutableRawPointer(ptr)");
+            writer.Indent--;
+            writer.WriteLine("}");
+            writer.WriteLine("return nil");
+        }
         else
         {
-            // Non-throwing pattern: direct allocation
+            // Non-throwing, non-optional pattern: direct allocation
             writer.WriteLine($"let result: any {swiftExistentialType} = existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
             writer.WriteLine($"let ptr = UnsafeMutablePointer<any {swiftExistentialType}>.allocate(capacity: 1)");
             writer.WriteLine("ptr.initialize(to: result)");
@@ -1263,6 +1503,7 @@ public class WitnessDispatchEmitter
         writer.WriteLine();
 
         // Emit free function — typed deinitialize for ARC-safe cleanup
+        // For optional: only called when result is non-nil
         writer.WriteLines($$"""
             @_silgen_name("{{freeSymbol}}")
             public func {{freeSymbol}}(_ ptr: UnsafeMutableRawPointer) {
@@ -1473,6 +1714,139 @@ public class WitnessDispatchEmitter
 
             """);
         // No free function — SafeHandle owns the buffer
+    }
+
+    /// <summary>
+    /// Emits a property getter accessor for collection return types (Array, Dictionary, Set).
+    /// Uses heap-allocated pointer pattern: allocate → initialize → return UnsafeMutableRawPointer.
+    /// Also emits a free function for typed deinitialize + deallocate.
+    /// </summary>
+    private void EmitCollectionReturnPropertyGetterAccessor(SwiftWriter writer, PropertyDecl property, ProtocolDecl protocolDecl, string moduleQualifiedName)
+    {
+        var protocolName = protocolDecl.Name;
+        var swiftCollectionType = GetSwiftCollectionTypeString(property.SwiftTypeSpec);
+        if (swiftCollectionType == null)
+            return;
+
+        var accessorSymbol = GetAccessorSymbol(protocolName, "get", property.Name, 0);
+        var freeSymbol = GetFreeSymbol(protocolName, "get", property.Name, 0);
+
+        writer.WriteLines($$"""
+            @_silgen_name("{{accessorSymbol}}")
+            public func {{accessorSymbol}}(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
+                let existential = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
+                let result = existential.{{property.Name}}
+                let ptr = UnsafeMutablePointer<{{swiftCollectionType}}>.allocate(capacity: 1)
+                ptr.initialize(to: result)
+                return UnsafeMutableRawPointer(ptr)
+            }
+
+            @_silgen_name("{{freeSymbol}}")
+            public func {{freeSymbol}}(_ ptr: UnsafeMutableRawPointer) {
+                ptr.assumingMemoryBound(to: {{swiftCollectionType}}.self).deinitialize(count: 1)
+                ptr.deallocate()
+            }
+
+            """);
+    }
+
+    /// <summary>
+    /// Emits a witness dispatch accessor for methods returning a collection type.
+    /// Non-throwing: allocate → initialize → return UnsafeMutableRawPointer.
+    /// Throwing: do/catch with errorOut, returns nil on error.
+    /// Also emits a free function for typed deinitialize + deallocate.
+    /// </summary>
+    private void EmitCollectionReturnMethodAccessor(SwiftWriter writer, MethodDecl method, ProtocolDecl protocolDecl, string moduleQualifiedName, int index)
+    {
+        var protocolName = protocolDecl.Name;
+        var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+        var swiftCollectionType = GetSwiftCollectionTypeString(returnType!);
+        if (swiftCollectionType == null)
+            return;
+
+        var accessorSymbol = GetAccessorSymbol(protocolName, "method", method.Name, index);
+        var freeSymbol = GetFreeSymbol(protocolName, "method", method.Name, index);
+
+        // Build Swift parameter list: containerPtr + one UnsafeRawPointer per param
+        // + errorOut if throwing
+        var swiftParams = new List<string> { "_ containerPtr: UnsafeRawPointer" };
+        for (int i = 0; i < method.CSSignature.Count - 1; i++)
+        {
+            swiftParams.Add($"_ arg{i}Ptr: UnsafeRawPointer");
+        }
+        if (method.Throws)
+        {
+            swiftParams.Add("_ errorOut: UnsafeMutablePointer<UnsafeRawPointer?>");
+        }
+        var swiftParamsString = string.Join(", ", swiftParams);
+
+        // Return type: UnsafeMutableRawPointer (nullable if throwing — nil means error)
+        var swiftReturnDecl = method.Throws
+            ? " -> UnsafeMutableRawPointer?"
+            : " -> UnsafeMutableRawPointer";
+
+        writer.WriteLine($"@_silgen_name(\"{accessorSymbol}\")");
+        writer.WriteLine($"public func {accessorSymbol}({swiftParamsString}){swiftReturnDecl} {{");
+        writer.Indent++;
+
+        // Load existential from container
+        writer.WriteLine($"let existential = containerPtr.load(as: (any {moduleQualifiedName}).self)");
+
+        // Unmarshal parameters
+        var callArgs = new List<string>();
+        int argIdx = 0;
+        foreach (var param in method.CSSignature.Skip(1))
+        {
+            EmitParameterUnmarshal(writer, param, argIdx);
+            callArgs.Add($"arg{argIdx}");
+            argIdx++;
+        }
+
+        // Build labeled args
+        var labeledArgs = BuildLabeledArgs(method, callArgs);
+        var callArgsString = string.Join(", ", labeledArgs);
+
+        var tryPrefix = method.Throws ? "try " : "";
+
+        if (method.Throws)
+        {
+            // Throwing pattern: do/catch with error out-parameter
+            writer.WriteLine("do {");
+            writer.Indent++;
+            writer.WriteLine($"let result: {swiftCollectionType} = {tryPrefix}existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
+            writer.WriteLine($"let ptr = UnsafeMutablePointer<{swiftCollectionType}>.allocate(capacity: 1)");
+            writer.WriteLine("ptr.initialize(to: result)");
+            writer.WriteLine("return UnsafeMutableRawPointer(ptr)");
+            writer.Indent--;
+            writer.WriteLine("} catch {");
+            writer.Indent++;
+            writer.WriteLine("errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()");
+            writer.WriteLine("return nil");
+            writer.Indent--;
+            writer.WriteLine("}");
+        }
+        else
+        {
+            // Non-throwing pattern: direct allocation
+            writer.WriteLine($"let result: {swiftCollectionType} = existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
+            writer.WriteLine($"let ptr = UnsafeMutablePointer<{swiftCollectionType}>.allocate(capacity: 1)");
+            writer.WriteLine("ptr.initialize(to: result)");
+            writer.WriteLine("return UnsafeMutableRawPointer(ptr)");
+        }
+
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.WriteLine();
+
+        // Emit free function — typed deinitialize for memory-safe cleanup
+        writer.WriteLines($$"""
+            @_silgen_name("{{freeSymbol}}")
+            public func {{freeSymbol}}(_ ptr: UnsafeMutableRawPointer) {
+                ptr.assumingMemoryBound(to: {{swiftCollectionType}}.self).deinitialize(count: 1)
+                ptr.deallocate()
+            }
+
+            """);
     }
 
     /// <summary>

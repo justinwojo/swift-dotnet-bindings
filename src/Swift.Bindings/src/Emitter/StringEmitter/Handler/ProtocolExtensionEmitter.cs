@@ -717,6 +717,18 @@ public static class ProtocolExtensionEmitter
     }
 
     /// <summary>
+    /// Checks if any protocol in the list has TypeRecord flags that prevent proxy emission
+    /// for return types (HasAssociatedTypes, HasSelfRequirement, InheritedRequirementsOnly).
+    /// Used by WitnessDispatchEmitter for Optional existential return validation.
+    /// </summary>
+    internal static bool HasBlockingProtocolFlagsForReturn(ProtocolListTypeSpec protocolList,
+        ITypeDatabase typeDatabase)
+    {
+        return HasBlockingProtocolFlags(protocolList, typeDatabase,
+            TypeRecordFlags.HasAssociatedTypes | TypeRecordFlags.HasSelfRequirement | TypeRecordFlags.InheritedRequirementsOnly);
+    }
+
+    /// <summary>
     /// Checks if any protocol in the list has TypeRecord flags matching the specified mask.
     /// Used by both return and param existential validators with different flag sets.
     /// </summary>

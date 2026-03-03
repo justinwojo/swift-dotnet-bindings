@@ -4606,4 +4606,267 @@ public class ProtocolProxyEmitterTests
     }
 
     #endregion
+
+    #region BoundGenericReturn (F4) Tests
+
+    [Fact]
+    public void EmitProxyClass_ArrayReturnMethod_EmitsMarshalFromSwiftWithAsProjected()
+    {
+        RegisterSwiftString();
+        var protocolDecl = CreateSimpleProtocol("TestProtocol");
+        RegisterProtocol("TestProtocol");
+
+        var arrayType = new NamedTypeSpec("Swift.Array");
+        arrayType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "getItems",
+            MangledName = "$sgetItems",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { Name = "", PrivateName = "",
+                    SwiftTypeSpec = arrayType,
+                    IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false, Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // Should contain MarshalFromSwift with SwiftArray container type
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<SwiftArray<SwiftString>>(resultPtr)", output);
+        // Should contain AsProjected conversion
+        Assert.Contains(".AsProjected(", output);
+        // Should NOT have NotSupportedException for this method
+        Assert.DoesNotContain("Cannot call method 'GetItems'", output);
+        // Should have free function call
+        Assert.Contains("SBW_TestProtocol_free_method_getItems_0", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_DictionaryReturnMethod_EmitsMarshalFromSwift()
+    {
+        RegisterSwiftString();
+        RegisterSwiftInt();
+        RegisterSwiftDictionary();
+        var protocolDecl = CreateSimpleProtocol("TestProtocol");
+        RegisterProtocol("TestProtocol");
+
+        var dictType = new NamedTypeSpec("Swift.Dictionary");
+        dictType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        dictType.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "getMap",
+            MangledName = "$sgetMap",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { Name = "", PrivateName = "",
+                    SwiftTypeSpec = dictType,
+                    IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false, Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // Should contain MarshalFromSwift with SwiftDictionary container type
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<SwiftDictionary<SwiftString, nint>>(resultPtr)", output);
+        // Should contain free function P/Invoke
+        Assert.Contains("SBW_TestProtocol_free_method_getMap_0", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_SetReturnMethod_EmitsMarshalFromSwift()
+    {
+        RegisterSwiftInt32();
+        var protocolDecl = CreateSimpleProtocol("TestProtocol");
+        RegisterProtocol("TestProtocol");
+
+        var setType = new NamedTypeSpec("Swift.Set");
+        setType.GenericParameters.Add(new NamedTypeSpec("Swift.Int32"));
+
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "getIds",
+            MangledName = "$sgetIds",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { Name = "", PrivateName = "",
+                    SwiftTypeSpec = setType,
+                    IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false, Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // Should contain MarshalFromSwift with SwiftSet container type
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<SwiftSet<int>>(resultPtr)", output);
+        // Should contain free function P/Invoke
+        Assert.Contains("SBW_TestProtocol_free_method_getIds_0", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ThrowingCollectionReturn_EmitsErrorHandling()
+    {
+        RegisterSwiftString();
+        var protocolDecl = CreateSimpleProtocol("TestProtocol");
+        RegisterProtocol("TestProtocol");
+
+        var arrayType = new NamedTypeSpec("Swift.Array");
+        arrayType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "fetchItems",
+            MangledName = "$sfetchItems",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { Name = "", PrivateName = "",
+                    SwiftTypeSpec = arrayType,
+                    IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = true, IsAsync = false, Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // Should contain error handling pattern
+        Assert.Contains("resultPtr == IntPtr.Zero", output);
+        Assert.Contains("SBW_GetErrorDescription", output);
+        Assert.Contains("SwiftException", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_CollectionPropertyGetter_EmitsDispatch()
+    {
+        RegisterSwiftString();
+        var protocolDecl = CreateSimpleProtocol("TestProtocol");
+        RegisterProtocol("TestProtocol");
+
+        var arrayType = new NamedTypeSpec("Swift.Array");
+        arrayType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        protocolDecl.Properties.Add(new PropertyDecl
+        {
+            Name = "items",
+            SwiftTypeSpec = arrayType,
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("items_get") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // Should dispatch to Swift, not throw NotSupportedException
+        Assert.Contains("SBW_TestProtocol_get_items_0", output);
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<SwiftArray<SwiftString>>(resultPtr)", output);
+        // Should have free function call
+        Assert.Contains("SBW_TestProtocol_free_get_items_0", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_CollectionReturnMethod_HasPInvokeDeclaration()
+    {
+        RegisterSwiftString();
+        var protocolDecl = CreateSimpleProtocol("TestProtocol");
+        RegisterProtocol("TestProtocol");
+
+        var arrayType = new NamedTypeSpec("Swift.Array");
+        arrayType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "getItems",
+            MangledName = "$sgetItems",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { Name = "", PrivateName = "",
+                    SwiftTypeSpec = arrayType,
+                    IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false, Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // P/Invoke accessor declaration
+        Assert.Contains("SBW_TestProtocol_method_getItems_0", output);
+        // P/Invoke free function declaration
+        Assert.Contains("SBW_TestProtocol_free_method_getItems_0", output);
+    }
+
+    #endregion
+
+    #region Optional Existential Return (F4) Tests
+
+    [Fact]
+    public void EmitProxyClass_OptionalExistentialReturn_EmitsNullCheck()
+    {
+        RegisterProtocol("DataCaching");
+        RegisterSwiftOptional();
+        var protocolDecl = CreateSimpleProtocol("TestProtocol");
+        RegisterProtocol("TestProtocol");
+
+        var optionalExistentialType = new NamedTypeSpec("Swift.Optional");
+        optionalExistentialType.GenericParameters.Add(
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.DataCaching") }));
+
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "findCache",
+            MangledName = "$sfindCache",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { Name = "", PrivateName = "",
+                    SwiftTypeSpec = optionalExistentialType,
+                    IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false, Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // Should have null check for optional
+        Assert.Contains("resultPtr == IntPtr.Zero", output);
+        Assert.Contains("return null", output);
+        // Should have proxy construction when non-null
+        Assert.Contains("new DataCachingProxy(container)", output);
+        // Should have free function
+        Assert.Contains("SBW_TestProtocol_free_method_findCache_0", output);
+    }
+
+    #endregion
 }

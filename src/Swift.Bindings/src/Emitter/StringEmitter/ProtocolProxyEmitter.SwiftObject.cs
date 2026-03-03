@@ -263,6 +263,38 @@ public partial class ProtocolProxyEmitter
                     Visibility = PInvokeVisibility.Public
                 });
             }
+            else if (hasGetter && dispatchEmitter.IsPropertyCollectionReturn(property))
+            {
+                // BoundGenericReturn getter: returns IntPtr + free function (same shape as ExistentialReturn)
+                var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolName, "get", property.Name, 0);
+                if (!emittedPInvokes.Add(accessorSymbol))
+                    continue;
+
+                var freeSymbol = WitnessDispatchEmitter.GetFreeSymbol(protocolName, "get", property.Name, 0);
+
+                writer.WriteLine();
+                PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+                {
+                    LibraryPath = wrapperLibPath,
+                    EntryPoint = accessorSymbol,
+                    MethodName = accessorSymbol,
+                    ReturnType = "IntPtr",
+                    ParametersString = "IntPtr containerPtr",
+                    CallingConvention = PInvokeCallingConvention.Cdecl,
+                    Visibility = PInvokeVisibility.Public
+                });
+                writer.WriteLine();
+                PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+                {
+                    LibraryPath = wrapperLibPath,
+                    EntryPoint = freeSymbol,
+                    MethodName = freeSymbol,
+                    ReturnType = "void",
+                    ParametersString = "IntPtr ptr",
+                    CallingConvention = PInvokeCallingConvention.Cdecl,
+                    Visibility = PInvokeVisibility.Public
+                });
+            }
         }
 
         // Property setters (skip static properties - not part of witness table)
@@ -334,14 +366,15 @@ public partial class ProtocolProxyEmitter
             if (!emittedPInvokes.Add(accessorSymbol))
                 continue;
 
-            if (dispatchKind == MethodDispatchKind.ExistentialReturn || dispatchKind == MethodDispatchKind.ThrowingBlittableOrString || dispatchKind == MethodDispatchKind.ClassReturn)
+            if (dispatchKind is MethodDispatchKind.ExistentialReturn or MethodDispatchKind.ThrowingBlittableOrString or MethodDispatchKind.ClassReturn or MethodDispatchKind.BoundGenericReturn)
             {
-                // ExistentialReturn, ThrowingBlittableOrString, and ClassReturn share the same P/Invoke shape:
+                // ExistentialReturn, ThrowingBlittableOrString, ClassReturn, and BoundGenericReturn share the same P/Invoke shape:
                 // params: containerPtr + per-param IntPtrs + errorOut (if throwing)
                 // return: IntPtr (or void for ThrowingBlittableOrString void)
                 var isThrowingKind = dispatchKind == MethodDispatchKind.ThrowingBlittableOrString ||
                                      (dispatchKind == MethodDispatchKind.ExistentialReturn && method.Throws) ||
-                                     (dispatchKind == MethodDispatchKind.ClassReturn && method.Throws);
+                                     (dispatchKind == MethodDispatchKind.ClassReturn && method.Throws) ||
+                                     (dispatchKind == MethodDispatchKind.BoundGenericReturn && method.Throws);
 
                 var pInvokeParams = new List<string> { "IntPtr containerPtr" };
                 for (int i = 0; i < paramCount; i++)
@@ -372,9 +405,11 @@ public partial class ProtocolProxyEmitter
                     Visibility = PInvokeVisibility.Public
                 });
 
-                // Free function: always for ExistentialReturn, for value-returning ThrowingBlittableOrString,
+                // Free function: always for ExistentialReturn and BoundGenericReturn,
+                // for value-returning ThrowingBlittableOrString,
                 // never for ClassReturn (SafeHandle handles ARC release)
                 var needsFree = dispatchKind == MethodDispatchKind.ExistentialReturn ||
+                                dispatchKind == MethodDispatchKind.BoundGenericReturn ||
                                 (dispatchKind == MethodDispatchKind.ThrowingBlittableOrString && hasReturn);
                 if (needsFree)
                 {

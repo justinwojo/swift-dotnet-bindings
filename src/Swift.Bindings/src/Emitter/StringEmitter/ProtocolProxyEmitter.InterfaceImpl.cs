@@ -110,6 +110,7 @@ public partial class ProtocolProxyEmitter
         var isStringProperty = WitnessDispatchEmitter.IsStringDispatchType(property.SwiftTypeSpec);
         var isClassReturnGetter = hasGetter && !isGetterDispatchable && dispatchEmitter.IsPropertyClassReturn(property);
         var isStructReturnGetter = hasGetter && !isGetterDispatchable && !isClassReturnGetter && dispatchEmitter.IsPropertyStructReturn(property);
+        var isCollectionReturnGetter = false;
 
         // Validate that the projected C# property type matches the dispatch strategy.
         // IsPropertyGetterDispatchable checks Swift-side dispatchability, but if the
@@ -171,8 +172,14 @@ public partial class ProtocolProxyEmitter
                 isStructReturnGetter = false;
             }
         }
+        // Collection return getter: check after other paths are excluded
+        if (hasGetter && !isGetterDispatchable && !isClassReturnGetter && !isStructReturnGetter
+            && dispatchEmitter.IsPropertyCollectionReturn(property))
+        {
+            isCollectionReturnGetter = true;
+        }
 
-        bool isGetterDispatched = isGetterDispatchable || isClassReturnGetter || isStructReturnGetter;
+        bool isGetterDispatched = isGetterDispatchable || isClassReturnGetter || isStructReturnGetter || isCollectionReturnGetter;
         bool isAnyAccessorNonDispatchable =
             (hasGetter && !isGetterDispatched) || (hasSetter && !isSetterDispatchable);
         if (isAnyAccessorNonDispatchable)
@@ -295,6 +302,28 @@ public partial class ProtocolProxyEmitter
                                 }
                                 {{cleanupKeyword}} { NativeMemory.Free((void*)buffer);{{(isFrozenRefFields ? "" : " throw;")}} }
                             }
+                        }
+                    }
+                    """);
+            }
+            else if (isCollectionReturnGetter)
+            {
+                // Collection return getter: heap-allocated pointer + typed free
+                var marshalExpr = GetCollectionMarshalExpression(property.SwiftTypeSpec, "resultPtr");
+                writer.WriteLines($$"""
+                    get
+                    {
+                        if (_disposed) throw new ObjectDisposedException(GetType().Name);
+                        if (_csharpImpl != null)
+                            return _csharpImpl.{{propertyName}};
+                        fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
+                        {
+                            IntPtr resultPtr = NativeMethods.{{accessorSymbol}}((IntPtr)containerPtr);
+                            try
+                            {
+                                return {{marshalExpr}};
+                            }
+                            finally { NativeMethods.{{freeSymbol}}(resultPtr); }
                         }
                     }
                     """);
@@ -514,7 +543,11 @@ public partial class ProtocolProxyEmitter
         if (dispatchKind == MethodDispatchKind.ExistentialReturn && hasReturn)
         {
             var existentialHandler = new ExistentialHandler(_typeDatabase);
-            var protocolList = existentialHandler.ToProtocolListTypeSpec(returnType!);
+            // Handle Optional<any Protocol> — unwrap before resolving protocol list
+            bool isOptionalExistential = existentialHandler.IsOptionalExistential(returnType!);
+            var protocolList = isOptionalExistential
+                ? existentialHandler.UnwrapOptionalExistential(returnType!)
+                : existentialHandler.ToProtocolListTypeSpec(returnType!);
             if (protocolList == null ||
                 !existentialHandler.TryGetFilteredProxyClassName(protocolList, out _) ||
                 returnTypeName == "object" ||
@@ -577,9 +610,9 @@ public partial class ProtocolProxyEmitter
                 dispatchKind = MethodDispatchKind.NotDispatchable;
         }
 
-        // Secondary C#-side validation for ClassReturn and StructReturn:
+        // Secondary C#-side validation for ClassReturn, StructReturn, and BoundGenericReturn:
         // Reject if projected return type is "object" or "AnyType" (TypeDatabase degradation)
-        if (dispatchKind == MethodDispatchKind.ClassReturn || dispatchKind == MethodDispatchKind.StructReturn)
+        if (dispatchKind is MethodDispatchKind.ClassReturn or MethodDispatchKind.StructReturn or MethodDispatchKind.BoundGenericReturn)
         {
             if (returnTypeName == "object" ||
                 returnTypeName == TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName)
@@ -588,7 +621,7 @@ public partial class ProtocolProxyEmitter
             }
 
             // Validate params
-            if (dispatchKind == MethodDispatchKind.ClassReturn || dispatchKind == MethodDispatchKind.StructReturn)
+            if (dispatchKind is MethodDispatchKind.ClassReturn or MethodDispatchKind.StructReturn or MethodDispatchKind.BoundGenericReturn)
             {
                 if (!ValidateParamProjections(projectedParamTypes, paramSwiftTypeSpecs, dispatchEmitter))
                     dispatchKind = MethodDispatchKind.NotDispatchable;
@@ -777,6 +810,10 @@ public partial class ProtocolProxyEmitter
         {
             EmitStructReturnMethodBody(writer, method, protocolDecl, dispatchEmitter, methodIndex, methodName, argsString, argNames, paramSwiftTypeSpecs, returnType!, returnTypeName);
         }
+        else if (dispatchKind == MethodDispatchKind.BoundGenericReturn)
+        {
+            EmitCollectionReturnMethodBody(writer, method, protocolDecl, dispatchEmitter, methodIndex, methodName, argsString, argNames, paramSwiftTypeSpecs, returnType!, returnTypeName);
+        }
         else
         {
             // Non-dispatchable: keep NotSupportedException
@@ -841,7 +878,10 @@ public partial class ProtocolProxyEmitter
 
         // Resolve the existential container type and proxy class name
         var existentialHandler = new ExistentialHandler(_typeDatabase);
-        var protocolList = existentialHandler.ToProtocolListTypeSpec(returnType);
+        bool isOptionalExistential = existentialHandler.IsOptionalExistential(returnType);
+        var protocolList = isOptionalExistential
+            ? existentialHandler.UnwrapOptionalExistential(returnType)
+            : existentialHandler.ToProtocolListTypeSpec(returnType);
         var containerType = existentialHandler.GetCSharpExistentialType(protocolList!);
         existentialHandler.TryGetFilteredProxyClassName(protocolList!, out var proxyClassName);
 
@@ -908,11 +948,27 @@ public partial class ProtocolProxyEmitter
                 finally { NativeMethods.{{freeSymbol}}(resultPtr); }
                 """);
         }
+        else if (isOptionalExistential)
+        {
+            var pInvokeArgsString = string.Join(", ", pInvokeArgs);
+
+            // Optional existential pattern: IntPtr.Zero → return null
+            writer.WriteLines($$"""
+                IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
+                if (resultPtr == IntPtr.Zero) return null;
+                try
+                {
+                    var container = Unsafe.Read<{{containerType}}>((void*)resultPtr);
+                    return new {{proxyClassName}}(container);
+                }
+                finally { NativeMethods.{{freeSymbol}}(resultPtr); }
+                """);
+        }
         else
         {
             var pInvokeArgsString = string.Join(", ", pInvokeArgs);
 
-            // Non-throwing pattern: direct allocation
+            // Non-throwing, non-optional pattern: direct allocation
             writer.WriteLines($$"""
                 IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
                 try
@@ -1499,6 +1555,138 @@ public partial class ProtocolProxyEmitter
         }
 
         return WitnessDispatchEmitter.IsBlittablePrimitive(projectedType);
+    }
+
+    /// <summary>
+    /// Gets the C# marshal expression for a collection return type using the TypeProjectionFactory.
+    /// Composes MarshalFromSwift&lt;ContainerType&gt;(ptr) with the container conversion suffix.
+    /// </summary>
+    private string GetCollectionMarshalExpression(TypeSpec returnTypeSpec, string ptrVar)
+    {
+        var factory = new TypeProjectionFactory();
+        var projection = factory.Project(returnTypeSpec, new ProjectionContext
+        {
+            TypeDatabase = _typeDatabase,
+            IsParameter = false,
+            GenericContext = GenericContext.Empty
+        });
+        if (projection == null)
+            return $"Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<object>({ptrVar})";
+
+        var containerType = projection.ContainerTypeName;
+        // Pass empty containerVar to get just the conversion suffix (e.g., ".AsProjected(e => ...)")
+        var suffix = projection.GetReturnContainerConversion("");
+        return $"Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{containerType}>({ptrVar}){suffix}";
+    }
+
+    /// <summary>
+    /// Emits the C# dispatch body for methods that return collection types (Array, Dictionary, Set).
+    /// Uses the same heap-allocated pointer + free function pattern as ExistentialReturn,
+    /// but uses TypeProjectionFactory for the return conversion.
+    /// </summary>
+    private void EmitCollectionReturnMethodBody(
+        CSharpWriter writer, MethodDecl method, ProtocolDecl protocolDecl,
+        WitnessDispatchEmitter dispatchEmitter,
+        int methodIndex, string methodName, string argsString,
+        List<string> argNames, List<TypeSpec?> paramSwiftTypeSpecs,
+        TypeSpec returnType, string returnTypeName)
+    {
+        var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolDecl.Name, "method", method.Name, methodIndex);
+        var freeSymbol = WitnessDispatchEmitter.GetFreeSymbol(protocolDecl.Name, "method", method.Name, methodIndex);
+
+        var marshalExpr = GetCollectionMarshalExpression(returnType, "resultPtr");
+
+        writer.WriteLines($$"""
+            if (_csharpImpl != null)
+                return _csharpImpl.{{methodName}}({{argsString}});
+            fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
+            {
+            """);
+        writer.Indent++;
+
+        // Declare pin handles before try for exception-safe cleanup
+        var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs);
+        bool needsOuterTry = pinHandles.Count > 0;
+
+        if (needsOuterTry)
+        {
+            writer.WriteLine("try");
+            writer.WriteLine("{");
+            writer.Indent++;
+        }
+
+        // Marshal each parameter
+        EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, dispatchEmitter);
+
+        // Build P/Invoke call args
+        var pInvokeArgs = new List<string> { "(IntPtr)containerPtr" };
+        for (int i = 0; i < argNames.Count; i++)
+        {
+            pInvokeArgs.Add($"(IntPtr)(&arg{i}Slice)");
+        }
+
+        if (method.Throws)
+        {
+            pInvokeArgs.Add("(IntPtr)(&errorOut)");
+            var pInvokeArgsString = string.Join(", ", pInvokeArgs);
+
+            // Throwing pattern: error out-parameter, null result means error
+            writer.WriteLines($$"""
+                IntPtr errorOut = IntPtr.Zero;
+                IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
+                if (resultPtr == IntPtr.Zero)
+                {
+                    string _errorMessage;
+                    var _descPtr = NativeMethods.SBW_GetErrorDescription(errorOut);
+                    try
+                    {
+                        _errorMessage = _descPtr != IntPtr.Zero
+                            ? global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
+                            : "Unknown Swift error";
+                    }
+                    finally
+                    {
+                        if (_descPtr != IntPtr.Zero) NativeMethods.SBW_Free(_descPtr);
+                        NativeMethods.SBW_ReleaseError(errorOut);
+                    }
+                    throw new Swift.Runtime.SwiftException(_errorMessage);
+                }
+                try
+                {
+                    return {{marshalExpr}};
+                }
+                finally { NativeMethods.{{freeSymbol}}(resultPtr); }
+                """);
+        }
+        else
+        {
+            var pInvokeArgsString = string.Join(", ", pInvokeArgs);
+
+            // Non-throwing pattern: direct allocation
+            writer.WriteLines($$"""
+                IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
+                try
+                {
+                    return {{marshalExpr}};
+                }
+                finally { NativeMethods.{{freeSymbol}}(resultPtr); }
+                """);
+        }
+
+        if (needsOuterTry)
+        {
+            writer.Indent--;
+            writer.WriteLine("}");
+            writer.WriteLine("finally");
+            writer.WriteLine("{");
+            writer.Indent++;
+            EmitPinHandleCleanup(writer, pinHandles);
+            writer.Indent--;
+            writer.WriteLine("}");
+        }
+
+        writer.Indent--;
+        writer.WriteLine("}");
     }
 
     /// <summary>

@@ -120,33 +120,13 @@ Replace the abandoned Objective Sharpie by adding ObjC binding generation to the
 
 **When to prioritize higher**: If users specifically request ObjC support, or if mixed ObjC/Swift frameworks become a common pain point. The Stripe family (some modules are ObjC-only) is one concrete motivator.
 
-### 9. Mono JIT Remaining Work (`mono-jit-future-work.md`)
+### ~~9. Mono JIT Remaining Work~~ — ARCHIVED
 
-**Priority**: Mixed (P2-P4) | **Effort**: Varies | **Mostly blocked on**: Upstream
+Moved to `Completed/mono-jit-future-work.md` (March 2026). All workarounds deployed; strategic direction is NativeAOT (#2 above). Not worth incremental investment.
 
-Five remaining items:
-| Item | Priority | Notes |
-|------|----------|-------|
-| VWT Destroy via CallConvSwift | Medium | Blocks Dispose() on types with non-trivial fields. Mitigated by Tier 3 demotion. |
-| VWT InitializeWithCopy | Low | No known test failures yet. |
-| Non-primitive closure Cdecl | Low | Requires Swift-side marshal adapters. High effort. |
-| N-protocol existential metadata | Low | Only zero-protocol case handled. Has kill criteria. |
-| NativeAOT migration | Opportunistic | Eliminates all JIT issues. Depends on .NET 10 iOS tooling. |
+### ~~10. Unsupported Existential Analysis~~ — ARCHIVED
 
-**Why here**: Most items are either blocked on upstream Mono fixes or have diminishing returns given the workarounds already in place. The NativeAOT migration path is the real answer — if NativeAOT simulator support lands (Tier 1, item #2), most of these become irrelevant. Investing heavily in Mono JIT workarounds when NativeAOT is the strategic direction doesn't make sense unless NativeAOT simulator gets delayed significantly.
-
-**Action**: Monitor upstream. If NativeAOT simulator lands, deprioritize VWT and closure Cdecl work. If delayed past .NET 10, consider VWT Destroy as a targeted fix.
-
-### 10. Unsupported Existential Analysis (`unsupported-existential-analysis.md`)
-
-**Priority**: P3 | **Effort**: Hard | **Blocked on**: ExistentialContainer runtime support from C#
-
-26 members across Nuke and Lottie are skipped — existential type arguments in bound generics where the parameter has no default value. Fixing requires:
-- Constructor/method signatures accepting `ExistentialContainer{N}` as bound generic type args
-- C# callers boxing protocol-conforming objects into containers
-- Runtime support for existential container construction from C#
-
-**Why here**: Narrow impact (26 members across 2 libraries), significant implementation complexity, and most are library-specific provider/delegate protocols that consumers rarely call directly. The existential bypass emitter (Phase 51) already handles the default-arg case, which covers the common patterns.
+Moved to `Completed/unsupported-existential-analysis.md` (March 2026). Usability Session 3's existential bypass covers common patterns. Remaining 26 cases are narrow and hard.
 
 ---
 
@@ -189,13 +169,10 @@ Repo goes public
   |       |
   |       +---> Mono JIT fixes (upstream)
   |       +---> NativeAOT simulator (upstream)
-  |               |
-  |               +---> Mono JIT remaining work becomes mostly irrelevant (#9)
   |
   +---> ExistentialContainer cleanup (#3)
   |       |
   |       +---> Golden scenarios (binding-api-future-work.md)
-  |       +---> Unsupported existential deep support (#10)
   |
   +---> Multi-platform (#4)
   |       |
@@ -222,10 +199,11 @@ Repo goes public
 | 6 | Performance benchmarks | `interop-performance-validation-plan.md` | P3 | Medium | No |
 | 7 | API snapshot tooling | `api-snapshot-tooling.md` | P3 | Medium | No |
 | 8 | ObjC binding integration | `objc-binding-integration.md` | P4 | Large | No |
-| 9 | Mono JIT remaining work | `mono-jit-future-work.md` | P2-P4 | Varies | Mostly upstream |
-| 10 | Unsupported existentials | `unsupported-existential-analysis.md` | P3 | Hard | Runtime support |
+| ~~9~~ | ~~Mono JIT remaining work~~ | ~~`mono-jit-future-work.md`~~ | — | — | Archived (March 2026) |
+| ~~10~~ | ~~Unsupported existentials~~ | ~~`unsupported-existential-analysis.md`~~ | — | — | Archived (March 2026) |
 | 11 | Emitter redesign | `emitter-redesign-proposal.md` | P4 | Very Large | No (but risky) |
 | 12 | Roslyn analyzer | `roslyn-analyzer-plan.md` | P3 | Small | No |
+| 13 | Witness dispatch emission dedup | `witness-dispatch-emission-dedup.md` | P4 | Small | No |
 
 ---
 

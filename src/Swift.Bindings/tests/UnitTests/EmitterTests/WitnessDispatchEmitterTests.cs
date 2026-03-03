@@ -445,10 +445,11 @@ public class WitnessDispatchEmitterTests
     }
 
     [Fact]
-    public void EmitDispatch_NonDispatchableArrayProperty_NoOutput()
+    public void EmitDispatch_NonDispatchableArrayProperty_WithUnresolvableElement_NoOutput()
     {
+        // Array with an unresolvable generic element type should not be dispatchable
         var arrayType = new NamedTypeSpec("Swift.Array");
-        arrayType.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        arrayType.GenericParameters.Add(new NamedTypeSpec("SomeModule.UnknownType"));
         var protocolDecl = CreateSimpleProtocol("HasItems");
         protocolDecl.Properties.Add(CreateProperty("items", arrayType));
         var output = EmitDispatch(protocolDecl);
@@ -1959,6 +1960,287 @@ public class WitnessDispatchEmitterTests
         Assert.Contains("Unmanaged<TestModule.Config>.fromOpaque(rawPtr1).takeUnretainedValue()", output);
         // Blittable param: direct load
         Assert.Contains("arg2 = arg2Ptr.load(as: Int32.self)", output);
+    }
+
+    #endregion
+
+    #region BoundGenericReturn Classification
+
+    [Fact]
+    public void ClassifyMethodDispatch_ArrayReturn_ReturnsBoundGenericReturn()
+    {
+        var db = CreateTypeDatabaseWithProtocols("TestModule.MyProtocol");
+        var ctx = new ModuleEmissionContext();
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule", ctx);
+
+        var arrayType = new NamedTypeSpec("Swift.Array");
+        arrayType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        var protocol = CreateProtocolWithMethod("MyProtocol", "getItems", arrayType);
+        var method = protocol.Methods[0];
+
+        var kind = emitter.ClassifyMethodDispatch(method);
+        Assert.Equal(MethodDispatchKind.BoundGenericReturn, kind);
+    }
+
+    [Fact]
+    public void ClassifyMethodDispatch_DictionaryReturn_ReturnsBoundGenericReturn()
+    {
+        var db = CreateTypeDatabaseWithProtocols("TestModule.MyProtocol");
+        var ctx = new ModuleEmissionContext();
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule", ctx);
+
+        var dictType = new NamedTypeSpec("Swift.Dictionary");
+        dictType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        dictType.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var protocol = CreateProtocolWithMethod("MyProtocol", "getMap", dictType);
+        var method = protocol.Methods[0];
+
+        var kind = emitter.ClassifyMethodDispatch(method);
+        Assert.Equal(MethodDispatchKind.BoundGenericReturn, kind);
+    }
+
+    [Fact]
+    public void ClassifyMethodDispatch_SetReturn_ReturnsBoundGenericReturn()
+    {
+        var db = CreateTypeDatabaseWithProtocols("TestModule.MyProtocol");
+        var ctx = new ModuleEmissionContext();
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule", ctx);
+
+        var setType = new NamedTypeSpec("Swift.Set");
+        setType.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var protocol = CreateProtocolWithMethod("MyProtocol", "getIds", setType);
+        var method = protocol.Methods[0];
+
+        var kind = emitter.ClassifyMethodDispatch(method);
+        Assert.Equal(MethodDispatchKind.BoundGenericReturn, kind);
+    }
+
+    [Fact]
+    public void ClassifyMethodDispatch_CollectionReturn_WithUnsupportedParams_ReturnsNotDispatchable()
+    {
+        var db = CreateTypeDatabaseWithProtocols("TestModule.MyProtocol");
+        var ctx = new ModuleEmissionContext();
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule", ctx);
+
+        var arrayType = new NamedTypeSpec("Swift.Array");
+        arrayType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        // Closure param is not dispatchable
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("Swift.Int") }),
+            TupleTypeSpec.Empty);
+        var protocol = CreateProtocolWithMethodAndParams("MyProtocol", "getItems", arrayType,
+            new[] { ("filter", (TypeSpec)closureType) });
+        var method = protocol.Methods[0];
+
+        var kind = emitter.ClassifyMethodDispatch(method);
+        Assert.Equal(MethodDispatchKind.NotDispatchable, kind);
+    }
+
+    [Fact]
+    public void IsPropertyCollectionReturn_ArrayProperty_ReturnsTrue()
+    {
+        var db = CreateTypeDatabaseWithProtocols("TestModule.MyProtocol");
+        var ctx = new ModuleEmissionContext();
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule", ctx);
+
+        var arrayType = new NamedTypeSpec("Swift.Array");
+        arrayType.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var property = CreateProperty("items", arrayType);
+
+        Assert.True(emitter.IsPropertyCollectionReturn(property));
+    }
+
+    [Fact]
+    public void GetSwiftCollectionTypeString_Array_ReturnsSquareBrackets()
+    {
+        var db = CreateTypeDatabaseWithProtocols("TestModule.MyProtocol");
+        var ctx = new ModuleEmissionContext();
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule", ctx);
+
+        var arrayType = new NamedTypeSpec("Swift.Array");
+        arrayType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        Assert.Equal("[String]", emitter.GetSwiftCollectionTypeString(arrayType));
+    }
+
+    [Fact]
+    public void GetSwiftCollectionTypeString_Dictionary_ReturnsDictLiteral()
+    {
+        var db = CreateTypeDatabaseWithProtocols("TestModule.MyProtocol");
+        var ctx = new ModuleEmissionContext();
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule", ctx);
+
+        var dictType = new NamedTypeSpec("Swift.Dictionary");
+        dictType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        dictType.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+
+        Assert.Equal("[String: Int]", emitter.GetSwiftCollectionTypeString(dictType));
+    }
+
+    [Fact]
+    public void GetSwiftCollectionTypeString_Set_ReturnsSetGeneric()
+    {
+        var db = CreateTypeDatabaseWithProtocols("TestModule.MyProtocol");
+        var ctx = new ModuleEmissionContext();
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule", ctx);
+
+        var setType = new NamedTypeSpec("Swift.Set");
+        setType.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+
+        Assert.Equal("Set<Int>", emitter.GetSwiftCollectionTypeString(setType));
+    }
+
+    #endregion
+
+    #region BoundGenericReturn Swift Emission
+
+    [Fact]
+    public void EmitWitnessDispatch_CollectionPropertyGetter_EmitsAllocatePattern()
+    {
+        var db = CreateTypeDatabaseWithProtocols("TestModule.MyProtocol");
+        var ctx = new ModuleEmissionContext();
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule", ctx);
+
+        var arrayType = new NamedTypeSpec("Swift.Array");
+        arrayType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        var protocol = CreateProtocolWithProperty("MyProtocol", "items", arrayType);
+        var output = EmitDispatchWithEmitter(emitter, protocol, ctx);
+
+        Assert.Contains("@_silgen_name(\"SBW_MyProtocol_get_items_0\")", output);
+        Assert.Contains("UnsafeMutablePointer<[String]>.allocate(capacity: 1)", output);
+        Assert.Contains("ptr.initialize(to: result)", output);
+        Assert.Contains("return UnsafeMutableRawPointer(ptr)", output);
+
+        // Free function
+        Assert.Contains("@_silgen_name(\"SBW_MyProtocol_free_get_items_0\")", output);
+        Assert.Contains("assumingMemoryBound(to: [String].self).deinitialize(count: 1)", output);
+        Assert.Contains("ptr.deallocate()", output);
+    }
+
+    [Fact]
+    public void EmitWitnessDispatch_CollectionMethodReturn_EmitsAccessor()
+    {
+        var db = CreateTypeDatabaseWithProtocols("TestModule.MyProtocol");
+        var ctx = new ModuleEmissionContext();
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule", ctx);
+
+        var dictType = new NamedTypeSpec("Swift.Dictionary");
+        dictType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        dictType.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var protocol = CreateProtocolWithMethod("MyProtocol", "getMap", dictType);
+        var output = EmitDispatchWithEmitter(emitter, protocol, ctx);
+
+        Assert.Contains("@_silgen_name(\"SBW_MyProtocol_method_getMap_0\")", output);
+        Assert.Contains("UnsafeMutablePointer<[String: Int]>.allocate(capacity: 1)", output);
+        Assert.Contains("@_silgen_name(\"SBW_MyProtocol_free_method_getMap_0\")", output);
+        Assert.Contains("assumingMemoryBound(to: [String: Int].self).deinitialize(count: 1)", output);
+    }
+
+    [Fact]
+    public void EmitWitnessDispatch_ThrowingCollectionMethod_EmitsDoTryCatch()
+    {
+        var db = CreateTypeDatabaseWithProtocols("TestModule.MyProtocol");
+        var ctx = new ModuleEmissionContext();
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule", ctx);
+
+        var setType = new NamedTypeSpec("Swift.Set");
+        setType.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var protocol = CreateProtocolWithMethod("MyProtocol", "fetchIds", setType);
+        protocol.Methods[0].Throws = true;
+        var output = EmitDispatchWithEmitter(emitter, protocol, ctx);
+
+        Assert.Contains("-> UnsafeMutableRawPointer?", output);
+        Assert.Contains("do {", output);
+        Assert.Contains("try existential.fetchIds()", output);
+        Assert.Contains("} catch {", output);
+        Assert.Contains("errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()", output);
+        Assert.Contains("return nil", output);
+    }
+
+    #endregion
+
+    #region Optional Existential Return
+
+    [Fact]
+    public void ClassifyMethodDispatch_OptionalExistentialReturn_ReturnsExistentialReturn()
+    {
+        var emitter = CreateExistentialEmitter(out var ctx);
+
+        var optionalExistentialType = new NamedTypeSpec("Swift.Optional");
+        optionalExistentialType.GenericParameters.Add(
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.Card") }));
+        var protocol = CreateProtocolWithMethod("MyProtocol", "findCard", optionalExistentialType);
+        var method = protocol.Methods[0];
+
+        var kind = emitter.ClassifyMethodDispatch(method);
+        Assert.Equal(MethodDispatchKind.ExistentialReturn, kind);
+    }
+
+    [Fact]
+    public void ClassifyMethodDispatch_ThrowingOptionalExistential_ReturnsNotDispatchable()
+    {
+        var emitter = CreateExistentialEmitter(out var ctx);
+
+        var optionalExistentialType = new NamedTypeSpec("Swift.Optional");
+        optionalExistentialType.GenericParameters.Add(
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.Card") }));
+        var protocol = CreateProtocolWithMethod("MyProtocol", "findCard", optionalExistentialType);
+        protocol.Methods[0].Throws = true;
+        var method = protocol.Methods[0];
+
+        var kind = emitter.ClassifyMethodDispatch(method);
+        Assert.Equal(MethodDispatchKind.NotDispatchable, kind);
+    }
+
+    [Fact]
+    public void EmitWitnessDispatch_OptionalExistentialReturn_EmitsIfLetPattern()
+    {
+        var emitter = CreateExistentialEmitter(out var ctx);
+
+        var optionalExistentialType = new NamedTypeSpec("Swift.Optional");
+        optionalExistentialType.GenericParameters.Add(
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.Card") }));
+        var protocol = CreateProtocolWithMethod("MyProtocol", "findCard", optionalExistentialType);
+        var output = EmitDispatchWithEmitter(emitter, protocol, ctx);
+
+        Assert.Contains("-> UnsafeMutableRawPointer?", output);
+        Assert.Contains("(any TestModule.Card)?", output);
+        Assert.Contains("if let unwrapped = result", output);
+        Assert.Contains("return nil", output);
+    }
+
+    [Theory]
+    [InlineData(TypeRecordFlags.HasAssociatedTypes, "PAT")]
+    [InlineData(TypeRecordFlags.HasSelfRequirement, "Self requirement")]
+    [InlineData(TypeRecordFlags.InheritedRequirementsOnly, "InheritedRequirementsOnly")]
+    public void ClassifyMethodDispatch_OptionalExistentialWithBlockingFlags_ReturnsNotDispatchable(
+        TypeRecordFlags blockingFlag, string _)
+    {
+        // Protocols with blocking flags (PAT, Self requirement, InheritedRequirementsOnly)
+        // should NOT be dispatchable even when wrapped in Optional<any Protocol>
+        var db = new TypeDatabase();
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.BlockedProto"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "IBlockedProto"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.BlockedProto"),
+                MetadataAccessor = "$sMa",
+                Flags = blockingFlag,
+                Kind = TypeRecordKind.Protocol
+            });
+        db.AddModuleDatabase(testModule);
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule");
+
+        var optionalExistentialType = new NamedTypeSpec("Swift.Optional");
+        optionalExistentialType.GenericParameters.Add(
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.BlockedProto") }));
+        var protocol = CreateProtocolWithMethod("MyProtocol", "findItem", optionalExistentialType);
+        var method = protocol.Methods[0];
+
+        var kind = emitter.ClassifyMethodDispatch(method);
+        Assert.Equal(MethodDispatchKind.NotDispatchable, kind);
     }
 
     #endregion

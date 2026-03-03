@@ -15,7 +15,7 @@ This roadmap covers features that BUILD ON the foundation pillars. Each item dep
 | ~~nint return/property overloads~~ | None | +0.10-0.15 avg | Small | Nearly all | **DONE** |
 | ~~Noise reduction~~ | None | +0.05-0.08 avg | Medium | GRDB, Alamofire, Stripe | **DONE** |
 | ~~Protocol extension param gate lifts~~ | None | +0.10-0.15 avg | Medium | GRDB, Kingfisher | **DONE** |
-| Collection witness dispatch | P2.1 (dispatch table) | +0.10-0.15 avg | 1.5 sessions | All proxy libraries |
+| ~~Collection witness dispatch~~ | P2.1 (dispatch table) | +0.10-0.15 avg | 1.5 sessions | All proxy libraries | **DONE** |
 | String enum raw values | None | +0.02-0.05 avg | Small | GRDB, CryptoSwift |
 | Safety (Dispose, finalizer) | None | +0.00 (production) | 1 session | All |
 | ~~Runtime metadata prototype~~ | P1.2 (conformance graph) | +0.00 (enabler) | 1 session | Future | **DONE** |
@@ -81,18 +81,21 @@ Three noise sources addressed:
 
 ---
 
-## Feature F4: Collection Returns in Witness Dispatch
+## Feature F4: Collection Returns + Optional Existential Returns — COMPLETE
 **Pillar dependency**: P2.1 (dispatch table)
 **Score impact**: +0.10-0.15 combined average (largest single feature)
-**Effort**: 1.5 sessions
+**Effort**: 1 session (completed March 3, 2026)
 
-New dispatch kinds for proxy methods returning collections/interfaces:
+Protocol proxy methods returning collections or optional existentials now dispatch through Swift witness tables instead of throwing `NotSupportedException`.
 
-- **BoundGenericReturn** dispatch kind in `WitnessDispatchEmitter` — Swift wrapper boxes `[T]`, `Dictionary<K,V>`, `Set<T>` into transferable form
-- **Optional existential return** sub-variant — `ICardTerminal?` style returns
-- Wire up in `ProtocolProxyEmitter.InterfaceImpl`
+**What shipped**:
+- **BoundGenericReturn dispatch kind**: `Array<T>`, `Dictionary<K,V>`, `Set<T>` returns classified and dispatched. Swift accessors use heap-allocated pointer pattern (allocate → initialize → return + typed free function). C# uses `TypeProjectionFactory` projections for marshalling (`MarshalFromSwift<SwiftArray<T>>().AsProjected(...)`, `.Select().ToHashSet()`, etc.)
+- **Optional existential return**: `Optional<any Protocol>` dispatch via `if let` Swift pattern, `IntPtr.Zero` → `null` in C#. Full safety gates from `IsSupportedExistentialReturn` applied (PAT, Self requirement, InheritedRequirementsOnly all block dispatch)
+- **Throwing + optional gate**: Throwing methods with optional existential return stay `NotDispatchable` — `IntPtr.Zero` sentinel conflict between error and `.none`
+- **Classification helpers**: `IsCollectionType`, `IsPropertyCollectionReturn`, `IsBoundGenericReturnDispatchable`, `IsElementTypeResolvable`, `GetSwiftCollectionTypeString` (renders Swift sugar syntax: `[String]`, `[K: V]`, `Set<T>`)
+- **Secondary C# validation**: BoundGenericReturn shares AnyType/object rejection and param validation with ClassReturn/StructReturn in a merged conditional
 
-**Key files**: `WitnessDispatchEmitter.cs`, `ProtocolProxyEmitter.cs`
+**Key files**: `WitnessDispatchEmitter.cs`, `ProtocolProxyEmitter.InterfaceImpl.cs`, `ProtocolProxyEmitter.SwiftObject.cs`, `ProtocolExtensionEmitter.cs` (`HasBlockingProtocolFlagsForReturn`)
 
 ---
 
@@ -165,7 +168,7 @@ IMMEDIATE (no pillar dependency):
   F6: Safety                   ── 1 session
 
 AFTER P2.1 (dispatch table):
-  F4: Collection witness dispatch ── 1.5 sessions
+  F4: Collection witness dispatch ── DONE (March 3, 2026)
 
 AFTER P1.2 (conformance graph):
   F7: Runtime metadata         ── DONE (March 2, 2026) — may unblock F5 via runtime introspection
