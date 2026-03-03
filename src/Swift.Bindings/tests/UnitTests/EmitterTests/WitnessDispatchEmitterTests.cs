@@ -2209,6 +2209,81 @@ public class WitnessDispatchEmitterTests
         Assert.Contains("return nil", output);
     }
 
+    #endregion
+
+    #region F6: ClassifyMethodDispatchWithReason Tests
+
+    [Fact]
+    public void ClassifyMethodDispatchWithReason_Async_ReturnsReasonString()
+    {
+        var protocol = CreateProtocolWithVoidMethod("MyProto", "doWork");
+        protocol.Methods[0].IsAsync = true;
+
+        var classification = _emitter.ClassifyMethodDispatchWithReason(protocol.Methods[0]);
+        Assert.Equal(MethodDispatchKind.NotDispatchable, classification.Kind);
+        Assert.Equal("async methods require Swift concurrency runtime", classification.Reason);
+    }
+
+    [Fact]
+    public void ClassifyMethodDispatchWithReason_NonBlittableReturn_IncludesTypeName()
+    {
+        // A method returning an unregistered type is not dispatchable
+        var returnType = new NamedTypeSpec("SomeModule.WeirdType");
+        var protocol = CreateProtocolWithMethod("MyProto", "getData", returnType);
+
+        var classification = _emitter.ClassifyMethodDispatchWithReason(protocol.Methods[0]);
+        Assert.Equal(MethodDispatchKind.NotDispatchable, classification.Kind);
+        Assert.NotNull(classification.Reason);
+        Assert.Contains("return type", classification.Reason);
+        Assert.Contains("is not dispatchable", classification.Reason);
+    }
+
+    [Fact]
+    public void ClassifyMethodDispatchWithReason_NonBlittableParam_IncludesParamInfo()
+    {
+        // A method with a non-dispatchable parameter type
+        var protocol = CreateProtocolWithMethodAndParams("MyProto", "process",
+            TupleTypeSpec.Empty,
+            new[] { ("input", (TypeSpec)new NamedTypeSpec("SomeModule.WeirdType")) });
+
+        var classification = _emitter.ClassifyMethodDispatchWithReason(protocol.Methods[0]);
+        Assert.Equal(MethodDispatchKind.NotDispatchable, classification.Kind);
+        Assert.NotNull(classification.Reason);
+        Assert.Contains("parameter", classification.Reason);
+        Assert.Contains("non-dispatchable type", classification.Reason);
+    }
+
+    [Fact]
+    public void ClassifyMethodDispatchWithReason_ThrowingOptionalExistential_ReturnsReason()
+    {
+        var emitter = CreateExistentialEmitter(out var ctx);
+
+        var optionalExistentialType = new NamedTypeSpec("Swift.Optional");
+        optionalExistentialType.GenericParameters.Add(
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.Card") }));
+        var protocol = CreateProtocolWithMethod("MyProto", "findCard", optionalExistentialType);
+        protocol.Methods[0].Throws = true;
+
+        var classification = emitter.ClassifyMethodDispatchWithReason(protocol.Methods[0]);
+        Assert.Equal(MethodDispatchKind.NotDispatchable, classification.Kind);
+        Assert.Equal("throwing methods with optional existential return are not supported", classification.Reason);
+    }
+
+    [Fact]
+    public void ClassifyMethodDispatchWithReason_Dispatchable_HasNullReason()
+    {
+        // A simple void method with no params should be dispatchable with null reason
+        var protocol = CreateProtocolWithVoidMethod("MyProto", "doSimple");
+
+        var classification = _emitter.ClassifyMethodDispatchWithReason(protocol.Methods[0]);
+        Assert.NotEqual(MethodDispatchKind.NotDispatchable, classification.Kind);
+        Assert.Null(classification.Reason);
+    }
+
+    #endregion
+
+    #region F4: Optional Existential Return
+
     [Theory]
     [InlineData(TypeRecordFlags.HasAssociatedTypes, "PAT")]
     [InlineData(TypeRecordFlags.HasSelfRequirement, "Self requirement")]

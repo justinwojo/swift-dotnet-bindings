@@ -90,10 +90,22 @@ public partial class ProtocolProxyEmitter
             {
                 if (_disposed) return;
                 _disposed = true;
+                GC.SuppressFinalize(this);
                 if (_everyProtocol != null)
                 {
                     SwiftObjectRegistry.Unregister(_everyProtocol.Handle);
                     _everyProtocol.Dispose();
+                }
+            }
+
+            ~{{proxyClassName}}()
+            {
+                if (!_disposed && _everyProtocol != null)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[SwiftBindings] WARNING: {GetType().Name} was finalized without Dispose(). " +
+                        "EveryProtocol handle and SwiftObjectRegistry strong reference were leaked. " +
+                        "Use 'using' or call Dispose() explicitly.");
                 }
             }
 

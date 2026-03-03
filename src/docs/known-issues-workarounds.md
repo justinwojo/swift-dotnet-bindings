@@ -29,9 +29,10 @@ All issues documented here are **Mono JIT-specific**. The deployment target dete
    - [Workaround C: Existential Metadata Wrapper](#workaround-c-existential-metadata-wrapper)
    - [Workaround D: Signature Risk Detection](#workaround-d-signature-risk-detection)
    - [Revert Plan (When Upstream Fix Lands)](#revert-plan-when-upstream-fix-lands)
-2. [Non-Blittable Types with Swift Calling Convention](#non-blittable-types-with-swift-calling-convention)
-3. [SafeHandle in Async P/Invoke](#safehandle-in-async-pinvoke)
-4. [Upstream Bug Report Status](#upstream-bug-report-status)
+2. [SB0003: Non-Dispatchable Protocol Members](#sb0003-non-dispatchable-protocol-members)
+3. [Non-Blittable Types with Swift Calling Convention](#non-blittable-types-with-swift-calling-convention)
+4. [SafeHandle in Async P/Invoke](#safehandle-in-async-pinvoke)
+5. [Upstream Bug Report Status](#upstream-bug-report-status)
 
 ---
 
@@ -215,6 +216,65 @@ When the Mono JIT `CallConvSwift` bug is fixed in dotnet/runtime, these workarou
 - Promote Tier 3 tests (MutableProps dispose, etc.) back to Tier 2
 - Update `Future/mono-jit-future-work.md` status to "Resolved upstream"
 - Update this document
+
+---
+
+## SB0003: Non-Dispatchable Protocol Members
+
+**Severity**: Low — Informational diagnostic on generated code
+**Status**: Resolved (F6, March 2026)
+
+Protocol proxy classes emit `[Obsolete("...", DiagnosticId = "SB0003")]` on members that cannot be dispatched through Swift's witness table. When called on a Swift-backed existential container, these members throw `NotSupportedException`. When called on a C# implementation (proxy created from managed code), they work normally.
+
+**As of F6**, SB0003 messages now include **specific reasons** why the member is not dispatchable:
+
+| Reason | Example |
+|--------|---------|
+| `async methods require Swift concurrency runtime` | `async func fetchData()` |
+| `parameter 'x' has non-dispatchable type 'Y'` | Method with closure/generic param |
+| `return type 'Z' is not dispatchable` | Method returning unsupported type |
+| `property type 'T' is not dispatchable via witness table` | Property with unsupported type |
+| `subscript dispatch is not yet implemented` | Any subscript member |
+| `throwing methods with optional existential return are not supported` | `func find() throws -> (any P)?` |
+
+Previously all SB0003 messages said "This member is not dispatchable to Swift" with no further detail. The specific reasons help consumers understand whether a limitation is fundamental or may be lifted in future releases.
+
+---
+
+## SB1001: Undisposed ISwiftObject Analyzer Limitations
+
+**Severity**: Low — Informational diagnostic (Warning)
+**Status**: By design — lightweight heuristic, not full dataflow
+
+The `SB1001` Roslyn analyzer warns when a local variable implementing `ISwiftObject` is not disposed via `using` or an explicit `Dispose()` call. It uses **syntax-level heuristics** rather than control-flow graph (CFG) or dataflow analysis. This is intentional — it catches the most common leak pattern (forgetting `using`) without the complexity and false-negative risk of full lifetime tracking.
+
+### What SB1001 recognizes (no warning)
+
+| Pattern | Example |
+|---------|---------|
+| `using` declaration | `using var x = new FooProxy();` |
+| `using` statement | `using (var x = new FooProxy()) { }` |
+| Unconditional `Dispose()` in same block | `var x = new FooProxy(); x.Dispose();` |
+| `try/finally` Dispose | `try { } finally { x.Dispose(); }` |
+| Direct return (ownership transfer) | `return x;` |
+
+### Known false positives (warns but disposal is safe)
+
+| Pattern | Why it warns |
+|---------|-------------|
+| Stored into a field for later disposal | Field assignment not tracked |
+| Passed to a method that takes ownership | Method semantics not analyzed |
+| Disposed in a helper method | Cross-method analysis not performed |
+| Disposed via conditional that always executes | Branch analysis not performed |
+
+### Known false negatives (no warning but leaks)
+
+| Pattern | Why it's missed |
+|---------|----------------|
+| `Dispose()` called but unreachable (dead code) | Reachability not analyzed |
+| Variable reassigned before disposal | Reassignment not tracked |
+
+These edge cases are acceptable for the intended scope of "lightweight guidance." Consumers who need precise lifetime tracking should use `using` declarations consistently, which eliminates both false positives and false negatives.
 
 ---
 

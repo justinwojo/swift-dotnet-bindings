@@ -1,6 +1,6 @@
 # Feature Roadmap
 
-**Date**: March 2, 2026
+**Date**: March 3, 2026
 **Prerequisite**: Foundation Roadmap pillars complete (or the specific pillar each feature depends on)
 **Goal**: Push binding quality scores from ~3.50 toward 4.0+ across all libraries
 
@@ -17,7 +17,7 @@ This roadmap covers features that BUILD ON the foundation pillars. Each item dep
 | ~~Protocol extension param gate lifts~~ | None | +0.10-0.15 avg | Medium | GRDB, Kingfisher | **DONE** |
 | ~~Collection witness dispatch~~ | P2.1 (dispatch table) | +0.10-0.15 avg | 1.5 sessions | All proxy libraries | **DONE** |
 | String enum raw values | None | +0.02-0.05 avg | Small | GRDB, CryptoSwift |
-| Safety (Dispose, finalizer) | None | +0.00 (production) | 1 session | All |
+| ~~Safety (Dispose, finalizer)~~ | None | +0.00 (production) | 1 session | All | **DONE** |
 | ~~Runtime metadata prototype~~ | P1.2 (conformance graph) | +0.00 (enabler) | 1 session | Future | **DONE** |
 
 ---
@@ -121,17 +121,25 @@ ABI JSON doesn't include string/integer raw values for enums. The original assum
 
 ---
 
-## Feature F6: Safety & Production Hardening
+## Feature F6: Safety & Production Hardening — COMPLETE
 **Pillar dependency**: None
 **Score impact**: +0.00 (not measured in scores, critical for production)
-**Effort**: 1 session
+**Effort**: 1 session + review hardening (completed March 3, 2026)
 
-- **Proxy Dispose() cleanup**: GCHandle/EveryProtocol leak prevention
-- **Finalizer safety**: Prevent double-free and leaked handles
-- **SB0003 message improvement**: Include specific skip reason (not just "non-dispatchable")
-- **Roslyn analyzer prototype**: Warn when `ISwiftObject` lacks `using`/`Dispose`
+Three safety improvements for production use, plus review-driven hardening:
 
-**Key files**: Protocol proxy emitters, `SwiftSafeHandle.cs`
+**What shipped**:
+- **Proxy finalizer leak detection**: All `*Proxy` classes now have a `~ProxyName()` finalizer that emits `Debug.WriteLine` warning when `Dispose()` wasn't called. `GC.SuppressFinalize(this)` in `Dispose()` suppresses the finalizer on proper cleanup. Does NOT call P/Invoke in finalizer (Mono JIT safe) — warns and leaks rather than crashes.
+- **SB0003 specific skip reasons**: Generic "not dispatchable" SB0003 `[Obsolete]` messages now include specific reasons: "async methods require Swift concurrency runtime", "parameter 'x' has non-dispatchable type 'Y'", "return type 'Z' is not dispatchable", "subscript dispatch is not yet implemented", "property type 'T' is not dispatchable via witness table". New `DispatchClassification` record and `ClassifyMethodDispatchWithReason`/`GetPropertyNonDispatchReason` APIs on `WitnessDispatchEmitter`. Secondary C# validation demotion points also set specific reasons (e.g., "projected return type 'X' has no proxy class", "projected parameter type is not dispatchable").
+- **Roslyn analyzer (SB1001)**: `Swift.Analyzers` project with `SwiftObjectDisposeAnalyzer` that warns when `ISwiftObject` locals are created without `using` or explicit `Dispose()`. Includes `SwiftObjectDisposeCodeFixProvider` (adds `using` modifier). Packaged into `Swift.Runtime` NuGet at `analyzers/dotnet/cs/Swift.Analyzers.dll`.
+
+**Review-driven hardening** (codex review, March 3):
+- **SB1001 conditional Dispose detection**: `IsDisposedInScope` rewritten to only suppress for unconditional patterns — top-level `Dispose()` in same block or inside `finally`. Dispose inside `if`/`for`/`while` is intentionally treated as undisposed. Three new tests: `ConditionalDispose_StillWarns`, `ConditionalDisposeInBlock_StillWarns`, `TryFinallyDispose_NoDiagnostic`.
+- **Dynamic NuGet analyzer packaging**: Replaced hardcoded `bin/$(Configuration)/netstandard2.0/` path with `<MSBuild Targets="GetTargetPath">` task that dynamically resolves the analyzer DLL output path regardless of build configuration.
+- **Secondary validation dispatch reasons**: All demotion points in `ProtocolProxyEmitter.InterfaceImpl.cs` set `dispatchReason ??=` with specific reasons, preventing stale/null reasons when initial classification is overridden by C#-side validation.
+- **SB1001 scope documentation**: Analyzer XML doc and `known-issues-workarounds.md` explicitly document that SB1001 is syntax-heuristic (not CFG/dataflow), listing known false positive and false negative patterns. Intended scope: lightweight guidance to catch the most common leak pattern (forgetting `using`).
+
+**Key files**: `ProtocolProxyEmitter.SwiftObject.cs`, `WitnessDispatchEmitter.cs`, `ProtocolProxyEmitter.InterfaceImpl.cs`, `Swift.Analyzers/SwiftObjectDisposeAnalyzer.cs`, `Swift.Analyzers/SwiftObjectDisposeCodeFixProvider.cs`, `Swift.Runtime.csproj` (`_AddAnalyzerToPackage` target)
 
 ---
 
@@ -165,7 +173,7 @@ IMMEDIATE (no pillar dependency):
   F2: Noise reduction          ── DONE (March 2, 2026)
   F3: Protocol ext param lifts ── DONE (March 2, 2026)
   F5: String enum raw values   ── BLOCKED (no data source in compiled xcframeworks)
-  F6: Safety                   ── 1 session
+  F6: Safety                   ── DONE (March 3, 2026)
 
 AFTER P2.1 (dispatch table):
   F4: Collection witness dispatch ── DONE (March 3, 2026)

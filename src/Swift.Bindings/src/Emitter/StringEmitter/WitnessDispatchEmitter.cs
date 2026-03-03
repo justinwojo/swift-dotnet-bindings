@@ -27,6 +27,12 @@ public enum MethodDispatchKind
 }
 
 /// <summary>
+/// Pairs a <see cref="MethodDispatchKind"/> with an optional human-readable reason
+/// explaining why the method is not dispatchable (null when dispatchable).
+/// </summary>
+public readonly record struct DispatchClassification(MethodDispatchKind Kind, string? Reason);
+
+/// <summary>
 /// Generates Swift @_silgen_name accessor functions that reconstruct existential containers
 /// and dispatch through the protocol witness table. These accessors enable C# code to call
 /// protocol members on Swift-backed existential containers via P/Invoke.
@@ -450,6 +456,109 @@ public class WitnessDispatchEmitter
         }
 
         return MethodDispatchKind.BlittableOrString;
+    }
+
+    /// <summary>
+    /// Classifies method dispatch with a human-readable reason when not dispatchable.
+    /// Returns <see cref="DispatchClassification"/> with Kind and optional Reason string.
+    /// </summary>
+    public DispatchClassification ClassifyMethodDispatchWithReason(MethodDecl method)
+    {
+        if (method.IsAsync)
+            return new DispatchClassification(MethodDispatchKind.NotDispatchable, "async methods require Swift concurrency runtime");
+
+        var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+        var hasReturn = returnType != null && !returnType.IsEmptyTuple;
+
+        // Check return type dispatchability first for non-blittable return reason
+        if (hasReturn && IsExistentialDispatchable(returnType!))
+        {
+            if (method.Throws && MarshallingHelpers.IsSwiftOptional(returnType!))
+                return new DispatchClassification(MethodDispatchKind.NotDispatchable, "throwing methods with optional existential return are not supported");
+
+            foreach (var param in method.CSSignature.Skip(1))
+            {
+                if (!IsTypeDispatchable(param.SwiftTypeSpec))
+                    return new DispatchClassification(MethodDispatchKind.NotDispatchable,
+                        $"parameter '{param.Name}' has non-dispatchable type '{param.SwiftTypeSpec}'");
+            }
+            return new DispatchClassification(MethodDispatchKind.ExistentialReturn, null);
+        }
+
+        if (hasReturn && IsBoundGenericReturnDispatchable(returnType!))
+        {
+            foreach (var param in method.CSSignature.Skip(1))
+            {
+                if (!IsTypeDispatchable(param.SwiftTypeSpec))
+                    return new DispatchClassification(MethodDispatchKind.NotDispatchable,
+                        $"parameter '{param.Name}' has non-dispatchable type '{param.SwiftTypeSpec}'");
+            }
+            return new DispatchClassification(MethodDispatchKind.BoundGenericReturn, null);
+        }
+
+        if (hasReturn && IsClassReturn(returnType!))
+        {
+            foreach (var param in method.CSSignature.Skip(1))
+            {
+                if (!IsTypeDispatchable(param.SwiftTypeSpec))
+                    return new DispatchClassification(MethodDispatchKind.NotDispatchable,
+                        $"parameter '{param.Name}' has non-dispatchable type '{param.SwiftTypeSpec}'");
+            }
+            return new DispatchClassification(MethodDispatchKind.ClassReturn, null);
+        }
+
+        if (hasReturn && IsStructReturn(returnType!))
+        {
+            foreach (var param in method.CSSignature.Skip(1))
+            {
+                if (!IsTypeDispatchable(param.SwiftTypeSpec))
+                    return new DispatchClassification(MethodDispatchKind.NotDispatchable,
+                        $"parameter '{param.Name}' has non-dispatchable type '{param.SwiftTypeSpec}'");
+            }
+            return new DispatchClassification(MethodDispatchKind.StructReturn, null);
+        }
+
+        if (method.Throws)
+        {
+            if (hasReturn && !IsTypeDispatchable(returnType!))
+                return new DispatchClassification(MethodDispatchKind.NotDispatchable,
+                    $"return type '{returnType}' is not dispatchable");
+            foreach (var param in method.CSSignature.Skip(1))
+            {
+                if (!IsTypeDispatchable(param.SwiftTypeSpec))
+                    return new DispatchClassification(MethodDispatchKind.NotDispatchable,
+                        $"parameter '{param.Name}' has non-dispatchable type '{param.SwiftTypeSpec}'");
+            }
+            return new DispatchClassification(MethodDispatchKind.ThrowingBlittableOrString, null);
+        }
+
+        if (hasReturn && !IsTypeDispatchable(returnType!))
+            return new DispatchClassification(MethodDispatchKind.NotDispatchable,
+                $"return type '{returnType}' is not dispatchable");
+
+        foreach (var param in method.CSSignature.Skip(1))
+        {
+            if (!IsTypeDispatchable(param.SwiftTypeSpec))
+                return new DispatchClassification(MethodDispatchKind.NotDispatchable,
+                    $"parameter '{param.Name}' has non-dispatchable type '{param.SwiftTypeSpec}'");
+        }
+
+        return new DispatchClassification(MethodDispatchKind.BlittableOrString, null);
+    }
+
+    /// <summary>
+    /// Returns a human-readable reason why a property type is not dispatchable via witness table.
+    /// Returns null if the property is dispatchable.
+    /// </summary>
+    public string? GetPropertyNonDispatchReason(PropertyDecl property)
+    {
+        if (IsTypeDispatchable(property.SwiftTypeSpec)
+            || IsPropertyClassReturn(property)
+            || IsPropertyStructReturn(property)
+            || IsPropertyCollectionReturn(property))
+            return null;
+
+        return $"property type '{property.SwiftTypeSpec}' is not dispatchable via witness table";
     }
 
     /// <summary>

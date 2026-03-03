@@ -13,6 +13,8 @@
     <!-- CS1591: Missing XML comment for publicly visible type or member -->
     <!-- Suppress as error until XML docs are added to all public APIs -->
     <WarningsNotAsErrors>CS1591</WarningsNotAsErrors>
+    <!-- SB1001: The runtime itself manages ISwiftObject lifetimes; suppress its own analyzer -->
+    <NoWarn>$(NoWarn);SB1001</NoWarn>
     <IsAotCompatible>true</IsAotCompatible>
     <!-- NuGet package metadata -->
     <PackageId>Swift.Runtime</PackageId>
@@ -62,6 +64,27 @@
       <Link>libSwiftBindingsRuntime.dylib</Link>
     </Content>
   </ItemGroup>
+
+  <!-- Roslyn analyzer: build as analyzer, pack into NuGet for consumers.
+       The ProjectReference builds the analyzer alongside Swift.Runtime.
+       The target below resolves the actual output path from MSBuild properties
+       so we don't hardcode bin/$(Configuration)/netstandard2.0/. -->
+  <ItemGroup>
+    <ProjectReference Include="../../Swift.Analyzers/Swift.Analyzers.csproj"
+                      PrivateAssets="all"
+                      ReferenceOutputAssembly="false"
+                      OutputItemType="Analyzer" />
+  </ItemGroup>
+  <Target Name="_AddAnalyzerToPackage" BeforeTargets="_GetPackageFiles">
+    <MSBuild Projects="../../Swift.Analyzers/Swift.Analyzers.csproj"
+             Targets="GetTargetPath"
+             Properties="Configuration=$(Configuration)">
+      <Output TaskParameter="TargetOutputs" ItemName="_AnalyzerOutput" />
+    </MSBuild>
+    <ItemGroup>
+      <None Include="@(_AnalyzerOutput)" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+    </ItemGroup>
+  </Target>
 
   <!-- NuGet pack items: native dylibs, .targets, and README -->
   <ItemGroup>

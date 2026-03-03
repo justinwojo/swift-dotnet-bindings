@@ -4826,6 +4826,119 @@ public class ProtocolProxyEmitterTests
 
     #endregion
 
+    #region F6: Proxy Finalizer Leak Detection Tests
+
+    [Fact]
+    public void Dispose_EmitsSuppressFinalize()
+    {
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
+        var output = EmitProxyClass(protocolDecl);
+
+        // GC.SuppressFinalize(this) must appear in the Dispose method
+        Assert.Contains("GC.SuppressFinalize(this)", output);
+    }
+
+    [Fact]
+    public void Finalizer_EmitsLeakWarning()
+    {
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
+        var output = EmitProxyClass(protocolDecl);
+
+        // Finalizer should emit Debug.WriteLine with leak warning
+        Assert.Contains("~TestProtocolProxy()", output);
+        Assert.Contains("System.Diagnostics.Debug.WriteLine", output);
+        Assert.Contains("was finalized without Dispose()", output);
+        Assert.Contains("EveryProtocol handle and SwiftObjectRegistry strong reference were leaked", output);
+    }
+
+    [Fact]
+    public void Finalizer_OnlyWarnsWhenEveryProtocolExists()
+    {
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
+        var output = EmitProxyClass(protocolDecl);
+
+        // Finalizer body should have both _disposed and _everyProtocol guards
+        Assert.Contains("!_disposed && _everyProtocol != null", output);
+    }
+
+    #endregion
+
+    #region F6: SB0003 Specific Skip Reasons Tests
+
+    [Fact]
+    public void SB0003_PropertyMessage_IncludesSpecificReason()
+    {
+        // A property with an unsupported type should include a specific reason in SB0003
+        // Use a type that is not blittable, not string, not class, not struct, not collection
+        var typeSpec = new NamedTypeSpec("SomeModule.UnsupportedType");
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "weird", hasGetter: true, hasSetter: false, typeSpec);
+        var output = EmitProxyClass(protocolDecl);
+
+        // Should have the specific reason in the Obsolete message
+        Assert.Contains("is not dispatchable via witness table", output);
+        Assert.Contains("SB0003", output);
+    }
+
+    [Fact]
+    public void SB0003_MethodMessage_IncludesSpecificReason()
+    {
+        // An async method should include the async-specific reason
+        var protocol = CreateSimpleProtocol("AsyncProto");
+        protocol.Methods.Add(new MethodDecl
+        {
+            Name = "fetchData",
+            MangledName = "$sfetchData",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { Name = "", PrivateName = "",
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = true, Visibility = Visibility.Public
+        });
+        var output = EmitProxyClass(protocol);
+
+        Assert.Contains("async methods require Swift concurrency runtime", output);
+        Assert.Contains("SB0003", output);
+    }
+
+    [Fact]
+    public void SB0003_SubscriptMessage_SaysNotYetImplemented()
+    {
+        // Subscripts should have a specific "not yet implemented" reason
+        var protocol = CreateSimpleProtocol("IndexableProto");
+        protocol.Subscripts.Add(new SubscriptDecl
+        {
+            Name = "subscript",
+            ReturnTypeSpec = new NamedTypeSpec("Swift.Int32"),
+            IsStatic = false,
+            MangledName = "$ssubscript",
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("subscript_get") }
+            },
+            IndexParameters = new List<ArgumentDecl>
+            {
+                new() { Name = "index", PrivateName = "index",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int32"),
+                    IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+        RegisterSwiftInt32();
+        var output = EmitProxyClass(protocol);
+
+        Assert.Contains("subscript dispatch is not yet implemented", output);
+        Assert.Contains("SB0003", output);
+    }
+
+    #endregion
+
     #region Optional Existential Return (F4) Tests
 
     [Fact]

@@ -184,8 +184,12 @@ public partial class ProtocolProxyEmitter
             (hasGetter && !isGetterDispatched) || (hasSetter && !isSetterDispatchable);
         if (isAnyAccessorNonDispatchable)
         {
-            writer.WriteLine("[Obsolete(\"This member is not dispatchable to Swift and throws NotSupportedException \" +");
-            writer.WriteLine("    \"when called on a Swift-backed existential container (SB0003).\",");
+            var propReason = dispatchEmitter.GetPropertyNonDispatchReason(property);
+            var reasonSuffix = propReason != null
+                ? $": {propReason}. Throws"
+                : " and throws";
+            writer.WriteLine($"[Obsolete(\"This member is not dispatchable to Swift{reasonSuffix} NotSupportedException \" +");
+            writer.WriteLine("    \"on Swift-backed existential containers (SB0003).\",");
             writer.WriteLine("    DiagnosticId = \"SB0003\",");
             writer.WriteLine("    UrlFormat = \"https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md\")]");
         }
@@ -438,8 +442,8 @@ public partial class ProtocolProxyEmitter
             NameProvider.GetCSharpParameterName(p)).ToList();
         var argsString = string.Join(", ", argNames);
 
-        writer.WriteLine("[Obsolete(\"This member is not dispatchable to Swift and throws NotSupportedException \" +");
-        writer.WriteLine("    \"when called on a Swift-backed existential container (SB0003).\",");
+        writer.WriteLine("[Obsolete(\"This member is not dispatchable to Swift: subscript dispatch is not yet implemented. \" +");
+        writer.WriteLine("    \"Throws NotSupportedException on Swift-backed existential containers (SB0003).\",");
         writer.WriteLine("    DiagnosticId = \"SB0003\",");
         writer.WriteLine("    UrlFormat = \"https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md\")]");
 
@@ -536,7 +540,9 @@ public partial class ProtocolProxyEmitter
         var methodName = NameProvider.GetPublicMethodName(method.Name, method.IsAsync, hasReturn,
             propertyNames: propertyNames, isSelfReturning: isSelfReturning,
             parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
-        var dispatchKind = dispatchEmitter.ClassifyMethodDispatch(method);
+        var dispatchClassification = dispatchEmitter.ClassifyMethodDispatchWithReason(method);
+        var dispatchKind = dispatchClassification.Kind;
+        var dispatchReason = dispatchClassification.Reason;
 
         // Secondary C#-side validation for ExistentialReturn — verify proxy class exists
         // and projected return type is a valid interface (not "object" or "AnyType")
@@ -554,6 +560,7 @@ public partial class ProtocolProxyEmitter
                 returnTypeName == TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName)
             {
                 dispatchKind = MethodDispatchKind.NotDispatchable;
+                dispatchReason ??= $"projected return type '{returnTypeName}' has no proxy class";
             }
         }
 
@@ -565,18 +572,25 @@ public partial class ProtocolProxyEmitter
                 if (isStringReturn)
                 {
                     if (!IsIdiomaticStringType(returnTypeName))
+                    {
                         dispatchKind = MethodDispatchKind.NotDispatchable;
+                        dispatchReason ??= $"projected return type '{returnTypeName}' is not an idiomatic string type";
+                    }
                 }
                 else if (!WitnessDispatchEmitter.IsBlittablePrimitive(returnTypeName))
                 {
                     dispatchKind = MethodDispatchKind.NotDispatchable;
+                    dispatchReason ??= $"projected return type '{returnTypeName}' is not a blittable primitive";
                 }
             }
 
             if (dispatchKind == MethodDispatchKind.BlittableOrString)
             {
                 if (!ValidateParamProjections(projectedParamTypes, paramSwiftTypeSpecs, dispatchEmitter))
+                {
                     dispatchKind = MethodDispatchKind.NotDispatchable;
+                    dispatchReason ??= "projected parameter type is not dispatchable";
+                }
             }
         }
 
@@ -588,18 +602,25 @@ public partial class ProtocolProxyEmitter
                 if (isStringReturn)
                 {
                     if (!IsIdiomaticStringType(returnTypeName))
+                    {
                         dispatchKind = MethodDispatchKind.NotDispatchable;
+                        dispatchReason ??= $"projected return type '{returnTypeName}' is not an idiomatic string type";
+                    }
                 }
                 else if (!WitnessDispatchEmitter.IsBlittablePrimitive(returnTypeName))
                 {
                     dispatchKind = MethodDispatchKind.NotDispatchable;
+                    dispatchReason ??= $"projected return type '{returnTypeName}' is not a blittable primitive";
                 }
             }
 
             if (dispatchKind == MethodDispatchKind.ThrowingBlittableOrString)
             {
                 if (!ValidateParamProjections(projectedParamTypes, paramSwiftTypeSpecs, dispatchEmitter))
+                {
                     dispatchKind = MethodDispatchKind.NotDispatchable;
+                    dispatchReason ??= "projected parameter type is not dispatchable";
+                }
             }
         }
 
@@ -607,7 +628,10 @@ public partial class ProtocolProxyEmitter
         if (dispatchKind == MethodDispatchKind.ExistentialReturn)
         {
             if (!ValidateParamProjections(projectedParamTypes, paramSwiftTypeSpecs, dispatchEmitter))
+            {
                 dispatchKind = MethodDispatchKind.NotDispatchable;
+                dispatchReason ??= "projected parameter type is not dispatchable";
+            }
         }
 
         // Secondary C#-side validation for ClassReturn, StructReturn, and BoundGenericReturn:
@@ -618,13 +642,17 @@ public partial class ProtocolProxyEmitter
                 returnTypeName == TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName)
             {
                 dispatchKind = MethodDispatchKind.NotDispatchable;
+                dispatchReason ??= $"projected return type '{returnTypeName}' degraded to AnyType (incomplete type database)";
             }
 
             // Validate params
             if (dispatchKind is MethodDispatchKind.ClassReturn or MethodDispatchKind.StructReturn or MethodDispatchKind.BoundGenericReturn)
             {
                 if (!ValidateParamProjections(projectedParamTypes, paramSwiftTypeSpecs, dispatchEmitter))
+                {
                     dispatchKind = MethodDispatchKind.NotDispatchable;
+                    dispatchReason ??= "projected parameter type is not dispatchable";
+                }
             }
         }
 
@@ -632,8 +660,11 @@ public partial class ProtocolProxyEmitter
 
         if (!isDispatchable)
         {
-            writer.WriteLine("[Obsolete(\"This member is not dispatchable to Swift and throws NotSupportedException \" +");
-            writer.WriteLine("    \"when called on a Swift-backed existential container (SB0003).\",");
+            var reasonSuffix = dispatchReason != null
+                ? $": {dispatchReason}. Throws"
+                : " and throws";
+            writer.WriteLine($"[Obsolete(\"This member is not dispatchable to Swift{reasonSuffix} NotSupportedException \" +");
+            writer.WriteLine("    \"on Swift-backed existential containers (SB0003).\",");
             writer.WriteLine("    DiagnosticId = \"SB0003\",");
             writer.WriteLine("    UrlFormat = \"https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md\")]");
         }
