@@ -18,7 +18,7 @@ This roadmap covers features that BUILD ON the foundation pillars. Each item dep
 | Collection witness dispatch | P2.1 (dispatch table) | +0.10-0.15 avg | 1.5 sessions | All proxy libraries |
 | String enum raw values | None | +0.02-0.05 avg | Small | GRDB, CryptoSwift |
 | Safety (Dispose, finalizer) | None | +0.00 (production) | 1 session | All |
-| Runtime metadata prototype | P1.2 (conformance graph) | +0.00 (enabler) | 1 session | Future |
+| ~~Runtime metadata prototype~~ | P1.2 (conformance graph) | +0.00 (enabler) | 1 session | Future | **DONE** |
 
 ---
 
@@ -132,20 +132,23 @@ ABI JSON doesn't include string/integer raw values for enums. The original assum
 
 ---
 
-## Feature F7: Runtime Metadata Prototype (A2)
+## Feature F7: Runtime Metadata Prototype — COMPLETE
 **Pillar dependency**: P1.2 (conformance graph)
 **Score impact**: +0.00 (future enabler)
-**Effort**: 1 session
+**Effort**: 1 session (completed March 2, 2026)
 
-Prove `swift_conformsToProtocol` callable from C# at runtime:
-- `ProtocolDescriptor` struct (IntPtr wrapper) in Swift.Runtime
-- P/Invoke for `swift_conformsToProtocol` (Cdecl, trivial)
-- Symbol loading for protocol descriptors (`$s...Mp` mangled names)
-- Dynamic conformance check matches static lookup result
-- Stretch: C shim for `swift_getAssociatedTypeWitness` (SwiftCC)
+Proved `swift_conformsToProtocol` callable from C# at runtime via Cdecl P/Invoke. Dynamic conformance checks agree with static `swift_getWitnessTable` path.
 
-**Key files**: `ProtocolDescriptor.cs` (new), `SwiftConformance.cs` (new)
-Research: [`swift-runtime-metadata-feasibility.md`]
+**What shipped**:
+- **`ProtocolDescriptor`**: Readonly struct wrapping `$s...Mp` protocol descriptor symbols. `LoadFromSymbol` + `IEquatable` + `Zero`/`IsValid`, following `ProtocolConformanceDescriptor` pattern
+- **`SwiftConformance`**: Static class with dual API — `ConformsToProtocol` (throws on invalid inputs) and `TryGetWitnessTable` (returns false on invalid inputs). P/Invokes `swift_conformsToProtocol` via `CallingConvention.Cdecl`
+- **26 tests**: Protocol descriptor loading (5 well-known protocols + error/equality), conformance checks (5 positive + 2 negative + 2 validation), witness table retrieval (4 tests), cross-validation against static path (3 tests)
+
+**What was NOT shipped** (deferred):
+- `swift_getAssociatedTypeWitness` — requires SwiftCC calling convention + `ProtocolRequirement` pointer layout complexity
+
+**Key files**: `ProtocolDescriptor.cs`, `SwiftConformance.cs`, `SwiftConformanceTests.cs`
+**Research**: [`swift-runtime-metadata-feasibility.md`](research/swift-runtime-metadata-feasibility.md)
 
 ---
 
@@ -165,7 +168,7 @@ AFTER P2.1 (dispatch table):
   F4: Collection witness dispatch ── 1.5 sessions
 
 AFTER P1.2 (conformance graph):
-  F7: Runtime metadata         ── 1 session (may also unblock F5 via runtime introspection)
+  F7: Runtime metadata         ── DONE (March 2, 2026) — may unblock F5 via runtime introspection
 ```
 
 ---
