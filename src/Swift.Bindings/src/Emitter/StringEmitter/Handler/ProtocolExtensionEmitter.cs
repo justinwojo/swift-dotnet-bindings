@@ -65,8 +65,8 @@ public static class ProtocolExtensionEmitter
                 if (IsAsyncSignature(extMethod.RawSignature))
                     continue;
 
-                // Skip throwing methods (wrapper needs try/catch handling)
-                if (IsThrowingSignature(extMethod.RawSignature))
+                // Skip typed throws (e.g., "throws(ParseError)") — deferred
+                if (IsTypedThrowsSignature(extMethod.RawSignature))
                     continue;
 
                 foreach (var conformingType in conformingTypes)
@@ -183,13 +183,14 @@ public static class ProtocolExtensionEmitter
             }
         }
 
-        // Gate: return type must be Self, Void, a class type, or a supported existential
+        // Gate: return type must be Self, Void, a primitive, a class type, or a supported existential
         if (!extMethod.ReturnsSelf && returnTypeSpec != null && !returnTypeSpec.IsEmptyTuple)
         {
-            if (!IsClassType(returnTypeSpec, typeDatabase) &&
+            if (!IsPrimitiveReturn(returnTypeSpec) &&
+                !IsClassType(returnTypeSpec, typeDatabase) &&
                 !IsSupportedExistentialReturn(returnTypeSpec, typeDatabase))
             {
-                logger.LogDebug("Skipping extension method {Type}.{Method}: return type not class/Self/Void/existential",
+                logger.LogDebug("Skipping extension method {Type}.{Method}: return type not class/Self/Void/primitive/existential",
                     typeName, extMethod.MethodName);
                 return;
             }
@@ -215,6 +216,9 @@ public static class ProtocolExtensionEmitter
         }
 
         // --- All gates passed: emit Swift wrapper and synthetic MethodDecl ---
+
+        // Determine if method throws (untyped "throws" only — rethrows treated as non-throwing)
+        bool isThrows = IsThrowingSignature(extMethod.RawSignature);
 
         // Detect closure parameters
         int closureCount = 0;
@@ -274,12 +278,12 @@ public static class ProtocolExtensionEmitter
 
             // Closure-bearing method: emit Swift wrapper with closure bridging
             EmitClosureSwiftWrapper(conformingType, extMethod, parameters, returnTypeSpec,
-                symbolName, closureTypeSpec!, closureParamIndex, methodLevelGenerics, typeDatabase, ctx);
+                symbolName, closureTypeSpec!, closureParamIndex, methodLevelGenerics, isThrows, typeDatabase, ctx);
 
             // Build synthetic MethodDecl preserving ClosureTypeSpec
             var syntheticMethod = BuildClosureSyntheticMethodDecl(
                 moduleDecl, conformingType, extMethod, parameters, returnTypeSpec, returnTypeName,
-                symbolName, closureTypeSpec!, methodLevelGenerics);
+                symbolName, closureTypeSpec!, methodLevelGenerics, isThrows);
 
             conformingType.Methods.Add(syntheticMethod);
             ctx.ProtocolExtInjectedCount++;
@@ -287,10 +291,10 @@ public static class ProtocolExtensionEmitter
         else
         {
             // Non-closure method: existing path
-            EmitSwiftWrapper(conformingType, extMethod, parameters, returnTypeSpec, symbolName, typeDatabase, ctx);
+            EmitSwiftWrapper(conformingType, extMethod, parameters, returnTypeSpec, symbolName, isThrows, typeDatabase, ctx);
 
             var syntheticMethod = BuildSyntheticMethodDecl(
-                moduleDecl, conformingType, extMethod, parameters, returnTypeSpec, returnTypeName, symbolName);
+                moduleDecl, conformingType, extMethod, parameters, returnTypeSpec, returnTypeName, symbolName, isThrows);
 
             conformingType.Methods.Add(syntheticMethod);
             ctx.ProtocolExtInjectedCount++;
@@ -499,20 +503,37 @@ public static class ProtocolExtensionEmitter
     {
         if (typeSpec is NamedTypeSpec namedType)
         {
+            // NamedTypeSpec{IsAny=true} is a single-protocol existential — check param support
+            if (namedType.IsAny)
+                return IsSupportedExistentialParam(typeSpec, typeDatabase);
+
             // Reject closures embedded in named types
             if (namedType.ContainsGenericParameters)
             {
-                // Optional<T> is ok if T is cdecl-compatible
+                // Swift.Array<T>: single-pointer-width value type.
+                // Wrapper passes as UnsafeMutableRawPointer, converts via unsafeBitCast.
+                if (MarshallingHelpers.IsSwiftArray(typeSpec))
+                    return true;
+
+                // Optional<T> is ok if T is cdecl-compatible (but NOT Optional<BoundGeneric>
+                // like Optional<Array<T>> — wrapper rendering can't handle optional bound generics)
                 if (namedType.Name == "Swift.Optional" && namedType.GenericParameters.Count == 1)
                 {
                     var inner = namedType.GenericParameters[0];
+                    if (inner is NamedTypeSpec innerNamed && innerNamed.ContainsGenericParameters)
+                        return false;
                     return IsCdeclCompatibleType(inner, typeDatabase);
                 }
-                return false; // Generic types like Array<T>, etc. are not simple
+                return false; // Generic types not handled above
             }
 
             // Check built-in Swift primitives
             if (MarshallingHelpers.IsSwiftPrimitive(namedType.Name))
+                return true;
+
+            // Foundation.Data is a frozen blittable struct with NativeTypeRemapping.
+            // C# Swift.Data struct mirrors the ABI layout — pass by value through CallConvSwift.
+            if (namedType.Name == "Foundation.Data")
                 return true;
 
             // Check TypeDatabase for class types only
@@ -542,7 +563,7 @@ public static class ProtocolExtensionEmitter
             return tuple.IsEmptyTuple; // Only empty tuple (Void) is ok
 
         if (typeSpec is ProtocolListTypeSpec)
-            return false; // Existentials not supported
+            return IsSupportedExistentialParam(typeSpec, typeDatabase);
 
         return false;
     }
@@ -575,6 +596,13 @@ public static class ProtocolExtensionEmitter
     }
 
     /// <summary>
+    /// Checks if a TypeSpec represents a Swift primitive type (Int, Bool, Float, etc.)
+    /// that EmitSwiftWrapper already handles correctly via direct rendering.
+    /// </summary>
+    private static bool IsPrimitiveReturn(TypeSpec ts)
+        => ts is NamedTypeSpec n && MarshallingHelpers.IsSwiftPrimitive(n.Name);
+
+    /// <summary>
     /// Checks if a return TypeSpec is a supported existential type that the downstream
     /// MethodHandler → PInvokeEmitter → WrapperEmitter.Return pipeline can handle.
     /// Requires: recognized existential, ≤8 witness tables, all protocols have TypeRecords,
@@ -584,11 +612,68 @@ public static class ProtocolExtensionEmitter
     /// </summary>
     internal static bool IsSupportedExistentialReturn(TypeSpec typeSpec, ITypeDatabase typeDatabase)
     {
-        var existentialHandler = new ExistentialHandler(typeDatabase);
+        if (!IsSupportedExistentialCore(typeSpec, typeDatabase, out var protocolList, out var existentialHandler, out var earlyAccepted))
+            return false;
+        if (earlyAccepted)
+            return true;
+
+        // Must have a valid proxy class name (TryGetFilteredProxyClassName filters ObjC protocols)
+        if (!existentialHandler.TryGetFilteredProxyClassName(protocolList!, out _))
+            return false;
+
+        // Verify each protocol's TypeRecord doesn't have flags that prevent proxy emission.
+        // ProtocolProxyEmitter.Emit() skips protocols with associated types or Self requirements,
+        // so the proxy class won't exist at compile time despite having a valid name.
+        // InheritedRequirementsOnly also prevents proxy emission (return-only concern).
+        if (HasBlockingProtocolFlags(protocolList!, typeDatabase,
+                TypeRecordFlags.HasAssociatedTypes | TypeRecordFlags.HasSelfRequirement | TypeRecordFlags.InheritedRequirementsOnly))
+            return false;
+
+        return true;
+    }
+
+    /// <summary>
+    /// Checks if a TypeSpec is a supported existential parameter type.
+    /// Same safety checks as IsSupportedExistentialReturn EXCEPT proxy class name /
+    /// InheritedRequirementsOnly (return-only concerns — params don't need proxies).
+    /// PAT/Self-requirement protocols are still rejected because GetPublicExistentialType returns
+    /// a non-generic interface name while the actual emitted interface is generic.
+    /// </summary>
+    internal static bool IsSupportedExistentialParam(TypeSpec typeSpec, ITypeDatabase typeDatabase)
+    {
+        if (!IsSupportedExistentialCore(typeSpec, typeDatabase, out var protocolList, out _, out var earlyAccepted))
+            return false;
+        if (earlyAccepted)
+            return true;
+
+        // Reject protocols with associated types or Self requirements.
+        // GetPublicExistentialType returns a non-generic interface name (e.g., "ICollection"),
+        // but PAT/Self protocols are emitted as generic interfaces (e.g., "ICollection<TElement>").
+        if (HasBlockingProtocolFlags(protocolList!, typeDatabase,
+                TypeRecordFlags.HasAssociatedTypes | TypeRecordFlags.HasSelfRequirement))
+            return false;
+
+        return true;
+    }
+
+    /// <summary>
+    /// Shared validation core for existential return and param support.
+    /// Returns false if the existential fails common checks. Returns true with earlyAccepted=true
+    /// for Any/well-known protocols that need no further validation. Returns true with
+    /// earlyAccepted=false when common checks pass and caller should apply its own validation.
+    /// </summary>
+    private static bool IsSupportedExistentialCore(TypeSpec typeSpec, ITypeDatabase typeDatabase,
+        out ProtocolListTypeSpec? protocolList, out ExistentialHandler existentialHandler,
+        out bool earlyAccepted)
+    {
+        existentialHandler = new ExistentialHandler(typeDatabase);
+        protocolList = null;
+        earlyAccepted = false;
+
         if (!existentialHandler.IsExistential(typeSpec))
             return false;
 
-        var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
+        protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
         if (protocolList == null)
             return false;
 
@@ -597,41 +682,47 @@ public static class ProtocolExtensionEmitter
 
         // Zero-protocol "Any" → ExistentialContainer0, allowed
         if (existentialHandler.IsAnyType(protocolList))
+        {
+            earlyAccepted = true;
             return true;
+        }
 
         // Well-known protocols (e.g., Swift.Error → AnyError) are always supported
         if (existentialHandler.TryGetWellKnownProtocolType(protocolList, out _))
+        {
+            earlyAccepted = true;
             return true;
+        }
 
-        // All protocols must have TypeRecords for proxy wrapping
+        // All protocols must have TypeRecords
         if (!existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
             return false;
 
-        // Block public types that don't map to a proxy-wrappable interface.
-        // "object" = unresolved/unknown protocols (no usable interface).
-        // AnyType = generic protocol existentials (e.g., "any EventStream<τ_0_0.Event>")
-        //   whose associated type refs can't be resolved to concrete C# types.
-        //   WrapperEmitter.Return constructs `new {Proxy}(result)` which is not assignable to AnyType.
+        // Block public types that don't map to a usable interface.
+        // "object" = unresolved/unknown protocols.
+        // AnyType = generic protocol existentials (e.g., "any EventStream<τ_0_0.Event>").
         var publicType = existentialHandler.GetPublicExistentialType(protocolList);
         if (publicType == "object")
             return false;
         if (publicType == TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName)
             return false;
 
-        // ObjC filtering guard: if filtering drops protocols, ExistentialContainer size
-        // mismatches between proxy constructor and P/Invoke (P1 fix from ClosureHandler)
+        // ObjC filtering guard: if filtering drops protocols, ExistentialContainer size mismatches
         var filteredCount = protocolList.Protocols.Keys
             .Count(p => !TypeDatabaseExtensions.IsObjCModuleType(p));
         if (filteredCount != protocolList.Protocols.Count)
             return false;
 
-        // Must have a valid proxy class name (TryGetFilteredProxyClassName filters ObjC protocols)
-        if (!existentialHandler.TryGetFilteredProxyClassName(protocolList, out _))
-            return false;
+        return true;
+    }
 
-        // Verify each protocol's TypeRecord doesn't have flags that prevent proxy emission.
-        // ProtocolProxyEmitter.Emit() skips protocols with associated types or Self requirements,
-        // so the proxy class won't exist at compile time despite having a valid name.
+    /// <summary>
+    /// Checks if any protocol in the list has TypeRecord flags matching the specified mask.
+    /// Used by both return and param existential validators with different flag sets.
+    /// </summary>
+    private static bool HasBlockingProtocolFlags(ProtocolListTypeSpec protocolList,
+        ITypeDatabase typeDatabase, TypeRecordFlags blockingFlags)
+    {
         foreach (var protocol in protocolList.Protocols.Keys)
         {
             try
@@ -639,19 +730,16 @@ public static class ProtocolExtensionEmitter
                 var swiftTypeName = SwiftTypeName.FromTypeSpec(protocol);
                 if (typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord))
                 {
-                    if (typeRecord.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes) ||
-                        typeRecord.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement) ||
-                        typeRecord.Flags.HasFlag(TypeRecordFlags.InheritedRequirementsOnly))
-                        return false;
+                    if ((typeRecord.Flags & blockingFlags) != 0)
+                        return true;
                 }
             }
             catch
             {
-                return false;
+                return true;
             }
         }
-
-        return true;
+        return false;
     }
 
     /// <summary>
@@ -825,46 +913,53 @@ public static class ProtocolExtensionEmitter
     /// </summary>
     internal static bool IsAsyncSignature(string rawSignature)
     {
-        // Find the closing paren of the parameter list
-        int depth = 0;
-        int parenEnd = -1;
-        for (int i = 0; i < rawSignature.Length; i++)
-        {
-            if (rawSignature[i] == '(') depth++;
-            if (rawSignature[i] == ')')
-            {
-                depth--;
-                if (depth == 0)
-                {
-                    parenEnd = i;
-                    break;
-                }
-            }
-        }
-
-        if (parenEnd < 0)
-            return false;
-
-        // Check the text between closing paren and return arrow / opening brace
-        var afterParen = rawSignature.Substring(parenEnd + 1);
-        var arrowIdx = afterParen.IndexOf("->", StringComparison.Ordinal);
-        var braceIdx = afterParen.IndexOf('{');
-        var endIdx = afterParen.Length;
-        if (arrowIdx >= 0) endIdx = Math.Min(endIdx, arrowIdx);
-        if (braceIdx >= 0) endIdx = Math.Min(endIdx, braceIdx);
-
-        var qualifiers = afterParen.Substring(0, endIdx);
-        // Check for "async" as a whole word
+        var qualifiers = ExtractQualifiers(rawSignature);
+        if (qualifiers == null) return false;
         return System.Text.RegularExpressions.Regex.IsMatch(qualifiers, @"\basync\b");
     }
 
     /// <summary>
-    /// Checks if a raw swiftinterface signature represents a throwing method.
-    /// Detects "throws" keyword after the closing paren and before "->"/"{".
+    /// Checks if a raw swiftinterface signature represents an untyped throwing method.
+    /// Matches "throws" but NOT "rethrows" or typed "throws(ErrorType)".
     /// </summary>
     internal static bool IsThrowingSignature(string rawSignature)
     {
-        // Find the closing paren of the parameter list
+        var qualifiers = ExtractQualifiers(rawSignature);
+        if (qualifiers == null) return false;
+        // Match "throws" as a whole word, but NOT "rethrows" and NOT "throws("
+        return System.Text.RegularExpressions.Regex.IsMatch(qualifiers, @"(?<!\bre)throws(?!\s*\()");
+    }
+
+    /// <summary>
+    /// Checks if a raw swiftinterface signature represents a typed throwing method.
+    /// Matches "throws(ErrorType)" — these stay gated because extracting the error type
+    /// from raw swiftinterface and resolving it to a TypeSpec is non-trivial.
+    /// </summary>
+    internal static bool IsTypedThrowsSignature(string rawSignature)
+    {
+        var qualifiers = ExtractQualifiers(rawSignature);
+        if (qualifiers == null) return false;
+        return System.Text.RegularExpressions.Regex.IsMatch(qualifiers, @"\bthrows\s*\(");
+    }
+
+    /// <summary>
+    /// Checks if a raw swiftinterface signature represents a rethrowing method.
+    /// Rethrows methods are treated as non-throwing since the closure bridge doesn't
+    /// propagate closure throws.
+    /// </summary>
+    internal static bool IsRethrowsSignature(string rawSignature)
+    {
+        var qualifiers = ExtractQualifiers(rawSignature);
+        if (qualifiers == null) return false;
+        return System.Text.RegularExpressions.Regex.IsMatch(qualifiers, @"\brethrows\b");
+    }
+
+    /// <summary>
+    /// Extracts the qualifier string between the closing paren and return arrow / opening brace.
+    /// Returns null if parsing fails.
+    /// </summary>
+    private static string? ExtractQualifiers(string rawSignature)
+    {
         int depth = 0;
         int parenEnd = -1;
         for (int i = 0; i < rawSignature.Length; i++)
@@ -873,18 +968,11 @@ public static class ProtocolExtensionEmitter
             if (rawSignature[i] == ')')
             {
                 depth--;
-                if (depth == 0)
-                {
-                    parenEnd = i;
-                    break;
-                }
+                if (depth == 0) { parenEnd = i; break; }
             }
         }
+        if (parenEnd < 0) return null;
 
-        if (parenEnd < 0)
-            return false;
-
-        // Check the text between closing paren and return arrow / opening brace
         var afterParen = rawSignature.Substring(parenEnd + 1);
         var arrowIdx = afterParen.IndexOf("->", StringComparison.Ordinal);
         var braceIdx = afterParen.IndexOf('{');
@@ -892,10 +980,22 @@ public static class ProtocolExtensionEmitter
         if (arrowIdx >= 0) endIdx = Math.Min(endIdx, arrowIdx);
         if (braceIdx >= 0) endIdx = Math.Min(endIdx, braceIdx);
 
-        var qualifiers = afterParen.Substring(0, endIdx);
-        // Check for "throws" as a whole word (also catches "rethrows")
-        return System.Text.RegularExpressions.Regex.IsMatch(qualifiers, @"\b(re)?throws\b");
+        return afterParen.Substring(0, endIdx);
     }
+
+    /// <summary>
+    /// Checks if a TypeSpec represents Foundation.Data, a frozen blittable struct
+    /// that passes by value through CallConvSwift (not as UnsafeMutableRawPointer).
+    /// </summary>
+    private static bool IsFoundationData(TypeSpec typeSpec)
+        => typeSpec is NamedTypeSpec n && n.Name == "Foundation.Data";
+
+    /// <summary>
+    /// Checks if a TypeSpec represents Swift.Array&lt;T&gt;.
+    /// Used in wrapper param rendering to decide unsafeBitCast vs Unmanaged.
+    /// </summary>
+    private static bool IsSwiftArrayType(TypeSpec typeSpec)
+        => MarshallingHelpers.IsSwiftArray(typeSpec);
 
     /// <summary>
     /// Checks if a Swift primitive type should be passed as UnsafeMutableRawPointer in the wrapper.
@@ -911,6 +1011,69 @@ public static class ProtocolExtensionEmitter
     }
 
     /// <summary>
+    /// Renders a non-closure parameter's Swift declaration for the @_silgen_name wrapper.
+    /// Existentials → "any Protocol", Data → "Foundation.Data", Array → "UnsafeMutableRawPointer",
+    /// Class → "UnsafeMutableRawPointer", Primitive → rendered type.
+    /// </summary>
+    private static string RenderSwiftParam(string paramName, TypeSpec typeSpec,
+        ExistentialHandler existentialHandler)
+    {
+        if (existentialHandler.IsExistential(typeSpec))
+        {
+            var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
+            var renderedType = ExistentialBypassEmitter.RenderSwiftTypeSpec(protocolList ?? typeSpec);
+            return $"_ {paramName}: {renderedType}";
+        }
+        if (IsFoundationData(typeSpec))
+            return $"_ {paramName}: Foundation.Data";
+        if (IsSwiftArrayType(typeSpec))
+            return $"_ {paramName}: UnsafeMutableRawPointer";
+        if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&
+            !MarshallingHelpers.IsSwiftPrimitive(namedType.Name))
+            return $"_ {paramName}: UnsafeMutableRawPointer";
+
+        var rendered = ExistentialBypassEmitter.RenderSwiftTypeSpec(typeSpec);
+        return $"_ {paramName}: {rendered}";
+    }
+
+    /// <summary>
+    /// Renders a non-closure parameter's call-site argument for the method invocation.
+    /// Existentials/Data → pass directly, Array → unsafeBitCast, Class → Unmanaged.fromOpaque,
+    /// Primitive → pass through. May emit a local `let` binding via ctx for conversions.
+    /// Returns the call argument string (e.g., "label: __paramName" or just "__paramName").
+    /// </summary>
+    private static string RenderCallArg(string label, string paramName, TypeSpec typeSpec,
+        ExistentialHandler existentialHandler, ModuleEmissionContext ctx)
+    {
+        // Existential and Data: pass directly by value
+        if (existentialHandler.IsExistential(typeSpec) || IsFoundationData(typeSpec))
+            return label == "_" ? paramName : $"{label}: {paramName}";
+
+        // Array: unsafeBitCast from raw pointer to [Element]
+        if (IsSwiftArrayType(typeSpec))
+        {
+            var arrayTypeSpec = (NamedTypeSpec)typeSpec;
+            var elementType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arrayTypeSpec.GenericParameters[0]);
+            var localName = $"__{paramName}";
+            ctx.AddProtocolExtWrapperLine($"    let {localName} = unsafeBitCast({paramName}, to: [{elementType}].self)");
+            return label == "_" ? localName : $"{label}: {localName}";
+        }
+
+        // Class: Unmanaged.fromOpaque
+        if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&
+            !MarshallingHelpers.IsSwiftPrimitive(namedType.Name))
+        {
+            var renderedType = ExistentialBypassEmitter.RenderSwiftTypeSpec(typeSpec);
+            var localName = $"__{paramName}";
+            ctx.AddProtocolExtWrapperLine($"    let {localName} = Unmanaged<{renderedType}>.fromOpaque({paramName}).takeUnretainedValue()");
+            return label == "_" ? localName : $"{label}: {localName}";
+        }
+
+        // Primitive: pass through
+        return label == "_" ? paramName : $"{label}: {paramName}";
+    }
+
+    /// <summary>
     /// Emits the @_silgen_name Swift wrapper function for a protocol extension method.
     /// For generic conforming types, emits a generic wrapper with unsafeBitCast and
     /// explicit T.Type metatype parameters (required by Swift 6).
@@ -922,6 +1085,7 @@ public static class ProtocolExtensionEmitter
         List<(string label, TypeSpec typeSpec, string swiftType)> parameters,
         TypeSpec? returnTypeSpec,
         string symbolName,
+        bool isThrows,
         ITypeDatabase typeDatabase,
         ModuleEmissionContext ctx)
     {
@@ -950,21 +1114,12 @@ public static class ProtocolExtensionEmitter
         var swiftParams = new List<string>();
         swiftParams.Add("_ self_: UnsafeMutableRawPointer");
 
+        var existentialHandler = new ExistentialHandler(typeDatabase);
+
         foreach (var (label, typeSpec, swiftType) in parameters)
         {
             var paramName = SanitizeSwiftParamName(label == "_" ? GetParamNameFromType(swiftType) : label);
-            if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&
-                !MarshallingHelpers.IsSwiftPrimitive(namedType.Name))
-            {
-                // Class/ObjC types: pass as UnsafeMutableRawPointer
-                swiftParams.Add($"_ {paramName}: UnsafeMutableRawPointer");
-            }
-            else
-            {
-                // Primitives and simple enums: pass directly
-                var renderedType = ExistentialBypassEmitter.RenderSwiftTypeSpec(typeSpec);
-                swiftParams.Add($"_ {paramName}: {renderedType}");
-            }
+            swiftParams.Add(RenderSwiftParam(paramName, typeSpec, existentialHandler));
         }
 
         // For generic conforming types, add explicit T.Type metatype params.
@@ -998,7 +1153,6 @@ public static class ProtocolExtensionEmitter
         else
         {
             // Check existential first — return by value, not Unmanaged pointer
-            var existentialHandler = new ExistentialHandler(typeDatabase);
             if (existentialHandler.IsExistential(returnTypeSpec!))
             {
                 var protocolList = existentialHandler.ToProtocolListTypeSpec(returnTypeSpec!);
@@ -1017,6 +1171,7 @@ public static class ProtocolExtensionEmitter
             }
         }
 
+        var throwsClause = isThrows ? " throws" : "";
         var returnArrow = string.IsNullOrEmpty(swiftReturnType) ? "" : $" -> {swiftReturnType}";
 
         // Emit the wrapper function
@@ -1026,7 +1181,7 @@ public static class ProtocolExtensionEmitter
         {
             ctx.AddProtocolExtWrapperLine("@MainActor");
         }
-        ctx.AddProtocolExtWrapperLine($"public func {symbolName}{genericClause}({string.Join(", ", swiftParams)}){returnArrow} {{");
+        ctx.AddProtocolExtWrapperLine($"public func {symbolName}{genericClause}({string.Join(", ", swiftParams)}){throwsClause}{returnArrow} {{");
 
         var isStructConformer = conformingType is StructDecl;
 
@@ -1054,25 +1209,12 @@ public static class ProtocolExtensionEmitter
         {
             var (label, typeSpec, swiftType) = parameters[i];
             var paramName = SanitizeSwiftParamName(label == "_" ? GetParamNameFromType(swiftType) : label);
-
-            if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&
-                !MarshallingHelpers.IsSwiftPrimitive(namedType.Name))
-            {
-                // Class type: convert from opaque pointer
-                var renderedType = ExistentialBypassEmitter.RenderSwiftTypeSpec(typeSpec);
-                var localName = $"__{paramName}";
-                ctx.AddProtocolExtWrapperLine($"    let {localName} = Unmanaged<{renderedType}>.fromOpaque({paramName}).takeUnretainedValue()");
-                callArgs.Add(label == "_" ? localName : $"{label}: {localName}");
-            }
-            else
-            {
-                // Primitive: pass through
-                callArgs.Add(label == "_" ? paramName : $"{label}: {paramName}");
-            }
+            callArgs.Add(RenderCallArg(label, paramName, typeSpec, existentialHandler, ctx));
         }
 
         // Emit method call
-        var callStr = $"instance.{NameProvider.EscapeSwiftKeyword(extMethod.MethodName)}({string.Join(", ", callArgs)})";
+        var tryPrefix = isThrows ? "try " : "";
+        var callStr = $"{tryPrefix}instance.{NameProvider.EscapeSwiftKeyword(extMethod.MethodName)}({string.Join(", ", callArgs)})";
 
         // For mutating methods on struct conformers, write back the mutated value
         // to the original pointer after the call. Non-frozen structs are heap-allocated
@@ -1147,6 +1289,7 @@ public static class ProtocolExtensionEmitter
         ClosureTypeSpec closureTypeSpec,
         int closureParamIndex,
         List<string> methodLevelGenerics,
+        bool isThrows,
         ITypeDatabase typeDatabase,
         ModuleEmissionContext ctx)
     {
@@ -1185,6 +1328,7 @@ public static class ProtocolExtensionEmitter
              methodLevelGenerics.Contains(retGenNamed.Name));
 
         // Build Swift parameter list
+        var existentialHandler = new ExistentialHandler(typeDatabase);
         var swiftParams = new List<string>();
         swiftParams.Add("_ self_: UnsafeMutableRawPointer");
 
@@ -1201,16 +1345,7 @@ public static class ProtocolExtensionEmitter
             else
             {
                 var paramName = SanitizeSwiftParamName(label == "_" ? GetParamNameFromType(swiftType) : label);
-                if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&
-                    !MarshallingHelpers.IsSwiftPrimitive(namedType.Name))
-                {
-                    swiftParams.Add($"_ {paramName}: UnsafeMutableRawPointer");
-                }
-                else
-                {
-                    var renderedType = ExistentialBypassEmitter.RenderSwiftTypeSpec(typeSpec);
-                    swiftParams.Add($"_ {paramName}: {renderedType}");
-                }
+                swiftParams.Add(RenderSwiftParam(paramName, typeSpec, existentialHandler));
             }
         }
 
@@ -1236,7 +1371,6 @@ public static class ProtocolExtensionEmitter
         else
         {
             // Check existential first — return by value, not Unmanaged pointer
-            var existentialHandler = new ExistentialHandler(typeDatabase);
             if (existentialHandler.IsExistential(returnTypeSpec))
             {
                 var protocolList = existentialHandler.ToProtocolListTypeSpec(returnTypeSpec);
@@ -1255,6 +1389,7 @@ public static class ProtocolExtensionEmitter
             }
         }
 
+        var throwsClause = isThrows ? " throws" : "";
         var returnArrow = string.IsNullOrEmpty(swiftReturnType) ? "" : $" -> {swiftReturnType}";
 
         // Emit the wrapper function
@@ -1264,7 +1399,7 @@ public static class ProtocolExtensionEmitter
         {
             ctx.AddProtocolExtWrapperLine("@MainActor");
         }
-        ctx.AddProtocolExtWrapperLine($"public func {symbolName}{genericClause}({string.Join(", ", swiftParams)}){returnArrow} {{");
+        ctx.AddProtocolExtWrapperLine($"public func {symbolName}{genericClause}({string.Join(", ", swiftParams)}){throwsClause}{returnArrow} {{");
 
         var isStructConformer = conformingType is StructDecl;
 
@@ -1399,24 +1534,17 @@ public static class ProtocolExtensionEmitter
             else
             {
                 var paramName = SanitizeSwiftParamName(label == "_" ? GetParamNameFromType(swiftType) : label);
-                if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&
-                    !MarshallingHelpers.IsSwiftPrimitive(namedType.Name))
-                {
-                    var renderedType = ExistentialBypassEmitter.RenderSwiftTypeSpec(typeSpec);
-                    var localName = $"__{paramName}";
-                    ctx.AddProtocolExtWrapperLine($"    let {localName} = Unmanaged<{renderedType}>.fromOpaque({paramName}).takeUnretainedValue()");
-                    callArgs.Add(label == "_" ? localName : $"{label}: {localName}");
-                }
-                else
-                {
-                    callArgs.Add(label == "_" ? paramName : $"{label}: {paramName}");
-                }
+                callArgs.Add(RenderCallArg(label, paramName, typeSpec, existentialHandler, ctx));
             }
         }
 
-        // Use try! for @escaping closures (evaluated lazily, won't throw here)
+        // Throwing semantics:
+        // - isThrows (method-level "throws"): use "try" — error propagates via Swift error register
+        // - closureTypeSpec.Throws (rethrows): use "try!" — closure bridge doesn't propagate errors
         var callStr = $"instance.{NameProvider.EscapeSwiftKeyword(extMethod.MethodName)}({string.Join(", ", callArgs)})";
-        if (closureTypeSpec.Throws)
+        if (isThrows)
+            callStr = $"try {callStr}";
+        else if (closureTypeSpec.Throws)
             callStr = $"try! {callStr}";
 
         // For mutating methods on struct conformers, write back the mutated value
@@ -1485,7 +1613,8 @@ public static class ProtocolExtensionEmitter
         string returnTypeName,
         string symbolName,
         ClosureTypeSpec closureTypeSpec,
-        List<string> methodLevelGenerics)
+        List<string> methodLevelGenerics,
+        bool isThrows)
     {
         var csSignature = new List<ArgumentDecl>();
 
@@ -1582,7 +1711,7 @@ public static class ProtocolExtensionEmitter
             MethodType = MethodType.Instance,
             IsConstructor = false,
             CSSignature = csSignature,
-            Throws = false,
+            Throws = isThrows,
             IsAsync = false,
             GenericParameters = genericParams,
             Visibility = Visibility.Public,
@@ -1607,7 +1736,8 @@ public static class ProtocolExtensionEmitter
         List<(string label, TypeSpec typeSpec, string swiftType)> parameters,
         TypeSpec? returnTypeSpec,
         string returnTypeName,
-        string symbolName)
+        string symbolName,
+        bool isThrows)
     {
         // Build CSSignature: [returnType, param1, param2, ...]
         var csSignature = new List<ArgumentDecl>();
@@ -1675,7 +1805,7 @@ public static class ProtocolExtensionEmitter
             MethodType = MethodType.Instance,
             IsConstructor = false,
             CSSignature = csSignature,
-            Throws = false,
+            Throws = isThrows,
             IsAsync = false,
             GenericParameters = genericParams,
             Visibility = Visibility.Public,

@@ -14,7 +14,7 @@ This roadmap covers features that BUILD ON the foundation pillars. Each item dep
 |---------|:-----------------:|:-----------:|:------:|:---------:|
 | ~~nint return/property overloads~~ | None | +0.10-0.15 avg | Small | Nearly all | **DONE** |
 | ~~Noise reduction~~ | None | +0.05-0.08 avg | Medium | GRDB, Alamofire, Stripe | **DONE** |
-| Protocol extension param gate lifts | P1.1 (struct conformers) | +0.10-0.15 avg | Medium | GRDB, Kingfisher |
+| ~~Protocol extension param gate lifts~~ | None | +0.10-0.15 avg | Medium | GRDB, Kingfisher | **DONE** |
 | Collection witness dispatch | P2.1 (dispatch table) | +0.10-0.15 avg | 1.5 sessions | All proxy libraries |
 | String enum raw values | None | +0.02-0.05 avg | Small | GRDB, CryptoSwift |
 | Safety (Dispose, finalizer) | None | +0.00 (production) | 1 session | All |
@@ -59,19 +59,25 @@ Three noise sources addressed:
 
 ---
 
-## Feature F3: Protocol Extension Parameter Gate Lifts
-**Pillar dependency**: P1.1 (struct conformers)
+## Feature F3: Protocol Extension Parameter Gate Lifts — COMPLETE
+**Pillar dependency**: None (pillar dependency removed — gates lifted independently)
 **Score impact**: +0.10-0.15 combined average
-**Effort**: 1-1.5 sessions
+**Effort**: 1 session (completed March 2, 2026)
 
-37 of 77 KFOptionSetter methods are blocked by parameter gates (not Self-return). Similar ratios for GRDB protocol extensions. Lifting gates incrementally:
+37 of 77 KFOptionSetter methods were blocked by parameter gates. Five sub-tasks lifted gates incrementally:
 
-- **Existential params**: Extend `IsCdeclCompatibleType` for constrained existentials (reuse `ConstrainedExistentialBridge` pattern)
-- **Array params**: Add array marshaling to `@_silgen_name` wrappers
-- **Throwing methods**: Add throw dispatch to protocol extension Swift wrappers (reuse `ThrowingBlittableOrString` pattern)
-- **Foundation.Data params**: Extend `IsCdeclCompatibleType` for `DataProjection` types
+**What shipped**:
+- **Primitive return type fix**: Return gate now accepts primitives (Int, Bool, Float, Double) — `IsPrimitiveReturn` helper
+- **Throwing methods**: Untyped `throws` methods get `throws`/`try` in Swift wrapper, `Throws=true` on synthetic MethodDecl. `rethrows` passes through as non-throwing. Typed `throws(ErrorType)` stays gated (requires `ThrownErrorType` resolution)
+- **Existential params**: `IsSupportedExistentialParam` validates protocol existentials (PAT/Self-requirement/ObjC-mixed blocked, generic protocol existentials blocked). Renders `any Protocol` by value in wrapper, no Unmanaged conversion
+- **Foundation.Data params**: Accepted as frozen blittable struct. Wrapper declares `Foundation.Data` directly (by value), downstream `NativeRemappedFrozen` pipeline handles marshaling
+- **Array params**: `Swift.Array<T>` accepted via `IsSwiftArray` check. Wrapper uses `UnsafeMutableRawPointer` + `unsafeBitCast` to element array type. `Optional<Array<T>>` explicitly blocked (wrapper rendering doesn't handle optional bound generics)
 
-**Key files**: `ProtocolExtensionEmitter.cs` (`IsCdeclCompatibleType`, `TryInjectMethod`)
+**Shared helpers extracted during simplification**:
+- `IsSupportedExistentialCore` + `HasBlockingProtocolFlags` — shared validation between return and param existential checks
+- `RenderSwiftParam` + `RenderCallArg` — 5-way param type dispatch (existential→Data→array→class→primitive) shared between `EmitSwiftWrapper` and `EmitClosureSwiftWrapper`
+
+**Key files**: `ProtocolExtensionEmitter.cs` (`IsCdeclCompatibleType`, `TryInjectMethod`, `IsSupportedExistentialParam`, `RenderSwiftParam`, `RenderCallArg`)
 
 ---
 
@@ -151,11 +157,9 @@ Features can be interleaved with foundation work. Independence from pillars note
 IMMEDIATE (no pillar dependency):
   F1: nint overloads           ── DONE (March 2, 2026)
   F2: Noise reduction          ── DONE (March 2, 2026)
+  F3: Protocol ext param lifts ── DONE (March 2, 2026)
   F5: String enum raw values   ── BLOCKED (no data source in compiled xcframeworks)
   F6: Safety                   ── 1 session
-
-AFTER P1.1 (struct conformers):
-  F3: Protocol ext param lifts ── 1-1.5 sessions
 
 AFTER P2.1 (dispatch table):
   F4: Collection witness dispatch ── 1.5 sessions
@@ -175,7 +179,7 @@ Starting from current combined average of ~3.50. Three scenarios account for est
 | Foundation pillars (all) | 3.58 | 3.65 | 3.72 | P1.1/P4.1 unlock methods; P2/P1.3 are refactors |
 | + F1 (nint) | 3.68 | 3.75 | 3.82 | Broad TypeFidelity lift, 300+ declarations |
 | + F2 (noise) | 3.73 | 3.80 | 3.88 | Noise category, depends on ExistentialContainer hiding |
-| + F3 (param gate lifts) | 3.80 | 3.88 | 3.96 | Per-library variance: GRDB/Kingfisher benefit most |
+| ~~+ F3 (param gate lifts)~~ | 3.80 | 3.88 | 3.96 | **DONE** — Per-library variance: GRDB/Kingfisher benefit most |
 | + F4 (collection dispatch) | 3.88 | 3.98 | 4.10 | Largest single feature, high per-library variance |
 | + F6 (safety) | 3.88 | 3.98 | 4.10 | Production hardening, no score change |
 | ~~+ F5 (string enums)~~ | — | — | — | BLOCKED: no data source in compiled xcframeworks |
