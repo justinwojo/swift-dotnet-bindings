@@ -1,5 +1,7 @@
 # Architectural Review 2 — Remaining Items
 
+> **Archived March 2026**: Moved to `Completed/`. Sessions A1-A3 (high-impact/low-risk items) are done. The 5 remaining items (C2, H2, H4, M6, L2) are real architectural pain points but all high-effort or medium-risk with no functional impact — the current architecture works correctly across 53 validation libraries. The redesign proposal (pipeline stages, MemberPlan separation) is good long-term direction for post-launch maintainability.
+
 **Original review**: February 25, 2026
 **Completed sessions**: A1, A2, A3 — see `Completed/architectural-review-v2-sessions.md`
 **Status**: All high-impact/low-risk items done. Remaining items are deferred (high effort or medium risk).

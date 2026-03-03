@@ -1,5 +1,7 @@
 # Mono JIT Mitigation — Remaining Future Work
 
+> **Archived March 2026**: Moved to `Completed/`. All current workarounds (Strategies A-D) are deployed. The strategic direction is NativeAOT — if NativeAOT simulator support lands (upstream issue drafted in `Future/upstream-nativeaot-simulator-issue.md`), most of these items become irrelevant. Remaining items are not worth incremental investment given the NativeAOT exit strategy.
+
 **Created**: February 2026
 **Source**: Consolidated from `mono-jit-mitigation.md`
 **Completed work**: See `Completed/mono-jit-mitigation-strategies.md`

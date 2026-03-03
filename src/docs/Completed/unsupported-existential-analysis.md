@@ -1,5 +1,7 @@
 # UnsupportedExistential Analysis (26 Skips)
 
+> **Archived March 2026**: Moved to `Completed/`. Usability Session 3's `ExistentialBypassEmitter` covers the common default-arg patterns. The remaining 26 non-default-arg cases are narrow (library-specific provider/delegate protocols) and would require significant runtime extension for existential container construction from C#. Not worth pursuing — most of these are methods consumers rarely call directly.
+
 **Priority**: Not prioritized — observation/research
 **Area**: Generator — Existential handling
 **Moved from**: `remaining-work.md` (February 2026)
