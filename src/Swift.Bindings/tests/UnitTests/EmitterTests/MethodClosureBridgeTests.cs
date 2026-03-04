@@ -588,7 +588,7 @@ public class MethodClosureBridgeTests
         var cs = csOutput.ToString();
         // Result<T,E> closure args come as IntPtr, marshalled via SwiftMarshal.MarshalFromSwift
         // BoundGenericsHandler produces fully-qualified names
-        Assert.Contains("SwiftMarshal.MarshalFromSwift<Swift.Runtime.SwiftResult<Swift.TestModule.MyData, Swift.TestModule.MyError>>", cs);
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<Swift.Runtime.SwiftResult<TestModule.MyData, TestModule.MyError>>", cs);
     }
 
     // ─── Multi-Closure (C1) ──────────────────────────────────────────
@@ -870,7 +870,7 @@ public class MethodClosureBridgeTests
         Assert.Contains("MemoryLayout<MyError>", swift);
 
         // C# callback should marshal via SwiftMarshal
-        Assert.Contains("SwiftMarshal.MarshalFromSwift<Swift.TestModule.MyError>", cs);
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<TestModule.MyError>", cs);
     }
 
     [Fact]
@@ -896,8 +896,8 @@ public class MethodClosureBridgeTests
         MethodClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
 
         var cs = csOutput.ToString();
-        // Public method should have Action<Swift.TestModule.MyError>
-        Assert.Contains("Action<Swift.TestModule.MyError>", cs);
+        // Public method should have Action<TestModule.MyError>
+        Assert.Contains("Action<TestModule.MyError>", cs);
     }
 
     // ─── Simple Enum Regression (P1 from Codex review) ────────────────
@@ -1138,7 +1138,7 @@ public class MethodClosureBridgeTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.MyClass"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "MyClass"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "MyClass"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyClass"),
                 MetadataAccessor = "$s10TestModule7MyClassCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -1148,7 +1148,7 @@ public class MethodClosureBridgeTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.DataResponse"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "DataResponse"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "DataResponse"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.DataResponse"),
                 MetadataAccessor = "$s10TestModule12DataResponseVMa",
                 Flags = TypeRecordFlags.None,
@@ -1158,7 +1158,7 @@ public class MethodClosureBridgeTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.MyData"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "MyData"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "MyData"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyData"),
                 MetadataAccessor = "$s10TestModule6MyDataCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -1169,7 +1169,7 @@ public class MethodClosureBridgeTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.MyError"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "MyError"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "MyError"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyError"),
                 MetadataAccessor = "$s10TestModule7MyErrorOMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -1180,7 +1180,7 @@ public class MethodClosureBridgeTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Direction"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Direction"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Direction"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Direction"),
                 MetadataAccessor = "$s10TestModule9DirectionOMa",
                 Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
@@ -1397,7 +1397,7 @@ public class MethodClosureBridgeTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.MyClass"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "MyClass"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "MyClass"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyClass"),
                 MetadataAccessor = "$s10TestModule7MyClassCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -1407,7 +1407,7 @@ public class MethodClosureBridgeTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.DataResponse"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "DataResponse"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "DataResponse"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.DataResponse"),
                 MetadataAccessor = "$s10TestModule12DataResponseVMa",
                 Flags = TypeRecordFlags.None, // Non-frozen struct
@@ -1417,7 +1417,7 @@ public class MethodClosureBridgeTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.MyData"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "MyData"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "MyData"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyData"),
                 MetadataAccessor = "$s10TestModule6MyDataCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -1427,7 +1427,7 @@ public class MethodClosureBridgeTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.FrozenPoint"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "FrozenPoint"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "FrozenPoint"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.FrozenPoint"),
                 MetadataAccessor = "$s10TestModule11FrozenPointVMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -1437,7 +1437,7 @@ public class MethodClosureBridgeTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.FrozenContainer"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "FrozenContainer"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "FrozenContainer"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.FrozenContainer"),
                 MetadataAccessor = "$s10TestModule15FrozenContainerVMa",
                 Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
@@ -1522,7 +1522,7 @@ public class MethodClosureBridgeTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.MyClass"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "MyClass"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "MyClass"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyClass"),
                 MetadataAccessor = "$s10TestModule7MyClassCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -1532,7 +1532,7 @@ public class MethodClosureBridgeTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.DataResponse"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "DataResponse"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "DataResponse"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.DataResponse"),
                 MetadataAccessor = "$s10TestModule12DataResponseVMa",
                 Flags = TypeRecordFlags.None, // Non-frozen struct
@@ -1542,7 +1542,7 @@ public class MethodClosureBridgeTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.MyData"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "MyData"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "MyData"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyData"),
                 MetadataAccessor = "$s10TestModule6MyDataCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -1552,7 +1552,7 @@ public class MethodClosureBridgeTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.FrozenPoint"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "FrozenPoint"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "FrozenPoint"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.FrozenPoint"),
                 MetadataAccessor = "$s10TestModule11FrozenPointVMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -1562,7 +1562,7 @@ public class MethodClosureBridgeTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.ImageRequest"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "ImageRequest"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ImageRequest"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ImageRequest"),
                 MetadataAccessor = "$s10TestModule12ImageRequestVMa",
                 Flags = TypeRecordFlags.None, // Non-frozen struct
@@ -1572,7 +1572,7 @@ public class MethodClosureBridgeTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.MyError"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "MyError"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "MyError"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyError"),
                 MetadataAccessor = "$s10TestModule7MyErrorOMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement, // Non-simple enum

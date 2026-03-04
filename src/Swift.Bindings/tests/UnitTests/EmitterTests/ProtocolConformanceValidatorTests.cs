@@ -971,7 +971,7 @@ public class ProtocolConformanceValidatorTests
         var builderTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Builder");
         testModule.RegisterType(builderTypeName, new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Builder"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Builder"),
             SwiftTypeName = builderTypeName,
             MetadataAccessor = "$s10TestModule7BuilderCMa",
             Flags = TypeRecordFlags.RequiresMemoryManagement,

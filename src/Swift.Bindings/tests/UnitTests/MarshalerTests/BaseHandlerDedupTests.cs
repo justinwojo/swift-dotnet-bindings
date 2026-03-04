@@ -460,7 +460,7 @@ public class BaseHandlerDedupTests
             },
             ["Alamofire.AFError"] = new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Alamofire", "AFError"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Alamofire", "AFError"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Alamofire.AFError"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,

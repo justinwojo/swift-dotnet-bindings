@@ -137,13 +137,13 @@ public class MethodMarshalPlanBuilderTests
         Assert.Contains("SBW_GetErrorDescription", plan.SwiftError.ErrorCheckCode);
         Assert.Contains("SBW_ReleaseError", plan.SwiftError.ErrorCheckCode);
         Assert.Contains("SwiftException<", plan.SwiftError.ErrorCheckCode);
-        Assert.Equal("Swift.TestModule.ParseError", plan.SwiftError.TypedErrorTypeName);
+        Assert.Equal("TestModule.ParseError", plan.SwiftError.TypedErrorTypeName);
 
         // C2: New fields for typed error extraction
         Assert.Equal("TestModule.ParseError", plan.SwiftError.SwiftErrorTypeName);
         Assert.Equal("TestModule_ParseError", plan.SwiftError.TypedErrorSafeSuffix);
         Assert.Contains("SBW_ExtractTypedError_TestModule_ParseError", plan.SwiftError.ErrorCheckCode);
-        Assert.Contains("MarshalFromSwift<Swift.TestModule.ParseError>", plan.SwiftError.ErrorCheckCode);
+        Assert.Contains("MarshalFromSwift<TestModule.ParseError>", plan.SwiftError.ErrorCheckCode);
         Assert.Contains("SBW_Free(_typedErrorPtr)", plan.SwiftError.ErrorCheckCode);
     }
 
@@ -181,7 +181,7 @@ public class MethodMarshalPlanBuilderTests
             "compute", parentKind: ParentKind.Class,
             returnType: new NamedTypeSpec("TestModule.Widget"));
         var (typeDb, testModule) = CreateTypeDatabaseWithModule("Loader");
-        RegisterType(testModule, "TestModule.Widget", "Swift.TestModule", "Widget",
+        RegisterType(testModule, "TestModule.Widget", "TestModule", "Widget",
             TypeRecordFlags.RequiresMemoryManagement, TypeRecordKind.Class);
         var env2 = new MethodEnvironment(env.MethodDecl, typeDb);
         var plan = BuildPlan(env2, wrapperSig, pInvokeSig, requiresIndirectResult: true);
@@ -501,7 +501,7 @@ public class MethodMarshalPlanBuilderTests
         if (hasTypedThrows)
         {
             method.ThrownErrorType = new NamedTypeSpec("TestModule.ParseError");
-            RegisterType(testModule, "TestModule.ParseError", "Swift.TestModule", "ParseError",
+            RegisterType(testModule, "TestModule.ParseError", "TestModule", "ParseError",
                 TypeRecordFlags.Frozen, TypeRecordKind.Struct);
         }
 
@@ -704,7 +704,7 @@ public class MethodMarshalPlanBuilderTests
                 SwiftTypeName.FromModuleQualifiedName($"TestModule.{className}"),
                 new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", className),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", className),
                     SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{className}"),
                     MetadataAccessor = "$sMa",
                     Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -721,7 +721,7 @@ public class MethodMarshalPlanBuilderTests
                 SwiftTypeName.FromModuleQualifiedName($"TestModule.{structName}"),
                 new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", structName),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", structName),
                     SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{structName}"),
                     MetadataAccessor = "$sMa",
                     Flags = flags,

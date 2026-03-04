@@ -206,7 +206,7 @@ public class ProtocolExtensionStructConformerTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.TestProtocol"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "ITestProtocol"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ITestProtocol"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.TestProtocol"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.None,
@@ -216,7 +216,7 @@ public class ProtocolExtensionStructConformerTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.MyClass"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "MyClass"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "MyClass"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyClass"),
                 MetadataAccessor = "$s10TestModule7MyClassCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -226,7 +226,7 @@ public class ProtocolExtensionStructConformerTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.MyStruct"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "MyStruct"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "MyStruct"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyStruct"),
                 MetadataAccessor = "$s10TestModule8MyStructVMa",
                 Flags = TypeRecordFlags.None,
@@ -394,7 +394,7 @@ public class ProtocolExtensionStructConformerTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.TestProtocol"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "ITestProtocol"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ITestProtocol"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.TestProtocol"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.None,
@@ -404,7 +404,7 @@ public class ProtocolExtensionStructConformerTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.MyStruct"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "MyStruct"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "MyStruct"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyStruct"),
                 MetadataAccessor = "$s10TestModule8MyStructVMa",
                 Flags = TypeRecordFlags.None,
@@ -414,7 +414,7 @@ public class ProtocolExtensionStructConformerTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Item"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Item"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Item"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Item"),
                 MetadataAccessor = "$s10TestModule4ItemCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,

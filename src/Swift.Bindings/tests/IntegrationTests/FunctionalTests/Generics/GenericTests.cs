@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-using Swift.GenericTests;
+using GenericTests;
 using Swift.Runtime;
 using Xunit;
 

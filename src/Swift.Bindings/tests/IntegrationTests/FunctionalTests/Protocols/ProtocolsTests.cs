@@ -2,11 +2,11 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
-using Swift.ProtocolsTests;
+using ProtocolsTests;
 using Xunit;
 
 // Alias the Swift module class to avoid collision with test class name
-using SwiftProtocols = Swift.ProtocolsTests.Functions;
+using SwiftProtocols = ProtocolsTests.Functions;
 
 namespace BindingsGeneration.FunctionalTests
 {

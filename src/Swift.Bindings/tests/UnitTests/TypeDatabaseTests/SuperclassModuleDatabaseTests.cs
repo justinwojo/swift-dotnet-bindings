@@ -17,7 +17,7 @@ public class SuperclassModuleDatabaseTests
         var superclassTypeName = SwiftTypeName.FromModuleQualifiedName("Alamofire.Request");
         var record = new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Alamofire", "DataRequest"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Alamofire", "DataRequest"),
             SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Alamofire.DataRequest"),
             MetadataAccessor = "$s9Alamofire11DataRequestCMa",
             Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -39,7 +39,7 @@ public class SuperclassModuleDatabaseTests
             var swiftName = SwiftTypeName.FromModuleQualifiedName("Alamofire.DataRequest");
             var record = new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Alamofire", "DataRequest"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Alamofire", "DataRequest"),
                 SwiftTypeName = swiftName,
                 MetadataAccessor = "$s9Alamofire11DataRequestCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -67,7 +67,7 @@ public class SuperclassModuleDatabaseTests
             var swiftName = SwiftTypeName.FromModuleQualifiedName("Alamofire.Request");
             var record = new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Alamofire", "Request"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Alamofire", "Request"),
                 SwiftTypeName = swiftName,
                 MetadataAccessor = "$s9Alamofire7RequestCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -96,7 +96,7 @@ public class SuperclassModuleDatabaseTests
             var superclassTypeName = SwiftTypeName.FromModuleQualifiedName("Alamofire.Request");
             var record = new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Alamofire", "DataRequest"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Alamofire", "DataRequest"),
                 SwiftTypeName = swiftName,
                 MetadataAccessor = "$s9Alamofire11DataRequestCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,

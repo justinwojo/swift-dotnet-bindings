@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 using RuntimeTestsApp.Infrastructure;
-using Swift.SwiftBindingsTestLib;
+using SwiftBindingsTestLib;
 
 namespace RuntimeTestsApp.Closures;
 
@@ -21,7 +21,7 @@ public class ClosureTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestEscapingWithInt32()
     {
-        var result = SwiftBindingsTestLib.CallWithInt32(x => x * 2);
+        var result = TestLibFunctions.CallWithInt32(x => x * 2);
         AssertEqual(84, result, "CallWithInt32(x => x * 2) with 42");
         TestLogger.Info($"CallWithInt32(x => x * 2) = {result}");
     }
@@ -30,7 +30,7 @@ public class ClosureTests : TestBase
     public void TestVoidCallback()
     {
         var called = false;
-        SwiftBindingsTestLib.CallVoidCallback(() => { called = true; });
+        TestLibFunctions.CallVoidCallback(() => { called = true; });
         AssertTrue(called, "Void callback was called");
         TestLogger.Info("CallVoidCallback passed");
     }
@@ -38,7 +38,7 @@ public class ClosureTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestMultiArgClosure()
     {
-        var result = SwiftBindingsTestLib.CallMultiArg((a, b) => a + b);
+        var result = TestLibFunctions.CallMultiArg((a, b) => a + b);
         AssertEqual(30, result, "CallMultiArg(10 + 20)");
         TestLogger.Info($"CallMultiArg((a,b) => a+b) = {result}");
     }
@@ -46,7 +46,7 @@ public class ClosureTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestBoolCallback()
     {
-        var result = SwiftBindingsTestLib.CallBoolCallback(b => !b);
+        var result = TestLibFunctions.CallBoolCallback(b => !b);
         AssertFalse(result, "CallBoolCallback(!true) = false");
         TestLogger.Info("CallBoolCallback passed");
     }
@@ -54,7 +54,7 @@ public class ClosureTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestCallMultipleTimes()
     {
-        var result = SwiftBindingsTestLib.CallMultipleTimes(x => x * x, 3);
+        var result = TestLibFunctions.CallMultipleTimes(x => x * x, 3);
         // 1*1 + 2*2 + 3*3 = 1 + 4 + 9 = 14
         AssertEqual(14, result, "CallMultipleTimes(x^2, 3) = 14");
         TestLogger.Info($"CallMultipleTimes(x => x*x, 3) = {result}");
@@ -80,7 +80,7 @@ public class ClosureTests : TestBase
     [TestTier(TestTier.Tier3)]
     public void TestConventionCFunction()
     {
-        var result = SwiftBindingsTestLib.CallCFunction(x => x + 8);
+        var result = TestLibFunctions.CallCFunction(x => x + 8);
         AssertEqual(50, result, "CallCFunction(x => x + 8) with 42");
         TestLogger.Info($"CallCFunction(x => x + 8) = {result}");
     }
@@ -88,7 +88,7 @@ public class ClosureTests : TestBase
     [TestTier(TestTier.Tier3)]
     public void TestCBinaryFunction()
     {
-        var result = SwiftBindingsTestLib.CallCBinaryFunction((a, b) => a * b);
+        var result = TestLibFunctions.CallCBinaryFunction((a, b) => a * b);
         AssertEqual(200, result, "CallCBinaryFunction(10 * 20)");
         TestLogger.Info($"CallCBinaryFunction((a,b) => a*b) = {result}");
     }
@@ -96,10 +96,10 @@ public class ClosureTests : TestBase
     [TestTier(TestTier.Tier3)]
     public void TestCPredicate()
     {
-        var result = SwiftBindingsTestLib.CallCPredicate(x => x > 5, 10);
+        var result = TestLibFunctions.CallCPredicate(x => x > 5, 10);
         AssertTrue(result, "CPredicate(10 > 5)");
 
-        result = SwiftBindingsTestLib.CallCPredicate(x => x > 5, 3);
+        result = TestLibFunctions.CallCPredicate(x => x > 5, 3);
         AssertFalse(result, "CPredicate(3 not > 5)");
         TestLogger.Info("CallCPredicate passed");
     }
@@ -107,7 +107,7 @@ public class ClosureTests : TestBase
     [TestTier(TestTier.Tier3)]
     public void TestMakeAdder()
     {
-        var adder = SwiftBindingsTestLib.MakeAdder(10);
+        var adder = TestLibFunctions.MakeAdder(10);
         AssertNotNull(adder, "MakeAdder returned delegate");
         var result = adder!(5);
         AssertEqual(15, result, "Adder(5) = 15");
@@ -117,7 +117,7 @@ public class ClosureTests : TestBase
     [TestTier(TestTier.Tier3)]
     public void TestMakeMultiplier()
     {
-        var multiplier = SwiftBindingsTestLib.MakeMultiplier(3);
+        var multiplier = TestLibFunctions.MakeMultiplier(3);
         AssertNotNull(multiplier, "MakeMultiplier returned delegate");
         var result = multiplier!(7);
         AssertEqual(21, result, "Multiplier(7) = 21");
@@ -127,7 +127,7 @@ public class ClosureTests : TestBase
     [TestTier(TestTier.Tier3)]
     public void TestMakeGreaterThan()
     {
-        var greaterThan5 = SwiftBindingsTestLib.MakeGreaterThan(5);
+        var greaterThan5 = TestLibFunctions.MakeGreaterThan(5);
         AssertNotNull(greaterThan5, "MakeGreaterThan returned delegate");
         AssertTrue(greaterThan5!(10), "10 > 5");
         AssertFalse(greaterThan5!(3), "3 not > 5");
@@ -158,7 +158,7 @@ public class ClosureTests : TestBase
     [TestTier(TestTier.Tier3)]
     public void TestClosureWithOptionalStringReturn()
     {
-        var result = SwiftBindingsTestLib.CallWithOptionalStringReturn(n => n > 0 ? $"value_{n}" : null);
+        var result = TestLibFunctions.CallWithOptionalStringReturn(n => n > 0 ? $"value_{n}" : null);
         AssertNotNull(result, "Optional<String> closure returned non-null");
         AssertEqual("value_42", result, "CallWithOptionalStringReturn returned correct value");
         TestLogger.Info($"CallWithOptionalStringReturn = {result}");
@@ -167,7 +167,7 @@ public class ClosureTests : TestBase
     [TestTier(TestTier.Tier3)]
     public void TestClosureWithStringArrayReturn()
     {
-        var result = SwiftBindingsTestLib.CallWithStringArrayReturn(n =>
+        var result = TestLibFunctions.CallWithStringArrayReturn(n =>
         {
             var list = new string[n];
             for (int i = 0; i < n; i++)

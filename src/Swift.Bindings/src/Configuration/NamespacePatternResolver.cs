@@ -9,7 +9,7 @@ namespace BindingsGeneration
     /// </summary>
     public sealed class NamespacePatternResolver
     {
-        public const string DefaultPattern = "Swift.{Module}";
+        public const string DefaultPattern = "{Module}";
 
         private readonly string _pattern;
         private readonly string? _frameworkName;

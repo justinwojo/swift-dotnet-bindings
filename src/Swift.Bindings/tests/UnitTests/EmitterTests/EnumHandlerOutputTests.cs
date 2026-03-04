@@ -1622,7 +1622,7 @@ public class EnumHandlerOutputTests
             SwiftTypeName.FromModuleQualifiedName("Nuke.ImageResponse"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Nuke", "ImageResponse"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Nuke", "ImageResponse"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImageResponse"),
                 MetadataAccessor = "$s4Nuke13ImageResponseVMa",
                 Flags = TypeRecordFlags.None, // NOT frozen — ClassWithOpaquePayload
@@ -1790,7 +1790,7 @@ public class EnumHandlerOutputTests
         Assert.Contains(".Payload.DangerousGetHandle()", csOutput);
         // P/Invoke declaration should use IntPtr, not ImageResponse
         Assert.Contains("PInvoke_Failed(SwiftIndirectResult", csOutput);
-        Assert.DoesNotContain("PInvoke_Failed(SwiftIndirectResult result, Swift.Nuke.ImageResponse", csOutput);
+        Assert.DoesNotContain("PInvoke_Failed(SwiftIndirectResult result, Nuke.ImageResponse", csOutput);
     }
 
     [Fact]

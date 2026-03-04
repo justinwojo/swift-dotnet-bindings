@@ -480,7 +480,7 @@ public class TypeDatabaseTests
             var xml = """
                 <swifttypedatabase version="1.0" moduleName="MyLib" modulePath="/fake/MyLib.dylib">
                   <entities>
-                    <entity managedNameSpace="Swift.MyLib" managedTypeName="IConfigurable">
+                    <entity managedNameSpace="MyLib" managedTypeName="IConfigurable">
                       <typedeclaration kind="protocol" name="Configurable" module="MyLib" mangledName="$s5MyLib12ConfigurableP" frozen="false" requiresMemoryManagement="false" hasAssociatedTypes="true" />
                     </entity>
                   </entities>
@@ -507,7 +507,7 @@ public class TypeDatabaseTests
             var xml = """
                 <swifttypedatabase version="1.0" moduleName="MyLib" modulePath="/fake/MyLib.dylib">
                   <entities>
-                    <entity managedNameSpace="Swift.MyLib" managedTypeName="AnyHashable">
+                    <entity managedNameSpace="MyLib" managedTypeName="AnyHashable">
                       <typedeclaration kind="existential" name="AnyHashable" module="MyLib" mangledName="" frozen="true" requiresMemoryManagement="false" />
                     </entity>
                   </entities>
@@ -533,7 +533,7 @@ public class TypeDatabaseTests
             var xml = """
                 <swifttypedatabase version="1.0" moduleName="MyLib" modulePath="/fake/MyLib.dylib">
                   <entities>
-                    <entity managedNameSpace="Swift.MyLib" managedTypeName="Color">
+                    <entity managedNameSpace="MyLib" managedTypeName="Color">
                       <typedeclaration kind="enum" name="Color" module="MyLib" mangledName="" frozen="true" requiresMemoryManagement="false" simpleEnum="true" rawValueType="Int" />
                     </entity>
                   </entities>

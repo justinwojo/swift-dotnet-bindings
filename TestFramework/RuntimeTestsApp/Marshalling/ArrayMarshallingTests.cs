@@ -3,7 +3,7 @@
 
 using RuntimeTestsApp.Infrastructure;
 using Swift;
-using Swift.SwiftBindingsTestLib;
+using SwiftBindingsTestLib;
 
 namespace RuntimeTestsApp.Marshalling;
 
@@ -20,7 +20,7 @@ public class ArrayMarshallingTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestArrayParameterCount()
     {
-        var count = SwiftBindingsTestLib.ArrayCount(new[] { 10, 20, 30 });
+        var count = TestLibFunctions.ArrayCount(new[] { 10, 20, 30 });
         AssertEqual(3, count, "Array count");
         TestLogger.Info($"ArrayCount([10,20,30]) = {count}");
     }
@@ -28,7 +28,7 @@ public class ArrayMarshallingTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestArrayReturn()
     {
-        var result = SwiftBindingsTestLib.CreateIntArray(3, 42);
+        var result = TestLibFunctions.CreateIntArray(3, 42);
         AssertEqual(3, result.Count, "Created array count");
         TestLogger.Info($"CreateIntArray(3, 42) returned {result.Count} elements");
     }
@@ -36,8 +36,8 @@ public class ArrayMarshallingTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestEmptyArray()
     {
-        AssertTrue(SwiftBindingsTestLib.IsEmptyArray(Array.Empty<int>()), "Empty array is empty");
-        AssertEqual(0, SwiftBindingsTestLib.ArrayCount(Array.Empty<int>()), "Empty array count is 0");
+        AssertTrue(TestLibFunctions.IsEmptyArray(Array.Empty<int>()), "Empty array is empty");
+        AssertEqual(0, TestLibFunctions.ArrayCount(Array.Empty<int>()), "Empty array count is 0");
         TestLogger.Info("Empty array tests passed");
     }
 
@@ -48,7 +48,7 @@ public class ArrayMarshallingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestSumArray()
     {
-        var sum = SwiftBindingsTestLib.SumArray(new[] { 1, 2, 3, 4, 5 });
+        var sum = TestLibFunctions.SumArray(new[] { 1, 2, 3, 4, 5 });
         AssertEqual(15, sum, "Sum of [1..5]");
         TestLogger.Info($"SumArray([1,2,3,4,5]) = {sum}");
     }
@@ -56,7 +56,7 @@ public class ArrayMarshallingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestReverseIntArray()
     {
-        var reversed = SwiftBindingsTestLib.ReverseIntArray(new[] { 1, 2, 3 });
+        var reversed = TestLibFunctions.ReverseIntArray(new[] { 1, 2, 3 });
         AssertEqual(3, reversed.Count, "Reversed count");
         AssertEqual(3, reversed[0], "Reversed[0]");
         AssertEqual(2, reversed[1], "Reversed[1]");
@@ -67,7 +67,7 @@ public class ArrayMarshallingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestFilterPositive()
     {
-        var filtered = SwiftBindingsTestLib.FilterPositive(new[] { -2, -1, 0, 1, 2, 3 });
+        var filtered = TestLibFunctions.FilterPositive(new[] { -2, -1, 0, 1, 2, 3 });
         AssertEqual(3, filtered.Count, "Filtered count");
         AssertEqual(1, filtered[0], "Filtered[0]");
         AssertEqual(2, filtered[1], "Filtered[1]");
@@ -78,7 +78,7 @@ public class ArrayMarshallingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestCreateStringArray()
     {
-        var result = SwiftBindingsTestLib.CreateStringArray("hello", "world");
+        var result = TestLibFunctions.CreateStringArray("hello", "world");
         AssertEqual(2, result.Count, "String array count");
         AssertEqual("hello", result[0].ToString(), "String array[0]");
         AssertEqual("world", result[1].ToString(), "String array[1]");
@@ -88,9 +88,9 @@ public class ArrayMarshallingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestArrayOfClasses()
     {
-        var cat = SwiftBindingsTestLib.CreateAnimal("Cat", "Meow");
-        var dog = SwiftBindingsTestLib.CreateAnimal("Dog", "Woof");
-        var descriptions = SwiftBindingsTestLib.DescribeAnimals(new[] { cat, dog });
+        var cat = TestLibFunctions.CreateAnimal("Cat", "Meow");
+        var dog = TestLibFunctions.CreateAnimal("Dog", "Woof");
+        var descriptions = TestLibFunctions.DescribeAnimals(new[] { cat, dog });
         AssertEqual(2, descriptions.Count, "Descriptions count");
         AssertTrue(descriptions[0].ToString().Contains("Cat"), "First is Cat");
         AssertTrue(descriptions[1].ToString().Contains("Dog"), "Second is Dog");
@@ -100,7 +100,7 @@ public class ArrayMarshallingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestCreateIntArrayValues()
     {
-        var result = SwiftBindingsTestLib.CreateIntArray(4, 7);
+        var result = TestLibFunctions.CreateIntArray(4, 7);
         AssertEqual(4, result.Count, "Created array count");
         for (int i = 0; i < result.Count; i++)
         {
@@ -112,16 +112,16 @@ public class ArrayMarshallingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestSingleElementArray()
     {
-        AssertEqual(1, SwiftBindingsTestLib.ArrayCount(new[] { 99 }), "Single element count");
-        AssertEqual(99, SwiftBindingsTestLib.SumArray(new[] { 99 }), "Single element sum");
-        AssertFalse(SwiftBindingsTestLib.IsEmptyArray(new[] { 99 }), "Single element not empty");
+        AssertEqual(1, TestLibFunctions.ArrayCount(new[] { 99 }), "Single element count");
+        AssertEqual(99, TestLibFunctions.SumArray(new[] { 99 }), "Single element sum");
+        AssertFalse(TestLibFunctions.IsEmptyArray(new[] { 99 }), "Single element not empty");
         TestLogger.Info("Single element array tests passed");
     }
 
     [TestTier(TestTier.Tier2)]
     public void TestFilterPositiveAllNegative()
     {
-        var filtered = SwiftBindingsTestLib.FilterPositive(new[] { -3, -2, -1 });
+        var filtered = TestLibFunctions.FilterPositive(new[] { -3, -2, -1 });
         AssertEqual(0, filtered.Count, "All negative filtered to empty");
         TestLogger.Info("FilterPositive all negative passed");
     }

@@ -489,7 +489,7 @@ public class CancellationTokenEmitterTests
             parentDecl.SwiftTypeName,
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Pipeline"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Pipeline"),
                 SwiftTypeName = parentDecl.SwiftTypeName,
                 MetadataAccessor = "$s10TestModule8PipelineCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -584,7 +584,7 @@ public class CancellationTokenEmitterTests
             parentDecl.SwiftTypeName,
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Pipeline"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Pipeline"),
                 SwiftTypeName = parentDecl.SwiftTypeName,
                 MetadataAccessor = "$s10TestModule8PipelineCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -595,7 +595,7 @@ public class CancellationTokenEmitterTests
         var returnSwiftTypeName = SwiftTypeName.FromModuleQualifiedName(returnTypeName);
         module.RegisterType(returnSwiftTypeName, new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "DataResult"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "DataResult"),
             SwiftTypeName = returnSwiftTypeName,
             MetadataAccessor = "$s10TestModule10DataResultVMa",
             Flags = TypeRecordFlags.Frozen,
@@ -689,7 +689,7 @@ public class CancellationTokenEmitterTests
             parentDecl.SwiftTypeName,
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Pipeline"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Pipeline"),
                 SwiftTypeName = parentDecl.SwiftTypeName,
                 MetadataAccessor = "$s10TestModule8PipelineCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -770,7 +770,7 @@ public class CancellationTokenEmitterTests
         var module = new ModuleTypeDatabase("TestModule", "/fake/path");
         module.RegisterType(parentDecl.SwiftTypeName, new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "TestStruct"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "TestStruct"),
             SwiftTypeName = parentDecl.SwiftTypeName,
             MetadataAccessor = parentDecl.MetadataAccessor,
             Flags = TypeRecordFlags.Frozen,
@@ -863,7 +863,7 @@ public class CancellationTokenEmitterTests
             parentDecl.SwiftTypeName,
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Pipeline"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Pipeline"),
                 SwiftTypeName = parentDecl.SwiftTypeName,
                 MetadataAccessor = "$s10TestModule8PipelineCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -873,7 +873,7 @@ public class CancellationTokenEmitterTests
         var returnSwiftTypeName = SwiftTypeName.FromModuleQualifiedName(returnTypeName);
         module.RegisterType(returnSwiftTypeName, new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "DataResult"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "DataResult"),
             SwiftTypeName = returnSwiftTypeName,
             MetadataAccessor = "$s10TestModule10DataResultVMa",
             Flags = TypeRecordFlags.Frozen,
@@ -957,7 +957,7 @@ public class CancellationTokenEmitterTests
             parentDecl.SwiftTypeName,
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Pipeline"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Pipeline"),
                 SwiftTypeName = parentDecl.SwiftTypeName,
                 MetadataAccessor = "$s10TestModule8PipelineCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -1047,7 +1047,7 @@ public class CancellationTokenEmitterTests
             parentDecl.SwiftTypeName,
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Pipeline"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Pipeline"),
                 SwiftTypeName = parentDecl.SwiftTypeName,
                 MetadataAccessor = "$s10TestModule8PipelineCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -1058,7 +1058,7 @@ public class CancellationTokenEmitterTests
         var returnSwiftTypeName = SwiftTypeName.FromModuleQualifiedName(returnTypeName);
         module.RegisterType(returnSwiftTypeName, new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "OpaqueResult"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "OpaqueResult"),
             SwiftTypeName = returnSwiftTypeName,
             MetadataAccessor = "$s10TestModule12OpaqueResultVMa",
             Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -1144,7 +1144,7 @@ public class CancellationTokenEmitterTests
             parentDecl.SwiftTypeName,
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Pipeline"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Pipeline"),
                 SwiftTypeName = parentDecl.SwiftTypeName,
                 MetadataAccessor = "$s10TestModule8PipelineCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -1154,7 +1154,7 @@ public class CancellationTokenEmitterTests
         var returnSwiftTypeName = SwiftTypeName.FromModuleQualifiedName(returnTypeName);
         module.RegisterType(returnSwiftTypeName, new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "DataResult"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "DataResult"),
             SwiftTypeName = returnSwiftTypeName,
             MetadataAccessor = "$s10TestModule10DataResultVMa",
             Flags = TypeRecordFlags.Frozen,
@@ -1164,7 +1164,7 @@ public class CancellationTokenEmitterTests
         var errorSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.ParseError");
         module.RegisterType(errorSwiftName, new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "ParseError"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ParseError"),
             SwiftTypeName = errorSwiftName,
             MetadataAccessor = "$s10TestModule10ParseErrorOMa",
             Flags = TypeRecordFlags.None,

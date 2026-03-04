@@ -94,7 +94,7 @@ public class NameProviderRenameTests
         var parentSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.ImagePipeline");
         module.RegisterType(parentSwiftName, new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "ImagePipeline"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ImagePipeline"),
             SwiftTypeName = parentSwiftName,
             MetadataAccessor = "$s10TestModule13ImagePipelineVMa",
             Flags = TypeRecordFlags.Frozen,
@@ -104,7 +104,7 @@ public class NameProviderRenameTests
         var cacheSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.ImagePipeline.Cache");
         module.RegisterType(cacheSwiftName, new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "ImagePipeline.Cache"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ImagePipeline.Cache"),
             SwiftTypeName = cacheSwiftName,
             MetadataAccessor = "$s10TestModule13ImagePipelineV5CacheVMa",
             Flags = TypeRecordFlags.Frozen,
@@ -114,7 +114,7 @@ public class NameProviderRenameTests
         var entrySwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.ImagePipeline.Cache.Entry");
         module.RegisterType(entrySwiftName, new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "ImagePipeline.Cache.Entry"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ImagePipeline.Cache.Entry"),
             SwiftTypeName = entrySwiftName,
             MetadataAccessor = "$s10TestModule13ImagePipelineV5CacheV5EntryVMa",
             Flags = TypeRecordFlags.Frozen,
@@ -212,7 +212,7 @@ public class NameProviderRenameTests
         var parentSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.Parent");
         module.RegisterType(parentSwiftName, new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Parent"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Parent"),
             SwiftTypeName = parentSwiftName,
             MetadataAccessor = "$sMa",
             Flags = TypeRecordFlags.Frozen,
@@ -222,7 +222,7 @@ public class NameProviderRenameTests
         var childSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.Parent.Settings");
         module.RegisterType(childSwiftName, new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Parent.Settings"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Parent.Settings"),
             SwiftTypeName = childSwiftName,
             MetadataAccessor = "$sMa",
             Flags = TypeRecordFlags.Frozen,

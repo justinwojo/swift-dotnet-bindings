@@ -8,12 +8,12 @@ using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.Swift;
 using BindingsGeneration.Tests;
 using Swift;
-using Swift.MemoryTests;
+using MemoryTests;
 using Swift.Runtime;
 using Swift.Runtime.InteropServices;
 using Xunit;
 
-using Bindings = Swift.MemoryTests;
+using Bindings = MemoryTests;
 
 
 namespace BindingsGeneration.FunctionalTests

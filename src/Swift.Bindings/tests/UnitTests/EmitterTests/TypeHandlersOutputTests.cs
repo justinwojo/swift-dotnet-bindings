@@ -257,7 +257,7 @@ public class TypeHandlersOutputTests
         var parentSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.NetworkConfig");
         module.RegisterType(parentSwiftName, new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "NetworkConfig"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "NetworkConfig"),
             SwiftTypeName = parentSwiftName,
             MetadataAccessor = "$s10TestModule13NetworkConfigVMa",
             Flags = TypeRecordFlags.Frozen,
@@ -267,7 +267,7 @@ public class TypeHandlersOutputTests
         var nestedSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.NetworkConfig.Configuration");
         module.RegisterType(nestedSwiftName, new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "NetworkConfig.Configuration"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "NetworkConfig.Configuration"),
             SwiftTypeName = nestedSwiftName,
             MetadataAccessor = "$s10TestModule13NetworkConfigV13ConfigurationVMa",
             Flags = TypeRecordFlags.Frozen,
@@ -706,7 +706,7 @@ public class TypeHandlersOutputTests
                 structDecl.SwiftTypeName,
                 new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", structDecl.Name),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", structDecl.Name),
                     SwiftTypeName = structDecl.SwiftTypeName,
                     MetadataAccessor = structDecl.MetadataAccessor,
                     Flags = (structDecl.IsFrozen ? TypeRecordFlags.Frozen : TypeRecordFlags.None) |
@@ -723,7 +723,7 @@ public class TypeHandlersOutputTests
                 classDecl.SwiftTypeName,
                 new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", classDecl.Name),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", classDecl.Name),
                     SwiftTypeName = classDecl.SwiftTypeName,
                     MetadataAccessor = classDecl.MangledName + "Ma",
                     Flags = TypeRecordFlags.RequiresMemoryManagement,

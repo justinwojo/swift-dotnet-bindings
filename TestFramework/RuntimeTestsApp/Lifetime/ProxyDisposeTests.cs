@@ -4,7 +4,7 @@
 using RuntimeTestsApp.Infrastructure;
 using Swift;
 using Swift.Runtime;
-using Swift.SwiftBindingsTestLib;
+using SwiftBindingsTestLib;
 
 namespace RuntimeTestsApp.Lifetime;
 

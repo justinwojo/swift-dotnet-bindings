@@ -6,7 +6,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using Foundation;
 using RuntimeTestsApp.Infrastructure;
-using Swift.SwiftBindingsTestLib;
+using SwiftBindingsTestLib;
 using UIKit;
 
 namespace RuntimeTestsApp;

@@ -101,7 +101,7 @@ public class PInvokeEmitterTests
     public void ReturnType_SwiftClass_ReturnsIntPtr()
     {
         var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
-        RegisterType(testModule, "TestModule.Child", "Swift.TestModule", "Child",
+        RegisterType(testModule, "TestModule.Child", "TestModule", "Child",
             TypeRecordFlags.RequiresMemoryManagement, TypeRecordKind.Class);
 
         var moduleDecl = CreateModuleDecl();
@@ -119,7 +119,7 @@ public class PInvokeEmitterTests
     public void ReturnType_NonFrozenStruct_IndirectResult()
     {
         var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
-        RegisterType(testModule, "TestModule.Data", "Swift.TestModule", "Data",
+        RegisterType(testModule, "TestModule.Data", "TestModule", "Data",
             TypeRecordFlags.None, TypeRecordKind.Struct);
 
         var moduleDecl = CreateModuleDecl();
@@ -138,7 +138,7 @@ public class PInvokeEmitterTests
     public void ReturnType_FrozenStructWithMemMgmt_ReturnsBuffer()
     {
         var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
-        RegisterType(testModule, "TestModule.Props", "Swift.TestModule", "Props",
+        RegisterType(testModule, "TestModule.Props", "TestModule", "Props",
             TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement, TypeRecordKind.Struct);
 
         var moduleDecl = CreateModuleDecl();
@@ -149,14 +149,14 @@ public class PInvokeEmitterTests
         var typeDb = CreateBasicTypeDatabase("Loader", testModule);
         var sig = GetPInvokeSignature(method, typeDb);
 
-        Assert.Equal("Swift.TestModule.Props.Buffer", sig.ReturnType);
+        Assert.Equal("TestModule.Props.Buffer", sig.ReturnType);
     }
 
     [Fact]
     public void ReturnType_FrozenStructDirect_ReturnsType()
     {
         var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
-        RegisterType(testModule, "TestModule.Point", "Swift.TestModule", "Point",
+        RegisterType(testModule, "TestModule.Point", "TestModule", "Point",
             TypeRecordFlags.Frozen, TypeRecordKind.Struct);
 
         var moduleDecl = CreateModuleDecl();
@@ -167,14 +167,14 @@ public class PInvokeEmitterTests
         var typeDb = CreateBasicTypeDatabase("Loader", testModule);
         var sig = GetPInvokeSignature(method, typeDb);
 
-        Assert.Equal("Swift.TestModule.Point", sig.ReturnType);
+        Assert.Equal("TestModule.Point", sig.ReturnType);
     }
 
     [Fact]
     public void ReturnType_SimpleEnum_ReturnsUnderlyingType()
     {
         var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
-        RegisterSimpleEnum(testModule, "TestModule.Status", "Swift.TestModule", "Status", "Swift.Int");
+        RegisterSimpleEnum(testModule, "TestModule.Status", "TestModule", "Status", "Swift.Int");
 
         var moduleDecl = CreateModuleDecl();
         var classDecl = CreateClassDecl("Loader", moduleDecl);
@@ -284,7 +284,7 @@ public class PInvokeEmitterTests
     public void Parameter_NonFrozenStruct_UsesSafeHandle()
     {
         var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
-        RegisterType(testModule, "TestModule.Data", "Swift.TestModule", "Data",
+        RegisterType(testModule, "TestModule.Data", "TestModule", "Data",
             TypeRecordFlags.None, TypeRecordKind.Struct);
 
         var moduleDecl = CreateModuleDecl();
@@ -303,7 +303,7 @@ public class PInvokeEmitterTests
     public void Parameter_NonFrozenStructAsync_UsesIntPtrFromNonFrozen()
     {
         var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
-        RegisterType(testModule, "TestModule.Data", "Swift.TestModule", "Data",
+        RegisterType(testModule, "TestModule.Data", "TestModule", "Data",
             TypeRecordFlags.None, TypeRecordKind.Struct);
 
         var moduleDecl = CreateModuleDecl();
@@ -324,7 +324,7 @@ public class PInvokeEmitterTests
     public void Parameter_FrozenStructWithMemMgmt_UsesBuffer()
     {
         var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
-        RegisterType(testModule, "TestModule.Props", "Swift.TestModule", "Props",
+        RegisterType(testModule, "TestModule.Props", "TestModule", "Props",
             TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement, TypeRecordKind.Struct);
 
         var moduleDecl = CreateModuleDecl();
@@ -336,14 +336,14 @@ public class PInvokeEmitterTests
         var sig = GetPInvokeSignature(method, typeDb);
 
         var propsParam = sig.Parameters.First(p => p.Name == "props");
-        Assert.Equal(new MarshalledType.FrozenBuffer("Swift.TestModule.Props"), propsParam.Type);
+        Assert.Equal(new MarshalledType.FrozenBuffer("TestModule.Props"), propsParam.Type);
     }
 
     [Fact]
     public void Parameter_FrozenStructDirect_UsesTypeName()
     {
         var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
-        RegisterType(testModule, "TestModule.Point", "Swift.TestModule", "Point",
+        RegisterType(testModule, "TestModule.Point", "TestModule", "Point",
             TypeRecordFlags.Frozen, TypeRecordKind.Struct);
 
         var moduleDecl = CreateModuleDecl();
@@ -355,14 +355,14 @@ public class PInvokeEmitterTests
         var sig = GetPInvokeSignature(method, typeDb);
 
         var pointParam = sig.Parameters.First(p => p.Name == "point");
-        Assert.Equal(new MarshalledType.Simple("Swift.TestModule.Point"), pointParam.Type);
+        Assert.Equal(new MarshalledType.Simple("TestModule.Point"), pointParam.Type);
     }
 
     [Fact]
     public void Parameter_InOut_AddsRefModifier()
     {
         var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
-        RegisterType(testModule, "TestModule.Point", "Swift.TestModule", "Point",
+        RegisterType(testModule, "TestModule.Point", "TestModule", "Point",
             TypeRecordFlags.Frozen, TypeRecordKind.Struct);
 
         var moduleDecl = CreateModuleDecl();
@@ -415,7 +415,7 @@ public class PInvokeEmitterTests
     public void Parameter_SimpleEnum_UsesUnderlyingType()
     {
         var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
-        RegisterSimpleEnum(testModule, "TestModule.Status", "Swift.TestModule", "Status", "Swift.Int");
+        RegisterSimpleEnum(testModule, "TestModule.Status", "TestModule", "Status", "Swift.Int");
 
         var moduleDecl = CreateModuleDecl();
         var classDecl = CreateClassDecl("Loader", moduleDecl);
@@ -482,7 +482,7 @@ public class PInvokeEmitterTests
     public void Self_FrozenStructGetter_SwiftSelfGeneric()
     {
         var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
-        RegisterType(testModule, "TestModule.Point", "Swift.TestModule", "Point",
+        RegisterType(testModule, "TestModule.Point", "TestModule", "Point",
             TypeRecordFlags.Frozen, TypeRecordKind.Struct);
 
         var moduleDecl = CreateModuleDecl();
@@ -501,7 +501,7 @@ public class PInvokeEmitterTests
     public void Self_FrozenStructWithMemMgmt_Getter_SwiftSelfBuffer()
     {
         var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
-        RegisterType(testModule, "TestModule.Props", "Swift.TestModule", "Props",
+        RegisterType(testModule, "TestModule.Props", "TestModule", "Props",
             TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement, TypeRecordKind.Struct);
 
         var moduleDecl = CreateModuleDecl();
@@ -520,7 +520,7 @@ public class PInvokeEmitterTests
     public void Self_FrozenStructSetter_SwiftSelfPointer()
     {
         var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
-        RegisterType(testModule, "TestModule.Point", "Swift.TestModule", "Point",
+        RegisterType(testModule, "TestModule.Point", "TestModule", "Point",
             TypeRecordFlags.Frozen, TypeRecordKind.Struct);
 
         var moduleDecl = CreateModuleDecl();
@@ -783,7 +783,7 @@ public class PInvokeEmitterTests
     public void CallArgumentsString_IntPtrFromNonFrozen_AppendsHandle()
     {
         var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
-        RegisterType(testModule, "TestModule.Data", "Swift.TestModule", "Data",
+        RegisterType(testModule, "TestModule.Data", "TestModule", "Data",
             TypeRecordFlags.None, TypeRecordKind.Struct);
 
         var moduleDecl = CreateModuleDecl();
@@ -958,7 +958,7 @@ public class PInvokeEmitterTests
                 SwiftTypeName.FromModuleQualifiedName($"TestModule.{className}"),
                 new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", className),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", className),
                     SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{className}"),
                     MetadataAccessor = $"$s10TestModule{className.Length}{className}CMa",
                     Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -1022,7 +1022,7 @@ public class PInvokeEmitterTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Loader"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Loader"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Loader"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Loader"),
                 MetadataAccessor = "$s10TestModule6LoaderCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -1032,7 +1032,7 @@ public class PInvokeEmitterTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Variant"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Variant"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Variant"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Variant"),
                 MetadataAccessor = "$s10TestModule7VariantOMa",
                 Flags = enumFlags,

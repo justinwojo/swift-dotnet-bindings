@@ -11,7 +11,7 @@ using Swift.Runtime;
 using Swift.Runtime.InteropServices;
 using Xunit;
 
-using Bindings = Swift.ClosuresTests;
+using Bindings = ClosuresTests;
 
 namespace BindingsGeneration.FunctionalTests
 {

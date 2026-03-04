@@ -12,7 +12,7 @@ using Swift.Runtime;
 using Swift.Runtime.InteropServices;
 using Xunit;
 
-using Bindings = Swift.RuntimeTests;
+using Bindings = RuntimeTests;
 
 
 namespace BindingsGeneration.FunctionalTests

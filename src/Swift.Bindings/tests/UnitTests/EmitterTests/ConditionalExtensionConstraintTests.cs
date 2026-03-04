@@ -571,7 +571,7 @@ public class ConditionalExtensionConstraintTests
             {
                 _types[name] = new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", name.Split('.').Last()),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", name.Split('.').Last()),
                     SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(name),
                     MetadataAccessor = "",
                     Flags = flags,

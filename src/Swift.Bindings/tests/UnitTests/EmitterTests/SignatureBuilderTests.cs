@@ -712,7 +712,7 @@ public class SignatureBuilderTests
         var pInvokeSignature = signatureHandler.GetPInvokeSignature();
 
         // Must not contain the managed enum type name in the P/Invoke signature
-        Assert.DoesNotContain("Swift.TestModule.Variant", pInvokeSignature.ParametersString());
+        Assert.DoesNotContain("TestModule.Variant", pInvokeSignature.ParametersString());
     }
 
     [Theory]
@@ -1117,7 +1117,7 @@ public class SignatureBuilderTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Loader"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Loader"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Loader"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Loader"),
                 MetadataAccessor = "$s10TestModule6LoaderCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -1127,7 +1127,7 @@ public class SignatureBuilderTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Variant"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Variant"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Variant"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Variant"),
                 MetadataAccessor = "$s10TestModule7VariantOMa",
                 Flags = enumFlags,

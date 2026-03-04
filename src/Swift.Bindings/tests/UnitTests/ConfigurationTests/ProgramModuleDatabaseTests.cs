@@ -66,7 +66,7 @@ namespace BindingsGeneration.Tests
                 File.WriteAllText(filePath, """
                     <swifttypedatabase version="1.0" moduleName="StripeCore" modulePath="/fake/StripeCore.dylib">
                       <entities>
-                        <entity managedTypeName="Widget" managedNameSpace="Swift.StripeCore">
+                        <entity managedTypeName="Widget" managedNameSpace="StripeCore">
                           <typedeclaration module="StripeCore" name="Widget" mangledName="" frozen="true" requiresMemoryManagement="false" />
                         </entity>
                       </entities>
@@ -205,7 +205,7 @@ namespace BindingsGeneration.Tests
             File.WriteAllText(selfDbPath, """
                 <swifttypedatabase version="1.0" moduleName="TestModule" modulePath="/fake/TestModule.dylib">
                   <entities>
-                    <entity managedTypeName="Widget" managedNameSpace="Swift.TestModule">
+                    <entity managedTypeName="Widget" managedNameSpace="TestModule">
                       <typedeclaration module="TestModule" name="Widget" mangledName="" frozen="true" requiresMemoryManagement="false" />
                     </entity>
                   </entities>

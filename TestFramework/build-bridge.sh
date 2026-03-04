@@ -21,7 +21,7 @@ fi
 
 MODULE_NAME="SwiftBindingsTestLib"
 BRIDGE_MODULE="SwiftBindingsTestLibBridge"
-GENERATED_BRIDGE="output/Swift.${MODULE_NAME}.SwiftUIBridge.swift"
+GENERATED_BRIDGE="output/${MODULE_NAME}.SwiftUIBridge.swift"
 TEST_HELPERS="SwiftBridge/SwiftUIBridgeTestHelpers.swift"
 XCFW_DIR=".build/${MODULE_NAME}.xcframework/ios-arm64-simulator"
 OUTPUT_DIR="SwiftBridge/${BRIDGE_MODULE}.framework"

@@ -782,7 +782,7 @@ public class ClosureHandlerTests
         var optionalNonFrozen = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Nuke.ImageDecodingContext"));
         var result = handler.TranslateTypeSpecToCSharp(optionalNonFrozen);
 
-        Assert.Equal("Swift.Nuke.ImageDecodingContext?", result);
+        Assert.Equal("Nuke.ImageDecodingContext?", result);
     }
 
     [Fact]
@@ -796,7 +796,7 @@ public class ClosureHandlerTests
         var optionalClass = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Nuke.ImageTask"));
         var result = handler.TranslateTypeSpecToCSharp(optionalClass);
 
-        Assert.Equal("Swift.Nuke.ImageTask?", result);
+        Assert.Equal("Nuke.ImageTask?", result);
     }
 
     [Fact]
@@ -2427,7 +2427,7 @@ public class ClosureHandlerTests
                 // Non-frozen struct for testing closure parameters (like ImageDecodingContext)
                 ["Nuke.ImageDecodingContext"] = new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Nuke", "ImageDecodingContext"),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Nuke", "ImageDecodingContext"),
                     SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImageDecodingContext"),
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.None, // NOT frozen
@@ -2436,7 +2436,7 @@ public class ClosureHandlerTests
                 // Non-frozen struct for testing closure parameters (like ImageResponse)
                 ["Nuke.ImageResponse"] = new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Nuke", "ImageResponse"),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Nuke", "ImageResponse"),
                     SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImageResponse"),
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.None, // NOT frozen
@@ -2445,7 +2445,7 @@ public class ClosureHandlerTests
                 // Swift class for testing tuple element mismatch in closures
                 ["Nuke.ImageTask"] = new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Nuke", "ImageTask"),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Nuke", "ImageTask"),
                     SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImageTask"),
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -2466,7 +2466,7 @@ public class ClosureHandlerTests
                 // Simple enum for testing closure parameter relaxation (Q3)
                 ["TestModule.ColorMode"] = new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "ColorMode"),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ColorMode"),
                     SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ColorMode"),
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.SimpleEnum,
@@ -2485,7 +2485,7 @@ public class ClosureHandlerTests
                 // D1: Non-generic complex enum for testing closure parameter heap allocation
                 ["TestModule.LoadingState"] = new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "LoadingState"),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "LoadingState"),
                     SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.LoadingState"),
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.RequiresMemoryManagement, // No SimpleEnum flag

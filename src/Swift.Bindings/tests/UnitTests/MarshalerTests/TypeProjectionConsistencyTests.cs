@@ -137,35 +137,35 @@ public class TypeProjectionConsistencyTests
     {
         // ObjC bridged
         yield return new object[] { "ObjCBridged", N("TestModule.UIImage"), false,
-            "Swift.TestModule.UIImage", "IntPtr", typeof(ObjCBridgedProjection) };
+            "TestModule.UIImage", "IntPtr", typeof(ObjCBridgedProjection) };
 
         // Simple enum (Int32)
         yield return new object[] { "SimpleEnum(Int32)", N("TestModule.Direction"), false,
-            "Swift.TestModule.Direction", "int", typeof(SimpleEnumProjection) };
+            "TestModule.Direction", "int", typeof(SimpleEnumProjection) };
 
         // Simple enum (Int64)
         yield return new object[] { "SimpleEnum(Int64)", N("TestModule.BigEnum"), false,
-            "Swift.TestModule.BigEnum", "long", typeof(SimpleEnumProjection) };
+            "TestModule.BigEnum", "long", typeof(SimpleEnumProjection) };
 
         // Frozen with memory management (ClassWithBufferStruct)
         yield return new object[] { "FrozenWithMemory", N("TestModule.ManagedFrozen"), false,
-            "Swift.TestModule.ManagedFrozen", "Swift.TestModule.ManagedFrozen.Buffer", typeof(FrozenWithMemoryProjection) };
+            "TestModule.ManagedFrozen", "TestModule.ManagedFrozen.Buffer", typeof(FrozenWithMemoryProjection) };
 
         // Non-frozen struct
         yield return new object[] { "NonFrozenStruct", N("TestModule.Pipeline"), false,
-            "Swift.TestModule.Pipeline", "IntPtr", typeof(NonFrozenStructProjection) };
+            "TestModule.Pipeline", "IntPtr", typeof(NonFrozenStructProjection) };
 
         // Frozen blittable struct
         yield return new object[] { "FrozenStruct", N("TestModule.Point"), false,
-            "Swift.TestModule.Point", "Swift.TestModule.Point", typeof(BlittableProjection) };
+            "TestModule.Point", "TestModule.Point", typeof(BlittableProjection) };
 
         // Class
         yield return new object[] { "Class", N("TestModule.MyViewController"), false,
-            "Swift.TestModule.MyViewController", "IntPtr", typeof(ClassProjection) };
+            "TestModule.MyViewController", "IntPtr", typeof(ClassProjection) };
 
         // Native remapped (frozen)
         yield return new object[] { "NativeRemapped(frozen)", N("TestModule.SwiftURL"), false,
-            "Foundation.NSUrl", "Swift.TestModule.SwiftURL", typeof(NativeRemappedProjection) };
+            "Foundation.NSUrl", "TestModule.SwiftURL", typeof(NativeRemappedProjection) };
 
         // Native remapped (non-frozen) — uses a non-Data type since Data now gets DataProjection
         yield return new object[] { "NativeRemapped(non-frozen)", N("TestModule.SwiftTimestamp"), false,
@@ -179,7 +179,7 @@ public class TypeProjectionConsistencyTests
         yield return new object[] { "Array<Bool> param", N("Swift.Array", N("Swift.Bool")), true,
             "IEnumerable<bool>", "IntPtr", typeof(ArrayProjection) };
         yield return new object[] { "Array<Class> param", N("Swift.Array", N("TestModule.MyViewController")), true,
-            "IEnumerable<Swift.TestModule.MyViewController>", "IntPtr", typeof(ArrayProjection) };
+            "IEnumerable<TestModule.MyViewController>", "IntPtr", typeof(ArrayProjection) };
         yield return new object[] { "Dict<String,Int64> param", N("Swift.Dictionary", N("Swift.String"), N("Swift.Int64")), true,
             "IDictionary<string, Swift.Int64>", "IntPtr", typeof(DictionaryProjection) };
         yield return new object[] { "Dict<String,String> param", N("Swift.Dictionary", N("Swift.String"), N("Swift.String")), true,
@@ -197,7 +197,7 @@ public class TypeProjectionConsistencyTests
         yield return new object[] { "Dict<String,String> return", N("Swift.Dictionary", N("Swift.String"), N("Swift.String")), false,
             "IReadOnlyDictionary<string, string>", "IntPtr", typeof(DictionaryProjection) };
         yield return new object[] { "Array<Class> return", N("Swift.Array", N("TestModule.MyViewController")), false,
-            "IReadOnlyList<Swift.TestModule.MyViewController>", "IntPtr", typeof(ArrayProjection) };
+            "IReadOnlyList<TestModule.MyViewController>", "IntPtr", typeof(ArrayProjection) };
     }
 
     public static IEnumerable<object[]> OptionalTypes()
@@ -210,15 +210,15 @@ public class TypeProjectionConsistencyTests
         yield return new object[] { "Optional<Bool>", N("Swift.Optional", N("Swift.Bool")), false,
             "bool?", "IntPtr", typeof(OptionalProjection) };
         yield return new object[] { "Optional<NonFrozen>", N("Swift.Optional", N("TestModule.Pipeline")), false,
-            "Swift.TestModule.Pipeline?", "IntPtr", typeof(OptionalProjection) };
+            "TestModule.Pipeline?", "IntPtr", typeof(OptionalProjection) };
         yield return new object[] { "Optional<Array<String>>", N("Swift.Optional", N("Swift.Array", N("Swift.String"))), false,
             "IReadOnlyList<string>?", "IntPtr", typeof(OptionalProjection) };
         yield return new object[] { "Optional<Dict<String,String>>", N("Swift.Optional", N("Swift.Dictionary", N("Swift.String"), N("Swift.String"))), false,
             "IReadOnlyDictionary<string, string>?", "IntPtr", typeof(OptionalProjection) };
         yield return new object[] { "Optional<Class>", N("Swift.Optional", N("TestModule.MyViewController")), false,
-            "Swift.TestModule.MyViewController?", "IntPtr", typeof(OptionalProjection) };
+            "TestModule.MyViewController?", "IntPtr", typeof(OptionalProjection) };
         yield return new object[] { "Optional<Enum>", N("Swift.Optional", N("TestModule.Direction")), false,
-            "Swift.TestModule.Direction?", "IntPtr", typeof(OptionalProjection) };
+            "TestModule.Direction?", "IntPtr", typeof(OptionalProjection) };
     }
 
     public static IEnumerable<object[]> ExistentialTypes()
@@ -704,7 +704,7 @@ public class TypeProjectionConsistencyTests
         // ObjC bridged type
         db.AddType("TestModule.UIImage", new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "UIImage"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "UIImage"),
             SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.UIImage"),
             MetadataAccessor = "",
             Flags = TypeRecordFlags.Frozen | TypeRecordFlags.ObjCBridged,
@@ -714,7 +714,7 @@ public class TypeProjectionConsistencyTests
         // Simple enum (Int32)
         db.AddType("TestModule.Direction", new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Direction"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Direction"),
             SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Direction"),
             MetadataAccessor = "",
             Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
@@ -725,7 +725,7 @@ public class TypeProjectionConsistencyTests
         // Simple enum (Int64)
         db.AddType("TestModule.BigEnum", new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "BigEnum"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "BigEnum"),
             SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.BigEnum"),
             MetadataAccessor = "",
             Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
@@ -736,7 +736,7 @@ public class TypeProjectionConsistencyTests
         // Frozen with memory management (ClassWithBufferStruct)
         db.AddType("TestModule.ManagedFrozen", new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "ManagedFrozen"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ManagedFrozen"),
             SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ManagedFrozen"),
             MetadataAccessor = "",
             Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
@@ -746,7 +746,7 @@ public class TypeProjectionConsistencyTests
         // Non-frozen struct
         db.AddType("TestModule.Pipeline", new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Pipeline"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Pipeline"),
             SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Pipeline"),
             MetadataAccessor = "",
             Flags = TypeRecordFlags.None,
@@ -756,7 +756,7 @@ public class TypeProjectionConsistencyTests
         // Frozen blittable struct
         db.AddType("TestModule.Point", new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Point"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Point"),
             SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
             MetadataAccessor = "",
             Flags = TypeRecordFlags.Frozen,
@@ -766,7 +766,7 @@ public class TypeProjectionConsistencyTests
         // Class
         db.AddType("TestModule.MyViewController", new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "MyViewController"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "MyViewController"),
             SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyViewController"),
             MetadataAccessor = "",
             Flags = TypeRecordFlags.None,
@@ -776,7 +776,7 @@ public class TypeProjectionConsistencyTests
         // Native remapped (frozen)
         db.AddType("TestModule.SwiftURL", new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "SwiftURL"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "SwiftURL"),
             SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.SwiftURL"),
             NativeTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSUrl"),
             MetadataAccessor = "",
@@ -787,7 +787,7 @@ public class TypeProjectionConsistencyTests
         // Native remapped (non-frozen) — uses a non-Data type since Data now gets DataProjection
         db.AddType("TestModule.SwiftTimestamp", new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "SwiftTimestamp"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "SwiftTimestamp"),
             SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.SwiftTimestamp"),
             NativeTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSDate"),
             MetadataAccessor = "",
@@ -798,7 +798,7 @@ public class TypeProjectionConsistencyTests
         // Protocol (known, has proxy)
         db.AddType("TestModule.Describable", new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Describable"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Describable"),
             SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Describable"),
             MetadataAccessor = "",
             Flags = TypeRecordFlags.None,
@@ -808,7 +808,7 @@ public class TypeProjectionConsistencyTests
         // Protocol (known, for composition)
         db.AddType("TestModule.Renderable", new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Renderable"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Renderable"),
             SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Renderable"),
             MetadataAccessor = "",
             Flags = TypeRecordFlags.None,

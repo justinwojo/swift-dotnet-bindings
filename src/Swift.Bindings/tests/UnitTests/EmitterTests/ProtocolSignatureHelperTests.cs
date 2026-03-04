@@ -634,7 +634,7 @@ public class ProtocolSignatureHelperTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Loader"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Loader"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Loader"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Loader"),
                 MetadataAccessor = "$s10TestModule6LoaderCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -644,7 +644,7 @@ public class ProtocolSignatureHelperTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Describable"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "IDescribable"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "IDescribable"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Describable"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.None,
@@ -684,7 +684,7 @@ public class ProtocolSignatureHelperTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Variant"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Variant"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Variant"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Variant"),
                 MetadataAccessor = "$s10TestModule7VariantOMa",
                 Flags = TypeRecordFlags.Frozen,

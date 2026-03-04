@@ -36,7 +36,7 @@
 
   <!-- Include TestFramework bindings -->
   <ItemGroup>
-    <Compile Include="../output/Swift.SwiftBindingsTestLib.cs" />
+    <Compile Include="../output/SwiftBindingsTestLib.cs" />
   </ItemGroup>
 
   <!-- Include SwiftBindingsTestLib xcframework -->

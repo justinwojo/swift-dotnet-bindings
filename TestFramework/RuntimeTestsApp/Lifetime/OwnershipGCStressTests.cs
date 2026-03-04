@@ -3,7 +3,7 @@
 
 using RuntimeTestsApp.Infrastructure;
 using Swift;
-using Swift.SwiftBindingsTestLib;
+using SwiftBindingsTestLib;
 
 namespace RuntimeTestsApp.Lifetime;
 
@@ -23,7 +23,7 @@ public class OwnershipGCStressTests : TestBase
     public void TestAnimalCreateUseRelease()
     {
         // Create object, use it, let it go out of scope, GC — no crash
-        var animal = SwiftBindingsTestLib.CreateAnimal("Temp", "Woof");
+        var animal = TestLibFunctions.CreateAnimal("Temp", "Woof");
         var name = animal.Name.ToString();
         AssertEqual("Temp", name, "Animal accessible after creation");
 
@@ -41,7 +41,7 @@ public class OwnershipGCStressTests : TestBase
     public void TestUniqueResourceCreateUseRelease()
     {
         // UniqueResource via factory
-        var resource = SwiftBindingsTestLib.CreateUniqueResource(42);
+        var resource = TestLibFunctions.CreateUniqueResource(42);
         var id = resource.Id;
         AssertEqual(42, id, "UniqueResource.Id accessible");
 
@@ -136,7 +136,7 @@ public class OwnershipGCStressTests : TestBase
     [TestTier(TestTier.Tier3)]
     public void TestObjectSurvivesRepeatedGC()
     {
-        var animal = SwiftBindingsTestLib.CreateAnimal("Survivor", "Roar");
+        var animal = TestLibFunctions.CreateAnimal("Survivor", "Roar");
 
         // Multiple GC cycles
         for (int i = 0; i < 10; i++)
@@ -155,7 +155,7 @@ public class OwnershipGCStressTests : TestBase
         // Create many objects and let them go — GC should clean up without crash
         for (int i = 0; i < 100; i++)
         {
-            var animal = SwiftBindingsTestLib.CreateAnimal($"Temp{i}", "Sound");
+            var animal = TestLibFunctions.CreateAnimal($"Temp{i}", "Sound");
             _ = animal.Name.ToString();
             // Intentionally not holding reference — GC will collect
         }
@@ -163,7 +163,7 @@ public class OwnershipGCStressTests : TestBase
         ForceGC();
 
         // Create one more to verify the system is still healthy
-        var final = SwiftBindingsTestLib.CreateAnimal("Final", "OK");
+        var final = TestLibFunctions.CreateAnimal("Final", "OK");
         AssertEqual("Final", final.Name.ToString(), "System healthy after mass abandonment");
 
         TestLogger.Info("100 objects created and abandoned without crash");
@@ -177,7 +177,7 @@ public class OwnershipGCStressTests : TestBase
 
         for (int i = 0; i < 20; i++)
         {
-            animals.Add(SwiftBindingsTestLib.CreateAnimal($"Animal{i}", $"Sound{i}"));
+            animals.Add(TestLibFunctions.CreateAnimal($"Animal{i}", $"Sound{i}"));
 
             // Dispose every 5th object
             if (i % 5 == 4 && animals.Count > 0)
@@ -201,7 +201,7 @@ public class OwnershipGCStressTests : TestBase
     [TestTier(TestTier.Tier3)]
     public void TestGCPressureDuringPropertyAccess()
     {
-        var animal = SwiftBindingsTestLib.CreateAnimal("Pressure", "Test");
+        var animal = TestLibFunctions.CreateAnimal("Pressure", "Test");
 
         // Access properties while creating GC pressure
         for (int i = 0; i < 50; i++)

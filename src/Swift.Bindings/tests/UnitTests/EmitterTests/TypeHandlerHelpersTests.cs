@@ -701,7 +701,7 @@ public class TypeHandlerHelpersTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Iterable"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "IIterable"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "IIterable"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Iterable"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.HasAssociatedTypes,

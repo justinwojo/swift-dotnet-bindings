@@ -600,7 +600,7 @@ public class CompletionHandlerDetectorTests
             parentDecl.SwiftTypeName,
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Pipeline"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Pipeline"),
                 SwiftTypeName = parentDecl.SwiftTypeName,
                 MetadataAccessor = "$s10TestModule8PipelineCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,

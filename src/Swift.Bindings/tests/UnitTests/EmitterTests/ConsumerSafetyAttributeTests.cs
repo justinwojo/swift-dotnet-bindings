@@ -538,7 +538,7 @@ public class ConsumerSafetyAttributeTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Loader"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Loader"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Loader"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Loader"),
                 MetadataAccessor = "$s10TestModule6LoaderCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -548,7 +548,7 @@ public class ConsumerSafetyAttributeTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Box"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Box"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Box"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Box"),
                 MetadataAccessor = "$s10TestModule3BoxVMa",
                 Flags = TypeRecordFlags.Frozen,

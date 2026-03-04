@@ -56,7 +56,7 @@ public class TypeProjectionFactoryTests
         var db = new MockTypeDatabase();
         db.AddType("TestModule.BridgedType", new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "BridgedType"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "BridgedType"),
             SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.BridgedType"),
             MetadataAccessor = "",
             Flags = TypeRecordFlags.ObjCBridged,
@@ -69,7 +69,7 @@ public class TypeProjectionFactoryTests
 
         Assert.NotNull(projection);
         Assert.IsType<ObjCBridgedProjection>(projection);
-        Assert.Equal("Swift.TestModule.BridgedType", projection.PublicType);
+        Assert.Equal("TestModule.BridgedType", projection.PublicType);
     }
 
     [Fact]
@@ -78,7 +78,7 @@ public class TypeProjectionFactoryTests
         var db = new MockTypeDatabase();
         db.AddType("TestModule.Direction", new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Direction"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Direction"),
             SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Direction"),
             MetadataAccessor = "",
             Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
@@ -92,7 +92,7 @@ public class TypeProjectionFactoryTests
 
         Assert.NotNull(projection);
         Assert.IsType<SimpleEnumProjection>(projection);
-        Assert.Equal("Swift.TestModule.Direction", projection.PublicType);
+        Assert.Equal("TestModule.Direction", projection.PublicType);
         Assert.Equal("int", projection.PInvokeType);
     }
 
@@ -144,7 +144,7 @@ public class TypeProjectionFactoryTests
         var db = new MockTypeDatabase();
         db.AddType("TestModule.NonFrozen", new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "NonFrozen"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "NonFrozen"),
             SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.NonFrozen"),
             MetadataAccessor = "",
             Flags = TypeRecordFlags.None,
@@ -157,7 +157,7 @@ public class TypeProjectionFactoryTests
 
         Assert.NotNull(projection);
         Assert.IsType<NonFrozenStructProjection>(projection);
-        Assert.Equal("Swift.TestModule.NonFrozen", projection.PublicType);
+        Assert.Equal("TestModule.NonFrozen", projection.PublicType);
         Assert.Equal("IntPtr", projection.PInvokeType);
     }
 
@@ -167,7 +167,7 @@ public class TypeProjectionFactoryTests
         var db = new MockTypeDatabase();
         db.AddType("TestModule.Point", new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Point"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Point"),
             SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
             MetadataAccessor = "",
             Flags = TypeRecordFlags.Frozen,
@@ -180,8 +180,8 @@ public class TypeProjectionFactoryTests
 
         Assert.NotNull(projection);
         Assert.IsType<BlittableProjection>(projection);
-        Assert.Equal("Swift.TestModule.Point", projection.PublicType);
-        Assert.Equal("Swift.TestModule.Point", projection.PInvokeType);
+        Assert.Equal("TestModule.Point", projection.PublicType);
+        Assert.Equal("TestModule.Point", projection.PInvokeType);
     }
 
     [Fact]
@@ -190,7 +190,7 @@ public class TypeProjectionFactoryTests
         var db = new MockTypeDatabase();
         db.AddType("TestModule.MyClass", new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "MyClass"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "MyClass"),
             SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyClass"),
             MetadataAccessor = "",
             Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -203,7 +203,7 @@ public class TypeProjectionFactoryTests
 
         Assert.NotNull(projection);
         Assert.IsType<ClassProjection>(projection);
-        Assert.Equal("Swift.TestModule.MyClass", projection.PublicType);
+        Assert.Equal("TestModule.MyClass", projection.PublicType);
         Assert.Equal("IntPtr", projection.PInvokeType);
     }
 
@@ -214,7 +214,7 @@ public class TypeProjectionFactoryTests
     [Fact]
     public void ClassProjection_ParameterPlan_UsesDangerousGetHandle()
     {
-        var projection = new ClassProjection("Swift.TestModule.MyClass");
+        var projection = new ClassProjection("TestModule.MyClass");
         var plan = projection.GetParameterPlan("myParam");
 
         Assert.Equal("myParam.Payload.DangerousGetHandle()", plan.PInvokeExpression);
@@ -225,7 +225,7 @@ public class TypeProjectionFactoryTests
     [Fact]
     public void ClassProjection_ReturnPlan_EmitsTryCatch()
     {
-        var projection = new ClassProjection("Swift.TestModule.MyClass");
+        var projection = new ClassProjection("TestModule.MyClass");
         var plan = projection.GetReturnPlan("result", ReturnStrategy.Direct);
 
         Assert.True(plan.RequiresUnsafe);
@@ -254,7 +254,7 @@ public class TypeProjectionFactoryTests
     [Fact]
     public void ClassProjection_ElementConversions()
     {
-        var projection = new ClassProjection("Swift.TestModule.MyClass");
+        var projection = new ClassProjection("TestModule.MyClass");
 
         Assert.Equal("e.Payload.DangerousGetHandle()", projection.GetParameterElementConversion("e"));
         // Return element conversion is null — when used inside Optional, ToNullable() handles
@@ -308,7 +308,7 @@ public class TypeProjectionFactoryTests
         var db = new MockTypeDatabase();
         db.AddType("TestModule.ManagedFrozen", new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "ManagedFrozen"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ManagedFrozen"),
             SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ManagedFrozen"),
             MetadataAccessor = "",
             Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
@@ -321,8 +321,8 @@ public class TypeProjectionFactoryTests
 
         Assert.NotNull(projection);
         Assert.IsType<FrozenWithMemoryProjection>(projection);
-        Assert.Equal("Swift.TestModule.ManagedFrozen", projection.PublicType);
-        Assert.Equal("Swift.TestModule.ManagedFrozen.Buffer", projection.PInvokeType);
+        Assert.Equal("TestModule.ManagedFrozen", projection.PublicType);
+        Assert.Equal("TestModule.ManagedFrozen.Buffer", projection.PInvokeType);
     }
 
     #endregion
@@ -332,13 +332,13 @@ public class TypeProjectionFactoryTests
     [Fact]
     public void FrozenWithMemoryProjection_ParameterPlan_UsesPayloadBuffer()
     {
-        var projection = new FrozenWithMemoryProjection("Swift.TestModule.ManagedFrozen");
+        var projection = new FrozenWithMemoryProjection("TestModule.ManagedFrozen");
         var plan = projection.GetParameterPlan("item");
 
         Assert.Equal("itemDisposable.Buffer", plan.PInvokeExpression);
         Assert.Single(plan.SetupStatements);
         var usingStmt = Assert.IsType<MarshalStatement.Using>(plan.SetupStatements[0]);
-        Assert.Equal("PayloadBuffer<Swift.TestModule.ManagedFrozen.Buffer>", usingStmt.Type);
+        Assert.Equal("PayloadBuffer<TestModule.ManagedFrozen.Buffer>", usingStmt.Type);
         Assert.Equal("itemDisposable", usingStmt.Name);
         Assert.Equal("item.PayloadBuffer", usingStmt.InitExpression);
     }
@@ -346,51 +346,51 @@ public class TypeProjectionFactoryTests
     [Fact]
     public void FrozenWithMemoryProjection_ReturnPlan_Direct_MarshalFromSwiftWithAddressOf()
     {
-        var projection = new FrozenWithMemoryProjection("Swift.TestModule.ManagedFrozen");
+        var projection = new FrozenWithMemoryProjection("TestModule.ManagedFrozen");
         var plan = projection.GetReturnPlan("result", ReturnStrategy.Direct);
 
         Assert.True(plan.RequiresUnsafe);
-        Assert.Equal("SwiftMarshal.MarshalFromSwift<Swift.TestModule.ManagedFrozen>(new IntPtr(&result))", plan.PInvokeExpression);
+        Assert.Equal("SwiftMarshal.MarshalFromSwift<TestModule.ManagedFrozen>(new IntPtr(&result))", plan.PInvokeExpression);
     }
 
     [Fact]
     public void FrozenWithMemoryProjection_ReturnPlan_IndirectResult_MarshalFromSwiftDirect()
     {
-        var projection = new FrozenWithMemoryProjection("Swift.TestModule.ManagedFrozen");
+        var projection = new FrozenWithMemoryProjection("TestModule.ManagedFrozen");
         var plan = projection.GetReturnPlan("result", ReturnStrategy.IndirectResult);
 
         Assert.False(plan.RequiresUnsafe);
-        Assert.Equal("SwiftMarshal.MarshalFromSwift<Swift.TestModule.ManagedFrozen>(result)", plan.PInvokeExpression);
+        Assert.Equal("SwiftMarshal.MarshalFromSwift<TestModule.ManagedFrozen>(result)", plan.PInvokeExpression);
     }
 
     [Fact]
     public void FrozenWithMemoryProjection_ReturnPlan_OutBuffer_MarshalFromSwiftDirect()
     {
-        var projection = new FrozenWithMemoryProjection("Swift.TestModule.ManagedFrozen");
+        var projection = new FrozenWithMemoryProjection("TestModule.ManagedFrozen");
         var plan = projection.GetReturnPlan("_optRetPtr", ReturnStrategy.OutBuffer);
 
-        Assert.Equal("SwiftMarshal.MarshalFromSwift<Swift.TestModule.ManagedFrozen>(_optRetPtr)", plan.PInvokeExpression);
+        Assert.Equal("SwiftMarshal.MarshalFromSwift<TestModule.ManagedFrozen>(_optRetPtr)", plan.PInvokeExpression);
     }
 
     [Fact]
     public void FrozenWithMemoryProjection_ContainerTypeName_UsesBuffer()
     {
-        var projection = new FrozenWithMemoryProjection("Swift.TestModule.ManagedFrozen");
-        Assert.Equal("Swift.TestModule.ManagedFrozen.Buffer", projection.ContainerTypeName);
-        Assert.Equal("Swift.TestModule.ManagedFrozen.Buffer", projection.SwiftContainerGenericType);
+        var projection = new FrozenWithMemoryProjection("TestModule.ManagedFrozen");
+        Assert.Equal("TestModule.ManagedFrozen.Buffer", projection.ContainerTypeName);
+        Assert.Equal("TestModule.ManagedFrozen.Buffer", projection.SwiftContainerGenericType);
     }
 
     [Fact]
     public void FrozenWithMemoryProjection_MarshalFromSwiftType_UsesTypeName()
     {
-        var projection = new FrozenWithMemoryProjection("Swift.TestModule.ManagedFrozen");
-        Assert.Equal("Swift.TestModule.ManagedFrozen", projection.MarshalFromSwiftType);
+        var projection = new FrozenWithMemoryProjection("TestModule.ManagedFrozen");
+        Assert.Equal("TestModule.ManagedFrozen", projection.MarshalFromSwiftType);
     }
 
     [Fact]
     public void FrozenWithMemoryProjection_ElementConversions()
     {
-        var projection = new FrozenWithMemoryProjection("Swift.TestModule.ManagedFrozen");
+        var projection = new FrozenWithMemoryProjection("TestModule.ManagedFrozen");
 
         // Parameter element conversion returns null — frozen-with-memory types can't be safely
         // composed inside containers (PayloadBuffer lifecycle can't be managed in a LINQ Select).
@@ -404,11 +404,11 @@ public class TypeProjectionFactoryTests
     {
         // ContainerTypeName uses MarshalFromSwiftType (public type name) for MarshalFromSwift calls.
         // SwiftContainerGenericType uses SwiftContainerGenericType (.Buffer) for P/Invoke generic params.
-        var inner = new FrozenWithMemoryProjection("Swift.TestModule.ManagedFrozen");
+        var inner = new FrozenWithMemoryProjection("TestModule.ManagedFrozen");
         var optional = new OptionalProjection(inner);
 
-        Assert.Equal("SwiftOptional<Swift.TestModule.ManagedFrozen>", optional.ContainerTypeName);
-        Assert.Equal("SwiftOptional<Swift.TestModule.ManagedFrozen.Buffer>", optional.SwiftContainerGenericType);
+        Assert.Equal("SwiftOptional<TestModule.ManagedFrozen>", optional.ContainerTypeName);
+        Assert.Equal("SwiftOptional<TestModule.ManagedFrozen.Buffer>", optional.SwiftContainerGenericType);
     }
 
     #endregion

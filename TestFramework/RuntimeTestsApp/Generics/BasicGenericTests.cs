@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 using RuntimeTestsApp.Infrastructure;
-using Swift.SwiftBindingsTestLib;
+using SwiftBindingsTestLib;
 
 namespace RuntimeTestsApp.Generics;
 
@@ -315,7 +315,7 @@ public class BasicGenericTests : TestBase
     public void TestGetIdentity()
     {
         var original = new SummableInt32(value: 42);
-        var result = SwiftBindingsTestLib.Identity(original);
+        var result = TestLibFunctions.Identity(original);
         AssertEqual(42, result.Value, "GetIdentity round-trip");
         TestLogger.Info($"GetIdentity(SummableInt32(42)).Value = {result.Value}");
     }
@@ -324,7 +324,7 @@ public class BasicGenericTests : TestBase
     public void TestGetIdentityPreservesValue()
     {
         var original = new SummableInt32(value: -100);
-        var result = SwiftBindingsTestLib.Identity(original);
+        var result = TestLibFunctions.Identity(original);
         AssertEqual(-100, result.Value, "GetIdentity negative value");
     }
 
@@ -333,7 +333,7 @@ public class BasicGenericTests : TestBase
     {
         var a = new SummableInt32(value: 10);
         var b = new SummableInt32(value: 20);
-        var pair = SwiftBindingsTestLib.Pair(a, b);
+        var pair = TestLibFunctions.Pair(a, b);
         AssertEqual(10, pair.Item1.Value, "GetPair Item1.Value");
         AssertEqual(20, pair.Item2.Value, "GetPair Item2.Value");
         TestLogger.Info($"GetPair(10, 20) = ({pair.Item1.Value}, {pair.Item2.Value})");

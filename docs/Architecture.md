@@ -40,8 +40,8 @@ Swift Framework (.xcframework)
 ┌─────────────────────────────────────┐
 │         Generated Output            │
 ├─────────────────────────────────────┤
-│  Swift.{Module}.cs    (C# bindings) │
-│  Swift.{Module}.swift (wrappers)    │
+│  {Module}.cs          (C# bindings) │
+│  {Module}.swift       (wrappers)    │
 │  {Module}SwiftBindings.xcframework  │
 │  binding-report.json  (metrics)     │
 │  {Module}.Swift.iOS.csproj          │

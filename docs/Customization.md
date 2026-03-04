@@ -18,7 +18,7 @@ The generator accepts these options:
 | `--symbolgraph <path>` | Path to symbol graph JSON. Generates C# XML doc comments from Swift docs. In xcframework mode, extracted automatically if not provided. |
 | `--no-docs` | Disable automatic symbol graph extraction. Does not affect explicit `--symbolgraph` paths. |
 | `--bridge-hints <path>` | Path to [bridge hints JSON](SwiftUI-Interop#bridge-hints) for SwiftUI views. |
-| `--namespace-pattern <pattern>` | C# namespace pattern. Supports `{Module}` and `{Framework}`. Default: `Swift.{Module}` |
+| `--namespace-pattern <pattern>` | C# namespace pattern. Supports `{Module}` and `{Framework}`. Default: `{Module}` |
 | `--sdk-mode` | Skip `.csproj` emission (used when the MSBuild SDK is the project system). |
 | `--package-id <id>` | NuGet package ID override. Default: `{Module}.Swift.iOS` |
 | `--wrapper-architectures <scope>` | `simulator` (default), `device`, or `all` (both slices). |
@@ -43,7 +43,7 @@ Each `<SwiftFramework>` item supports optional metadata:
 
 ```xml
 <SwiftFramework Include="MyLib.xcframework">
-  <!-- Custom C# namespace (default: Swift.{Module}) -->
+  <!-- Custom C# namespace (default: {Module}) -->
   <NamespacePattern>MyCompany.MyLib</NamespacePattern>
 
   <!-- Symbol graph for C# XML doc comments -->
@@ -59,23 +59,23 @@ Each `<SwiftFramework>` item supports optional metadata:
 
 ## Namespace Control
 
-By default, all generated types go into `Swift.{Module}` (e.g., `Swift.Nuke`).
+By default, all generated types go into `{Module}` (e.g., `Nuke`). The namespace matches the Swift module name directly.
 
 Override with `--namespace-pattern`:
 
 ```bash
-# Use library name directly
---namespace-pattern "Nuke"
-
 # Company prefix
 --namespace-pattern "MyCompany.{Module}"
+
+# Explicit namespace
+--namespace-pattern "MyCompany.Nuke"
 ```
 
 Or in the MSBuild SDK:
 
 ```xml
 <SwiftFramework Include="Nuke.xcframework">
-  <NamespacePattern>Nuke</NamespacePattern>
+  <NamespacePattern>MyCompany.Nuke</NamespacePattern>
 </SwiftFramework>
 ```
 

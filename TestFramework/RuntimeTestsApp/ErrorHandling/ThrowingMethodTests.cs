@@ -4,7 +4,7 @@
 using RuntimeTestsApp.Infrastructure;
 using Swift;
 using Swift.Runtime;
-using Swift.SwiftBindingsTestLib;
+using SwiftBindingsTestLib;
 
 namespace RuntimeTestsApp.ErrorHandling;
 
@@ -36,7 +36,7 @@ public class BasicThrowingTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestDivideSuccess()
     {
-        var result = SwiftBindingsTestLib.Divide(10, 2);
+        var result = TestLibFunctions.Divide(10, 2);
         AssertEqual(5, result, "10 / 2 = 5");
         TestLogger.Info($"Divide(10, 2) = {result}");
     }
@@ -44,10 +44,10 @@ public class BasicThrowingTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestDivideNegativeValues()
     {
-        var result = SwiftBindingsTestLib.Divide(-15, 3);
+        var result = TestLibFunctions.Divide(-15, 3);
         AssertEqual(-5, result, "-15 / 3 = -5");
 
-        var result2 = SwiftBindingsTestLib.Divide(15, -3);
+        var result2 = TestLibFunctions.Divide(15, -3);
         AssertEqual(-5, result2, "15 / -3 = -5");
         TestLogger.Info("Divide with negative values passed");
     }
@@ -57,7 +57,7 @@ public class BasicThrowingTests : TestBase
     {
         try
         {
-            SwiftBindingsTestLib.Divide(10, 0);
+            TestLibFunctions.Divide(10, 0);
             throw new AssertionException("Divide by zero should throw");
         }
         catch (SwiftRuntimeException ex)
@@ -163,7 +163,7 @@ public class BasicThrowingTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestValidateRangeSuccess()
     {
-        var result = SwiftBindingsTestLib.ValidateRange(5, 1, 10);
+        var result = TestLibFunctions.ValidateRange(5, 1, 10);
         AssertEqual(5, result, "ValidateRange(5, 1, 10)");
         TestLogger.Info($"ValidateRange(5, 1, 10) = {result}");
     }
@@ -173,7 +173,7 @@ public class BasicThrowingTests : TestBase
     {
         AssertThrows<SwiftException<RangeError>>(() =>
         {
-            SwiftBindingsTestLib.ValidateRange(0, 1, 10);
+            TestLibFunctions.ValidateRange(0, 1, 10);
         }, "ValidateRange below min should throw SwiftException<RangeError>");
         TestLogger.Info("ValidateRange(0, 1, 10) correctly threw SwiftException<RangeError>");
     }
@@ -183,7 +183,7 @@ public class BasicThrowingTests : TestBase
     {
         AssertThrows<SwiftException<RangeError>>(() =>
         {
-            SwiftBindingsTestLib.ValidateRange(11, 1, 10);
+            TestLibFunctions.ValidateRange(11, 1, 10);
         }, "ValidateRange above max should throw SwiftException<RangeError>");
         TestLogger.Info("ValidateRange(11, 1, 10) correctly threw SwiftException<RangeError>");
     }
@@ -279,7 +279,7 @@ public class BasicThrowingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestParseNumberSuccess()
     {
-        var result = SwiftBindingsTestLib.ParseNumber("42");
+        var result = TestLibFunctions.ParseNumber("42");
         AssertEqual(42, result, "ParseNumber(\"42\")");
         TestLogger.Info($"ParseNumber(\"42\") = {result}");
     }
@@ -287,7 +287,7 @@ public class BasicThrowingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestParseNumberNegative()
     {
-        var result = SwiftBindingsTestLib.ParseNumber("-100");
+        var result = TestLibFunctions.ParseNumber("-100");
         AssertEqual(-100, result, "ParseNumber(\"-100\")");
         TestLogger.Info($"ParseNumber(\"-100\") = {result}");
     }
@@ -299,10 +299,10 @@ public class BasicThrowingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestTypedThrowingParserCreation()
     {
-        var strict = SwiftBindingsTestLib.CreateStrictParser();
+        var strict = TestLibFunctions.CreateStrictParser();
         AssertTrue(strict.Strict, "Strict parser .Strict should be true");
 
-        var lenient = SwiftBindingsTestLib.CreateLenientParser();
+        var lenient = TestLibFunctions.CreateLenientParser();
         AssertFalse(lenient.Strict, "Lenient parser .Strict should be false");
         TestLogger.Info("TypedThrowingParser factory methods passed");
     }
@@ -324,7 +324,7 @@ public class BasicThrowingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestTypedThrowingParserParseSuccess()
     {
-        var parser = SwiftBindingsTestLib.CreateLenientParser();
+        var parser = TestLibFunctions.CreateLenientParser();
         var result = parser.Parse("123");
         AssertEqual(123, result, "Lenient parse \"123\"");
         TestLogger.Info($"LenientParser.Parse(\"123\") = {result}");
@@ -333,7 +333,7 @@ public class BasicThrowingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestStrictParserAcceptsCleanInput()
     {
-        var parser = SwiftBindingsTestLib.CreateStrictParser();
+        var parser = TestLibFunctions.CreateStrictParser();
         var result = parser.Parse("99");
         AssertEqual(99, result, "Strict parse \"99\"");
         TestLogger.Info($"StrictParser.Parse(\"99\") = {result}");
@@ -342,7 +342,7 @@ public class BasicThrowingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestLenientParserAcceptsCleanInput()
     {
-        var parser = SwiftBindingsTestLib.CreateLenientParser();
+        var parser = TestLibFunctions.CreateLenientParser();
         var result = parser.Parse("42");
         AssertEqual(42, result, "Lenient parse \"42\"");
         TestLogger.Info($"LenientParser.Parse(\"42\") = {result}");
@@ -355,7 +355,7 @@ public class BasicThrowingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestValidateStringSuccess()
     {
-        var result = SwiftBindingsTestLib.Validate("hello", 100);
+        var result = TestLibFunctions.Validate("hello", 100);
         AssertEqual("hello", result, "Validate(\"hello\", 100)");
         TestLogger.Info($"Validate(\"hello\", 100) = \"{result}\"");
     }
@@ -374,7 +374,7 @@ public class BasicThrowingTests : TestBase
     {
         AssertThrows<SwiftException<ParseError>>(() =>
         {
-            SwiftBindingsTestLib.ParseNumber("abc");
+            TestLibFunctions.ParseNumber("abc");
         }, "ParseNumber(\"abc\") should throw SwiftException<ParseError>");
         TestLogger.Info("ParseNumber(\"abc\") correctly threw SwiftException<ParseError>");
     }
@@ -382,7 +382,7 @@ public class BasicThrowingTests : TestBase
     [TestTier(TestTier.Tier3)]
     public void TestTypedThrowingParserParseInvalidThrows()
     {
-        var parser = SwiftBindingsTestLib.CreateLenientParser();
+        var parser = TestLibFunctions.CreateLenientParser();
         AssertThrows<SwiftException<ParseError>>(() =>
         {
             parser.Parse("not_a_number");
@@ -393,7 +393,7 @@ public class BasicThrowingTests : TestBase
     [TestTier(TestTier.Tier3)]
     public void TestStrictParserRejectsWhitespace()
     {
-        var parser = SwiftBindingsTestLib.CreateStrictParser();
+        var parser = TestLibFunctions.CreateStrictParser();
         AssertThrows<SwiftException<ParseError>>(() =>
         {
             parser.Parse(" 42 ");
@@ -406,7 +406,7 @@ public class BasicThrowingTests : TestBase
     {
         AssertThrows<SwiftRuntimeException>(() =>
         {
-            SwiftBindingsTestLib.Validate("", 100);
+            TestLibFunctions.Validate("", 100);
         }, "Validate empty string should throw");
         TestLogger.Info("Validate(\"\", 100) correctly threw");
     }
@@ -416,7 +416,7 @@ public class BasicThrowingTests : TestBase
     {
         AssertThrows<SwiftRuntimeException>(() =>
         {
-            SwiftBindingsTestLib.Validate("hello world", 5);
+            TestLibFunctions.Validate("hello world", 5);
         }, "Validate too long should throw");
         TestLogger.Info("Validate(\"hello world\", 5) correctly threw");
     }
@@ -438,7 +438,7 @@ public class BasicThrowingTests : TestBase
         // value=100, min=0, max=50 → throws aboveMaximum(value: 100, maximum: 50)
         try
         {
-            SwiftBindingsTestLib.ValidateRange(100, 0, 50);
+            TestLibFunctions.ValidateRange(100, 0, 50);
             throw new AssertionException("ValidateRange should have thrown");
         }
         catch (SwiftException<RangeError> ex)
@@ -462,7 +462,7 @@ public class BasicThrowingTests : TestBase
     public async Task TestAsyncParseTypedCatch()
     {
         // Async typed throws: SwiftException<ParseError> with non-null .Error
-        var parser = SwiftBindingsTestLib.CreateLenientParser();
+        var parser = TestLibFunctions.CreateLenientParser();
         try
         {
             await WithTimeout(parser.ParseAsync("abc"), DefaultAsyncTimeout);
@@ -480,7 +480,7 @@ public class BasicThrowingTests : TestBase
     [TestTier(TestTier.Tier3)]
     public async Task TestAsyncParseSuccess()
     {
-        var parser = SwiftBindingsTestLib.CreateLenientParser();
+        var parser = TestLibFunctions.CreateLenientParser();
         var result = await WithTimeout(parser.ParseAsync("42"), DefaultAsyncTimeout);
         AssertEqual(42, result, "AsyncParse(\"42\") should return 42");
         TestLogger.Info($"AsyncParse(\"42\") = {result}");

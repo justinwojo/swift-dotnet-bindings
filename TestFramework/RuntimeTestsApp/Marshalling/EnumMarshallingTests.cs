@@ -3,7 +3,7 @@
 
 using RuntimeTestsApp.Infrastructure;
 using Swift;
-using Swift.SwiftBindingsTestLib;
+using SwiftBindingsTestLib;
 
 namespace RuntimeTestsApp.Marshalling;
 
@@ -34,10 +34,10 @@ public class EnumMarshallingTests : TestBase
     {
         // Test calling a method on an enum value
         var east = Direction.East;
-        AssertTrue(SwiftBindingsTestLib.IsHorizontal(east), "East is horizontal");
+        AssertTrue(TestLibFunctions.IsHorizontal(east), "East is horizontal");
 
         var north = Direction.North;
-        AssertFalse(SwiftBindingsTestLib.IsHorizontal(north), "North is not horizontal");
+        AssertFalse(TestLibFunctions.IsHorizontal(north), "North is not horizontal");
 
         TestLogger.Info("Direction method call passed");
     }
@@ -97,10 +97,10 @@ public class EnumMarshallingTests : TestBase
     public void TestColorForIndexFunction()
     {
         // Test the free function colorForIndex
-        var color0 = SwiftBindingsTestLib.ColorForIndex(0);
+        var color0 = TestLibFunctions.ColorForIndex(0);
         AssertEqual(Color.Red, color0, "ColorForIndex(0) is Red");
 
-        var color1 = SwiftBindingsTestLib.ColorForIndex(1);
+        var color1 = TestLibFunctions.ColorForIndex(1);
         AssertEqual(Color.Green, color1, "ColorForIndex(1) is Green");
 
         TestLogger.Info("ColorForIndex tests passed");
@@ -267,10 +267,10 @@ public class EnumMarshallingTests : TestBase
     public void TestOrderContainerCreation()
     {
         // CreateOrder takes orderId + statusRaw strings, returns OrderContainer?
-        var order = SwiftBindingsTestLib.CreateOrder("ORD-001", "pending");
+        var order = TestLibFunctions.CreateOrder("ORD-001", "pending");
         AssertNotNull(order, "Order created");
 
-        var statusRaw = SwiftBindingsTestLib.GetOrderStatusRaw(order!);
+        var statusRaw = TestLibFunctions.GetOrderStatusRaw(order!);
         AssertEqual("pending", statusRaw, "Order status raw value");
 
         TestLogger.Info("OrderContainer creation passed");
@@ -310,10 +310,10 @@ public class EnumMarshallingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestPaymentContainerCreation()
     {
-        var payment = SwiftBindingsTestLib.CreatePayment("PAY-001", "authorized");
+        var payment = TestLibFunctions.CreatePayment("PAY-001", "authorized");
         AssertNotNull(payment, "Payment created");
 
-        var statusRaw = SwiftBindingsTestLib.GetPaymentStatusRaw(payment!);
+        var statusRaw = TestLibFunctions.GetPaymentStatusRaw(payment!);
         AssertEqual("authorized", statusRaw, "Payment status raw value");
 
         TestLogger.Info("PaymentContainer creation passed");

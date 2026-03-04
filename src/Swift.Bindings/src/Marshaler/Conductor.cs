@@ -34,9 +34,12 @@ namespace BindingsGeneration
         /// <summary>
         /// Initializes a new instance of the Conductor class and loads all handler factories.
         /// </summary>
+        public NamespacePatternResolver NamespacePatternResolver { get; }
+
         public Conductor(ILoggerFactory loggerFactory, NamespacePatternResolver? namespacePatternResolver = null)
         {
             namespacePatternResolver ??= new NamespacePatternResolver();
+            NamespacePatternResolver = namespacePatternResolver;
             _moduleHandlerFactories = [
                 new ModuleHandlerFactory(loggerFactory, namespacePatternResolver)
             ];

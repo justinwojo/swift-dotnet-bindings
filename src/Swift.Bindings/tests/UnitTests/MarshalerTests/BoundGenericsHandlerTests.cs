@@ -946,7 +946,7 @@ public class BoundGenericsHandlerTests
             propertyDecl,
             GenericContext.FromType(innerDecl));
 
-        Assert.Equal("Swift.TestModule.Outer.Inner<T, U>.Leaf<T, U>", result);
+        Assert.Equal("TestModule.Outer.Inner<T, U>.Leaf<T, U>", result);
     }
 
     #endregion
@@ -1382,7 +1382,7 @@ public class BoundGenericsHandlerTests
                 },
                 ["TestModule.Outer.Inner.Leaf"] = new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Outer.Inner.Leaf"),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Outer.Inner.Leaf"),
                     SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Outer.Inner.Leaf"),
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.Frozen,
@@ -1390,7 +1390,7 @@ public class BoundGenericsHandlerTests
                 },
                 ["TestModule.Container.Item"] = new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Container.Item"),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Container.Item"),
                     SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Container.Item"),
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.Frozen,
@@ -1398,7 +1398,7 @@ public class BoundGenericsHandlerTests
                 },
                 ["TestModule.Box"] = new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Box"),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Box"),
                     SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Box"),
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.Frozen,

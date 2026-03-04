@@ -1242,7 +1242,7 @@ public class ClosureCdeclEmitterTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Loader"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Loader"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Loader"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Loader"),
                 MetadataAccessor = "$s10TestModule6LoaderCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -1252,7 +1252,7 @@ public class ClosureCdeclEmitterTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.LottieColor"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "LottieColor"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "LottieColor"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.LottieColor"),
                 MetadataAccessor = "$s10TestModule11LottieColorVMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -1262,7 +1262,7 @@ public class ClosureCdeclEmitterTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.ColorMode"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "ColorMode"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ColorMode"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ColorMode"),
                 MetadataAccessor = "$s10TestModule9ColorModeOMa",
                 Flags = TypeRecordFlags.SimpleEnum,
@@ -1319,7 +1319,7 @@ public class ClosureCdeclEmitterTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Point"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Point"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
                 MetadataAccessor = "$s10TestModule5PointVMa",
                 Flags = TypeRecordFlags.Frozen,

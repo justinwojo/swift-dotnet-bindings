@@ -1,4 +1,3 @@
-// Global using alias: generated bindings name the free-function class "Functions"
-// (to avoid stutter: namespace Swift.SwiftBindingsTestLib { class SwiftBindingsTestLib }),
-// but all test files reference it as "SwiftBindingsTestLib".
-global using SwiftBindingsTestLib = Swift.SwiftBindingsTestLib.Functions;
+// Global using alias: generated bindings name the free-function class "Functions",
+// so we alias it as "TestLibFunctions" for convenient access in test files.
+global using TestLibFunctions = SwiftBindingsTestLib.Functions;

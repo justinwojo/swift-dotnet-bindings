@@ -470,7 +470,7 @@ public class ModuleHandlerTests
     {
         var (csOutput, _) = EmitModuleWithDependencies("TestModule", new List<string>());
 
-        Assert.Contains("namespace Swift.TestModule", csOutput);
+        Assert.Contains("namespace TestModule", csOutput);
     }
 
     [Fact]
@@ -494,7 +494,7 @@ public class ModuleHandlerTests
     [Fact]
     public void Emit_ModuleNamedFunctions_WrapperEscalatesToGlobalFunctions()
     {
-        // A module literally named "Functions" → namespace Swift.Functions.
+        // A module literally named "Functions" → namespace Functions.
         // Renaming the wrapper to "Functions" wouldn't help (still stutters).
         // Should escalate to "GlobalFunctions".
         var (csOutput, _) = EmitModuleWithDependencies("Functions", new List<string>(),
@@ -528,7 +528,7 @@ public class ModuleHandlerTests
                 });
             });
 
-        Assert.Contains("namespace Swift.Functions", csOutput);
+        Assert.Contains("namespace Functions", csOutput);
         Assert.Contains("public partial class GlobalFunctions", csOutput);
         Assert.DoesNotContain("public partial class Functions", csOutput);
     }
@@ -536,7 +536,7 @@ public class ModuleHandlerTests
     [Fact]
     public void Emit_ModuleWithStutter_WrapperRenamedToFunctions()
     {
-        // A module named "Nuke" with namespace Swift.Nuke → wrapper should be "Functions"
+        // A module named "Nuke" with namespace Nuke → wrapper should be "Functions"
         var (csOutput, _) = EmitModuleWithDependencies("Nuke", new List<string>(),
             moduleDecl =>
             {
@@ -568,7 +568,7 @@ public class ModuleHandlerTests
                 });
             });
 
-        Assert.Contains("namespace Swift.Nuke", csOutput);
+        Assert.Contains("namespace Nuke", csOutput);
         Assert.Contains("public partial class Functions", csOutput);
         Assert.DoesNotContain("public partial class Nuke", csOutput);
     }
@@ -738,7 +738,7 @@ public class ModuleHandlerTests
         var (csOutput, _) = EmitModuleWithDependencies("TestModule", new List<string>());
 
         // The resolver class should appear between the namespace open and close
-        var namespaceStart = csOutput.IndexOf("namespace Swift.TestModule");
+        var namespaceStart = csOutput.IndexOf("namespace TestModule");
         var resolverStart = csOutput.IndexOf("__SwiftFrameworkResolver_TestModule");
         var lastBrace = csOutput.LastIndexOf("}");
 

@@ -2,8 +2,8 @@
 // Licensed under the MIT License.
 
 using RuntimeTestsApp.Infrastructure;
-using Swift.SwiftBindingsTestLib;
-using SwiftTaskStatus = Swift.SwiftBindingsTestLib.TaskStatus;
+using SwiftBindingsTestLib;
+using SwiftTaskStatus = SwiftBindingsTestLib.TaskStatus;
 
 namespace RuntimeTestsApp.Protocols;
 

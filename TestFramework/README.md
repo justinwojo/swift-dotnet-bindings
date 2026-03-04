@@ -10,7 +10,7 @@ Comprehensive test suite for the Swift Bindings generator. Tests are organized i
 
 - **Scripts**: `build-and-test.sh`, `generate-coverage-report.sh`
 - **What it does**: Builds the Swift test library (`SwiftBindingsTestLib`) as an xcframework, runs the binding generator against it, and produces a coverage report tracking which Swift features emitted successfully.
-- **Output**: `output/Swift.SwiftBindingsTestLib.cs` (generated bindings), `output/binding-report.json` (skip details), `output/coverage-matrix.json` (feature coverage)
+- **Output**: `output/SwiftBindingsTestLib.cs` (generated bindings), `output/binding-report.json` (skip details), `output/coverage-matrix.json` (feature coverage)
 - **A failure means**: Generator bug in the parser, marshaler, or emitter. The generator either crashed, produced invalid C#, or skipped a member it should have handled.
 
 ### Layer 2: Runtime ABI/Marshalling Tests

@@ -80,7 +80,7 @@ public class OperatorHandlerOutputTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Point"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Point"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
                 MetadataAccessor = "$s10TestModule5PointVMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -218,13 +218,13 @@ public class OperatorHandlerOutputTests
         var output = EmitOperator(op, typeDatabase);
 
         // Should allocate memory and create SwiftIndirectResult
-        Assert.Contains("TypeMetadata.GetTypeMetadataOrThrow<Swift.TestModule.BigNum>()", output);
+        Assert.Contains("TypeMetadata.GetTypeMetadataOrThrow<TestModule.BigNum>()", output);
         Assert.Contains("NativeMemory.Alloc((nuint)returnMetadata.Size)", output);
         Assert.Contains("new SwiftIndirectResult(payload)", output);
         // Should call P/Invoke without return prefix (void return via indirect result)
         Assert.Contains("PInvoke_op_Division(swiftIndirectResult", output);
         // Should marshal the result back
-        Assert.Contains("SwiftMarshal.MarshalFromSwift<Swift.TestModule.BigNum>(new IntPtr(swiftIndirectResult.Value))", output);
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<TestModule.BigNum>(new IntPtr(swiftIndirectResult.Value))", output);
     }
 
     [Fact]
@@ -403,7 +403,7 @@ public class OperatorHandlerOutputTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.ContentType"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Parent.ContentType"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Parent.ContentType"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ContentType"),
                 MetadataAccessor = "$s10TestModule11ContentTypeVMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -563,7 +563,7 @@ public class OperatorHandlerOutputTests
             SwiftTypeName.FromModuleQualifiedName($"{moduleName}.{typeName}"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName($"Swift.{moduleName}", typeName),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(moduleName, typeName),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleName}.{typeName}"),
                 MetadataAccessor = $"$s10{moduleName}{typeName.Length}{typeName}VMa",
                 Flags = flags,

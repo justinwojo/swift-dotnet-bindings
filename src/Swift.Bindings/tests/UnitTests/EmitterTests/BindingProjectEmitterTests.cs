@@ -168,7 +168,7 @@ namespace BindingsGeneration.Tests
             try
             {
                 var content = EmitAndRead(dir, "Nuke");
-                Assert.Contains("<Compile Include=\"Swift.Nuke.cs\" />", content);
+                Assert.Contains("<Compile Include=\"Nuke.cs\" />", content);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -180,8 +180,8 @@ namespace BindingsGeneration.Tests
             try
             {
                 var content = EmitAndRead(dir, "Nuke");
-                Assert.Contains("Swift.Nuke.Wrappers.cs", content);
-                Assert.Contains("Condition=\"Exists('Swift.Nuke.Wrappers.cs')\"", content);
+                Assert.Contains("Nuke.Wrappers.cs", content);
+                Assert.Contains("Condition=\"Exists('Nuke.Wrappers.cs')\"", content);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -193,13 +193,48 @@ namespace BindingsGeneration.Tests
             try
             {
                 var content = EmitAndRead(dir, "Nuke");
-                Assert.Contains("Swift.Nuke.SwiftUIBridge.cs", content);
-                Assert.Contains("Condition=\"Exists('Swift.Nuke.SwiftUIBridge.cs')\"", content);
+                Assert.Contains("Nuke.SwiftUIBridge.cs", content);
+                Assert.Contains("Condition=\"Exists('Nuke.SwiftUIBridge.cs')\"", content);
             }
             finally { Directory.Delete(dir, true); }
         }
 
-        private static string EmitAndRead(string dir, string module)
+        [Fact]
+        public void Emit_ResolvedNamespace_UsedForCompileItems()
+        {
+            // When ResolvedNamespace differs from ModuleName (e.g., {Framework} pattern),
+            // <Compile Include> items must use the resolved namespace, not the module name.
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "Nuke", resolvedNamespace: "NukeUI");
+                Assert.Contains("<Compile Include=\"NukeUI.cs\" />", content);
+                Assert.Contains("NukeUI.Wrappers.cs", content);
+                Assert.Contains("NukeUI.SwiftUIBridge.cs", content);
+                // Must NOT contain the module name in compile items
+                Assert.DoesNotContain("\"Nuke.cs\"", content);
+                Assert.DoesNotContain("Nuke.Wrappers.cs", content);
+                Assert.DoesNotContain("Nuke.SwiftUIBridge.cs", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_NoResolvedNamespace_FallsBackToModuleName()
+        {
+            // When ResolvedNamespace is null (manual mode), file names use ModuleName.
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "Nuke", resolvedNamespace: null);
+                Assert.Contains("<Compile Include=\"Nuke.cs\" />", content);
+                Assert.Contains("Nuke.Wrappers.cs", content);
+                Assert.Contains("Nuke.SwiftUIBridge.cs", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        private static string EmitAndRead(string dir, string module, string? resolvedNamespace = null)
         {
             var sourceXcfwPath = Path.Combine(dir, "..", $"{module}.xcframework");
             Directory.CreateDirectory(sourceXcfwPath);
@@ -210,6 +245,7 @@ namespace BindingsGeneration.Tests
                 ModuleName = module,
                 Metadata = CreateMinimalMetadata(module),
                 SourceXCFrameworkPath = sourceXcfwPath,
+                ResolvedNamespace = resolvedNamespace,
             }, _logger);
             return File.ReadAllText(Path.Combine(dir, $"{module}.Swift.iOS.csproj"));
         }

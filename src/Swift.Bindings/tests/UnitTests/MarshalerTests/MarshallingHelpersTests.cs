@@ -454,7 +454,7 @@ public class MarshallingHelpersTests
                 },
                 ["TestModule.MyClass"] = new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "MyClass"),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "MyClass"),
                     SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyClass"),
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -462,7 +462,7 @@ public class MarshallingHelpersTests
                 },
                 ["TestModule.NonFrozen"] = new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "NonFrozen"),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "NonFrozen"),
                     SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.NonFrozen"),
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.None,

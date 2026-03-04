@@ -3,7 +3,7 @@
 
 using RuntimeTestsApp.Infrastructure;
 using Swift;
-using Swift.SwiftBindingsTestLib;
+using SwiftBindingsTestLib;
 
 namespace RuntimeTestsApp.Marshalling;
 
@@ -20,7 +20,7 @@ public class ClassMarshallingTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestAnimalCreation()
     {
-        var animal = SwiftBindingsTestLib.CreateAnimal("Rex", "Bark");
+        var animal = TestLibFunctions.CreateAnimal("Rex", "Bark");
         AssertNotNull(animal, "Animal created");
         TestLogger.Info("Animal creation passed");
     }
@@ -28,7 +28,7 @@ public class ClassMarshallingTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestAnimalPropertyGet()
     {
-        var animal = SwiftBindingsTestLib.CreateAnimal("Rex", "Bark");
+        var animal = TestLibFunctions.CreateAnimal("Rex", "Bark");
 
         // Properties return SwiftString, need .ToString()
         var name = animal.Name.ToString();
@@ -43,7 +43,7 @@ public class ClassMarshallingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestAnimalPropertySet()
     {
-        var animal = SwiftBindingsTestLib.CreateAnimal("Rex", "Bark");
+        var animal = TestLibFunctions.CreateAnimal("Rex", "Bark");
 
         // Set new values via SwiftString
         animal.Name = new SwiftString("Buddy");
@@ -60,7 +60,7 @@ public class ClassMarshallingTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestAnimalSpeak()
     {
-        var animal = SwiftBindingsTestLib.CreateAnimal("Rex", "Bark");
+        var animal = TestLibFunctions.CreateAnimal("Rex", "Bark");
         var result = animal.GetSpeak();
 
         AssertNotNull(result, "Speak result not null");
@@ -71,7 +71,7 @@ public class ClassMarshallingTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestAnimalDescribe()
     {
-        var animal = SwiftBindingsTestLib.CreateAnimal("Rex", "Bark");
+        var animal = TestLibFunctions.CreateAnimal("Rex", "Bark");
         var result = animal.GetDescribe();
 
         AssertNotNull(result, "Describe result not null");
@@ -84,7 +84,7 @@ public class ClassMarshallingTests : TestBase
     public void TestAnimalUnicodeProperties()
     {
         // Test unicode in class string properties
-        var animal = SwiftBindingsTestLib.CreateAnimal("犬", "ワン");
+        var animal = TestLibFunctions.CreateAnimal("犬", "ワン");
 
         var name = animal.Name.ToString();
         AssertEqual("犬", name, "Unicode name property");
@@ -102,7 +102,7 @@ public class ClassMarshallingTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestUniqueResourceCreation()
     {
-        var resource = SwiftBindingsTestLib.CreateUniqueResource(42);
+        var resource = TestLibFunctions.CreateUniqueResource(42);
         AssertNotNull(resource, "UniqueResource created");
 
         var id = resource.Id;
@@ -123,8 +123,8 @@ public class ClassMarshallingTests : TestBase
     [TestTier(TestTier.Tier3)] // Mono: SafeHandle non-blittable through CallConvSwift P/Invoke
     public void TestBorrowResource()
     {
-        var resource = SwiftBindingsTestLib.CreateUniqueResource(7);
-        var borrowed = SwiftBindingsTestLib.BorrowResource(resource);
+        var resource = TestLibFunctions.CreateUniqueResource(7);
+        var borrowed = TestLibFunctions.BorrowResource(resource);
 
         // BorrowResource should return the Id
         AssertEqual(7, borrowed, "BorrowResource returns Id");
@@ -202,8 +202,8 @@ public class ClassMarshallingTests : TestBase
     public void TestMultipleAnimalInstances()
     {
         // Create multiple independent instances
-        var cat = SwiftBindingsTestLib.CreateAnimal("Cat", "Meow");
-        var dog = SwiftBindingsTestLib.CreateAnimal("Dog", "Woof");
+        var cat = TestLibFunctions.CreateAnimal("Cat", "Meow");
+        var dog = TestLibFunctions.CreateAnimal("Dog", "Woof");
 
         // Verify they're independent
         AssertEqual("Cat", cat.Name.ToString(), "Cat name");
@@ -225,7 +225,7 @@ public class ClassMarshallingTests : TestBase
     public void TestPayloadDisposePreventsFurtherAccess()
     {
         // Create an animal, dispose its SafeHandle, then verify access throws
-        var animal = SwiftBindingsTestLib.CreateAnimal("Ephemeral", "Poof");
+        var animal = TestLibFunctions.CreateAnimal("Ephemeral", "Poof");
 
         // Verify it works before dispose
         var name = animal.Name.ToString();
@@ -246,7 +246,7 @@ public class ClassMarshallingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestPayloadDisposePreventsMethods()
     {
-        var animal = SwiftBindingsTestLib.CreateAnimal("Ghost", "Boo");
+        var animal = TestLibFunctions.CreateAnimal("Ghost", "Boo");
 
         // Verify method works before dispose
         var speak = animal.GetSpeak();
@@ -271,7 +271,7 @@ public class ClassMarshallingTests : TestBase
     [TestTier(TestTier.Tier3)]
     public void TestClassSurvivesGCPressure()
     {
-        var animal = SwiftBindingsTestLib.CreateAnimal("Survivor", "Roar");
+        var animal = TestLibFunctions.CreateAnimal("Survivor", "Roar");
 
         // Create GC pressure
         CreateGCPressure(5000);
@@ -293,7 +293,7 @@ public class ClassMarshallingTests : TestBase
         var objects = new List<Animal>();
         for (int i = 0; i < 10; i++)
         {
-            objects.Add(SwiftBindingsTestLib.CreateAnimal($"Animal{i}", $"Sound{i}"));
+            objects.Add(TestLibFunctions.CreateAnimal($"Animal{i}", $"Sound{i}"));
         }
 
         CreateGCPressure(5000);

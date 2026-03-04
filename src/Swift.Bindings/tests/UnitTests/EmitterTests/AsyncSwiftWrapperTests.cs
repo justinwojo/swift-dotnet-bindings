@@ -331,7 +331,7 @@ public class AsyncSwiftWrapperTests
             parentDecl.SwiftTypeName,
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Pipeline"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Pipeline"),
                 SwiftTypeName = parentDecl.SwiftTypeName,
                 MetadataAccessor = "$s10TestModule8PipelineCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -347,7 +347,7 @@ public class AsyncSwiftWrapperTests
                 : TypeRecordFlags.None;
         if (isObjCBridged)
             returnFlags |= TypeRecordFlags.ObjCBridged;
-        var returnNamespace = returnTypeName.Contains('.') ? returnTypeName.Substring(0, returnTypeName.IndexOf('.')) : "Swift.TestModule";
+        var returnNamespace = returnTypeName.Contains('.') ? returnTypeName.Substring(0, returnTypeName.IndexOf('.')) : "TestModule";
         var returnTypeRecord = new TypeRecord
         {
             CSharpTypeName = CSharpTypeName.FromNamespaceAndName(returnNamespace, returnTypeName.Split('.').Last()),
@@ -475,7 +475,7 @@ public class AsyncSwiftWrapperTests
         // Register the parent struct
         var parentTypeRecord = new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "TestStruct"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "TestStruct"),
             SwiftTypeName = parentDecl.SwiftTypeName,
             MetadataAccessor = parentDecl.MetadataAccessor,
             Flags = TypeRecordFlags.Frozen,
@@ -501,7 +501,7 @@ public class AsyncSwiftWrapperTests
             var nonFrozenTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.NonFrozenClass");
             var nonFrozenTypeRecord = new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "NonFrozenClass"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "NonFrozenClass"),
                 SwiftTypeName = nonFrozenTypeName,
                 MetadataAccessor = "$s10TestModule14NonFrozenClassCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement, // Not frozen!

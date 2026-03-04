@@ -254,7 +254,7 @@ public class Tier2LibraryFixTests
         var db = new MockTypeDatabase();
         db.AddType("TestModule.SimpleClass", new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "SimpleClass"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "SimpleClass"),
             SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.SimpleClass"),
             MetadataAccessor = "",
             Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -289,7 +289,7 @@ public class Tier2LibraryFixTests
         var projection = factory.Project(selfSpec, ctx);
 
         Assert.NotNull(projection);
-        Assert.Equal("Swift.TestModule.SimpleClass", projection.PublicType);
+        Assert.Equal("TestModule.SimpleClass", projection.PublicType);
         Assert.DoesNotContain("<", projection.PublicType);
     }
 

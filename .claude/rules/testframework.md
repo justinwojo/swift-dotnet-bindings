@@ -16,8 +16,8 @@ paths:
 | `generate-coverage-report.sh` | Generate `coverage-matrix.json` |
 
 ## Output Files
-- `output/Swift.SwiftBindingsTestLib.cs` — Generated C# bindings
-- `output/Swift.SwiftBindingsTestLib.SwiftUIBridge.swift` — Generated SwiftUI bridge
+- `output/SwiftBindingsTestLib.cs` — Generated C# bindings
+- `output/SwiftBindingsTestLib.SwiftUIBridge.swift` — Generated SwiftUI bridge
 - `output/binding-report.json` — Binding completeness report
 - `output/coverage-matrix.json` — Feature coverage matrix
 
@@ -47,7 +47,7 @@ Investigate degraded features: check `binding-report.json`, search generated bin
 - RuntimeTestsApp needs `IncludeSwiftBindingsRuntimeNative=false` in csproj
 - SafeHandle dispose: call `obj.Payload.Dispose()`, then access throws `ObjectDisposedException`
 - Enum raw values come from Swift source (e.g. LogLevel: `"[DEBUG]"`, not `"debug"`)
-- `EventHandler` name collides with `System.EventHandler` — use `using SwiftEventHandler = Swift.SwiftBindingsTestLib.EventHandler`
+- `EventHandler` name collides with `System.EventHandler` — use `using SwiftEventHandler = SwiftBindingsTestLib.EventHandler`
 
 ## Active Mono/Runtime Limitations (affects tier assignment)
 - **Mono JIT assertion (jit-info.c:918)**: Kills process on ALL closure P/Invoke AND `SwiftString.PInvoke_GetLength` via CallConvSwift. Bridge tests unaffected (use `@_cdecl`). Closure + SwiftString tests deferred to Tier 3.

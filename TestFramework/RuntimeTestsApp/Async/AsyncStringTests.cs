@@ -3,7 +3,7 @@
 
 using RuntimeTestsApp.Infrastructure;
 using Swift;
-using Swift.SwiftBindingsTestLib;
+using SwiftBindingsTestLib;
 
 namespace RuntimeTestsApp.Async;
 

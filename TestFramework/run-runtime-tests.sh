@@ -75,12 +75,12 @@ if [ "$SKIP_REGEN" = false ]; then
     echo ""
 else
     echo "--- Step 1: Skipped (--skip-regen) ---"
-    if [ ! -f "output/Swift.SwiftBindingsTestLib.cs" ]; then
+    if [ ! -f "output/SwiftBindingsTestLib.cs" ]; then
         echo "ERROR: Bindings not found. Run without --skip-regen first."
         exit 1
     fi
     # Check that bindings are not older than Swift sources
-    BINDINGS_FILE="output/Swift.SwiftBindingsTestLib.cs"
+    BINDINGS_FILE="output/SwiftBindingsTestLib.cs"
     NEWEST_SWIFT=$(find Sources/SwiftBindingsTestLib -name '*.swift' -newer "$BINDINGS_FILE" 2>/dev/null | head -1)
     if [ -n "$NEWEST_SWIFT" ]; then
         echo "ERROR: Bindings are stale. Swift source newer than bindings:"
@@ -100,7 +100,7 @@ if [ -n "$ASYNC_SWIFT" ]; then
 fi
 
 # Step 1.6: Build SwiftUI bridge (if generated)
-BRIDGE_SWIFT="output/Swift.SwiftBindingsTestLib.SwiftUIBridge.swift"
+BRIDGE_SWIFT="output/SwiftBindingsTestLib.SwiftUIBridge.swift"
 if [ -f "$BRIDGE_SWIFT" ]; then
     echo "--- Step 1.6: Build SwiftUI bridge ---"
     ./build-bridge.sh

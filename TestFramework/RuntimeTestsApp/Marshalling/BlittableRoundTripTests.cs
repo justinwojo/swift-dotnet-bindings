@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 using RuntimeTestsApp.Infrastructure;
-using Swift.SwiftBindingsTestLib;
+using SwiftBindingsTestLib;
 
 namespace RuntimeTestsApp.Marshalling;
 
@@ -20,7 +20,7 @@ public class BlittableRoundTripTests : TestBase
     public void TestFrozenPointCreation()
     {
         // Test creating a frozen point at the origin
-        var origin = SwiftBindingsTestLib.MakeOrigin();
+        var origin = TestLibFunctions.MakeOrigin();
         AssertEqual(0.0, origin.X, "Origin X");
         AssertEqual(0.0, origin.Y, "Origin Y");
         TestLogger.Info($"MakeOrigin() = ({origin.X}, {origin.Y})");
@@ -31,7 +31,7 @@ public class BlittableRoundTripTests : TestBase
     {
         // Create a point in C#, pass to Swift, get back description
         var point = new FrozenPoint { X = 3.14, Y = 2.71 };
-        var description = SwiftBindingsTestLib.DescribePoint(point);
+        var description = TestLibFunctions.DescribePoint(point);
 
         AssertNotNull(description, "Description not null");
         // Note: decimal separator varies by locale
@@ -45,17 +45,17 @@ public class BlittableRoundTripTests : TestBase
     {
         // Very small values
         var small = new FrozenPoint { X = 1e-10, Y = -1e-10 };
-        var smallDesc = SwiftBindingsTestLib.DescribePoint(small);
+        var smallDesc = TestLibFunctions.DescribePoint(small);
         AssertNotNull(smallDesc, "Small point description");
 
         // Very large values
         var large = new FrozenPoint { X = 1e10, Y = -1e10 };
-        var largeDesc = SwiftBindingsTestLib.DescribePoint(large);
+        var largeDesc = TestLibFunctions.DescribePoint(large);
         AssertNotNull(largeDesc, "Large point description");
 
         // Zero
         var zero = new FrozenPoint { X = 0.0, Y = 0.0 };
-        var zeroDesc = SwiftBindingsTestLib.DescribePoint(zero);
+        var zeroDesc = TestLibFunctions.DescribePoint(zero);
         AssertNotNull(zeroDesc, "Zero point description");
 
         TestLogger.Info("FrozenPoint edge cases passed");
@@ -69,7 +69,7 @@ public class BlittableRoundTripTests : TestBase
     public void TestClassCreation()
     {
         // Test creating a simple Swift class instance
-        var animal = SwiftBindingsTestLib.CreateAnimal("Dog", "Bark");
+        var animal = TestLibFunctions.CreateAnimal("Dog", "Bark");
 
         // Verify the object was created (not null)
         AssertNotNull(animal, "Animal created");
@@ -84,10 +84,10 @@ public class BlittableRoundTripTests : TestBase
     public void TestBoolReturn()
     {
         // ValidateLogLevelRoundTrip returns bool
-        var validResult = SwiftBindingsTestLib.ValidateLogLevelRoundTrip("[INFO]");
+        var validResult = TestLibFunctions.ValidateLogLevelRoundTrip("[INFO]");
         AssertTrue(validResult, "Valid log level round-trip");
 
-        var invalidResult = SwiftBindingsTestLib.ValidateLogLevelRoundTrip("INVALID");
+        var invalidResult = TestLibFunctions.ValidateLogLevelRoundTrip("INVALID");
         AssertFalse(invalidResult, "Invalid log level round-trip");
 
         TestLogger.Info("Bool return tests passed");
@@ -101,10 +101,10 @@ public class BlittableRoundTripTests : TestBase
     public void TestEnumUsage()
     {
         // Test direction enum (cases: North, South, East, West)
-        var eastIsHorizontal = SwiftBindingsTestLib.IsHorizontal(Direction.East);
+        var eastIsHorizontal = TestLibFunctions.IsHorizontal(Direction.East);
         AssertTrue(eastIsHorizontal, "East is horizontal");
 
-        var northIsNotHorizontal = !SwiftBindingsTestLib.IsHorizontal(Direction.North);
+        var northIsNotHorizontal = !TestLibFunctions.IsHorizontal(Direction.North);
         AssertTrue(northIsNotHorizontal, "North is not horizontal");
 
         TestLogger.Info("Enum tests passed");

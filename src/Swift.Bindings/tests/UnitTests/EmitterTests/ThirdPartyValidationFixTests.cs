@@ -426,7 +426,7 @@ public class ThirdPartyValidationFixTests
         var enumSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.PingResponse");
         module.RegisterType(enumSwiftName, new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "PingResponse"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "PingResponse"),
             SwiftTypeName = enumSwiftName,
             MetadataAccessor = "$sMa",
             Flags = TypeRecordFlags.Frozen,
@@ -436,7 +436,7 @@ public class ThirdPartyValidationFixTests
         var pongSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.PingResponse.Pong");
         module.RegisterType(pongSwiftName, new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "PingResponse.Pong"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "PingResponse.Pong"),
             SwiftTypeName = pongSwiftName,
             MetadataAccessor = "$sMa",
             Flags = TypeRecordFlags.Frozen,
@@ -510,7 +510,7 @@ public class ThirdPartyValidationFixTests
         var enumSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyEnum");
         module.RegisterType(enumSwiftName, new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "MyEnum"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "MyEnum"),
             SwiftTypeName = enumSwiftName,
             MetadataAccessor = "$sMa",
             Flags = TypeRecordFlags.Frozen,
@@ -520,7 +520,7 @@ public class ThirdPartyValidationFixTests
         var barSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyEnum.Bar");
         module.RegisterType(barSwiftName, new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "MyEnum.Bar"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "MyEnum.Bar"),
             SwiftTypeName = barSwiftName,
             MetadataAccessor = "$sMa",
             Flags = TypeRecordFlags.Frozen,
@@ -791,7 +791,7 @@ public class ThirdPartyValidationFixTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.AFError"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "AFError"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "AFError"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.AFError"),
                 MetadataAccessor = "$sMa",
                 Flags = TypeRecordFlags.None,

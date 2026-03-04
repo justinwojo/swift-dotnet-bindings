@@ -60,6 +60,7 @@ foreach(SOURCE_FILE ${SOURCES})
     )
 
     add_custom_command(TARGET ${SOURCE_BASE_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E rename ${OUTPUT_DIR}/${SOURCE_BASE_NAME}.swift ${OUTPUT_DIR}/${SOURCE_BASE_NAME}.Wrapper.swift
         COMMAND xcrun swiftc -target ${SWIFT_COMPILER_TARGET} -emit-module -emit-library -enable-library-evolution -emit-module-interface ${SOURCE_FILE} "${OUTPUT_DIR}/*.swift" -o ${OUTPUT_DIR}/lib${SOURCE_BASE_NAME}.dylib
         COMMENT "Generating final ${SOURCE_BASE_NAME} library"
     )

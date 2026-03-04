@@ -3,7 +3,7 @@
 
 using RuntimeTestsApp.Infrastructure;
 using Swift;
-using Swift.SwiftBindingsTestLib;
+using SwiftBindingsTestLib;
 
 namespace RuntimeTestsApp.Marshalling;
 
@@ -19,7 +19,7 @@ public class OptionalMarshallingTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestOptionalBlittableReturnSome()
     {
-        var index = SwiftBindingsTestLib.FindIndex(new[] { 10, 20, 30 }, 20);
+        var index = TestLibFunctions.FindIndex(new[] { 10, 20, 30 }, 20);
         AssertTrue(index.HasValue, "FindIndex found value");
         AssertEqual(1, index!.Value, "FindIndex returns correct index");
         TestLogger.Info($"FindIndex([10,20,30], 20) = {index}");
@@ -28,7 +28,7 @@ public class OptionalMarshallingTests : TestBase
     [TestTier(TestTier.Tier3)] // Mono: Optional<Int32> None marshalling returns Some incorrectly
     public void TestOptionalBlittableReturnNone()
     {
-        var index = SwiftBindingsTestLib.FindIndex(new[] { 10, 20, 30 }, 99);
+        var index = TestLibFunctions.FindIndex(new[] { 10, 20, 30 }, 99);
         AssertFalse(index.HasValue, "FindIndex returns null for missing value");
         TestLogger.Info("FindIndex returns null for missing value");
     }
@@ -40,10 +40,10 @@ public class OptionalMarshallingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestOptionalClassReturnSome()
     {
-        var cat = SwiftBindingsTestLib.CreateAnimal("Cat", "Meow");
-        var dog = SwiftBindingsTestLib.CreateAnimal("Dog", "Woof");
+        var cat = TestLibFunctions.CreateAnimal("Cat", "Meow");
+        var dog = TestLibFunctions.CreateAnimal("Dog", "Woof");
 
-        var found = SwiftBindingsTestLib.FindAnimalByName(new[] { cat, dog }, "Cat");
+        var found = TestLibFunctions.FindAnimalByName(new[] { cat, dog }, "Cat");
         AssertNotNull(found, "FindAnimalByName found Cat");
         TestLogger.Info("FindAnimalByName returned a non-null result");
     }
@@ -51,9 +51,9 @@ public class OptionalMarshallingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestOptionalClassReturnNone()
     {
-        var cat = SwiftBindingsTestLib.CreateAnimal("Cat", "Meow");
+        var cat = TestLibFunctions.CreateAnimal("Cat", "Meow");
 
-        var found = SwiftBindingsTestLib.FindAnimalByName(new[] { cat }, "Parrot");
+        var found = TestLibFunctions.FindAnimalByName(new[] { cat }, "Parrot");
         AssertNull(found, "FindAnimalByName returns null for missing name");
         TestLogger.Info("FindAnimalByName returns null for missing name");
     }
@@ -61,7 +61,7 @@ public class OptionalMarshallingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestOptionalParameterSome()
     {
-        var result = SwiftBindingsTestLib.DescribeOptionalInt(42);
+        var result = TestLibFunctions.DescribeOptionalInt(42);
         AssertEqual("Value: 42", result, "DescribeOptionalInt with value");
         TestLogger.Info($"DescribeOptionalInt(42) = \"{result}\"");
     }
@@ -69,7 +69,7 @@ public class OptionalMarshallingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestOptionalParameterNone()
     {
-        var result = SwiftBindingsTestLib.DescribeOptionalInt(null);
+        var result = TestLibFunctions.DescribeOptionalInt(null);
         AssertEqual("nil", result, "DescribeOptionalInt with null");
         TestLogger.Info($"DescribeOptionalInt(null) = \"{result}\"");
     }
@@ -111,7 +111,7 @@ public class OptionalMarshallingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestFindIndexFirstElement()
     {
-        var index = SwiftBindingsTestLib.FindIndex(new[] { 5, 10, 15 }, 5);
+        var index = TestLibFunctions.FindIndex(new[] { 5, 10, 15 }, 5);
         AssertTrue(index.HasValue, "FindIndex first element");
         AssertEqual(0, index!.Value, "First element index is 0");
         TestLogger.Info("FindIndex first element passed");
@@ -120,7 +120,7 @@ public class OptionalMarshallingTests : TestBase
     [TestTier(TestTier.Tier3)] // Mono: Optional<Int32> None marshalling returns Some incorrectly
     public void TestFindIndexEmptyArray()
     {
-        var index = SwiftBindingsTestLib.FindIndex(Array.Empty<int>(), 1);
+        var index = TestLibFunctions.FindIndex(Array.Empty<int>(), 1);
         AssertFalse(index.HasValue, "FindIndex empty array returns null");
         TestLogger.Info("FindIndex empty array passed");
     }
@@ -140,7 +140,7 @@ public class OptionalMarshallingTests : TestBase
     [TestTier(TestTier.Tier2)] // Fixed: Optional pointer wrapper passes full 16-byte Optional<String> via UnsafeRawPointer
     public void TestOptionalStringParameterSome()
     {
-        var result = SwiftBindingsTestLib.DescribeOptionalString("hello");
+        var result = TestLibFunctions.DescribeOptionalString("hello");
         AssertEqual("Value: hello", result, "DescribeOptionalString with value");
         TestLogger.Info($"DescribeOptionalString(\"hello\") = \"{result}\"");
     }
@@ -148,7 +148,7 @@ public class OptionalMarshallingTests : TestBase
     [TestTier(TestTier.Tier2)] // Fixed: Optional pointer wrapper passes full 16-byte Optional<String> via UnsafeRawPointer
     public void TestOptionalStringParameterNone()
     {
-        var result = SwiftBindingsTestLib.DescribeOptionalString(null);
+        var result = TestLibFunctions.DescribeOptionalString(null);
         AssertEqual("nil", result, "DescribeOptionalString with null");
         TestLogger.Info($"DescribeOptionalString(null) = \"{result}\"");
     }

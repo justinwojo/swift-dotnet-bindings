@@ -3,7 +3,7 @@
 
 using RuntimeTestsApp.Infrastructure;
 using Swift;
-using Swift.SwiftBindingsTestLib;
+using SwiftBindingsTestLib;
 
 namespace RuntimeTestsApp.Concurrency;
 
@@ -22,7 +22,7 @@ public class StressTests : TestBase
     public void TestParallelDescribeOnSameAnimal()
     {
         // 10 threads calling Describe() on the same Animal — no corruption
-        var animal = SwiftBindingsTestLib.CreateAnimal("Shared", "Bark");
+        var animal = TestLibFunctions.CreateAnimal("Shared", "Bark");
         var errors = new List<string>();
         var lockObj = new object();
 
@@ -67,7 +67,7 @@ public class StressTests : TestBase
 
     public void TestParallelSpeakOnSameAnimal()
     {
-        var animal = SwiftBindingsTestLib.CreateAnimal("Speaker", "Woof");
+        var animal = TestLibFunctions.CreateAnimal("Speaker", "Woof");
         var errors = new List<string>();
         var lockObj = new object();
 
@@ -116,7 +116,7 @@ public class StressTests : TestBase
 
     public void TestParallelPropertyReadOnSameAnimal()
     {
-        var animal = SwiftBindingsTestLib.CreateAnimal("PropertyTest", "Sound");
+        var animal = TestLibFunctions.CreateAnimal("PropertyTest", "Sound");
         var errors = new List<string>();
         var lockObj = new object();
 
@@ -180,7 +180,7 @@ public class StressTests : TestBase
                 {
                     for (int j = 0; j < 100; j++)
                     {
-                        var animal = SwiftBindingsTestLib.CreateAnimal(
+                        var animal = TestLibFunctions.CreateAnimal(
                             $"T{threadIndex}A{j}", $"S{threadIndex}");
                         var name = animal.Name.ToString();
                         if (name != $"T{threadIndex}A{j}")
@@ -272,13 +272,13 @@ public class StressTests : TestBase
         // Create and dispose in tight loop — 1000 iterations
         for (int i = 0; i < 1000; i++)
         {
-            var animal = SwiftBindingsTestLib.CreateAnimal($"Rapid{i}", "Sound");
+            var animal = TestLibFunctions.CreateAnimal($"Rapid{i}", "Sound");
             _ = animal.Name.ToString();
             animal.Dispose();
         }
 
         // Verify system is still healthy
-        var final = SwiftBindingsTestLib.CreateAnimal("AfterRapid", "OK");
+        var final = TestLibFunctions.CreateAnimal("AfterRapid", "OK");
         AssertEqual("AfterRapid", final.Name.ToString(), "System healthy after rapid alloc/dealloc");
 
         TestLogger.Info("1000 rapid alloc/dealloc cycles completed");
@@ -306,7 +306,7 @@ public class StressTests : TestBase
     public void TestGCPressureDuringMethodCalls()
     {
         // Background GC thread while foreground calls methods
-        var animal = SwiftBindingsTestLib.CreateAnimal("GCStress", "Roar");
+        var animal = TestLibFunctions.CreateAnimal("GCStress", "Roar");
         var errors = new List<string>();
         var lockObj = new object();
         var running = true;
@@ -400,7 +400,7 @@ public class StressTests : TestBase
             {
                 try
                 {
-                    var animal = SwiftBindingsTestLib.CreateAnimal($"GC{i}", "Test");
+                    var animal = TestLibFunctions.CreateAnimal($"GC{i}", "Test");
                     var name = animal.Name.ToString();
                     if (name != $"GC{i}")
                     {
@@ -454,7 +454,7 @@ public class StressTests : TestBase
                     for (int j = 0; j < 100; j++)
                     {
                         // Create
-                        var animal = SwiftBindingsTestLib.CreateAnimal(
+                        var animal = TestLibFunctions.CreateAnimal(
                             $"Mix{threadIndex}_{j}", "Sound");
 
                         // Read property

@@ -17,8 +17,8 @@
     <ProjectReference Include="../../src/Swift.Runtime/src/Swift.Runtime.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="../output/Swift.SwiftBindingsTestLib.cs" />
-    <Compile Include="../output/Swift.SwiftBindingsTestLib.SwiftUIBridge.cs"
-             Condition="Exists('../output/Swift.SwiftBindingsTestLib.SwiftUIBridge.cs')" />
+    <Compile Include="../output/SwiftBindingsTestLib.cs" />
+    <Compile Include="../output/SwiftBindingsTestLib.SwiftUIBridge.cs"
+             Condition="Exists('../output/SwiftBindingsTestLib.SwiftUIBridge.cs')" />
   </ItemGroup>
 </Project>

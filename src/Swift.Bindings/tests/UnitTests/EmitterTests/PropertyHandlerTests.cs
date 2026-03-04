@@ -246,7 +246,7 @@ public class PropertyHandlerTests
         var (csOutput, _) = EmitProperty(property, typeDatabase);
 
         Assert.Contains("[global::Swift.UnsupportedSwiftType(\"Unsupported closure fallback\",", csOutput);
-        Assert.Contains("public virtual Swift.TestModule.Box<object> Handler", csOutput);
+        Assert.Contains("public virtual TestModule.Box<object> Handler", csOutput);
     }
 
     [Fact]
@@ -750,7 +750,7 @@ public class PropertyHandlerTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Box"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Box"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Box"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Box"),
                 MetadataAccessor = "$s10TestModule3BoxVMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -1090,7 +1090,7 @@ public class PropertyHandlerTests
         {
             (identifier: SwiftTypeName.FromModuleQualifiedName(protocolName), record: new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", protocolName.Split('.')[1]),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", protocolName.Split('.')[1]),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(protocolName),
                 MetadataAccessor = "$s10TestModule8ProtocolPAAWP",
                 Flags = TypeRecordFlags.None,
@@ -1473,7 +1473,7 @@ public class PropertyHandlerTests
         {
             (protocolDecl.SwiftTypeName, new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "IDisplayable"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "IDisplayable"),
                 SwiftTypeName = protocolDecl.SwiftTypeName,
                 Kind = TypeRecordKind.Protocol,
                 Flags = TypeRecordFlags.None,
@@ -1537,7 +1537,7 @@ public class PropertyHandlerTests
         {
             (protocolDecl.SwiftTypeName, new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "IDisplayable"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "IDisplayable"),
                 SwiftTypeName = protocolDecl.SwiftTypeName,
                 Kind = TypeRecordKind.Protocol,
                 Flags = TypeRecordFlags.None,

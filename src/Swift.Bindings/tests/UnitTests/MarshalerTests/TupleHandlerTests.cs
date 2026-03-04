@@ -589,7 +589,7 @@ public class TupleHandlerTests
                 // Non-frozen struct (ClassWithOpaquePayload)
                 ["Nuke.ImageResponse"] = new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Nuke", "ImageResponse"),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Nuke", "ImageResponse"),
                     SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImageResponse"),
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.None, // NOT frozen
@@ -598,7 +598,7 @@ public class TupleHandlerTests
                 // Swift class
                 ["Nuke.ImageTask"] = new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Nuke", "ImageTask"),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Nuke", "ImageTask"),
                     SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImageTask"),
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.RequiresMemoryManagement,

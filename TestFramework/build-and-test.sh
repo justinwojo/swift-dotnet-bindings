@@ -63,7 +63,7 @@ if [ -n "$ASYNC_SWIFT" ]; then
 fi
 
 # Step 4: Build SwiftUI bridge (if generated)
-BRIDGE_SWIFT="output/Swift.SwiftBindingsTestLib.SwiftUIBridge.swift"
+BRIDGE_SWIFT="output/SwiftBindingsTestLib.SwiftUIBridge.swift"
 if [ -f "$BRIDGE_SWIFT" ]; then
     echo ""
     echo "--- Step 4: Build SwiftUI bridge ---"

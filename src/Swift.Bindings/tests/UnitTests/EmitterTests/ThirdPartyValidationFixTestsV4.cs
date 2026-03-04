@@ -497,7 +497,7 @@ public class ThirdPartyValidationFixTestsV4
             SwiftTypeName.FromModuleQualifiedName("Nuke.ImagePipeline"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Nuke", "ImagePipeline"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Nuke", "ImagePipeline"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImagePipeline"),
                 MetadataAccessor = "$s4Nuke13ImagePipelineCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -507,7 +507,7 @@ public class ThirdPartyValidationFixTestsV4
             SwiftTypeName.FromModuleQualifiedName("Nuke.ImageRequest"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Nuke", "ImageRequest"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Nuke", "ImageRequest"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImageRequest"),
                 MetadataAccessor = "$s4Nuke12ImageRequestVMa",
                 Flags = TypeRecordFlags.None, // Non-frozen struct
@@ -517,7 +517,7 @@ public class ThirdPartyValidationFixTestsV4
             SwiftTypeName.FromModuleQualifiedName("Nuke.ImageResponse"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Nuke", "ImageResponse"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Nuke", "ImageResponse"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImageResponse"),
                 MetadataAccessor = "$s4Nuke13ImageResponseVMa",
                 Flags = TypeRecordFlags.None, // Non-frozen struct
@@ -527,7 +527,7 @@ public class ThirdPartyValidationFixTestsV4
             SwiftTypeName.FromModuleQualifiedName("Nuke.ImagePipeline.Error"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Nuke", "ImagePipelineError"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Nuke", "ImagePipelineError"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImagePipeline.Error"),
                 MetadataAccessor = "$s4Nuke13ImagePipelineC5ErrorOMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement, // Non-simple enum

@@ -839,7 +839,7 @@ public class ProtocolProxyEmitterTests
         {
             (SwiftTypeName.FromModuleQualifiedName("TestModule.Box"), new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Box"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Box"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Box"),
                 MetadataAccessor = "$s10TestModule3BoxVMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -891,7 +891,7 @@ public class ProtocolProxyEmitterTests
         var output = EmitProxyClass(protocolDecl);
 
         // "value" is no longer sanitized — it's valid as a parameter name in all positions we generate
-        Assert.Contains("public void Update(Swift.TestModule.Box<Swift.AnyType> value)", output);
+        Assert.Contains("public void Update(TestModule.Box<Swift.AnyType> value)", output);
     }
 
     [Fact]

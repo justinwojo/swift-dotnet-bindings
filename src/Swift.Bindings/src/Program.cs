@@ -44,7 +44,7 @@ namespace BindingsGeneration
                              "Only needed in manual mode (-a/-d/-t) when the wrapper is compiled as a separate dylib.");
             Option<string> namespacePatternOption = new(
                 aliases: new[] { "--namespace-pattern" },
-                description: "C# namespace pattern for generated modules and types. Supports {Module} and {Framework}. Default: Swift.{Module}");
+                description: "C# namespace pattern for generated modules and types. Supports {Module} and {Framework}. Default: {Module}");
             Option<string> swiftInterfaceOption = new(
                 aliases: new[] { "-s", "--swiftinterface" },
                 description: "Path to the .swiftinterface file. Used to detect @inlinable internal members " +
@@ -528,6 +528,8 @@ namespace BindingsGeneration
                         // Only emit .csproj in non-SDK mode
                         if (!sdkMode)
                         {
+                            var projectFrameworkName = InferFrameworkName(resolution.DylibPath, resolution.ModuleName);
+                            var projectResolver = new NamespacePatternResolver(effectiveNamespacePattern, projectFrameworkName);
                             BindingProjectEmitter.Emit(new BindingProjectEmitterOptions
                             {
                                 OutputDirectory = outputDirectory,
@@ -535,7 +537,8 @@ namespace BindingsGeneration
                                 Metadata = metadata,
                                 SourceXCFrameworkPath = resolution.XCFrameworkPath,
                                 WrapperXCFrameworkPath = hasWrapperXcfw ? wrapperXcfwPath : null,
-                                Dependencies = resolvedDependencies
+                                Dependencies = resolvedDependencies,
+                                ResolvedNamespace = projectResolver.ResolveNamespace(resolution.ModuleName)
                             }, logger);
                         }
 

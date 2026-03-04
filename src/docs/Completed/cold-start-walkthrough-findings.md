@@ -88,20 +88,11 @@ ls MyLib.xcframework/ios-arm64-simulator/MyLib.framework/Modules/*.swiftmodule/
 # Should have .swiftinterface files
 ```
 
-#### F7: What namespace will my types be in? — PLANNED
+#### F7: What namespace will my types be in? ✅ RESOLVED
 
-**Decision**: Change the default namespace pattern from `Swift.{Module}` to `{Module}`. The `Swift.` prefix is redundant — the package ID (`Nuke.Swift.iOS`) already communicates it's a Swift binding. The namespace should just get out of the way: `using Nuke;`.
+**Decision**: Changed the default namespace pattern from `Swift.{Module}` to `{Module}`. The `Swift.` prefix was redundant — the package ID (`Nuke.Swift.iOS`) already communicates it's a Swift binding. The namespace now just gets out of the way: `using Nuke;`.
 
-**Implementation plan** (do as a focused session):
-
-1. **`NamespacePatternResolver.cs:12`** — Change `DefaultPattern` from `"Swift.{Module}"` to `"{Module}"`
-2. **`Program.cs:47`** — Update CLI help text for `--namespace-pattern` default description
-3. **`Program.cs:163`** — Update help output string
-4. **`CrossModuleExtensionEmitter.cs:500`** — Hardcoded `Swift.{module}.{TypeName}` fallback needs to go through the resolver instead
-5. **Docs** — Update Getting Started step 5 (`using Swift.MyLibrary;` → `using MyLibrary;`), Customization, any other `Swift.{Module}` references
-6. **Tests** — Bulk update assertions expecting `Swift.Nuke`, `Swift.Alamofire`, etc. across unit and integration tests
-7. **TestFramework golden files** — Regenerate (`check-golden-files.sh`)
-8. **Validation baseline** — Regenerate (`.validation-baseline.json`)
+**What changed**: Default namespace pattern in `NamespacePatternResolver.DefaultPattern`, CLI help text, generated file names (e.g., `Nuke.cs` instead of `Swift.Nuke.cs`), all documentation references, test assertions, golden files, and validation baseline.
 
 Package ID convention (`{Module}.Swift.iOS`) stays as-is — only the C# namespace changes.
 
@@ -213,7 +204,7 @@ Not worth maintaining — counts are close enough and rarely change.
 4. Create project, drop in xcframework, `dotnet build` → likely works if xcframework is compatible
 5. `dotnet pack` → produces .nupkg
 6. Add to MAUI app → works via standard `<PackageReference>` (examples in swift-dotnet-packages repo)
-7. Call a method → need to discover namespace (`Swift.{Module}` default)
+7. Call a method → namespace matches module name (`{Module}` default — e.g., `using Nuke;`)
 8. Runtime crash on simulator → read Troubleshooting, find Mono JIT info → decent guidance but scary
 
 **Verdict**: Steps 1-5 solid. Step 6 works but benefits from external examples. Steps 7-8 need more guidance (namespace discovery, debugging).
@@ -259,7 +250,7 @@ These things are notably better than Objective Sharpie or any ObjC binding tool 
 
 ### Should-fix before release:
 5. **F4**: BUILD_LIBRARY_FOR_DISTRIBUTION in prerequisites ✅
-6. **F7**: Change default namespace from `Swift.{Module}` to `{Module}` — PLANNED (see F7 section for implementation steps)
+6. **F7**: Change default namespace from `Swift.{Module}` to `{Module}` ✅
 7. **F12**: Debugging generated bindings ✅
 
 ### Nice-to-have:

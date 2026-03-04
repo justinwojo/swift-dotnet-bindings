@@ -18,7 +18,7 @@ namespace BindingsGeneration.Tests
                 var swiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.Widget");
                 var record = new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Widget"),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Widget"),
                     SwiftTypeName = swiftName,
                     MetadataAccessor = "$s10TestModule6WidgetV",
                     Flags = TypeRecordFlags.Frozen,
@@ -38,7 +38,7 @@ namespace BindingsGeneration.Tests
                 Assert.True(typeDatabase.IsModuleProcessed("TestModule"));
                 Assert.True(typeDatabase.TryGetTypeRecord(swiftName, out var loaded));
                 Assert.Equal("Widget", loaded!.CSharpTypeName.Name);
-                Assert.Equal("Swift.TestModule", loaded.CSharpTypeName.Namespace);
+                Assert.Equal("TestModule", loaded.CSharpTypeName.Namespace);
                 Assert.Equal("$s10TestModule6WidgetV", loaded.MetadataAccessor);
                 Assert.Equal(TypeRecordKind.Struct, loaded.Kind);
                 Assert.True((loaded.Flags & TypeRecordFlags.Frozen) != 0);
@@ -56,7 +56,7 @@ namespace BindingsGeneration.Tests
                 var swiftName = SwiftTypeName.FromModuleQualifiedName("MyLib.Manager");
                 var record = new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.MyLib", "Manager"),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("MyLib", "Manager"),
                     SwiftTypeName = swiftName,
                     MetadataAccessor = "$s5MyLib7ManagerC",
                     Flags = TypeRecordFlags.RequiresMemoryManagement | TypeRecordFlags.ObjCBridged,
@@ -89,7 +89,7 @@ namespace BindingsGeneration.Tests
                 var swiftName = SwiftTypeName.FromModuleQualifiedName("MyLib.Color");
                 var record = new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.MyLib", "Color"),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("MyLib", "Color"),
                     SwiftTypeName = swiftName,
                     MetadataAccessor = "$s5MyLib5ColorO",
                     Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
@@ -122,7 +122,7 @@ namespace BindingsGeneration.Tests
                 var swiftName = SwiftTypeName.FromModuleQualifiedName("MyLib.Configurable");
                 var record = new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.MyLib", "IConfigurable"),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("MyLib", "IConfigurable"),
                     SwiftTypeName = swiftName,
                     MetadataAccessor = "$s5MyLib12ConfigurableP",
                     Flags = TypeRecordFlags.HasAssociatedTypes,
@@ -204,7 +204,7 @@ namespace BindingsGeneration.Tests
                 var swiftName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImageRequest.UserInfoKey");
                 var record = new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Nuke", "ImageRequest_UserInfoKey"),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Nuke", "ImageRequest_UserInfoKey"),
                     SwiftTypeName = swiftName,
                     MetadataAccessor = "$s4Nuke12ImageRequestV11UserInfoKeyV",
                     Flags = TypeRecordFlags.Frozen,
@@ -234,7 +234,7 @@ namespace BindingsGeneration.Tests
                 var swiftName = SwiftTypeName.FromModuleQualifiedName("MyLib.AnyHashable");
                 var record = new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.MyLib", "AnyHashable"),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("MyLib", "AnyHashable"),
                     SwiftTypeName = swiftName,
                     MetadataAccessor = "$s5MyLib11AnyHashableV",
                     Flags = TypeRecordFlags.Frozen,
@@ -269,7 +269,7 @@ namespace BindingsGeneration.Tests
                     var swiftName = SwiftTypeName.FromModuleQualifiedName($"MyLib.{name}");
                     module.RegisterType(swiftName, new TypeRecord
                     {
-                        CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.MyLib", name),
+                        CSharpTypeName = CSharpTypeName.FromNamespaceAndName("MyLib", name),
                         SwiftTypeName = swiftName,
                         MetadataAccessor = "",
                         Flags = TypeRecordFlags.Frozen,
@@ -307,7 +307,7 @@ namespace BindingsGeneration.Tests
                 var swiftName = SwiftTypeName.FromModuleQualifiedName("MyLib.Describable");
                 var record = new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.MyLib", "IDescribable"),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("MyLib", "IDescribable"),
                     SwiftTypeName = swiftName,
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.InheritedRequirementsOnly,
@@ -343,7 +343,7 @@ namespace BindingsGeneration.Tests
                 var swiftName = SwiftTypeName.FromModuleQualifiedName("MyLib.Renderable");
                 var record = new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.MyLib", "IRenderable"),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("MyLib", "IRenderable"),
                     SwiftTypeName = swiftName,
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.None,

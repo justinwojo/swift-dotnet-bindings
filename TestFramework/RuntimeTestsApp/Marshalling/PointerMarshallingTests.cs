@@ -3,7 +3,7 @@
 
 using System.Runtime.InteropServices;
 using RuntimeTestsApp.Infrastructure;
-using Swift.SwiftBindingsTestLib;
+using SwiftBindingsTestLib;
 
 namespace RuntimeTestsApp.Marshalling;
 
@@ -21,7 +21,7 @@ public class PointerMarshallingTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestGetStaticBuffer()
     {
-        var ptr = SwiftBindingsTestLib.GetStaticBuffer();
+        var ptr = TestLibFunctions.GetStaticBuffer();
         AssertTrue(ptr != IntPtr.Zero, "GetStaticBuffer returns non-null pointer");
         TestLogger.Info($"GetStaticBuffer() = 0x{ptr:X}");
     }
@@ -29,8 +29,8 @@ public class PointerMarshallingTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestReadPointerValue()
     {
-        var ptr = SwiftBindingsTestLib.GetStaticBuffer();
-        var value = SwiftBindingsTestLib.ReadPointerValue(ptr);
+        var ptr = TestLibFunctions.GetStaticBuffer();
+        var value = TestLibFunctions.ReadPointerValue(ptr);
         AssertEqual(42, value, "First buffer element is 42");
         TestLogger.Info($"ReadPointerValue(staticBuffer) = {value}");
     }
@@ -47,7 +47,7 @@ public class PointerMarshallingTests : TestBase
         try
         {
             Marshal.WriteInt32(ptr, 0);
-            SwiftBindingsTestLib.WritePointerValue(ptr, 99);
+            TestLibFunctions.WritePointerValue(ptr, 99);
             var readBack = Marshal.ReadInt32(ptr);
             AssertEqual(99, readBack, "Write then read back");
             TestLogger.Info("WritePointerValue round-trip passed");
@@ -65,7 +65,7 @@ public class PointerMarshallingTests : TestBase
         try
         {
             Marshal.WriteInt32(ptr, 10);
-            SwiftBindingsTestLib.IncrementPointer(ptr, 5);
+            TestLibFunctions.IncrementPointer(ptr, 5);
             var value = Marshal.ReadInt32(ptr);
             AssertEqual(15, value, "IncrementPointer(10, 5) = 15");
             TestLogger.Info($"IncrementPointer: 10 + 5 = {value}");
@@ -83,7 +83,7 @@ public class PointerMarshallingTests : TestBase
         var ptr = Marshal.AllocHGlobal(sizeof(int) * count);
         try
         {
-            SwiftBindingsTestLib.FillBuffer(ptr, count, 7);
+            TestLibFunctions.FillBuffer(ptr, count, 7);
             for (int i = 0; i < count; i++)
             {
                 var value = Marshal.ReadInt32(ptr + i * sizeof(int));
@@ -103,7 +103,7 @@ public class PointerMarshallingTests : TestBase
         var ptr = Marshal.AllocHGlobal(sizeof(int));
         try
         {
-            var valid = SwiftBindingsTestLib.OpaquePointerIsValid(ptr);
+            var valid = TestLibFunctions.OpaquePointerIsValid(ptr);
             AssertTrue(valid, "OpaquePointer is valid");
             TestLogger.Info("OpaquePointerIsValid passed");
         }
@@ -120,7 +120,7 @@ public class PointerMarshallingTests : TestBase
         try
         {
             Marshal.WriteInt32(ptr, 123);
-            var value = SwiftBindingsTestLib.RawPointerToInt32(ptr);
+            var value = TestLibFunctions.RawPointerToInt32(ptr);
             AssertEqual(123, value, "RawPointerToInt32");
             TestLogger.Info($"RawPointerToInt32 = {value}");
         }
@@ -136,7 +136,7 @@ public class PointerMarshallingTests : TestBase
         var ptr = Marshal.AllocHGlobal(sizeof(int));
         try
         {
-            SwiftBindingsTestLib.StoreInt32(ptr, 456);
+            TestLibFunctions.StoreInt32(ptr, 456);
             var value = Marshal.ReadInt32(ptr);
             AssertEqual(456, value, "StoreInt32 round-trip");
             TestLogger.Info($"StoreInt32: wrote 456, read {value}");
@@ -150,7 +150,7 @@ public class PointerMarshallingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestOptionalOpaquePointerWithNull()
     {
-        var result = SwiftBindingsTestLib.OptionalOpaquePointer(null);
+        var result = TestLibFunctions.OptionalOpaquePointer(null);
         AssertFalse(result, "Optional null OpaquePointer is not valid");
         TestLogger.Info("OptionalOpaquePointer(null) = false");
     }

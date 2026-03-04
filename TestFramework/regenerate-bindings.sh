@@ -58,7 +58,8 @@ echo "Dylib: $DYLIB"
 echo "TBD: $TBD"
 echo "SwiftInterface: $SWIFTINTERFACE"
 
-# Create output directory
+# Clean and create output directory (remove stale files from prior runs)
+rm -rf output
 mkdir -p output
 
 # Run the binding generator.

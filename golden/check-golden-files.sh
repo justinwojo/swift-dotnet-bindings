@@ -36,9 +36,9 @@ generate_and_check() {
         2>/dev/null || true
 
     local csfile
-    csfile=$(ls "$tmpdir"/Swift.*.cs 2>/dev/null | head -1)
+    csfile=$(ls "$tmpdir"/*.cs 2>/dev/null | grep -v '\.Wrappers\.cs' | grep -v '\.SwiftUIBridge\.cs' | head -1)
     if [ -z "$csfile" ]; then
-        echo "    ERROR: No Swift.*.cs found for $name"
+        echo "    ERROR: No binding .cs file found for $name"
         rm -rf "$tmpdir"
         FAILURES=$((FAILURES + 1))
         return 0

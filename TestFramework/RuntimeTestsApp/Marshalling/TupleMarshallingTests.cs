@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 using RuntimeTestsApp.Infrastructure;
-using Swift.SwiftBindingsTestLib;
+using SwiftBindingsTestLib;
 
 namespace RuntimeTestsApp.Marshalling;
 
@@ -18,7 +18,7 @@ public class TupleMarshallingTests : TestBase
     [TestTier(TestTier.Tier3)] // Mono: "Type System.ValueTuple must have a StructLayout attribute"
     public void TestBasicPairCreation()
     {
-        var pair = SwiftBindingsTestLib.MakePair(10, 20);
+        var pair = TestLibFunctions.MakePair(10, 20);
         AssertEqual(10, pair.Item1, "Pair.Item1");
         AssertEqual(20, pair.Item2, "Pair.Item2");
         TestLogger.Info($"MakePair(10, 20) = ({pair.Item1}, {pair.Item2})");
@@ -27,7 +27,7 @@ public class TupleMarshallingTests : TestBase
     [TestTier(TestTier.Tier3)] // Mono: "Type System.ValueTuple must have a StructLayout attribute"
     public void TestNamedPair()
     {
-        var named = SwiftBindingsTestLib.MakeNamedPair();
+        var named = TestLibFunctions.MakeNamedPair();
         AssertEqual(10, named.x, "Named pair x");
         AssertEqual(20, named.y, "Named pair y");
         TestLogger.Info($"MakeNamedPair() = (x: {named.x}, y: {named.y})");
@@ -36,7 +36,7 @@ public class TupleMarshallingTests : TestBase
     [TestTier(TestTier.Tier3)] // Mono: "Type System.ValueTuple must have a StructLayout attribute"
     public void TestTriple()
     {
-        var triple = SwiftBindingsTestLib.MakeTriple(1, 2, 3);
+        var triple = TestLibFunctions.MakeTriple(1, 2, 3);
         AssertEqual(1, triple.Item1, "Triple.Item1");
         AssertEqual(2, triple.Item2, "Triple.Item2");
         AssertEqual(3, triple.Item3, "Triple.Item3");
@@ -46,7 +46,7 @@ public class TupleMarshallingTests : TestBase
     [TestTier(TestTier.Tier3)] // Mono: "Type System.ValueTuple must have a StructLayout attribute"
     public void TestSeptuple()
     {
-        var sep = SwiftBindingsTestLib.MakeSeptuple(1, 2, 3, 4, 5, 6, 7);
+        var sep = TestLibFunctions.MakeSeptuple(1, 2, 3, 4, 5, 6, 7);
         AssertEqual(1, sep.Item1, "Sep.Item1");
         AssertEqual(4, sep.Item4, "Sep.Item4");
         AssertEqual(7, sep.Item7, "Sep.Item7");
@@ -56,7 +56,7 @@ public class TupleMarshallingTests : TestBase
     [TestTier(TestTier.Tier3)] // Mono: non-blittable ValueTuple through CallConvSwift
     public void TestSumPair()
     {
-        var sum = SwiftBindingsTestLib.SumPair((3, 7));
+        var sum = TestLibFunctions.SumPair((3, 7));
         AssertEqual(10, sum, "SumPair(3, 7)");
         TestLogger.Info($"SumPair((3, 7)) = {sum}");
     }
@@ -64,7 +64,7 @@ public class TupleMarshallingTests : TestBase
     [TestTier(TestTier.Tier3)] // Mono: non-blittable ValueTuple through CallConvSwift
     public void TestMixedPair()
     {
-        var mixed = SwiftBindingsTestLib.MakeMixedPair(42, true);
+        var mixed = TestLibFunctions.MakeMixedPair(42, true);
         AssertEqual(42, mixed.Item1, "Mixed.Item1");
         AssertTrue(mixed.Item2, "Mixed.Item2");
         TestLogger.Info("MakeMixedPair passed");
@@ -73,7 +73,7 @@ public class TupleMarshallingTests : TestBase
     [TestTier(TestTier.Tier3)] // Mono: "Type System.ValueTuple must have a StructLayout attribute"
     public void TestDivmod()
     {
-        var result = SwiftBindingsTestLib.Divmod(17, 5);
+        var result = TestLibFunctions.Divmod(17, 5);
         AssertEqual(3, result.quotient, "Divmod quotient");
         AssertEqual(2, result.remainder, "Divmod remainder");
         TestLogger.Info($"Divmod(17, 5) = (q: {result.quotient}, r: {result.remainder})");
@@ -82,7 +82,7 @@ public class TupleMarshallingTests : TestBase
     [TestTier(TestTier.Tier3)] // Mono: "Type System.ValueTuple must have a StructLayout attribute"
     public void TestMinmax()
     {
-        var result = SwiftBindingsTestLib.Minmax(42, 7);
+        var result = TestLibFunctions.Minmax(42, 7);
         AssertEqual(7, result.min, "Minmax min");
         AssertEqual(42, result.max, "Minmax max");
         TestLogger.Info($"Minmax(42, 7) = (min: {result.min}, max: {result.max})");

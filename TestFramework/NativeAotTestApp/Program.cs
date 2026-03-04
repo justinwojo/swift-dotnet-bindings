@@ -11,7 +11,7 @@ using Foundation;
 using Swift;
 using Swift.Runtime;
 using Swift.Runtime.InteropServices;
-using Swift.SwiftBindingsTestLib;
+using SwiftBindingsTestLib;
 using UIKit;
 
 namespace NativeAotTestApp;

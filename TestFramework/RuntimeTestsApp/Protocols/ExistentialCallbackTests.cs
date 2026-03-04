@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 using RuntimeTestsApp.Infrastructure;
-using Swift.SwiftBindingsTestLib;
+using SwiftBindingsTestLib;
 
 namespace RuntimeTestsApp.Protocols;
 
@@ -37,7 +37,7 @@ public class ExistentialCallbackTests : TestBase
         // Swift creates a MutableItem(value: 42), passes it as `any HasValue`
         // to delegate.didReceive(value:). The proxy receiver unmarshals
         // ExistentialContainer1 → HasValueProxy and dispatches to impl.
-        SwiftBindingsTestLib.FireExistentialDelegate(proxy, intValue: 42);
+        TestLibFunctions.FireExistentialDelegate(proxy, intValue: 42);
 
         AssertTrue(impl.WasCalled, "Delegate was called");
         AssertEqual(42, impl.ReceivedValue, "Received correct existential value");

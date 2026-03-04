@@ -823,7 +823,7 @@ public class MonoJitRiskDetectorTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Handler"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Handler"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Handler"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Handler"),
                 MetadataAccessor = "$s10TestModule7HandlerCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,

@@ -142,7 +142,7 @@ public class BridgeDispatchTableTests
         {
             (identifier: parentDecl.SwiftTypeName, record: new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Widget"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Widget"),
                 SwiftTypeName = parentDecl.SwiftTypeName,
                 MetadataAccessor = "$s10TestModule6WidgetVMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -184,7 +184,7 @@ public class BridgeDispatchTableTests
         {
             (identifier: parentDecl.SwiftTypeName, record: new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Widget"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Widget"),
                 SwiftTypeName = parentDecl.SwiftTypeName,
                 MetadataAccessor = "$s10TestModule6WidgetVMa",
                 Flags = TypeRecordFlags.Frozen,

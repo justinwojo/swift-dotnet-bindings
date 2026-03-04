@@ -377,7 +377,7 @@ public class DefaultParameterOverloadEmitterTests
             SwiftTypeName.FromModuleQualifiedName($"TestModule.{typeName}"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", typeName),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", typeName),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{typeName}"),
                 MetadataAccessor = $"$s10TestModule{typeName.Length}{typeName}VMa",
                 Flags = TypeRecordFlags.Frozen,

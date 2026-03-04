@@ -124,7 +124,7 @@ public class ProtocolExtensionExistentialReturnTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.TestProtocol"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "ITestProtocol"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ITestProtocol"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.TestProtocol"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.None,
@@ -134,7 +134,7 @@ public class ProtocolExtensionExistentialReturnTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.MyClass"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "MyClass"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "MyClass"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyClass"),
                 MetadataAccessor = "$s10TestModule7MyClassCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -144,7 +144,7 @@ public class ProtocolExtensionExistentialReturnTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.MyStruct"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "MyStruct"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "MyStruct"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyStruct"),
                 MetadataAccessor = "$s10TestModule8MyStructVMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -202,7 +202,7 @@ public class ProtocolExtensionExistentialReturnTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.MyClass"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "MyClass"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "MyClass"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyClass"),
                 MetadataAccessor = "$s10TestModule7MyClassCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -212,7 +212,7 @@ public class ProtocolExtensionExistentialReturnTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.TestProtocol"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "ITestProtocol"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ITestProtocol"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.TestProtocol"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.None,
@@ -351,7 +351,7 @@ public class ProtocolExtensionExistentialReturnTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.AssocProto"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "IAssocProto"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "IAssocProto"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.AssocProto"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.HasAssociatedTypes,
@@ -376,7 +376,7 @@ public class ProtocolExtensionExistentialReturnTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.SelfProto"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "ISelfProto"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ISelfProto"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.SelfProto"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.HasSelfRequirement,
@@ -403,7 +403,7 @@ public class ProtocolExtensionExistentialReturnTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.MyClass"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "MyClass"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "MyClass"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyClass"),
                 MetadataAccessor = "$s10TestModule7MyClassCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -413,7 +413,7 @@ public class ProtocolExtensionExistentialReturnTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.AssocProto"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "IAssocProto"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "IAssocProto"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.AssocProto"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.HasAssociatedTypes,
@@ -641,7 +641,7 @@ public class ProtocolExtensionExistentialReturnTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.InheritedProto"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "IInheritedProto"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "IInheritedProto"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.InheritedProto"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.InheritedRequirementsOnly,
@@ -668,7 +668,7 @@ public class ProtocolExtensionExistentialReturnTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.MyClass"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "MyClass"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "MyClass"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyClass"),
                 MetadataAccessor = "$s10TestModule7MyClassCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -678,7 +678,7 @@ public class ProtocolExtensionExistentialReturnTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.InheritedProto"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "IInheritedProto"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "IInheritedProto"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.InheritedProto"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.InheritedRequirementsOnly,

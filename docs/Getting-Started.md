@@ -87,7 +87,7 @@ Produces a NuGet package (e.g., `MyLibrary.Swift.iOS.1.0.0.nupkg`) that any .NET
 ```
 
 ```csharp
-using Swift.MyLibrary;
+using MyLibrary;
 
 // Use your Swift library from C#
 var result = MyClass.DoSomething();
@@ -145,10 +145,10 @@ dotnet run --project src/Swift.Bindings/src -- \
 
 | File | Purpose |
 |------|---------|
-| `Swift.{Module}.cs` | C# bindings |
-| `Swift.{Module}.swift` | Swift wrapper functions (async, protocol dispatch, etc.) |
+| `{Module}.cs` | C# bindings |
+| `{Module}.swift` | Swift wrapper functions (async, protocol dispatch, etc.) |
 | `{Module}SwiftBindings.xcframework/` | Compiled Swift wrapper (xcframework mode) |
-| `Swift.{Module}.SwiftUIBridge.cs` + `.swift` | SwiftUI bridge (when views are detected) |
+| `{Module}.SwiftUIBridge.cs` + `.swift` | SwiftUI bridge (when views are detected) |
 | `binding-report.json` | Coverage report — what was bound and what was skipped |
 | `{Module}.Swift.iOS.csproj` + `.targets` | Ready-to-build project and NuGet consumer targets (xcframework mode) |
 | `binding-metadata.json` + `.props` | Extracted framework metadata |

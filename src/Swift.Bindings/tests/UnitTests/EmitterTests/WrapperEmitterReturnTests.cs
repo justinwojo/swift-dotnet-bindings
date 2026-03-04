@@ -89,9 +89,9 @@ public class WrapperEmitterReturnTests
         // P/Invoke signature uses ValueTuple with underlying int type for the enum element
         Assert.Contains("ValueTuple<int, long>", csOutput);
         // Marshal code casts from underlying type back to C# enum
-        Assert.Contains("(Swift.TestModule.Direction)result.Item1", csOutput);
+        Assert.Contains("(TestModule.Direction)result.Item1", csOutput);
         // The enum name should NOT appear in the P/Invoke ValueTuple type
-        Assert.DoesNotContain("ValueTuple<Swift.TestModule.Direction", csOutput);
+        Assert.DoesNotContain("ValueTuple<TestModule.Direction", csOutput);
     }
 
     [Fact]
@@ -119,7 +119,7 @@ public class WrapperEmitterReturnTests
         Assert.Contains("IntPtr", csOutput);
         Assert.Contains("MarshalFromSwift", csOutput);
         // The enum class name should not appear as a P/Invoke return type
-        Assert.DoesNotContain("partial Swift.TestModule.Variant PInvoke_", csOutput);
+        Assert.DoesNotContain("partial TestModule.Variant PInvoke_", csOutput);
     }
 
     [Fact]
@@ -188,8 +188,8 @@ public class WrapperEmitterReturnTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        // Simple enum return → cast from underlying type: (Swift.TestModule.Direction)result
-        Assert.Contains("(Swift.TestModule.Direction)result", csOutput);
+        // Simple enum return → cast from underlying type: (TestModule.Direction)result
+        Assert.Contains("(TestModule.Direction)result", csOutput);
     }
 
     [Fact]
@@ -370,7 +370,7 @@ public class WrapperEmitterReturnTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Container"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Container"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Container"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Container"),
                 MetadataAccessor = "$s10TestModule9ContainerCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -380,7 +380,7 @@ public class WrapperEmitterReturnTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Drawable"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Drawable"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Drawable"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Drawable"),
                 MetadataAccessor = string.Empty,
                 Flags = TypeRecordFlags.None,
@@ -447,7 +447,7 @@ public class WrapperEmitterReturnTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Container"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Container"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Container"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Container"),
                 MetadataAccessor = "$s10TestModule9ContainerCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -500,7 +500,7 @@ public class WrapperEmitterReturnTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Loader"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Loader"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Loader"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Loader"),
                 MetadataAccessor = "$s10TestModule6LoaderCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -543,7 +543,7 @@ public class WrapperEmitterReturnTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Container"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Container"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Container"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Container"),
                 MetadataAccessor = "$s10TestModule9ContainerCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -553,7 +553,7 @@ public class WrapperEmitterReturnTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Variant"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Variant"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Variant"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Variant"),
                 MetadataAccessor = "$s10TestModule7VariantOMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -596,7 +596,7 @@ public class WrapperEmitterReturnTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Container"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Container"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Container"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Container"),
                 MetadataAccessor = "$s10TestModule9ContainerCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -606,7 +606,7 @@ public class WrapperEmitterReturnTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Direction"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Direction"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Direction"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Direction"),
                 MetadataAccessor = "$s10TestModule9DirectionOMa",
                 Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
@@ -664,7 +664,7 @@ public class WrapperEmitterReturnTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Loader"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Loader"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Loader"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Loader"),
                 MetadataAccessor = "$s10TestModule6LoaderCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -674,7 +674,7 @@ public class WrapperEmitterReturnTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Response"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Response"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Response"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Response"),
                 MetadataAccessor = "$s10TestModule8ResponseVMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,

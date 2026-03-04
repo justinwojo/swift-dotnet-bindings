@@ -3,7 +3,7 @@
 
 using RuntimeTestsApp.Infrastructure;
 using Swift;
-using Swift.SwiftBindingsTestLib;
+using SwiftBindingsTestLib;
 
 namespace RuntimeTestsApp.Marshalling;
 
@@ -22,7 +22,7 @@ public class StringMarshallingTests : TestBase
     {
         // Create an Animal with ASCII name, verify it round-trips through Describe()
         // describe() returns "Animal: \(name)" — name only
-        var animal = SwiftBindingsTestLib.CreateAnimal("TestDog", "Woof");
+        var animal = TestLibFunctions.CreateAnimal("TestDog", "Woof");
         var description = animal.GetDescribe();
 
         AssertNotNull(description, "Description not null");
@@ -34,7 +34,7 @@ public class StringMarshallingTests : TestBase
     public void TestStringMethodReturn()
     {
         // Animal.GetSpeak() returns a string - verify marshalling
-        var animal = SwiftBindingsTestLib.CreateAnimal("Cat", "Meow");
+        var animal = TestLibFunctions.CreateAnimal("Cat", "Meow");
         var sound = animal.GetSpeak();
 
         AssertNotNull(sound, "Speak result not null");
@@ -47,7 +47,7 @@ public class StringMarshallingTests : TestBase
     {
         // DescribePoint takes no string params, but CreateAnimal takes two strings
         // Verify strings with special characters pass correctly
-        var animal = SwiftBindingsTestLib.CreateAnimal("Name With Spaces", "Sound!");
+        var animal = TestLibFunctions.CreateAnimal("Name With Spaces", "Sound!");
         var description = animal.GetDescribe();
 
         AssertNotNull(description, "Description not null");
@@ -64,7 +64,7 @@ public class StringMarshallingTests : TestBase
     {
         // Test Japanese characters in strings (CJK unified ideographs + hiragana)
         // describe() returns "Animal: \(name)" — name only; speak() returns "\(name) says \(sound)"
-        var animal = SwiftBindingsTestLib.CreateAnimal("犬", "ワンワン");
+        var animal = TestLibFunctions.CreateAnimal("犬", "ワンワン");
         var speak = animal.GetSpeak();
 
         AssertNotNull(speak, "Japanese speak not null");
@@ -77,7 +77,7 @@ public class StringMarshallingTests : TestBase
     public void TestUnicodeEmoji()
     {
         // Test emoji characters (multi-byte UTF-8 sequences)
-        var animal = SwiftBindingsTestLib.CreateAnimal("Dog", "Bark");
+        var animal = TestLibFunctions.CreateAnimal("Dog", "Bark");
         AssertNotNull(animal.GetDescribe(), "Emoji test created");
 
         // Verify Greeting enum with emoji raw value
@@ -116,13 +116,13 @@ public class StringMarshallingTests : TestBase
     {
         // Phase 55 regression: string enum FromRawValue round-trip
         // Create LogLevel from raw value, extract raw value back, compare
-        var result = SwiftBindingsTestLib.ValidateLogLevelRoundTrip("[INFO]");
+        var result = TestLibFunctions.ValidateLogLevelRoundTrip("[INFO]");
         AssertTrue(result, "LogLevel [INFO] round-trip");
 
-        result = SwiftBindingsTestLib.ValidateLogLevelRoundTrip("[DEBUG]");
+        result = TestLibFunctions.ValidateLogLevelRoundTrip("[DEBUG]");
         AssertTrue(result, "LogLevel [DEBUG] round-trip");
 
-        result = SwiftBindingsTestLib.ValidateLogLevelRoundTrip("[ERROR]");
+        result = TestLibFunctions.ValidateLogLevelRoundTrip("[ERROR]");
         AssertTrue(result, "LogLevel [ERROR] round-trip");
 
         TestLogger.Info("LogLevel raw value round-trips passed");
@@ -132,10 +132,10 @@ public class StringMarshallingTests : TestBase
     public void TestLogLevelInvalidRawValue()
     {
         // Invalid raw value should return false (no matching case)
-        var result = SwiftBindingsTestLib.ValidateLogLevelRoundTrip("INVALID");
+        var result = TestLibFunctions.ValidateLogLevelRoundTrip("INVALID");
         AssertFalse(result, "Invalid LogLevel returns false");
 
-        result = SwiftBindingsTestLib.ValidateLogLevelRoundTrip("");
+        result = TestLibFunctions.ValidateLogLevelRoundTrip("");
         AssertFalse(result, "Empty LogLevel returns false");
 
         TestLogger.Info("LogLevel invalid raw value tests passed");
@@ -156,7 +156,7 @@ public class StringMarshallingTests : TestBase
 
         foreach (var (rawValue, name) in cases)
         {
-            var result = SwiftBindingsTestLib.ValidateLogLevelRoundTrip(rawValue);
+            var result = TestLibFunctions.ValidateLogLevelRoundTrip(rawValue);
             AssertTrue(result, $"LogLevel {name} round-trip");
         }
         TestLogger.Info("All LogLevel cases round-trip correctly");
@@ -311,11 +311,11 @@ public class StringMarshallingTests : TestBase
     {
         // Create LogLevel enum cases, extract raw value via free function
         var debug = LogLevel.Debug;
-        var raw = SwiftBindingsTestLib.GetLogLevelRaw(debug);
+        var raw = TestLibFunctions.GetLogLevelRaw(debug);
         AssertEqual("[DEBUG]", raw, "GetLogLevelRaw Debug");
 
         var critical = LogLevel.Critical;
-        raw = SwiftBindingsTestLib.GetLogLevelRaw(critical);
+        raw = TestLibFunctions.GetLogLevelRaw(critical);
         AssertEqual("[CRITICAL]", raw, "GetLogLevelRaw Critical");
 
         TestLogger.Info("GetLogLevelRaw tests passed");
@@ -326,7 +326,7 @@ public class StringMarshallingTests : TestBase
     {
         // Test a moderately long string (1KB)
         var longName = new string('A', 1024);
-        var animal = SwiftBindingsTestLib.CreateAnimal(longName, "Sound");
+        var animal = TestLibFunctions.CreateAnimal(longName, "Sound");
         var description = animal.GetDescribe();
 
         AssertNotNull(description, "Long string description not null");
@@ -339,7 +339,7 @@ public class StringMarshallingTests : TestBase
     {
         // Stress test: >64KB string to exercise large buffer marshalling
         var veryLongName = new string('B', 65536 + 100);
-        var animal = SwiftBindingsTestLib.CreateAnimal(veryLongName, "X");
+        var animal = TestLibFunctions.CreateAnimal(veryLongName, "X");
         var description = animal.GetDescribe();
 
         AssertNotNull(description, ">64KB string description not null");

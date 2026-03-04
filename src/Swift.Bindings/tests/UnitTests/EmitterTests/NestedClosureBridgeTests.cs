@@ -932,7 +932,7 @@ public class NestedClosureBridgeTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.DataRequest"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "DataRequest"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "DataRequest"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.DataRequest"),
                 MetadataAccessor = "$s10TestModule11DataRequestCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -998,7 +998,7 @@ public class NestedClosureBridgeTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.DataRequest"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "DataRequest"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "DataRequest"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.DataRequest"),
                 MetadataAccessor = "$s10TestModule11DataRequestCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -1008,7 +1008,7 @@ public class NestedClosureBridgeTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.ResponseDisposition"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "ResponseDisposition"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ResponseDisposition"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ResponseDisposition"),
                 MetadataAccessor = "$s10TestModule19ResponseDispositionOMa",
                 Flags = TypeRecordFlags.SimpleEnum | TypeRecordFlags.Frozen,

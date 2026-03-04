@@ -1661,7 +1661,7 @@ public class ProtocolHandlerOutputTests
         var protoTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Fetcher");
         testModule.RegisterType(protoTypeName, new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "IFetcher"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "IFetcher"),
             SwiftTypeName = protoTypeName,
             MetadataAccessor = "$s10TestModule7FetcherMa",
             Flags = TypeRecordFlags.None,
@@ -2445,7 +2445,7 @@ public class ProtocolHandlerOutputTests
                 swiftTypeName,
                 new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", csharpName),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", csharpName),
                     SwiftTypeName = swiftTypeName,
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.None,

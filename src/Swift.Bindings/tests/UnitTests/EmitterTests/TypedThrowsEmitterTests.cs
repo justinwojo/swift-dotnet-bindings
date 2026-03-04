@@ -23,10 +23,10 @@ public class TypedThrowsEmitterTests
             errorTypeName: "TestModule.ParseError");
 
         // C# side: typed error extraction with nil-check fallback
-        Assert.Contains("SwiftException<Swift.TestModule.ParseError>", csOutput);
+        Assert.Contains("SwiftException<TestModule.ParseError>", csOutput);
         Assert.DoesNotContain("SwiftRuntimeException", csOutput);
         Assert.Contains("SBW_ExtractTypedError_TestModule_ParseError", csOutput);
-        Assert.Contains("MarshalFromSwift<Swift.TestModule.ParseError>", csOutput);
+        Assert.Contains("MarshalFromSwift<TestModule.ParseError>", csOutput);
         Assert.Contains("SBW_Free(_typedErrorPtr)", csOutput);
         Assert.Contains("_typedError, _errorMessage", csOutput);
         Assert.Contains("_typedErrorPtr != IntPtr.Zero", csOutput);
@@ -92,9 +92,9 @@ public class TypedThrowsEmitterTests
 
         // C# side: typed error extraction with nil-check fallback
         Assert.Contains("SBW_ExtractTypedError_TestModule_ParseError", csOutput);
-        Assert.Contains("MarshalFromSwift<Swift.TestModule.ParseError>", csOutput);
+        Assert.Contains("MarshalFromSwift<TestModule.ParseError>", csOutput);
         Assert.Contains("_typedErrorPtr != IntPtr.Zero", csOutput);
-        Assert.Contains("SwiftException<Swift.TestModule.ParseError>", csOutput);
+        Assert.Contains("SwiftException<TestModule.ParseError>", csOutput);
 
         // Swift side: typed error extractor function
         Assert.Contains("SBW_ExtractTypedError_", swiftOutput);
@@ -128,9 +128,9 @@ public class TypedThrowsEmitterTests
         // C# side: 5-param delegate with error ptr + size + message + isCancellation + task
         Assert.Contains("IntPtr, nint, IntPtr, int, IntPtr, void", csOutput);
         // Error type uses fully-qualified C# name from TypeDatabase
-        Assert.Contains("MarshalFromSwift<Swift.TestModule.ParseError>", csOutput);
+        Assert.Contains("MarshalFromSwift<TestModule.ParseError>", csOutput);
         Assert.Contains("SBW_Free(errorPtr)", csOutput);
-        Assert.Contains("SwiftException<Swift.TestModule.ParseError>", csOutput);
+        Assert.Contains("SwiftException<TestModule.ParseError>", csOutput);
 
         // Swift side: typed error callback with MemoryLayout + copyMemory
         Assert.Contains("MemoryLayout<TestModule.ParseError>.size", swiftOutput);
@@ -323,7 +323,7 @@ public class TypedThrowsEmitterTests
                 ((TypeDecl)parentDecl).SwiftTypeName,
                 new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Parser"),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Parser"),
                     SwiftTypeName = ((TypeDecl)parentDecl).SwiftTypeName,
                     MetadataAccessor = "$s10TestModule6ParserVMa",
                     Flags = TypeRecordFlags.Frozen,
@@ -351,7 +351,7 @@ public class TypedThrowsEmitterTests
                 errorSwiftName,
                 new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", errorSimpleName),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", errorSimpleName),
                     SwiftTypeName = errorSwiftName,
                     MetadataAccessor = $"$s10TestModule{errorSimpleName}OMa",
                     Flags = TypeRecordFlags.None,
@@ -496,7 +496,7 @@ public class TypedThrowsEmitterTests
             structDecl.SwiftTypeName,
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Parser"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Parser"),
                 SwiftTypeName = structDecl.SwiftTypeName,
                 MetadataAccessor = "$s10TestModule6ParserVMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -511,7 +511,7 @@ public class TypedThrowsEmitterTests
                 errorSwiftName,
                 new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", errorSimpleName),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", errorSimpleName),
                     SwiftTypeName = errorSwiftName,
                     MetadataAccessor = $"$s10TestModule{errorSimpleName}OMa",
                     Flags = TypeRecordFlags.None,

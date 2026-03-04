@@ -89,7 +89,7 @@ record_result() {
 
 # --- Step 0: Staleness check ---
 echo "--- Step 0: Staleness check ---"
-BINDINGS_FILE="output/Swift.SwiftBindingsTestLib.cs"
+BINDINGS_FILE="output/SwiftBindingsTestLib.cs"
 if [ ! -f "$BINDINGS_FILE" ]; then
     echo "ERROR: Bindings not found at $BINDINGS_FILE"
     echo "Run build-and-test.sh first to generate bindings."

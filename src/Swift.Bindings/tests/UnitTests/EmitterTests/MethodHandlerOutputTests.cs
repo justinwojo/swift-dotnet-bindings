@@ -332,7 +332,7 @@ public class MethodHandlerOutputTests
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
         Assert.Contains("[global::Swift.UnsupportedSwiftType(\"Unsupported closure fallback\",", csOutput);
-        Assert.Contains("public virtual Swift.TestModule.Box<object> GetBoxedHandler()", csOutput);
+        Assert.Contains("public virtual TestModule.Box<object> GetBoxedHandler()", csOutput);
     }
 
     [Fact]
@@ -379,7 +379,7 @@ public class MethodHandlerOutputTests
         var partialLine = Array.Find(csOutput.Split('\n'), line => line.Contains("partial", StringComparison.Ordinal) && line.Contains("PInvoke_", StringComparison.Ordinal));
         Assert.NotNull(partialLine);
         Assert.Contains("IntPtr variant", partialLine!);
-        Assert.DoesNotContain("Swift.TestModule.Variant", partialLine!);
+        Assert.DoesNotContain("TestModule.Variant", partialLine!);
         // Wrapper should extract handle from payload
         Assert.Contains("variant.Payload.DangerousGetHandle()", csOutput);
     }
@@ -478,11 +478,11 @@ public class MethodHandlerOutputTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        Assert.Contains("private static unsafe Swift.TestModule.Box handle_callback_", csOutput);
+        Assert.Contains("private static unsafe TestModule.Box handle_callback_", csOutput);
         Assert.DoesNotContain("private static unsafe void* handle_callback_", csOutput);
         Assert.Contains("return del(", csOutput);
         // Closure returns non-primitive struct → falls back to legacy Swift path (not Cdecl-compatible)
-        Assert.Contains("delegate* unmanaged[Swift]<double, SwiftSelf, Swift.TestModule.Box>", csOutput);
+        Assert.Contains("delegate* unmanaged[Swift]<double, SwiftSelf, TestModule.Box>", csOutput);
     }
 
     [Fact]
@@ -1187,7 +1187,7 @@ public class MethodHandlerOutputTests
         {
             (identifier: SwiftTypeName.FromModuleQualifiedName("TestModule.MPIMapView"), record: new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "MPIMapView"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "MPIMapView"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MPIMapView"),
                 MetadataAccessor = "$s10TestModule10MPIMapViewCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -1354,7 +1354,7 @@ public class MethodHandlerOutputTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Loader"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Loader"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Loader"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Loader"),
                 MetadataAccessor = "$s10TestModule6LoaderCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -1364,7 +1364,7 @@ public class MethodHandlerOutputTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Box"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Box"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Box"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Box"),
                 MetadataAccessor = "$s10TestModule3BoxVMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -1384,7 +1384,7 @@ public class MethodHandlerOutputTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.LottieColor"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "LottieColor"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "LottieColor"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.LottieColor"),
                 MetadataAccessor = "$s10TestModule11LottieColorVMa",
                 Flags = TypeRecordFlags.None,
@@ -1394,7 +1394,7 @@ public class MethodHandlerOutputTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.ColorFormatDenominator"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "ColorFormatDenominator"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ColorFormatDenominator"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ColorFormatDenominator"),
                 MetadataAccessor = "$s10TestModule22ColorFormatDenominatorOMa",
                 Flags = TypeRecordFlags.None,
@@ -1404,7 +1404,7 @@ public class MethodHandlerOutputTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Variant"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Variant"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Variant"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Variant"),
                 MetadataAccessor = "$s10TestModule7VariantOMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -1560,7 +1560,7 @@ public class MethodHandlerOutputTests
         {
             (identifier: SwiftTypeName.FromModuleQualifiedName(protocolName), record: new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", protocolName.Split('.')[1]),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", protocolName.Split('.')[1]),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(protocolName),
                 MetadataAccessor = "$s10TestModule8ProtocolPAAWP",
                 Flags = flags,

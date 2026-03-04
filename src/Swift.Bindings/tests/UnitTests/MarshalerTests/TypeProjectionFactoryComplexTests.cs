@@ -53,7 +53,7 @@ public class TypeProjectionFactoryComplexTests
         var db = new MockTypeDatabase();
         db.AddType("TestModule.Point", new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Point"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Point"),
             SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
             MetadataAccessor = "",
             Flags = TypeRecordFlags.Frozen,
@@ -146,7 +146,7 @@ public class TypeProjectionFactoryComplexTests
         var db = new MockTypeDatabase();
         db.AddType("TestModule.Describable", new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Describable"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Describable"),
             SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Describable"),
             MetadataAccessor = "",
             Flags = TypeRecordFlags.None,
@@ -169,7 +169,7 @@ public class TypeProjectionFactoryComplexTests
         var db = new MockTypeDatabase();
         db.AddType("TestModule.Sendable", new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Sendable"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Sendable"),
             SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Sendable"),
             MetadataAccessor = "",
             Flags = TypeRecordFlags.None,
@@ -477,7 +477,7 @@ public class TypeProjectionFactoryComplexTests
         var db = new MockTypeDatabase();
         db.AddType("TestModule.Direction", new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Direction"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Direction"),
             SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Direction"),
             MetadataAccessor = "",
             Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,

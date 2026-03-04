@@ -128,7 +128,7 @@ public class ConstructorHandlerOutputTests
         // Should emit constructor syntax, not instance method
         Assert.Contains("public Animal(", csOutput);
         // Should NOT contain a return type (constructors don't have one)
-        Assert.DoesNotContain("Swift.TestModule.Animal Init(", csOutput);
+        Assert.DoesNotContain("TestModule.Animal Init(", csOutput);
         Assert.DoesNotContain("return ", csOutput);
     }
 
@@ -174,7 +174,7 @@ public class ConstructorHandlerOutputTests
         var externLine = Array.Find(lines, line => line.Contains("partial", StringComparison.Ordinal) && line.Contains("PInvoke_", StringComparison.Ordinal));
         Assert.NotNull(externLine);
         Assert.Contains("IntPtr", externLine);
-        Assert.DoesNotContain("Swift.TestModule.Variant", externLine);
+        Assert.DoesNotContain("TestModule.Variant", externLine);
     }
 
     [Fact]
@@ -209,7 +209,7 @@ public class ConstructorHandlerOutputTests
         {
             (identifier: parentDecl.SwiftTypeName, record: new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Widget"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Widget"),
                 SwiftTypeName = parentDecl.SwiftTypeName,
                 MetadataAccessor = "$s10TestModule6WidgetVMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -250,7 +250,7 @@ public class ConstructorHandlerOutputTests
         {
             (identifier: parentDecl.SwiftTypeName, record: new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Widget"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Widget"),
                 SwiftTypeName = parentDecl.SwiftTypeName,
                 MetadataAccessor = "$s10TestModule6WidgetVMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -298,7 +298,7 @@ public class ConstructorHandlerOutputTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Point"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Point"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
                 MetadataAccessor = "$s10TestModule5PointVMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -315,7 +315,7 @@ public class ConstructorHandlerOutputTests
         {
             (identifier: SwiftTypeName.FromModuleQualifiedName(protocolName), record: new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", protocolName.Split('.')[1]),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", protocolName.Split('.')[1]),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(protocolName),
                 MetadataAccessor = "$s10TestModule8ProtocolPAAWP",
                 Flags = flags,
@@ -450,7 +450,7 @@ public class ConstructorHandlerOutputTests
         {
             (identifier: classDecl.SwiftTypeName, record: new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", name),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", name),
                 SwiftTypeName = classDecl.SwiftTypeName,
                 MetadataAccessor = $"$s10TestModule{name.Length}{name}CMa",
                 Flags = TypeRecordFlags.None,
@@ -504,7 +504,7 @@ public class ConstructorHandlerOutputTests
         {
             (identifier: SwiftTypeName.FromModuleQualifiedName("TestModule.Variant"), record: new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Variant"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Variant"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Variant"),
                 MetadataAccessor = "$s10TestModule7VariantOMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -545,7 +545,7 @@ public class ConstructorHandlerOutputTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Drawable"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "IDrawable"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "IDrawable"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Drawable"),
                 MetadataAccessor = "$s10TestModule8DrawablePAAWP",
                 Flags = TypeRecordFlags.None,

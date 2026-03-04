@@ -3,7 +3,7 @@
 
 using RuntimeTestsApp.Infrastructure;
 using Swift;
-using Swift.SwiftBindingsTestLib;
+using SwiftBindingsTestLib;
 
 namespace RuntimeTestsApp.Lifetime;
 
@@ -23,7 +23,7 @@ public class OwnershipTests : TestBase
     public void TestAnimalDoubleDispose()
     {
         // Dispose SafeHandle twice — should not crash or double-free
-        var animal = SwiftBindingsTestLib.CreateAnimal("DoubleFree", "Test");
+        var animal = TestLibFunctions.CreateAnimal("DoubleFree", "Test");
         var name = animal.Name.ToString();
         AssertEqual("DoubleFree", name, "Accessible before dispose");
 
@@ -39,7 +39,7 @@ public class OwnershipTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestUniqueResourceDoubleDispose()
     {
-        var resource = SwiftBindingsTestLib.CreateUniqueResource(7);
+        var resource = TestLibFunctions.CreateUniqueResource(7);
         AssertEqual(7, resource.Id, "Accessible before dispose");
 
         resource.Dispose();
@@ -55,7 +55,7 @@ public class OwnershipTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestAnimalPropertyGetAfterDispose()
     {
-        var animal = SwiftBindingsTestLib.CreateAnimal("Ghost", "Boo");
+        var animal = TestLibFunctions.CreateAnimal("Ghost", "Boo");
         animal.Dispose();
 
         AssertThrows<ObjectDisposedException>(() =>
@@ -69,7 +69,7 @@ public class OwnershipTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestAnimalPropertySetAfterDispose()
     {
-        var animal = SwiftBindingsTestLib.CreateAnimal("Ghost", "Boo");
+        var animal = TestLibFunctions.CreateAnimal("Ghost", "Boo");
         animal.Dispose();
 
         AssertThrows<ObjectDisposedException>(() =>
@@ -83,7 +83,7 @@ public class OwnershipTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestAnimalMethodCallAfterDispose()
     {
-        var animal = SwiftBindingsTestLib.CreateAnimal("Ghost", "Boo");
+        var animal = TestLibFunctions.CreateAnimal("Ghost", "Boo");
         animal.Dispose();
 
         AssertThrows<ObjectDisposedException>(() =>
@@ -97,7 +97,7 @@ public class OwnershipTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestAnimalDescribeAfterDispose()
     {
-        var animal = SwiftBindingsTestLib.CreateAnimal("Ghost", "Boo");
+        var animal = TestLibFunctions.CreateAnimal("Ghost", "Boo");
         animal.Dispose();
 
         AssertThrows<ObjectDisposedException>(() =>
@@ -111,7 +111,7 @@ public class OwnershipTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestUniqueResourceAccessAfterDispose()
     {
-        var resource = SwiftBindingsTestLib.CreateUniqueResource(42);
+        var resource = TestLibFunctions.CreateUniqueResource(42);
         resource.Dispose();
 
         AssertThrows<ObjectDisposedException>(() =>
@@ -125,7 +125,7 @@ public class OwnershipTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestUniqueResourceMethodAfterDispose()
     {
-        var resource = SwiftBindingsTestLib.CreateUniqueResource(42);
+        var resource = TestLibFunctions.CreateUniqueResource(42);
         resource.Dispose();
 
         AssertThrows<ObjectDisposedException>(() =>
@@ -144,8 +144,8 @@ public class OwnershipTests : TestBase
     public void TestMultipleReferencesIndependent()
     {
         // Two independently created objects are independent
-        var animal1 = SwiftBindingsTestLib.CreateAnimal("First", "Meow");
-        var animal2 = SwiftBindingsTestLib.CreateAnimal("Second", "Woof");
+        var animal1 = TestLibFunctions.CreateAnimal("First", "Meow");
+        var animal2 = TestLibFunctions.CreateAnimal("Second", "Woof");
 
         animal1.Dispose();
 
@@ -162,8 +162,8 @@ public class OwnershipTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestMultipleResourcesIndependent()
     {
-        var r1 = SwiftBindingsTestLib.CreateUniqueResource(1);
-        var r2 = SwiftBindingsTestLib.CreateUniqueResource(2);
+        var r1 = TestLibFunctions.CreateUniqueResource(1);
+        var r2 = TestLibFunctions.CreateUniqueResource(2);
 
         r1.Dispose();
 
@@ -181,7 +181,7 @@ public class OwnershipTests : TestBase
         // Disposing via one reference invalidates both, because they share
         // the same SwiftSafeHandle — C# reference semantics means both
         // variables point to the same managed wrapper object.
-        var animal = SwiftBindingsTestLib.CreateAnimal("Shared", "Moo");
+        var animal = TestLibFunctions.CreateAnimal("Shared", "Moo");
         var alias = animal;
 
         // Both references see the same data
@@ -207,7 +207,7 @@ public class OwnershipTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestSharedReferenceMethodCallAfterDispose()
     {
-        var animal = SwiftBindingsTestLib.CreateAnimal("SharedMethod", "Woof");
+        var animal = TestLibFunctions.CreateAnimal("SharedMethod", "Woof");
         var alias = animal;
 
         // Verify both work before dispose
@@ -234,9 +234,9 @@ public class OwnershipTests : TestBase
     public void TestBorrowResourcePreservesOwnership()
     {
         // BorrowResource should not consume the resource
-        var resource = SwiftBindingsTestLib.CreateUniqueResource(42);
+        var resource = TestLibFunctions.CreateUniqueResource(42);
 
-        var borrowed = SwiftBindingsTestLib.BorrowResource(resource);
+        var borrowed = TestLibFunctions.BorrowResource(resource);
         AssertEqual(42, borrowed, "BorrowResource returns correct id");
 
         // Resource should still be accessible after borrow

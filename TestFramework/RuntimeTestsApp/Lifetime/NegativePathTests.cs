@@ -3,7 +3,7 @@
 
 using RuntimeTestsApp.Infrastructure;
 using Swift;
-using Swift.SwiftBindingsTestLib;
+using SwiftBindingsTestLib;
 
 namespace RuntimeTestsApp.Lifetime;
 
@@ -105,8 +105,8 @@ public class NegativePathTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestAnimalReferenceEquality()
     {
-        var animal1 = SwiftBindingsTestLib.CreateAnimal("Rex", "Bark");
-        var animal2 = SwiftBindingsTestLib.CreateAnimal("Rex", "Bark");
+        var animal1 = TestLibFunctions.CreateAnimal("Rex", "Bark");
+        var animal2 = TestLibFunctions.CreateAnimal("Rex", "Bark");
 
         // Non-Equatable types inherit reference equality from object
         AssertTrue(animal1.Equals(animal1), "Animal same-reference Equals returns true");
@@ -151,7 +151,7 @@ public class NegativePathTests : TestBase
     public void TestDisposedAnimalSoundPropertyAfterDispose()
     {
         // Test the second property (Sound) specifically
-        var animal = SwiftBindingsTestLib.CreateAnimal("Test", "Moo");
+        var animal = TestLibFunctions.CreateAnimal("Test", "Moo");
         animal.Dispose();
 
         AssertThrows<ObjectDisposedException>(() =>
@@ -165,7 +165,7 @@ public class NegativePathTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestDisposedAnimalSoundSetAfterDispose()
     {
-        var animal = SwiftBindingsTestLib.CreateAnimal("Test", "Moo");
+        var animal = TestLibFunctions.CreateAnimal("Test", "Moo");
         animal.Dispose();
 
         AssertThrows<ObjectDisposedException>(() =>
@@ -207,7 +207,7 @@ public class NegativePathTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestDisposedResourceConsumeAfterDispose()
     {
-        var resource = SwiftBindingsTestLib.CreateUniqueResource(10);
+        var resource = TestLibFunctions.CreateUniqueResource(10);
         resource.Dispose();
 
         AssertThrows<ObjectDisposedException>(() =>
@@ -234,7 +234,7 @@ public class NegativePathTests : TestBase
         //
         // This test verifies the contract: invalid handles produce
         // ObjectDisposedException on any property/method access.
-        var animal = SwiftBindingsTestLib.CreateAnimal("ZeroTest", "Sound");
+        var animal = TestLibFunctions.CreateAnimal("ZeroTest", "Sound");
 
         // Verify the payload is valid before dispose
         AssertTrue(!animal.Payload.IsInvalid, "Payload is valid before dispose");
@@ -271,9 +271,9 @@ public class NegativePathTests : TestBase
     public void TestValidateLogLevelInvalidValues()
     {
         // ValidateLogLevelRoundTrip should return false for invalid values
-        AssertFalse(SwiftBindingsTestLib.ValidateLogLevelRoundTrip(""), "Empty string is invalid");
-        AssertFalse(SwiftBindingsTestLib.ValidateLogLevelRoundTrip("INVALID"), "Random string is invalid");
-        AssertFalse(SwiftBindingsTestLib.ValidateLogLevelRoundTrip("[info]"), "Lowercase is invalid");
+        AssertFalse(TestLibFunctions.ValidateLogLevelRoundTrip(""), "Empty string is invalid");
+        AssertFalse(TestLibFunctions.ValidateLogLevelRoundTrip("INVALID"), "Random string is invalid");
+        AssertFalse(TestLibFunctions.ValidateLogLevelRoundTrip("[info]"), "Lowercase is invalid");
 
         TestLogger.Info("ValidateLogLevelRoundTrip rejects invalid values");
     }
@@ -285,7 +285,7 @@ public class NegativePathTests : TestBase
         var validValues = new[] { "[DEBUG]", "[INFO]", "[WARN]", "[ERROR]", "[CRITICAL]" };
         foreach (var value in validValues)
         {
-            AssertTrue(SwiftBindingsTestLib.ValidateLogLevelRoundTrip(value), $"{value} round-trips");
+            AssertTrue(TestLibFunctions.ValidateLogLevelRoundTrip(value), $"{value} round-trips");
         }
 
         TestLogger.Info("All valid LogLevel raw values round-trip correctly");

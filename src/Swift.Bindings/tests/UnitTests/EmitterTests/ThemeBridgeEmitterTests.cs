@@ -325,10 +325,10 @@ public class ThemeBridgeEmitterTests : IDisposable
             })
         };
 
-        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
             viewBridgeExists: false, NullLogger.Instance);
 
-        var swiftPath = Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift");
+        var swiftPath = Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift");
         Assert.True(File.Exists(swiftPath));
         var content = File.ReadAllText(swiftPath);
 
@@ -354,10 +354,10 @@ public class ThemeBridgeEmitterTests : IDisposable
             })
         };
 
-        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
             viewBridgeExists: false, NullLogger.Instance);
 
-        var content = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var content = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
 
         Assert.Contains("func SBW_fontWeight(_ raw: Int32) -> Font.Weight", content);
         Assert.Contains("func SBW_fontDesign(_ raw: Int32) -> Font.Design", content);
@@ -374,10 +374,10 @@ public class ThemeBridgeEmitterTests : IDisposable
             })
         };
 
-        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
             viewBridgeExists: false, NullLogger.Instance);
 
-        var content = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var content = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
 
         Assert.DoesNotContain("SBW_fontWeight", content);
         Assert.DoesNotContain("SBW_fontDesign", content);
@@ -394,10 +394,10 @@ public class ThemeBridgeEmitterTests : IDisposable
             })
         };
 
-        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
             viewBridgeExists: false, NullLogger.Instance);
 
-        var content = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var content = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
 
         // Defensive: uses if let, not force unwrap
         Assert.Contains("if let namePtr = namePtr", content);
@@ -421,15 +421,15 @@ public class ThemeBridgeEmitterTests : IDisposable
             })
         };
 
-        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
             viewBridgeExists: false, NullLogger.Instance);
 
-        var csPath = Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs");
+        var csPath = Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs");
         Assert.True(File.Exists(csPath));
         var content = File.ReadAllText(csPath);
 
         Assert.Contains("public partial class MyTheme", content);
-        Assert.Contains("namespace Swift.TestModule", content);
+        Assert.Contains("namespace TestModule", content);
     }
 
     [Fact]
@@ -443,10 +443,10 @@ public class ThemeBridgeEmitterTests : IDisposable
             })
         };
 
-        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
             viewBridgeExists: false, NullLogger.Instance);
 
-        var content = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var content = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
 
         Assert.Contains("public static void SetAlertColor(Swift.SwiftColor value)", content);
         Assert.Contains("value.R, value.G, value.B, value.A", content);
@@ -463,10 +463,10 @@ public class ThemeBridgeEmitterTests : IDisposable
             })
         };
 
-        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
             viewBridgeExists: false, NullLogger.Instance);
 
-        var content = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var content = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
 
         Assert.Contains("public static unsafe void SetTitleFont(Swift.SwiftFont value)", content);
         Assert.Contains("fixed (byte* namePtr = nameBytes)", content);
@@ -485,10 +485,10 @@ public class ThemeBridgeEmitterTests : IDisposable
             })
         };
 
-        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
             viewBridgeExists: false, NullLogger.Instance);
 
-        var content = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var content = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
 
         Assert.Contains("[LibraryImport(\"TestModuleSwiftBindings\"", content);
         Assert.Contains("ThemeBridgeNativeMethods", content);
@@ -511,10 +511,10 @@ public class ThemeBridgeEmitterTests : IDisposable
             })
         };
 
-        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
             viewBridgeExists: false, NullLogger.Instance);
 
-        var content = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var content = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
 
         Assert.Contains("[LibraryImport(", content);
         Assert.Contains("static partial void", content);
@@ -539,10 +539,10 @@ public class ThemeBridgeEmitterTests : IDisposable
             })
         };
 
-        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
             viewBridgeExists: false, NullLogger.Instance);
 
-        var swiftPath = Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift");
+        var swiftPath = Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift");
         Assert.True(File.Exists(swiftPath));
         var swiftContent = File.ReadAllText(swiftPath);
 
@@ -560,7 +560,7 @@ public class ThemeBridgeEmitterTests : IDisposable
     public void EmitThemeBridge_AppendsToExistingSwiftFile()
     {
         // Simulate existing bridge file from view bridge
-        var swiftPath = Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift");
+        var swiftPath = Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift");
         File.WriteAllText(swiftPath, "// Auto-generated by SwiftBindings — SwiftUI Bridge\nimport SwiftUI\n// existing content\n");
 
         var themeInfos = new List<ThemeBridgeEmitter.ThemeBridgeInfo>
@@ -571,7 +571,7 @@ public class ThemeBridgeEmitterTests : IDisposable
             })
         };
 
-        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
             viewBridgeExists: true, NullLogger.Instance);
 
         var content = File.ReadAllText(swiftPath);
@@ -597,19 +597,19 @@ public class ThemeBridgeEmitterTests : IDisposable
         };
 
         // Run #1
-        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
             viewBridgeExists: false, NullLogger.Instance);
 
-        var swiftPath = Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift");
-        var csPath = Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs");
+        var swiftPath = Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift");
+        var csPath = Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs");
         var swiftAfterFirst = File.ReadAllText(swiftPath);
         var csAfterFirst = File.ReadAllText(csPath);
 
         // Simulate rerun: ModuleEmitter cleans up auto-generated files first
-        SwiftUIBridgeEmitter.CleanupAutoGeneratedBridgeFiles(_tempDir, "Swift.TestModule", NullLogger.Instance);
+        SwiftUIBridgeEmitter.CleanupAutoGeneratedBridgeFiles(_tempDir, "TestModule", NullLogger.Instance);
 
         // Run #2
-        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
             viewBridgeExists: false, NullLogger.Instance);
 
         var swiftAfterSecond = File.ReadAllText(swiftPath);
@@ -624,10 +624,10 @@ public class ThemeBridgeEmitterTests : IDisposable
     public void EmitThemeBridge_IsIdempotent_WithViewBridge()
     {
         // Simulate view bridge creating the file first
-        var swiftPath = Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift");
-        var csPath = Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs");
+        var swiftPath = Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift");
+        var csPath = Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs");
         File.WriteAllText(swiftPath, "// Auto-generated by SwiftBindings — SwiftUI Bridge\nimport SwiftUI\nimport TestModule\n\n// view bridge content\n");
-        File.WriteAllText(csPath, "// Auto-generated by SwiftBindings — SwiftUI Bridge\nnamespace Swift.TestModule\n{\n    // view bridge content\n}\n");
+        File.WriteAllText(csPath, "// Auto-generated by SwiftBindings — SwiftUI Bridge\nnamespace TestModule\n{\n    // view bridge content\n}\n");
 
         var themeInfos = new List<ThemeBridgeEmitter.ThemeBridgeInfo>
         {
@@ -638,7 +638,7 @@ public class ThemeBridgeEmitterTests : IDisposable
         };
 
         // Run #1 (appends theme bridge to view bridge files)
-        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
             viewBridgeExists: true, NullLogger.Instance);
 
         var swiftAfterFirst = File.ReadAllText(swiftPath);
@@ -655,7 +655,7 @@ public class ThemeBridgeEmitterTests : IDisposable
     [Fact]
     public void EmitThemeBridge_SkipsBoth_WhenSwiftFileNotAutoGenerated()
     {
-        var swiftPath = Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift");
+        var swiftPath = Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift");
         File.WriteAllText(swiftPath, "// User-maintained bridge file\nimport SwiftUI\n");
 
         var themeInfos = new List<ThemeBridgeEmitter.ThemeBridgeInfo>
@@ -666,7 +666,7 @@ public class ThemeBridgeEmitterTests : IDisposable
             })
         };
 
-        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
             viewBridgeExists: true, NullLogger.Instance);
 
         // Swift file preserved
@@ -675,15 +675,15 @@ public class ThemeBridgeEmitterTests : IDisposable
         Assert.DoesNotContain("SBW_MyTheme_set_color", swiftContent);
 
         // C# file must NOT be created (pair-level skip)
-        var csPath = Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs");
+        var csPath = Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs");
         Assert.False(File.Exists(csPath), "C# bridge should not be created when Swift file is user-maintained");
     }
 
     [Fact]
     public void EmitThemeBridge_SkipsBoth_WhenCSharpFileNotAutoGenerated()
     {
-        var csPath = Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs");
-        File.WriteAllText(csPath, "// User-maintained bridge file\nnamespace Swift.TestModule { }\n");
+        var csPath = Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs");
+        File.WriteAllText(csPath, "// User-maintained bridge file\nnamespace TestModule { }\n");
 
         var themeInfos = new List<ThemeBridgeEmitter.ThemeBridgeInfo>
         {
@@ -693,16 +693,16 @@ public class ThemeBridgeEmitterTests : IDisposable
             })
         };
 
-        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
             viewBridgeExists: true, NullLogger.Instance);
 
         // C# file preserved
         var csContent = File.ReadAllText(csPath);
-        Assert.Equal("// User-maintained bridge file\nnamespace Swift.TestModule { }\n", csContent);
+        Assert.Equal("// User-maintained bridge file\nnamespace TestModule { }\n", csContent);
         Assert.DoesNotContain("SetColor", csContent);
 
         // Swift file must NOT be created (pair-level skip)
-        var swiftPath = Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift");
+        var swiftPath = Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift");
         Assert.False(File.Exists(swiftPath), "Swift bridge should not be created when C# file is user-maintained");
     }
 
@@ -710,7 +710,7 @@ public class ThemeBridgeEmitterTests : IDisposable
     public void EmitThemeBridge_SkipsBoth_WhenUserSwiftExists_CSharpMissing()
     {
         // User-maintained Swift file + no C# file → must skip both
-        var swiftPath = Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift");
+        var swiftPath = Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift");
         File.WriteAllText(swiftPath, "// Custom hand-written bridge\nimport SwiftUI\n");
 
         var themeInfos = new List<ThemeBridgeEmitter.ThemeBridgeInfo>
@@ -722,21 +722,21 @@ public class ThemeBridgeEmitterTests : IDisposable
             })
         };
 
-        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
             viewBridgeExists: false, NullLogger.Instance);
 
         // Swift untouched
         Assert.Equal("// Custom hand-written bridge\nimport SwiftUI\n", File.ReadAllText(swiftPath));
         // C# never created — no orphan P/Invokes
-        Assert.False(File.Exists(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs")));
+        Assert.False(File.Exists(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs")));
     }
 
     [Fact]
     public void EmitThemeBridge_SkipsBoth_WhenUserCSharpExists_SwiftMissing()
     {
         // User-maintained C# file + no Swift file → must skip both
-        var csPath = Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs");
-        File.WriteAllText(csPath, "// Custom hand-written bridge\nnamespace Swift.TestModule { }\n");
+        var csPath = Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs");
+        File.WriteAllText(csPath, "// Custom hand-written bridge\nnamespace TestModule { }\n");
 
         var themeInfos = new List<ThemeBridgeEmitter.ThemeBridgeInfo>
         {
@@ -747,20 +747,20 @@ public class ThemeBridgeEmitterTests : IDisposable
             })
         };
 
-        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
             viewBridgeExists: false, NullLogger.Instance);
 
         // C# untouched
-        Assert.Equal("// Custom hand-written bridge\nnamespace Swift.TestModule { }\n", File.ReadAllText(csPath));
+        Assert.Equal("// Custom hand-written bridge\nnamespace TestModule { }\n", File.ReadAllText(csPath));
         // Swift never created — no orphan @_cdecl symbols
-        Assert.False(File.Exists(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift")));
+        Assert.False(File.Exists(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift")));
     }
 
     [Fact]
     public void EmitThemeBridge_SkipsBoth_WhenBothUserMaintained()
     {
-        var swiftPath = Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift");
-        var csPath = Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs");
+        var swiftPath = Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift");
+        var csPath = Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs");
         File.WriteAllText(swiftPath, "// Custom Swift bridge\n");
         File.WriteAllText(csPath, "// Custom C# bridge\n");
 
@@ -772,7 +772,7 @@ public class ThemeBridgeEmitterTests : IDisposable
             })
         };
 
-        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
             viewBridgeExists: false, NullLogger.Instance);
 
         Assert.Equal("// Custom Swift bridge\n", File.ReadAllText(swiftPath));
@@ -813,10 +813,10 @@ public class ThemeBridgeEmitterTests : IDisposable
             })
         };
 
-        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
             viewBridgeExists: false, NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
 
         // Must use backtick-escaped `default`, not bare "default"
         Assert.Contains("MyTheme.`default`.bgColor", swiftContent);
@@ -841,10 +841,10 @@ public class ThemeBridgeEmitterTests : IDisposable
             })
         };
 
-        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
             viewBridgeExists: false, NullLogger.Instance);
 
-        var content = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var content = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
 
         Assert.Contains("@_cdecl(\"SBW_MyTheme_set_primaryColor\")", content);
         Assert.Contains("UIColor(red: CGFloat(r), green: CGFloat(g), blue: CGFloat(b), alpha: CGFloat(a))", content);
@@ -864,10 +864,10 @@ public class ThemeBridgeEmitterTests : IDisposable
             })
         };
 
-        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
             viewBridgeExists: false, NullLogger.Instance);
 
-        var content = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var content = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
 
         Assert.Contains("@_cdecl(\"SBW_MyTheme_set_loadingFont\")", content);
         Assert.Contains("let font: UIFont", content);
@@ -889,10 +889,10 @@ public class ThemeBridgeEmitterTests : IDisposable
             })
         };
 
-        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
             viewBridgeExists: false, NullLogger.Instance);
 
-        var content = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var content = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
 
         Assert.Contains("func SBW_uiFontWeight(_ raw: Int32) -> UIFont.Weight", content);
         // Should NOT contain SwiftUI font helpers (no SwiftUI fonts)
@@ -911,10 +911,10 @@ public class ThemeBridgeEmitterTests : IDisposable
             })
         };
 
-        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
             viewBridgeExists: false, NullLogger.Instance);
 
-        var content = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var content = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
 
         Assert.DoesNotContain("SBW_fontWeight", content);
         Assert.DoesNotContain("SBW_fontDesign", content);
@@ -936,10 +936,10 @@ public class ThemeBridgeEmitterTests : IDisposable
             })
         };
 
-        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
             viewBridgeExists: false, NullLogger.Instance);
 
-        var content = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var content = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
 
         // Same C# API shape as SwiftUI.Color — uses SwiftColor
         Assert.Contains("public static void SetPrimaryColor(Swift.SwiftColor value)", content);
@@ -958,10 +958,10 @@ public class ThemeBridgeEmitterTests : IDisposable
             })
         };
 
-        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
             viewBridgeExists: false, NullLogger.Instance);
 
-        var content = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var content = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
 
         Assert.Contains("public static unsafe void SetLoadingFont(Swift.SwiftFont value)", content);
         Assert.Contains("fixed (byte* namePtr = nameBytes)", content);
@@ -986,10 +986,10 @@ public class ThemeBridgeEmitterTests : IDisposable
             })
         };
 
-        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
             viewBridgeExists: false, NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
 
         // Both font helper sets emitted
         Assert.Contains("SBW_fontWeight", swiftContent);
@@ -1019,10 +1019,10 @@ public class ThemeBridgeEmitterTests : IDisposable
             })
         };
 
-        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
             viewBridgeExists: false, NullLogger.Instance);
 
-        var content = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var content = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
 
         Assert.Contains("SetPrimaryColor(Swift.SwiftColor value)", content);
         Assert.Contains("SetLoadingFont(Swift.SwiftFont value)", content);
@@ -1079,10 +1079,10 @@ public class ThemeBridgeEmitterTests : IDisposable
             })
         };
 
-        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
             viewBridgeExists: false, NullLogger.Instance);
 
-        var content = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var content = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
 
         Assert.Contains("@_cdecl(\"SBW_MyTheme_get_alertColor\")", content);
         Assert.Contains("UnsafeMutablePointer<Double>", content);
@@ -1103,10 +1103,10 @@ public class ThemeBridgeEmitterTests : IDisposable
             })
         };
 
-        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
             viewBridgeExists: false, NullLogger.Instance);
 
-        var content = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var content = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
 
         Assert.Contains("@_cdecl(\"SBW_MyTheme_get_primaryColor\")", content);
         // UIColor getter reads RGBA directly (no UIColor conversion)
@@ -1125,10 +1125,10 @@ public class ThemeBridgeEmitterTests : IDisposable
             })
         };
 
-        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
             viewBridgeExists: false, NullLogger.Instance);
 
-        var content = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var content = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
 
         // No getter section for font-only themes
         Assert.DoesNotContain("theme getters", content);
@@ -1146,10 +1146,10 @@ public class ThemeBridgeEmitterTests : IDisposable
             })
         };
 
-        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
             viewBridgeExists: false, NullLogger.Instance);
 
-        var content = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var content = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
 
         Assert.Contains("public static unsafe Swift.SwiftColor GetAlertColor()", content);
         Assert.Contains("ThemeBridgeNativeMethods.SBW_MyTheme_get_alertColor(&r, &g, &b, &a)", content);
@@ -1167,10 +1167,10 @@ public class ThemeBridgeEmitterTests : IDisposable
             })
         };
 
-        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
             viewBridgeExists: false, NullLogger.Instance);
 
-        var content = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var content = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
 
         Assert.Contains("EntryPoint = \"SBW_MyTheme_get_alertColor\"", content);
         Assert.Contains("double* r, double* g, double* b, double* a", content);
@@ -1188,10 +1188,10 @@ public class ThemeBridgeEmitterTests : IDisposable
             })
         };
 
-        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
             viewBridgeExists: false, NullLogger.Instance);
 
-        var content = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var content = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
 
         Assert.DoesNotContain("GetTitleFont", content);
         Assert.DoesNotContain("_get_titleFont", content);
@@ -1208,10 +1208,10 @@ public class ThemeBridgeEmitterTests : IDisposable
             })
         };
 
-        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
             viewBridgeExists: false, NullLogger.Instance);
 
-        var content = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var content = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
 
         // Getter should also use backtick-escaped singleton
         Assert.Contains("UIColor(MyTheme.`default`.bgColor)", content);
@@ -1235,7 +1235,7 @@ public class ThemeBridgeEmitterTests : IDisposable
         {
             var themeInfos = ThemeBridgeEmitter.DetectThemeBridgeableTypes(moduleDecl);
 
-            ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+            ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
                 viewBridgeExists: false, NullLogger.Instance);
 
             var report = ReportCollector.Complete();
@@ -1267,7 +1267,7 @@ public class ThemeBridgeEmitterTests : IDisposable
         {
             var themeInfos = ThemeBridgeEmitter.DetectThemeBridgeableTypes(moduleDecl);
 
-            ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+            ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
                 viewBridgeExists: false, NullLogger.Instance);
 
             var report = ReportCollector.Complete();
@@ -1298,7 +1298,7 @@ public class ThemeBridgeEmitterTests : IDisposable
         };
 
         // Should not throw — ReportCollector.RecordThemeBridged is no-op when not active
-        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "Swift.TestModule", "TestModule", themeInfos,
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
             viewBridgeExists: false, NullLogger.Instance);
     }
 

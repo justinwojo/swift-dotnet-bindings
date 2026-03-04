@@ -6,7 +6,8 @@ using System.Diagnostics;
 using System.Security.Cryptography;
 using Swift;
 using Swift.Runtime;
-using Swift.UnsafePointerTests;
+using UnsafePointerTests;
+using UP = UnsafePointerTests;
 using Xunit;
 
 namespace BindingsGeneration.FunctionalTests
@@ -52,7 +53,7 @@ namespace BindingsGeneration.FunctionalTests
 
                 // Swift pointer types (UnsafeMutableRawPointer, UnsafeMutablePointer<T>, etc.)
                 // are projected to IntPtr in the generated bindings
-                int result = Swift.UnsafePointerTests.Functions.AppleCryptoNative_ChaCha20Poly1305Encrypt(
+                int result = UP.Functions.AppleCryptoNative_ChaCha20Poly1305Encrypt(
                                     (nint)keyPtr, key.Length,
                                     (nint)noncePtr, nonce.Length,
                                     (nint)plaintextPtr, plaintext.Length,
@@ -87,7 +88,7 @@ namespace BindingsGeneration.FunctionalTests
                 const int AuthTagMismatch = -1;
 
                 // Swift pointer types are projected to IntPtr in the generated bindings
-                int result = Swift.UnsafePointerTests.Functions.AppleCryptoNative_ChaCha20Poly1305Decrypt(
+                int result = UP.Functions.AppleCryptoNative_ChaCha20Poly1305Decrypt(
                     (nint)keyPtr, key.Length,
                     (nint)noncePtr, nonce.Length,
                     (nint)ciphertextPtr, ciphertext.Length,
@@ -122,7 +123,7 @@ namespace BindingsGeneration.FunctionalTests
             // The generated binding for readImmutablePointerValue should accept nint (IntPtr),
             // not be skipped as AnyType. If this compiles, the type is correct.
             // We verify the method exists and has the expected signature via reflection.
-            var method = typeof(Swift.UnsafePointerTests.Functions)
+            var method = typeof(UP.Functions)
                 .GetMethod("ReadImmutablePointerValue");
             Assert.NotNull(method);
 

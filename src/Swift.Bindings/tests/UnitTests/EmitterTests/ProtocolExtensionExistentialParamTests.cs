@@ -102,7 +102,7 @@ public class ProtocolExtensionExistentialParamTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.TestProtocol"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "ITestProtocol"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ITestProtocol"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.TestProtocol"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.None,
@@ -112,7 +112,7 @@ public class ProtocolExtensionExistentialParamTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.MyClass"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "MyClass"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "MyClass"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyClass"),
                 MetadataAccessor = "$s10TestModule7MyClassCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -123,7 +123,7 @@ public class ProtocolExtensionExistentialParamTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Collection"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "ICollection"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ICollection"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Collection"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.HasAssociatedTypes,
@@ -164,7 +164,7 @@ public class ProtocolExtensionExistentialParamTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.TestProtocol"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "ITestProtocol"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ITestProtocol"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.TestProtocol"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.None,
@@ -174,7 +174,7 @@ public class ProtocolExtensionExistentialParamTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.MyClass"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "MyClass"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "MyClass"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyClass"),
                 MetadataAccessor = "$s10TestModule7MyClassCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -185,7 +185,7 @@ public class ProtocolExtensionExistentialParamTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Equatable"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "IEquatable"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "IEquatable"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Equatable"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.HasSelfRequirement,
@@ -239,7 +239,7 @@ public class ProtocolExtensionExistentialParamTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.TestProtocol"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "ITestProtocol"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ITestProtocol"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.TestProtocol"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.None,
@@ -249,7 +249,7 @@ public class ProtocolExtensionExistentialParamTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.MyClass"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "MyClass"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "MyClass"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyClass"),
                 MetadataAccessor = "$s10TestModule7MyClassCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,

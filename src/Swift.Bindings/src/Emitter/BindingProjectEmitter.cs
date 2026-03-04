@@ -20,6 +20,10 @@ namespace BindingsGeneration
         /// Framework dependencies that should be emitted as PackageReference items.
         /// </summary>
         public IReadOnlyList<FrameworkDependencyInfo>? Dependencies { get; init; }
+        /// <summary>
+        /// Resolved C# namespace for the module (used for generated file names).
+        /// </summary>
+        public string? ResolvedNamespace { get; init; }
     }
 
     /// <summary>
@@ -36,6 +40,7 @@ namespace BindingsGeneration
         {
             var packageId = $"{options.ModuleName}.Swift.iOS";
             var runtimeVersion = options.SwiftRuntimeVersion ?? DefaultSwiftRuntimeVersion;
+            var resolvedNamespace = options.ResolvedNamespace ?? options.ModuleName;
             var csprojPath = Path.Combine(options.OutputDirectory, $"{packageId}.csproj");
 
             // Compute relative path from output dir to source xcframework
@@ -75,13 +80,13 @@ namespace BindingsGeneration
             // Optional compile items
             var wrappersCompile = $"""
 
-                    <Compile Include="Swift.{options.ModuleName}.Wrappers.cs"
-                             Condition="Exists('Swift.{options.ModuleName}.Wrappers.cs')" />
+                    <Compile Include="{resolvedNamespace}.Wrappers.cs"
+                             Condition="Exists('{resolvedNamespace}.Wrappers.cs')" />
                 """;
             var bridgeCompile = $"""
 
-                    <Compile Include="Swift.{options.ModuleName}.SwiftUIBridge.cs"
-                             Condition="Exists('Swift.{options.ModuleName}.SwiftUIBridge.cs')" />
+                    <Compile Include="{resolvedNamespace}.SwiftUIBridge.cs"
+                             Condition="Exists('{resolvedNamespace}.SwiftUIBridge.cs')" />
                 """;
 
             // Build dependency PackageReference items
@@ -127,7 +132,7 @@ namespace BindingsGeneration
 
                   <!-- Generated C# bindings -->
                   <ItemGroup>
-                    <Compile Include="Swift.{options.ModuleName}.cs" />{wrappersCompile}{bridgeCompile}
+                    <Compile Include="{resolvedNamespace}.cs" />{wrappersCompile}{bridgeCompile}
                   </ItemGroup>
 
                   <!-- NativeReference for local build -->

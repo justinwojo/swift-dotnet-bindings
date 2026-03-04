@@ -585,7 +585,7 @@ public class EnumHandlerTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.VariantInfo"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "VariantInfo"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "VariantInfo"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.VariantInfo"),
                 MetadataAccessor = "$s10TestModule11VariantInfoOMa",
                 Flags = TypeRecordFlags.None,
@@ -598,7 +598,7 @@ public class EnumHandlerTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Variant"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Variant"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Variant"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Variant"),
                 MetadataAccessor = "$s10TestModule7VariantOMa",
                 Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
@@ -658,7 +658,7 @@ public class EnumHandlerTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Container"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Container"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Container"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Container"),
                 MetadataAccessor = "$s10TestModule9ContainerOMa",
                 Flags = TypeRecordFlags.None,
@@ -670,7 +670,7 @@ public class EnumHandlerTests
             SwiftTypeName.FromModuleQualifiedName("TestModule.Priority"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Priority"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Priority"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Priority"),
                 MetadataAccessor = "$s10TestModule8PriorityOMa",
                 Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,

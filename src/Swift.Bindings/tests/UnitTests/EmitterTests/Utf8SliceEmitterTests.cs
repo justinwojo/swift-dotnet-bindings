@@ -105,12 +105,12 @@ public class Utf8SliceEmitterTests
     public void HasFreePInvokeForType_AfterMark_ReturnsTrue()
     {
         var ctx = new ModuleEmissionContext();
-        Assert.False(Utf8SliceEmitter.HasFreePInvokeForType("Swift.TestModule.ErrorCode", ctx));
+        Assert.False(Utf8SliceEmitter.HasFreePInvokeForType("TestModule.ErrorCode", ctx));
 
-        Utf8SliceEmitter.MarkFreePInvokeEmittedForType("Swift.TestModule.ErrorCode", ctx);
+        Utf8SliceEmitter.MarkFreePInvokeEmittedForType("TestModule.ErrorCode", ctx);
 
-        Assert.True(Utf8SliceEmitter.HasFreePInvokeForType("Swift.TestModule.ErrorCode", ctx));
+        Assert.True(Utf8SliceEmitter.HasFreePInvokeForType("TestModule.ErrorCode", ctx));
         // Different type should still be false
-        Assert.False(Utf8SliceEmitter.HasFreePInvokeForType("Swift.TestModule.Status", ctx));
+        Assert.False(Utf8SliceEmitter.HasFreePInvokeForType("TestModule.Status", ctx));
     }
 }

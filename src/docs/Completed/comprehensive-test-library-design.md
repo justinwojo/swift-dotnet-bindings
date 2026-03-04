@@ -184,7 +184,7 @@ TestFramework/
 │           └── Deprecation.swift        # ✅ @available attributes
 │
 └── output/                              # Generated binding output
-    ├── Swift.SwiftBindingsTestLib.cs     # Generated C# bindings
+    ├── SwiftBindingsTestLib.cs           # Generated C# bindings
     ├── binding-report.json              # Binding completeness report
     └── coverage-matrix.json             # Feature coverage matrix
 ```

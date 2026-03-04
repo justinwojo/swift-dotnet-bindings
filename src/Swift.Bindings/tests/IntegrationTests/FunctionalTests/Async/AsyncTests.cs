@@ -10,10 +10,10 @@ using BindingsGeneration.Tests;
 using Swift;
 using Swift.Runtime;
 using Swift.Runtime.InteropServices;
-using Swift.StructsTests;
+using StructsTests;
 using Xunit;
 
-using Bindings = Swift.AsyncTests;
+using Bindings = AsyncTests;
 
 
 namespace BindingsGeneration.FunctionalTests

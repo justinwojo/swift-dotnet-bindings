@@ -3,8 +3,8 @@
 
 using RuntimeTestsApp.Infrastructure;
 using Swift;
-using Swift.SwiftBindingsTestLib;
-using SwiftEventHandler = Swift.SwiftBindingsTestLib.EventHandler;
+using SwiftBindingsTestLib;
+using SwiftEventHandler = SwiftBindingsTestLib.EventHandler;
 
 namespace RuntimeTestsApp.Patterns;
 
@@ -158,7 +158,7 @@ public class BasicCompositionTests : TestBase
     public void TestDescribeConfigFreeFunction()
     {
         var config = new BatchConfig(name: "Sync", maxRetries: 2, tags: null);
-        var desc = SwiftBindingsTestLib.DescribeConfig(config);
+        var desc = TestLibFunctions.DescribeConfig(config);
         AssertTrue(desc.Contains("Sync"), "describeConfig should contain name");
         AssertTrue(desc.Contains("no tags"), "describeConfig should say 'no tags' for nil");
         TestLogger.Info($"describeConfig = {desc}");
@@ -171,7 +171,7 @@ public class BasicCompositionTests : TestBase
         tags.Append(1);
         tags.Append(2);
         var config = new BatchConfig(name: "Build", maxRetries: 1, tags: tags);
-        var desc = SwiftBindingsTestLib.DescribeConfig(config);
+        var desc = TestLibFunctions.DescribeConfig(config);
         AssertTrue(desc.Contains("Build"), "describeConfig should contain name");
         AssertTrue(desc.Contains("2 tags"), "describeConfig should say '2 tags'");
         TestLogger.Info($"describeConfig with tags = {desc}");
@@ -249,7 +249,7 @@ public class BasicCompositionTests : TestBase
         var a2 = new Animal(name: "B", sound: "b");
         registry.Register(a1);
         registry.Register(a2);
-        var count = SwiftBindingsTestLib.ProcessRegistry(registry);
+        var count = TestLibFunctions.ProcessRegistry(registry);
         AssertEqual(2, count, "processRegistry should return 2");
         TestLogger.Info($"processRegistry = {count}");
     }

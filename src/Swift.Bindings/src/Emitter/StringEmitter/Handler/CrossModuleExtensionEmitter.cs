@@ -39,7 +39,7 @@ public static class CrossModuleExtensionEmitter
         var currentModule = moduleDecl.Name;
 
         // Resolve the C# type name for the original type
-        var origCSharpType = ResolveOriginalTypeCSharpName(classDecl, typeDatabase);
+        var origCSharpType = ResolveOriginalTypeCSharpName(classDecl, typeDatabase, conductor.NamespacePatternResolver);
 
         // Collect members from the current module only
         var methods = new List<MethodDecl>();
@@ -490,14 +490,14 @@ public static class CrossModuleExtensionEmitter
 
     // ==================== Type Resolution (delegated to ExtensionMarshallingHelper) ====================
 
-    private static string ResolveOriginalTypeCSharpName(ClassDecl classDecl, ITypeDatabase typeDatabase)
+    private static string ResolveOriginalTypeCSharpName(ClassDecl classDecl, ITypeDatabase typeDatabase, NamespacePatternResolver resolver)
     {
         // Try TypeDatabase lookup first
         if (typeDatabase.TryGetTypeRecord(classDecl.SwiftTypeName, out var typeRecord))
             return typeRecord.CSharpTypeName.FullyQualifiedName;
 
-        // Fallback: Swift.{Module}.{TypeName}
-        return $"Swift.{classDecl.SwiftTypeName.Module}.{classDecl.Name}";
+        // Fallback: use namespace resolver for the original module
+        return $"{resolver.ResolveNamespace(classDecl.SwiftTypeName.Module)}.{classDecl.Name}";
     }
 
     private static string GetNativeMethodName(MethodDecl method)

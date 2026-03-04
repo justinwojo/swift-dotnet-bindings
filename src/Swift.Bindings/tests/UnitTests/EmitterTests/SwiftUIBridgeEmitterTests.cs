@@ -34,10 +34,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateSimpleViewStruct("TestView") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        Assert.True(File.Exists(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift")));
+        Assert.True(File.Exists(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift")));
     }
 
     [Fact]
@@ -45,10 +45,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateSimpleViewStruct("TestView") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        Assert.True(File.Exists(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs")));
+        Assert.True(File.Exists(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs")));
     }
 
     [Fact]
@@ -56,7 +56,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl>();
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
         Assert.Empty(Directory.GetFiles(_tempDir));
@@ -67,11 +67,11 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateSimpleViewStruct("TestView") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftPath = Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift");
-        var csPath = Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs");
+        var swiftPath = Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift");
+        var csPath = Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs");
         Assert.True(File.Exists(swiftPath));
         Assert.True(File.Exists(csPath));
     }
@@ -82,11 +82,11 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         // Only unsupported generic views — still creates files (with templates), not empty
         var views = new List<TypeDecl> { CreateGenericViewStruct("GenericView") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
         // Files created but contain only templates
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("BRIDGE TEMPLATE", swiftContent);
         Assert.DoesNotContain("@_cdecl", swiftContent.Replace("// @_cdecl", ""));
     }
@@ -105,11 +105,11 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             CreateGenericViewStruct("View2"),
         };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
 
         // Swift: no @_cdecl outside of comments
         var swiftLines = swiftContent.Split('\n');
@@ -140,15 +140,15 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             CreateSimpleViewStruct("ViewC"),
         };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("ViewA", swiftContent);
         Assert.Contains("ViewB", swiftContent);
         Assert.Contains("ViewC", swiftContent);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("ViewA", csContent);
         Assert.Contains("ViewB", csContent);
         Assert.Contains("ViewC", csContent);
@@ -159,10 +159,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateSimpleViewStruct("TestView") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("import TestModule", swiftContent);
         Assert.Contains("import SwiftUI", swiftContent);
         Assert.Contains("import UIKit", swiftContent);
@@ -177,10 +177,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithVoidClosureInit("TestView", "retryAction") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("final class SBW_TestModule_TestView_Session", swiftContent);
         Assert.Contains("UIHostingController<TestView>", swiftContent);
     }
@@ -190,10 +190,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithVoidClosureInit("TestView", "retryAction") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("@_cdecl(\"SBW_TestModule_TestView_Create\")", swiftContent);
         Assert.Contains("public func SBW_TestModule_TestView_Create(", swiftContent);
     }
@@ -203,10 +203,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithVoidClosureInit("TestView", "retryAction") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("@_cdecl(\"SBW_TestModule_TestView_GetViewController\")", swiftContent);
         Assert.Contains("hostingController", swiftContent);
     }
@@ -216,10 +216,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithVoidClosureInit("TestView", "retryAction") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("@_cdecl(\"SBW_TestModule_TestView_Free\")", swiftContent);
         Assert.Contains("SBW_TestModule_TestView_liveHandles", swiftContent);
         Assert.Contains("Unmanaged<SBW_TestModule_TestView_Session>.fromOpaque(handle).release()", swiftContent);
@@ -230,10 +230,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithVoidClosureInit("TestView", "retryAction") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("SBW_onMainThread", swiftContent);
         Assert.Contains("DispatchQueue.main.sync", swiftContent);
     }
@@ -243,10 +243,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithVoidClosureInit("TestView", "retryAction") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("@convention(c)", swiftContent);
         Assert.Contains("UnsafeMutableRawPointer?", swiftContent);
         Assert.Contains("retryActionCallback", swiftContent);
@@ -258,10 +258,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithVoidClosureInit("TestView", "retryAction") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("TestViewBridgeNativeMethods", csContent);
         Assert.Contains("LibraryImport", csContent);
         Assert.Contains("SBW_TestModule_TestView_Create", csContent);
@@ -275,10 +275,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithVoidClosureInit("TestView", "retryAction") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("TestViewSession : IDisposable", csContent);
         Assert.Contains("public void Dispose()", csContent);
         Assert.Contains("_disposed = true", csContent);
@@ -290,10 +290,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithVoidClosureInit("TestView", "retryAction") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("ObjectDisposedException", csContent);
     }
 
@@ -303,10 +303,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         // View with a non-primitive, non-closure parameter → template
         var views = new List<TypeDecl> { CreateViewWithUnsupportedParam("ComplexView") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("BRIDGE TEMPLATE: ComplexView", swiftContent);
         // Should NOT have functional code for this view
         Assert.DoesNotContain("SBW_TestModule_ComplexView_Session", swiftContent);
@@ -317,10 +317,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithVoidClosureInit("MyView", "action") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("SBW_TestModule_MyView_Create", swiftContent);
         Assert.Contains("SBW_TestModule_MyView_GetViewController", swiftContent);
         Assert.Contains("SBW_TestModule_MyView_Free", swiftContent);
@@ -336,7 +336,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         ReportCollector.Start(moduleDecl);
 
         var views = new List<TypeDecl> { CreateViewWithVoidClosureInit("TestView", "retryAction") };
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
         var report = ReportCollector.Complete()!;
@@ -644,10 +644,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithVoidClosureInit("TestView", "retryAction") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("public static unsafe TestViewSession Create(", csContent);
         Assert.Contains("Action? retryAction", csContent);
     }
@@ -657,10 +657,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithVoidClosureInit("TestView", "retryAction") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("UnmanagedCallersOnly", csContent);
         Assert.Contains("RetryActionTrampoline", csContent);
         Assert.Contains("GCHandle.FromIntPtr", csContent);
@@ -672,10 +672,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithVoidClosureInit("TestView", "retryAction") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("_closureHandles", csContent);
         Assert.Contains("h.IsAllocated", csContent);
         Assert.Contains("h.Free()", csContent);
@@ -687,10 +687,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         // View with no init params → factory doesn't need unsafe
         var views = new List<TypeDecl> { CreateSimpleViewStruct("PlainView") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("public static PlainViewSession Create()", csContent);
         Assert.DoesNotContain("unsafe PlainViewSession", csContent);
     }
@@ -770,7 +770,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.Equal("Int32", result[0].SwiftAbiType);
         Assert.Equal("int", result[0].CSharpPInvokeType);
         Assert.Equal("AlertStyle", result[0].BridgeTypeName);
-        Assert.Equal("Swift.TestModule.AlertStyle", result[0].CSharpTypeName);
+        Assert.Equal("TestModule.AlertStyle", result[0].CSharpTypeName);
     }
 
     [Fact]
@@ -851,10 +851,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var typeDb = CreateEnumTypeDatabase();
         var views = new List<TypeDecl> { CreateViewWithEnumInit("EnumView", "style", "TestModule.AlertStyle") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, typeDb);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("_ style: Int32", swiftContent);
         Assert.Contains("AlertStyle(rawValue: style)!", swiftContent);
     }
@@ -865,10 +865,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var typeDb = CreateEnumTypeDatabase();
         var views = new List<TypeDecl> { CreateViewWithEnumInit("EnumView", "style", "TestModule.AlertStyle") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, typeDb);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("@_cdecl(\"SBW_TestModule_EnumView_Create\")", swiftContent);
         Assert.Contains("SBW_TestModule_EnumView_Session", swiftContent);
         Assert.DoesNotContain("BRIDGE TEMPLATE", swiftContent);
@@ -880,10 +880,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var typeDb = CreateEnumTypeDatabase();
         var views = new List<TypeDecl> { CreateViewWithEnumInit("EnumView", "style", "TestModule.AlertStyle") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, typeDb);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("AlertStyle style", csContent);
         Assert.Contains("style.RawValue", csContent); // Enum class uses .RawValue, not (int) cast
         Assert.Contains("int style", csContent); // P/Invoke param
@@ -895,10 +895,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var typeDb = CreateEnumTypeDatabaseWithRawType("UInt8");
         var views = new List<TypeDecl> { CreateViewWithEnumInit("EnumView", "style", "TestModule.AlertStyle") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, typeDb);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("AlertStyle style", csContent);       // Factory param uses C# enum type
         Assert.Contains("style.RawValue", csContent);         // Uses .RawValue property
         Assert.Contains("byte style", csContent);             // P/Invoke param uses mapped type
@@ -910,10 +910,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var typeDb = CreateEnumTypeDatabase();
         var views = new List<TypeDecl> { CreateViewWithEnumInit("EnumView", "style", "TestModule.AlertStyle") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, typeDb);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("EnumViewBridgeNativeMethods", csContent);
         Assert.Contains("EnumViewSession : IDisposable", csContent);
         Assert.Contains("LibraryImport", csContent);
@@ -996,10 +996,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithOptionalPrimitiveInit("OptView", "count", "Swift.Int") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("_ countHasValue: Int32", swiftContent);
         Assert.Contains("_ countValue: Int", swiftContent);
         Assert.Contains("countHasValue != 0 ? countValue : nil", swiftContent);
@@ -1010,10 +1010,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithOptionalPrimitiveInit("OptView", "enabled", "Swift.Bool") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("enabledHasValue != 0 ? enabledValue != 0 : nil", swiftContent);
     }
 
@@ -1023,10 +1023,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var typeDb = CreateEnumTypeDatabase();
         var views = new List<TypeDecl> { CreateViewWithOptionalEnumInit("OptEnumView", "style", "TestModule.AlertStyle") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, typeDb);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("_ styleHasValue: Int32", swiftContent);
         Assert.Contains("_ styleValue: Int32", swiftContent);
         Assert.Contains("styleHasValue != 0 ? AlertStyle(rawValue: styleValue)! : nil", swiftContent);
@@ -1037,10 +1037,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithOptionalPrimitiveInit("OptView", "count", "Swift.Int") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("nint? count", csContent); // Factory param
         Assert.Contains("int countHasValue", csContent); // P/Invoke
         Assert.Contains("nint countValue", csContent); // P/Invoke
@@ -1054,10 +1054,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var typeDb = CreateEnumTypeDatabase();
         var views = new List<TypeDecl> { CreateViewWithOptionalEnumInit("OptEnumView", "style", "TestModule.AlertStyle") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, typeDb);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("AlertStyle? style", csContent); // Factory param
         Assert.Contains("int styleHasValue", csContent); // P/Invoke
         Assert.Contains("int styleValue", csContent); // P/Invoke
@@ -1071,10 +1071,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var typeDb = CreateEnumTypeDatabaseWithRawType("UInt8");
         var views = new List<TypeDecl> { CreateViewWithOptionalEnumInit("OptEnumView", "style", "TestModule.AlertStyle") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, typeDb);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("AlertStyle? style", csContent);       // Factory param
         Assert.Contains("byte styleValue", csContent);         // P/Invoke uses mapped type
         Assert.Contains("style?.RawValue ?? 0", csContent);    // Uses .RawValue, not (byte) cast
@@ -1085,10 +1085,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithOptionalPrimitiveInit("OptView", "enabled", "Swift.Bool") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("bool? enabled", csContent); // Factory param
     }
 
@@ -1097,10 +1097,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithOptionalPrimitiveInit("OptView", "count", "Swift.Int") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("@_cdecl(\"SBW_TestModule_OptView_Create\")", swiftContent);
         Assert.DoesNotContain("BRIDGE TEMPLATE", swiftContent);
     }
@@ -1124,7 +1124,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.Equal("UnsafeMutableRawPointer", result[0].SwiftAbiType);
         Assert.Equal("IntPtr", result[0].CSharpPInvokeType);
         Assert.Equal("LottieAnimation", result[0].BridgeTypeName);
-        Assert.Equal("Swift.TestModule.LottieAnimation", result[0].CSharpTypeName);
+        Assert.Equal("TestModule.LottieAnimation", result[0].CSharpTypeName);
     }
 
     [Fact]
@@ -1162,7 +1162,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.Equal("UnsafeMutableRawPointer", result[0].SwiftAbiType);
         Assert.Equal("IntPtr", result[0].CSharpPInvokeType);
         Assert.Equal("Config", result[0].BridgeTypeName);
-        Assert.Equal("Swift.TestModule.Config", result[0].CSharpTypeName);
+        Assert.Equal("TestModule.Config", result[0].CSharpTypeName);
     }
 
     [Fact]
@@ -1171,10 +1171,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var typeDb = CreateClassTypeDatabase();
         var views = new List<TypeDecl> { CreateViewWithClassInit("AnimView", "animation", "TestModule.LottieAnimation") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, typeDb);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("_ animationPtr: UnsafeMutableRawPointer", swiftContent);
         Assert.Contains("Unmanaged<LottieAnimation>.fromOpaque(animationPtr).takeUnretainedValue()", swiftContent);
     }
@@ -1185,10 +1185,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var typeDb = CreateClassTypeDatabase();
         var views = new List<TypeDecl> { CreateViewWithClassInit("AnimView", "animation", "TestModule.LottieAnimation") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, typeDb);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("@_cdecl(\"SBW_TestModule_AnimView_Create\")", swiftContent);
         Assert.Contains("SBW_TestModule_AnimView_Session", swiftContent);
         Assert.DoesNotContain("BRIDGE TEMPLATE", swiftContent);
@@ -1200,10 +1200,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var typeDb = CreateClassTypeDatabase();
         var views = new List<TypeDecl> { CreateViewWithClassInit("AnimView", "animation", "TestModule.LottieAnimation") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, typeDb);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         // With state binding, BoundType goes to State as @Published
         Assert.Contains("@Published var animation: LottieAnimation", swiftContent);
         Assert.Contains("animation: state.animation", swiftContent);
@@ -1215,10 +1215,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var typeDb = CreateClassTypeDatabase();
         var views = new List<TypeDecl> { CreateViewWithClassInit("AnimView", "animation", "TestModule.LottieAnimation") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, typeDb);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("IntPtr animation", csContent); // P/Invoke param
     }
 
@@ -1228,10 +1228,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var typeDb = CreateClassTypeDatabase();
         var views = new List<TypeDecl> { CreateViewWithClassInit("AnimView", "animation", "TestModule.LottieAnimation") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, typeDb);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("LottieAnimation animation", csContent); // Factory param
         Assert.Contains("animation.Payload.DangerousGetHandle()", csContent); // Call-site
     }
@@ -1242,10 +1242,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var typeDb = CreateClassTypeDatabase();
         var views = new List<TypeDecl> { CreateViewWithClassInit("AnimView", "animation", "TestModule.LottieAnimation") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, typeDb);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("AnimViewBridgeNativeMethods", csContent);
         Assert.Contains("AnimViewSession : IDisposable", csContent);
         Assert.Contains("LibraryImport", csContent);
@@ -1257,12 +1257,12 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var typeDb = CreateClassTypeDatabase();
         var views = new List<TypeDecl> { CreateViewWithClassInit("AnimView", "animation", "TestModule.LottieAnimation") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, typeDb);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         // Factory param must use fully-qualified name to resolve across namespaces
-        Assert.Contains("Swift.TestModule.LottieAnimation animation", csContent);
+        Assert.Contains("TestModule.LottieAnimation animation", csContent);
     }
 
     [Fact]
@@ -1271,12 +1271,12 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var typeDb = CreateEnumTypeDatabase();
         var views = new List<TypeDecl> { CreateViewWithEnumInit("EnumView", "style", "TestModule.AlertStyle") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, typeDb);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         // Factory param must use fully-qualified name to resolve across namespaces
-        Assert.Contains("Swift.TestModule.AlertStyle style", csContent);
+        Assert.Contains("TestModule.AlertStyle style", csContent);
     }
 
     #endregion
@@ -1308,10 +1308,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var typeDb = CreateClassTypeDatabase();
         var views = new List<TypeDecl> { CreateViewWithOptionalClassInit("OptAnimView", "animation", "TestModule.LottieAnimation") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, typeDb);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("_ animationPtr: UnsafeMutableRawPointer?", swiftContent);
         Assert.Contains("Unmanaged<LottieAnimation>.fromOpaque($0).takeUnretainedValue()", swiftContent);
     }
@@ -1322,10 +1322,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var typeDb = CreateClassTypeDatabase();
         var views = new List<TypeDecl> { CreateViewWithOptionalClassInit("OptAnimView", "animation", "TestModule.LottieAnimation") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, typeDb);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("LottieAnimation? animation", csContent); // Factory param
         Assert.Contains("IntPtr animation", csContent); // P/Invoke (single IntPtr, no hasValue)
         Assert.Contains("animation?.Payload.DangerousGetHandle() ?? IntPtr.Zero", csContent);
@@ -1337,10 +1337,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var typeDb = CreateClassTypeDatabase();
         var views = new List<TypeDecl> { CreateViewWithOptionalClassInit("OptAnimView", "animation", "TestModule.LottieAnimation") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, typeDb);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("@_cdecl(\"SBW_TestModule_OptAnimView_Create\")", swiftContent);
         Assert.DoesNotContain("BRIDGE TEMPLATE", swiftContent);
     }
@@ -1400,10 +1400,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var typeDb = CreateStructTypeDatabase();
         var views = new List<TypeDecl> { CreateViewWithClassInit("ConfigView", "config", "TestModule.Config") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, typeDb);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains(".pointee", swiftContent);
         Assert.DoesNotContain("Unmanaged<Config>", swiftContent);
     }
@@ -1414,10 +1414,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var typeDb = CreateStructTypeDatabase();
         var views = new List<TypeDecl> { CreateViewWithClassInit("ConfigView", "config", "TestModule.Config") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, typeDb);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("_ configPtr: UnsafeMutableRawPointer", swiftContent);
     }
 
@@ -1427,10 +1427,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var typeDb = CreateStructTypeDatabase();
         var views = new List<TypeDecl> { CreateViewWithClassInit("ConfigView", "config", "TestModule.Config") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, typeDb);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("@_cdecl(\"SBW_TestModule_ConfigView_Create\")", swiftContent);
         Assert.DoesNotContain("BRIDGE TEMPLATE", swiftContent);
     }
@@ -1441,10 +1441,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var typeDb = CreateStructTypeDatabase();
         var views = new List<TypeDecl> { CreateViewWithClassInit("ConfigView", "config", "TestModule.Config") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, typeDb);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         // With state binding, BoundStruct goes to State as @Published
         Assert.Contains("@Published var config: Config", swiftContent);
         Assert.Contains("config: state.config", swiftContent);
@@ -1456,10 +1456,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var typeDb = CreateStructTypeDatabase();
         var views = new List<TypeDecl> { CreateViewWithOptionalClassInit("OptConfigView", "config", "TestModule.Config") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, typeDb);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains(".pointee", swiftContent);
         Assert.Contains(".map", swiftContent);
         Assert.DoesNotContain("Unmanaged<Config>", swiftContent);
@@ -1471,10 +1471,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var typeDb = CreateStructTypeDatabase();
         var views = new List<TypeDecl> { CreateViewWithClassInit("ConfigView", "config", "TestModule.Config") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, typeDb);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("IntPtr config", csContent);
     }
 
@@ -1484,10 +1484,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var typeDb = CreateStructTypeDatabase();
         var views = new List<TypeDecl> { CreateViewWithClassInit("ConfigView", "config", "TestModule.Config") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, typeDb);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("Config config", csContent);
         Assert.Contains("config.Payload.DangerousGetHandle()", csContent);
     }
@@ -1497,7 +1497,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var bp = new BridgeParameter("config", BridgeParameterKind.BoundStruct,
             SwiftAbiType: "UnsafeMutableRawPointer", CSharpPInvokeType: "IntPtr",
-            BridgeTypeName: "Config", CSharpTypeName: "Swift.TestModule.Config",
+            BridgeTypeName: "Config", CSharpTypeName: "TestModule.Config",
             StructProjection: StructProjectionKind.NonFrozen);
 
         // Use reflection to test BridgeParamToFlatParam (private)
@@ -1575,10 +1575,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         view.Methods.Add(CreateCtorWithNamedParam("service", "TestModule.AsyncService"));
         moduleDecl.Types.Add(view);
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule",
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule",
             new List<TypeDecl> { view }, NullLogger.Instance, typeDb, moduleDecl);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains(".assumingMemoryBound(to: Config.self).pointee", swiftContent);
         Assert.DoesNotContain("Unmanaged<Config>", swiftContent);
     }
@@ -1745,10 +1745,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "callback",
             new NamedTypeSpec("Swift.Int"), TupleTypeSpec.Empty) };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("@convention(c)", swiftContent);
         Assert.Contains("callbackCallback", swiftContent);
         Assert.Contains("callbackUserData", swiftContent);
@@ -1761,10 +1761,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "callback",
             new NamedTypeSpec("Swift.Int"), TupleTypeSpec.Empty) };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         // Should generate Swift closure with typed arg
         Assert.Contains("arg0: Int", swiftContent);
         Assert.Contains("cb_callback?", swiftContent);
@@ -1776,10 +1776,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "toggle",
             new NamedTypeSpec("Swift.Bool"), TupleTypeSpec.Empty) };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("arg0: Bool", swiftContent);
         Assert.Contains("arg0 ? 1 : 0", swiftContent); // Bool → Int32 conversion
     }
@@ -1790,10 +1790,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "validator",
             new NamedTypeSpec("Swift.Int"), new NamedTypeSpec("Swift.Bool")) };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("-> Bool", swiftContent);
         Assert.Contains("!= 0", swiftContent); // Int32 → Bool conversion
     }
@@ -1804,10 +1804,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "callback",
             new NamedTypeSpec("Swift.Int"), TupleTypeSpec.Empty) };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("UnmanagedCallersOnly", csContent);
         Assert.Contains("CallbackTrampoline", csContent);
         Assert.Contains("nint arg0", csContent); // Int → nint in trampoline
@@ -1820,10 +1820,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "validator",
             new NamedTypeSpec("Swift.Int"), new NamedTypeSpec("Swift.Bool")) };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("private static int ValidatorTrampoline", csContent); // Bool return → int
         Assert.Contains("Func<nint, bool>", csContent); // Delegate type
         Assert.Contains("result ? 1 : 0", csContent); // Bool → int conversion
@@ -1835,10 +1835,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "callback",
             new NamedTypeSpec("Swift.Int"), TupleTypeSpec.Empty) };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("Action<nint>? callback", csContent);
     }
 
@@ -1848,10 +1848,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "validator",
             new NamedTypeSpec("Swift.Int"), new NamedTypeSpec("Swift.Bool")) };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("Func<nint, bool>? validator", csContent);
     }
 
@@ -1861,10 +1861,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "callback",
             new NamedTypeSpec("Swift.Int"), TupleTypeSpec.Empty) };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("delegate* unmanaged[Cdecl]<nint, IntPtr, void>", csContent);
     }
 
@@ -1874,10 +1874,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "callback",
             new NamedTypeSpec("Swift.Int"), TupleTypeSpec.Empty) };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("unsafe CbViewSession Create(", csContent);
     }
 
@@ -1887,10 +1887,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "callback",
             new NamedTypeSpec("Swift.Int"), TupleTypeSpec.Empty) };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("_closureHandles", csContent);
         Assert.Contains("closureHandles.Add(h)", csContent);
         Assert.Contains("h.IsAllocated", csContent);
@@ -1902,10 +1902,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "callback",
             new NamedTypeSpec("Swift.Int"), TupleTypeSpec.Empty) };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("@_cdecl(\"SBW_TestModule_CbView_Create\")", swiftContent);
         Assert.DoesNotContain("BRIDGE TEMPLATE", swiftContent);
     }
@@ -1921,10 +1921,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         });
         var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "handler", argsTuple, TupleTypeSpec.Empty) };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("arg0: Int", swiftContent);
         Assert.Contains("arg1: Bool", swiftContent);
     }
@@ -1939,10 +1939,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         });
         var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "handler", argsTuple, TupleTypeSpec.Empty) };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("nint arg0", csContent);
         Assert.Contains("int arg1", csContent); // Bool → int
         Assert.Contains("Action<nint, bool>", csContent);
@@ -1961,7 +1961,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
         // Simple view with no constructors → Generated (functional bridge)
         var views = new List<TypeDecl> { CreateSimpleViewStruct("TestView") };
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
         var report = ReportCollector.Complete()!;
@@ -1986,7 +1986,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             CreateGenericViewStruct("View1"),
             CreateGenericViewStruct("View2"),
         };
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
         var report = ReportCollector.Complete()!;
@@ -2006,10 +2006,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateSimpleViewStruct("TestView") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var csPath = Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs");
+        var csPath = Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs");
         var lines = File.ReadAllLines(csPath);
         Assert.True(lines.Length >= 2, "C# bridge file should have at least 2 lines");
         Assert.StartsWith("// Auto-generated by SwiftBindings", lines[0]);
@@ -2020,10 +2020,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     public void CleanupAutoGeneratedBridgeFiles_StillDeletesFilesWithNullableEnable()
     {
         // Write a file matching the new format (marker on line 1, #nullable enable on line 2)
-        var csPath = Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs");
+        var csPath = Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs");
         File.WriteAllText(csPath, "// Auto-generated by SwiftBindings — SwiftUI Bridge\n#nullable enable\nusing System;\n");
 
-        SwiftUIBridgeEmitter.CleanupAutoGeneratedBridgeFiles(_tempDir, "Swift.TestModule", NullLogger.Instance);
+        SwiftUIBridgeEmitter.CleanupAutoGeneratedBridgeFiles(_tempDir, "TestModule", NullLogger.Instance);
 
         Assert.False(File.Exists(csPath), "Auto-generated bridge file with #nullable enable should be deleted");
     }
@@ -2558,7 +2558,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         {
             ["TestModule.AlertStyle"] = new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "AlertStyle"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "AlertStyle"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.AlertStyle"),
                 MetadataAccessor = "$s10TestModule10AlertStyleOMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -2574,7 +2574,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         {
             ["TestModule.LogLevel"] = new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "LogLevel"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "LogLevel"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.LogLevel"),
                 MetadataAccessor = "$s10TestModule8LogLevelOMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -2590,7 +2590,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         {
             ["TestModule.LottieAnimation"] = new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "LottieAnimation"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "LottieAnimation"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.LottieAnimation"),
                 MetadataAccessor = "$s10TestModule15LottieAnimationCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -2605,7 +2605,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         {
             ["TestModule.Config"] = new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Config"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Config"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Config"),
                 MetadataAccessor = "$s10TestModule6ConfigVMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -2620,7 +2620,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         {
             ["TestModule.Config"] = new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Config"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Config"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Config"),
                 MetadataAccessor = "$s10TestModule6ConfigVMa",
                 Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
@@ -2635,7 +2635,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         {
             ["TestModule.Config"] = new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Config"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Config"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Config"),
                 MetadataAccessor = "$s10TestModule6ConfigVMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -2650,7 +2650,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         {
             ["TestModule.Direction"] = new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Direction"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Direction"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Direction"),
                 MetadataAccessor = "$s10TestModule9DirectionOMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -3056,7 +3056,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             ["TestModule.AsyncService"] = new TypeRecord
             {
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.AsyncService"),
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "AsyncService"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "AsyncService"),
                 MetadataAccessor = "$s10TestModuleAsyncServiceMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
                 Kind = TypeRecordKind.Class,
@@ -3130,7 +3130,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             ["TestModule.AsyncDep"] = new TypeRecord
             {
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.AsyncDep"),
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "AsyncDep"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "AsyncDep"),
                 MetadataAccessor = "$s10TestModuleAsyncDepMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
                 Kind = TypeRecordKind.Class,
@@ -3170,10 +3170,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         moduleDecl.Types.Add(view);
 
         var views = new List<TypeDecl> { view };
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, moduleDecl: moduleDecl);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
 
         // @_cdecl signature present
         Assert.Contains("@_cdecl(\"SBW_TestModule_AsyncServiceView_Create\")", swiftContent);
@@ -3217,10 +3217,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         moduleDecl.Types.Add(view);
 
         var views = new List<TypeDecl> { view };
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, moduleDecl: moduleDecl);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
 
         // Two chain steps: AsyncService first, then Processor
         Assert.Contains("let service = try await AsyncService(key: key)", swiftContent);
@@ -3247,10 +3247,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         moduleDecl.Types.Add(view);
 
         var views = new List<TypeDecl> { view };
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, moduleDecl: moduleDecl);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
 
         // CreateAsync factory with string parameter
         Assert.Contains("CreateAsync(string key)", csContent);
@@ -3306,10 +3306,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         moduleDecl.Types.Add(view);
 
         var views = new List<TypeDecl> { view };
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, moduleDecl: moduleDecl);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
 
         // Bool parameter ABI type
         Assert.Contains("enabled: Int32", swiftContent);
@@ -3338,10 +3338,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         moduleDecl.Types.Add(view);
 
         var views = new List<TypeDecl> { view };
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, moduleDecl: moduleDecl);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
 
         // Chain step built in Create
         Assert.Contains("let service = try await AsyncService(key: key)", swiftContent);
@@ -3375,10 +3375,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         moduleDecl.Types.Add(view);
 
         var views = new List<TypeDecl> { view };
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, moduleDecl: moduleDecl);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
 
         // P/Invoke has both flattened params
         Assert.Contains("IntPtr keyPtr", csContent);
@@ -3587,10 +3587,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         });
 
         var views = new List<TypeDecl> { view };
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, typeDatabase: typeDb, moduleDecl: moduleDecl);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
 
         // Extra import for cross-module type
         Assert.Contains("import OtherModule", swiftContent);
@@ -3636,10 +3636,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         });
 
         var views = new List<TypeDecl> { view };
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, typeDatabase: typeDb, moduleDecl: moduleDecl);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
 
         // P/Invoke has IntPtr for the cross-module type
         Assert.Contains("IntPtr sdk", csContent);
@@ -3861,10 +3861,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         // No hints → same as before (null bridgeHintsPath)
         var views = new List<TypeDecl> { CreateSimpleViewStruct("TestView") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("SBW_TestModule_TestView_Create", swiftContent);
     }
 
@@ -3880,10 +3880,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         }
         """);
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, bridgeHintsPath: hintsPath);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.DoesNotContain("SkipMe", swiftContent);
         Assert.Contains("SBW_TestModule_KeepMe_Create", swiftContent);
     }
@@ -3901,12 +3901,12 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         }
         """);
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, bridgeHintsPath: hintsPath);
 
         // All views skipped → no bridge files created (stale cleanup)
-        Assert.False(File.Exists(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift")));
-        Assert.False(File.Exists(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs")));
+        Assert.False(File.Exists(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift")));
+        Assert.False(File.Exists(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs")));
     }
 
     [Fact]
@@ -3926,7 +3926,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         ReportCollector.Start(moduleDecl);
         try
         {
-            SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
                 NullLogger.Instance, bridgeHintsPath: hintsPath);
 
             var report = ReportCollector.Complete();
@@ -3954,10 +3954,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         }
         """);
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, bridgeHintsPath: hintsPath);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("BRIDGE TEMPLATE: ForceTemplateView", swiftContent);
         // No functional @_cdecl for this view (template has it commented out)
         var nonCommentLines = swiftContent.Split('\n').Where(l => !l.TrimStart().StartsWith("//"));
@@ -3980,10 +3980,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         }
         """);
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, bridgeHintsPath: hintsPath);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         // Constructor [1] has Int param → Swift ABI uses "Int" type
         Assert.Contains("count: Int", swiftContent);
         // Constructor [0] has closure — it should NOT be used
@@ -4005,13 +4005,13 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         }
         """);
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             testLogger, bridgeHintsPath: hintsPath);
 
         // Warning about out-of-range index
         Assert.Contains(testLogger.Messages, m => m.Contains("preferredInit") && m.Contains("out of range"));
         // Falls back to constructor [0]
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("count: Int", swiftContent);
     }
 
@@ -4048,13 +4048,13 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var views = new List<TypeDecl> { CreateSimpleViewStruct("TestView") };
         var hintsPath = CreateBridgeHintsFile(_tempDir, "{ invalid json!!!");
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             testLogger, bridgeHintsPath: hintsPath);
 
         // Warning about malformed JSON
         Assert.Contains(testLogger.Messages, m => m.Contains("Malformed bridge hints"));
         // Still generates output normally
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("SBW_TestModule_TestView_Create", swiftContent);
     }
 
@@ -4072,14 +4072,14 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         }
         """);
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             testLogger, bridgeHintsPath: hintsPath);
 
         // Warnings about unknown keys
         Assert.Contains(testLogger.Messages, m => m.Contains("unknown key 'unknownRoot'"));
         Assert.Contains(testLogger.Messages, m => m.Contains("unknown key 'futureKey'"));
         // Still loads and generates output
-        Assert.True(File.Exists(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift")));
+        Assert.True(File.Exists(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift")));
     }
 
     [Fact]
@@ -4146,10 +4146,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         }
         """);
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, bridgeHintsPath: hintsPath);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("import SomeFramework", swiftContent);
         Assert.Contains("import AnotherLib", swiftContent);
     }
@@ -4167,19 +4167,19 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         }
         """);
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, bridgeHintsPath: hintsPath);
 
-        Assert.False(File.Exists(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift")));
-        Assert.False(File.Exists(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs")));
+        Assert.False(File.Exists(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift")));
+        Assert.False(File.Exists(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs")));
     }
 
     [Fact]
     public void BridgeHints_AllViewsSkipped_DeletesAutoGeneratedBridgeFiles()
     {
         // Pre-create auto-generated bridge files (contain marker)
-        var staleSwift = Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift");
-        var staleCs = Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs");
+        var staleSwift = Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift");
+        var staleCs = Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs");
         File.WriteAllText(staleSwift, "// Auto-generated by SwiftBindings — SwiftUI Bridge\nimport UIKit\n");
         File.WriteAllText(staleCs, "// Auto-generated by SwiftBindings — SwiftUI Bridge\nusing System;\n");
         Assert.True(File.Exists(staleSwift));
@@ -4194,7 +4194,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         }
         """);
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, bridgeHintsPath: hintsPath);
 
         Assert.False(File.Exists(staleSwift));
@@ -4205,8 +4205,8 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     public void BridgeHints_AllViewsSkipped_PreservesUserMaintainedBridgeFiles()
     {
         // Pre-create user-maintained bridge files (no auto-generated marker)
-        var userSwift = Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift");
-        var userCs = Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs");
+        var userSwift = Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift");
+        var userCs = Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs");
         File.WriteAllText(userSwift, "// Hand-written bridge\nimport UIKit\n");
         File.WriteAllText(userCs, "// Hand-written bridge\nusing System;\n");
 
@@ -4219,7 +4219,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         }
         """);
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, bridgeHintsPath: hintsPath);
 
         // User-maintained files should NOT be deleted
@@ -4244,10 +4244,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         }
         """);
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, bridgeHintsPath: hintsPath);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("import ValidFramework", swiftContent);
         Assert.Contains("import AnotherValid", swiftContent);
         // No blank imports
@@ -4422,10 +4422,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "callback",
             new NamedTypeSpec("Swift.String"), TupleTypeSpec.Empty) };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("Array(arg0.utf8)", swiftContent);
         Assert.Contains("withUnsafeBufferPointer", swiftContent);
     }
@@ -4436,10 +4436,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "callback",
             new NamedTypeSpec("Swift.String"), TupleTypeSpec.Empty) };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("Encoding.UTF8.GetString", csContent);
         Assert.Contains("arg0Ptr", csContent);
         Assert.Contains("arg0Len", csContent);
@@ -4451,10 +4451,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "callback",
             new NamedTypeSpec("Swift.String"), TupleTypeSpec.Empty) };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void>", csContent);
     }
 
@@ -4464,10 +4464,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "callback",
             new NamedTypeSpec("Swift.String"), TupleTypeSpec.Empty) };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("Action<string>", csContent);
     }
 
@@ -4477,10 +4477,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "validator",
             new NamedTypeSpec("Swift.String"), new NamedTypeSpec("Swift.Int32")) };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         // Closure should have return type annotation and return expression
         Assert.Contains("-> Int32 in", swiftContent);
         Assert.Contains("return cb_validator", swiftContent);
@@ -4495,10 +4495,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "validator",
             new NamedTypeSpec("Swift.String"), new NamedTypeSpec("Swift.Int32")) };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("Func<string, int>", csContent);
     }
 
@@ -4509,10 +4509,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "onModel",
             new NamedTypeSpec("TestModule.LottieAnimation"), TupleTypeSpec.Empty) };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, typeDb);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("Unmanaged.passRetained(arg0).toOpaque()", swiftContent);
     }
 
@@ -4523,10 +4523,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "onModel",
             new NamedTypeSpec("TestModule.LottieAnimation"), TupleTypeSpec.Empty) };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, typeDb);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("NativeMemory.Alloc", csContent);
         Assert.Contains("SwiftMarshal.MarshalFromSwift", csContent);
     }
@@ -4538,11 +4538,11 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "onModel",
             new NamedTypeSpec("TestModule.LottieAnimation"), TupleTypeSpec.Empty) };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, typeDb);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
-        Assert.Contains("Action<Swift.TestModule.LottieAnimation>", csContent);
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("Action<TestModule.LottieAnimation>", csContent);
     }
 
     [Fact]
@@ -4550,10 +4550,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithOptionalPrimitiveInit("OptView", "title", "Swift.String") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("titlePtr == nil", swiftContent);
         // With state binding, optional string conversion uses "Converted" suffix
         Assert.Contains("titleConverted = nil", swiftContent);
@@ -4565,10 +4565,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithOptionalPrimitiveInit("OptView", "title", "Swift.String") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("string? title", csContent);
         Assert.Contains("titlePtr", csContent);
         Assert.Contains("titleLen", csContent);
@@ -4579,10 +4579,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithOptionalPrimitiveInit("OptView", "title", "Swift.String") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("title == null ? IntPtr.Zero", csContent);
     }
 
@@ -4591,10 +4591,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithOptionalPrimitiveInit("OptView", "title", "Swift.String") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("@_cdecl(\"SBW_TestModule_OptView_Create\")", swiftContent);
         Assert.DoesNotContain("BRIDGE TEMPLATE", swiftContent);
     }
@@ -4604,10 +4604,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithOptionalPrimitiveInit("OptView", "title", "Swift.String") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("_ titlePtr: UnsafePointer<UInt8>?", swiftContent);
         Assert.Contains("_ titleLen: Int", swiftContent);
     }
@@ -4617,10 +4617,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithOptionalPrimitiveInit("OptView", "title", "Swift.String") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("IntPtr titlePtr", csContent);
         Assert.Contains("nint titleLen", csContent);
     }
@@ -4630,10 +4630,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithOptionalPrimitiveInit("OptView", "title", "Swift.String") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("string? title = null", csContent);
     }
 
@@ -5402,10 +5402,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var view = CreateGenericViewWithViewConstraint("GenericPlaceholderView");
         var views = new List<TypeDecl> { view };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         // With state binding (title: String is updatable), the hosted view is the Wrapper
         Assert.Contains("UIHostingController<SBW_TestModule_GenericPlaceholderView_Wrapper>", swiftContent);
     }
@@ -5416,10 +5416,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var view = CreateViewBuilderOnlyGenericView("PlaceholderOnlyView");
         var views = new List<TypeDecl> { view };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("content: { EmptyView() }", swiftContent);
     }
 
@@ -5429,14 +5429,14 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var view = CreateGenericViewWithViewConstraint("GenericPlaceholderView");
         var views = new List<TypeDecl> { view };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         // title param is a String, should be bridged normally
         Assert.Contains("title:", swiftContent);
         // C# side should have the title parameter (String → string? in C#)
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("string?", csContent);
         Assert.Contains("title", csContent);
     }
@@ -5447,13 +5447,13 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var view = CreateViewBuilderOnlyGenericView("PlaceholderOnlyView");
         var views = new List<TypeDecl> { view };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         // Create method should have zero user-facing parameters (only the synthesized ViewBuilder)
         // The Create @_cdecl should take no bridge params
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("PlaceholderOnlyView(content: { EmptyView() })", swiftContent);
     }
 
@@ -5500,10 +5500,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var view = CreateGenericViewMultipleTypeParams("DualPlaceholderView");
         var views = new List<TypeDecl> { view };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         // With state binding (title: String is updatable), the hosted view is the Wrapper
         Assert.Contains("UIHostingController<SBW_TestModule_DualPlaceholderView_Wrapper>", swiftContent);
     }
@@ -5835,10 +5835,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
         var views = new List<TypeDecl> { view };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         // The closure must synthesize the concrete type for τ_0_1 (EmptyView), not some random first value
         Assert.Contains("footer: { EmptyView() }", swiftContent);
         // With state binding (title: String is updatable), the hosted view is the Wrapper
@@ -5865,10 +5865,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithPrimitiveAndStringInit("CounterView", "count", "Swift.Int32", "label") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("final class SBW_TestModule_CounterView_State: ObservableObject", swiftContent);
         Assert.Contains("@Published var count: Int32", swiftContent);
         Assert.Contains("@Published var label: String", swiftContent);
@@ -5879,10 +5879,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithPrimitiveAndStringInit("CounterView", "count", "Swift.Int32", "label") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("struct SBW_TestModule_CounterView_Wrapper: View", swiftContent);
         Assert.Contains("@ObservedObject var state: SBW_TestModule_CounterView_State", swiftContent);
     }
@@ -5892,10 +5892,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithPrimitiveAndStringInit("CounterView", "count", "Swift.Int32", "label") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("CounterView(count: state.count, label: state.label)", swiftContent);
     }
 
@@ -5904,10 +5904,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithPrimitiveAndStringInit("CounterView", "count", "Swift.Int32", "label") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("let state: SBW_TestModule_CounterView_State", swiftContent);
         Assert.Contains("UIHostingController<SBW_TestModule_CounterView_Wrapper>", swiftContent);
     }
@@ -5917,10 +5917,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithPrimitiveAndStringInit("CounterView", "count", "Swift.Int32", "label") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("@_cdecl(\"SBW_TestModule_CounterView_UpdateCount\")", swiftContent);
         Assert.Contains("@_cdecl(\"SBW_TestModule_CounterView_UpdateLabel\")", swiftContent);
         Assert.Contains("session.state.count = newValue", swiftContent);
@@ -5931,10 +5931,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithPrimitiveAndStringInit("CounterView", "count", "Swift.Int32", "label") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("session.state.label = String(bytes:", swiftContent);
     }
 
@@ -5943,10 +5943,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithPrimitiveAndStringInit("CounterView", "count", "Swift.Int32", "label") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("SBW_TestModule_CounterView_UpdateCount", csContent);
         Assert.Contains("SBW_TestModule_CounterView_UpdateLabel", csContent);
     }
@@ -5956,10 +5956,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithPrimitiveAndStringInit("CounterView", "count", "Swift.Int32", "label") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("public void UpdateCount(int newValue)", csContent);
         Assert.Contains("public unsafe void UpdateLabel(string? newValue)", csContent);
     }
@@ -5970,10 +5970,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         // Mixed view: title + isEnabled (updatable) + onTap (closure, NOT updatable)
         var views = new List<TypeDecl> { CreateViewWithMixedUpdatableInit("MixedView") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         // onTap should NOT have an Update function
         Assert.DoesNotContain("UpdateOnTap", swiftContent);
         // But title and isEnabled should
@@ -5986,10 +5986,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithMixedUpdatableInit("MixedView") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         // Closure is on Wrapper as let, not on State as @Published
         Assert.Contains("let onTap: () -> Void", swiftContent);
         Assert.DoesNotContain("@Published var onTap", swiftContent);
@@ -6001,10 +6001,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         // View with only closures → no updatable params → no state/wrapper
         var views = new List<TypeDecl> { CreateViewWithVoidClosureInit("ClosureOnlyView", "action") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.DoesNotContain("SBW_TestModule_ClosureOnlyView_State", swiftContent);
         Assert.DoesNotContain("SBW_TestModule_ClosureOnlyView_Wrapper", swiftContent);
         Assert.Contains("UIHostingController<ClosureOnlyView>", swiftContent);
@@ -6015,10 +6015,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateSimpleViewStruct("EmptyView") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.DoesNotContain("_State", swiftContent);
         Assert.DoesNotContain("_Wrapper", swiftContent);
     }
@@ -6028,10 +6028,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithMixedUpdatableInit("BoolView") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("@Published var isEnabled: Bool", swiftContent);
         Assert.Contains("!= 0", swiftContent);
     }
@@ -6041,10 +6041,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithMixedUpdatableInit("BoolView") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("public void UpdateIsEnabled(bool newValue)", csContent);
         Assert.Contains("? 1 : 0", csContent);
     }
@@ -6055,10 +6055,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var typeDb = CreateEnumTypeDatabase();
         var views = new List<TypeDecl> { CreateViewWithEnumInit("EnumUpdateView", "style", "TestModule.AlertStyle") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance, typeDb);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("@_cdecl(\"SBW_TestModule_EnumUpdateView_UpdateStyle\")", swiftContent);
         Assert.Contains("session.state.style = AlertStyle(rawValue: newValue)!", swiftContent);
         Assert.Contains("@Published var style: AlertStyle", swiftContent);
@@ -6092,10 +6092,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         // Generic view with updatable + synthesized args: both should appear correctly in wrapper body
         var views = new List<TypeDecl> { CreateGenericViewWithUpdatableParam("GenericUpdatable") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("SBW_TestModule_GenericUpdatable_State", swiftContent);
         Assert.Contains("SBW_TestModule_GenericUpdatable_Wrapper", swiftContent);
         Assert.Contains("state.title", swiftContent);
@@ -6106,10 +6106,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var views = new List<TypeDecl> { CreateViewWithVoidClosureInit("ActionView", "doSomething") };
 
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.DoesNotContain("public void Update", csContent);
     }
 
@@ -6483,9 +6483,9 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     public void Modifier_Swift_EmitsStateVars()
     {
         var views = new List<TypeDecl> { CreateViewWithModifierMethods("ModView") };
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views, NullLogger.Instance);
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views, NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("@Published var mod_highlighted: Bool = false", swiftContent);
         Assert.Contains("@Published var mod_animationSpeed: Double? = nil", swiftContent);
     }
@@ -6494,9 +6494,9 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     public void Modifier_Swift_EmitsApplyModifiers()
     {
         var views = new List<TypeDecl> { CreateViewWithModifierMethods("ModView") };
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views, NullLogger.Instance);
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views, NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("applyModifiers(ModView(", swiftContent);
         Assert.Contains("private func applyModifiers(_ view: ModView) -> ModView", swiftContent);
         Assert.Contains("if state.mod_highlighted { result = result.highlighted() }", swiftContent);
@@ -6507,9 +6507,9 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     public void Modifier_Swift_EmitsSetFunctions()
     {
         var views = new List<TypeDecl> { CreateViewWithModifierMethods("ModView") };
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views, NullLogger.Instance);
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views, NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("@_cdecl(\"SBW_TestModule_ModView_SetHighlighted\")", swiftContent);
         Assert.Contains("@_cdecl(\"SBW_TestModule_ModView_SetAnimationSpeed\")", swiftContent);
         Assert.Contains("session.state.mod_highlighted = enabled != 0", swiftContent);
@@ -6520,9 +6520,9 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     public void Modifier_CSharp_EmitsPInvoke()
     {
         var views = new List<TypeDecl> { CreateViewWithModifierMethods("ModView") };
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views, NullLogger.Instance);
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views, NullLogger.Instance);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("SBW_TestModule_ModView_SetHighlighted", csContent);
         Assert.Contains("SBW_TestModule_ModView_SetAnimationSpeed", csContent);
     }
@@ -6531,9 +6531,9 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     public void Modifier_CSharp_EmitsPublicMethods()
     {
         var views = new List<TypeDecl> { CreateViewWithModifierMethods("ModView") };
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views, NullLogger.Instance);
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views, NullLogger.Instance);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("public void Highlighted(bool enabled = true)", csContent);
         Assert.Contains("public void AnimationSpeed(double? value)", csContent);
     }
@@ -6543,9 +6543,9 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         // View with no self-returning methods → no modifier emission
         var views = new List<TypeDecl> { CreateSimpleViewStruct("PlainView") };
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views, NullLogger.Instance);
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views, NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.DoesNotContain("applyModifiers", swiftContent);
         Assert.DoesNotContain("mod_", swiftContent);
     }
@@ -6558,9 +6558,9 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         view.Methods.Add(CreateSelfReturningMethod(view, "playing"));
 
         var views = new List<TypeDecl> { view };
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views, NullLogger.Instance);
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views, NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("SBW_TestModule_ModOnlyView_State", swiftContent);
         Assert.Contains("SBW_TestModule_ModOnlyView_Wrapper", swiftContent);
         Assert.Contains("@Published var mod_playing: Bool = false", swiftContent);
@@ -6571,9 +6571,9 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var view = CreateGenericViewWithModifiers("GenericModView");
         var views = new List<TypeDecl> { view };
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views, NullLogger.Instance);
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views, NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("private func applyModifiers(_ view: GenericModView<EmptyView>) -> GenericModView<EmptyView>", swiftContent);
     }
 
@@ -6619,13 +6619,13 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         });
 
         var views = new List<TypeDecl> { view };
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views, NullLogger.Instance);
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views, NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("@Published var mod_enabled: Bool? = nil", swiftContent);
         Assert.Contains("session.state.mod_enabled = hasValue != 0 ? (value != 0) : nil", swiftContent);
 
-        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("public void Enabled(bool? value)", csContent);
     }
 
@@ -6655,9 +6655,9 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         });
 
         var views = new List<TypeDecl> { view };
-        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views, NullLogger.Instance);
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views, NullLogger.Instance);
 
-        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         // "argument" is a legitimate label, NOT a parser-generated argN — must emit with label
         Assert.Contains("result.configure(argument: val)", swiftContent);
         Assert.DoesNotContain("result.configure(val)", swiftContent);

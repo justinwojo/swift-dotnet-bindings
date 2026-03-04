@@ -102,7 +102,7 @@ get_runtime_version() {
 write_fallback_csproj() {
     local outdir="$1"
     local cs_file
-    cs_file=$(ls "$outdir"/Swift.*.cs 2>/dev/null | head -1)
+    cs_file=$(ls "$outdir"/*.cs 2>/dev/null | grep -v '\.Wrappers\.cs' | grep -v '\.SwiftUIBridge\.cs' | head -1)
     [[ -z "$cs_file" ]] && return 1
     local cs_basename
     cs_basename=$(basename "$cs_file")
@@ -300,7 +300,7 @@ process_target() {
         local GEN_OUTPUT GEN_EXIT
         GEN_OUTPUT=$(dotnet "$GENERATOR_DLL" --xcframework "$xcfw_path" -o "$outdir" -v 0 2>&1)
         GEN_EXIT=$?
-        if [[ $GEN_EXIT -eq 0 ]] && ls "$outdir"/Swift.*.cs >/dev/null 2>&1; then
+        if [[ $GEN_EXIT -eq 0 ]] && ls "$outdir"/*.cs 2>/dev/null | grep -qv '\.Wrappers\.cs\|\.SwiftUIBridge\.cs'; then
             set_result "$name" gen "ok"
         else
             set_result "$name" gen "fail"
@@ -330,7 +330,7 @@ process_target() {
     fi
 
     # Fallback .csproj when wrapper compilation fails
-    if [[ -z "$CSPROJ_FILE" ]] && ls "$outdir"/Swift.*.cs >/dev/null 2>&1; then
+    if [[ -z "$CSPROJ_FILE" ]] && ls "$outdir"/*.cs 2>/dev/null | grep -qv '\.Wrappers\.cs\|\.SwiftUIBridge\.cs'; then
         write_fallback_csproj "$outdir"
         CSPROJ_FILE="$outdir/Test.csproj"
     fi
@@ -351,7 +351,7 @@ process_target() {
 
     # Count lines
     local CS_FILE LINES
-    CS_FILE=$(ls "$outdir"/Swift.*.cs 2>/dev/null | head -1)
+    CS_FILE=$(ls "$outdir"/*.cs 2>/dev/null | grep -v '\.Wrappers\.cs' | grep -v '\.SwiftUIBridge\.cs' | head -1)
     LINES=0
     [[ -n "$CS_FILE" ]] && LINES=$(wc -l < "$CS_FILE" | tr -d ' ')
     set_result "$name" lines "$LINES"
