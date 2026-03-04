@@ -41,6 +41,14 @@ public class NativeRemappedProjection : ITypeProjection
     public string? PInvokeAttribute => null;
 
     /// <summary>
+    /// When appearing as a generic parameter in a Swift container (SwiftOptional, SwiftArray),
+    /// use the Swift wrapper type so the container can manage the object's lifetime.
+    /// For non-frozen types (URL), this means SwiftOptional&lt;Swift.URL&gt; instead of
+    /// SwiftOptional&lt;SafeHandle&gt;, which allows NewSome() to accept the wrapper directly.
+    /// </summary>
+    public string SwiftContainerGenericType => _swiftWrapperType;
+
+    /// <summary>
     /// For MarshalFromSwift deserialization, always use the Swift wrapper type name
     /// (e.g., Swift.URL) so MarshalFromSwift returns the correct type with conversion methods.
     /// </summary>
