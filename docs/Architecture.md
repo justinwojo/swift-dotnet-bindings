@@ -180,6 +180,6 @@ That experiment went inactive in an early state, handling only basic classes, st
 
 ## Next Steps
 
-- **[Getting Started](Getting-Started)** — Start using the tool
-- **[Customization](Customization)** — Control the generator output
-- **[Supported Features](Supported-Features)** — What's covered
+- **[Getting Started](Getting-Started.md)** — Start using the tool
+- **[Customization](Customization.md)** — Control the generator output
+- **[Supported Features](Supported-Features.md)** — What's covered

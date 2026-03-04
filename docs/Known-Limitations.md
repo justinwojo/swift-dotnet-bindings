@@ -140,6 +140,6 @@ These are explicitly out of scope to maintain focus:
 
 ## Next Steps
 
-- **[Troubleshooting](Troubleshooting)** — Solutions for specific errors
-- **[Supported Features](Supported-Features)** — What does work
-- **[Architecture](Architecture)** — How the generator handles these constraints
+- **[Troubleshooting](Troubleshooting.md)** — Solutions for specific errors
+- **[Supported Features](Supported-Features.md)** — What does work
+- **[Architecture](Architecture.md)** — How the generator handles these constraints

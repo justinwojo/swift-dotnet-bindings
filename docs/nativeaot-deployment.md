@@ -186,6 +186,6 @@ Generated bindings use `[ModuleInitializer]` to register a `DllImportResolver` f
 
 ## Further Reading
 
-- **[Known Limitations](Known-Limitations)** — platform and runtime constraints
-- **[Troubleshooting](Troubleshooting)** — common errors and how to fix them
+- **[Known Limitations](Known-Limitations.md)** — platform and runtime constraints
+- **[Troubleshooting](Troubleshooting.md)** — common errors and how to fix them
 - [Microsoft NativeAOT iOS docs](https://learn.microsoft.com/en-us/dotnet/maui/deployment/nativeaot) — general .NET MAUI NativeAOT deployment

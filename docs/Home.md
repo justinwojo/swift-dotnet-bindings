@@ -48,13 +48,13 @@ The generator covers the full breadth of Swift's type system:
 
 ## Validated Against Real Libraries
 
-The compile gate passes for all 53 targets across 40 libraries — including Alamofire, Nuke, Kingfisher, Lottie, CryptoSwift, all Stripe frameworks, GRDB, RxSwift, BlinkID, and more. Zero generator errors. See [Supported Features](Supported-Features) for details.
+The compile gate passes for all 53 targets across 40 libraries — including Alamofire, Nuke, Kingfisher, Lottie, CryptoSwift, all Stripe frameworks, GRDB, RxSwift, BlinkID, and more. Zero generator errors. See [Supported Features](Supported-Features.md) for details.
 
-This project is a fork of Microsoft's [`dotnet/runtimelab` (feature/swift-bindings branch)](https://github.com/dotnet/runtimelab/tree/feature/swift-bindings), substantially extended with protocols, generics, closures, async, SwiftUI bridging, and more. See [Architecture](Architecture) for the full history.
+This project is a fork of Microsoft's [`dotnet/runtimelab` (feature/swift-bindings branch)](https://github.com/dotnet/runtimelab/tree/feature/swift-bindings), substantially extended with protocols, generics, closures, async, SwiftUI bridging, and more. See [Architecture](Architecture.md) for the full history.
 
 ## Next Steps
 
-- **[Getting Started](Getting-Started)** — Set up your first binding
-- **[Supported Features](Supported-Features)** — What Swift features are covered
-- **[How Bindings Map](How-Bindings-Map)** — Side-by-side Swift → C# examples
-- **[Architecture](Architecture)** — How the generator works under the hood
+- **[Getting Started](Getting-Started.md)** — Set up your first binding
+- **[Supported Features](Supported-Features.md)** — What Swift features are covered
+- **[How Bindings Map](How-Bindings-Map.md)** — Side-by-side Swift → C# examples
+- **[Architecture](Architecture.md)** — How the generator works under the hood

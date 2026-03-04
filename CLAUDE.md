@@ -9,7 +9,7 @@ Experimental Swift/.NET interop project. Generates C# bindings from compiled Swi
 - `src/Swift.Bindings/src/` — Generator: Parser → TypeDatabase → Marshaler → Emitter
 - `src/Swift.Bindings.Sdk/` — MSBuild SDK package (`Swift.Bindings.Sdk`): `Sdk.props`, `Sdk.targets`, build scripts
 - `src/Swift.Bindings.Templates/` — `dotnet new swift-binding` project template
-- `src/Swift.Runtime/src/Swift/` — Runtime: SwiftString, SwiftArray, SafeHandle, ARC (NuGet: `Swift.Runtime 0.1.0-preview.1`)
+- `src/Swift.Runtime/src/Swift/` — Runtime: SwiftString, SwiftArray, SafeHandle, ARC (NuGet: `Swift.Runtime`)
 - `TestFramework/` — Comprehensive test library + runtime tests (iOS Simulator)
 - `validation-libraries.json` — Library validation manifest (32 targets across 19 libraries)
 - `scripts/` — `fetch-libraries.sh` (build xcframeworks), `lib.sh` (shared helpers)
@@ -144,7 +144,7 @@ cd Library.Swift.iOS && dotnet build && dotnet pack
 
 **Minimal project file:**
 ```xml
-<Project Sdk="Swift.Bindings.Sdk/0.1.0-preview.1">
+<Project Sdk="Swift.Bindings.Sdk">
   <PropertyGroup>
     <TargetFramework>net10.0-ios</TargetFramework>
   </PropertyGroup>
@@ -155,7 +155,7 @@ The SDK auto-discovers `*.xcframework` in the project directory, runs the genera
 
 **Project with framework dependencies:**
 ```xml
-<Project Sdk="Swift.Bindings.Sdk/0.1.0-preview.1">
+<Project Sdk="Swift.Bindings.Sdk">
   <PropertyGroup>
     <TargetFramework>net10.0-ios</TargetFramework>
   </PropertyGroup>

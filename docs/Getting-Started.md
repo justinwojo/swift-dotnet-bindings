@@ -2,12 +2,16 @@
 
 ## Prerequisites
 
-- **macOS** with **Xcode** installed (required for Apple platform tooling)
+- **macOS** with **[Xcode 26](https://developer.apple.com/xcode/)** or later installed (required for Apple platform tooling)
 - **.NET 10 SDK** with the iOS workload:
   ```bash
   dotnet workload install ios
   ```
-- A compiled Swift framework (`.xcframework`) you want to bind
+- A compiled Swift framework (`.xcframework`) you want to bind — it must be:
+  - A **dynamic** framework (not a static `.a` archive)
+  - Built with **`BUILD_LIBRARY_FOR_DISTRIBUTION=YES`** (library evolution enabled)
+
+  This flag tells the Swift compiler to emit stable ABI metadata (`.swiftinterface` files) that the generator needs to extract type information. Without it, the generator will produce empty output or crash. Most well-maintained open-source libraries and vendor SDKs already build with this flag. See [Troubleshooting](Troubleshooting#generator-crash-or-emptyincomplete-output) if your xcframework wasn't built this way.
 
 ## Install the tooling
 
@@ -32,7 +36,7 @@ dotnet new swift-binding -n MyLibrary.Swift.iOS
 This creates a project file that looks like:
 
 ```xml
-<Project Sdk="Swift.Bindings.Sdk/0.1.0-preview.1">
+<Project Sdk="Swift.Bindings.Sdk">
   <PropertyGroup>
     <TargetFramework>net10.0-ios</TargetFramework>
   </PropertyGroup>
@@ -89,7 +93,7 @@ using Swift.MyLibrary;
 var result = MyClass.DoSomething();
 ```
 
-The consumer doesn't need the Swift Bindings SDK, the generator, or any Swift knowledge. They just reference the NuGet package.
+The consumer doesn't need the Swift Bindings SDK, the generator, or any Swift knowledge. They just reference the NuGet package. It includes MSBuild targets that automatically bundle the native frameworks into the app and configure diagnostic suppression — no manual `NativeReference` items needed.
 
 ---
 
@@ -149,7 +153,7 @@ dotnet run --project src/Swift.Bindings/src -- \
 | `{Module}.Swift.iOS.csproj` + `.targets` | Ready-to-build project and NuGet consumer targets (xcframework mode) |
 | `binding-metadata.json` + `.props` | Extracted framework metadata |
 
-See [Customization](Customization) for the full set of CLI options.
+See [Customization](Customization.md) for the full set of CLI options.
 
 ---
 
@@ -223,8 +227,8 @@ The report helps you understand coverage gaps and decide if manual Swift wrapper
 
 ## Next Steps
 
-- **[Supported Features](Supported-Features)** — Full list of what Swift features are covered
-- **[Customization](Customization)** — CLI options, MSBuild properties, namespace control
-- **[SwiftUI Interop](SwiftUI-Interop)** — SwiftUI bridge usage, bridge hints, async views
-- **[Troubleshooting](Troubleshooting)** — Common errors and how to fix them
-- **[Known Limitations](Known-Limitations)** — Platform constraints and workarounds
+- **[Supported Features](Supported-Features.md)** — Full list of what Swift features are covered
+- **[Customization](Customization.md)** — CLI options, MSBuild properties, namespace control
+- **[SwiftUI Interop](SwiftUI-Interop.md)** — SwiftUI bridge usage, bridge hints, async views
+- **[Troubleshooting](Troubleshooting.md)** — Common errors and how to fix them
+- **[Known Limitations](Known-Limitations.md)** — Platform constraints and workarounds

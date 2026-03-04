@@ -34,7 +34,7 @@ When using the `Swift.Bindings.Sdk`, these MSBuild properties are available in y
 |----------|---------|-------------|
 | `SwiftPlatformTarget` | `simulator` | Platform slice for generation |
 | `SwiftWrapperArchitectures` | `all` | Wrapper compilation scope: `simulator`, `device`, or `all` |
-| `SwiftRuntimeVersion` | `0.1.0-preview.1` | Version of `Swift.Runtime` package |
+| `SwiftRuntimeVersion` | *(matches SDK version)* | Version of `Swift.Runtime` package |
 | `SwiftGenerateDocComments` | `true` | Auto-extract symbol graph for C# XML doc comments |
 
 ### SwiftFramework Item Metadata
@@ -125,5 +125,5 @@ dotnet build
 
 ## Next Steps
 
-- **[SwiftUI Interop](SwiftUI-Interop)** — Bridge hints and SwiftUI view customization
-- **[Troubleshooting](Troubleshooting)** — Common errors and how to fix them
+- **[SwiftUI Interop](SwiftUI-Interop.md)** — Bridge hints and SwiftUI view customization
+- **[Troubleshooting](Troubleshooting.md)** — Common errors and how to fix them

@@ -231,6 +231,19 @@ jobs:
             "s|Sdk=\"Swift.Bindings.Sdk/[^\"]*\"|Sdk=\"Swift.Bindings.Sdk/${VERSION}\"|" \
             src/Swift.Bindings.Templates/content/swift-binding/ProjectName.csproj
 
+          # Template template.json: default SDK version parameter
+          sed -i '' \
+            "s|\"defaultValue\": \"[^\"]*\"|\"defaultValue\": \"${VERSION}\"|" \
+            src/Swift.Bindings.Templates/content/swift-binding/.template.config/template.json
+          sed -i '' \
+            "s|\"replaces\": \"[^\"]*\"|\"replaces\": \"${VERSION}\"|" \
+            src/Swift.Bindings.Templates/content/swift-binding/.template.config/template.json
+
+          # Generator: DefaultSwiftRuntimeVersion constant
+          sed -i '' \
+            "s|DefaultSwiftRuntimeVersion = \"[^\"]*\"|DefaultSwiftRuntimeVersion = \"${VERSION}\"|" \
+            src/Swift.Bindings/src/Emitter/BindingProjectEmitter.cs
+
           echo "Patched version references to $VERSION"
 
       - name: Pack Swift.Runtime

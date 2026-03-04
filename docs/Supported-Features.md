@@ -139,6 +139,6 @@ Skipped members are primarily exotic patterns: existential arguments in bound ge
 
 ## Next Steps
 
-- **[SwiftUI Interop](SwiftUI-Interop)** — How SwiftUI views are bridged to .NET
-- **[Known Limitations](Known-Limitations)** — What's not supported yet
-- **[Architecture](Architecture)** — How the generator handles all of this internally
+- **[SwiftUI Interop](SwiftUI-Interop.md)** — How SwiftUI views are bridged to .NET
+- **[Known Limitations](Known-Limitations.md)** — What's not supported yet
+- **[Architecture](Architecture.md)** — How the generator handles all of this internally

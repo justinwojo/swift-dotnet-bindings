@@ -131,6 +131,8 @@ For customization options (bridge hints, constructor selection, import overrides
 
 ## Getting Started
 
+**Requires**: macOS, [Xcode 26](https://developer.apple.com/xcode/) or later, and [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) with the iOS workload (`dotnet workload install ios`).
+
 ```bash
 # 1. Install the project template and MSBuild SDK
 dotnet new install Swift.Bindings.Templates
@@ -201,17 +203,13 @@ For full details, see [Known Limitations](docs/Known-Limitations.md).
 
 Swift Bindings is under active development. The core generator, MSBuild SDK, and NuGet packaging are all functional — validated across 40 libraries (53 framework targets) with zero compilation errors, and tested with **5,100+ unit tests**, **700+ integration tests**, and **240+ end-to-end runtime tests** on iOS Simulator.
 
-| Area | Status |
-|------|--------|
-| Objective-C binding generation | Under consideration |
-
 ### Objective-C Support (Under Consideration)
 
 The generator currently targets Swift-only libraries. However, many libraries still ship with Objective-C APIs — either ObjC-only or mixed ObjC/Swift. Microsoft's Objective Sharpie tool handles ObjC binding generation but is effectively unmaintained and breaks with newer Xcode versions.
 
 We're exploring whether Swift Bindings could absorb this role by adding an ObjC pipeline alongside the existing Swift pipeline. The approach would use `clang -ast-dump=json` (no native dependencies, ships with Xcode) to parse ObjC headers and emit standard `ApiDefinition.cs` + `StructsAndEnums.cs` binding definitions that work with .NET MAUI's existing ObjC registrar. The XCFramework resolution, dependency handling, MSBuild SDK, and NuGet packaging infrastructure would be shared — the user experience would be the same: point at any xcframework, get a NuGet package.
 
-This is not currently planned work. See the [design exploration](src/docs/Future/objc-binding-integration.md) for full architectural analysis, trade-offs, and implementation estimates.
+This is not currently planned work — if ObjC binding support would be valuable to you, please [open an issue](../../issues) and let us know your use case. See the [design exploration](src/docs/Future/objc-binding-integration.md) for full architectural analysis, trade-offs, and implementation estimates.
 
 ---
 

@@ -182,6 +182,6 @@ The bridge handles configuration, dynamic state updates, and presentation. The S
 
 ## Next Steps
 
-- **[Customization](Customization)** — Other ways to control the generator output
-- **[Supported Features](Supported-Features)** — Full feature reference
-- **[Known Limitations](Known-Limitations)** — Platform and runtime constraints
+- **[Customization](Customization.md)** — Other ways to control the generator output
+- **[Supported Features](Supported-Features.md)** — Full feature reference
+- **[Known Limitations](Known-Limitations.md)** — Platform and runtime constraints

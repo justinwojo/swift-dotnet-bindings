@@ -318,6 +318,6 @@ Comparison operators auto-synthesize their complement (`==`/`!=`, `<`/`>`, `<=`/
 
 ## Next Steps
 
-- **[Supported Features](Supported-Features)** — Full feature reference
-- **[Known Limitations](Known-Limitations)** — What's not supported yet
-- **[Getting Started](Getting-Started)** — Set up your first binding
+- **[Supported Features](Supported-Features.md)** — Full feature reference
+- **[Known Limitations](Known-Limitations.md)** — What's not supported yet
+- **[Getting Started](Getting-Started.md)** — Set up your first binding

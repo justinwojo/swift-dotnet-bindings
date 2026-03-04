@@ -41,7 +41,7 @@ namespace BindingsGeneration
             Option<string> asyncLibraryOption = new(
                 aliases: new[] { "--async-library" },
                 description: "Library name for async wrapper functions. If not specified, uses the module library. " +
-                             "Typically 'SwiftBindings' when using a separate wrapper library.");
+                             "Only needed in manual mode (-a/-d/-t) when the wrapper is compiled as a separate dylib.");
             Option<string> namespacePatternOption = new(
                 aliases: new[] { "--namespace-pattern" },
                 description: "C# namespace pattern for generated modules and types. Supports {Module} and {Framework}. Default: Swift.{Module}");

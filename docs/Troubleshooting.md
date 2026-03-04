@@ -56,7 +56,9 @@ These errors come from the SDK's build targets and have clear remediation steps.
 
 The generator only supports **dynamic** xcframeworks (containing `.dylib` or `.framework` bundles). Static xcframeworks (`.a` archives) are not supported.
 
-**Fix:** Rebuild the framework as a dynamic library. In Xcode, set `MACH_O_TYPE` to `mh_dylib`.
+**If you control the build:** Rebuild the framework as a dynamic library. In Xcode, set `MACH_O_TYPE` to `mh_dylib`. For SPM packages, use [spm-to-xcframework](https://github.com/justinwojo/spm-to-xcframework) which handles this automatically.
+
+**If this is a vendor xcframework:** Contact the library vendor and request a dynamic framework build. If a dynamic build isn't available, see [Alternative approaches for incompatible xcframeworks](#alternative-approaches-for-incompatible-xcframeworks) below.
 
 ### "No Swift module found"
 
@@ -77,7 +79,11 @@ xcodebuild archive -scheme MyLibrary \
   -archivePath ./build/sim
 ```
 
-This flag enables the stable ABI metadata (`.swiftinterface` files) that the generator relies on. Without it, the ABI JSON may be missing or malformed.
+This flag enables the stable ABI metadata (`.swiftinterface` files) that the generator relies on. Without it, the ABI JSON may be missing or malformed. This is a hard requirement — the generator cannot extract type information without `.swiftinterface` files.
+
+**If you control the build:** Add `BUILD_LIBRARY_FOR_DISTRIBUTION=YES` to your `xcodebuild` invocation. For SPM packages, use [spm-to-xcframework](https://github.com/justinwojo/spm-to-xcframework) which sets this flag automatically.
+
+**If this is a vendor xcframework:** Contact the library vendor and request a build with library evolution enabled. If that isn't possible, see [Alternative approaches for incompatible xcframeworks](#alternative-approaches-for-incompatible-xcframeworks) below.
 
 ### "swift-frontend failed"
 
@@ -196,9 +202,9 @@ The generator includes four automatic workarounds (A through D) that route aroun
 
 ### `SwiftRuntimeException: libSwiftBindingsRuntime.dylib not found`
 
-The Mono JIT workarounds require `libSwiftBindingsRuntime.dylib` in the app bundle.
+The Mono JIT workarounds require `libSwiftBindingsRuntime.dylib` in the app bundle. This dylib is bundled inside the `Swift.Runtime` NuGet package and is automatically included when the package is referenced.
 
-**Fix:** Ensure the `Swift.Runtime` NuGet package is referenced and the native dylib is included in your build output.
+**Fix:** Verify that your app references the `Swift.Runtime` NuGet package (binding packages include it as a transitive dependency). If the package is referenced but the dylib is still missing, try a clean rebuild (`dotnet clean && dotnet build`).
 
 ### `InvalidProgramException: Cannot use non-blittable types with Swift calling convention`
 
@@ -211,6 +217,39 @@ The Mono JIT workarounds require `libSwiftBindingsRuntime.dylib` in the app bund
 A Swift object was accessed after its `Dispose()` was called (or after GC collection).
 
 **Fix:** Ensure you maintain a reference to Swift objects for as long as you need them. Use `using` statements for deterministic cleanup.
+
+---
+
+## Debugging Generated Bindings
+
+### Where generated files live
+
+**MSBuild SDK mode** (recommended): Generated files are in your project's intermediate output directory:
+
+```
+obj/Debug/net10.0-ios/swift-binding/
+├── Swift.MyLibrary.cs              # C# bindings (P/Invoke declarations, type wrappers)
+├── Swift.MyLibrary.swift           # Swift wrapper (async support, protocol dispatch)
+├── MyLibrarySwiftBindings.xcframework/  # Compiled Swift wrapper
+├── binding-report.json             # What was bound and what was skipped
+├── binding-metadata.props          # Extracted framework metadata
+├── MyLibrary.Swift.iOS.targets     # Consumer NuGet targets
+└── MyLibraryDatabase.xml           # Module database for cross-module resolution
+```
+
+**CLI mode**: Files are in whatever `-o` output directory you specified.
+
+### Reading the generated code
+
+The `.cs` file is the place to look when something goes wrong at runtime. Each bound method has:
+
+- A `[DllImport]` P/Invoke declaration with the mangled Swift symbol name
+- A public C# method that marshals arguments, calls the P/Invoke, and marshals the return value
+- `[Obsolete("SBxxxx")]` attributes flagging known risks (see [Binding Diagnostic IDs](#binding-diagnostic-ids))
+
+When you hit a runtime error, find the method in the generated `.cs` and look at the P/Invoke signature — this tells you exactly what's being passed to Swift and how.
+
+If you have the binding project source, the generated files are in `obj/Debug/net10.0-ios/swift-binding/`. If you only have the NuGet package, you can extract it (`.nupkg` is a zip) and decompile the DLL with [ILSpy](https://github.com/icsharpcode/ILSpy) or JetBrains dotPeek.
 
 ---
 
@@ -243,12 +282,20 @@ Generated bindings use custom diagnostic IDs (via `[Obsolete]` attributes) to fl
 
 | ID | Meaning | Action |
 |----|---------|--------|
-| `SB0001` | **Mono JIT crash risk** — method may crash on Mono (iOS Simulator). Safe on NativeAOT (device). | Suppressed automatically in NativeAOT builds. See [NativeAOT Deployment](NativeAOT-Deployment). |
+| `SB0001` | **Mono JIT crash risk** — method may crash on Mono (iOS Simulator). Safe on NativeAOT (device). | Suppressed automatically in NativeAOT builds. See [NativeAOT Deployment](NativeAOT-Deployment.md). |
 | `SB0002` | **Missing symbol** — P/Invoke entry point not found in the library. Will throw `EntryPointNotFoundException`. | The Swift symbol wasn't exported. May need `BUILD_LIBRARY_FOR_DISTRIBUTION=YES`. |
 | `SB0003` | **Non-dispatchable protocol member** — can't dispatch through the witness table. Throws `NotSupportedException` on Swift-backed existentials. | Concrete type calls work fine. Only affects existential dispatch. |
 | `SB0004` | **Empty protocol interface** — all members were skipped. Interface exists for type identity only. | Check `binding-report.json` for skip reasons. |
 
 These IDs are scoped to Swift binding packages — suppressing them doesn't affect other `[Obsolete]` warnings.
+
+---
+
+## Alternative Approaches for Incompatible xcframeworks
+
+Swift Bindings requires xcframeworks built as **dynamic** libraries with **`BUILD_LIBRARY_FOR_DISTRIBUTION=YES`** (library evolution enabled). This is a hard requirement — the generator extracts type information from `.swiftinterface` files, which only exist when library evolution is enabled. Without them, binding generation is not possible.
+
+If you have an xcframework that doesn't meet these requirements and you can't rebuild it (e.g., a vendor SDK), the recommended alternative is **[Maui.NativeLibraryInterop](https://github.com/CommunityToolkit/Maui.NativeLibraryInterop)** (also called "Slim Bindings"). This Community Toolkit approach uses a native Swift/ObjC intermediary project to expose the APIs you need to .NET. It requires manual work per API surface, but doesn't depend on library evolution metadata. See the [Microsoft Learn docs](https://learn.microsoft.com/en-us/dotnet/communitytoolkit/maui/native-library-interop/) for a full walkthrough.
 
 ---
 
@@ -266,5 +313,5 @@ The binding report alone often contains enough information to diagnose the root 
 
 ## Next Steps
 
-- **[Known Limitations](Known-Limitations)** — Platform and runtime constraints
-- **[Getting Started](Getting-Started)** — Setup instructions
+- **[Known Limitations](Known-Limitations.md)** — Platform and runtime constraints
+- **[Getting Started](Getting-Started.md)** — Setup instructions
