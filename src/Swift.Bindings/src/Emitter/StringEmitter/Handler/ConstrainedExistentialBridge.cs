@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using Microsoft.Extensions.Logging;
+using Swift.Runtime;
 
 namespace BindingsGeneration;
 
@@ -163,9 +164,10 @@ public static class ConstrainedExistentialBridge
             return false;
 
         // Compute symbols
-        var typeName = classDecl.Name;
+        var className = classDecl.Name;
+        var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(classDecl);
         var mangledHash = EmitterUtility.DeterministicHash8(methodDecl.MangledName);
-        var wrapperSymbol = $"SBW_{typeName}_init_{mangledHash}";
+        var wrapperSymbol = $"SBW_{className}_init_{mangledHash}";
         var swiftTypeName = classDecl.SwiftTypeName.ModuleQualifiedName;
 
         // Determine library path
@@ -177,7 +179,7 @@ public static class ConstrainedExistentialBridge
         EmitSwiftWrapper(swiftWriter, wrapperSymbol, swiftTypeName, bridgeParams, methodDecl, neededImports);
 
         // --- Emit C# constructor ---
-        EmitCSharpConstructor(csWriter, env, typeName, wrapperSymbol, wrapperLibPath, bridgeParams);
+        EmitCSharpConstructor(csWriter, env, classDecl, typeNameWithGenerics, wrapperSymbol, wrapperLibPath, bridgeParams);
 
         return true;
     }
@@ -283,12 +285,16 @@ public static class ConstrainedExistentialBridge
     private static void EmitCSharpConstructor(
         CSharpWriter csWriter,
         MethodEnvironment env,
-        string typeName,
+        ClassDecl classDecl,
+        string typeNameWithGenerics,
         string wrapperSymbol,
         string wrapperLibPath,
         List<BridgeParam> bridgeParams)
     {
         var accessModifier = NameProvider.GetAccessModifier(env.MethodDecl.Visibility);
+        var constructorName = typeNameWithGenerics.Contains('<')
+            ? typeNameWithGenerics.Substring(0, typeNameWithGenerics.IndexOf('<'))
+            : typeNameWithGenerics;
 
         // Build C# parameter list
         var csParams = new List<string>();
@@ -359,20 +365,24 @@ public static class ConstrainedExistentialBridge
             : wrapperSymbol;
 
         // Emit constructor
-        csWriter.WriteLine($"{accessModifier} unsafe {typeName}({paramString})");
+        csWriter.WriteLine($"{accessModifier} unsafe {constructorName}({paramString})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
 
         var callArgString = string.Join(", ", pInvokeArgs);
         csWriter.WriteLine($"var resultPtr = {pInvokeCall}({callArgString});");
 
-        // Class return unmarshal (exception-safe pattern from ProtocolProxyEmitter.InterfaceImpl ClassReturn)
+        // Class return unmarshal: allocate buffer, store pointer, assign to _payload.
+        // Uses SwiftSafeHandle<RootBase> to match the _payload field type (root class declares
+        // the field, derived classes inherit it). The buffer contains the class pointer,
+        // read via *(void**)handle in MethodMarshalPlanBuilder.
+        var safeHandleType = ClassISwiftObjectMethodWriter.GetRootBaseTypeNameWithGenerics(classDecl);
         csWriter.WriteLine($"var buffer = (IntPtr)NativeMemory.Alloc((nuint)sizeof(IntPtr));");
         csWriter.WriteLine("try");
         csWriter.WriteLine("{");
         csWriter.Indent++;
         csWriter.WriteLine("*(IntPtr*)buffer = resultPtr;");
-        csWriter.WriteLine($"_payload = Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{typeName}>(buffer);");
+        csWriter.WriteLine($"_payload = new SwiftSafeHandle<{safeHandleType}>(new SwiftHandle(buffer));");
         csWriter.Indent--;
         csWriter.WriteLine("}");
         csWriter.WriteLine("catch");

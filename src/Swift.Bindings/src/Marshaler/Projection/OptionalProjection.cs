@@ -168,16 +168,17 @@ public class OptionalProjection : ITypeProjection
         // Bypass SwiftOptional entirely — the IntPtr result IS the payload.
         if (_innerProjection is ObjCBridgedProjection objcInner)
         {
-            var getNSObject = $"ObjCRuntime.Runtime.GetNSObject<{objcInner.PublicType}>({resultName})";
+            var bridgeCall = MarshallingHelpers.FormatObjCBridgeCall(objcInner.PublicType, resultName);
+            var indirectBridgeCall = MarshallingHelpers.FormatObjCBridgeCall(objcInner.PublicType, $"*(IntPtr*){resultName}");
             return strategy switch
             {
                 ReturnStrategy.Direct => new MarshalPlan
                 {
-                    PInvokeExpression = $"({resultName} == IntPtr.Zero ? null : {getNSObject})"
+                    PInvokeExpression = $"({resultName} == IntPtr.Zero ? null : {bridgeCall})"
                 },
                 ReturnStrategy.IndirectResult or ReturnStrategy.OutBuffer => new MarshalPlan
                 {
-                    PInvokeExpression = $"(*(IntPtr*){resultName} == IntPtr.Zero ? null : ObjCRuntime.Runtime.GetNSObject<{objcInner.PublicType}>(*(IntPtr*){resultName}))",
+                    PInvokeExpression = $"(*(IntPtr*){resultName} == IntPtr.Zero ? null : {indirectBridgeCall})",
                     RequiresUnsafe = true
                 },
                 _ => MarshalPlan.PassThrough(resultName)

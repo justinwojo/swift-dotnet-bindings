@@ -397,4 +397,100 @@ public class ClosureEmitterDirectTests
     }
 
     #endregion
+
+    #region Class/ObjC argument handle extraction
+
+    [Fact]
+    public void EmitClosureReturnMarshalling_ClassArg_ExtractsPayloadHandle()
+    {
+        // When a C# closure invokes a Swift function pointer with a class argument,
+        // the class handle must be extracted as void* via .Payload.DangerousGetHandle()
+        var typeDatabase = CreateTypeDatabaseWithClassAndObjC();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        // Closure: (Loader) -> Void — class param in Swift function pointer needs void*
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("TestModule.Loader"),
+            TupleTypeSpec.Empty);
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitClosureReturnMarshalling(
+            csWriter, closureTypeSpec, closureHandler);
+
+        var result = output.ToString();
+        Assert.Contains("Payload.DangerousGetHandle()", result);
+    }
+
+    [Fact]
+    public void EmitClosureReturnMarshalling_ObjCArg_ExtractsHandle()
+    {
+        // When a C# closure invokes a Swift function pointer with an ObjC-bridged argument,
+        // the handle must be extracted as void* via .Handle
+        var typeDatabase = CreateTypeDatabaseWithClassAndObjC();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        // Closure: (NSError) -> Void — ObjC param in Swift function pointer needs void*
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Foundation.NSError"),
+            TupleTypeSpec.Empty);
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitClosureReturnMarshalling(
+            csWriter, closureTypeSpec, closureHandler);
+
+        var result = output.ToString();
+        Assert.Contains(".Handle", result);
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithClassAndObjC()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Loader"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Loader"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Loader"),
+                MetadataAccessor = "$s10TestModule6LoaderCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        typeDatabase.AddModuleDatabase(testModule);
+
+        var foundationModule = new ModuleTypeDatabase("Foundation", "/usr/lib/swift/libswiftFoundation.dylib");
+        foundationModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Foundation.NSError"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSError"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.NSError"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        typeDatabase.AddModuleDatabase(foundationModule);
+
+        return typeDatabase;
+    }
+
+    #endregion
 }

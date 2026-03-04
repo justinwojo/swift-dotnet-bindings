@@ -685,8 +685,8 @@ namespace BindingsGeneration
             string marshalResultCode;
             if (isObjCBridged)
             {
-                // ObjC types: rawResult is the ObjC object pointer, wrap with GetNSObject<T>
-                marshalResultCode = $"var result = ObjCRuntime.Runtime.GetNSObject<{_wrapperSignature.ReturnType}>(rawResult);";
+                // ObjC types: rawResult is the ObjC object pointer, wrap with appropriate bridge call
+                marshalResultCode = $"var result = {MarshallingHelpers.FormatObjCBridgeCall(_wrapperSignature.ReturnType, "rawResult")};";
             }
             else
             {
@@ -1007,7 +1007,7 @@ namespace BindingsGeneration
             // For ObjC-bridged types, read the object pointer from the buffer and wrap with GetNSObject<T>
             // For Swift types, marshal from Swift memory layout
             var marshalResultCode = isObjCBridged
-                ? $"var result = ObjCRuntime.Runtime.GetNSObject<{_wrapperSignature.ReturnType}>(_retainedObjPtr);"
+                ? $"var result = {MarshallingHelpers.FormatObjCBridgeCall(_wrapperSignature.ReturnType, "_retainedObjPtr")};"
                 : $"var result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(resultPtr);";
 
             var text = $$"""

@@ -38,7 +38,16 @@ public class SwiftOptional<T> : ISwiftObject, IDisposable
     /// <summary>
     /// Gets a PayloadBuffer for use in PInvoke calls
     /// </summary>
-    public unsafe PayloadBuffer<IntPtr> PayloadBuffer => new PayloadBuffer<IntPtr>(_payload);
+    public unsafe PayloadBuffer<IntPtr> PayloadBuffer
+    {
+        get
+        {
+            Debug.Assert(_payloadSize <= (nuint)IntPtr.Size,
+                $"SwiftOptional<{typeof(T).Name}> payload size ({_payloadSize}) exceeds IntPtr size ({IntPtr.Size}). " +
+                "Use DangerousGetHandle() instead of PayloadBuffer for large Optional types.");
+            return new PayloadBuffer<IntPtr>(_payload);
+        }
+    }
 
     /// <summary>
     /// Constructs a new empty SwiftOptional with allocated native memory

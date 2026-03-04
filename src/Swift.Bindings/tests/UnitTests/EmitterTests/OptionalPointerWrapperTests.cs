@@ -842,7 +842,7 @@ public class OptionalPointerWrapperTests
     [Fact]
     public void Emit_SwiftWrapper_KeywordParam_EscapedWithBackticks()
     {
-        // Regression: Alamofire has a parameter named "protocol" which is a Swift keyword.
+        // Regression: some libraries have a parameter named "protocol" which is a Swift keyword.
         // The emitted Swift wrapper must backtick-escape it.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -1001,6 +1001,61 @@ public class OptionalPointerWrapperTests
         Assert.Contains("_optRetPtr", csOutput);
         // C# must read back from buffer
         Assert.Contains("MarshalFromSwift", csOutput);
+    }
+
+    #endregion
+
+    #region Accessor Setter Marshalling Tests (Issue 6)
+
+    [Fact]
+    public void Emit_Setter_LargeOptional_UsesProjectionNotPayloadBuffer()
+    {
+        // Regression: Optional<SwiftString> property setter was using PayloadBuffer<IntPtr>
+        // (8 bytes) instead of the full optional buffer. The fix ensures the projection
+        // system handles accessor setter params with convertible types.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Foo", moduleDecl);
+
+        var optStringType = new NamedTypeSpec("Swift.Optional");
+        optStringType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        var method = CreateMethodDecl("title_Set", parentDecl, moduleDecl,
+            returnType: TupleTypeSpec.Empty, isAsync: false, throws: false,
+            methodType: MethodType.Instance);
+        method.CSSignature.Add(CreateArgument("arg0", optStringType, moduleDecl));
+        method.IsAccessor = true;
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        // Should use DangerousGetHandle path (full buffer), NOT PayloadBuffer<IntPtr> (truncated)
+        Assert.Contains("DangerousGetHandle", csOutput);
+        Assert.DoesNotContain("PayloadBuffer<IntPtr>", csOutput);
+    }
+
+    [Fact]
+    public void Emit_Setter_SmallOptional_StillUsesPayloadBuffer()
+    {
+        // Small optional (Int32) setter should still use PayloadBuffer extraction
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Foo", moduleDecl);
+
+        var optIntType = new NamedTypeSpec("Swift.Optional");
+        optIntType.GenericParameters.Add(new NamedTypeSpec("Swift.Int32"));
+
+        var method = CreateMethodDecl("count_Set", parentDecl, moduleDecl,
+            returnType: TupleTypeSpec.Empty, isAsync: false, throws: false,
+            methodType: MethodType.Instance);
+        method.CSSignature.Add(CreateArgument("arg0", optIntType, moduleDecl));
+        method.IsAccessor = true;
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        // Small optional (Int32) should use PayloadBuffer extraction for the Optional parameter.
+        // Note: class instance methods have _payload.DangerousGetHandle() for self access,
+        // so we only check that the Optional parameter's buffer uses PayloadBuffer.
+        Assert.Contains(".PayloadBuffer", csOutput);
     }
 
     #endregion

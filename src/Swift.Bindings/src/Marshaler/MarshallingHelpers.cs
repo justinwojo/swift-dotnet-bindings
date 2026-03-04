@@ -85,6 +85,26 @@ namespace BindingsGeneration
             return SwiftTypeName.FromTypeSpec(namedTypeSpec).Equals(SwiftOptionalTypeName);
         }
 
+        /// <summary>
+        /// Determines whether the specified type spec represents Swift.Optional wrapping
+        /// an ObjC bridged type (e.g., Optional&lt;UIImage&gt;, Optional&lt;NSUrlResponse&gt;).
+        /// ObjC optionals use nullable pointer ABI (nil = IntPtr.Zero), not SwiftOptional layout.
+        /// </summary>
+        public static bool IsOptionalObjCBridged(TypeSpec? typeSpec, ITypeDatabase typeDatabase)
+        {
+            if (!IsSwiftOptional(typeSpec))
+                return false;
+            var namedType = (NamedTypeSpec)typeSpec!;
+            if (namedType.GenericParameters.Count != 1)
+                return false;
+            var inner = namedType.GenericParameters[0];
+            if (inner is not NamedTypeSpec innerNamed || !innerNamed.HasModule())
+                return false;
+            if (!typeDatabase.TryGetTypeRecord(SwiftTypeName.FromModuleQualifiedName(innerNamed.Name), out var typeRecord))
+                return false;
+            return IsObjCBridged(typeRecord);
+        }
+
         public static bool MethodRequiresIndirectResult(MethodEnvironment env)
         {
             if (env.MethodDecl.IsAsync) return false;
@@ -237,5 +257,37 @@ namespace BindingsGeneration
         {
             { "Foundation.TimeInterval", "double" },
         };
+
+        /// <summary>
+        /// Checks if a C# type name belongs to a CoreFoundation framework namespace.
+        /// CoreFoundation types inherit from INativeObject (not NSObject), requiring
+        /// GetINativeObject instead of GetNSObject for bridging.
+        /// </summary>
+        public static bool IsCoreFoundationType(string typeName)
+        {
+            return typeName.StartsWith("CoreText.") ||
+                   typeName.StartsWith("CoreGraphics.") ||
+                   typeName.StartsWith("CoreImage.") ||
+                   typeName.StartsWith("CoreAnimation.") ||
+                   typeName.StartsWith("CoreMedia.") ||
+                   typeName.StartsWith("CoreVideo.") ||
+                   typeName.StartsWith("Security.") ||
+                   typeName.StartsWith("CoreFoundation.");
+        }
+
+        /// <summary>
+        /// Formats the correct ObjC bridge call for a given type, dispatching between
+        /// GetNSObject (for NSObject subclasses) and GetINativeObject (for CoreFoundation types).
+        /// </summary>
+        /// <param name="publicType">The C# public type name (e.g., "UIKit.UIImage", "CoreText.CTFont").</param>
+        /// <param name="resultExpr">The expression holding the IntPtr result.</param>
+        /// <param name="nonNull">If true, appends ! for non-null assertion.</param>
+        public static string FormatObjCBridgeCall(string publicType, string resultExpr, bool nonNull = false)
+        {
+            var suffix = nonNull ? "!" : "";
+            if (IsCoreFoundationType(publicType))
+                return $"ObjCRuntime.Runtime.GetINativeObject<{publicType}>({resultExpr}, false){suffix}";
+            return $"ObjCRuntime.Runtime.GetNSObject<{publicType}>({resultExpr}){suffix}";
+        }
     }
 }

@@ -493,7 +493,7 @@ public static partial class ClosureEmitter
                 if (closureHandler.IsClassType(inner))
                     return $"arg{argIndex} != null ? SwiftMarshal.MarshalFromSwift<{innerType}>(new IntPtr(arg{argIndex})) : null";
                 else // ObjC-bridged
-                    return $"arg{argIndex} != null ? ObjCRuntime.Runtime.GetNSObject<{innerType}>(new IntPtr(arg{argIndex})) : null";
+                    return $"arg{argIndex} != null ? {MarshallingHelpers.FormatObjCBridgeCall(innerType, $"new IntPtr(arg{argIndex})")} : null";
             }
 
             // The callback receives void* but the delegate expects the actual type.
@@ -736,6 +736,14 @@ public static partial class ClosureEmitter
                 return $"({string.Join(", ", elements)})";
             }
         }
+
+        // Class types: extract handle as void* for function pointer invocation
+        if (closureHandler?.IsClassType(typeSpec) == true)
+            return $"(void*)_arg{argIndex}.Payload.DangerousGetHandle()";
+
+        // ObjC bridged class types: extract .Handle as void* for function pointer invocation
+        if (closureHandler?.IsObjCBridgedClass(typeSpec) == true)
+            return $"(void*)_arg{argIndex}.Handle";
 
         return $"_arg{argIndex}";
     }

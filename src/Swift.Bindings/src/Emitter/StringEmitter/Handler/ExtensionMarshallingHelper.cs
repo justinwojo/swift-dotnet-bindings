@@ -246,7 +246,7 @@ public static class ExtensionMarshallingHelper
 
             case ReturnKind.ObjCClass:
                 csWriter.WriteLine($"var result = {nativeCall};");
-                csWriter.WriteLine($"return ObjCRuntime.Runtime.GetNSObject<{csharpType}>(result)!;");
+                csWriter.WriteLine($"return {MarshallingHelpers.FormatObjCBridgeCall(csharpType, "result", nonNull: true)};");
                 break;
 
             case ReturnKind.SwiftClass:

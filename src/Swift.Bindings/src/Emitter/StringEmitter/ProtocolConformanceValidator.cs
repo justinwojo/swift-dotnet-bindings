@@ -486,11 +486,12 @@ public class ProtocolConformanceValidator
                 return match;
         }
 
-        // Fallback: position-aware Self matching for Self-requirement protocols.
-        // τ_0_0 in protocol params resolves to AnyType (not in type database), but the
-        // concrete type uses its actual type name. Compare position-by-position: Self positions
-        // (τ_0_0) must equal the conforming type's C# name, non-Self must match exactly.
-        if (protocolContext.HasSelfRequirement)
+        // Fallback: position-aware matching with name normalization.
+        // Handles two cases:
+        // 1. Self-requirement protocols: τ_0_0 in protocol params resolves to AnyType, but the
+        //    concrete type uses its actual type name. Self positions must equal conforming type's C# name.
+        // 2. Non-Self protocols: method names differ (e.g., _interpolate vs interpolate) and
+        //    name normalization via ToPascalCase resolves the mismatch.
         {
             var conformingRecord = _typeDatabase.GetTypeRecordOrAnyType(
                 new NamedTypeSpec(type.SwiftTypeName?.ToString() ?? ""));
@@ -520,7 +521,7 @@ public class ProtocolConformanceValidator
     private bool MatchesWithSelfSubstitution(
         MethodDecl concrete, MethodDecl proto, ProtocolDecl protocolContext, string conformingTypeFqn)
     {
-        if (concrete.Name != proto.Name) return false;
+        if (NameProvider.ToPascalCase(concrete.Name.TrimStart('_')) != NameProvider.ToPascalCase(proto.Name.TrimStart('_'))) return false;
         if (concrete.CSSignature.Count != proto.CSSignature.Count) return false;
 
         for (int i = 1; i < proto.CSSignature.Count; i++)
@@ -587,7 +588,11 @@ public class ProtocolConformanceValidator
         // Substitute TSelf with the conforming type's projected name
         if (conformingTypeName != null && ni.Contains("TSelf"))
             ni = ni.Replace("TSelf", NormalizeTypeName(conformingTypeName));
-        return ni == np;
+        if (ni == np) return true;
+        // AnyType in interface = unresolved Self/generic param, compatible with conforming type
+        if (ni == "Swift.AnyType" && conformingTypeName != null && np == NormalizeTypeName(conformingTypeName))
+            return true;
+        return false;
     }
 
     private static string NormalizeTypeName(string typeName)

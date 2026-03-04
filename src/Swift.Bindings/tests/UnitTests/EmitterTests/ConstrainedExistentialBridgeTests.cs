@@ -151,7 +151,7 @@ public class ConstrainedExistentialBridgeTests
     {
         var typeDatabase = CreateTypeDatabaseWithClassBoundProtocol();
         var moduleDecl = CreateModuleDecl("TestModule");
-        var classDecl = CreateClassDecl("BlinkIDUXModel", moduleDecl, typeDatabase);
+        var classDecl = CreateClassDecl("ScannerModel", moduleDecl, typeDatabase);
 
         var protocol = new NamedTypeSpec("TestModule.CameraFrameAnalyzer",
             new TypeSpec[] { new NamedTypeSpec("TestModule.CameraFrame"), new NamedTypeSpec("TestModule.UIEvent") });
@@ -173,7 +173,7 @@ public class ConstrainedExistentialBridgeTests
 
         Assert.True(result);
         var swift = swiftOut.ToString();
-        Assert.Contains("@_silgen_name(\"SBW_BlinkIDUXModel_init_", swift);
+        Assert.Contains("@_silgen_name(\"SBW_ScannerModel_init_", swift);
         Assert.Contains("Unmanaged<AnyObject>.fromOpaque(", swift);
         Assert.Contains("as! any TestModule.CameraFrameAnalyzer<TestModule.CameraFrame, TestModule.UIEvent>", swift);
         Assert.Contains("Unmanaged.passRetained(result).toOpaque()", swift);
@@ -184,7 +184,7 @@ public class ConstrainedExistentialBridgeTests
     {
         var typeDatabase = CreateTypeDatabaseWithClassBoundProtocol();
         var moduleDecl = CreateModuleDecl("TestModule");
-        var classDecl = CreateClassDecl("BlinkIDUXModel", moduleDecl, typeDatabase);
+        var classDecl = CreateClassDecl("ScannerModel", moduleDecl, typeDatabase);
 
         var protocol = new NamedTypeSpec("TestModule.CameraFrameAnalyzer",
             new TypeSpec[] { new NamedTypeSpec("TestModule.CameraFrame"), new NamedTypeSpec("TestModule.UIEvent") });
@@ -209,7 +209,7 @@ public class ConstrainedExistentialBridgeTests
         Assert.Contains("nint sessionNumber", cs);
         Assert.Contains(".SwiftHandle", cs);
         Assert.Contains("NativeMemory.Alloc", cs);
-        Assert.Contains("SwiftMarshal.MarshalFromSwift<BlinkIDUXModel>", cs);
+        Assert.Contains("new SwiftSafeHandle<ScannerModel>", cs);
         Assert.Contains("Arc.Release(resultPtr)", cs);
     }
 
@@ -218,7 +218,7 @@ public class ConstrainedExistentialBridgeTests
     {
         var typeDatabase = CreateTypeDatabaseWithClassBoundProtocol();
         var moduleDecl = CreateModuleDecl("TestModule");
-        var classDecl = CreateClassDecl("BlinkIDUXModel", moduleDecl, typeDatabase);
+        var classDecl = CreateClassDecl("ScannerModel", moduleDecl, typeDatabase);
 
         var protocol = new NamedTypeSpec("TestModule.CameraFrameAnalyzer",
             new TypeSpec[] { new NamedTypeSpec("TestModule.CameraFrame"), new NamedTypeSpec("TestModule.UIEvent") });
@@ -247,12 +247,12 @@ public class ConstrainedExistentialBridgeTests
     public void TryEmitConstructor_EmitsImportStatementsForConstraintModules()
     {
         var typeDatabase = CreateTypeDatabaseWithCrossModuleProtocol();
-        var moduleDecl = CreateModuleDecl("BlinkIDUX");
-        var classDecl = CreateClassDecl("BlinkIDUXModel", moduleDecl, typeDatabase);
+        var moduleDecl = CreateModuleDecl("ScanModule");
+        var classDecl = CreateClassDecl("ScannerModel", moduleDecl, typeDatabase);
 
         // Constrained existential with cross-module constraint types
-        var protocol = new NamedTypeSpec("BlinkIDUX.CameraFrameAnalyzer",
-            new TypeSpec[] { new NamedTypeSpec("BlinkID.CameraFrame"), new NamedTypeSpec("BlinkIDUX.UIEvent") });
+        var protocol = new NamedTypeSpec("ScanModule.CameraFrameAnalyzer",
+            new TypeSpec[] { new NamedTypeSpec("CoreLib.CameraFrame"), new NamedTypeSpec("ScanModule.UIEvent") });
         var protocolList = new ProtocolListTypeSpec(new[] { protocol });
 
         var constructor = CreateConstructorDecl(classDecl, moduleDecl, new[]
@@ -272,8 +272,8 @@ public class ConstrainedExistentialBridgeTests
         Assert.True(result);
         var swift = swiftOut.ToString();
         // Verify import statements are emitted for constraint type modules
-        Assert.Contains("import BlinkID", swift);
-        Assert.Contains("import BlinkIDUX", swift);
+        Assert.Contains("import CoreLib", swift);
+        Assert.Contains("import ScanModule", swift);
     }
 
     [Fact]
@@ -349,6 +349,73 @@ public class ConstrainedExistentialBridgeTests
         Assert.Contains("assumingMemoryBound(to: TestModule.Settings.self).pointee", swift);
     }
 
+    [Fact]
+    public void TryEmitConstructor_DerivedClass_UsesRootBaseForSafeHandle()
+    {
+        var typeDatabase = CreateTypeDatabaseWithClassBoundProtocol();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        // Create base class
+        var baseClassDecl = CreateClassDecl("BaseModel", moduleDecl, typeDatabase);
+
+        // Create derived class with ResolvedSuperclass
+        var derivedClassDecl = CreateClassDecl("DerivedModel", moduleDecl, typeDatabase);
+        derivedClassDecl.ResolvedSuperclass = baseClassDecl;
+
+        var protocol = new NamedTypeSpec("TestModule.CameraFrameAnalyzer",
+            new TypeSpec[] { new NamedTypeSpec("TestModule.CameraFrame"), new NamedTypeSpec("TestModule.UIEvent") });
+        var protocolList = new ProtocolListTypeSpec(new[] { protocol });
+
+        var constructor = CreateConstructorDecl(derivedClassDecl, moduleDecl, new[]
+        {
+            CreateArgumentDecl("analyzer", protocolList)
+        });
+
+        var env = new MethodEnvironment(constructor, typeDatabase);
+        var csOut = new StringWriter();
+        var swiftOut = new StringWriter();
+        var csWriter = new CSharpWriter(csOut);
+        var swiftWriter = new SwiftWriter(swiftOut);
+
+        var result = ConstrainedExistentialBridge.TryEmitConstructor(csWriter, swiftWriter, env, _logger);
+
+        Assert.True(result);
+        var cs = csOut.ToString();
+        // Derived class should use root base type (BaseModel) for SwiftSafeHandle, not DerivedModel
+        Assert.Contains("new SwiftSafeHandle<BaseModel>", cs);
+        Assert.DoesNotContain("SwiftSafeHandle<DerivedModel>", cs);
+    }
+
+    [Fact]
+    public void TryEmitConstructor_NonDerivedClass_UsesSelfForSafeHandle()
+    {
+        var typeDatabase = CreateTypeDatabaseWithClassBoundProtocol();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = CreateClassDecl("ScannerModel", moduleDecl, typeDatabase);
+
+        var protocol = new NamedTypeSpec("TestModule.CameraFrameAnalyzer",
+            new TypeSpec[] { new NamedTypeSpec("TestModule.CameraFrame"), new NamedTypeSpec("TestModule.UIEvent") });
+        var protocolList = new ProtocolListTypeSpec(new[] { protocol });
+
+        var constructor = CreateConstructorDecl(classDecl, moduleDecl, new[]
+        {
+            CreateArgumentDecl("analyzer", protocolList)
+        });
+
+        var env = new MethodEnvironment(constructor, typeDatabase);
+        var csOut = new StringWriter();
+        var swiftOut = new StringWriter();
+        var csWriter = new CSharpWriter(csOut);
+        var swiftWriter = new SwiftWriter(swiftOut);
+
+        var result = ConstrainedExistentialBridge.TryEmitConstructor(csWriter, swiftWriter, env, _logger);
+
+        Assert.True(result);
+        var cs = csOut.ToString();
+        // Non-derived class uses its own type for SwiftSafeHandle
+        Assert.Contains("new SwiftSafeHandle<ScannerModel>", cs);
+    }
+
     #endregion
 
     #region RenderConstrainedExistentialSwiftType Tests
@@ -356,34 +423,34 @@ public class ConstrainedExistentialBridgeTests
     [Fact]
     public void RenderConstrainedExistentialSwiftType_SingleArg()
     {
-        var protocol = new NamedTypeSpec("BlinkIDUX.CameraFrameAnalyzer",
-            new TypeSpec[] { new NamedTypeSpec("BlinkID.CameraFrame") });
+        var protocol = new NamedTypeSpec("ScanModule.CameraFrameAnalyzer",
+            new TypeSpec[] { new NamedTypeSpec("CoreLib.CameraFrame") });
         var protocolList = new ProtocolListTypeSpec(new[] { protocol });
 
         var result = ConstrainedExistentialBridge.RenderConstrainedExistentialSwiftType(protocolList);
-        Assert.Equal("any BlinkIDUX.CameraFrameAnalyzer<BlinkID.CameraFrame>", result);
+        Assert.Equal("any ScanModule.CameraFrameAnalyzer<CoreLib.CameraFrame>", result);
     }
 
     [Fact]
     public void RenderConstrainedExistentialSwiftType_MultipleArgs()
     {
-        var protocol = new NamedTypeSpec("BlinkIDUX.CameraFrameAnalyzer",
-            new TypeSpec[] { new NamedTypeSpec("BlinkID.CameraFrame"), new NamedTypeSpec("BlinkIDUX.UIEvent") });
+        var protocol = new NamedTypeSpec("ScanModule.CameraFrameAnalyzer",
+            new TypeSpec[] { new NamedTypeSpec("CoreLib.CameraFrame"), new NamedTypeSpec("ScanModule.UIEvent") });
         var protocolList = new ProtocolListTypeSpec(new[] { protocol });
 
         var result = ConstrainedExistentialBridge.RenderConstrainedExistentialSwiftType(protocolList);
-        Assert.Equal("any BlinkIDUX.CameraFrameAnalyzer<BlinkID.CameraFrame, BlinkIDUX.UIEvent>", result);
+        Assert.Equal("any ScanModule.CameraFrameAnalyzer<CoreLib.CameraFrame, ScanModule.UIEvent>", result);
     }
 
     [Fact]
     public void RenderConstrainedExistentialSwiftType_NamedTypeSpec_MatchesProtocolList()
     {
         // ABI JSON form: NamedTypeSpec with generic params (not wrapped in ProtocolListTypeSpec)
-        var namedSpec = new NamedTypeSpec("BlinkIDUX.CameraFrameAnalyzer",
-            new TypeSpec[] { new NamedTypeSpec("BlinkID.CameraFrame"), new NamedTypeSpec("BlinkIDUX.UIEvent") });
+        var namedSpec = new NamedTypeSpec("ScanModule.CameraFrameAnalyzer",
+            new TypeSpec[] { new NamedTypeSpec("CoreLib.CameraFrame"), new NamedTypeSpec("ScanModule.UIEvent") });
 
         var result = ConstrainedExistentialBridge.RenderConstrainedExistentialSwiftType(namedSpec);
-        Assert.Equal("any BlinkIDUX.CameraFrameAnalyzer<BlinkID.CameraFrame, BlinkIDUX.UIEvent>", result);
+        Assert.Equal("any ScanModule.CameraFrameAnalyzer<CoreLib.CameraFrame, ScanModule.UIEvent>", result);
     }
 
     [Fact]
@@ -584,43 +651,43 @@ public class ConstrainedExistentialBridgeTests
             });
         typeDatabase.AddModuleDatabase(swiftModule);
 
-        // BlinkIDUX module: protocol + UIEvent
-        var blinkIDUXModule = new ModuleTypeDatabase("BlinkIDUX", "/fake/libBlinkIDUX.dylib");
-        blinkIDUXModule.RegisterType(
-            SwiftTypeName.FromModuleQualifiedName("BlinkIDUX.CameraFrameAnalyzer"),
+        // ScanModule module: protocol + UIEvent
+        var scanModule = new ModuleTypeDatabase("ScanModule", "/fake/libScanModule.dylib");
+        scanModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("ScanModule.CameraFrameAnalyzer"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("BlinkIDUX", "ICameraFrameAnalyzer"),
-                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("BlinkIDUX.CameraFrameAnalyzer"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ScanModule", "ICameraFrameAnalyzer"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ScanModule.CameraFrameAnalyzer"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.HasAssociatedTypes,
                 Kind = TypeRecordKind.Protocol
             });
-        blinkIDUXModule.RegisterType(
-            SwiftTypeName.FromModuleQualifiedName("BlinkIDUX.UIEvent"),
+        scanModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("ScanModule.UIEvent"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("BlinkIDUX", "UIEvent"),
-                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("BlinkIDUX.UIEvent"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ScanModule", "UIEvent"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ScanModule.UIEvent"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.None,
                 Kind = TypeRecordKind.Class
             });
-        typeDatabase.AddModuleDatabase(blinkIDUXModule);
+        typeDatabase.AddModuleDatabase(scanModule);
 
-        // BlinkID module: CameraFrame
-        var blinkIDModule = new ModuleTypeDatabase("BlinkID", "/fake/libBlinkID.dylib");
-        blinkIDModule.RegisterType(
-            SwiftTypeName.FromModuleQualifiedName("BlinkID.CameraFrame"),
+        // CoreLib module: CameraFrame
+        var coreLibModule = new ModuleTypeDatabase("CoreLib", "/fake/libCoreLib.dylib");
+        coreLibModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("CoreLib.CameraFrame"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("BlinkID", "CameraFrame"),
-                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("BlinkID.CameraFrame"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("CoreLib", "CameraFrame"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("CoreLib.CameraFrame"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.None,
                 Kind = TypeRecordKind.Class
             });
-        typeDatabase.AddModuleDatabase(blinkIDModule);
+        typeDatabase.AddModuleDatabase(coreLibModule);
 
         return typeDatabase;
     }
@@ -658,7 +725,7 @@ public class ConstrainedExistentialBridgeTests
             ModuleDecl = moduleDecl,
         };
 
-        var classModule = new ModuleTypeDatabase($"{moduleDecl.Name}_class", $"/fake/lib{moduleDecl.Name}.dylib");
+        var classModule = new ModuleTypeDatabase($"{moduleDecl.Name}_class_{name}", $"/fake/lib{moduleDecl.Name}_{name}.dylib");
         classModule.RegisterType(
             classDecl.SwiftTypeName,
             new TypeRecord

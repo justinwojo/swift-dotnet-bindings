@@ -96,6 +96,16 @@ public static partial class ClosureEmitter
                 var ct = closureHandler.GetPInvokeExistentialType(arg);
                 invokeArgs.Add($"({ct})_arg{i}");
             }
+            else if (closureHandler.IsClassType(arg))
+            {
+                // Class types: extract handle as void* for function pointer invocation
+                invokeArgs.Add($"(void*)_arg{i}.Payload.DangerousGetHandle()");
+            }
+            else if (closureHandler.IsObjCBridgedClass(arg))
+            {
+                // ObjC bridged class types: extract .Handle as void* for function pointer invocation
+                invokeArgs.Add($"(void*)_arg{i}.Handle");
+            }
             else
             {
                 // Direct pass
@@ -250,6 +260,16 @@ public static partial class ClosureEmitter
                 // Unknown protocol: unbox object to container for function pointer
                 var ct = closureHandler.GetPInvokeExistentialType(arg);
                 invokeArgs.Add($"({ct})_arg{i}");
+            }
+            else if (closureHandler.IsClassType(arg))
+            {
+                // Class types: extract handle as void* for function pointer invocation
+                invokeArgs.Add($"(void*)_arg{i}.Payload.DangerousGetHandle()");
+            }
+            else if (closureHandler.IsObjCBridgedClass(arg))
+            {
+                // ObjC bridged class types: extract .Handle as void* for function pointer invocation
+                invokeArgs.Add($"(void*)_arg{i}.Handle");
             }
             else
             {

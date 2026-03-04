@@ -159,6 +159,16 @@ namespace BindingsGeneration
                 if (_env.ExistentialHandler.IsOptionalExistential(argumentDecl.SwiftTypeSpec))
                     continue;
 
+                // Optional<ObjC> accessor setter: parameter is already IntPtr (nullable pointer ABI).
+                // Just alias to the buffer name that the P/Invoke expects.
+                if (_env.MethodDecl.IsAccessor && MarshallingHelpers.IsOptionalObjCBridged(argumentDecl.SwiftTypeSpec, _env.TypeDatabase))
+                {
+                    var csName = NameProvider.GetCSharpParameterName(argumentDecl);
+                    var bufferName = NameProvider.GetBoundGenericBufferName(csName);
+                    csWriter.WriteLine($"IntPtr {bufferName} = {csName};");
+                    continue;
+                }
+
                 if (_env.BoundGenericsHandler.RequiresBoundGenericMarshalling(argumentDecl))
                 {
                     var csName = NameProvider.GetCSharpParameterName(argumentDecl);
@@ -171,8 +181,18 @@ namespace BindingsGeneration
                     if (_env.TypeDatabase.TryGetTypeRecord(rootTypeName, out var argTypeRecord) &&
                         MarshallingHelpers.IsFrozenStructProjectedAsClass(argTypeRecord))
                     {
-                        csWriter.WriteLine($"using PayloadBuffer<IntPtr> {csName}Disposable = {csName}.PayloadBuffer;");
-                        csWriter.WriteLine($"IntPtr {bufferName} = {csName}Disposable.Buffer;");
+                        // Large optional accessor params (e.g., Optional<SwiftString>) have payloads
+                        // exceeding IntPtr size. PayloadBuffer<IntPtr> would truncate — use the full
+                        // buffer via DangerousGetHandle instead.
+                        if (_env.MethodDecl.IsAccessor && _env.BoundGenericsHandler.IsLargeOptionalParam(argumentDecl.SwiftTypeSpec))
+                        {
+                            csWriter.WriteLine($"IntPtr {bufferName} = {csName}.Payload.DangerousGetHandle();");
+                        }
+                        else
+                        {
+                            csWriter.WriteLine($"using PayloadBuffer<IntPtr> {csName}Disposable = {csName}.PayloadBuffer;");
+                            csWriter.WriteLine($"IntPtr {bufferName} = {csName}Disposable.Buffer;");
+                        }
                     }
                     else
                     {
@@ -299,9 +319,7 @@ namespace BindingsGeneration
                 {
                     if (_env.ExistentialHandler.IsOptionalExistential(argumentDecl.SwiftTypeSpec) &&
                         !_env.ClosureHandler.IsOptionalClosure(argumentDecl.SwiftTypeSpec))
-                    {
                         TryEmitParameterConversionViaProjection(csWriter, argumentDecl);
-                    }
                 }
                 return;
             }

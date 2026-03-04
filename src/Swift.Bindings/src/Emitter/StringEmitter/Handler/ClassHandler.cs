@@ -408,7 +408,7 @@ namespace BindingsGeneration
         /// consistent with IsEffectivelyDerived — a flat-emitted class must use its own
         /// type name so _payload and the private constructor agree on SwiftSafeHandle&lt;T&gt;.
         /// </summary>
-        private static string GetRootBaseTypeNameWithGenerics(ClassDecl classDecl)
+        internal static string GetRootBaseTypeNameWithGenerics(ClassDecl classDecl)
         {
             var current = classDecl;
             while (current.HasResolvedSuperclass

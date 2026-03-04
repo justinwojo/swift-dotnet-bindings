@@ -79,6 +79,14 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Accessor-only: Optional<ObjC> — P/Invoke returns IntPtr (nullable pointer ABI).
+            // Just return the raw result; PropertyHandler applies GetNSObject conversion.
+            if (_env.MethodDecl.IsAccessor && MarshallingHelpers.IsOptionalObjCBridged(returnArg.SwiftTypeSpec, _env.TypeDatabase))
+            {
+                csWriter.WriteLine("return result;");
+                return;
+            }
+
             // Accessor-only: Optional-existential returns — P/Invoke returns IntPtr for Optional<existential>,
             // marshal to SwiftOptional<Container> first.
             if (_env.MethodDecl.IsAccessor && _env.ExistentialHandler.IsOptionalExistential(returnArg.SwiftTypeSpec))
@@ -259,7 +267,7 @@ namespace BindingsGeneration
                 // ObjC bridged types: wrap IntPtr result with GetNSObject<T>
                 if (MarshallingHelpers.IsObjCBridged(typeRecord))
                 {
-                    csWriter.WriteLine($"return ObjCRuntime.Runtime.GetNSObject<{_wrapperSignature.ReturnType}>(result);");
+                    csWriter.WriteLine($"return {MarshallingHelpers.FormatObjCBridgeCall(_wrapperSignature.ReturnType, "result")};");
                     return;
                 }
 
@@ -619,7 +627,7 @@ namespace BindingsGeneration
                             // Optional ObjC type: IntPtr -> SwiftOptional<NSObject>
                             // Use factory methods NewNone() and NewSome() since constructors are private
                             var innerCSharp = innerRecord.CSharpTypeName.FullyQualifiedName;
-                            return $"var {resultName} = {itemName} == IntPtr.Zero ? Swift.SwiftOptional<{innerCSharp}>.NewNone() : Swift.SwiftOptional<{innerCSharp}>.NewSome(ObjCRuntime.Runtime.GetNSObject<{innerCSharp}>({itemName}));";
+                            return $"var {resultName} = {itemName} == IntPtr.Zero ? Swift.SwiftOptional<{innerCSharp}>.NewNone() : Swift.SwiftOptional<{innerCSharp}>.NewSome({MarshallingHelpers.FormatObjCBridgeCall(innerCSharp, itemName, nonNull: true)});";
                         }
                     }
                     // Non-ObjC optional: P/Invoke type is IntPtr, pass directly (no address-of)
@@ -641,7 +649,7 @@ namespace BindingsGeneration
                     // ObjC bridged types
                     if (MarshallingHelpers.IsObjCBridged(typeRecord))
                     {
-                        return $"var {resultName} = ObjCRuntime.Runtime.GetNSObject<{csharpType}>({itemName});";
+                        return $"var {resultName} = {MarshallingHelpers.FormatObjCBridgeCall(csharpType, itemName, nonNull: true)};";
                     }
                 }
             }

@@ -414,6 +414,14 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Optional<ObjC> accessor: ObjC optionals use nullable pointer ABI (IntPtr where nil = 0).
+            // The accessor helper returns raw IntPtr, PropertyHandler applies GetNSObject conversion.
+            if (_env.MethodDecl.IsAccessor && MarshallingHelpers.IsOptionalObjCBridged(argument.SwiftTypeSpec, _env.TypeDatabase))
+            {
+                SetReturnType("IntPtr");
+                return;
+            }
+
             // Fallback: bound generic return types that the factory couldn't project.
             // Covers two cases:
             //   1. Accessors: factory skipped by ShouldSkipProjectionForAccessor to preserve raw ABI types
@@ -509,6 +517,14 @@ namespace BindingsGeneration
                         AddParameter(_env.TupleHandler.GetCSharpTupleType(tupleTypeSpec, _genericContext), csParamName);
                     else
                         AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, csParamName);
+                    continue;
+                }
+
+                // Optional<ObjC> accessor setter: use IntPtr (nullable pointer ABI).
+                // PropertyHandler passes `value.Handle` or `IntPtr.Zero`.
+                if (_env.MethodDecl.IsAccessor && MarshallingHelpers.IsOptionalObjCBridged(argument.SwiftTypeSpec, _env.TypeDatabase))
+                {
+                    AddParameter("IntPtr", csParamName);
                     continue;
                 }
 

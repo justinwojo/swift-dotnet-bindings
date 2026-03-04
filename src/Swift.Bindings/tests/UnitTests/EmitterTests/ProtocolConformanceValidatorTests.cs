@@ -1742,4 +1742,83 @@ public class ProtocolConformanceValidatorTests
     }
 
     #endregion
+
+    #region AnyType Return Compatibility (Issue 3)
+
+    [Fact]
+    public void CanFullyImplementProtocol_AnyTypeReturn_MatchesConformingType()
+    {
+        // Protocol return type resolves to AnyType (unresolved Self),
+        // concrete type returns its own type → should match via AnyType compatibility.
+        var typeDatabase = CreateTypeDatabaseWithBuilder();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        // Protocol: transform() -> AnyType (unresolved Self projected as AnyType)
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Transformable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Transformable"),
+            MangledName = "$s10TestModule13TransformableP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = true,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                new()
+                {
+                    Name = "transform",
+                    MangledName = "$s10TestModule13TransformableP9transformxyF",
+                    MethodType = MethodType.Instance,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        // Return: Swift.AnyType (unresolved Self)
+                        CreateArgument(string.Empty, new NamedTypeSpec("Swift.AnyType"), moduleDecl)
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl,
+                    Throws = false,
+                    IsAsync = false,
+                    Visibility = Visibility.Public
+                }
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        // Concrete: transform() -> Builder
+        var concreteType = CreateClassDecl("Builder", moduleDecl);
+        concreteType.Methods.Add(new MethodDecl
+        {
+            Name = "transform",
+            MangledName = "$s10TestModule7BuilderC9transformACyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, new NamedTypeSpec("TestModule.Builder"), moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = concreteType,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        });
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var result = validator.CanFullyImplementProtocol(concreteType, protocolDecl);
+
+        Assert.True(result);
+    }
+
+    #endregion
 }

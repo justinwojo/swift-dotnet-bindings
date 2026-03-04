@@ -772,7 +772,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             ClosureProjection => (null, false),
             // Optional<ObjC>: nullable pointer ABI (nil = IntPtr.Zero)
             ObjCBridgedProjection objc =>
-                ($"({resultExpr} == IntPtr.Zero ? null : ObjCRuntime.Runtime.GetNSObject<{objc.PublicType}>({resultExpr}))", false),
+                ($"({resultExpr} == IntPtr.Zero ? null : {MarshallingHelpers.FormatObjCBridgeCall(objc.PublicType, resultExpr)})", false),
             // Optional<T> (blittable, enum, etc.): (({PublicType}?)result)
             _ => ($"(({inner.PublicType}?){resultExpr})", true)
         };

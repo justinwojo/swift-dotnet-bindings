@@ -253,6 +253,59 @@ public class MarshallingHelpersTests
 
     #endregion
 
+    #region IsCoreFoundationType Tests
+
+    [Theory]
+    [InlineData("CoreText.CTFont", true)]
+    [InlineData("CoreGraphics.CGColor", true)]
+    [InlineData("CoreImage.CIFilter", true)]
+    [InlineData("CoreAnimation.CALayer", true)]
+    [InlineData("CoreMedia.CMTime", true)]
+    [InlineData("CoreVideo.CVPixelBuffer", true)]
+    [InlineData("Security.SecKey", true)]
+    [InlineData("CoreFoundation.CFString", true)]
+    [InlineData("UIKit.UIImage", false)]
+    [InlineData("Foundation.NSObject", false)]
+    [InlineData("AppKit.NSView", false)]
+    public void IsCoreFoundationType_CategorizesCorrectly(string typeName, bool expected)
+    {
+        Assert.Equal(expected, MarshallingHelpers.IsCoreFoundationType(typeName));
+    }
+
+    #endregion
+
+    #region FormatObjCBridgeCall Tests
+
+    [Fact]
+    public void FormatObjCBridgeCall_NSObjectType_UsesGetNSObject()
+    {
+        var result = MarshallingHelpers.FormatObjCBridgeCall("UIKit.UIImage", "result", nonNull: true);
+        Assert.Equal("ObjCRuntime.Runtime.GetNSObject<UIKit.UIImage>(result)!", result);
+    }
+
+    [Fact]
+    public void FormatObjCBridgeCall_CoreFoundationType_UsesGetINativeObject()
+    {
+        var result = MarshallingHelpers.FormatObjCBridgeCall("CoreText.CTFont", "result", nonNull: false);
+        Assert.Equal("ObjCRuntime.Runtime.GetINativeObject<CoreText.CTFont>(result, false)", result);
+    }
+
+    [Fact]
+    public void FormatObjCBridgeCall_CoreFoundationType_WithNonNull_AppendsExclamation()
+    {
+        var result = MarshallingHelpers.FormatObjCBridgeCall("CoreGraphics.CGColor", "ptr", nonNull: true);
+        Assert.Equal("ObjCRuntime.Runtime.GetINativeObject<CoreGraphics.CGColor>(ptr, false)!", result);
+    }
+
+    [Fact]
+    public void FormatObjCBridgeCall_NSObjectType_WithoutNonNull_NoExclamation()
+    {
+        var result = MarshallingHelpers.FormatObjCBridgeCall("Foundation.NSData", "result");
+        Assert.Equal("ObjCRuntime.Runtime.GetNSObject<Foundation.NSData>(result)", result);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static MethodDecl CreateMethodDecl(string name)
