@@ -470,6 +470,8 @@ public class ProtocolConformanceValidator
 
     /// <summary>
     /// Finds matching method in concrete type or its emittable ancestors by signature.
+    /// Falls back to position-aware Self matching for Self-requirement protocols where
+    /// τ_0_0 in the protocol resolves to AnyType but the concrete type uses its actual name.
     /// </summary>
     private MethodDecl? FindMatchingMethod(TypeDecl type, MethodDecl protoMethod, ProtocolDecl protocolContext)
     {
@@ -483,7 +485,82 @@ public class ProtocolConformanceValidator
             if (match != null)
                 return match;
         }
+
+        // Fallback: position-aware Self matching for Self-requirement protocols.
+        // τ_0_0 in protocol params resolves to AnyType (not in type database), but the
+        // concrete type uses its actual type name. Compare position-by-position: Self positions
+        // (τ_0_0) must equal the conforming type's C# name, non-Self must match exactly.
+        if (protocolContext.HasSelfRequirement)
+        {
+            var conformingRecord = _typeDatabase.GetTypeRecordOrAnyType(
+                new NamedTypeSpec(type.SwiftTypeName?.ToString() ?? ""));
+            var conformingFqn = conformingRecord.CSharpTypeName.FullyQualifiedName;
+
+            // Only proceed if conforming type resolved (not AnyType)
+            if (conformingFqn != "Swift.AnyType")
+            {
+                foreach (var ancestor in GetEmittableAncestors(type))
+                {
+                    var match = ancestor.Methods.FirstOrDefault(m =>
+                        !m.IsConstructor && m.MethodType != MethodType.Static &&
+                        MatchesWithSelfSubstitution(m, protoMethod, protocolContext, conformingFqn));
+                    if (match != null)
+                        return match;
+                }
+            }
+        }
+
         return null;
+    }
+
+    /// <summary>
+    /// Position-aware method matching for Self-requirement protocols.
+    /// Self-typed params (τ_0_0) must equal conformingTypeFqn; non-Self must match exactly.
+    /// </summary>
+    private bool MatchesWithSelfSubstitution(
+        MethodDecl concrete, MethodDecl proto, ProtocolDecl protocolContext, string conformingTypeFqn)
+    {
+        if (concrete.Name != proto.Name) return false;
+        if (concrete.CSSignature.Count != proto.CSSignature.Count) return false;
+
+        for (int i = 1; i < proto.CSSignature.Count; i++)
+        {
+            var protoArg = proto.CSSignature[i];
+            var concreteArg = concrete.CSSignature[i];
+
+            // τ_0_0 is the Self type parameter (depth 0, index 0).
+            // Concrete param at this position MUST be the conforming type.
+            if (protoArg.SwiftTypeSpec is NamedTypeSpec named && named.Name == "τ_0_0")
+            {
+                try
+                {
+                    var concreteType = _typeDatabase.GetTypeRecordOrAnyType(concreteArg.SwiftTypeSpec)
+                        .CSharpTypeName.FullyQualifiedName;
+                    if (concreteType != conformingTypeFqn)
+                        return false;
+                }
+                catch { return false; }
+                continue;
+            }
+
+            // Non-Self position: both must resolve to the same C# type
+            try
+            {
+                var protoType = ResolveParamType(protoArg, protocolContext);
+                var concreteType = ResolveParamType(concreteArg, null);
+                if (protoType != concreteType)
+                    return false;
+            }
+            catch { return false; }
+        }
+        return true;
+    }
+
+    private string ResolveParamType(ArgumentDecl arg, ProtocolDecl? protocolContext)
+    {
+        if (arg.SwiftTypeSpec is AssociatedTypeReferenceSpec assocRef)
+            return ProtocolSignatureHelper.MapAssociatedTypeToGenericParam(assocRef, protocolContext);
+        return _typeDatabase.GetTypeRecordOrAnyType(arg.SwiftTypeSpec).CSharpTypeName.FullyQualifiedName;
     }
 
     /// <summary>

@@ -1435,4 +1435,311 @@ public class ProtocolConformanceValidatorTests
     }
 
     #endregion
+
+    #region Self-Typed Parameter Matching (Issue 3)
+
+    [Fact]
+    public void FindMatchingMethod_SelfTypedParam_MatchesConformingType()
+    {
+        // Protocol method with τ_0_0 param, concrete type with its own type name → match found
+        var typeDatabase = CreateTypeDatabaseWithBuilder();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        // Protocol: apply(Self) → void
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Applicable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Applicable"),
+            MangledName = "$s10TestModule10ApplicableP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = true,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                new()
+                {
+                    Name = "apply",
+                    MangledName = "$s10TestModule10ApplicableP5applyyyxF",
+                    MethodType = MethodType.Instance,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl),
+                        CreateArgument("other", new NamedTypeSpec("τ_0_0"), moduleDecl)
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl,
+                    Throws = false,
+                    IsAsync = false,
+                    Visibility = Visibility.Public
+                }
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        // Concrete: apply(Builder) → void
+        var concreteType = CreateClassDecl("Builder", moduleDecl);
+        concreteType.Methods.Add(new MethodDecl
+        {
+            Name = "apply",
+            MangledName = "$s10TestModule7BuilderC5applyyyACF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl),
+                CreateArgument("other", new NamedTypeSpec("TestModule.Builder"), moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = concreteType,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        });
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var result = validator.CanFullyImplementProtocol(concreteType, protocolDecl);
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void FindMatchingMethod_SelfTypedParam_RejectsWrongSelfParamType()
+    {
+        // Protocol method with τ_0_0 param, concrete type has Int instead of Builder → no match
+        var typeDatabase = CreateTypeDatabaseWithBuilder();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Applicable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Applicable"),
+            MangledName = "$s10TestModule10ApplicableP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = true,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                new()
+                {
+                    Name = "apply",
+                    MangledName = "$s10TestModule10ApplicableP5applyyyxF",
+                    MethodType = MethodType.Instance,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl),
+                        CreateArgument("other", new NamedTypeSpec("τ_0_0"), moduleDecl)
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl,
+                    Throws = false,
+                    IsAsync = false,
+                    Visibility = Visibility.Public
+                }
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        // Concrete: apply(Int) → wrong type, should NOT match Self param
+        var concreteType = CreateClassDecl("Builder", moduleDecl);
+        concreteType.Methods.Add(new MethodDecl
+        {
+            Name = "apply",
+            MangledName = "$s10TestModule7BuilderC5applyyySiF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl),
+                CreateArgument("other", new NamedTypeSpec("Swift.Int"), moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = concreteType,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        });
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var result = validator.CanFullyImplementProtocol(concreteType, protocolDecl);
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void FindMatchingMethod_SelfTypedParam_MixedPositions()
+    {
+        // Protocol: merge(τ_0_0, Swift.Int, τ_0_0). Self positions must equal conforming type.
+        var typeDatabase = CreateTypeDatabaseWithBuilder();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Mergeable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Mergeable"),
+            MangledName = "$s10TestModule9MergeableP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = true,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                new()
+                {
+                    Name = "merge",
+                    MangledName = "$s10TestModule9MergeableP5mergeyyxSixF",
+                    MethodType = MethodType.Instance,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl),
+                        CreateArgument("first", new NamedTypeSpec("τ_0_0"), moduleDecl),
+                        CreateArgument("count", new NamedTypeSpec("Swift.Int"), moduleDecl),
+                        CreateArgument("second", new NamedTypeSpec("τ_0_0"), moduleDecl)
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl,
+                    Throws = false,
+                    IsAsync = false,
+                    Visibility = Visibility.Public
+                }
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        // Concrete: merge(Builder, Int, Builder) — correct
+        var concreteType = CreateClassDecl("Builder", moduleDecl);
+        concreteType.Methods.Add(new MethodDecl
+        {
+            Name = "merge",
+            MangledName = "$s10TestModule7BuilderC5mergeyyACSiACF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl),
+                CreateArgument("first", new NamedTypeSpec("TestModule.Builder"), moduleDecl),
+                CreateArgument("count", new NamedTypeSpec("Swift.Int"), moduleDecl),
+                CreateArgument("second", new NamedTypeSpec("TestModule.Builder"), moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = concreteType,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        });
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var result = validator.CanFullyImplementProtocol(concreteType, protocolDecl);
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void FindMatchingMethod_SelfTypedParam_RejectsWrongNonSelfParam()
+    {
+        // Protocol: merge(τ_0_0, Swift.Int). Concrete has merge(Builder, Builder) — wrong non-Self param.
+        var typeDatabase = CreateTypeDatabaseWithBuilder();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Mergeable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Mergeable"),
+            MangledName = "$s10TestModule9MergeableP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = true,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                new()
+                {
+                    Name = "merge",
+                    MangledName = "$s10TestModule9MergeableP5mergeyyxSiF",
+                    MethodType = MethodType.Instance,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl),
+                        CreateArgument("first", new NamedTypeSpec("τ_0_0"), moduleDecl),
+                        CreateArgument("count", new NamedTypeSpec("Swift.Int"), moduleDecl)
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl,
+                    Throws = false,
+                    IsAsync = false,
+                    Visibility = Visibility.Public
+                }
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        // Concrete: merge(Builder, Builder) — wrong non-Self param type (Int expected, got Builder)
+        var concreteType = CreateClassDecl("Builder", moduleDecl);
+        concreteType.Methods.Add(new MethodDecl
+        {
+            Name = "merge",
+            MangledName = "$s10TestModule7BuilderC5mergeyyACACF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl),
+                CreateArgument("first", new NamedTypeSpec("TestModule.Builder"), moduleDecl),
+                CreateArgument("count", new NamedTypeSpec("TestModule.Builder"), moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = concreteType,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        });
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var result = validator.CanFullyImplementProtocol(concreteType, protocolDecl);
+
+        Assert.False(result);
+    }
+
+    #endregion
 }

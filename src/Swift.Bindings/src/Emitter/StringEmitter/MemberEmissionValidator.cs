@@ -372,12 +372,9 @@ public static class MemberEmissionValidator
         skipDetails = null;
         projectedReturnTypeName = null;
 
-        // Skip constructors for this check
-        if (method.IsConstructor)
-            return null;
-
         // Early-out: shared hard gates via MemberGateEvaluator
-        // Checks bare generic, non-ISwiftObject bound generic, unsupported module (SwiftUI/Combine)
+        // Checks bare generic, non-ISwiftObject bound generic, unsupported module (SwiftUI/Combine).
+        // Must run BEFORE the constructor early-return so constructors with unsupported params are also caught.
         var gateEvaluator = new MemberGateEvaluator(typeDatabase);
         var hardGateResult = gateEvaluator.EvaluateHardGates(method, method.ModuleDecl);
         if (hardGateResult.IsSkipped)
@@ -385,6 +382,10 @@ public static class MemberEmissionValidator
             skipDetails = hardGateResult.Details;
             return hardGateResult.Reason!.Value;
         }
+
+        // Skip constructors for remaining checks
+        if (method.IsConstructor)
+            return null;
 
         var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
 
@@ -835,11 +836,8 @@ public static class MemberEmissionValidator
             }
         }
 
-        // Skip constructors (always allowed through for remaining checks)
-        if (method.IsConstructor)
-            return null;
-
-        // B19: Skip methods whose return type or parameters reference SwiftUI/Combine types (unless registered in type database)
+        // B19: Skip methods whose return type or parameters reference SwiftUI/Combine types (unless registered in type database).
+        // Must run BEFORE the constructor early-return so constructors with unsupported params are also skipped.
         foreach (var arg in method.CSSignature)
         {
             if (ReferencesUnsupportedModule(arg.SwiftTypeSpec, typeDatabase))
@@ -848,6 +846,10 @@ public static class MemberEmissionValidator
                 return SkipReason.SwiftUIConstraint;
             }
         }
+
+        // Skip constructors (always allowed through for remaining checks)
+        if (method.IsConstructor)
+            return null;
 
         // NOTE: Non-simple enum method return types are now supported (B18 gate removed).
 

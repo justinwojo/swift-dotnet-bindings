@@ -11,6 +11,7 @@ public static class SwiftUIBridgeCollector
 {
     private static readonly object Sync = new();
     private static readonly List<TypeDecl> CollectedViews = new();
+    private static readonly HashSet<string> CollectedViewNames = new();
 
     /// <summary>
     /// Records a View type for bridge generation.
@@ -21,7 +22,8 @@ public static class SwiftUIBridgeCollector
 
         lock (Sync)
         {
-            CollectedViews.Add(viewType);
+            if (CollectedViewNames.Add(viewType.Name))
+                CollectedViews.Add(viewType);
         }
     }
 
@@ -45,6 +47,7 @@ public static class SwiftUIBridgeCollector
         lock (Sync)
         {
             CollectedViews.Clear();
+            CollectedViewNames.Clear();
         }
     }
 }

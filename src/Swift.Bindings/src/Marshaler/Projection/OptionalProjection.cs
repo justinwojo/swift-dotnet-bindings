@@ -68,6 +68,20 @@ public class OptionalProjection : ITypeProjection
 
     public MarshalPlan GetParameterPlan(string paramName)
     {
+        // ObjC bridged types use nullable pointer ABI — no SwiftOptional wrapper needed.
+        if (_innerProjection is ObjCBridgedProjection)
+        {
+            return new MarshalPlan
+            {
+                SetupStatements = new List<MarshalStatement>
+                {
+                    new MarshalStatement.Line(
+                        $"IntPtr {paramName}Buffer = {paramName} is {{ }} {paramName}Val ? {paramName}Val.Handle : IntPtr.Zero;")
+                },
+                PInvokeExpression = $"{paramName}Buffer"
+            };
+        }
+
         var optTypeParam = OptionalTypeParam;
         var innerParamConv = _innerProjection.GetParameterElementConversion($"{paramName}Value");
         var containerPlan = _innerProjection.GetContainerCreationPlan($"{paramName}Value");
@@ -149,6 +163,26 @@ public class OptionalProjection : ITypeProjection
         // Use MarshalFromSwiftType for return MarshalFromSwift calls — for classes/non-frozen structs,
         // this is the actual type name (not IntPtr), which MarshalFromSwift needs to construct instances.
         var returnTypeParam = _innerProjection.MarshalFromSwiftType;
+
+        // ObjC bridged types use nullable pointer ABI (nil = IntPtr.Zero, Some = ObjC pointer).
+        // Bypass SwiftOptional entirely — the IntPtr result IS the payload.
+        if (_innerProjection is ObjCBridgedProjection objcInner)
+        {
+            var getNSObject = $"ObjCRuntime.Runtime.GetNSObject<{objcInner.PublicType}>({resultName})";
+            return strategy switch
+            {
+                ReturnStrategy.Direct => new MarshalPlan
+                {
+                    PInvokeExpression = $"({resultName} == IntPtr.Zero ? null : {getNSObject})"
+                },
+                ReturnStrategy.IndirectResult or ReturnStrategy.OutBuffer => new MarshalPlan
+                {
+                    PInvokeExpression = $"(*(IntPtr*){resultName} == IntPtr.Zero ? null : ObjCRuntime.Runtime.GetNSObject<{objcInner.PublicType}>(*(IntPtr*){resultName}))",
+                    RequiresUnsafe = true
+                },
+                _ => MarshalPlan.PassThrough(resultName)
+            };
+        }
 
         if (_isExistentialInner)
         {

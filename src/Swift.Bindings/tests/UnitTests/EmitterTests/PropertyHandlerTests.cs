@@ -1578,4 +1578,38 @@ public class PropertyHandlerTests
     }
 
     #endregion
+
+    #region ObjC Optional Accessor Conversions
+
+    [Fact]
+    public void GetOptionalAccessorGetterConversion_ObjCBridged_ReturnsGetNSObject()
+    {
+        var inner = new ObjCBridgedProjection("UIKit.UIImage");
+        var opt = new OptionalProjection(inner);
+
+        var (conversion, requiresDisposal) = PropertyHandler.GetOptionalAccessorGetterConversion(opt, "result");
+
+        Assert.NotNull(conversion);
+        Assert.Contains("GetNSObject<UIKit.UIImage>", conversion);
+        Assert.Contains("IntPtr.Zero", conversion);
+        Assert.DoesNotContain("SwiftOptional", conversion);
+        Assert.False(requiresDisposal);
+    }
+
+    [Fact]
+    public void GetOptionalAccessorSetterConversion_ObjCBridged_ReturnsHandleOrZero()
+    {
+        var inner = new ObjCBridgedProjection("UIKit.UIImage");
+        var opt = new OptionalProjection(inner);
+
+        var (conversion, requiresDisposal) = PropertyHandler.GetOptionalAccessorSetterConversion(opt, "value");
+
+        Assert.NotNull(conversion);
+        Assert.Contains(".Handle", conversion);
+        Assert.Contains("IntPtr.Zero", conversion);
+        Assert.DoesNotContain("SwiftOptional", conversion);
+        Assert.False(requiresDisposal);
+    }
+
+    #endregion
 }

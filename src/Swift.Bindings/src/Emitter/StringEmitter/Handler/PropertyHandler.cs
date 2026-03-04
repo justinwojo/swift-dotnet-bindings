@@ -3,7 +3,10 @@
 // Licensed under the MIT License.
 
 using System.CodeDom.Compiler;
+using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
+
+[assembly: InternalsVisibleTo("Swift.Bindings.Unit.Tests")]
 
 namespace BindingsGeneration;
 
@@ -744,7 +747,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         return (null, false);
     }
 
-    private static (string? conversion, bool requiresDisposal) GetOptionalAccessorGetterConversion(
+    internal static (string? conversion, bool requiresDisposal) GetOptionalAccessorGetterConversion(
         OptionalProjection opt, string resultExpr)
     {
         var inner = opt.InnerProjection;
@@ -767,6 +770,9 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             NativeRemappedProjection nrp => ($"(({nrp.SwiftWrapperType}?){resultExpr})?.{nrp.ToConversionMethod}()", true),
             // Optional<Closure>: passthrough — closure accessor methods handle their own marshalling
             ClosureProjection => (null, false),
+            // Optional<ObjC>: nullable pointer ABI (nil = IntPtr.Zero)
+            ObjCBridgedProjection objc =>
+                ($"({resultExpr} == IntPtr.Zero ? null : ObjCRuntime.Runtime.GetNSObject<{objc.PublicType}>({resultExpr}))", false),
             // Optional<T> (blittable, enum, etc.): (({PublicType}?)result)
             _ => ($"(({inner.PublicType}?){resultExpr})", true)
         };
@@ -868,7 +874,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         return ($"SwiftSet<{rawElem}>.FromEnumerable({valueExpr})", true);
     }
 
-    private static (string? conversion, bool requiresDisposal) GetOptionalAccessorSetterConversion(
+    internal static (string? conversion, bool requiresDisposal) GetOptionalAccessorSetterConversion(
         OptionalProjection opt, string valueExpr)
     {
         var inner = opt.InnerProjection;
@@ -902,6 +908,10 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         // not DangerousGetHandle() (IntPtr). Pass the value as-is; P/Invoke marshalling extracts the handle.
         if (inner is ClassProjection or NonFrozenStructProjection)
             return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({valueExpr}Val) : SwiftOptional<{optType}>.NewNone())", true);
+
+        // ObjC bridged inner — nullable pointer ABI, no SwiftOptional wrapper needed
+        if (inner is ObjCBridgedProjection)
+            return ($"({valueExpr} is {{}} {valueExpr}Val ? {valueExpr}Val.Handle : IntPtr.Zero)", false);
 
         // Element conversion (String, NativeRemapped, etc.)
         var innerConv = inner.GetParameterElementConversion($"{valueExpr}Val");

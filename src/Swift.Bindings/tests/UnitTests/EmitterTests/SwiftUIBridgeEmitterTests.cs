@@ -2030,6 +2030,59 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
     #endregion
 
+    #region SwiftUIBridgeCollector Dedup
+
+    [Fact]
+    public void Collect_DuplicateViewNames_OnlyFirstIsCollected()
+    {
+        SwiftUIBridgeCollector.Reset();
+
+        var view1 = CreateSimpleViewStruct("DuplicateView");
+        var view2 = CreateSimpleViewStruct("DuplicateView");
+        view2.SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("OtherModule.DuplicateView");
+
+        SwiftUIBridgeCollector.Collect(view1);
+        SwiftUIBridgeCollector.Collect(view2);
+
+        var collected = SwiftUIBridgeCollector.GetCollectedViews();
+        Assert.Single(collected);
+        Assert.Same(view1, collected[0]);
+
+        SwiftUIBridgeCollector.Reset();
+    }
+
+    [Fact]
+    public void Collect_DifferentNames_BothCollected()
+    {
+        SwiftUIBridgeCollector.Reset();
+
+        SwiftUIBridgeCollector.Collect(CreateSimpleViewStruct("ViewA"));
+        SwiftUIBridgeCollector.Collect(CreateSimpleViewStruct("ViewB"));
+
+        var collected = SwiftUIBridgeCollector.GetCollectedViews();
+        Assert.Equal(2, collected.Count);
+
+        SwiftUIBridgeCollector.Reset();
+    }
+
+    [Fact]
+    public void Reset_ClearsDedupState()
+    {
+        SwiftUIBridgeCollector.Reset();
+
+        SwiftUIBridgeCollector.Collect(CreateSimpleViewStruct("ResetView"));
+        SwiftUIBridgeCollector.Reset();
+
+        // After reset, same name should be re-collected
+        SwiftUIBridgeCollector.Collect(CreateSimpleViewStruct("ResetView"));
+        var collected = SwiftUIBridgeCollector.GetCollectedViews();
+        Assert.Single(collected);
+
+        SwiftUIBridgeCollector.Reset();
+    }
+
+    #endregion
+
     #region Helpers
 
     private static ModuleDecl CreateModuleDecl()

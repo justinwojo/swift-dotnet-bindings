@@ -264,6 +264,103 @@ public class MemberEmissionValidatorTests
 
     #endregion
 
+    #region Constructor Unsupported Module Gate (Issue 5)
+
+    [Fact]
+    public void ShouldSkipMethodEmission_Constructor_WithSwiftUIParam_ReturnsSwiftUIConstraint()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule4inityyF",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, new NamedTypeSpec("TestModule.MyType")),
+                CreateArgument("view", new NamedTypeSpec("SwiftUI.Color"))
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var result = MemberEmissionValidator.ShouldSkipMethodEmission(method, typeDatabase, out var skipDetails);
+
+        Assert.Equal(SkipReason.SwiftUIConstraint, result);
+        Assert.Contains("SwiftUI", skipDetails);
+    }
+
+    [Fact]
+    public void CanEmitMethod_Constructor_WithSwiftUIParam_ReturnsSwiftUIConstraint()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule4inityyF",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, new NamedTypeSpec("TestModule.MyType")),
+                CreateArgument("view", new NamedTypeSpec("SwiftUI.Color"))
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var result = MemberEmissionValidator.CanEmitMethod(method, typeDatabase, out var skipDetails, out _);
+
+        Assert.Equal(SkipReason.SwiftUIConstraint, result);
+        Assert.Contains("SwiftUI", skipDetails);
+    }
+
+    [Fact]
+    public void ShouldSkipMethodEmission_Constructor_WithNormalParam_ReturnsNull()
+    {
+        // Constructors with normal params should still be allowed through
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule4inityyF",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, new NamedTypeSpec("TestModule.MyType")),
+                CreateArgument("value", new NamedTypeSpec("Swift.Int"))
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var result = MemberEmissionValidator.ShouldSkipMethodEmission(method, typeDatabase, out _);
+
+        Assert.Null(result);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static TypeDatabase CreateTypeDatabase()
