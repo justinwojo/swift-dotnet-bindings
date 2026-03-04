@@ -91,9 +91,9 @@ namespace BindingsGeneration
 
             // Simple enums (no associated values, non-generic, integral/no raw value)
             // get emitted as C# enum value types instead of unsafe classes.
-            // CanSafelyEmitAsSimpleEnum prevents silent member loss — enums with
-            // properties, static methods, non-equality operators, or complex instance
-            // method signatures fall through to the class-based path.
+            // CanSafelyEmitAsSimpleEnum checks structural constraints (nested types,
+            // non-equality operators). Compatible members are emitted as extensions;
+            // incompatible members are skipped with ReportCollector tracking.
             if ((enumDecl.IsSimpleEnum && CanSafelyEmitAsSimpleEnum(enumDecl)) ||
                 (enumDecl.IsStringRawValueSimpleEnum && CanSafelyEmitAsSimpleEnum(enumDecl)))
             {

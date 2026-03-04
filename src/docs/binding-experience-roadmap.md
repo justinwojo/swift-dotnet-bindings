@@ -25,7 +25,7 @@ Quick reference mapping feedback items to sessions.
 | 3 | SwiftOptional leaking to public API | High | BX1 | Done |
 | 9 | Inconsistent optional projection | High | BX1 | Done |
 | 8 | Double-wrapped collections | Medium | BX1 | Done |
-| 1 | Enums as classes (simple cases) | Medium | BX2 | Pending |
+| 1 | Enums as classes (simple cases) | Medium | BX2 | Done |
 | 10 | HashValue instead of GetHashCode | Medium | BX3 | Pending |
 | 2 | Universal IDisposable / disposal anxiety | Medium | BX3 | Pending |
 | 7 | Types with zero public members | Low | BX3 | Pending |
@@ -95,36 +95,53 @@ Quick reference mapping feedback items to sessions.
 
 ---
 
-## Session BX2: Simple Enum Expansion
+## Session BX2: Simple Enum Expansion — Done
 
 **Feedback item**: #1 (enums as classes)
 **Theme**: No-payload Swift enums should feel like C# enums
+**Status**: Done
 
-### Current state
+### Problem
 
-The generator already distinguishes simple vs complex enums. `EnumDecl.IsSimpleEnum` (no payloads, non-generic, integral/no raw value) and `CanSafelyEmitAsSimpleEnum()` gate the C# `enum` path. Simple enums are projected as native C# value-type enums with extension methods.
+`CanSafelyEmitAsSimpleEnum()` was too conservative — it rejected enums with static methods, computed properties, or incompatible instance method signatures, pushing them to the heavyweight class path (SafeHandle + ISwiftObject + IDisposable). Real-world enums like `RenderingEngineOption`, `DocumentSide`, and `BlinkIDScanningAlertType` have `CustomStringConvertible` conformance or static members, yet carry no payload data.
 
-**The problem**: `CanSafelyEmitAsSimpleEnum()` is too conservative. It rejects enums that have:
-- Static methods or properties (common: factory methods, `allCases`)
-- Non-synthesized computed properties (common: `CustomStringConvertible.description`)
-- Nested types
-- Non-equality operators
+### Implementation
 
-Many real-world no-payload enums have `CustomStringConvertible` conformance or convenience static members, pushing them to the heavyweight class path even though they carry no payload data.
+**Paradigm shift**: From "if any member can't be emitted, fall to class path" → "emit as C# enum value type, emit compatible members as extensions, skip incompatible members with ReportCollector tracking."
 
-### Approach
+**Gate relaxation** (`CanSafelyEmitAsSimpleEnum`): Removed 3 of 5 gates (properties, static methods, incompatible instance methods). Only nested types and non-equality operators still block the simple path. Simplified `IsStringRawValueSimpleEnum` to match.
 
-1. **Relax the safety gates**: Allow enums with static methods, computed properties, and protocol conformances through the simple path. Emit the extra members as static/extension methods on a companion `{EnumName}Extensions` class, the same pattern already used for instance methods.
+**Member emission on the simple path**:
+- **Instance methods**: Emitted as `public static {ReturnType} {Name}(this EnumType self)` extension methods. Swift wrapper converts scalar tag → enum, calls method, converts result back.
+- **Instance properties**: Emitted as `public static {ReturnType} Get{Name}(this EnumType self)` extension getters. Setters skipped (C# extension methods receive a copy — mutations can't propagate).
+- **Static methods**: Emitted as static methods on `{EnumName}Extensions` class. Enum-typed params cast to underlying scalar at P/Invoke boundary.
+- **Static properties**: Emitted as static properties on `{EnumName}Extensions` class.
+- **`CustomStringConvertible.description`**: Emitted as `GetDescription(this EnumType self)` using Utf8Slice string marshalling (same pattern as WitnessDispatch and RawRepresentable).
+- **`CaseIterable.allCases`**: Pure C# — `Enum.GetValues<EnumType>()` wrapped in `Array.AsReadOnly`. No Swift P/Invoke needed.
 
-2. **Handle `CustomStringConvertible`**: Detect this conformance and emit a `ToString()` override on the extensions class instead of a `Description` property.
+**String marshalling**: String-returning members use `SBW_Utf8Slice` struct + `SBW_Free` deallocation, same as existing WitnessDispatch and RawRepresentable paths. `Utf8SliceEmitter` dedup via `ModuleEmissionContext` prevents duplicate struct declarations.
 
-3. **Handle `CaseIterable`**: Detect `allCases` and emit a static `IReadOnlyList<EnumName> AllCases` property.
+**Swift wrapper visibility**: Wrappers use `@_cdecl` (not `@_silgen_name`) with `public func` to ensure exported symbol visibility for `dlsym`-based `LibraryImport` resolution.
 
-4. **Preserve class path for payload enums**: Enums with ANY associated value case stay on the class path — no change there.
+**Non-RawRepresentable enum param conversion**: Enum-typed method parameters use tag-to-case switch conversion (inline closure) for enums without `rawValue` initializer, and `rawValue:` init for RawRepresentable enums.
 
-**Key files**: `EnumHandler.SimpleEnum.cs` (lines 682-712 safety gates), `EnumHandler.cs` (lines 97-102 decision point), `EnumDecl.cs` (lines 77-115)
+**Member-loss policy**: Any member emittable on the class path but not on the simple path is recorded via `ReportCollector.RecordMemberSkipped` with a specific `SkipReason`. This explains why CryptoSwift and StripeFinancialConnections show `generate: fail` (skipped members logged as warnings) — both still compile with 0 errors.
 
-**Success criteria**: No-payload enums like `RenderingEngineOption`, `DocumentSide`, and `BlinkIDScanningAlertType` in validation libraries project as C# enums even when they have `CustomStringConvertible` conformance or static members. Enums with ANY associated value case (like `LottieLoopMode` which has `Repeat(float)`) remain as classes — that's correct and expected.
+**Key files**: `EnumHandler.SimpleEnum.cs` (gate relaxation, 4 new emission methods, string marshalling, CaseIterable), `EnumDecl.cs` (simplified `IsStringRawValueSimpleEnum`), `EnumHandler.cs` (updated decision point comment)
+
+### Tests
+
+47 new unit tests across `EnumHandlerOutputTests.cs`:
+- Gate tests: relaxed gates return true for properties, static methods, instance properties
+- Instance method/property emission: extension methods with P/Invoke, Utf8Slice for strings, enum-returning casts
+- Static method/property emission: static methods on extensions class, enum param casting, factory patterns
+- CaseIterable: pure C# `AllCases` with `Enum.GetValues`
+- ABI correctness: instance enum params use scalar in Swift wrapper, non-RawRepresentable uses tag switch, bool params get `[MarshalAs(UnmanagedType.U1)]`, string-return paths handle enum/bool params correctly
+- Mixed compatibility: compatible members emitted, incompatible skipped, enum stays simple
+
+### Success criteria
+
+No-payload enums with `CustomStringConvertible`, `CaseIterable`, static members, or computed properties project as C# enums. All 53 validation library targets pass (no regressions). Enums with ANY associated value case remain on the class path.
 
 ---
 

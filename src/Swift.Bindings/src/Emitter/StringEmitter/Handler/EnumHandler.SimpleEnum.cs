@@ -119,6 +119,10 @@ namespace BindingsGeneration
                 .Where(p => !p.IsStatic)
                 .Where(p => !IsSynthesizedProperty(p, enumDecl))
                 .ToList();
+            var staticProperties = enumDecl.Properties
+                .Where(p => p.IsStatic)
+                .Where(p => !IsSynthesizedProperty(p, enumDecl))
+                .ToList();
 
             // Record enum operators — equality is handled by C# enum semantics
             foreach (var operatorDecl in enumDecl.Operators)
@@ -141,10 +145,14 @@ namespace BindingsGeneration
             foreach (var method in enumDecl.Methods.Where(m => !m.IsConstructor && m.MethodType != MethodType.Static && IsSynthesizedMethod(m, enumDecl)))
                 ReportCollector.RecordMemberEmitted(BindingItemKind.Method, method.Name, enumDecl);
 
-            if (instanceMethods.Count > 0 || staticMethods.Count > 0 || instanceProperties.Count > 0)
+            // Check CaseIterable conformance for AllCases property
+            var hasCaseIterable = enumDecl.Conformances.Any(c => c.Protocol.Name == "CaseIterable");
+
+            if (instanceMethods.Count > 0 || staticMethods.Count > 0 || instanceProperties.Count > 0
+                || staticProperties.Count > 0 || hasCaseIterable)
             {
                 EmitSimpleEnumExtensions(csWriter, swiftWriter, enumDecl, enumName, instanceMethods,
-                    staticMethods, instanceProperties, moduleDecl, typeDatabase, conductor);
+                    staticMethods, instanceProperties, staticProperties, hasCaseIterable, moduleDecl, typeDatabase, conductor, context);
             }
 
             // Emit nested types using base handler
@@ -157,16 +165,30 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitSimpleEnumExtensions(CSharpWriter csWriter, SwiftWriter swiftWriter,
             EnumDecl enumDecl, string enumName, List<MethodDecl> instanceMethods, List<MethodDecl> staticMethods,
-            List<PropertyDecl> instanceProperties, ModuleDecl moduleDecl,
-            ITypeDatabase typeDatabase, Conductor conductor)
+            List<PropertyDecl> instanceProperties, List<PropertyDecl> staticProperties,
+            bool hasCaseIterable, ModuleDecl moduleDecl,
+            ITypeDatabase typeDatabase, Conductor conductor, TypeHandlerContext context)
         {
             var csUnderlyingType = GetCSharpEnumUnderlyingType(enumDecl.RawValueTypeName);
             var swiftScalarType = GetSwiftScalarType(csUnderlyingType);
+            _wrapperLibName = typeDatabase.AsyncLibraryName ?? typeDatabase.GetLibraryPath(moduleDecl.Name);
 
             // Buffer extensions content — only emit class if at least one member was emitted
             var bufferSw = new System.IO.StringWriter();
             var bufferWriter = new CSharpWriter(bufferSw);
             bufferWriter.Indent = csWriter.Indent + 1;
+
+            // Pre-emit Utf8Slice struct and Free function at top level if any member returns String
+            var hasStringReturn = instanceProperties.Any(p => IsStringReturn(p.SwiftTypeSpec))
+                || staticProperties.Any(p => IsStringReturn(p.SwiftTypeSpec))
+                || instanceMethods.Any(m => IsStringReturn(m.CSSignature.FirstOrDefault()?.SwiftTypeSpec))
+                || staticMethods.Any(m => IsStringReturn(m.CSSignature.FirstOrDefault()?.SwiftTypeSpec));
+            if (hasStringReturn)
+            {
+                var emissionCtx = context.GetEmissionContext();
+                Utf8SliceEmitter.EmitIfNeeded(swiftWriter, emissionCtx);
+                Utf8SliceEmitter.EmitFreeIfNeeded(swiftWriter, moduleDecl.Name, emissionCtx);
+            }
 
             // Emit instance methods as extension methods with Swift wrapper
             foreach (var methodDecl in instanceMethods)
@@ -187,6 +209,19 @@ namespace BindingsGeneration
             {
                 EmitSimpleEnumStaticMethod(bufferWriter, swiftWriter, enumDecl, methodDecl,
                     moduleDecl, typeDatabase, csUnderlyingType, swiftScalarType);
+            }
+
+            // Emit static properties
+            foreach (var propertyDecl in staticProperties)
+            {
+                EmitSimpleEnumStaticProperty(bufferWriter, swiftWriter, enumDecl, propertyDecl,
+                    moduleDecl, typeDatabase, csUnderlyingType, swiftScalarType);
+            }
+
+            // Emit CaseIterable AllCases property (pure C#, no Swift P/Invoke)
+            if (hasCaseIterable)
+            {
+                EmitCaseIterableAllCases(bufferWriter, enumDecl, enumName);
             }
 
             var bufferedContent = bufferSw.ToString();
@@ -262,18 +297,20 @@ namespace BindingsGeneration
         {
             var moduleName = moduleDecl.Name;
             var methodPascalName = NameProvider.ToPascalCase(methodDecl.Name);
-            var libPath = typeDatabase.GetLibraryPath(moduleName);
 
             // Determine return type
             var returnTypeSpec = methodDecl.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
             bool returnsEnum = IsSimpleEnumReturn(returnTypeSpec, enumDecl, typeDatabase);
             bool returnsVoid = returnTypeSpec == null || IsVoidReturn(returnTypeSpec);
+            bool returnsString = !returnsVoid && IsStringReturn(returnTypeSpec);
 
             string csReturnType;
             if (returnsVoid)
                 csReturnType = "void";
             else if (returnsEnum)
                 csReturnType = enumName;
+            else if (returnsString)
+                csReturnType = "string";
             else
             {
                 csReturnType = GetSimpleReturnType(returnTypeSpec!, typeDatabase) ?? null!;
@@ -295,7 +332,8 @@ namespace BindingsGeneration
             var csParams = new List<string> { $"this {enumName} self" };
             foreach (var param in paramDecls)
             {
-                var paramType = GetSimpleParamType(param.SwiftTypeSpec, typeDatabase);
+                bool isEnumParam = IsSimpleEnumParam(param.SwiftTypeSpec, enumDecl);
+                var paramType = isEnumParam ? enumName : GetSimpleParamType(param.SwiftTypeSpec, typeDatabase);
                 if (paramType == null)
                 {
                     ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, enumDecl,
@@ -309,52 +347,105 @@ namespace BindingsGeneration
             // All parameters validated — now emit Swift wrapper
             var wrapperSymbol = $"SBW_{moduleName}_{enumName}_{methodDecl.Name}_{DeterministicHash8(methodDecl.MangledName)}";
             EmitSimpleEnumSwiftWrapper(swiftWriter, enumDecl, methodDecl, wrapperSymbol,
-                swiftScalarType, moduleName, returnsEnum);
+                swiftScalarType, moduleName, returnsEnum, returnsString);
 
-            // Emit extension method
-            csWriter.WriteLine($"public static {csReturnType} {methodPascalName}({string.Join(", ", csParams)})");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
+            if (returnsString)
+            {
+                // String return: use Utf8Slice marshalling pattern
+                EmitExtensionUtf8SliceStruct(csWriter);
 
-            // Build P/Invoke call arguments: cast enum to underlying type
-            var callArgs = new List<string> { $"({csUnderlyingType})self" };
-            foreach (var param in paramDecls)
-            {
-                callArgs.Add(NameProvider.GetCSharpParameterName(param));
-            }
+                csWriter.WriteLine($"public static unsafe string {methodPascalName}({string.Join(", ", csParams)})");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                var callArgs = new List<string> { $"({csUnderlyingType})self" };
+                foreach (var param in paramDecls)
+                {
+                    bool isEnumParam = IsSimpleEnumParam(param.SwiftTypeSpec, enumDecl);
+                    var argName = NameProvider.GetCSharpParameterName(param);
+                    callArgs.Add(isEnumParam ? $"({csUnderlyingType}){argName}" : argName);
+                }
+                csWriter.WriteLine($"IntPtr resultPtr = PInvoke_{methodPascalName}({string.Join(", ", callArgs)});");
+                csWriter.WriteLine("try");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine("var slice = *(Utf8Slice*)resultPtr;");
+                csWriter.WriteLine("return slice.Len > 0");
+                csWriter.Indent++;
+                csWriter.WriteLine("? global::System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)");
+                csWriter.WriteLine(": string.Empty;");
+                csWriter.Indent--;
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine($"finally {{ PInvoke_SBW_Free(resultPtr); }}");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine();
 
-            if (returnsVoid)
-            {
-                csWriter.WriteLine($"PInvoke_{methodPascalName}({string.Join(", ", callArgs)});");
-            }
-            else if (returnsEnum)
-            {
-                csWriter.WriteLine($"return ({enumName})PInvoke_{methodPascalName}({string.Join(", ", callArgs)});");
+                // P/Invoke for method
+                var pinvokeParams = new List<string> { $"{csUnderlyingType} tag" };
+                foreach (var param in paramDecls)
+                {
+                    bool isEnumParam = IsSimpleEnumParam(param.SwiftTypeSpec, enumDecl);
+                    var pinvokeType = isEnumParam ? csUnderlyingType : GetSimpleParamType(param.SwiftTypeSpec, typeDatabase)!;
+                    var marshalPrefix = MarshallingHelpers.IsBoolType(pinvokeType) ? "[MarshalAs(UnmanagedType.U1)] " : "";
+                    pinvokeParams.Add($"{marshalPrefix}{pinvokeType} {NameProvider.GetCSharpParameterName(param)}");
+                }
+                csWriter.WriteLine($"[LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{wrapperSymbol}\")]");
+                csWriter.WriteLine($"private static partial IntPtr PInvoke_{methodPascalName}({string.Join(", ", pinvokeParams)});");
+                csWriter.WriteLine();
+
+                EmitFreePInvokeIfNeeded(csWriter, moduleName);
             }
             else
             {
-                csWriter.WriteLine($"return PInvoke_{methodPascalName}({string.Join(", ", callArgs)});");
+                // Emit extension method
+                csWriter.WriteLine($"public static {csReturnType} {methodPascalName}({string.Join(", ", csParams)})");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+
+                // Build P/Invoke call arguments: cast enum to underlying type
+                var callArgs = new List<string> { $"({csUnderlyingType})self" };
+                foreach (var param in paramDecls)
+                {
+                    bool isEnumParam = IsSimpleEnumParam(param.SwiftTypeSpec, enumDecl);
+                    var argName = NameProvider.GetCSharpParameterName(param);
+                    callArgs.Add(isEnumParam ? $"({csUnderlyingType}){argName}" : argName);
+                }
+
+                if (returnsVoid)
+                {
+                    csWriter.WriteLine($"PInvoke_{methodPascalName}({string.Join(", ", callArgs)});");
+                }
+                else if (returnsEnum)
+                {
+                    csWriter.WriteLine($"return ({enumName})PInvoke_{methodPascalName}({string.Join(", ", callArgs)});");
+                }
+                else
+                {
+                    csWriter.WriteLine($"return PInvoke_{methodPascalName}({string.Join(", ", callArgs)});");
+                }
+
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine();
+
+                // Emit P/Invoke declaration
+                var pinvokeParams = new List<string> { $"{csUnderlyingType} tag" };
+                foreach (var param in paramDecls)
+                {
+                    bool isEnumParam = IsSimpleEnumParam(param.SwiftTypeSpec, enumDecl);
+                    var pinvokeType = isEnumParam ? csUnderlyingType : GetSimpleParamType(param.SwiftTypeSpec, typeDatabase)!;
+                    var marshalPrefix = MarshallingHelpers.IsBoolType(pinvokeType) ? "[MarshalAs(UnmanagedType.U1)] " : "";
+                    pinvokeParams.Add($"{marshalPrefix}{pinvokeType} {NameProvider.GetCSharpParameterName(param)}");
+                }
+
+                var pinvokeReturnType = returnsVoid ? "void" : (returnsEnum ? csUnderlyingType : csReturnType);
+                csWriter.WriteLine($"[LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{wrapperSymbol}\")]");
+                if (MarshallingHelpers.IsBoolType(pinvokeReturnType))
+                    csWriter.WriteLine("[return: MarshalAs(UnmanagedType.U1)]");
+                csWriter.WriteLine($"private static partial {pinvokeReturnType} PInvoke_{methodPascalName}({string.Join(", ", pinvokeParams)});");
+                csWriter.WriteLine();
             }
-
-            csWriter.Indent--;
-            csWriter.WriteLine("}");
-            csWriter.WriteLine();
-
-            // Emit P/Invoke declaration
-            var pinvokeParams = new List<string> { $"{csUnderlyingType} tag" };
-            foreach (var param in paramDecls)
-            {
-                var paramType = GetSimpleParamType(param.SwiftTypeSpec, typeDatabase);
-                var marshalPrefix = MarshallingHelpers.IsBoolType(paramType!) ? "[MarshalAs(UnmanagedType.U1)] " : "";
-                pinvokeParams.Add($"{marshalPrefix}{paramType} {NameProvider.GetCSharpParameterName(param)}");
-            }
-
-            var pinvokeReturnType = returnsVoid ? "void" : (returnsEnum ? csUnderlyingType : csReturnType);
-            csWriter.WriteLine($"[LibraryImport(\"SwiftBindings\", EntryPoint = \"{wrapperSymbol}\")]");
-            if (MarshallingHelpers.IsBoolType(pinvokeReturnType))
-                csWriter.WriteLine("[return: MarshalAs(UnmanagedType.U1)]");
-            csWriter.WriteLine($"private static partial {pinvokeReturnType} PInvoke_{methodPascalName}({string.Join(", ", pinvokeParams)});");
-            csWriter.WriteLine();
 
             ReportCollector.RecordMemberEmitted(BindingItemKind.Method, methodDecl.Name, enumDecl);
         }
@@ -366,12 +457,13 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitSimpleEnumSwiftWrapper(SwiftWriter swiftWriter, EnumDecl enumDecl,
             MethodDecl methodDecl, string wrapperSymbol, string swiftScalarType,
-            string moduleName, bool returnsEnum)
+            string moduleName, bool returnsEnum, bool returnsString = false)
         {
-            var enumQualifiedName = $"{moduleName}.{enumDecl.Name}";
-            var returnTypeStr = returnsEnum ? swiftScalarType : GetSwiftReturnType(methodDecl);
+            var enumQualifiedName = enumDecl.SwiftTypeName.ModuleQualifiedName;
+            var returnTypeStr = returnsString ? "UnsafeMutableRawPointer" : (returnsEnum ? swiftScalarType : GetSwiftReturnType(methodDecl));
 
             // Build parameter list: tag + method params
+            // Enum-typed params are declared as scalar (matching C# P/Invoke) and converted before the call.
             var swiftParams = new List<string> { $"_ tag: {swiftScalarType}" };
             var paramDecls = methodDecl.CSSignature
                 .Skip(1)
@@ -379,16 +471,17 @@ namespace BindingsGeneration
                 .ToList();
             foreach (var param in paramDecls)
             {
-                var swiftType = GetSwiftParamType(param.SwiftTypeSpec, moduleName);
+                bool isEnumParam = IsSimpleEnumParam(param.SwiftTypeSpec, enumDecl);
+                var swiftType = isEnumParam ? swiftScalarType : GetSwiftParamType(param.SwiftTypeSpec, moduleName);
                 if (swiftType != null)
                 {
                     var label = NameProvider.IsGeneratedArgName(param.Name) ? "_" : param.Name;
-                    swiftParams.Add($"{label} {param.PrivateName ?? param.Name}: {swiftType}");
+                    swiftParams.Add($"{label} {(!string.IsNullOrEmpty(param.PrivateName) ? param.PrivateName : param.Name)}: {swiftType}");
                 }
             }
 
-            swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
-            swiftWriter.WriteLine($"func _sbw_{enumDecl.Name}_{methodDecl.Name}({string.Join(", ", swiftParams)}) -> {returnTypeStr} {{");
+            swiftWriter.WriteLine($"@_cdecl(\"{wrapperSymbol}\")");
+            swiftWriter.WriteLine($"public func _sbw_{enumDecl.Name}_{methodDecl.Name}({string.Join(", ", swiftParams)}) -> {returnTypeStr} {{");
             swiftWriter.Indent++;
 
             // Convert tag to enum value using switch
@@ -401,19 +494,27 @@ namespace BindingsGeneration
                 EmitTagToEnumSwitch(swiftWriter, enumDecl, enumQualifiedName, swiftScalarType);
             }
 
-            // Build method call with arguments
+            // Build method call with arguments, converting enum-typed scalar params back to enum
             var callArgs = new List<string>();
             foreach (var param in paramDecls)
             {
+                bool isEnumParam = IsSimpleEnumParam(param.SwiftTypeSpec, enumDecl);
                 var label = NameProvider.IsGeneratedArgName(param.Name) ? "" : $"{NameProvider.StripCSharpKeywordPrefix(param.Name)}: ";
-                callArgs.Add($"{label}{param.PrivateName ?? param.Name}");
+                var argExpr = (!string.IsNullOrEmpty(param.PrivateName) ? param.PrivateName : param.Name);
+                if (isEnumParam)
+                    argExpr = EmitEnumParamConversion(enumDecl, enumQualifiedName, swiftScalarType, argExpr);
+                callArgs.Add($"{label}{argExpr}");
             }
 
             var callStr = callArgs.Count > 0
                 ? $"value.{NameProvider.ParserNameToSwift(methodDecl)}({string.Join(", ", callArgs)})"
                 : $"value.{NameProvider.ParserNameToSwift(methodDecl)}()";
 
-            if (returnsEnum)
+            if (returnsString)
+            {
+                EmitStringReturnSwiftBody(swiftWriter, callStr);
+            }
+            else if (returnsEnum)
             {
                 // Convert return value back to tag
                 swiftWriter.WriteLine($"let result = {callStr}");
@@ -469,17 +570,95 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Emits an instance property as a static extension method.
+        /// Emits an instance property as a static extension getter method.
+        /// Setters are not supported — C# extension methods receive a copy of the value type,
+        /// so mutations cannot propagate back to the caller.
         /// </summary>
         private void EmitSimpleEnumExtensionProperty(CSharpWriter csWriter, SwiftWriter swiftWriter,
             EnumDecl enumDecl, PropertyDecl propertyDecl, ModuleDecl moduleDecl,
             ITypeDatabase typeDatabase, string csUnderlyingType, string swiftScalarType)
         {
-            // For now, skip instance properties on simple enums — they require more complex
-            // wrapper infrastructure. Record as emitted if we can or skipped if not.
-            // Most simple enums don't have instance properties.
-            ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, enumDecl,
-                SkipReason.UnsupportedType, "Instance properties on simple enums are not yet supported as extension methods.");
+            var moduleName = moduleDecl.Name;
+            var enumName = NameProvider.ToPascalCaseForTypeName(enumDecl.Name);
+            var propertyPascalName = NameProvider.ToPascalCase(propertyDecl.Name);
+
+            // Record setter as skipped if present
+            if (propertyDecl.Accessors.Any(a => a is SetAccessorDecl))
+            {
+                ReportCollector.RecordMemberSkipped(BindingItemKind.Property, $"{propertyDecl.Name}_set", enumDecl,
+                    SkipReason.UnsupportedType, "Setters on value-type enums cannot propagate mutations via extension methods.");
+            }
+
+            // Get the getter accessor
+            var getter = propertyDecl.Accessors.OfType<GetAccessorDecl>().FirstOrDefault();
+            if (getter == null)
+            {
+                ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, enumDecl,
+                    SkipReason.UnsupportedType, "Property has no getter accessor.");
+                return;
+            }
+
+            // Determine return type
+            var returnTypeSpec = propertyDecl.SwiftTypeSpec;
+            bool returnsEnum = IsSimpleEnumReturn(returnTypeSpec, enumDecl, typeDatabase);
+            bool returnsString = IsStringReturn(returnTypeSpec);
+
+            string csReturnType;
+            if (returnsEnum)
+                csReturnType = enumName;
+            else if (returnsString)
+                csReturnType = "string";
+            else
+            {
+                csReturnType = GetSimpleReturnType(returnTypeSpec!, typeDatabase) ?? null!;
+                if (csReturnType == null)
+                {
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, enumDecl,
+                        SkipReason.UnsupportedSignature, "Property return type is unsupported for simple enum extension.");
+                    return;
+                }
+            }
+
+            // Compute wrapper symbol
+            var getterMangledName = getter.Method.MangledName;
+            var wrapperSymbol = $"SBW_{moduleName}_{enumName}_get_{propertyDecl.Name}_{DeterministicHash8(getterMangledName)}";
+
+            // Emit Swift wrapper
+            EmitSimpleEnumPropertySwiftWrapper(swiftWriter, enumDecl, propertyDecl, wrapperSymbol,
+                swiftScalarType, moduleName, returnsEnum, returnsString);
+
+            // Emit C# extension getter method
+            if (returnsString)
+            {
+                EmitExtensionUtf8SliceStruct(csWriter);
+                EmitStringReturnExtensionMethod(csWriter, enumName, propertyPascalName,
+                    wrapperSymbol, csUnderlyingType, moduleName, isStatic: false);
+            }
+            else
+            {
+                csWriter.WriteLine($"public static {csReturnType} Get{propertyPascalName}(this {enumName} self)");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+
+                if (returnsEnum)
+                    csWriter.WriteLine($"return ({enumName})PInvoke_Get{propertyPascalName}(({csUnderlyingType})self);");
+                else
+                    csWriter.WriteLine($"return PInvoke_Get{propertyPascalName}(({csUnderlyingType})self);");
+
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine();
+
+                // P/Invoke
+                var pinvokeReturnType = returnsEnum ? csUnderlyingType : csReturnType;
+                csWriter.WriteLine($"[LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{wrapperSymbol}\")]");
+                if (MarshallingHelpers.IsBoolType(pinvokeReturnType))
+                    csWriter.WriteLine("[return: MarshalAs(UnmanagedType.U1)]");
+                csWriter.WriteLine($"private static partial {pinvokeReturnType} PInvoke_Get{propertyPascalName}({csUnderlyingType} tag);");
+                csWriter.WriteLine();
+            }
+
+            ReportCollector.RecordMemberEmitted(BindingItemKind.Property, propertyDecl.Name, enumDecl);
         }
 
         /// <summary>
@@ -489,10 +668,586 @@ namespace BindingsGeneration
             EnumDecl enumDecl, MethodDecl methodDecl, ModuleDecl moduleDecl,
             ITypeDatabase typeDatabase, string csUnderlyingType, string swiftScalarType)
         {
-            // Static methods don't need enum conversion — they operate on the type level.
-            // For now, skip them as they require the full method emission pipeline.
-            ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, enumDecl,
-                SkipReason.UnsupportedType, "Static methods on simple enums are not yet supported.");
+            var moduleName = moduleDecl.Name;
+            var enumName = NameProvider.ToPascalCaseForTypeName(enumDecl.Name);
+            var methodPascalName = NameProvider.ToPascalCase(methodDecl.Name);
+
+            // Determine return type
+            var returnTypeSpec = methodDecl.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+            bool returnsEnum = IsSimpleEnumReturn(returnTypeSpec, enumDecl, typeDatabase);
+            bool returnsVoid = returnTypeSpec == null || IsVoidReturn(returnTypeSpec);
+            bool returnsString = !returnsVoid && IsStringReturn(returnTypeSpec);
+
+            string csReturnType;
+            if (returnsVoid)
+                csReturnType = "void";
+            else if (returnsEnum)
+                csReturnType = enumName;
+            else if (returnsString)
+                csReturnType = "string";
+            else
+            {
+                csReturnType = GetSimpleReturnType(returnTypeSpec!, typeDatabase) ?? null!;
+                if (csReturnType == null)
+                {
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, enumDecl,
+                        SkipReason.UnsupportedSignature, "Return type is unsupported for simple enum static method.");
+                    return;
+                }
+            }
+
+            // Validate parameters (skip index 0 = return type, skip self)
+            var paramDecls = methodDecl.CSSignature
+                .Skip(1)
+                .Where(a => a.Name != "self")
+                .ToList();
+
+            var csParams = new List<string>();
+            foreach (var param in paramDecls)
+            {
+                bool isEnumParam = IsSimpleEnumParam(param.SwiftTypeSpec, enumDecl);
+                var paramType = isEnumParam ? enumName : GetSimpleParamType(param.SwiftTypeSpec, typeDatabase);
+                if (paramType == null)
+                {
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, enumDecl,
+                        SkipReason.UnsupportedSignature, $"Parameter '{param.Name}' has unsupported type for simple enum static method.");
+                    return;
+                }
+                csParams.Add($"{paramType} {NameProvider.GetCSharpParameterName(param)}");
+            }
+
+            // Emit Swift wrapper
+            var wrapperSymbol = $"SBW_{moduleName}_{enumName}_{methodDecl.Name}_{DeterministicHash8(methodDecl.MangledName)}";
+            EmitSimpleEnumStaticMethodSwiftWrapper(swiftWriter, enumDecl, methodDecl, wrapperSymbol,
+                swiftScalarType, moduleName, returnsEnum, returnsString);
+
+            if (returnsString)
+            {
+                // String return: use Utf8Slice pattern
+                EmitExtensionUtf8SliceStruct(csWriter);
+                EmitStringReturnStaticMethod(csWriter, enumName, methodPascalName,
+                    wrapperSymbol, csUnderlyingType, moduleName, paramDecls, enumDecl, typeDatabase);
+            }
+            else
+            {
+                // Emit C# static method (NOT extension method — no `this`)
+                csWriter.WriteLine($"public static {csReturnType} {methodPascalName}({string.Join(", ", csParams)})");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+
+                // Build P/Invoke call arguments
+                var callArgs = new List<string>();
+                foreach (var param in paramDecls)
+                {
+                    bool isEnumParam = IsSimpleEnumParam(param.SwiftTypeSpec, enumDecl);
+                    var argName = NameProvider.GetCSharpParameterName(param);
+                    callArgs.Add(isEnumParam ? $"({csUnderlyingType}){argName}" : argName);
+                }
+
+                if (returnsVoid)
+                    csWriter.WriteLine($"PInvoke_{methodPascalName}({string.Join(", ", callArgs)});");
+                else if (returnsEnum)
+                    csWriter.WriteLine($"return ({enumName})PInvoke_{methodPascalName}({string.Join(", ", callArgs)});");
+                else
+                    csWriter.WriteLine($"return PInvoke_{methodPascalName}({string.Join(", ", callArgs)});");
+
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine();
+
+                // Emit P/Invoke
+                var pinvokeParams = new List<string>();
+                foreach (var param in paramDecls)
+                {
+                    bool isEnumParam = IsSimpleEnumParam(param.SwiftTypeSpec, enumDecl);
+                    var pinvokeType = isEnumParam ? csUnderlyingType : GetSimpleParamType(param.SwiftTypeSpec, typeDatabase)!;
+                    var marshalPrefix = MarshallingHelpers.IsBoolType(pinvokeType) ? "[MarshalAs(UnmanagedType.U1)] " : "";
+                    pinvokeParams.Add($"{marshalPrefix}{pinvokeType} {NameProvider.GetCSharpParameterName(param)}");
+                }
+
+                var pinvokeReturnType = returnsVoid ? "void" : (returnsEnum ? csUnderlyingType : csReturnType);
+                csWriter.WriteLine($"[LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{wrapperSymbol}\")]");
+                if (MarshallingHelpers.IsBoolType(pinvokeReturnType))
+                    csWriter.WriteLine("[return: MarshalAs(UnmanagedType.U1)]");
+                csWriter.WriteLine($"private static partial {pinvokeReturnType} PInvoke_{methodPascalName}({string.Join(", ", pinvokeParams)});");
+                csWriter.WriteLine();
+            }
+
+            ReportCollector.RecordMemberEmitted(BindingItemKind.Method, methodDecl.Name, enumDecl);
+        }
+
+        /// <summary>
+        /// Emits a static property in the extensions class.
+        /// </summary>
+        private void EmitSimpleEnumStaticProperty(CSharpWriter csWriter, SwiftWriter swiftWriter,
+            EnumDecl enumDecl, PropertyDecl propertyDecl, ModuleDecl moduleDecl,
+            ITypeDatabase typeDatabase, string csUnderlyingType, string swiftScalarType)
+        {
+            var moduleName = moduleDecl.Name;
+            var enumName = NameProvider.ToPascalCaseForTypeName(enumDecl.Name);
+            var propertyPascalName = NameProvider.ToPascalCase(propertyDecl.Name);
+
+            // Record setter as skipped if present
+            if (propertyDecl.Accessors.Any(a => a is SetAccessorDecl))
+            {
+                ReportCollector.RecordMemberSkipped(BindingItemKind.Property, $"{propertyDecl.Name}_set", enumDecl,
+                    SkipReason.UnsupportedType, "Setters on value-type enums cannot propagate mutations via extension methods.");
+            }
+
+            var getter = propertyDecl.Accessors.OfType<GetAccessorDecl>().FirstOrDefault();
+            if (getter == null)
+            {
+                ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, enumDecl,
+                    SkipReason.UnsupportedType, "Property has no getter accessor.");
+                return;
+            }
+
+            var returnTypeSpec = propertyDecl.SwiftTypeSpec;
+            bool returnsEnum = IsSimpleEnumReturn(returnTypeSpec, enumDecl, typeDatabase);
+            bool returnsString = IsStringReturn(returnTypeSpec);
+
+            string csReturnType;
+            if (returnsEnum)
+                csReturnType = enumName;
+            else if (returnsString)
+                csReturnType = "string";
+            else
+            {
+                csReturnType = GetSimpleReturnType(returnTypeSpec!, typeDatabase) ?? null!;
+                if (csReturnType == null)
+                {
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, enumDecl,
+                        SkipReason.UnsupportedSignature, "Static property return type is unsupported for simple enum extension.");
+                    return;
+                }
+            }
+
+            var getterMangledName = getter.Method.MangledName;
+            var wrapperSymbol = $"SBW_{moduleName}_{enumName}_get_{propertyDecl.Name}_{DeterministicHash8(getterMangledName)}";
+
+            // Emit Swift wrapper (no tag param for static)
+            EmitSimpleEnumStaticPropertySwiftWrapper(swiftWriter, enumDecl, propertyDecl, wrapperSymbol,
+                swiftScalarType, moduleName, returnsEnum, returnsString);
+
+            if (returnsString)
+            {
+                EmitExtensionUtf8SliceStruct(csWriter);
+                EmitStringReturnStaticPropertyAccessor(csWriter, enumName, propertyPascalName,
+                    wrapperSymbol, moduleName);
+            }
+            else
+            {
+                // Emit C# static property
+                var pinvokeReturnType = returnsEnum ? csUnderlyingType : csReturnType;
+                var valueExpr = returnsEnum
+                    ? $"({enumName})PInvoke_Get{propertyPascalName}()"
+                    : $"PInvoke_Get{propertyPascalName}()";
+
+                csWriter.WriteLine($"public static {csReturnType} {propertyPascalName} => {valueExpr};");
+                csWriter.WriteLine();
+
+                // P/Invoke
+                csWriter.WriteLine($"[LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{wrapperSymbol}\")]");
+                if (MarshallingHelpers.IsBoolType(pinvokeReturnType))
+                    csWriter.WriteLine("[return: MarshalAs(UnmanagedType.U1)]");
+                csWriter.WriteLine($"private static partial {pinvokeReturnType} PInvoke_Get{propertyPascalName}();");
+                csWriter.WriteLine();
+            }
+
+            ReportCollector.RecordMemberEmitted(BindingItemKind.Property, propertyDecl.Name, enumDecl);
+        }
+
+        /// <summary>
+        /// Emits CaseIterable AllCases property as a pure C# implementation.
+        /// </summary>
+        private static void EmitCaseIterableAllCases(CSharpWriter csWriter, EnumDecl enumDecl, string enumName)
+        {
+            csWriter.WriteLine("/// <summary>Returns all cases of the enum.</summary>");
+            csWriter.WriteLine($"public static System.Collections.Generic.IReadOnlyList<{enumName}> AllCases {{ get; }} =");
+            csWriter.Indent++;
+            csWriter.WriteLine($"System.Array.AsReadOnly(Enum.GetValues<{enumName}>());");
+            csWriter.Indent--;
+            csWriter.WriteLine();
+        }
+
+        // === Helper Methods for Simple Enum Emission ===
+
+        /// <summary>
+        /// Checks whether a TypeSpec represents a Swift.String return.
+        /// </summary>
+        private static bool IsStringReturn(TypeSpec? typeSpec)
+        {
+            return typeSpec is NamedTypeSpec named && named.Name == "Swift.String";
+        }
+
+        /// <summary>
+        /// Checks whether a TypeSpec represents a parameter of the same enum type.
+        /// </summary>
+        private static bool IsSimpleEnumParam(TypeSpec typeSpec, EnumDecl enumDecl)
+        {
+            return typeSpec is NamedTypeSpec named && named.NameWithoutModule == enumDecl.Name;
+        }
+
+        /// <summary>
+        /// Emits the Swift wrapper for an instance property getter.
+        /// </summary>
+        private void EmitSimpleEnumPropertySwiftWrapper(SwiftWriter swiftWriter, EnumDecl enumDecl,
+            PropertyDecl propertyDecl, string wrapperSymbol, string swiftScalarType,
+            string moduleName, bool returnsEnum, bool returnsString)
+        {
+            var enumQualifiedName = enumDecl.SwiftTypeName.ModuleQualifiedName;
+            var swiftReturnType = returnsString ? "UnsafeMutableRawPointer" : (returnsEnum ? swiftScalarType : GetSwiftPropertyReturnType(propertyDecl));
+
+            swiftWriter.WriteLine($"@_cdecl(\"{wrapperSymbol}\")");
+            swiftWriter.WriteLine($"public func _sbw_{enumDecl.Name}_get_{propertyDecl.Name}(_ tag: {swiftScalarType}) -> {swiftReturnType} {{");
+            swiftWriter.Indent++;
+
+            // Convert tag to enum value
+            if (enumDecl.IsRawRepresentable)
+                swiftWriter.WriteLine($"let value = {enumQualifiedName}(rawValue: {GetSwiftRawValueCast(enumDecl, swiftScalarType)})!");
+            else
+                EmitTagToEnumSwitch(swiftWriter, enumDecl, enumQualifiedName, swiftScalarType);
+
+            if (returnsString)
+            {
+                EmitStringReturnSwiftBody(swiftWriter, $"value.{NameProvider.EscapeSwiftKeyword(propertyDecl.Name)}");
+            }
+            else if (returnsEnum)
+            {
+                swiftWriter.WriteLine($"let result = value.{NameProvider.EscapeSwiftKeyword(propertyDecl.Name)}");
+                if (enumDecl.IsRawRepresentable)
+                    swiftWriter.WriteLine($"return {GetSwiftRawValueReturn(enumDecl, swiftScalarType)}");
+                else
+                    EmitEnumToTagSwitch(swiftWriter, enumDecl, enumQualifiedName, "result", swiftScalarType);
+            }
+            else
+            {
+                swiftWriter.WriteLine($"return value.{NameProvider.EscapeSwiftKeyword(propertyDecl.Name)}");
+            }
+
+            swiftWriter.Indent--;
+            swiftWriter.WriteLine("}");
+            swiftWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// Emits the Swift wrapper for a static property getter.
+        /// </summary>
+        private void EmitSimpleEnumStaticPropertySwiftWrapper(SwiftWriter swiftWriter, EnumDecl enumDecl,
+            PropertyDecl propertyDecl, string wrapperSymbol, string swiftScalarType,
+            string moduleName, bool returnsEnum, bool returnsString)
+        {
+            var enumQualifiedName = enumDecl.SwiftTypeName.ModuleQualifiedName;
+            var swiftReturnType = returnsString ? "UnsafeMutableRawPointer" : (returnsEnum ? swiftScalarType : GetSwiftPropertyReturnType(propertyDecl));
+
+            swiftWriter.WriteLine($"@_cdecl(\"{wrapperSymbol}\")");
+            swiftWriter.WriteLine($"public func _sbw_{enumDecl.Name}_get_{propertyDecl.Name}() -> {swiftReturnType} {{");
+            swiftWriter.Indent++;
+
+            if (returnsString)
+            {
+                EmitStringReturnSwiftBody(swiftWriter, $"{enumQualifiedName}.{NameProvider.EscapeSwiftKeyword(propertyDecl.Name)}");
+            }
+            else if (returnsEnum)
+            {
+                swiftWriter.WriteLine($"let result = {enumQualifiedName}.{NameProvider.EscapeSwiftKeyword(propertyDecl.Name)}");
+                if (enumDecl.IsRawRepresentable)
+                    swiftWriter.WriteLine($"return {GetSwiftRawValueReturn(enumDecl, swiftScalarType)}");
+                else
+                    EmitEnumToTagSwitch(swiftWriter, enumDecl, enumQualifiedName, "result", swiftScalarType);
+            }
+            else
+            {
+                swiftWriter.WriteLine($"return {enumQualifiedName}.{NameProvider.EscapeSwiftKeyword(propertyDecl.Name)}");
+            }
+
+            swiftWriter.Indent--;
+            swiftWriter.WriteLine("}");
+            swiftWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// Emits the Swift wrapper for a static method.
+        /// </summary>
+        private void EmitSimpleEnumStaticMethodSwiftWrapper(SwiftWriter swiftWriter, EnumDecl enumDecl,
+            MethodDecl methodDecl, string wrapperSymbol, string swiftScalarType,
+            string moduleName, bool returnsEnum, bool returnsString)
+        {
+            var enumQualifiedName = enumDecl.SwiftTypeName.ModuleQualifiedName;
+            var returnTypeStr = returnsString ? "UnsafeMutableRawPointer" : (returnsEnum ? swiftScalarType : GetSwiftReturnType(methodDecl));
+
+            // Build parameter list (no tag/self for static methods)
+            var swiftParams = new List<string>();
+            var paramDecls = methodDecl.CSSignature
+                .Skip(1)
+                .Where(a => a.Name != "self")
+                .ToList();
+            foreach (var param in paramDecls)
+            {
+                bool isEnumParam = IsSimpleEnumParam(param.SwiftTypeSpec, enumDecl);
+                var swiftType = isEnumParam ? swiftScalarType : GetSwiftParamType(param.SwiftTypeSpec, moduleName);
+                if (swiftType != null)
+                {
+                    var label = NameProvider.IsGeneratedArgName(param.Name) ? "_" : param.Name;
+                    swiftParams.Add($"{label} {(!string.IsNullOrEmpty(param.PrivateName) ? param.PrivateName : param.Name)}: {swiftType}");
+                }
+            }
+
+            swiftWriter.WriteLine($"@_cdecl(\"{wrapperSymbol}\")");
+            swiftWriter.WriteLine($"public func _sbw_{enumDecl.Name}_{methodDecl.Name}({string.Join(", ", swiftParams)}) -> {returnTypeStr} {{");
+            swiftWriter.Indent++;
+
+            // Build method call with arguments
+            var callArgs = new List<string>();
+            foreach (var param in paramDecls)
+            {
+                bool isEnumParam = IsSimpleEnumParam(param.SwiftTypeSpec, enumDecl);
+                var label = NameProvider.IsGeneratedArgName(param.Name) ? "" : $"{NameProvider.StripCSharpKeywordPrefix(param.Name)}: ";
+                var argExpr = (!string.IsNullOrEmpty(param.PrivateName) ? param.PrivateName : param.Name);
+                if (isEnumParam)
+                    argExpr = EmitEnumParamConversion(enumDecl, enumQualifiedName, swiftScalarType, argExpr);
+                callArgs.Add($"{label}{argExpr}");
+            }
+
+            var callStr = $"{enumQualifiedName}.{NameProvider.ParserNameToSwift(methodDecl)}({string.Join(", ", callArgs)})";
+
+            if (returnsString)
+            {
+                EmitStringReturnSwiftBody(swiftWriter, callStr);
+            }
+            else if (returnsEnum)
+            {
+                swiftWriter.WriteLine($"let result = {callStr}");
+                if (enumDecl.IsRawRepresentable)
+                    swiftWriter.WriteLine($"return {GetSwiftRawValueReturn(enumDecl, swiftScalarType)}");
+                else
+                    EmitEnumToTagSwitch(swiftWriter, enumDecl, enumQualifiedName, "result", swiftScalarType);
+            }
+            else
+            {
+                swiftWriter.WriteLine($"return {callStr}");
+            }
+
+            swiftWriter.Indent--;
+            swiftWriter.WriteLine("}");
+            swiftWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// Emits the Swift body for a string return: allocates SBW_Utf8Slice on heap, returns pointer.
+        /// </summary>
+        private static void EmitStringReturnSwiftBody(SwiftWriter swiftWriter, string expression)
+        {
+            swiftWriter.WriteLine($"let result: String = {expression}");
+            swiftWriter.WriteLine("let utf8 = Array(result.utf8)");
+            swiftWriter.WriteLine("let bufferPtr = UnsafeMutablePointer<UInt8>.allocate(capacity: max(utf8.count, 1))");
+            swiftWriter.WriteLine("utf8.withUnsafeBufferPointer { src in");
+            swiftWriter.Indent++;
+            swiftWriter.WriteLine("if utf8.count > 0 { bufferPtr.initialize(from: src.baseAddress!, count: src.count) }");
+            swiftWriter.Indent--;
+            swiftWriter.WriteLine("}");
+            swiftWriter.WriteLine("let slicePtr = UnsafeMutablePointer<SBW_Utf8Slice>.allocate(capacity: 1)");
+            swiftWriter.WriteLine("slicePtr.initialize(to: SBW_Utf8Slice(ptr: bufferPtr, len: utf8.count))");
+            swiftWriter.WriteLine("return UnsafeMutableRawPointer(slicePtr)");
+        }
+
+        /// <summary>
+        /// Emits the C# Utf8Slice struct for string marshalling (used by string-returning extension methods).
+        /// This delegates to the same struct definition used by EnumHandler.RawRepresentable.
+        /// </summary>
+        private string _wrapperLibName = "SwiftBindings";
+        private bool _utf8SliceStructEmittedInExtensions;
+        private void EmitExtensionUtf8SliceStruct(CSharpWriter csWriter)
+        {
+            if (_utf8SliceStructEmittedInExtensions) return;
+            _utf8SliceStructEmittedInExtensions = true;
+            csWriter.WriteLines("""
+                [global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Sequential)]
+                private struct Utf8Slice
+                {
+                    public IntPtr Ptr;
+                    public nint Len;
+                }
+
+                """);
+        }
+
+        private bool _freePInvokeEmittedInExtensions;
+
+        /// <summary>
+        /// Emits a C# string-returning extension method for an instance property using Utf8Slice marshalling.
+        /// </summary>
+        private void EmitStringReturnExtensionMethod(CSharpWriter csWriter, string enumName,
+            string propertyPascalName, string wrapperSymbol, string csUnderlyingType, string moduleName,
+            bool isStatic)
+        {
+            var freeSymbol = Utf8SliceEmitter.GetFreeSymbolName(moduleName);
+            var selfParam = isStatic ? "" : $"this {enumName} self";
+            var callArg = isStatic ? "" : $"({csUnderlyingType})self";
+
+            csWriter.WriteLine($"public static unsafe string Get{propertyPascalName}({selfParam})");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine($"IntPtr resultPtr = PInvoke_Get{propertyPascalName}({callArg});");
+            csWriter.WriteLine("try");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("var slice = *(Utf8Slice*)resultPtr;");
+            csWriter.WriteLine("return slice.Len > 0");
+            csWriter.Indent++;
+            csWriter.WriteLine("? global::System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)");
+            csWriter.WriteLine(": string.Empty;");
+            csWriter.Indent--;
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine($"finally {{ PInvoke_SBW_Free(resultPtr); }}");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+
+            // P/Invoke for getter
+            var pinvokeParams = isStatic ? "" : $"{csUnderlyingType} tag";
+            csWriter.WriteLine($"[LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{wrapperSymbol}\")]");
+            csWriter.WriteLine($"private static partial IntPtr PInvoke_Get{propertyPascalName}({pinvokeParams});");
+            csWriter.WriteLine();
+
+            // P/Invoke for free
+            EmitFreePInvokeIfNeeded(csWriter, moduleName);
+        }
+
+        /// <summary>
+        /// Emits a C# string-returning static method using Utf8Slice marshalling.
+        /// </summary>
+        private void EmitStringReturnStaticMethod(CSharpWriter csWriter, string enumName,
+            string methodPascalName, string wrapperSymbol, string csUnderlyingType, string moduleName,
+            List<ArgumentDecl> paramDecls, EnumDecl enumDecl, ITypeDatabase typeDatabase)
+        {
+            var freeSymbol = Utf8SliceEmitter.GetFreeSymbolName(moduleName);
+
+            // Build C# parameter list
+            var csParams = new List<string>();
+            foreach (var param in paramDecls)
+            {
+                bool isEnumParam = IsSimpleEnumParam(param.SwiftTypeSpec, enumDecl);
+                var paramType = isEnumParam ? NameProvider.ToPascalCaseForTypeName(enumDecl.Name)
+                    : GetSimpleParamType(param.SwiftTypeSpec, typeDatabase)!;
+                csParams.Add($"{paramType} {NameProvider.GetCSharpParameterName(param)}");
+            }
+
+            csWriter.WriteLine($"public static unsafe string {methodPascalName}({string.Join(", ", csParams)})");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+
+            // Build call args
+            var callArgs = new List<string>();
+            foreach (var param in paramDecls)
+            {
+                bool isEnumParam = IsSimpleEnumParam(param.SwiftTypeSpec, enumDecl);
+                var argName = NameProvider.GetCSharpParameterName(param);
+                callArgs.Add(isEnumParam ? $"({csUnderlyingType}){argName}" : argName);
+            }
+
+            csWriter.WriteLine($"IntPtr resultPtr = PInvoke_{methodPascalName}({string.Join(", ", callArgs)});");
+            csWriter.WriteLine("try");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("var slice = *(Utf8Slice*)resultPtr;");
+            csWriter.WriteLine("return slice.Len > 0");
+            csWriter.Indent++;
+            csWriter.WriteLine("? global::System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)");
+            csWriter.WriteLine(": string.Empty;");
+            csWriter.Indent--;
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine($"finally {{ PInvoke_SBW_Free(resultPtr); }}");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+
+            // P/Invoke for method
+            var pinvokeParams = new List<string>();
+            foreach (var param in paramDecls)
+            {
+                bool isEnumParam = IsSimpleEnumParam(param.SwiftTypeSpec, enumDecl);
+                var pinvokeType = isEnumParam ? csUnderlyingType : GetSimpleParamType(param.SwiftTypeSpec, typeDatabase)!;
+                var marshalPrefix = MarshallingHelpers.IsBoolType(pinvokeType) ? "[MarshalAs(UnmanagedType.U1)] " : "";
+                pinvokeParams.Add($"{marshalPrefix}{pinvokeType} {NameProvider.GetCSharpParameterName(param)}");
+            }
+            csWriter.WriteLine($"[LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{wrapperSymbol}\")]");
+            csWriter.WriteLine($"private static partial IntPtr PInvoke_{methodPascalName}({string.Join(", ", pinvokeParams)});");
+            csWriter.WriteLine();
+
+            EmitFreePInvokeIfNeeded(csWriter, moduleName);
+        }
+
+        /// <summary>
+        /// Emits a C# string-returning static property accessor using Utf8Slice marshalling.
+        /// </summary>
+        private void EmitStringReturnStaticPropertyAccessor(CSharpWriter csWriter, string enumName,
+            string propertyPascalName, string wrapperSymbol, string moduleName)
+        {
+            csWriter.WriteLine($"public static unsafe string {propertyPascalName}");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("get");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine($"IntPtr resultPtr = PInvoke_Get{propertyPascalName}();");
+            csWriter.WriteLine("try");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("var slice = *(Utf8Slice*)resultPtr;");
+            csWriter.WriteLine("return slice.Len > 0");
+            csWriter.Indent++;
+            csWriter.WriteLine("? global::System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)");
+            csWriter.WriteLine(": string.Empty;");
+            csWriter.Indent--;
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine($"finally {{ PInvoke_SBW_Free(resultPtr); }}");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+
+            csWriter.WriteLine($"[LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{wrapperSymbol}\")]");
+            csWriter.WriteLine($"private static partial IntPtr PInvoke_Get{propertyPascalName}();");
+            csWriter.WriteLine();
+
+            EmitFreePInvokeIfNeeded(csWriter, moduleName);
+        }
+
+        /// <summary>
+        /// Emits the SBW_Free P/Invoke once per extensions class.
+        /// </summary>
+        private void EmitFreePInvokeIfNeeded(CSharpWriter csWriter, string moduleName)
+        {
+            if (_freePInvokeEmittedInExtensions) return;
+            _freePInvokeEmittedInExtensions = true;
+            var freeSymbol = Utf8SliceEmitter.GetFreeSymbolName(moduleName);
+            csWriter.WriteLine($"[LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{freeSymbol}\")]");
+            csWriter.WriteLine("private static partial void PInvoke_SBW_Free(IntPtr ptr);");
+            csWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// Gets the Swift return type string for a property.
+        /// </summary>
+        private static string GetSwiftPropertyReturnType(PropertyDecl propertyDecl)
+        {
+            var typeSpec = propertyDecl.SwiftTypeSpec;
+            if (typeSpec is NamedTypeSpec named)
+            {
+                if (named.Name == "Swift.String") return "String";
+                if (named.Name == "Swift.Bool") return "Bool";
+                if (named.Name == "Swift.Int") return "Int";
+                if (named.Name == "Swift.Int32") return "Int32";
+                if (named.Name == "Swift.Double") return "Double";
+                if (named.Name == "Swift.Float") return "Float";
+                return named.NameWithoutModule;
+            }
+            return "Void";
         }
 
         // === Helper Methods for Simple Enum Emission ===
@@ -641,13 +1396,37 @@ namespace BindingsGeneration
             return $"{swiftScalarType}(result.rawValue)";
         }
 
+        /// <summary>
+        /// Generates a Swift expression to convert a scalar parameter to an enum value.
+        /// For RawRepresentable enums, uses the rawValue initializer.
+        /// For non-RawRepresentable enums, uses a direct case mapping expression.
+        /// </summary>
+        private static string EmitEnumParamConversion(EnumDecl enumDecl, string enumQualifiedName,
+            string swiftScalarType, string paramExpr)
+        {
+            if (enumDecl.IsRawRepresentable)
+            {
+                return $"{enumQualifiedName}(rawValue: {GetSwiftRawValueCast(enumDecl, swiftScalarType).Replace("tag", paramExpr)})!";
+            }
+
+            // Non-RawRepresentable: generate inline closure with switch
+            // This is safe for @_cdecl wrappers since the tag values are compile-time constants.
+            return $"{{ () -> {enumQualifiedName} in\n" +
+                   $"    switch {paramExpr} {{\n" +
+                   string.Join("\n", enumDecl.Cases.Select(c =>
+                       $"    case {enumDecl.GetCaseTag(c)}: return .{NameProvider.EscapeSwiftKeyword(c.Name)}")) +
+                   $"\n    default: fatalError(\"Invalid enum tag\")\n" +
+                   $"    }}\n" +
+                   $"}}()";
+        }
+
         private static string DeterministicHash8(string input) => EmitterUtility.DeterministicHash8(input);
 
         /// <summary>
-        /// Checks whether an enum can be safely emitted as a C# enum value type
-        /// without losing members that the class-based path would have emitted.
-        /// Returns false if the enum has properties (instance or static), static methods,
-        /// non-equality operators, or incompatible instance method signatures.
+        /// Checks whether an enum can be safely emitted as a C# enum value type.
+        /// Checks structural constraints only (nested types, non-equality operators).
+        /// Members with compatible signatures are emitted as extensions; incompatible
+        /// members are skipped with ReportCollector tracking — they don't block the gate.
         /// </summary>
         // Maps synthesized property names to the protocol conformance that generates them.
         // Only filtered when the enum actually conforms to the relevant protocol.
@@ -686,27 +1465,14 @@ namespace BindingsGeneration
             if (enumDecl.Types.Any())
                 return false;
 
-            // All non-synthesized properties are skipped on the simple path (instance AND static).
-            // Synthesized Hashable/RawRepresentable/CaseIterable/CodingKey properties are
-            // handled natively by C# enums (GetHashCode, underlying value, Enum.GetValues, etc.).
-            // Conformance-aware: only exclude a property as synthesized if the enum conforms
-            // to the protocol that would generate it (prevents misclassifying user-defined members).
-            if (enumDecl.Properties.Any(p => !IsSynthesizedProperty(p, enumDecl)))
-                return false;
-
-            // Static methods are always skipped on the simple path.
-            // Module-internal static methods are excluded (not callable from external code).
-            if (enumDecl.Methods.Any(m => !m.IsConstructor && m.MethodType == MethodType.Static && !m.IsModuleInternal))
-                return false;
-
-            // Non-equality operators are always skipped on the simple path
+            // Non-equality operators are out of scope for simple enum extensions
             if (enumDecl.Operators.Any(o => o.Name != "==" && o.Name != "!="))
                 return false;
 
-            // Instance methods must have simple-emitter-compatible signatures.
-            // Exclude synthesized hash(into:) — C# enums inherit GetHashCode().
-            if (!AreAllInstanceMethodsSimpleEmitterCompatible(enumDecl))
-                return false;
+            // Properties, static methods, and instance methods with incompatible signatures
+            // are handled by the extension emission path — compatible members are emitted,
+            // incompatible members are skipped with ReportCollector tracking. They no longer
+            // force the entire enum to the heavyweight class path.
 
             return true;
         }

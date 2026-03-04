@@ -99,20 +99,16 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Whether this enum qualifies for emission as a C# enum with String raw value conversions.
-        /// Requires: no associated values, frozen, non-generic, String raw value,
-        /// no static methods, no properties, and no operators.
-        /// Instance methods are allowed — they are emitted as extension methods on the C# enum.
-        /// Static methods, properties, and operators block the simple path because the simple
-        /// enum emission path would silently drop them (they require class-based emission).
+        /// Requires: no associated values, frozen, non-generic, String raw value.
+        /// IsFrozen stays — non-frozen String enums use indirect return patterns requiring SafeHandle.
+        /// Member-level gates (properties, static methods, operators) are now handled by
+        /// CanSafelyEmitAsSimpleEnum and the extension emission path.
         /// </summary>
         public bool IsStringRawValueSimpleEnum =>
             !HasAssociatedValueCases &&
             IsFrozen &&
             !IsGeneric &&
-            IsStringRawValue &&
-            Methods.Count(m => !m.IsConstructor && m.MethodType == MethodType.Static) == 0 &&
-            Properties.Count == 0 &&
-            Operators.Count == 0;
+            IsStringRawValue;
 
         /// <summary>
         /// Gets the enum cases that have associated values (payload cases).

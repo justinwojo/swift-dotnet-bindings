@@ -41,6 +41,33 @@ public enum StatusCode: String {
     case timeout = "TIMEOUT"
 }
 
+// MARK: - BX2 Simple Enum with Members
+
+/// Frozen enum exercising all BX2 simple enum extension features:
+/// CustomStringConvertible.description, CaseIterable, instance property,
+/// static method, static property.
+@frozen public enum Priority: Int32, CustomStringConvertible, CaseIterable {
+    case low = 0
+    case medium = 1
+    case high = 2
+    case critical = 3
+
+    public var description: String {
+        switch self {
+        case .low: return "Low"
+        case .medium: return "Medium"
+        case .high: return "High"
+        case .critical: return "Critical"
+        }
+    }
+
+    public var numericValue: Int32 { return self.rawValue }
+
+    public static func defaultPriority() -> Priority { return .medium }
+
+    public static var maxValue: Int32 { return 3 }
+}
+
 // MARK: - Enum with Associated Values
 
 /// Enum with associated values (discriminated union).
