@@ -63,6 +63,7 @@ These are real improvements with lower effort-to-impact ratios than the complete
 | `Optional<Primitive/Enum>` in closures | Various closure-accepting APIs | Broad | Different ABI from pointer-based Optional |
 | Complex enums in closures | Various | Broad | Structural emitter change |
 | Multi-closure params per method | Rare today | Deferred from S3 | No real-world library currently requires it |
+| Protocol conformance with default extension implementations | Lottie `IAnyInterpolatable` constraint | Lottie | Protocol has 4-param `_interpolate`; concrete types implement 2-param variant via extension default. Requires DIMs or forwarding stubs. |
 | Method bypass with marshalled passthrough params | Theoretical | None today | 0 real-world methods currently bypass |
 
 ### Small Effort

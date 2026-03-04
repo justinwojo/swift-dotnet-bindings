@@ -69,8 +69,9 @@ namespace BindingsGeneration
                     continue;
                 }
 
-                // Pattern 2: @_silgen_name + function blocks with broken patterns
-                if (stripped.StartsWith("@_silgen_name(", StringComparison.Ordinal))
+                // Pattern 2: @_silgen_name / @_cdecl + function blocks with broken patterns
+                if (stripped.StartsWith("@_silgen_name(", StringComparison.Ordinal) ||
+                    stripped.StartsWith("@_cdecl(", StringComparison.Ordinal))
                 {
                     int end = FindBlockEnd(lines, i);
                     var body = ScanBlockBody(lines, i, end);

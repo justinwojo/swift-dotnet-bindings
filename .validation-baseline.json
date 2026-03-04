@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-03-04T07:00:02Z",
-  "git_sha": "458f4d2",
+  "timestamp": "2026-03-04T16:23:28Z",
+  "git_sha": "7250ddb",
   "runtime_version": "0.1.0-preview.5",
   "compile_gate": {
     "total": 53,
@@ -19,14 +19,14 @@
         "compile": "ok",
         "errors": 0,
         "lines": 46264,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "BlinkIDUX": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 11167,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "BRLMPrinterKit": {
         "generate": "ok",
@@ -40,21 +40,21 @@
         "compile": "ok",
         "errors": 0,
         "lines": 26852,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "GRDB": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 93731,
-        "gen_seconds": 6
+        "gen_seconds": 5
       },
       "KeychainAccess": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 11927,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "Kingfisher": {
         "generate": "fail",
@@ -75,14 +75,14 @@
         "compile": "ok",
         "errors": 0,
         "lines": 51099,
-        "gen_seconds": 2
+        "gen_seconds": 3
       },
       "MicroblinkPlatform": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
         "lines": 4504,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "Mixpanel": {
         "generate": "fail",
@@ -96,7 +96,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 24398,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "RxSwift": {
         "generate": "fail",
@@ -138,7 +138,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 618,
-        "gen_seconds": 29
+        "gen_seconds": 32
       },
       "StripeApplePay": {
         "generate": "fail",
@@ -159,7 +159,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 2568,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "StripeConnect": {
         "generate": "fail",
@@ -173,14 +173,14 @@
         "compile": "ok",
         "errors": 0,
         "lines": 34272,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "StripeCryptoOnramp": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 6444,
-        "gen_seconds": 34
+        "gen_seconds": 36
       },
       "StripeFinancialConnections": {
         "generate": "ok",
@@ -201,7 +201,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 1753,
-        "gen_seconds": 11
+        "gen_seconds": 13
       },
       "StripePayments": {
         "generate": "fail",
@@ -215,7 +215,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 46637,
-        "gen_seconds": 13
+        "gen_seconds": 12
       },
       "StripePaymentsUI": {
         "generate": "fail",
@@ -264,7 +264,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 11269,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "Reachability": {
         "generate": "fail",
@@ -313,7 +313,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 8734,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "FSPagerView": {
         "generate": "fail",
@@ -334,28 +334,28 @@
         "compile": "ok",
         "errors": 0,
         "lines": 4550,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "DifferenceKit": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 4620,
-        "gen_seconds": 2
+        "gen_seconds": 1
       },
       "TinyConstraints": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 2067,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "AMPopTip": {
         "generate": "fail",
         "compile": "ok",
         "errors": 0,
         "lines": 5022,
-        "gen_seconds": 1
+        "gen_seconds": 2
       },
       "XMLCoder": {
         "generate": "fail",

@@ -595,6 +595,154 @@ namespace BindingsGeneration.Tests
 
     #endregion
 
+    #region G2. @_cdecl Block Stripping
+
+    public class PostProcessorCdeclTests
+    {
+        [Fact]
+        public void Process_CdeclWithBrokenBody_StripsEntireBlock()
+        {
+            var input = """
+                @_cdecl("SBW_BrokenFunc")
+                public func SBW_BrokenFunc(_ ptr: UnsafeMutableRawPointer) {
+                    let proxy = EveryProtocol()
+                    proxy.execute()
+                }
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input);
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.DoesNotContain("SBW_BrokenFunc", result.CleanedContent);
+            Assert.DoesNotContain("@_cdecl", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_CdeclWithCleanBody_Preserved()
+        {
+            var input = """
+                @_cdecl("SBW_GetErrorDescription_Mod")
+                public func SBW_GetErrorDescription_Mod(_ ptr: UnsafeMutableRawPointer) -> UnsafeMutableRawPointer {
+                    let result = ptr.load(as: Swift.String.self)
+                    return result
+                }
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("SBW_GetErrorDescription_Mod", result.CleanedContent);
+            Assert.Contains("@_cdecl", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_CdeclWithRawGenericParam_StripsEntireBlock()
+        {
+            var input = """
+                @_cdecl("SBW_GenericFunc")
+                public func SBW_GenericFunc(_ ptr: UnsafeMutableRawPointer) -> τ_0_0 {
+                    return ptr.load(as: τ_0_0.self)
+                }
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input);
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.DoesNotContain("SBW_GenericFunc", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_CdeclWithInternalType_StripsEntireBlock()
+        {
+            var input = """
+                @_cdecl("SBW_CreateInternal")
+                public func SBW_CreateInternal(_ ptr: UnsafeMutableRawPointer) -> InternalWidget {
+                    return InternalWidget()
+                }
+
+                """;
+            var internalTypes = new HashSet<string> { "InternalWidget" };
+            var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.DoesNotContain("InternalWidget", result.CleanedContent);
+            Assert.DoesNotContain("@_cdecl", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_CdeclNonSBWPrefix_BrokenStripped()
+        {
+            // Non-SBW_ prefixed @_cdecl function (e.g. future generator output patterns)
+            var input = """
+                @_cdecl("PInvoke_GetValue")
+                public func PInvoke_GetValue(_ ptr: UnsafeMutableRawPointer) {
+                    let proxy = EveryProtocol()
+                    proxy.execute()
+                }
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input);
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.DoesNotContain("PInvoke_GetValue", result.CleanedContent);
+            Assert.DoesNotContain("@_cdecl", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_CdeclNonSBWPrefix_CleanKept()
+        {
+            var input = """
+                @_cdecl("PInvoke_GetValue")
+                public func PInvoke_GetValue(_ ptr: UnsafeMutableRawPointer) -> Int32 {
+                    return ptr.load(as: Int32.self)
+                }
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("PInvoke_GetValue", result.CleanedContent);
+            Assert.Contains("@_cdecl", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_OrphanedCdeclBug_Regression()
+        {
+            // Reproduces the exact Stripe scenario: broken @_cdecl block followed by clean @_cdecl block.
+            // Before the fix, Pattern 4 stripped the function but left the @_cdecl attribute orphaned,
+            // which attached to the next function → "duplicate attribute" Swift compilation error.
+            var input = """
+                @_cdecl("SBW_BrokenFunc")
+                public func SBW_BrokenFunc(_ ptr: UnsafeMutableRawPointer) {
+                    let proxy = EveryProtocol()
+                    proxy.execute()
+                }
+                @_cdecl("SBW_GetErrorDescription_Mod")
+                public func SBW_GetErrorDescription_Mod(_ ptr: UnsafeMutableRawPointer) -> UnsafeMutableRawPointer {
+                    let result = ptr.load(as: Swift.String.self)
+                    return result
+                }
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input);
+
+            // Broken block fully stripped (no orphaned @_cdecl)
+            Assert.DoesNotContain("SBW_BrokenFunc", result.CleanedContent);
+
+            // Clean block preserved with exactly one @_cdecl
+            Assert.Contains("SBW_GetErrorDescription_Mod", result.CleanedContent);
+            var cdeclCount = result.CleanedContent.Split("@_cdecl").Length - 1;
+            Assert.Equal(1, cdeclCount);
+
+            // No orphaned @_cdecl: every @_cdecl line must be immediately followed by a public func line
+            var lines = result.CleanedContent.Split('\n');
+            for (int i = 0; i < lines.Length; i++)
+            {
+                if (lines[i].TrimStart().StartsWith("@_cdecl("))
+                {
+                    Assert.True(i + 1 < lines.Length, "Orphaned @_cdecl at end of file");
+                    Assert.StartsWith("public func", lines[i + 1].TrimStart());
+                }
+            }
+        }
+    }
+
+    #endregion
+
     #region H. Internal Type Stripping (WU2)
 
     public class PostProcessorInternalTypeTests
