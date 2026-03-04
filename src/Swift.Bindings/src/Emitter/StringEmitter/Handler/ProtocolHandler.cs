@@ -370,8 +370,11 @@ namespace BindingsGeneration
             // C# proxy would produce calls to non-existent Swift symbols (SetVtable, WitnessTableGetter).
             if (!ModuleHandler.HasMembersReferencingUnsupportedModule(protocolDecl, env.TypeDatabase))
             {
+                // Intentionally nullable — null triggers direct-emit fallback in EmitProtocolProxy
+                // (used by unit tests without ModuleEmissionContext). GetEmissionContext() would
+                // always return non-null and route all proxies through the deferred path.
                 EmitProtocolProxy(csWriter, protocolDecl, env.TypeDatabase, skippedMethodKeys, skippedPropertyNames, skippedSubscriptIndices,
-                    closureSkippedMethodKeys, closureSkippedPropertyNames, context.GetEmissionContext());
+                    closureSkippedMethodKeys, closureSkippedPropertyNames, context.EmissionContext);
             }
             else
             {
@@ -395,8 +398,23 @@ namespace BindingsGeneration
         {
             var moduleName = protocolDecl.ModuleDecl?.Name ?? "Swift";
             var proxyEmitter = new ProtocolProxyEmitter(typeDatabase, _logger, moduleName, emissionCtx);
-            proxyEmitter.EmitProxyClass(csWriter, protocolDecl, skippedMethodKeys, skippedPropertyNames, skippedSubscriptIndices,
-                closureSkippedMethodKeys, closureSkippedPropertyNames);
+
+            // Buffer proxy output for deferred emission in SwiftInterop sub-namespace
+            if (emissionCtx != null)
+            {
+                var proxyStringWriter = new System.IO.StringWriter();
+                var proxyWriter = new CSharpWriter(proxyStringWriter);
+                proxyWriter.Indent = 1; // One level of indent inside the sub-namespace
+                proxyEmitter.EmitProxyClass(proxyWriter, protocolDecl, skippedMethodKeys, skippedPropertyNames, skippedSubscriptIndices,
+                    closureSkippedMethodKeys, closureSkippedPropertyNames);
+                emissionCtx.AddDeferredProxyClass(proxyStringWriter.ToString());
+            }
+            else
+            {
+                // Fallback: emit directly (e.g., unit tests without ModuleEmissionContext)
+                proxyEmitter.EmitProxyClass(csWriter, protocolDecl, skippedMethodKeys, skippedPropertyNames, skippedSubscriptIndices,
+                    closureSkippedMethodKeys, closureSkippedPropertyNames);
+            }
         }
 
         /// <summary>

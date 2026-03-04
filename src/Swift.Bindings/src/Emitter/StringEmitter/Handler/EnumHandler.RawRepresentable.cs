@@ -365,6 +365,7 @@ namespace BindingsGeneration
                     csWriter.WriteLine("/// <summary>");
                     csWriter.WriteLine($"/// Gets the '{caseName}' case of {enumTypeName}.");
                     csWriter.WriteLine("/// </summary>");
+                    csWriter.WriteLine("/// <remarks>Cached singleton instance — does not require disposal.</remarks>");
                     csWriter.WriteLine($"public static {enumTypeName} {capitalizedName} => _lazy_{fieldName}.Value;");
                     csWriter.WriteLine();
                 }

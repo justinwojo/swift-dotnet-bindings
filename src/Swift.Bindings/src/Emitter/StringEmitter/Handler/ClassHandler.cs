@@ -158,8 +158,11 @@ namespace BindingsGeneration
                     csWriter.WriteLine("// Swift actor type - methods are actor-isolated unless marked nonisolated");
 
                 XmlDocCommentEmitter.EmitDocComment(csWriter, classDecl);
-                // Emit disposal remarks for class types
-                EmitDisposalRemarks(csWriter, classDecl);
+                var (opaqueEmittable, opaqueSkipped) = MemberEmissionValidator.CountEmittableMembers(classDecl, env.TypeDatabase);
+                if (opaqueEmittable == 0 && opaqueSkipped > 0)
+                    TypeAnnotationHelper.EmitOpaqueTypeAnnotation(csWriter, opaqueSkipped);
+                else
+                    TypeAnnotationHelper.EmitDisposalRemarks(csWriter, classDecl);
                 if (classDecl.Name.StartsWith("_"))
                     csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
                 var classDeclaration = $"public partial class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
@@ -191,6 +194,12 @@ namespace BindingsGeneration
                     {
                         _logger.LogInformation($"Skipping duplicate property '{classDecl.Name}.{csPropertyName}' (static/instance collision).");
                         ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, classDecl, SkipReason.DuplicateSignature, $"Property '{csPropertyName}' already emitted with different staticness.");
+                        continue;
+                    }
+
+                    if (MemberEmissionValidator.IsSynthesizedProtocolProperty(propertyDecl, classDecl))
+                    {
+                        ReportCollector.RecordMemberSynthesized(BindingItemKind.Property, propertyDecl.Name, classDecl);
                         continue;
                     }
 
@@ -307,24 +316,6 @@ namespace BindingsGeneration
                && !GenericTypeEmitter.TryGetUnsupportedConstraint(classDecl.ResolvedSuperclass!, out _);
 
         /// <summary>
-        /// Emits disposal remarks as XML doc comments for class types.
-        /// Appended after XmlDocCommentEmitter.EmitDocComment, before the class declaration.
-        /// </summary>
-        private static void EmitDisposalRemarks(CSharpWriter csWriter, ClassDecl classDecl)
-        {
-            // If the symbol graph already provided remarks, skip to avoid duplication
-            if (classDecl.Documentation != null && !classDecl.Documentation.IsEmpty
-                && (classDecl.Documentation.Remarks.Count > 0 || !string.IsNullOrWhiteSpace(classDecl.Documentation.Throws)))
-                return;
-
-            // Emit standalone <remarks> when no doc comment or when doc has summary but no remarks
-            csWriter.WriteLine("/// <remarks>");
-            csWriter.WriteLine("/// This type wraps a Swift class and must be disposed explicitly.");
-            csWriter.WriteLine("/// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.");
-            csWriter.WriteLine("/// </remarks>");
-        }
-
-        /// <summary>
         /// Writes the _payloadSize static field (all classes — each needs its own metadata size).
         /// Each class independently declares _payloadSize for its own type metadata.
         /// </summary>
@@ -358,6 +349,7 @@ namespace BindingsGeneration
                 ? typeNameWithGenerics.Substring(0, typeNameWithGenerics.IndexOf('<'))
                 : typeNameWithGenerics;
             var disposeMethods = $$"""
+            /// <summary>Releases the underlying Swift object. Safe to call multiple times.</summary>
             public void Dispose()
             {
                 _payload.Dispose();

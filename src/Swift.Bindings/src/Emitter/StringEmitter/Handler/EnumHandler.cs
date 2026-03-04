@@ -131,6 +131,11 @@ namespace BindingsGeneration
                     env.TypeDatabase,
                     conformanceValidator);
                 XmlDocCommentEmitter.EmitDocComment(csWriter, enumDecl);
+                var (opaqueEmittable, opaqueSkipped) = MemberEmissionValidator.CountEmittableMembers(enumDecl, env.TypeDatabase);
+                if (opaqueEmittable == 0 && opaqueSkipped > 0)
+                    TypeAnnotationHelper.EmitOpaqueTypeAnnotation(csWriter, opaqueSkipped);
+                else
+                    TypeAnnotationHelper.EmitDisposalRemarks(csWriter, enumDecl);
                 if (enumDecl.Name.StartsWith("_"))
                     csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
                 var classDeclaration = $"public partial class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
@@ -157,6 +162,7 @@ namespace BindingsGeneration
                     ? typeNameWithGenerics.Substring(0, typeNameWithGenerics.IndexOf('<'))
                     : typeNameWithGenerics;
                 var disposeMethods = $$"""
+                /// <summary>Releases the underlying Swift object. Safe to call multiple times.</summary>
                 public void Dispose()
                 {
                     if (_isCachedSingleton) return;
@@ -247,6 +253,12 @@ namespace BindingsGeneration
                 {
                     _logger.LogInformation($"Skipping enum property '{enumDecl.Name}.{propertyName}' because a case constructor with the same C# name is already emitted.");
                     ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, enumDecl, SkipReason.DuplicateSignature, $"Enum property '{propertyName}' collides with case constructor name.");
+                    continue;
+                }
+
+                if (MemberEmissionValidator.IsSynthesizedProtocolProperty(propertyDecl, enumDecl))
+                {
+                    ReportCollector.RecordMemberSynthesized(BindingItemKind.Property, propertyDecl.Name, enumDecl);
                     continue;
                 }
 
@@ -414,6 +426,7 @@ namespace BindingsGeneration
                 csWriter.WriteLine($"/// <summary>");
                 csWriter.WriteLine($"/// Gets the '{caseName}' case of {enumTypeName}.");
                 csWriter.WriteLine($"/// </summary>");
+                csWriter.WriteLine($"/// <remarks>Cached singleton instance — does not require disposal.</remarks>");
                 csWriter.WriteLine($"public static {enumTypeName} {capitalizedName} => _lazy_{fieldName}.Value;");
                 csWriter.WriteLine();
             }

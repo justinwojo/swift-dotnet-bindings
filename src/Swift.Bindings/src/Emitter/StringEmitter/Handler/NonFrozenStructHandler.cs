@@ -117,6 +117,11 @@ namespace BindingsGeneration
                     conformanceValidator);
 
                 XmlDocCommentEmitter.EmitDocComment(csWriter, structDecl);
+                var (opaqueEmittable, opaqueSkipped) = MemberEmissionValidator.CountEmittableMembers(structDecl, env.TypeDatabase);
+                if (opaqueEmittable == 0 && opaqueSkipped > 0)
+                    TypeAnnotationHelper.EmitOpaqueTypeAnnotation(csWriter, opaqueSkipped);
+                else
+                    TypeAnnotationHelper.EmitDisposalRemarks(csWriter, structDecl);
                 if (structDecl.Name.StartsWith("_"))
                     csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
                 var classDeclaration = $"public partial class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
@@ -136,6 +141,12 @@ namespace BindingsGeneration
                     {
                         _logger.LogInformation($"Skipping duplicate property '{structDecl.Name}.{csPropertyName}'.");
                         ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, structDecl, SkipReason.DuplicateSignature, $"Property '{csPropertyName}' already emitted.");
+                        continue;
+                    }
+
+                    if (MemberEmissionValidator.IsSynthesizedProtocolProperty(propertyDecl, structDecl))
+                    {
+                        ReportCollector.RecordMemberSynthesized(BindingItemKind.Property, propertyDecl.Name, structDecl);
                         continue;
                     }
 
@@ -250,6 +261,7 @@ namespace BindingsGeneration
                 ? typeNameWithGenerics.Substring(0, typeNameWithGenerics.IndexOf('<'))
                 : typeNameWithGenerics;
             var disposeMethods = $$"""
+            /// <summary>Releases the underlying Swift object. Safe to call multiple times.</summary>
             public void Dispose()
             {
                 _payload.Dispose();

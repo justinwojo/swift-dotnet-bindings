@@ -137,13 +137,14 @@ namespace BindingsGeneration
             foreach (var methodDecl in enumDecl.Methods.Where(m => m.IsConstructor))
                 ReportCollector.RecordMemberEmitted(BindingItemKind.Method, methodDecl.Name, enumDecl);
 
-            // Record synthesized protocol conformance members as emitted — C# enums handle
+            // Record synthesized protocol conformance members — C# enums handle
             // Hashable (GetHashCode), RawRepresentable (underlying value), CaseIterable
-            // (Enum.GetValues), etc. natively. These are not "skipped" — they're implicit.
+            // (Enum.GetValues), etc. natively. These are not "skipped" — their functionality
+            // is available via synthesized .NET equivalents.
             foreach (var prop in enumDecl.Properties.Where(p => !p.IsStatic && IsSynthesizedProperty(p, enumDecl)))
-                ReportCollector.RecordMemberEmitted(BindingItemKind.Property, prop.Name, enumDecl);
+                ReportCollector.RecordMemberSynthesized(BindingItemKind.Property, prop.Name, enumDecl);
             foreach (var method in enumDecl.Methods.Where(m => !m.IsConstructor && m.MethodType != MethodType.Static && IsSynthesizedMethod(m, enumDecl)))
-                ReportCollector.RecordMemberEmitted(BindingItemKind.Method, method.Name, enumDecl);
+                ReportCollector.RecordMemberSynthesized(BindingItemKind.Method, method.Name, enumDecl);
 
             // Check CaseIterable conformance for AllCases property
             var hasCaseIterable = enumDecl.Conformances.Any(c => c.Protocol.Name == "CaseIterable");
@@ -1452,11 +1453,7 @@ namespace BindingsGeneration
         }
 
         private static bool IsSynthesizedMethod(MethodDecl method, EnumDecl enumDecl)
-            => !method.IsConstructor
-               && method.MethodType != MethodType.Static
-               && method.Name == "hash"
-               && method.CSSignature.Skip(1).Any(a => a.Name == "into")
-               && enumDecl.Conformances.Any(c => c.Protocol.Name == "Hashable");
+            => MemberEmissionValidator.IsSynthesizedProtocolMethod(method, enumDecl);
 
         internal static bool CanSafelyEmitAsSimpleEnum(EnumDecl enumDecl)
         {

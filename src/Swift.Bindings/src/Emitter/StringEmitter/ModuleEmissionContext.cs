@@ -190,6 +190,16 @@ public sealed class ModuleEmissionContext
     /// <summary>Marks a generic closure bridge error P/Invoke as emitted. Returns true if newly added.</summary>
     public bool TryAddGenericClosureBridgeErrorPInvoke(string typeKey) => _genericClosureBridgeTypes.Add(typeKey);
 
+    // ==================== Protocol Proxy Sub-Namespace ====================
+
+    private readonly List<string> _deferredProxyClasses = new();
+
+    /// <summary>Accumulated proxy class source blocks for deferred emission in SwiftInterop sub-namespace.</summary>
+    public IReadOnlyList<string> DeferredProxyClasses => _deferredProxyClasses;
+
+    /// <summary>Adds a proxy class source block for deferred emission.</summary>
+    public void AddDeferredProxyClass(string proxySource) => _deferredProxyClasses.Add(proxySource);
+
     // ==================== Enum Handler RawRepresentable ====================
 
     private readonly HashSet<string> _enumRawRepSymbols = new();

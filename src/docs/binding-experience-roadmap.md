@@ -26,10 +26,10 @@ Quick reference mapping feedback items to sessions.
 | 9 | Inconsistent optional projection | High | BX1 | Done |
 | 8 | Double-wrapped collections | Medium | BX1 | Done |
 | 1 | Enums as classes (simple cases) | Medium | BX2 | Done |
-| 10 | HashValue instead of GetHashCode | Medium | BX3 | Pending |
-| 2 | Universal IDisposable / disposal anxiety | Medium | BX3 | Pending |
-| 7 | Types with zero public members | Low | BX3 | Pending |
-| 5 | Protocol proxy internals visible | Low | BX3 | Pending |
+| 10 | HashValue instead of GetHashCode | Medium | BX3 | Done |
+| 2 | Universal IDisposable / disposal anxiety | Medium | BX3 | Done |
+| 7 | Types with zero public members | Low | BX3 | Done |
+| 5 | Protocol proxy internals visible | Low | BX3 | Done |
 | 11 | No inheritance from Apple framework types | High | BX4 | Pending |
 | 6 | Structs projected as classes | Medium | Deferred | — |
 
@@ -145,57 +145,72 @@ No-payload enums with `CustomStringConvertible`, `CaseIterable`, static members,
 
 ---
 
-## Session BX3: .NET Idiom Polish
+## Session BX3: .NET Idiom Polish — Done
 
 **Feedback items**: #10 (HashValue vs GetHashCode), #2 (disposal anxiety), #7 (zero-member types), #5 (proxy visibility)
 **Theme**: Small targeted improvements that make bindings feel more .NET-native
+**Status**: Done
 
-### #10: Suppress redundant Hashable/Equatable members
+### #10: Suppress redundant Hashable/Equatable members — Done
 
-**Current state**: The generator ALREADY emits `GetHashCode()` overrides for Hashable types (delegates to `SwiftHashable.GetHashCode(this)`) and `Equals()`/`operator ==`/`operator !=` for Equatable types. However, it ALSO emits the raw Swift protocol members — `HashValue` property and `Hash(Hasher)` method — as regular projected members. These are redundant noise.
+**Problem**: The generator emits `GetHashCode()` overrides for Hashable types AND the raw Swift `hashValue` property and `hash(into:)` method. The raw members are redundant noise.
 
-**Fix**: Suppress emission of `hashValue` (property) and `hash(into:)` (method) when the type conforms to Hashable, since `GetHashCode()` already covers this. Same pattern as `EnumHandler.SimpleEnum.cs` line 707-708 which already filters these for simple enums — extend to complex enums and classes.
+**Implementation**:
+- Added `IsSynthesizedProtocolProperty` and `IsSynthesizedProtocolMethod` to `MemberEmissionValidator` — detects `hashValue` (property) and `hash(into:)` (method) on types conforming to Hashable
+- Added `GetConformances(TypeDecl)` helper using pattern matching (ClassDecl/StructDecl/EnumDecl each declare Conformances separately)
+- Property filter added before `CanEmitProperty` in 4 handlers: ClassHandler, EnumHandler, NonFrozenStructHandler, FrozenStructHandler
+- Method filter added in `IHandler.cs` HandleBaseDecl, before signature dedup
+- `EnumHandler.SimpleEnum.IsSynthesizedMethod` now delegates to the public `MemberEmissionValidator.IsSynthesizedProtocolMethod`
+- Changed `RecordMemberEmitted` to `RecordMemberSynthesized` in SimpleEnum path for consistency (synthesized members have .NET equivalents but aren't directly emitted)
 
-**Key files**: `EnumHandler.SimpleEnum.cs` (existing filter), `MethodHandler.cs`, `PropertyHandler.cs` (add filter)
+**Key files**: `MemberEmissionValidator.cs`, `ClassHandler.cs`, `EnumHandler.cs`, `EnumHandler.SimpleEnum.cs`, `NonFrozenStructHandler.cs`, `FrozenStructHandler.cs`, `IHandler.cs`
 
-### #2: XML doc comments for ownership semantics
+### #2: XML doc comments for ownership semantics — Done
 
-**Fix**: Emit XML doc comments on generated types and key patterns:
-- On `ISwiftObject`-implementing types: `/// <summary>Wraps a Swift {struct/class/enum}. Call Dispose() when done, or use 'using' statements.</summary>`
-- On enum case singleton properties: `/// <summary>Cached singleton — does not require disposal.</summary>`
-- On property getters that return owned references: `/// <remarks>Returns an owned reference. Dispose when no longer needed.</remarks>`
-- On `Dispose()`: `/// <summary>Releases the underlying Swift object. Safe to call multiple times.</summary>`
+**Problem**: `ClassHandler` had `EmitDisposalRemarks()` but complex enums and struct handlers did not. Inline `Dispose()` methods lacked doc comments. Cached singleton case properties didn't explain they're disposal-free.
 
-This is low-effort, high-signal guidance that eliminates disposal anxiety without changing any behavior.
+**Implementation**:
+- Extracted `TypeAnnotationHelper` static class in `TypeHandlerHelpers.cs` with `EmitDisposalRemarks(csWriter, typeDecl)` — derives Swift kind ("class"/"struct"/"enum") from the TypeDecl subtype, skips if symbol graph already has remarks
+- All 4 type handlers call `TypeAnnotationHelper.EmitDisposalRemarks` after `XmlDocCommentEmitter.EmitDocComment`
+- Added `/// <summary>Releases the underlying Swift object. Safe to call multiple times.</summary>` before inline `Dispose()` in ClassHandler, EnumHandler, NonFrozenStructHandler, FrozenStructHandler
+- Added `/// <remarks>Cached singleton instance — does not require disposal.</remarks>` on cached singleton case properties in both EnumHandler (tag-based) and EnumHandler.RawRepresentable (raw-value-based)
 
-**Key files**: `ClassHandler.cs`, `EnumHandler.cs`, `PropertyHandler.cs` (emission points for doc comments)
+**Key files**: `TypeHandlerHelpers.cs`, `ClassHandler.cs`, `EnumHandler.cs`, `EnumHandler.RawRepresentable.cs`, `NonFrozenStructHandler.cs`, `FrozenStructHandler.cs`
 
-### #7: Opaque type annotations
+### #7: Opaque type annotations — Done
 
-**Fix**: When a generated type has zero public members (no properties, methods, or constructors beyond ISwiftObject/IDisposable infrastructure), emit a type-level XML doc comment and attribute:
+**Problem**: Types with zero projectable public members appear as empty wrappers with no explanation.
 
-```csharp
-/// <summary>
-/// Opaque Swift type. No public API members could be projected.
-/// 3 members skipped: 2 use unsupported types, 1 uses unsupported generics.
-/// </summary>
-[OpaqueSwiftType(SkippedMembers = 3)]
-public partial class BlinkIDResultState : ISwiftObject, IDisposable { ... }
-```
+**Implementation**:
+- Created `OpaqueSwiftTypeAttribute` in Swift.Runtime (`[AttributeUsage(Class|Struct)]`, constructor takes `skippedMemberCount`)
+- Added `CountEmittableMembers(TypeDecl, ITypeDatabase)` to `MemberEmissionValidator` — pre-scans properties (via `CanEmitProperty`), methods (via `ShouldSkipMethodEmission`), constructors; returns `(int emittable, int skipped)`. Filters out accessor methods and module-internal methods to match actual emission paths
+- Added `TypeAnnotationHelper.EmitOpaqueTypeAnnotation(csWriter, skippedCount)` — emits `[OpaqueSwiftType]` attribute + opaque handle remarks
+- All 4 type handlers: when `emittable == 0 && skipped > 0`, emit opaque annotation; otherwise emit disposal remarks
 
-Count the skipped members from `[UnsupportedSwiftType]` attributes that were suppressed. This tells the developer the type isn't empty by design — the generator couldn't project its members.
+**Key files**: `OpaqueSwiftTypeAttribute.cs` (new), `MemberEmissionValidator.cs`, `TypeHandlerHelpers.cs`, `ClassHandler.cs`, `EnumHandler.cs`, `NonFrozenStructHandler.cs`, `FrozenStructHandler.cs`
 
-**Key files**: `ClassHandler.cs`, `TypeHandlerHelpers.cs` (post-emission member counting)
+### #5: Protocol proxy sub-namespace — Done
 
-### #5: Protocol proxy visibility polish
+**Problem**: Proxy classes share the main API namespace, cluttering type lists even with `[EditorBrowsable(Never)]`.
 
-**Current state**: Proxy classes are `public` with `[EditorBrowsable(Never)]`. They must be public for cross-assembly protocol conformance scenarios.
+**Implementation**:
+- Added `DeferredProxyClasses` list to `ModuleEmissionContext` (follows existing pattern of `_protocolExtWrapperLines`)
+- Modified `ProtocolHandler.EmitProtocolProxy()` — when `ModuleEmissionContext` is available, buffers proxy output to `StringWriter` + `CSharpWriter` and stores in `DeferredProxyClasses`; falls back to direct emission for unit tests without context
+- Modified `ModuleHandler` to emit `using {generatedNamespace}.SwiftInterop;` in the usings block, and flush deferred proxies in a `namespace {generatedNamespace}.SwiftInterop { }` block after the main namespace
+- SwiftInterop namespace always emitted (even empty) so the using directive resolves
 
-**Fix**: Move proxy classes into a `{Namespace}.SwiftInterop` sub-namespace. This keeps them public (required) but separates them from the primary API namespace. IntelliSense won't show them unless the developer explicitly imports the interop namespace.
+**Key files**: `ModuleEmissionContext.cs`, `ProtocolHandler.cs`, `ModuleHandler.cs`
 
-**Key files**: `ProtocolProxyEmitter.cs`, namespace emission logic
+### Tests
 
-**Success criteria**: A developer browsing the generated namespace sees only user-facing types. `SwiftInterop` sub-namespace contains proxy classes, witness tables, and other interop plumbing.
+26 new unit tests in `DotNetIdiomPolishTests.cs`:
+- **Item #10** (10 tests): `IsSynthesizedProtocolProperty` positive/negative/static, `IsSynthesizedProtocolMethod` positive/negative/static/constructor, full emission suppression for class/struct/complex enum
+- **Item #2** (4 tests): disposal remarks on complex enum/non-frozen struct, Dispose doc comment, cached singleton remarks
+- **Item #7** (7 tests): `CountEmittableMembers` all-skipped/some-emittable/accessor-filtering/module-internal-filtering, opaque attribute emission, no-attribute-when-members-exist, no-attribute-when-empty
+- **Item #10 metrics** (1 test): `RecordMemberSynthesized` no-throw
+- **Item #5** (4 tests): SwiftInterop namespace presence, proxy inside SwiftInterop block not in main namespace, empty SwiftInterop when no protocols, using directive
+
+**Success criteria**: `hashValue`/`hash(into:)` absent from generated output for Hashable types. All types have disposal guidance or opaque annotation. Proxy classes appear under `{Module}.SwiftInterop` namespace. All 53 validation library targets pass.
 
 ---
 

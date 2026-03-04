@@ -346,6 +346,49 @@ namespace BindingsGeneration
         }
     }
 
+    /// <summary>
+    /// Shared helpers for emitting type-level XML doc annotations (disposal remarks, opaque type attributes).
+    /// Called after XmlDocCommentEmitter.EmitDocComment, before the type declaration.
+    /// </summary>
+    internal static class TypeAnnotationHelper
+    {
+        /// <summary>
+        /// Emits disposal remarks as XML doc comments for types that wrap Swift objects.
+        /// </summary>
+        internal static void EmitDisposalRemarks(CSharpWriter csWriter, TypeDecl typeDecl)
+        {
+            // If the symbol graph already provided remarks, skip to avoid duplication
+            if (typeDecl.Documentation != null && !typeDecl.Documentation.IsEmpty
+                && (typeDecl.Documentation.Remarks.Count > 0 || !string.IsNullOrWhiteSpace(typeDecl.Documentation.Throws)))
+                return;
+
+            var swiftKind = typeDecl switch
+            {
+                ClassDecl => "class",
+                EnumDecl => "enum",
+                StructDecl => "struct",
+                _ => "type"
+            };
+            csWriter.WriteLine("/// <remarks>");
+            csWriter.WriteLine($"/// This type wraps a Swift {swiftKind} and must be disposed explicitly.");
+            csWriter.WriteLine("/// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.");
+            csWriter.WriteLine("/// </remarks>");
+        }
+
+        /// <summary>
+        /// Emits opaque type remarks and [OpaqueSwiftType] attribute for types with zero
+        /// projectable public members.
+        /// </summary>
+        internal static void EmitOpaqueTypeAnnotation(CSharpWriter csWriter, int skippedCount)
+        {
+            csWriter.WriteLine("/// <remarks>");
+            csWriter.WriteLine($"/// This type has no projectable public members ({skippedCount} Swift member(s) could not be represented in C#).");
+            csWriter.WriteLine("/// It can still be used as an opaque handle when passed to or returned from other Swift APIs.");
+            csWriter.WriteLine("/// </remarks>");
+            csWriter.WriteLine($"[global::Swift.OpaqueSwiftType({skippedCount})]");
+        }
+    }
+
     public class EqualityMethodsWriter
     {
         private readonly IndentedTextWriter _writer;

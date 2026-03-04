@@ -95,6 +95,7 @@ namespace BindingsGeneration
             csWriter.WriteLine($"using Swift.Runtime;");
             csWriter.WriteLine($"using Swift.Runtime.InteropServices;");
             csWriter.WriteLine($"using System.ComponentModel;");
+            csWriter.WriteLine($"using {generatedNamespace}.SwiftInterop;");
             csWriter.WriteLine();
             csWriter.WriteLine($"namespace {generatedNamespace}");
             csWriter.WriteLine("{");
@@ -211,6 +212,15 @@ namespace BindingsGeneration
             EmitFrameworkResolver(csWriter, moduleDecl.Name);
 
             csWriter.Indent--;
+            csWriter.WriteLine("}");
+
+            // Emit SwiftInterop sub-namespace for protocol proxy classes.
+            // Always emitted so the 'using' directive at the top resolves even when empty.
+            csWriter.WriteLine();
+            csWriter.WriteLine($"namespace {generatedNamespace}.SwiftInterop");
+            csWriter.WriteLine("{");
+            foreach (var proxySource in context.GetEmissionContext().DeferredProxyClasses)
+                csWriter.InnerWriter.Write(proxySource);
             csWriter.WriteLine("}");
 
         }

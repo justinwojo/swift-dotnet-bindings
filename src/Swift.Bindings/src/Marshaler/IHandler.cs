@@ -279,6 +279,16 @@ namespace BindingsGeneration
                 }
                 else if (baseDecl is MethodDecl methodDecl)
                 {
+                    // Suppress synthesized protocol methods (e.g., hash(into:) for Hashable)
+                    // whose functionality is provided by .NET equivalents (GetHashCode)
+                    if (methodDecl.ParentDecl is TypeDecl parentType &&
+                        MemberEmissionValidator.IsSynthesizedProtocolMethod(methodDecl, parentType))
+                    {
+                        if (!methodDecl.IsAccessor)
+                            ReportCollector.RecordMemberSynthesized(BindingItemKind.Method, methodDecl.Name, methodDecl.ParentDecl);
+                        continue;
+                    }
+
                     // Create unique signature key to detect duplicates
                     var signatureKey = GetMethodSignatureKey(methodDecl, typeDatabase, _logger);
                     if (emittedMethodSignatures.Contains(signatureKey))

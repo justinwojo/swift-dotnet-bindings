@@ -1000,4 +1000,120 @@ public static class MemberEmissionValidator
         var typeStr = arg.SwiftTypeSpec?.ToString() ?? "";
         return typeStr.Contains($"Swift.{protocolName}");
     }
+
+    // ==================== Synthesized Protocol Member Detection ====================
+
+    /// <summary>
+    /// Returns true for properties that are synthesized by Swift protocol conformance and
+    /// should be suppressed in favor of .NET equivalents (e.g., hashValue → GetHashCode()).
+    /// Only matches instance members on types conforming to the relevant protocol.
+    /// </summary>
+    public static bool IsSynthesizedProtocolProperty(PropertyDecl property, TypeDecl typeDecl)
+    {
+        if (property.IsStatic)
+            return false;
+
+        if (property.Name == "hashValue"
+            && GetConformances(typeDecl).Any(c => c.Protocol.Name == "Hashable"))
+            return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// Returns true for methods that are synthesized by Swift protocol conformance and
+    /// should be suppressed in favor of .NET equivalents (e.g., hash(into:) → GetHashCode()).
+    /// Only matches instance methods on types conforming to the relevant protocol.
+    /// </summary>
+    public static bool IsSynthesizedProtocolMethod(MethodDecl method, TypeDecl typeDecl)
+    {
+        if (method.IsConstructor)
+            return false;
+
+        if (method.MethodType == MethodType.Static)
+            return false;
+
+        if (method.Name == "hash"
+            && method.CSSignature.Skip(1).Any(a => a.Name == "into")
+            && GetConformances(typeDecl).Any(c => c.Protocol.Name == "Hashable"))
+            return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// Gets the conformances for a type declaration. Conformances are declared individually
+    /// on ClassDecl, StructDecl, and EnumDecl (not on the base TypeDecl).
+    /// </summary>
+    private static IEnumerable<TypeConformance> GetConformances(TypeDecl typeDecl)
+    {
+        return typeDecl switch
+        {
+            ClassDecl c => c.Conformances,
+            StructDecl s => s.Conformances,
+            EnumDecl e => e.Conformances,
+            _ => Enumerable.Empty<TypeConformance>()
+        };
+    }
+
+    // ==================== Emittable Member Count (Opaque Type Pre-Scan) ====================
+
+    /// <summary>
+    /// Pre-scans a type's members to count how many are emittable vs skipped.
+    /// Uses the same gates as actual emission to ensure accurate counts.
+    /// Synthesized members (e.g., hashValue for Hashable) count as available (not skipped).
+    /// </summary>
+    public static (int emittable, int skipped) CountEmittableMembers(TypeDecl typeDecl, ITypeDatabase typeDatabase)
+    {
+        int emittable = 0;
+        int skipped = 0;
+
+        // Count properties
+        foreach (var property in typeDecl.Properties)
+        {
+            if (IsSynthesizedProtocolProperty(property, typeDecl))
+            {
+                // Synthesized members count as available — functionality exists via .NET equivalent
+                emittable++;
+                continue;
+            }
+
+            var skipReason = CanEmitProperty(property, typeDatabase, out _, out _);
+            if (skipReason == null)
+                emittable++;
+            else
+                skipped++;
+        }
+
+        // Count methods (Methods is on the base TypeDecl, no switch needed)
+        foreach (var method in typeDecl.Methods)
+        {
+            // Accessors are property getter/setter implementations, not standalone public methods.
+            // Module-internal methods cannot be called from external consumers.
+            // Both are excluded from public API shape, matching the emit paths in IHandler.cs
+            // and EnumHandler.SimpleEnum.cs.
+            if (method.IsAccessor || method.IsModuleInternal)
+                continue;
+
+            if (IsSynthesizedProtocolMethod(method, typeDecl))
+            {
+                emittable++;
+                continue;
+            }
+
+            if (method.IsConstructor)
+            {
+                emittable++;
+                continue;
+            }
+
+            var methodSkipReason = ShouldSkipMethodEmission(method, typeDatabase, out _);
+            if (methodSkipReason == null)
+                emittable++;
+            else
+                skipped++;
+        }
+
+        return (emittable, skipped);
+    }
 }
