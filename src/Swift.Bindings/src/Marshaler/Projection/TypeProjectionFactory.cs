@@ -167,6 +167,25 @@ public class TypeProjectionFactory
                             return new OptionalProjection(baseProjection, isExistentialInner);
                     }
                 }
+
+                // Apple framework ObjC class fallback: for Optional<T> where T is from a known
+                // Apple framework module AND has an ObjC class naming convention (2-3 letter
+                // uppercase prefix like UI/MK/CL/CB/WK/etc.). This dual guard prevents
+                // misprojecting Swift value types/enums (e.g., StoreKit.Transaction,
+                // Vision.VNConfidence) that live in these same modules but are NOT ObjC classes.
+                // Uses ObjCBridgedProjection for nullable pointer ABI (nil = IntPtr.Zero).
+                if (inner is NamedTypeSpec innerUnresolved &&
+                    innerUnresolved.HasModule() &&
+                    !innerUnresolved.ContainsGenericParameters &&
+                    !IsStdlibContainer(innerUnresolved.Name) &&
+                    !IsPointerType(innerUnresolved.Name) &&
+                    IsKnownAppleModule(innerUnresolved.Module) &&
+                    HasObjCClassPrefix(innerUnresolved.Name))
+                {
+                    return new OptionalProjection(
+                        new ObjCBridgedProjection(innerUnresolved.Name), isExistentialInner);
+                }
+
                 return null;
             }
             return new OptionalProjection(innerProjection, isExistentialInner);
@@ -374,4 +393,74 @@ public class TypeProjectionFactory
         name is "Swift.OpaquePointer" or "Swift.UnsafePointer"
             or "Swift.UnsafeMutablePointer" or "Swift.UnsafeRawPointer"
             or "Swift.UnsafeMutableRawPointer" or "Builtin.RawPointer";
+
+    /// <summary>
+    /// Known Apple framework modules whose types are guaranteed to be ObjC classes.
+    /// Used by the Optional fallback to safely project unknown Optional&lt;T&gt; inner types
+    /// as ObjCBridgedProjection when T is from one of these modules.
+    /// </summary>
+    private static readonly HashSet<string> KnownAppleModules = new(StringComparer.Ordinal)
+    {
+        "CoreAnimation", "CoreBluetooth", "CoreLocation", "CoreMedia", "CoreML",
+        "CoreMotion", "MapKit", "Metal", "MetalKit", "PassKit", "PhotosUI",
+        "QuartzCore", "SceneKit", "SpriteKit", "StoreKit", "WebKit",
+        "ARKit", "RealityKit", "GameKit", "HealthKit", "HomeKit",
+        "AuthenticationServices", "LocalAuthentication", "NaturalLanguage",
+        "NetworkExtension", "UserNotifications", "Vision", "Intents",
+        "EventKit", "Contacts", "MediaPlayer", "MultipeerConnectivity",
+        "CoreNFC", "CarPlay", "ClassKit", "CloudKit", "CoreData",
+        "CoreImage", "CoreSpotlight", "CoreTelephony", "FileProvider",
+        "MessageUI", "SafariServices", "Social", "WatchConnectivity",
+    };
+
+    /// <summary>
+    /// Returns true if the given module name is a known Apple framework module
+    /// that may contain ObjC classes.
+    /// </summary>
+    internal static bool IsKnownAppleModule(string moduleName)
+        => KnownAppleModules.Contains(moduleName);
+
+    /// <summary>
+    /// Known ObjC class name prefixes used by Apple frameworks.
+    /// ObjC classes follow Cocoa naming conventions: 2-3 uppercase letter prefix
+    /// followed by a capitalized name (e.g., UIView, MKMapView, CBCentralManager).
+    /// Swift value types/enums in the same modules do NOT use these prefixes
+    /// (e.g., StoreKit.Transaction, Vision.VNConfidence is struct-like but
+    /// VNRequest is a class — the prefix check catches the class correctly).
+    /// </summary>
+    private static readonly string[] ObjCPrefixes = new[]
+    {
+        "UI", "NS", "MK", "CL", "CB", "CK", "CN", "EK", "GK", "HK", "HM",
+        "MF", "MC", "MP", "MT", "MTK", "PK", "SC", "SK", "WK", "VN",
+        "AR", "AS", "LA", "NE", "UN", "IN", "CA", "CI", "SF", "SL",
+        "NK", "CP", "FP", "RE",
+    };
+
+    /// <summary>
+    /// Returns true if the type name portion of a module-qualified name (e.g., "UIKit.UIViewController")
+    /// starts with a known ObjC class prefix followed by an uppercase letter. This identifies
+    /// ObjC classes (UIViewController, CBCentralManager) and excludes Swift value
+    /// types (Transaction, Product, Configuration) that live in the same modules.
+    /// </summary>
+    /// <param name="moduleQualifiedName">Module-qualified type name (e.g., "CoreBluetooth.CBCentralManager").</param>
+    internal static bool HasObjCClassPrefix(string moduleQualifiedName)
+    {
+        var dotIndex = moduleQualifiedName.IndexOf('.');
+        if (dotIndex < 0 || dotIndex >= moduleQualifiedName.Length - 1)
+            return false;
+
+        var typeName = moduleQualifiedName.AsSpan(dotIndex + 1);
+
+        foreach (var prefix in ObjCPrefixes)
+        {
+            if (typeName.Length > prefix.Length &&
+                typeName.StartsWith(prefix.AsSpan(), StringComparison.Ordinal) &&
+                char.IsUpper(typeName[prefix.Length]))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }

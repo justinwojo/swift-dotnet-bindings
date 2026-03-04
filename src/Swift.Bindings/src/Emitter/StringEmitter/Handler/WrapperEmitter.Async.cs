@@ -653,6 +653,16 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Detect collection returns (Array, Dictionary, Set) — these pass through OpaquePointer
+            // on the Swift side (same as complex types) but need MarshalFromSwift with the runtime
+            // container type (e.g., SwiftArray<int>), not the public type (IReadOnlyList<int>).
+            if (!voidReturn && TryGetCollectionAsyncInfo(returnType.SwiftTypeSpec, out var runtimeType, out var conversionExpr))
+            {
+                EmitAsyncWrapperForCollection(csWriter, callbackFieldName, callbackMethodName,
+                    errorCallbackFieldName, errorCallbackMethodName, runtimeType, conversionExpr);
+                return;
+            }
+
             // Detect complex type returns (classes, enums, structs) that need OpaquePointer marshalling
             // These types can't be passed directly through @convention(c) callbacks
             var returnTypeName = returnType.SwiftTypeSpec.ToString();
@@ -1035,6 +1045,101 @@ namespace BindingsGeneration
                             }
                             finally
                             {{{releaseObjCode}}
+                                // Free Swift-allocated memory
+                                SBW_Free(resultPtr);
+                                handle.Free();
+                            }
+                        }
+
+                        {{BuildErrorCallbackBlock(errorCallbackFieldName, errorCallbackMethodName, $"<{_wrapperSignature.ReturnType}>")}}
+                """;
+            csWriter.WriteLine(text);
+        }
+
+        /// <summary>
+        /// Tries to detect if the return TypeSpec is a collection type (Array, Dictionary, Set)
+        /// and extracts the runtime container type name and conversion expression needed for
+        /// async callback marshalling.
+        /// </summary>
+        /// <returns>True if the type is a collection with extractable async info.</returns>
+        private bool TryGetCollectionAsyncInfo(TypeSpec returnTypeSpec,
+            [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? runtimeType,
+            [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? conversionExpr)
+        {
+            runtimeType = null;
+            conversionExpr = null;
+
+            var ctx = new ProjectionContext
+            {
+                TypeDatabase = _env.TypeDatabase,
+                IsParameter = false,
+                IsAsync = false
+            };
+
+            var projection = s_projectionFactory.Project(returnTypeSpec, ctx);
+            if (projection is ArrayProjection ap)
+            {
+                runtimeType = ap.ContainerTypeName;
+                conversionExpr = ap.GetReturnContainerConversion("_collection")!;
+                return true;
+            }
+            if (projection is DictionaryProjection dp)
+            {
+                runtimeType = dp.ContainerTypeName;
+                conversionExpr = dp.GetReturnContainerConversion("_collection")!;
+                return true;
+            }
+            if (projection is SetProjection sp)
+            {
+                runtimeType = sp.ContainerTypeName;
+                // SetProjection returns null when no element conversion is needed
+                // (SwiftSet<T> already implements IReadOnlySet<T>). Use identity.
+                conversionExpr = sp.GetReturnContainerConversion("_collection") ?? "_collection";
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Emits async wrapper for methods returning collection types (Array, Dictionary, Set).
+        /// These use the same OpaquePointer pattern as complex types on the Swift side,
+        /// but require MarshalFromSwift with the runtime container type (e.g., SwiftArray&lt;int&gt;)
+        /// instead of the public type (e.g., IReadOnlyList&lt;int&gt;).
+        /// </summary>
+        private void EmitAsyncWrapperForCollection(CSharpWriter csWriter,
+            string callbackFieldName, string callbackMethodName,
+            string errorCallbackFieldName, string errorCallbackMethodName,
+            string runtimeType, string conversionExpr)
+        {
+            var freePInvokeDecl = GetFreePInvokeDeclIfNeeded();
+
+            var text = $$"""
+                        {{freePInvokeDecl}}private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> {{callbackFieldName}} = &{{callbackMethodName}};
+                        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+                        private static unsafe void {{callbackMethodName}}(IntPtr resultPtr, IntPtr task)
+                        {
+                            GCHandle handle = GCHandle.FromIntPtr(task);
+                            try
+                            {
+                                // Marshal collection from Swift-allocated memory using runtime container type
+                                var _collection = SwiftMarshal.MarshalFromSwift<{{runtimeType}}>(resultPtr);
+                                var result = {{conversionExpr}};
+
+                                // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
+                                if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> holderTcs)
+                                {
+                                    // Free copy buffer memory for non-frozen params and release retained self
+                {{BuildHolderCleanupCode("holder", "                    ")}}
+                                    holderTcs.TrySetResult(result);
+                                }
+                                else if (handle.Target is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> directTcs)
+                                {
+                                    directTcs.TrySetResult(result);
+                                }
+                            }
+                            finally
+                            {
                                 // Free Swift-allocated memory
                                 SBW_Free(resultPtr);
                                 handle.Free();

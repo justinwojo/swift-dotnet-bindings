@@ -391,7 +391,7 @@ namespace BindingsGeneration
                     .Where(d => !d.IsObjCOnly)
                     .Select(d => d.ModuleName)
                     .ToList();
-                var success = GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, dependencyModuleNames: depModuleNames, moduleDatabasePaths: moduleDatabases);
+                var success = GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, dependencyModuleNames: depModuleNames, moduleDatabasePaths: moduleDatabases, resolvedDependencies: resolvedDependencies);
                 if (!success)
                 {
                     context.ExitCode = 1;
@@ -595,7 +595,7 @@ namespace BindingsGeneration
             GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibraryName, swiftInterfacePath, symbolGraphPath, bridgeHintsPath, namespacePattern, logger, loggerFactory, out _, dependencyModuleNames: null, moduleDatabasePaths: null);
         }
 
-        private static bool GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory, out HashSet<string>? internalTypeNames, List<string>? dependencyModuleNames = null, string[]? moduleDatabasePaths = null)
+        private static bool GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory, out HashSet<string>? internalTypeNames, List<string>? dependencyModuleNames = null, string[]? moduleDatabasePaths = null, List<FrameworkDependencyInfo>? resolvedDependencies = null)
         {
             internalTypeNames = null;
             try
@@ -608,20 +608,21 @@ namespace BindingsGeneration
                 typeDatabase.LoadModuleDatabaseFromFile(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Swift", database)).Wait();
             }
 
+            // Peek at current module name once for self-reference checks in both
+            // --module-database and --framework-dependency loading below.
+            string? currentModuleName = null;
+            try
+            {
+                currentModuleName = PeekModuleNameFromAbiJson(swiftAbiPath);
+            }
+            catch
+            {
+                // Non-fatal: self-reference checks will be skipped
+            }
+
             // Load dependency module databases for cross-module type resolution
             if (moduleDatabasePaths != null)
             {
-                // Peek at current module name to prevent self-reference
-                string? currentModuleName = null;
-                try
-                {
-                    currentModuleName = PeekModuleNameFromAbiJson(swiftAbiPath);
-                }
-                catch
-                {
-                    // Non-fatal: self-reference check will be skipped
-                }
-
                 foreach (var dbPath in moduleDatabasePaths)
                 {
                     var dbModuleName = PeekModuleNameFromXml(dbPath);
@@ -654,6 +655,67 @@ namespace BindingsGeneration
                         return false;
                     }
                     logger.LogInformation("Loaded dependency module database: {Path} (module: {Module})", dbPath, dbModuleName);
+                }
+            }
+
+            // Load dependency type databases from framework dependency ABI JSON files.
+            // This enables cross-module type resolution: dependency types resolve to concrete
+            // projections instead of falling back to AnyType.
+            if (resolvedDependencies != null)
+            {
+                foreach (var dep in resolvedDependencies)
+                {
+                    // Skip ObjC-only deps (no Swift ABI) and deps without ABI JSON
+                    if (dep.IsObjCOnly || string.IsNullOrEmpty(dep.AbiJsonPath) || string.IsNullOrEmpty(dep.TbdPath))
+                        continue;
+
+                    // Skip self-reference
+                    if (currentModuleName != null && dep.ModuleName == currentModuleName)
+                        continue;
+
+                    // Skip if already loaded (built-in XML or --module-database)
+                    if (typeDatabase.IsModuleLoaded(dep.ModuleName))
+                    {
+                        logger.LogInformation("Dependency module '{Module}' already loaded, skipping ABI parse.", dep.ModuleName);
+                        continue;
+                    }
+
+                    try
+                    {
+                        var depDemangledTbd = Demangling.DemanglingResults.FromTbd(dep.TbdPath, loggerFactory);
+                        var depParser = new SwiftABIParser(
+                            dep.AbiJsonPath, typeDatabase, depDemangledTbd,
+                            loggerFactory.CreateLogger<SwiftABIParser>());
+                        var depModuleName = depParser.GetModuleName();
+                        var depParseResult = depParser.ParseModule();
+
+                        var depProcessor = new ModuleProcessor(
+                            depModuleName, dep.DylibPath ?? dep.AbiJsonPath, dep.DylibPath ?? dep.AbiJsonPath,
+                            depParseResult.TypeDecls, typeDatabase,
+                            loggerFactory.CreateLogger<ModuleProcessor>());
+                        var depModuleDb = depProcessor.FinalizeTypeProcessingAndCreateModuleDatabase().ModuleDatabase;
+                        typeDatabase.AddModuleDatabase(depModuleDb);
+                        logger.LogInformation("Loaded dependency types from ABI JSON: {Module}", depModuleName);
+                    }
+                    catch (Exception ex)
+                    {
+                        if (dep.IsAutoDetected)
+                        {
+                            // Auto-detected dependencies are best-effort — warn and continue
+                            logger.LogWarning(
+                                "Could not load dependency types for auto-detected module '{Module}': {Message}. " +
+                                "Dependency types will resolve to AnyType.",
+                                dep.ModuleName, ex.InnerException?.Message ?? ex.Message);
+                        }
+                        else
+                        {
+                            // Explicit --framework-dependency — fail hard (matches existing fail-fast behavior)
+                            logger.LogError(
+                                "SWIFTBIND073: Failed to parse dependency ABI for '{Module}': {Message}",
+                                dep.ModuleName, ex.InnerException?.Message ?? ex.Message);
+                            return false;
+                        }
+                    }
                 }
             }
 
@@ -1045,6 +1107,8 @@ namespace BindingsGeneration
                 string? deviceSearchPath = null;
                 string moduleName;
                 string depDylibPath;
+                string? depAbiJsonPath;
+                string? depTbdPath;
 
                 try
                 {
@@ -1053,6 +1117,8 @@ namespace BindingsGeneration
                         primaryPlatformTarget, logger, commandRunner);
                     moduleName = primaryDepResolution.ModuleName;
                     depDylibPath = primaryDepResolution.DylibPath;
+                    depAbiJsonPath = primaryDepResolution.AbiJsonPath;
+                    depTbdPath = primaryDepResolution.TbdPath;
 
                     if (primaryDepResolution.IsSimulatorSlice)
                         simSearchPath = primaryDepResolution.FrameworkSearchPath;
@@ -1292,7 +1358,9 @@ namespace BindingsGeneration
                     PackageVersion = packageVersion,
                     SimulatorFrameworkSearchPath = simSearchPath,
                     DeviceFrameworkSearchPath = deviceSearchPath,
-                    DylibPath = depDylibPath
+                    DylibPath = depDylibPath,
+                    AbiJsonPath = depAbiJsonPath,
+                    TbdPath = depTbdPath
                 });
             }
 

@@ -55,6 +55,29 @@ namespace BindingsGeneration
         public string? DylibPath { get; init; }
 
         /// <summary>
+        /// Path to the dependency's ABI JSON file.
+        /// Used by GenerateBindings to parse dependency types into the type database,
+        /// enabling cross-module type resolution (dependency types resolve instead of AnyType).
+        /// Null for ObjC-only dependencies.
+        /// </summary>
+        public string? AbiJsonPath { get; init; }
+
+        /// <summary>
+        /// Path to the dependency's TBD file.
+        /// Used alongside AbiJsonPath for demangling during dependency type database loading.
+        /// Null for ObjC-only dependencies.
+        /// </summary>
+        public string? TbdPath { get; init; }
+
+        /// <summary>
+        /// True when this dependency was auto-detected by BinaryDependencyAnalyzer (otool -L),
+        /// false when explicitly provided via --framework-dependency.
+        /// Auto-detected dependencies use warn-only error handling during ABI parsing;
+        /// explicit dependencies fail hard.
+        /// </summary>
+        public bool IsAutoDetected { get; init; }
+
+        /// <summary>
         /// Effective package ID: explicit override or convention.
         /// </summary>
         public string EffectivePackageId => PackageId ?? $"{ModuleName}.Swift.iOS";

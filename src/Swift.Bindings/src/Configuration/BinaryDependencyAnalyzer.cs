@@ -381,7 +381,10 @@ namespace BindingsGeneration
                         PackageVersion = packageVersion,
                         SimulatorFrameworkSearchPath = simSearchPath,
                         DeviceFrameworkSearchPath = deviceSearchPath,
-                        DylibPath = depResolution.DylibPath
+                        DylibPath = depResolution.DylibPath,
+                        AbiJsonPath = depResolution.AbiJsonPath,
+                        TbdPath = depResolution.TbdPath,
+                        IsAutoDetected = true
                     });
                 }
                 catch (SwiftModuleNotFoundException)
