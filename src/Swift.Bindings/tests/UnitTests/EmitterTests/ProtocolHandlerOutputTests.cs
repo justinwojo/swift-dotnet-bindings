@@ -2889,6 +2889,11 @@ public class ProtocolHandlerOutputTests
 
     private static (string csOutput, string swiftOutput) EmitProtocol(ProtocolDecl protocolDecl, TypeDatabase typeDatabase)
     {
+        return EmitProtocol(protocolDecl, typeDatabase, TypeHandlerContext.Empty);
+    }
+
+    private static (string csOutput, string swiftOutput) EmitProtocol(ProtocolDecl protocolDecl, TypeDatabase typeDatabase, TypeHandlerContext context)
+    {
         var csOutput = new StringWriter();
         var swiftOutput = new StringWriter();
         var csWriter = new CSharpWriter(csOutput);
@@ -2897,8 +2902,530 @@ public class ProtocolHandlerOutputTests
         var handler = new ProtocolHandler(new NullLogger<ProtocolHandler>());
         var env = handler.Marshal(protocolDecl, typeDatabase);
         var conductor = new Conductor(new NullLoggerFactory());
-        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
+        handler.Emit(csWriter, swiftWriter, env, conductor, context);
 
         return (csOutput.ToString(), swiftOutput.ToString());
     }
+
+    #region Extension Default DIM Emission
+
+    [Fact]
+    public void Emit_MethodWithDirectExtensionDefault_EmitsAsDIM()
+    {
+        // Protocol with a method that has a direct extension default → DIM with throw body
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Configurable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Configurable"),
+            MangledName = "$s10TestModule12ConfigurableP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                CreateMethodDecl("configure", moduleDecl)
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        // Extension on Configurable provides configure() default
+        var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["TestModule.Configurable"] = new()
+            {
+                new ProtocolExtensionMethodDecl
+                {
+                    ProtocolQualifiedName = "TestModule.Configurable",
+                    MethodName = "configure",
+                    PrintedName = "configure()",
+                    RawSignature = "func configure()",
+                    ReturnsSelf = false,
+                    IsMainActorIsolated = false,
+                    IsStatic = false,
+                    IsProperty = false,
+                    HasSetter = false,
+                    IsDeprecated = false,
+                    IsMutating = false,
+                    WhereConstraints = new List<string>()
+                }
+            }
+        };
+        var index = new ProtocolExtensionDefaultsIndex(extensionMethods, new List<ProtocolDecl>());
+        var emissionContext = new ModuleEmissionContext();
+        emissionContext.ExtensionDefaultsIndex = index;
+        var context = TypeHandlerContext.Empty with { EmissionContext = emissionContext };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase, context);
+
+        // Should emit as DIM with throw body, NOT as abstract interface member
+        Assert.Contains("=> throw new global::System.NotSupportedException(", csOutput);
+        Assert.DoesNotContain("void Configure();", csOutput);
+    }
+
+    [Fact]
+    public void Emit_MethodWithoutExtensionDefault_EmitsAsAbstract()
+    {
+        // Protocol with a method that has NO extension default → normal abstract interface member
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Worker",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Worker"),
+            MangledName = "$s10TestModule6WorkerP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                CreateMethodDecl("doWork", moduleDecl)
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        // Empty extension index — no defaults
+        var index = new ProtocolExtensionDefaultsIndex(
+            new Dictionary<string, List<ProtocolExtensionMethodDecl>>(), new List<ProtocolDecl>());
+        var emissionContext = new ModuleEmissionContext();
+        emissionContext.ExtensionDefaultsIndex = index;
+        var context = TypeHandlerContext.Empty with { EmissionContext = emissionContext };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase, context);
+
+        // Should emit as abstract interface member with semicolon
+        Assert.Contains("void DoWork();", csOutput);
+        // The interface method should NOT have the extension default throw pattern
+        Assert.DoesNotContain("This method uses a Swift protocol extension default", csOutput);
+    }
+
+    [Fact]
+    public void Emit_MethodWithSubProtocolDefault_DoesNotEmitDIM()
+    {
+        // Parent protocol's method has a default only on a sub-protocol →
+        // parent interface should NOT get a DIM (only direct defaults become DIMs).
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        // Parent protocol: AnyWorker requires process()
+        var parentProtocol = new ProtocolDecl
+        {
+            Name = "AnyWorker",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.AnyWorker"),
+            MangledName = "$s10TestModule9AnyWorkerP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                CreateMethodDecl("process", moduleDecl)
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        // Sub-protocol Worker inherits AnyWorker
+        var childProtocol = new ProtocolDecl
+        {
+            Name = "Worker",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Worker"),
+            MangledName = "$s10TestModule6WorkerP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec> { new NamedTypeSpec("TestModule.AnyWorker") },
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        // Extension on Worker (sub-protocol) provides process() default
+        var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["TestModule.Worker"] = new()
+            {
+                new ProtocolExtensionMethodDecl
+                {
+                    ProtocolQualifiedName = "TestModule.Worker",
+                    MethodName = "process",
+                    PrintedName = "process()",
+                    RawSignature = "func process()",
+                    ReturnsSelf = false,
+                    IsMainActorIsolated = false,
+                    IsStatic = false,
+                    IsProperty = false,
+                    HasSetter = false,
+                    IsDeprecated = false,
+                    IsMutating = false,
+                    WhereConstraints = new List<string>()
+                }
+            }
+        };
+        var index = new ProtocolExtensionDefaultsIndex(extensionMethods,
+            new List<ProtocolDecl> { parentProtocol, childProtocol });
+        var emissionContext = new ModuleEmissionContext();
+        emissionContext.ExtensionDefaultsIndex = index;
+        var context = TypeHandlerContext.Empty with { EmissionContext = emissionContext };
+
+        // Emit the PARENT protocol (AnyWorker) — it should NOT get a DIM
+        var (csOutput, _) = EmitProtocol(parentProtocol, typeDatabase, context);
+
+        // Parent's process() should remain abstract (semicolon), not a DIM
+        Assert.Contains("void Process();", csOutput);
+        // The interface method should NOT have the extension default throw pattern
+        Assert.DoesNotContain("This method uses a Swift protocol extension default", csOutput);
+    }
+
+    [Fact]
+    public void Emit_PropertyWithDirectExtensionDefault_EmitsAsDIM()
+    {
+        // Protocol with a property that has a direct extension default → DIM with throw body
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Themed",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Themed"),
+            MangledName = "$s10TestModule6ThemedP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>
+            {
+                new()
+                {
+                    Name = "defaultColor",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    IsStatic = false,
+                    HasStorage = false,
+                    Accessors = new List<AccessorDecl>
+                    {
+                        new GetAccessorDecl
+                        {
+                            Method = new MethodDecl
+                            {
+                                Name = "defaultColor_Get",
+                                MangledName = "$sGet",
+                                MethodType = MethodType.Instance,
+                                IsConstructor = false,
+                                CSSignature = new List<ArgumentDecl>
+                                {
+                                    CreateArgument(string.Empty, new NamedTypeSpec("Swift.Int"), moduleDecl)
+                                },
+                                GenericParameters = new List<GenericArgumentDecl>(),
+                                ParentDecl = null,
+                                ModuleDecl = moduleDecl,
+                                Throws = false,
+                                IsAsync = false,
+                                Visibility = Visibility.Public
+                            }
+                        }
+                    },
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        // Extension on Themed provides defaultColor default
+        var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["TestModule.Themed"] = new()
+            {
+                new ProtocolExtensionMethodDecl
+                {
+                    ProtocolQualifiedName = "TestModule.Themed",
+                    MethodName = "defaultColor",
+                    PrintedName = "defaultColor",
+                    RawSignature = "var defaultColor: Int { get }",
+                    ReturnsSelf = false,
+                    IsMainActorIsolated = false,
+                    IsStatic = false,
+                    IsProperty = true,
+                    HasSetter = false,
+                    IsDeprecated = false,
+                    IsMutating = false,
+                    WhereConstraints = new List<string>()
+                }
+            }
+        };
+        var index = new ProtocolExtensionDefaultsIndex(extensionMethods, new List<ProtocolDecl>());
+        var emissionContext = new ModuleEmissionContext();
+        emissionContext.ExtensionDefaultsIndex = index;
+        var context = TypeHandlerContext.Empty with { EmissionContext = emissionContext };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase, context);
+
+        // Should emit property with DIM throw body, NOT abstract { get; }
+        Assert.Contains("=> throw new global::System.NotSupportedException(", csOutput);
+        Assert.DoesNotContain("{ get; }", csOutput);
+    }
+
+    [Fact]
+    public void Emit_GetSetPropertyWithGetterOnlyDefault_DoesNotEmitDIM()
+    {
+        // Protocol requires { get set } but extension default is getter-only → should stay abstract
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Configurable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Configurable"),
+            MangledName = "$s10TestModule12ConfigurableP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>
+            {
+                new()
+                {
+                    Name = "setting",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    IsStatic = false,
+                    HasStorage = false,
+                    Accessors = new List<AccessorDecl>
+                    {
+                        new GetAccessorDecl
+                        {
+                            Method = new MethodDecl
+                            {
+                                Name = "setting_Get",
+                                MangledName = "$sGet",
+                                MethodType = MethodType.Instance,
+                                IsConstructor = false,
+                                CSSignature = new List<ArgumentDecl>
+                                {
+                                    CreateArgument(string.Empty, new NamedTypeSpec("Swift.Int"), moduleDecl)
+                                },
+                                GenericParameters = new List<GenericArgumentDecl>(),
+                                ParentDecl = null,
+                                ModuleDecl = moduleDecl,
+                                Throws = false,
+                                IsAsync = false,
+                                Visibility = Visibility.Public
+                            }
+                        },
+                        new SetAccessorDecl
+                        {
+                            Method = new MethodDecl
+                            {
+                                Name = "setting_Set",
+                                MangledName = "$sSet",
+                                MethodType = MethodType.Instance,
+                                IsConstructor = false,
+                                CSSignature = new List<ArgumentDecl>
+                                {
+                                    CreateArgument("newValue", new NamedTypeSpec("Swift.Int"), moduleDecl)
+                                },
+                                GenericParameters = new List<GenericArgumentDecl>(),
+                                ParentDecl = null,
+                                ModuleDecl = moduleDecl,
+                                Throws = false,
+                                IsAsync = false,
+                                Visibility = Visibility.Public
+                            }
+                        }
+                    },
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        // Extension on Configurable provides getter-only default for "setting"
+        var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["TestModule.Configurable"] = new()
+            {
+                new ProtocolExtensionMethodDecl
+                {
+                    ProtocolQualifiedName = "TestModule.Configurable",
+                    MethodName = "setting",
+                    PrintedName = "setting",
+                    RawSignature = "var setting: Int { get }",
+                    ReturnsSelf = false,
+                    IsMainActorIsolated = false,
+                    IsStatic = false,
+                    IsProperty = true,
+                    HasSetter = false, // getter-only default
+                    IsDeprecated = false,
+                    IsMutating = false,
+                    WhereConstraints = new List<string>()
+                }
+            }
+        };
+        var index = new ProtocolExtensionDefaultsIndex(extensionMethods, new List<ProtocolDecl>());
+        var emissionContext = new ModuleEmissionContext();
+        emissionContext.ExtensionDefaultsIndex = index;
+        var context = TypeHandlerContext.Empty with { EmissionContext = emissionContext };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase, context);
+
+        // { get set } requirement with getter-only default should stay abstract, NOT become DIM
+        Assert.Contains("{ get; set; }", csOutput);
+        Assert.DoesNotContain("This property uses a Swift protocol extension default", csOutput);
+    }
+
+    [Fact]
+    public void Emit_GetSetPropertyWithGetSetDefault_EmitsAsDIM()
+    {
+        // Protocol requires { get set } and extension default provides { get set } → should DIM
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Configurable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Configurable"),
+            MangledName = "$s10TestModule12ConfigurableP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>
+            {
+                new()
+                {
+                    Name = "setting",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    IsStatic = false,
+                    HasStorage = false,
+                    Accessors = new List<AccessorDecl>
+                    {
+                        new GetAccessorDecl
+                        {
+                            Method = new MethodDecl
+                            {
+                                Name = "setting_Get",
+                                MangledName = "$sGet",
+                                MethodType = MethodType.Instance,
+                                IsConstructor = false,
+                                CSSignature = new List<ArgumentDecl>
+                                {
+                                    CreateArgument(string.Empty, new NamedTypeSpec("Swift.Int"), moduleDecl)
+                                },
+                                GenericParameters = new List<GenericArgumentDecl>(),
+                                ParentDecl = null,
+                                ModuleDecl = moduleDecl,
+                                Throws = false,
+                                IsAsync = false,
+                                Visibility = Visibility.Public
+                            }
+                        },
+                        new SetAccessorDecl
+                        {
+                            Method = new MethodDecl
+                            {
+                                Name = "setting_Set",
+                                MangledName = "$sSet",
+                                MethodType = MethodType.Instance,
+                                IsConstructor = false,
+                                CSSignature = new List<ArgumentDecl>
+                                {
+                                    CreateArgument("newValue", new NamedTypeSpec("Swift.Int"), moduleDecl)
+                                },
+                                GenericParameters = new List<GenericArgumentDecl>(),
+                                ParentDecl = null,
+                                ModuleDecl = moduleDecl,
+                                Throws = false,
+                                IsAsync = false,
+                                Visibility = Visibility.Public
+                            }
+                        }
+                    },
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        // Extension on Configurable provides { get set } default for "setting"
+        var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["TestModule.Configurable"] = new()
+            {
+                new ProtocolExtensionMethodDecl
+                {
+                    ProtocolQualifiedName = "TestModule.Configurable",
+                    MethodName = "setting",
+                    PrintedName = "setting",
+                    RawSignature = "var setting: Int { get set }",
+                    ReturnsSelf = false,
+                    IsMainActorIsolated = false,
+                    IsStatic = false,
+                    IsProperty = true,
+                    HasSetter = true, // { get set } default
+                    IsDeprecated = false,
+                    IsMutating = false,
+                    WhereConstraints = new List<string>()
+                }
+            }
+        };
+        var index = new ProtocolExtensionDefaultsIndex(extensionMethods, new List<ProtocolDecl>());
+        var emissionContext = new ModuleEmissionContext();
+        emissionContext.ExtensionDefaultsIndex = index;
+        var context = TypeHandlerContext.Empty with { EmissionContext = emissionContext };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase, context);
+
+        // { get set } requirement with { get set } default → should DIM with both accessors throwing
+        Assert.Contains("get => throw new global::System.NotSupportedException(", csOutput);
+        Assert.Contains("set => throw new global::System.NotSupportedException(", csOutput);
+        Assert.DoesNotContain("{ get; set; }", csOutput);
+    }
+
+    #endregion
 }

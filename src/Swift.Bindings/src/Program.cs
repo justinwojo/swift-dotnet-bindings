@@ -776,6 +776,11 @@ namespace BindingsGeneration
                     var extensionMethods = SwiftInterfaceAccessParser.GetProtocolExtensionMethods(swiftInterfacePath!, protocolNames);
                     if (extensionMethods.Count > 0)
                     {
+                        // Build extension defaults index BEFORE injection — used by validator to allow
+                        // conformance when types rely on protocol extension default implementations.
+                        var extensionDefaultsIndex = new ProtocolExtensionDefaultsIndex(extensionMethods, decl.Protocols);
+                        emissionContext.ExtensionDefaultsIndex = extensionDefaultsIndex;
+
                         ProtocolExtensionEmitter.InjectExtensionMethods(decl, extensionMethods, typeDatabase, logger, emissionContext);
                     }
                 }

@@ -47,6 +47,9 @@ namespace BindingsGeneration
     /// </summary>
     public class ProtocolHandler : BaseHandler, ITypeHandler
     {
+        private const string ExtensionDefaultPropertyMessage = "This property uses a Swift protocol extension default. Access it on the concrete type instead.";
+        private const string ExtensionDefaultMethodMessage = "This method uses a Swift protocol extension default. Call it on the concrete type instead.";
+
         private SortedDictionary<string, List<string>>? _compositionCollector;
 
         /// <summary>
@@ -100,6 +103,11 @@ namespace BindingsGeneration
             var emittedSubscripts = new HashSet<string>();
             var closureHandler = new ClosureHandler(env.TypeDatabase);
 
+            // Pre-compute extension default lookup values (loop-invariant)
+            var extensionDefaultsIndex = context.GetEmissionContext()?.ExtensionDefaultsIndex;
+            var protoQualifiedName = protocolDecl.SwiftTypeName?.ModuleQualifiedName
+                                   ?? $"{protocolDecl.ModuleDecl?.Name ?? "Unknown"}.{protocolDecl.Name}";
+
             // Emit properties as interface members
             var skippedPropertyNames = new HashSet<string>();
             var closureSkippedPropertyNames = new HashSet<string>(); // Closure properties: in interface, proxy needs stub
@@ -144,7 +152,17 @@ namespace BindingsGeneration
                     // Fall through to emit in interface — concrete types can implement it
                 }
 
-                EmitInterfaceProperty(bodyWriter, propertyDecl, env.TypeDatabase, closureHandler, protocolDecl);
+                // Check if this property has a direct extension default on this protocol
+                // Setter-aware: a getter-only default does NOT DIM-relax a { get set } requirement
+                bool isPropertyExtDefault = false;
+                if (extensionDefaultsIndex != null)
+                {
+                    var protoHasSetter = propertyDecl.Accessors.OfType<SetAccessorDecl>().Any();
+                    isPropertyExtDefault = extensionDefaultsIndex.HasDirectPropertyDefault(
+                        protoQualifiedName, propertyDecl.Name, requiresSetter: protoHasSetter);
+                }
+
+                EmitInterfaceProperty(bodyWriter, propertyDecl, env.TypeDatabase, closureHandler, protocolDecl, isPropertyExtDefault);
                 emittedInterfaceMemberCount++;
                 ReportCollector.RecordMemberEmitted(BindingItemKind.Property, propertyDecl.Name, protocolDecl);
             }
@@ -280,13 +298,27 @@ namespace BindingsGeneration
                     }
                 }
 
-                EmitInterfaceMethod(bodyWriter, methodDecl, env.TypeDatabase, closureHandler, protocolDecl, emittedCSharpPropertyNames);
+                // Check if this method has a DIRECT extension default on this protocol.
+                // Only direct defaults become DIMs — sub-protocol defaults only affect
+                // conformance validation (not interface shape). A sub-protocol default
+                // should not turn a parent's requirement into a throwing DIM for all implementers.
+                bool isExtensionDefault = false;
+                if (extensionDefaultsIndex != null)
+                {
+                    var extMethodKey = ProtocolExtensionEmitter.BuildMethodKey(methodDecl);
+                    isExtensionDefault = extensionDefaultsIndex.HasDirectMethodDefault(
+                        protoQualifiedName, extMethodKey);
+                }
+
+                EmitInterfaceMethod(bodyWriter, methodDecl, env.TypeDatabase, closureHandler, protocolDecl, emittedCSharpPropertyNames, isExtensionDefault);
                 emittedInterfaceMemberCount++;
                 ReportCollector.RecordMemberEmitted(BindingItemKind.Method, methodDecl.Name, protocolDecl);
 
                 // F1: Emit DIM (Default Interface Method) overload with narrowed nint→int params.
                 // Proxy classes inherit DIMs automatically — no changes needed in ProtocolProxyEmitter.
-                TryEmitInterfaceMethodNintOverload(bodyWriter, methodDecl, env.TypeDatabase, protocolDecl, emittedCSharpKeys, emittedCSharpPropertyNames);
+                // Skip nint DIM overload for extension-defaulted methods (a DIM that throws shouldn't also get a convenience overload).
+                if (!isExtensionDefault)
+                    TryEmitInterfaceMethodNintOverload(bodyWriter, methodDecl, env.TypeDatabase, protocolDecl, emittedCSharpKeys, emittedCSharpPropertyNames);
             }
 
             // Record operators as skipped - C# interfaces cannot have operator overloads
@@ -327,9 +359,9 @@ namespace BindingsGeneration
             // Inherited requirements are added in a post-emission fixup pass
             // (FixupProtocolInheritedRequirements) to avoid order-dependent miscounting
             // when a child protocol is emitted before its parent in the same module.
-            if (env.TypeDatabase.TryGetTypeRecord(protocolDecl.SwiftTypeName, out var protoRecord))
+            if (env.TypeDatabase.TryGetTypeRecord(protocolDecl.SwiftTypeName!, out var protoRecord))
             {
-                env.TypeDatabase.UpdateTypeRecord(protocolDecl.SwiftTypeName,
+                env.TypeDatabase.UpdateTypeRecord(protocolDecl.SwiftTypeName!,
                     protoRecord with { EmittedMemberCount = emittedInterfaceMemberCount });
             }
 
@@ -411,7 +443,7 @@ namespace BindingsGeneration
         /// <summary>
         /// Emits a property declaration for an interface.
         /// </summary>
-        private void EmitInterfaceProperty(CSharpWriter csWriter, PropertyDecl propertyDecl, ITypeDatabase typeDatabase, ClosureHandler closureHandler, ProtocolDecl? protocolContext = null)
+        private void EmitInterfaceProperty(CSharpWriter csWriter, PropertyDecl propertyDecl, ITypeDatabase typeDatabase, ClosureHandler closureHandler, ProtocolDecl? protocolContext = null, bool isExtensionDefault = false)
         {
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
 
@@ -453,7 +485,42 @@ namespace BindingsGeneration
             }
 
             XmlDocCommentEmitter.EmitDocComment(csWriter, propertyDecl);
-            csWriter.WriteLine($"{csharpTypeName} {propertyName} {accessors}");
+            if (isExtensionDefault)
+            {
+                // Emit as DIM (Default Interface Method) with NotSupportedException body.
+                // Matches method DIM pattern — types with direct implementation override the DIM.
+                if (hasGetter && hasSetter)
+                {
+                    csWriter.WriteLine($"{csharpTypeName} {propertyName}");
+                    csWriter.WriteLine("{");
+                    csWriter.Indent++;
+                    csWriter.WriteLine($"get => throw new global::System.NotSupportedException(\"{ExtensionDefaultPropertyMessage}\");");
+                    csWriter.WriteLine($"set => throw new global::System.NotSupportedException(\"{ExtensionDefaultPropertyMessage}\");");
+                    csWriter.Indent--;
+                    csWriter.WriteLine("}");
+                }
+                else if (hasGetter)
+                {
+                    csWriter.WriteLine($"{csharpTypeName} {propertyName}");
+                    csWriter.Indent++;
+                    csWriter.WriteLine($"=> throw new global::System.NotSupportedException(\"{ExtensionDefaultPropertyMessage}\");");
+                    csWriter.Indent--;
+                }
+                else
+                {
+                    // set-only or no accessors: emit with throw body
+                    csWriter.WriteLine($"{csharpTypeName} {propertyName}");
+                    csWriter.WriteLine("{");
+                    csWriter.Indent++;
+                    csWriter.WriteLine($"set => throw new global::System.NotSupportedException(\"{ExtensionDefaultPropertyMessage}\");");
+                    csWriter.Indent--;
+                    csWriter.WriteLine("}");
+                }
+            }
+            else
+            {
+                csWriter.WriteLine($"{csharpTypeName} {propertyName} {accessors}");
+            }
         }
 
         /// <summary>
@@ -524,7 +591,7 @@ namespace BindingsGeneration
         /// <summary>
         /// Emits a method declaration for an interface.
         /// </summary>
-        private void EmitInterfaceMethod(CSharpWriter csWriter, MethodDecl methodDecl, ITypeDatabase typeDatabase, ClosureHandler closureHandler, ProtocolDecl? protocolContext = null, IReadOnlySet<string>? propertyNames = null)
+        private void EmitInterfaceMethod(CSharpWriter csWriter, MethodDecl methodDecl, ITypeDatabase typeDatabase, ClosureHandler closureHandler, ProtocolDecl? protocolContext = null, IReadOnlySet<string>? propertyNames = null, bool isExtensionDefault = false)
         {
             // Note: Constructor, static, duplicate, and AnyType generic arg checks
             // are handled at the loop level in Emit(). This method is only called
@@ -612,7 +679,20 @@ namespace BindingsGeneration
                 propertyNames: propertyNames, isSelfReturning: isSelfReturning,
                 parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
             XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl);
-            csWriter.WriteLine($"{returnType} {methodName}({string.Join(", ", parameters)});");
+            if (isExtensionDefault)
+            {
+                // Emit as DIM (Default Interface Method) with NotSupportedException body.
+                // Types that implement directly → their implementation overrides the DIM.
+                // Types relying on the default → inherit the DIM; generic constraints compile.
+                csWriter.WriteLine($"{returnType} {methodName}({string.Join(", ", parameters)})");
+                csWriter.Indent++;
+                csWriter.WriteLine($"=> throw new global::System.NotSupportedException(\"{ExtensionDefaultMethodMessage}\");");
+                csWriter.Indent--;
+            }
+            else
+            {
+                csWriter.WriteLine($"{returnType} {methodName}({string.Join(", ", parameters)});");
+            }
         }
 
         /// <summary>

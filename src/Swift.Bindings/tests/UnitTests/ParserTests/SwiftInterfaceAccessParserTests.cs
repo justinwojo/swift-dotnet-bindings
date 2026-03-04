@@ -500,6 +500,146 @@ public class SwiftInterfaceAccessParserTests
         finally { File.Delete(path); }
     }
 
+    #region GetProtocolExtensionMethods — property setter detection
+
+    [Fact]
+    public void GetProtocolExtensionMethods_InlineGetSet_DetectsSetter()
+    {
+        var swiftInterface = """
+            public protocol Configurable {
+              var setting: Swift.Int { get set }
+            }
+            extension TestModule.Configurable {
+              public var setting: Swift.Int { get set }
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetProtocolExtensionMethods(
+                path, new HashSet<string> { "Configurable" });
+            Assert.True(result.ContainsKey("TestModule.Configurable"));
+            var prop = Assert.Single(result["TestModule.Configurable"]);
+            Assert.True(prop.IsProperty);
+            Assert.True(prop.HasSetter);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetProtocolExtensionMethods_InlineGetOnly_NoSetter()
+    {
+        var swiftInterface = """
+            public protocol Readable {
+              var value: Swift.Int { get }
+            }
+            extension TestModule.Readable {
+              public var value: Swift.Int { get }
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetProtocolExtensionMethods(
+                path, new HashSet<string> { "Readable" });
+            Assert.True(result.ContainsKey("TestModule.Readable"));
+            var prop = Assert.Single(result["TestModule.Readable"]);
+            Assert.True(prop.IsProperty);
+            Assert.False(prop.HasSetter);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetProtocolExtensionMethods_MultilineSetOnSeparateLine_DetectsSetter()
+    {
+        // Multiline property with "set" on its own line — exercises scope-based detection
+        var swiftInterface = """
+            public protocol Writable {
+              var data: Swift.String { get set }
+            }
+            extension TestModule.Writable {
+              public var data: Swift.String {
+                get
+                set
+              }
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetProtocolExtensionMethods(
+                path, new HashSet<string> { "Writable" });
+            Assert.True(result.ContainsKey("TestModule.Writable"));
+            var prop = Assert.Single(result["TestModule.Writable"]);
+            Assert.True(prop.IsProperty);
+            Assert.True(prop.HasSetter);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetProtocolExtensionMethods_MultilineNonmutatingSetter_DetectsSetter()
+    {
+        // "nonmutating set" on its own line — exercises scope-based detection
+        var swiftInterface = """
+            public protocol Settings {
+              var theme: Swift.Int { get set }
+            }
+            extension TestModule.Settings {
+              public var theme: Swift.Int {
+                get
+                nonmutating set
+              }
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetProtocolExtensionMethods(
+                path, new HashSet<string> { "Settings" });
+            Assert.True(result.ContainsKey("TestModule.Settings"));
+            var prop = Assert.Single(result["TestModule.Settings"]);
+            Assert.True(prop.IsProperty);
+            Assert.True(prop.HasSetter);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetProtocolExtensionMethods_MultilineGetOnly_NoSetter()
+    {
+        // Multiline property with only "get" — should NOT have setter
+        var swiftInterface = """
+            public protocol Info {
+              var name: Swift.String { get }
+            }
+            extension TestModule.Info {
+              public var name: Swift.String {
+                get
+              }
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetProtocolExtensionMethods(
+                path, new HashSet<string> { "Info" });
+            Assert.True(result.ContainsKey("TestModule.Info"));
+            var prop = Assert.Single(result["TestModule.Info"]);
+            Assert.True(prop.IsProperty);
+            Assert.False(prop.HasSetter);
+        }
+        finally { File.Delete(path); }
+    }
+
+    #endregion
+
     private static string WriteTempFile(string content)
     {
         var path = Path.GetTempFileName();

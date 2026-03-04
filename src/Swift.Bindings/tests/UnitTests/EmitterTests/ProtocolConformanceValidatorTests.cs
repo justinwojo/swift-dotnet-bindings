@@ -1821,4 +1821,187 @@ public class ProtocolConformanceValidatorTests
     }
 
     #endregion
+
+    #region Extension Default Awareness
+
+    [Fact]
+    public void CanFullyImplementProtocol_MethodHasExtensionDefault_ReturnsTrue()
+    {
+        // Protocol requires _interpolate(to:amount:spatialOutTangent:spatialInTangent:)
+        // Concrete type doesn't implement it, but an extension on a sub-protocol provides the default.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        // AnyInterpolatable protocol requires a 4-param _interpolate
+        var parentProtocol = new ProtocolDecl
+        {
+            Name = "AnyInterpolatable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.AnyInterpolatable"),
+            MangledName = "$s10TestModule17AnyInterpolatableP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                new()
+                {
+                    Name = "_interpolate",
+                    MangledName = "$s10TestModule17AnyInterpolatablePAAE12_interpolateyyF",
+                    MethodType = MethodType.Instance,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl),
+                        CreateArgument("to", new NamedTypeSpec("Swift.Int"), moduleDecl),
+                        CreateArgument("amount", new NamedTypeSpec("Swift.Int"), moduleDecl),
+                        CreateArgument("spatialOutTangent", new NamedTypeSpec("Swift.Int"), moduleDecl),
+                        CreateArgument("spatialInTangent", new NamedTypeSpec("Swift.Int"), moduleDecl)
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl,
+                    Throws = false,
+                    IsAsync = false,
+                    Visibility = Visibility.Public
+                }
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(parentProtocol);
+
+        // Interpolatable inherits AnyInterpolatable
+        var childProtocol = new ProtocolDecl
+        {
+            Name = "Interpolatable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Interpolatable"),
+            MangledName = "$s10TestModule14InterpolatableP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec> { new NamedTypeSpec("TestModule.AnyInterpolatable") },
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(childProtocol);
+
+        // Extension on Interpolatable provides _interpolate default
+        var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["TestModule.Interpolatable"] = new()
+            {
+                new ProtocolExtensionMethodDecl
+                {
+                    ProtocolQualifiedName = "TestModule.Interpolatable",
+                    MethodName = "_interpolate",
+                    PrintedName = "_interpolate(to:amount:spatialOutTangent:spatialInTangent:)",
+                    RawSignature = "func _interpolate(to: Self, amount: CGFloat, spatialOutTangent: CGPoint?, spatialInTangent: CGPoint?) -> Self",
+                    ReturnsSelf = true,
+                    IsMainActorIsolated = false,
+                    IsStatic = false,
+                    IsProperty = false,
+                    HasSetter = false,
+                    IsDeprecated = false,
+                    IsMutating = false,
+                    WhereConstraints = new List<string>()
+                }
+            }
+        };
+        var extensionDefaultsIndex = new ProtocolExtensionDefaultsIndex(extensionMethods, moduleDecl.Protocols);
+
+        // Concrete type that conforms to both protocols but only has interpolate (2-param), not _interpolate (4-param)
+        var concreteType = CreateStructDecl("LottieVector3D", moduleDecl);
+        concreteType.Conformances = new List<TypeConformance>
+        {
+            new(SwiftTypeName.FromModuleQualifiedName("TestModule.LottieVector3D"),
+                SwiftTypeName.FromModuleQualifiedName("TestModule.AnyInterpolatable"), ""),
+            new(SwiftTypeName.FromModuleQualifiedName("TestModule.LottieVector3D"),
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Interpolatable"), "")
+        };
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase, extensionDefaultsIndex);
+        var result = validator.CanFullyImplementProtocol(concreteType, parentProtocol);
+
+        // Should succeed: extension default on Interpolatable satisfies AnyInterpolatable._interpolate
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void CanFullyImplementProtocol_MethodHasNoDefault_ReturnsFalse()
+    {
+        // Same setup but NO extension default → should fail
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = CreateProtocolWithVoidMethod("AnyInterpolatable", "_interpolate", moduleDecl);
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        var concreteType = CreateStructDecl("LottieVector3D", moduleDecl);
+
+        // No extension defaults index
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var result = validator.CanFullyImplementProtocol(concreteType, protocolDecl);
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void CanFullyImplementProtocol_SubProtocolDefault_SatisfiesParent()
+    {
+        // Direct extension default on the parent protocol itself
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = CreateProtocolWithVoidMethod("Configurable", "configure", moduleDecl);
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["TestModule.Configurable"] = new()
+            {
+                new ProtocolExtensionMethodDecl
+                {
+                    ProtocolQualifiedName = "TestModule.Configurable",
+                    MethodName = "configure",
+                    PrintedName = "configure()",
+                    RawSignature = "func configure()",
+                    ReturnsSelf = false,
+                    IsMainActorIsolated = false,
+                    IsStatic = false,
+                    IsProperty = false,
+                    HasSetter = false,
+                    IsDeprecated = false,
+                    IsMutating = false,
+                    WhereConstraints = new List<string>()
+                }
+            }
+        };
+        var extensionDefaultsIndex = new ProtocolExtensionDefaultsIndex(extensionMethods, moduleDecl.Protocols);
+
+        var concreteType = CreateStructDecl("MyConfig", moduleDecl);
+        concreteType.Conformances = new List<TypeConformance>
+        {
+            new(SwiftTypeName.FromModuleQualifiedName("TestModule.MyConfig"),
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Configurable"), "")
+        };
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase, extensionDefaultsIndex);
+        var result = validator.CanFullyImplementProtocol(concreteType, protocolDecl);
+
+        Assert.True(result);
+    }
+
+    #endregion
 }

@@ -1974,7 +1974,7 @@ public static class ProtocolExtensionEmitter
     /// Reconstructs a PrintedName-like key from a MethodDecl for collision checking.
     /// Format: "methodName(label1:label2:)" matching Swift's PrintedName convention.
     /// </summary>
-    private static string BuildMethodKey(MethodDecl method)
+    internal static string BuildMethodKey(MethodDecl method)
     {
         // CSSignature[0] is the return type, params start at [1]
         if (method.CSSignature.Count <= 1)

@@ -491,7 +491,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         var originalName = NameProvider.GetPropertyName(propertyDecl.Name);
         if (propertyName != originalName && !propertyDecl.IsStatic)
         {
-            EmitExplicitInterfaceImplementations(csWriter, propertyDecl, originalName, propertyName, csTypeName, propertyEnv.TypeDatabase);
+            EmitExplicitInterfaceImplementations(csWriter, propertyDecl, originalName, propertyName, csTypeName, propertyEnv.TypeDatabase, context);
         }
 
         csWriter.WriteLine();
@@ -507,7 +507,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
     /// Only emits for interfaces that the type actually implements (validated by GetImplementedInterfaces).
     /// </summary>
     private void EmitExplicitInterfaceImplementations(CSharpWriter csWriter, PropertyDecl propertyDecl,
-        string originalName, string renamedName, string csTypeName, ITypeDatabase typeDatabase)
+        string originalName, string renamedName, string csTypeName, ITypeDatabase typeDatabase, TypeHandlerContext context)
     {
         // Get conformances from parent type
         var parentTypeDecl = propertyDecl.ParentDecl as TypeDecl;
@@ -532,7 +532,8 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         // Must use a ProtocolConformanceValidator to match the same gates used in the type handler
         // (ShouldEmitConformance + CanFullyImplementProtocol). Without this, we'd emit CS0540
         // for protocols the type conforms to in Swift but that were filtered out during C# emission.
-        var conformanceValidator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var extensionDefaultsIndex = context.GetEmissionContext()?.ExtensionDefaultsIndex;
+        var conformanceValidator = new ProtocolConformanceValidator(moduleDecl, typeDatabase, extensionDefaultsIndex);
         var implementedInterfaces = new HashSet<string>(
             ProtocolConformanceHelper.GetImplementedInterfaces(parentTypeDecl, parentTypeDecl.Name, moduleDecl.Name, typeDatabase, conformanceValidator));
 

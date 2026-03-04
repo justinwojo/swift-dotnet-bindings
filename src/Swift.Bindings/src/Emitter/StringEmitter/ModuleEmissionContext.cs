@@ -39,6 +39,14 @@ public sealed class ModuleEmissionContext
     public bool IsUnderscoreSuppressed(string moduleQualifiedName) =>
         _underscoreSuppressedNames?.Contains(moduleQualifiedName) == true;
 
+    // ==================== Protocol Extension Defaults Index ====================
+
+    /// <summary>
+    /// Index of unconstrained protocol extension default implementations.
+    /// Used by ProtocolConformanceValidator to allow conformance when types rely on defaults.
+    /// </summary>
+    public ProtocolExtensionDefaultsIndex? ExtensionDefaultsIndex { get; set; }
+
     // ==================== Protocol Extension ====================
 
     private readonly List<string> _protocolExtWrapperLines = new();

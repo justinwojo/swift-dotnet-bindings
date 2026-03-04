@@ -11,11 +11,14 @@ public class ProtocolConformanceValidator
 {
     private readonly ModuleDecl _moduleDecl;
     private readonly ITypeDatabase _typeDatabase;
+    private readonly ProtocolExtensionDefaultsIndex? _extensionDefaultsIndex;
 
-    public ProtocolConformanceValidator(ModuleDecl moduleDecl, ITypeDatabase typeDatabase)
+    public ProtocolConformanceValidator(ModuleDecl moduleDecl, ITypeDatabase typeDatabase,
+        ProtocolExtensionDefaultsIndex? extensionDefaultsIndex = null)
     {
         _moduleDecl = moduleDecl;
         _typeDatabase = typeDatabase;
+        _extensionDefaultsIndex = extensionDefaultsIndex;
     }
 
     /// <summary>
@@ -93,6 +96,9 @@ public class ProtocolConformanceValidator
         var requiredSubscripts = new HashSet<string>();
         var requiredMethods = new HashSet<string>();
 
+        // Lazy-init conformance names for extension default checks (reused for properties + methods)
+        HashSet<string>? conformanceNames = null;
+
         // For each INTERFACE PROPERTY requirement:
         var boundGenericsHandler = new BoundGenericsHandler(_typeDatabase);
         foreach (var protoProperty in protocolDecl.Properties)
@@ -108,7 +114,18 @@ public class ProtocolConformanceValidator
             // Find matching property in CONCRETE TYPE
             var concreteProperty = FindMatchingProperty(concreteType, protoProperty);
             if (concreteProperty == null)
+            {
+                // Check if a protocol extension provides a default implementation
+                if (_extensionDefaultsIndex != null)
+                {
+                    conformanceNames ??= GetQualifiedConformanceNames(concreteType);
+                    var protoRequiresSetter = protoProperty.Accessors.OfType<SetAccessorDecl>().Any();
+                    if (_extensionDefaultsIndex.HasPropertyDefault(qualifiedName, protoProperty.Name,
+                        conformanceNames, protoRequiresSetter))
+                        continue; // Satisfied by extension default
+                }
                 return false;  // CS0535: member not found
+            }
 
             // Validate accessor contract: protocol { get set } requires concrete { get set }
             var protoHasGetter = protoProperty.Accessors.OfType<GetAccessorDecl>().Any();
@@ -185,7 +202,17 @@ public class ProtocolConformanceValidator
             // Find matching method in CONCRETE TYPE
             var concreteMethod = FindMatchingMethod(concreteType, protoMethod, protocolDecl);
             if (concreteMethod == null)
+            {
+                // Check if a protocol extension provides a default implementation
+                if (_extensionDefaultsIndex != null)
+                {
+                    conformanceNames ??= GetQualifiedConformanceNames(concreteType);
+                    var extMethodKey = ProtocolExtensionEmitter.BuildMethodKey(protoMethod);
+                    if (_extensionDefaultsIndex.HasMethodDefault(qualifiedName, extMethodKey, conformanceNames))
+                        continue; // Satisfied by extension default
+                }
                 return false;
+            }
 
             var skipReason = MemberEmissionValidator.CanEmitMethod(
                 concreteMethod, _typeDatabase, out _, out var concreteReturnType);
@@ -597,6 +624,21 @@ public class ProtocolConformanceValidator
 
     private static string NormalizeTypeName(string typeName)
         => typeName.Replace(" ", "").Trim();
+
+    /// <summary>
+    /// Gets the set of module-qualified protocol names that a concrete type conforms to.
+    /// </summary>
+    private static HashSet<string> GetQualifiedConformanceNames(TypeDecl type)
+    {
+        IEnumerable<TypeConformance> conformances = type switch
+        {
+            ClassDecl cd => cd.Conformances,
+            StructDecl sd => sd.Conformances,
+            EnumDecl ed => ed.Conformances,
+            _ => Enumerable.Empty<TypeConformance>()
+        };
+        return new HashSet<string>(conformances.Select(c => c.Protocol.ModuleQualifiedName));
+    }
 
     /// <summary>
     /// Checks if a protocol property would be skipped from the interface.

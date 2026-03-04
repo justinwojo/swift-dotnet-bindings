@@ -708,6 +708,11 @@ public static class SwiftInterfaceAccessParser
         bool pendingMainActor = false;
         string? continuationLine = null;
         bool continuationMainActor = false;
+        // Track property setter scope: when inside a var's brace block, look for "set" or "nonmutating set"
+        string? pendingPropertyLine = null;
+        bool pendingPropertyMainActor = false;
+        int propertyBraceDepth = -1;
+        bool propertyHasSetter = false;
 
         foreach (var line in lines)
         {
@@ -737,6 +742,30 @@ public static class SwiftInterfaceAccessParser
                 continue;
 
             var (openBraces, closeBraces) = CountBraces(line);
+
+            // Handle property setter detection: track "set" inside property brace block
+            if (pendingPropertyLine != null)
+            {
+                if (trimmed == "set" || trimmed == "nonmutating set" ||
+                    trimmed.StartsWith("set ") || trimmed.StartsWith("nonmutating set") ||
+                    trimmed == "@objc set" || trimmed.StartsWith("@objc set"))
+                {
+                    propertyHasSetter = true;
+                }
+
+                // Check if property brace block is closing
+                var newDepth = braceDepth + openBraces - closeBraces;
+                if (newDepth <= propertyBraceDepth)
+                {
+                    // Property brace block ended — emit the property with setter info
+                    ProcessProtocolExtensionMember(pendingPropertyLine, currentProtocolExtension!,
+                        currentWhereConstraints, pendingPropertyMainActor, result,
+                        propertyHasSetter);
+                    pendingPropertyLine = null;
+                    propertyBraceDepth = -1;
+                    propertyHasSetter = false;
+                }
+            }
 
             // Check for @MainActor annotation
             bool hasMainActor = pendingMainActor || MainActorAnnotationRegex.IsMatch(trimmed);
@@ -802,11 +831,39 @@ public static class SwiftInterfaceAccessParser
                             currentWhereConstraints, hasMainActor, result);
                     }
                 }
-                // Check for var declarations
+                // Check for var declarations — need to track property brace block for setter detection
                 else if (ExtensionVarRegex.IsMatch(trimmed))
                 {
-                    ProcessProtocolExtensionMember(trimmed, currentProtocolExtension,
-                        currentWhereConstraints, hasMainActor, result);
+                    if (openBraces > 0)
+                    {
+                        // Property with brace block on same line — defer to detect setter
+                        pendingPropertyLine = trimmed;
+                        pendingPropertyMainActor = hasMainActor;
+                        propertyBraceDepth = braceDepth;
+                        propertyHasSetter = false;
+                        // Check for inline "{ get set }" on same line
+                        if (trimmed.Contains(" set") && (trimmed.Contains("{ get set }") ||
+                            trimmed.Contains("{get set}") || trimmed.Contains("{ get set}")))
+                        {
+                            propertyHasSetter = true;
+                        }
+                        // Check if braces close on same line (single-line property like "var x: T { get }")
+                        if (closeBraces >= openBraces)
+                        {
+                            ProcessProtocolExtensionMember(trimmed, currentProtocolExtension,
+                                currentWhereConstraints, hasMainActor, result,
+                                propertyHasSetter);
+                            pendingPropertyLine = null;
+                            propertyBraceDepth = -1;
+                            propertyHasSetter = false;
+                        }
+                    }
+                    else
+                    {
+                        // No braces — computed property without inline body
+                        ProcessProtocolExtensionMember(trimmed, currentProtocolExtension,
+                            currentWhereConstraints, hasMainActor, result);
+                    }
                 }
             }
 
@@ -867,13 +924,15 @@ public static class SwiftInterfaceAccessParser
     internal static void ProcessProtocolExtensionMemberForTesting(
         string line, string protocolQualifiedName,
         List<string> whereConstraints, bool isMainActorIsolated,
-        Dictionary<string, List<ProtocolExtensionMethodDecl>> result)
-        => ProcessProtocolExtensionMember(line, protocolQualifiedName, whereConstraints, isMainActorIsolated, result);
+        Dictionary<string, List<ProtocolExtensionMethodDecl>> result,
+        bool hasSetter = false)
+        => ProcessProtocolExtensionMember(line, protocolQualifiedName, whereConstraints, isMainActorIsolated, result, hasSetter);
 
     private static void ProcessProtocolExtensionMember(
         string line, string protocolQualifiedName,
         List<string> whereConstraints, bool isMainActorIsolated,
-        Dictionary<string, List<ProtocolExtensionMethodDecl>> result)
+        Dictionary<string, List<ProtocolExtensionMethodDecl>> result,
+        bool hasSetter = false)
     {
         // Check for func
         var funcMatch = ExtensionFuncRegex.Match(line);
@@ -923,6 +982,7 @@ public static class SwiftInterfaceAccessParser
                 IsMainActorIsolated = isMainActorIsolated || MainActorAnnotationRegex.IsMatch(line),
                 IsStatic = isStatic,
                 IsProperty = true,
+                HasSetter = hasSetter,
                 WhereConstraints = new List<string>(whereConstraints)
             };
 

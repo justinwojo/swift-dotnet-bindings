@@ -110,7 +110,8 @@ namespace BindingsGeneration
             };
 
             {
-                var conformanceValidator = new ProtocolConformanceValidator(moduleDecl, env.TypeDatabase);
+                var extensionDefaultsIndex = context.GetEmissionContext()?.ExtensionDefaultsIndex;
+                var conformanceValidator = new ProtocolConformanceValidator(moduleDecl, env.TypeDatabase, extensionDefaultsIndex);
                 var interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
                     classDecl,
                     typeNameWithGenerics,
