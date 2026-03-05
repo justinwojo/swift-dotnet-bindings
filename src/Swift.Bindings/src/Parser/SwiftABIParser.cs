@@ -139,7 +139,9 @@ namespace BindingsGeneration
         /// 2. "UsableFromInline" in declAttributes (always means internal — @usableFromInline is only
         ///    used on internal declarations, regardless of whether AccessControl is also present)
         /// 3. "Inlinable" WITHOUT "AccessControl" (means @inlinable internal with implicit access)
-        /// 4. Supplementary swiftinterface data for @inlinable internal WITH AccessControl
+        /// 4. "SPIAccessControl" in declAttributes (@_spi types — only visible to SPI consumers,
+        ///    not part of the public API surface)
+        /// 5. Supplementary swiftinterface data for @inlinable internal WITH AccessControl
         ///    (handled separately via _internalMemberKeys)
         /// </summary>
         private static bool IsNodeModuleInternal(Node node)
@@ -162,6 +164,11 @@ namespace BindingsGeneration
 
             // @inlinable without explicit access control means implicit internal access
             if (hasInlinable && !hasAccessControl)
+                return true;
+
+            // @_spi types are only visible to SPI consumers (e.g., other Stripe modules).
+            // They are not part of the public API and should not appear in generated bindings.
+            if (Array.IndexOf(node.DeclAttributes, "SPIAccessControl") != -1)
                 return true;
 
             return false;

@@ -66,7 +66,6 @@ namespace BindingsGeneration
                 var sanitizedName = enumDecl.SwiftTypeName.ModuleQualifiedName.Replace(".", "_");
                 wrapperSymbol = $"SBW_{sanitizedName}_InitWithRawValue";
                 EmitStringRawValueSwiftWrapper(swiftWriter, enumDecl, moduleDecl, wrapperSymbol, ctx);
-                EmitUtf8SliceStruct(csWriter);
             }
 
             // Emit FromRawValue method - different implementations for frozen vs non-frozen enums
@@ -475,21 +474,6 @@ namespace BindingsGeneration
             }
         }
 
-        /// <summary>
-        /// Emits the C# Utf8Slice struct used for UTF-8 string marshalling.
-        /// This is emitted inside the enum class.
-        /// </summary>
-        private static void EmitUtf8SliceStruct(CSharpWriter csWriter)
-        {
-            csWriter.WriteLines("""
-                [global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Sequential)]
-                private struct Utf8Slice
-                {
-                    public IntPtr Ptr;
-                    public nint Len;
-                }
-
-                """);
-        }
+        // Utf8Slice struct is now shared at module level (emitted by ModuleHandler).
     }
 }

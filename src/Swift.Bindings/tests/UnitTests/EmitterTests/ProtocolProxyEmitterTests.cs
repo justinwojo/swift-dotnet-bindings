@@ -1784,9 +1784,9 @@ public class ProtocolProxyEmitterTests
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitProxyClass(protocolDecl);
 
-        // Find GetExistentialContainer body and verify ObjectDisposedException guard
-        var containerIdx = output.IndexOf("public ExistentialContainer1 GetExistentialContainer()");
-        Assert.True(containerIdx >= 0, "GetExistentialContainer not found in output");
+        // E2: GetExistentialContainer is now an explicit interface implementation (hidden from public API)
+        var containerIdx = output.IndexOf("ISwiftExistentialConvertible<ExistentialContainer1>.GetExistentialContainer()");
+        Assert.True(containerIdx >= 0, "GetExistentialContainer explicit interface impl not found in output");
         var containerSection = output.Substring(containerIdx, Math.Min(500, output.Length - containerIdx));
         Assert.Contains("ObjectDisposedException", containerSection);
     }
@@ -2280,15 +2280,13 @@ public class ProtocolProxyEmitterTests
     #region Utf8Slice Struct Tests
 
     [Fact]
-    public void EmitProxyClass_GeneratesUtf8SliceStruct()
+    public void EmitProxyClass_DoesNotEmitPrivateUtf8Slice()
     {
+        // E9: Utf8Slice is now shared at module level, not per-class
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("[StructLayout(LayoutKind.Sequential)]", output);
-        Assert.Contains("private struct Utf8Slice", output);
-        Assert.Contains("public IntPtr Ptr;", output);
-        Assert.Contains("public nint Len;", output);
+        Assert.DoesNotContain("private struct Utf8Slice", output);
     }
 
     #endregion

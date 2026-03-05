@@ -39,10 +39,7 @@ public partial class ProtocolProxyEmitter
                 return NativeMethods.GetWitnessTable();
             }
 
-            /// <summary>
-            /// Gets the existential container that can be passed to Swift code.
-            /// </summary>
-            public ExistentialContainer1 GetExistentialContainer()
+            ExistentialContainer1 ISwiftExistentialConvertible<ExistentialContainer1>.GetExistentialContainer()
             {
                 if (_disposed) throw new ObjectDisposedException(GetType().Name);
                 return _swiftContainer;
@@ -112,13 +109,6 @@ public partial class ProtocolProxyEmitter
             #endregion
 
             #region Marshalling Helpers
-
-            [StructLayout(LayoutKind.Sequential)]
-            private struct Utf8Slice
-            {
-                public IntPtr Ptr;
-                public nint Len;
-            }
 
             private static IntPtr MarshalToSwiftBuffer<T>(T value)
             {

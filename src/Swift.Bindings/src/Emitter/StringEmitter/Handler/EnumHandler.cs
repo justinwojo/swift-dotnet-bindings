@@ -89,6 +89,15 @@ namespace BindingsGeneration
 
             ReportCollector.RecordTypeEmitted(enumDecl);
 
+            // Caseless enums (zero cases) → static class.
+            // In Swift, caseless enums cannot be instantiated and are used for namespacing
+            // and/or holding static members. Emitting ISwiftObject + SafeHandle is wrong.
+            if (enumDecl.IsNamespaceEnum)
+            {
+                EmitNamespaceEnum(csWriter, swiftWriter, enumDecl, moduleDecl, env.TypeDatabase, conductor, context);
+                return;
+            }
+
             // Simple enums (no associated values, non-generic, integral/no raw value)
             // get emitted as C# enum value types instead of unsafe classes.
             // CanSafelyEmitAsSimpleEnum checks structural constraints (nested types,
@@ -356,6 +365,66 @@ namespace BindingsGeneration
         }
 
         // ComputePropertyRenames is now centralized in NameProvider.
+
+        /// <summary>
+        /// Emits a caseless enum as a static class. Swift uses caseless enums both as pure namespace
+        /// containers (e.g., `enum ImageProcessors { struct Resize { } }`) and as non-instantiable
+        /// types with static members (e.g., `enum Constants { static let x = 1 }`).
+        /// </summary>
+        private void EmitNamespaceEnum(CSharpWriter csWriter, SwiftWriter swiftWriter, EnumDecl enumDecl,
+            ModuleDecl moduleDecl, ITypeDatabase typeDatabase, Conductor conductor, TypeHandlerContext context)
+        {
+            var propertyRenames = NameProvider.ComputePropertyRenames(enumDecl, typeDatabase);
+            var childContext = context with { PropertyRenames = propertyRenames };
+
+            var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(enumDecl);
+            var whereClause = GenericTypeEmitter.GetWhereClause(enumDecl, typeDatabase);
+
+            XmlDocCommentEmitter.EmitDocComment(csWriter, enumDecl);
+            if (enumDecl.Name.StartsWith("_"))
+                csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
+            var classDeclaration = $"public static partial class {typeNameWithGenerics}";
+            if (!string.IsNullOrEmpty(whereClause))
+                classDeclaration += $" {whereClause}";
+            csWriter.WriteLine(classDeclaration);
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+
+            // Only emit static members — instance members are invalid inside a C# static class.
+            // (Swift permits instance members on caseless enums, but no real-world library uses them.)
+            foreach (var propertyDecl in enumDecl.Properties.Where(p => p.IsStatic))
+            {
+                if (MemberEmissionValidator.IsSynthesizedProtocolProperty(propertyDecl, enumDecl))
+                    continue;
+
+                var skipReason = MemberEmissionValidator.CanEmitProperty(propertyDecl, typeDatabase, out var skipDetails, out _);
+                if (skipReason != null)
+                {
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, enumDecl, skipReason.Value, skipDetails ?? "");
+                    continue;
+                }
+
+                if (conductor.TryGetPropertyHandler(propertyDecl, out var propertyHandler))
+                {
+                    var propertyEnv = propertyHandler.Marshal(propertyDecl, typeDatabase);
+                    propertyHandler.Emit(csWriter, swiftWriter, propertyEnv, conductor, childContext);
+                }
+            }
+
+            // Subscripts: static subscripts are already skipped by EmitSubscripts (not valid C# indexers),
+            // and instance subscripts are invalid in a static class. Nothing to emit.
+
+            // Emit nested types and static methods
+            base.HandleBaseDecl(csWriter, swiftWriter, enumDecl.Types, conductor, typeDatabase, childContext);
+            var propertyNames = new HashSet<string>(enumDecl.Properties.Where(p => p.IsStatic).Select(p =>
+                NameProvider.GetFinalMemberName(
+                    NameProvider.GetPropertyName(p.Name, enumDecl.Name), propertyRenames)));
+            base.HandleBaseDecl(csWriter, swiftWriter, enumDecl.Methods.Where(m => !m.IsConstructor && m.MethodType == MethodType.Static).ToList(), conductor, typeDatabase, childContext, propertyNames);
+
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+        }
 
         /// <summary>
         /// Emits a static property for a simple enum case (no associated values).

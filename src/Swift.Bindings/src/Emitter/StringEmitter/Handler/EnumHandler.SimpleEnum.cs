@@ -427,7 +427,7 @@ namespace BindingsGeneration
             if (returnsString)
             {
                 // String return: use Utf8Slice marshalling pattern
-                EmitExtensionUtf8SliceStruct(csWriter);
+                // Utf8Slice struct is shared at module level
 
                 csWriter.WriteLine($"public static unsafe string {methodPascalName}({string.Join(", ", csParams)})");
                 csWriter.WriteLine("{");
@@ -704,7 +704,7 @@ namespace BindingsGeneration
             // Emit C# extension getter method
             if (returnsString)
             {
-                EmitExtensionUtf8SliceStruct(csWriter);
+                // Utf8Slice struct is shared at module level
                 EmitStringReturnExtensionMethod(csWriter, enumName, propertyPascalName,
                     wrapperSymbol, csUnderlyingType, moduleName, isStatic: false);
             }
@@ -797,7 +797,7 @@ namespace BindingsGeneration
             if (returnsString)
             {
                 // String return: use Utf8Slice pattern
-                EmitExtensionUtf8SliceStruct(csWriter);
+                // Utf8Slice struct is shared at module level
                 EmitStringReturnStaticMethod(csWriter, enumName, methodPascalName,
                     wrapperSymbol, csUnderlyingType, moduleName, paramDecls, enumDecl, typeDatabase);
             }
@@ -903,7 +903,7 @@ namespace BindingsGeneration
 
             if (returnsString)
             {
-                EmitExtensionUtf8SliceStruct(csWriter);
+                // Utf8Slice struct is shared at module level
                 EmitStringReturnStaticPropertyAccessor(csWriter, enumName, propertyPascalName,
                     wrapperSymbol, moduleName);
             }
@@ -1123,26 +1123,8 @@ namespace BindingsGeneration
             swiftWriter.WriteLine("return UnsafeMutableRawPointer(slicePtr)");
         }
 
-        /// <summary>
-        /// Emits the C# Utf8Slice struct for string marshalling (used by string-returning extension methods).
-        /// This delegates to the same struct definition used by EnumHandler.RawRepresentable.
-        /// </summary>
+        // Utf8Slice struct is now shared at module level (emitted by ModuleHandler).
         private string _wrapperLibName = "SwiftBindings";
-        private bool _utf8SliceStructEmittedInExtensions;
-        private void EmitExtensionUtf8SliceStruct(CSharpWriter csWriter)
-        {
-            if (_utf8SliceStructEmittedInExtensions) return;
-            _utf8SliceStructEmittedInExtensions = true;
-            csWriter.WriteLines("""
-                [global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Sequential)]
-                private struct Utf8Slice
-                {
-                    public IntPtr Ptr;
-                    public nint Len;
-                }
-
-                """);
-        }
 
         private bool _freePInvokeEmittedInExtensions;
 

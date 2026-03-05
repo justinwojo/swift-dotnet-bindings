@@ -97,6 +97,45 @@ public class SwiftABIParserRuntimeTests
 
     #endregion
 
+    #region SPI Suppression Tests
+
+    [Fact]
+    public void ParseModule_TypeWithSPIAccessControl_IsMarkedInternal()
+    {
+        // E15: @_spi types have SPIAccessControl in DeclAttributes and should be treated as internal
+        var classNode = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Class",
+            name: "InternalSPIType",
+            mangledName: "$s10TestModule15InternalSPITypeCN");
+        classNode.DeclAttributes = new[] { "SPIAccessControl", "AccessControl" };
+
+        using var fixture = CreateParserWithNodes(classNode);
+        var result = fixture.Parser.ParseModule();
+
+        var spiType = Assert.Single(result.ModuleDecl.Types);
+        Assert.True(spiType.IsModuleInternal, "@_spi type should be marked as module internal");
+    }
+
+    [Fact]
+    public void ParseModule_TypeWithoutSPIAccessControl_IsNotInternal()
+    {
+        var classNode = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Class",
+            name: "PublicType",
+            mangledName: "$s10TestModule10PublicTypeCN");
+        classNode.DeclAttributes = new[] { "AccessControl" };
+
+        using var fixture = CreateParserWithNodes(classNode);
+        var result = fixture.Parser.ParseModule();
+
+        var pubType = Assert.Single(result.ModuleDecl.Types);
+        Assert.False(pubType.IsModuleInternal, "Public type should not be marked as internal");
+    }
+
+    #endregion
+
     #region funcSelfKind → IsMutating Tests
 
     [Fact]
@@ -649,7 +688,8 @@ public class SwiftABIParserRuntimeTests
         string name = "",
         string moduleName = "TestModule",
         string mangledName = "$s",
-        IEnumerable<Node>? children = null)
+        IEnumerable<Node>? children = null,
+        string[]? declAttributes = null)
     {
         return new Node
         {
@@ -659,7 +699,7 @@ public class SwiftABIParserRuntimeTests
             MangledName = mangledName,
             PrintedName = name,
             ModuleName = moduleName,
-            DeclAttributes = [],
+            DeclAttributes = declAttributes ?? [],
             @static = false,
             IsInternal = false,
             GenericSig = null,

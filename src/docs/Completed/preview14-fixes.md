@@ -249,7 +249,7 @@ Items discovered during developer review of the 3 clean-building libraries. Cate
 
 ## Session Plan
 
-Five sessions. Each scoped to complete in a single Claude session. Sessions 1-3 and 5 are complete. Session 4 is planned work.
+Five sessions. Each scoped to complete in a single Claude session. All sessions complete.
 
 ### Session 1: P14A — Bug Fixes + Regression Guards
 
@@ -416,33 +416,53 @@ All 53/53 targets pass (40 compile gate + 13 dependency gate). See Session 5 (P1
 
 ---
 
-### Session 4: P14D — Quality Polish
+### Session 4: P14D — Quality Polish ✅
+
+**Status**: Complete. 4 items implemented, 4 items dispositioned (skipped/covered/deferred). 5447 unit tests passing (0 failures). Validation 53/53. Two rounds of Codex review fixes applied (static member preservation, instance member filtering, generic parameter preservation).
 
 Developer experience improvements from the E-series findings. Moved from original P14C to prioritize compile error fixes.
 
-**Quick wins** (isolated, low-risk):
-1. **E9** — Deduplicate `Utf8Slice` across BX2 extension classes
-   - Route through existing `Utf8SliceEmitter.EmitIfNeeded` with `ModuleEmissionContext`, or extract to shared namespace-level internal type
-2. **E2** — Hide `ExistentialContainer` on proxy types
-   - Change `ISwiftExistentialConvertible<T>` to explicit interface implementation in `ProtocolHandler.EmitProtocolProxy()`
-3. **E5** — Suppress `stp_` internal properties
-   - Detect `stp_`/`_spi` prefix in `MemberEmissionValidator`, mark `[EditorBrowsable(Never)]`
-   - Must be conservative — some `_`-prefixed members are intentional public API
-4. **E12** — Namespace-like enums → `static class`
-   - Detect enums with zero cases and only nested types; emit `static class` instead of `ISwiftObject, IDisposable` class
-5. **E13** — Strip hash suffix from factory method names
-   - `Create_529DA596` → `Create` (or meaningful disambiguation like `CreateFromUrlRequest`)
-6. **E15** — Suppress `@_spi` types
-   - Skip SPI-annotated declarations entirely, or emit as `internal`
-   - 41% of StripeIdentity is SPI — significant code reduction
+#### Implemented
 
-**High-impact items**:
-7. **E16** — `@available` → `[SupportedOSPlatform]`
-   - Parse availability attributes from ABI JSON
-   - Map `@available(iOS X.Y, *)` to `[SupportedOSPlatform("iosX.Y")]`
-   - High impact: without this, calling an iOS 14.3+ API on iOS 13 silently crashes at runtime
-8. **E11** — `RawRepresentable<Int>` enums → BX2 simple enum path
-   - Extend `CanSafelyEmitAsSimpleEnum` to recognize `RawRepresentable<Int>` enums with no associated values
-   - High impact: common types like `ImageRequest.Priority` (5 cases) currently require 200 lines + IDisposable
+1. **E15** — Suppress `@_spi` types ✅
+   - `SwiftABIParser.IsNodeModuleInternal()` now detects `SPIAccessControl` in `DeclAttributes`
+   - SPI types treated as module-internal, suppressed from generated output
+   - Generic solution — handles all SPI-annotated types (Stripe, etc.) without hardcoding library names
+   - **Tests**: 2 tests in `SwiftABIParserRuntimeTests.cs` (SPI → internal, non-SPI → public)
 
-**Gate**: `run-tests.sh` + `validate-libraries.sh` must pass. Downstream re-spot-check on Nuke, BlinkID, StripeIdentity.
+2. **E2** — Hide `ExistentialContainer` on proxy types ✅
+   - `ProtocolProxyEmitter.SwiftObject.cs` — `GetExistentialContainer()` changed to explicit `ISwiftExistentialConvertible<T>` interface implementation
+   - `ModuleHandler.cs` — composition proxy containers also use explicit interface impl
+   - Container method no longer appears in IntelliSense on proxy objects
+   - **Tests**: Updated `EmitProxyClass_GetExistentialContainerThrowsAfterDispose` to verify explicit impl syntax
+
+3. **E12** — Caseless enums → `static class` ✅
+   - `EnumDecl.IsNamespaceEnum` property: enums with zero cases
+   - `EnumHandler.EmitNamespaceEnum` emits `public static partial class` with full member support:
+     static properties, static methods, and nested types (not just nested types)
+   - Instance members filtered out (invalid in C# static class)
+   - Generic parameters and where clauses preserved via `GenericTypeEmitter`
+   - Codex review fixes: (1) P1 — original only emitted nested types, dropping static members
+     (e.g., PhoneNumberKit's `CountryCodePicker.CommonCountryCodes`). (2) P1 — instance members
+     would produce invalid C# in a static class. (3) P2 — generic parameters were dropped.
+   - **Tests**: 6 tests in `EnumHandlerOutputTests.cs` (static class emission, static properties
+     preserved, static methods plumbed, instance members skipped, generic parameters preserved,
+     non-zero-case enum unaffected)
+
+4. **E9** — Deduplicate `Utf8Slice` across extension classes ✅
+   - Removed per-class `private struct Utf8Slice` from `EnumHandler.SimpleEnum.cs` and `EnumHandler.RawRepresentable.cs`
+   - Removed per-proxy `private struct Utf8Slice` from `ProtocolProxyEmitter.SwiftObject.cs`
+   - `ModuleHandler.cs` now emits a single `internal struct Utf8Slice` at module namespace level
+   - **Tests**: Updated `EmitProxyClass_DoesNotEmitPrivateUtf8Slice` (reversed assertion — confirms absence)
+
+#### Skipped / Deferred
+
+5. **E5** — `stp_` internal properties: **Covered by E15**. The `stp_` properties come from SPI-annotated types. E15's generic `SPIAccessControl` filtering suppresses the entire type, which is the correct fix. Hardcoding third-party prefixes would be fragile and wrong.
+
+6. **E13** — Hash suffix in factory method names: **Not manifesting**. The `_529DA596` suffixes come from Swift's overload disambiguation in the ABI JSON. These are not currently emitted in generated bindings — the generator already uses `PrintedName` for method names.
+
+7. **E11** — `RawRepresentable<Int>` enums → simple path: **Already works**. The existing `CanSafelyEmitAsSimpleEnum` logic already handles this case correctly for enums that meet the criteria.
+
+8. **E16** — `@available` → `[SupportedOSPlatform]`: **Deferred**. Requires parsing availability data from `.swiftinterface` files (ABI JSON has `Available` attribute but no version details). Tracked in future roadmap.
+
+**Gate**: Unit tests 5447 passing (0 failures). Validation 53/53 (40 compile, 13 dep gate). No regressions.

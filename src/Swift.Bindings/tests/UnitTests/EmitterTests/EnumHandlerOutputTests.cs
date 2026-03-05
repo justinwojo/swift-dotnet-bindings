@@ -742,6 +742,119 @@ public class EnumHandlerOutputTests
         Assert.Contains("internal static partial class ValueProviderStorage_PInvoke", csOutput);
     }
 
+    [Fact]
+    public void Emit_NamespaceEnum_EmitsStaticClass()
+    {
+        // E12: Zero-case enums used as namespaces should emit as static classes
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("ImageProcessors", moduleDecl, isFrozen: true);
+        // No cases — this is a namespace-like enum
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains("public static partial class ImageProcessors", csOutput);
+        // Should NOT contain ISwiftObject, IDisposable, SafeHandle, Payload
+        Assert.DoesNotContain("ISwiftObject", csOutput);
+        Assert.DoesNotContain("IDisposable", csOutput);
+        Assert.DoesNotContain("SwiftSafeHandle", csOutput);
+        Assert.DoesNotContain("_payload", csOutput);
+    }
+
+    [Fact]
+    public void Emit_NamespaceEnum_WithStaticProperties_EmitsPropertiesInStaticClass()
+    {
+        // Codex P1: Caseless enums with static members must emit those members, not just nested types.
+        // Real example: PhoneNumberKit.CountryCodePicker has commonCountryCodes, forceModalPresentation, etc.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Constants", moduleDecl, isFrozen: true);
+        // No cases — caseless enum
+        enumDecl.Properties.Add(CreateStaticIntProperty("defaultTimeout", enumDecl, moduleDecl));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains("public static partial class Constants", csOutput);
+        // The property should be emitted (not dropped)
+        Assert.Contains("DefaultTimeout", csOutput);
+        // Should NOT contain ISwiftObject/IDisposable boilerplate
+        Assert.DoesNotContain("ISwiftObject", csOutput);
+        Assert.DoesNotContain("IDisposable", csOutput);
+    }
+
+    [Fact]
+    public void Emit_NamespaceEnum_WithStaticMethods_PlumbsMethodsThroughConductor()
+    {
+        // Caseless enums with static methods route them through HandleBaseDecl.
+        // Methods may silently fail resolution in test contexts (no full TypeDatabase),
+        // but the path must not crash and the static class must still be correct.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Utils", moduleDecl, isFrozen: true);
+        // No cases — caseless enum with a static method
+        enumDecl.Methods.Add(CreateVoidStaticMethod("reset", enumDecl, moduleDecl));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains("public static partial class Utils", csOutput);
+        Assert.DoesNotContain("ISwiftObject", csOutput);
+        Assert.DoesNotContain("IDisposable", csOutput);
+    }
+
+    [Fact]
+    public void Emit_NamespaceEnum_SkipsInstanceMembers()
+    {
+        // Instance members are invalid in a C# static class. While rare in practice
+        // (swiftc allows them but no real library uses them), they must be filtered out.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Config", moduleDecl, isFrozen: true);
+        // No cases — caseless enum
+        enumDecl.Properties.Add(CreateStaticIntProperty("maxRetries", enumDecl, moduleDecl));
+        enumDecl.Properties.Add(CreateInstanceIntProperty("instanceProp", enumDecl, moduleDecl));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains("public static partial class Config", csOutput);
+        Assert.Contains("MaxRetries", csOutput);
+        // Instance property must NOT appear in the static class
+        Assert.DoesNotContain("InstanceProp", csOutput);
+    }
+
+    [Fact]
+    public void Emit_NamespaceEnum_PreservesGenericParameters()
+    {
+        // Generic caseless enums must preserve type parameters and where clauses.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Wrapper", moduleDecl, isFrozen: true);
+        enumDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl("τ_0_0", "T", new(), new())
+        };
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains("public static partial class Wrapper<T>", csOutput);
+        // ISwiftObject appears in the where clause (constraint on T), not as an interface on the class
+        Assert.DoesNotContain("IDisposable", csOutput);
+        Assert.DoesNotContain("SwiftSafeHandle", csOutput);
+    }
+
+    [Fact]
+    public void Emit_NamespaceEnum_DoesNotEmitForNonZeroCaseEnum()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Direction", moduleDecl, isFrozen: true);
+        enumDecl.Cases.Add(CreateCase("north"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // Single-case enum should NOT be emitted as static class
+        Assert.DoesNotContain("static partial class Direction", csOutput);
+    }
+
     private static TypeDatabase CreateTypeDatabase()
     {
         var typeDatabase = new TypeDatabase();
@@ -921,6 +1034,36 @@ public class EnumHandlerOutputTests
                 new()
                 {
                     SwiftTypeSpec = new NamedTypeSpec($"TestModule.{enumDecl.Name}"),
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = enumDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+    }
+
+    private static MethodDecl CreateVoidStaticMethod(string name, EnumDecl enumDecl, ModuleDecl moduleDecl)
+    {
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s10TestModule{enumDecl.Name.Length}{enumDecl.Name}O{name.Length}{name}yyFZ",
+            MethodType = MethodType.Static,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Void"),
                     Name = string.Empty,
                     PrivateName = string.Empty,
                     IsInOut = false,

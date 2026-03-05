@@ -123,6 +123,13 @@ namespace BindingsGeneration
         public IEnumerable<EnumCaseDecl> NoPayloadCases => Cases.Where(c => !c.HasAssociatedValues);
 
         /// <summary>
+        /// Whether this is a caseless enum (zero cases). In Swift, caseless enums cannot be
+        /// instantiated and are used as namespace containers and/or holders of static members.
+        /// These should be emitted as static classes rather than ISwiftObject wrappers.
+        /// </summary>
+        public bool IsNamespaceEnum => Cases.Count == 0;
+
+        /// <summary>
         /// Gets the tag value for a given case declaration.
         /// Swift assigns tags in declaration order, with payload cases first (starting at 0),
         /// followed by no-payload cases.
