@@ -184,6 +184,8 @@ namespace BindingsGeneration
                 // Native-remapped types (URL, Data): use the converted Swift variable
                 { Type: MarshalledType.NativeRemappedNonFrozenType } => $"{parameter.Name}Swift.Payload",
                 { Type: MarshalledType.NativeRemappedFrozen } => $"{parameter.Name}Swift",
+                // ObjC-rooted class self: Handle IS the object pointer (no buffer dereference)
+                { Name: "_selfClassObjC" } => "Handle",
                 // Instance methods on free-function wrapper paths pass self as explicit IntPtr.
                 { Name: "_selfClass" } => "*(IntPtr*)_payload.DangerousGetHandle()",
                 { Name: "_selfFixed" } => "(IntPtr)__self",

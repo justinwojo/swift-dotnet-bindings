@@ -46,6 +46,10 @@ public enum TypeRecordFlags
     // Only class-bound protocols can be bridged via Unmanaged<AnyObject> cast
     // in @_silgen_name wrappers for constrained existential parameters.
     ClassBound = 1 << 7,
+    // This flag indicates a class is rooted in an ObjC type hierarchy (e.g., inherits from NSObject).
+    // Such classes are projected as C# classes inheriting from the MAUI ObjC binding type
+    // (e.g., CoreAnimation.CALayer) instead of using SwiftSafeHandle-based payload management.
+    ObjCRooted = 1 << 8,
 }
 
 /// <summary>

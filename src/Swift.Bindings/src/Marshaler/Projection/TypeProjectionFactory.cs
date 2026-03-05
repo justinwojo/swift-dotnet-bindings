@@ -275,7 +275,11 @@ public class TypeProjectionFactory
 
         // Classes (non-frozen, pointer-based)
         if (typeRecord.Kind == TypeRecordKind.Class)
+        {
+            if (MarshallingHelpers.IsObjCRooted(typeRecord))
+                return new ObjCRootedClassProjection(typeName);
             return new ClassProjection(typeName);
+        }
 
         // Native remapped types (URL → NSUrl, Data → NSData)
         if (typeRecord.NativeTypeName != null)

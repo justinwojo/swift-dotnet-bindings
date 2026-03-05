@@ -123,6 +123,10 @@ namespace BindingsGeneration
                 // If the base class would be skipped (e.g., unsupported generic constraints),
                 // fall back to flat emission to avoid referencing a non-emitted base type.
                 bool isDerived = IsEffectivelyDerived(classDecl);
+                bool isObjCRooted = classDecl.IsObjCRooted;
+                // An ObjC-rooted boundary class directly inherits an ObjC type (e.g., CALayer)
+                // and is NOT derived from a same-module Swift parent.
+                bool isObjCBoundary = isObjCRooted && !isDerived;
 
                 if (isDerived)
                 {
@@ -152,6 +156,22 @@ namespace BindingsGeneration
                             derivedInterfaces.Add(iface);
                     }
                     interfaces = derivedInterfaces;
+                }
+                else if (isObjCBoundary)
+                {
+                    // ObjC-rooted boundary class: inherit from MAUI ObjC binding type.
+                    // Replace IDisposable (inherited from NSObject) with ObjC base type.
+                    // Fallback: cross-module ObjC-rooted with unresolved Swift parent → Foundation.NSObject
+                    // (all ObjC-rooted Swift classes ultimately derive from NSObject).
+                    var objcBaseName = MarshallingHelpers.GetObjCBaseTypeName(classDecl) ?? "Foundation.NSObject";
+                    var boundaryInterfaces = new List<string> { objcBaseName };
+                    foreach (var iface in interfaces)
+                    {
+                        if (iface == "IDisposable")
+                            continue; // Inherited from NSObject
+                        boundaryInterfaces.Add(iface);
+                    }
+                    interfaces = boundaryInterfaces;
                 }
 
                 if (classDecl.IsActor)
@@ -222,13 +242,17 @@ namespace BindingsGeneration
                 }
 
                 // Emit private fields and payload.
-                // All classes need _payloadSize (per-type metadata size for allocation).
-                // Only root classes emit _payload, Payload property, Dispose(), and finalizer.
-                WriteClassPayloadSize(csWriter, typeNameWithGenerics, isDerived);
-                if (!isDerived)
+                // ObjC-rooted classes skip all payload/Dispose/finalizer — lifecycle managed by NSObject.
+                if (!isObjCRooted)
                 {
-                    WriteClassPayloadField(csWriter, typeNameWithGenerics);
-                    WriteClassPayload(csWriter, typeNameWithGenerics);
+                    // All classes need _payloadSize (per-type metadata size for allocation).
+                    // Only root classes emit _payload, Payload property, Dispose(), and finalizer.
+                    WriteClassPayloadSize(csWriter, typeNameWithGenerics, isDerived);
+                    if (!isDerived)
+                    {
+                        WriteClassPayloadField(csWriter, typeNameWithGenerics);
+                        WriteClassPayload(csWriter, typeNameWithGenerics);
+                    }
                 }
 
                 // Emit operators
@@ -379,6 +403,8 @@ namespace BindingsGeneration
         private readonly string _constructorName;
         private readonly PInvokeHelperContext? _pinvokeHelperContext;
         private readonly bool _isDerived;
+        private readonly bool _isObjCRooted;
+        private readonly bool _isObjCBoundary;
         private readonly string _rootBaseTypeNameWithGenerics;
 
         public ClassISwiftObjectMethodWriter(CSharpWriter csWriter, ITypeDatabase typeDatabase, ModuleDecl moduleDecl, ClassDecl classDecl, string typeNameWithGenerics, PInvokeHelperContext? pinvokeHelperContext = null)
@@ -392,6 +418,8 @@ namespace BindingsGeneration
             _constructorName = angleBracket >= 0 ? typeNameWithGenerics.Substring(0, angleBracket) : typeNameWithGenerics;
             _pinvokeHelperContext = pinvokeHelperContext;
             _isDerived = ClassHandler.IsEffectivelyDerived(classDecl);
+            _isObjCRooted = classDecl.IsObjCRooted;
+            _isObjCBoundary = _isObjCRooted && !_isDerived;
             _rootBaseTypeNameWithGenerics = GetRootBaseTypeNameWithGenerics(classDecl);
         }
 
@@ -428,6 +456,12 @@ namespace BindingsGeneration
         /// </summary>
         public void WriteClassImplementation()
         {
+            if (_isObjCBoundary)
+            {
+                // ObjC-rooted boundary class: NSObject.Handle IS the Swift object pointer.
+                _writer.WriteLine("IntPtr ISwiftObject.SwiftHandle => Handle;");
+                _writer.WriteLine();
+            }
             WriteGetTypeMetadata();
             WriteNewFromPayload();
             WriteMarshalToSwift();
@@ -489,16 +523,34 @@ namespace BindingsGeneration
         /// </summary>
         private void WriteNewFromPayload()
         {
-            var text = $$"""
-            [EditorBrowsable(EditorBrowsableState.Never)]
-            static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
+            if (_isObjCRooted)
             {
-                return new {{_typeNameWithGenerics}}(handle);
+                // ObjC-rooted: payload buffer contains the object pointer. Read it, free the buffer,
+                // then wrap with SwiftHandle → base(NativeHandle) → NSObject takes ownership.
+                var text = $$"""
+                [EditorBrowsable(EditorBrowsableState.Never)]
+                static unsafe ISwiftObject ISwiftObject.NewFromPayload(IntPtr payload)
+                {
+                    IntPtr objectPtr = *(IntPtr*)payload;
+                    NativeMemory.Free((void*)payload);
+                    return new {{_typeNameWithGenerics}}(new SwiftHandle(objectPtr));
+                }
+                """;
+                _writer.WriteLines(text);
+                _writer.WriteLine();
             }
-            """;
-
-            _writer.WriteLines(text);
-            _writer.WriteLine();
+            else
+            {
+                var text = $$"""
+                [EditorBrowsable(EditorBrowsableState.Never)]
+                static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
+                {
+                    return new {{_typeNameWithGenerics}}(handle);
+                }
+                """;
+                _writer.WriteLines(text);
+                _writer.WriteLine();
+            }
 
             EmitPrivateConstructor();
         }
@@ -510,35 +562,60 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitPrivateConstructor()
         {
-            // Derived classes assign to the inherited _payload field using the ROOT base class's
-            // SwiftSafeHandle<T> type parameter. For class types, VWT->Destroy calls swift_release
-            // which operates on the isa pointer inside the Swift object, ignoring the metadata's T.
-            var safeHandleType = _rootBaseTypeNameWithGenerics;
-            // Derived private constructors chain to the base's protected sentinel constructor
-            var baseChain = _isDerived ? " : base(default(SwiftInheritanceChain))" : "";
-            var text = $$"""
-            {{_constructorName}}(SwiftHandle handle){{baseChain}}
+            if (_isObjCRooted)
             {
-                _payload = new SwiftSafeHandle<{{safeHandleType}}>(handle);
-            }
-            """;
+                // ObjC-rooted: SwiftHandle entry-point constructor chains to base(NativeHandle).
+                // DangerousRelease() balances: Swift returns +1, MAUI NSObject(NativeHandle,false) retains +2, release back to +1.
+                var text = $$"""
+                internal {{_constructorName}}(SwiftHandle handle) : base((ObjCRuntime.NativeHandle)handle.Pointer)
+                {
+                    DangerousRelease();
+                }
+                """;
+                _writer.WriteLines(text);
+                _writer.WriteLine();
 
-            _writer.WriteLines(text);
-            _writer.WriteLine();
-
-            // All classes emit a protected constructor with a SwiftInheritanceChain sentinel parameter
-            // for derived class constructor chaining. Derived constructors chain to
-            // base(default(SwiftInheritanceChain)) to invoke this constructor. SwiftInheritanceChain
-            // is a marker struct from Swift.Runtime that cannot conflict with any Swift-generated
-            // constructor parameters (unlike bool, int, etc. which Swift types commonly use).
-            {
-                var sentinelBaseChain = _isDerived ? " : base(default(SwiftInheritanceChain))" : "";
+                // Protected NativeHandle constructor for same-module Swift subclass chaining.
+                // NO DangerousRelease — only the entry-point SwiftHandle ctor releases.
                 var protectedCtor = $$"""
                 [EditorBrowsable(EditorBrowsableState.Never)]
-                protected {{_constructorName}}(SwiftInheritanceChain _swiftObject){{sentinelBaseChain}} { }
+                protected {{_constructorName}}(ObjCRuntime.NativeHandle handle) : base(handle) { }
                 """;
                 _writer.WriteLines(protectedCtor);
                 _writer.WriteLine();
+            }
+            else
+            {
+                // Derived classes assign to the inherited _payload field using the ROOT base class's
+                // SwiftSafeHandle<T> type parameter. For class types, VWT->Destroy calls swift_release
+                // which operates on the isa pointer inside the Swift object, ignoring the metadata's T.
+                var safeHandleType = _rootBaseTypeNameWithGenerics;
+                // Derived private constructors chain to the base's protected sentinel constructor
+                var baseChain = _isDerived ? " : base(default(SwiftInheritanceChain))" : "";
+                var text = $$"""
+                {{_constructorName}}(SwiftHandle handle){{baseChain}}
+                {
+                    _payload = new SwiftSafeHandle<{{safeHandleType}}>(handle);
+                }
+                """;
+
+                _writer.WriteLines(text);
+                _writer.WriteLine();
+
+                // All classes emit a protected constructor with a SwiftInheritanceChain sentinel parameter
+                // for derived class constructor chaining. Derived constructors chain to
+                // base(default(SwiftInheritanceChain)) to invoke this constructor. SwiftInheritanceChain
+                // is a marker struct from Swift.Runtime that cannot conflict with any Swift-generated
+                // constructor parameters (unlike bool, int, etc. which Swift types commonly use).
+                {
+                    var sentinelBaseChain = _isDerived ? " : base(default(SwiftInheritanceChain))" : "";
+                    var protectedCtor = $$"""
+                    [EditorBrowsable(EditorBrowsableState.Never)]
+                    protected {{_constructorName}}(SwiftInheritanceChain _swiftObject){{sentinelBaseChain}} { }
+                    """;
+                    _writer.WriteLines(protectedCtor);
+                    _writer.WriteLine();
+                }
             }
         }
 
@@ -547,36 +624,58 @@ namespace BindingsGeneration
         /// </summary>
         private void WriteMarshalToSwift()
         {
-            var text = $$"""
-            [EditorBrowsable(EditorBrowsableState.Never)]
-            unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
+            if (_isObjCRooted)
             {
-                var metadata = SwiftObjectHelper<{{_typeNameWithGenerics}}>.GetTypeMetadata();
-                if ((int)metadata.Size > swiftDestSpan.Length)
+                // ObjC-rooted: use Handle directly (the NSObject pointer IS the Swift object pointer).
+                // No DangerousAddRef/Release — NSObject manages lifecycle via ARC.
+                var text = $$"""
+                [EditorBrowsable(EditorBrowsableState.Never)]
+                unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
                 {
-                    throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
-                }
-                fixed (void* swiftDest = swiftDestSpan)
-                {
-                    // Ensure that the instance is valid before making copy
-                    bool success = false;
-                    _payload.DangerousAddRef(ref success);
-                    try
+                    var metadata = SwiftObjectHelper<{{_typeNameWithGenerics}}>.GetTypeMetadata();
+                    fixed (void* swiftDest = swiftDestSpan)
                     {
-                        metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
+                        IntPtr selfPtr = Handle;
+                        metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, &selfPtr, metadata);
                         return (int)metadata.Size;
                     }
-                    finally
+                }
+                """;
+                _writer.WriteLines(text);
+                _writer.WriteLine();
+            }
+            else
+            {
+                var text = $$"""
+                [EditorBrowsable(EditorBrowsableState.Never)]
+                unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
+                {
+                    var metadata = SwiftObjectHelper<{{_typeNameWithGenerics}}>.GetTypeMetadata();
+                    if ((int)metadata.Size > swiftDestSpan.Length)
                     {
-                        if (success)
-                            _payload.DangerousRelease();
+                        throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
+                    }
+                    fixed (void* swiftDest = swiftDestSpan)
+                    {
+                        // Ensure that the instance is valid before making copy
+                        bool success = false;
+                        _payload.DangerousAddRef(ref success);
+                        try
+                        {
+                            metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
+                            return (int)metadata.Size;
+                        }
+                        finally
+                        {
+                            if (success)
+                                _payload.DangerousRelease();
+                        }
                     }
                 }
+                """;
+                _writer.WriteLines(text);
+                _writer.WriteLine();
             }
-            """;
-
-            _writer.WriteLines(text);
-            _writer.WriteLine();
         }
 
         /// <summary>

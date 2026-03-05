@@ -476,7 +476,11 @@ namespace BindingsGeneration
             // with implicit self via SwiftSelf — they set HasClosureCdeclWrapper but NOT UsesFreeFunctionWrapper.
             if (_env.MethodDecl.UsesFreeFunctionWrapper && MarshallingHelpers.MethodRequiresSwiftSelf(_env))
             {
-                if (_env.ParentDecl is ClassDecl)
+                if (_env.ParentDecl is ClassDecl classParentFree && classParentFree.IsObjCRooted)
+                {
+                    AddParameter("IntPtr", "_selfClassObjC");
+                }
+                else if (_env.ParentDecl is ClassDecl)
                 {
                     AddParameter("IntPtr", "_selfClass");
                 }
@@ -509,9 +513,16 @@ namespace BindingsGeneration
                 {
                     // For non-singleton async methods, pass self as explicit IntPtr
                     // Use different parameter names to distinguish at call site:
+                    // - _selfClassObjC: ObjC-rooted class (uses Handle directly, no buffer dereference)
                     // - _selfClass: class instance (needs dereferencing - payload contains pointer to class)
                     // - _self: struct instance (no dereference - payload IS the data)
-                    var selfName = _env.ParentDecl is ClassDecl ? "_selfClass" : "_self";
+                    string selfName;
+                    if (_env.ParentDecl is ClassDecl asyncClassParent && asyncClassParent.IsObjCRooted)
+                        selfName = "_selfClassObjC";
+                    else if (_env.ParentDecl is ClassDecl)
+                        selfName = "_selfClass";
+                    else
+                        selfName = "_self";
                     AddParameter("IntPtr", selfName);
                 }
                 // For singleton classes, don't add any self parameter - we use .shared in Swift

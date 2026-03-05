@@ -19,12 +19,24 @@ namespace BindingsGeneration
             var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.Visibility);
             // Use the resolved C# type name (may be renamed for nested type collision avoidance)
             var constructorName = GetResolvedTypeName();
-            // Derived class constructors must chain to the base's protected sentinel constructor
-            // to satisfy C#'s requirement for a parameterless base constructor.
-            var baseChain = _env.ParentDecl is ClassDecl cd && cd.HasResolvedSuperclass
-                ? " : base(default(SwiftInheritanceChain))"
-                : "";
-            csWriter.WriteLine($"{accessModifier} {constructorName}({_wrapperSignature.ParametersString(BuildOriginalSwiftTypeAttributes())}){baseChain}");
+
+            if (_env.ParentDecl is ClassDecl cd && cd.IsObjCRooted)
+            {
+                // ObjC-rooted: static helper resolves handle BEFORE base() is called.
+                // The helper name uses the Swift init name to disambiguate overloads.
+                var helperName = $"CreateSwiftInstance_{NameProvider.GetPInvokeName((MethodDecl)_env.MethodDecl)}";
+                var paramArgs = string.Join(", ", _wrapperSignature.Parameters.Select(p => p.Name));
+                csWriter.WriteLine($"{accessModifier} {constructorName}({_wrapperSignature.ParametersString(BuildOriginalSwiftTypeAttributes())}) : base({helperName}({paramArgs}))");
+            }
+            else
+            {
+                // Derived class constructors must chain to the base's protected sentinel constructor
+                // to satisfy C#'s requirement for a parameterless base constructor.
+                var baseChain = _env.ParentDecl is ClassDecl cd2 && cd2.HasResolvedSuperclass
+                    ? " : base(default(SwiftInheritanceChain))"
+                    : "";
+                csWriter.WriteLine($"{accessModifier} {constructorName}({_wrapperSignature.ParametersString(BuildOriginalSwiftTypeAttributes())}){baseChain}");
+            }
         }
 
         /// <summary>

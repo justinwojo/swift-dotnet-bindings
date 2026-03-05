@@ -277,9 +277,9 @@ public class MethodMarshalPlanTests
     [Fact]
     public void SwiftSelfKind_AllVariants()
     {
-        Assert.Equal(7, Enum.GetValues<SwiftSelfKind>().Length);
+        Assert.Equal(8, Enum.GetValues<SwiftSelfKind>().Length);
         Assert.Equal(SwiftSelfKind.FrozenStructValue, (SwiftSelfKind)0);
-        Assert.Equal(SwiftSelfKind.None, (SwiftSelfKind)6);
+        Assert.Equal(SwiftSelfKind.None, (SwiftSelfKind)7);
     }
 
     [Fact]

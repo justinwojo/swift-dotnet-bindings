@@ -208,6 +208,14 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Determines if a class type is rooted in an ObjC hierarchy (e.g., inherits from NSObject/CALayer).
+        /// </summary>
+        public static bool IsObjCRooted(TypeRecord typeRecord)
+        {
+            return (typeRecord.Flags & TypeRecordFlags.ObjCRooted) != 0;
+        }
+
+        /// <summary>
         /// Determines if a method is a property setter based on its name.
         /// Property setters are generated with names ending in "_Set".
         /// </summary>
@@ -216,6 +224,42 @@ namespace BindingsGeneration
         public static bool MethodIsSetter(MethodDecl methodDecl)
         {
             return methodDecl.Name.EndsWith("_Set");
+        }
+
+        /// <summary>
+        /// Maps Swift module names to their corresponding .NET namespace.
+        /// Most Swift modules map 1:1 to .NET namespaces (e.g., UIKit → UIKit).
+        /// Overrides handle cases where Swift and .NET use different names.
+        /// </summary>
+        private static readonly Dictionary<string, string> SwiftModuleToNetNamespace = new(StringComparer.Ordinal)
+        {
+            { "ObjectiveC", "Foundation" },
+            { "QuartzCore", "CoreAnimation" },
+            { "Dispatch", "CoreFoundation" },
+        };
+
+        /// <summary>
+        /// Gets the fully-qualified .NET base type name for an ObjC-rooted class.
+        /// Maps the Swift module to the corresponding .NET namespace and uses the
+        /// ObjC class name from the superclass chain.
+        /// </summary>
+        /// <param name="classDecl">The class declaration with an ObjC superclass.</param>
+        /// <returns>The .NET type name (e.g., "CoreAnimation.CALayer", "UIKit.UIControl").</returns>
+        public static string? GetObjCBaseTypeName(ClassDecl classDecl)
+        {
+            if (!classDecl.HasObjCSuperclass || classDecl.DirectSuperclassName == null)
+                return null;
+
+            // DirectSuperclassName is module-qualified: e.g., "QuartzCore.CALayer", "UIKit.UIControl"
+            var dotIndex = classDecl.DirectSuperclassName.IndexOf('.');
+            if (dotIndex <= 0)
+                return classDecl.DirectSuperclassName; // No module prefix — use as-is
+
+            var swiftModule = classDecl.DirectSuperclassName.Substring(0, dotIndex);
+            var typeName = classDecl.DirectSuperclassName.Substring(dotIndex + 1);
+
+            var netNamespace = SwiftModuleToNetNamespace.TryGetValue(swiftModule, out var mapped) ? mapped : swiftModule;
+            return $"{netNamespace}.{typeName}";
         }
 
         /// <summary>

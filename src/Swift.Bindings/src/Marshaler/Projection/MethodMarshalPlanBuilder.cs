@@ -254,8 +254,17 @@ internal class MethodMarshalPlanBuilder
             }
         }
 
-        if (_env.ParentDecl is ClassDecl)
+        if (_env.ParentDecl is ClassDecl classDecl)
         {
+            if (classDecl.IsObjCRooted)
+            {
+                // ObjC-rooted: Handle IS the object pointer (no buffer indirection).
+                return new SwiftSelfSetup
+                {
+                    Kind = SwiftSelfKind.ObjCRootedClass,
+                    CreationCode = "var self = new SwiftSelf((void*)Handle);"
+                };
+            }
             return new SwiftSelfSetup
             {
                 Kind = SwiftSelfKind.Class,

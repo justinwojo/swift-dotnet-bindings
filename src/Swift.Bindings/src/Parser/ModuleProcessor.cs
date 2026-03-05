@@ -418,6 +418,8 @@ namespace BindingsGeneration
             SwiftTypeInfo swiftTypeInfo)
         {
             TypeRecordFlags flags = TypeRecordFlags.RequiresMemoryManagement;
+            if (classDecl.IsObjCRooted)
+                flags |= TypeRecordFlags.ObjCRooted;
             var @namespace = _namespacePatternResolver.ResolveNamespace(namedTypeSpec.Module);
             var rawIdentifier = classDecl.SwiftTypeName.Module == ""
                 ? classDecl.SwiftTypeName.Name
@@ -495,6 +497,49 @@ namespace BindingsGeneration
                     classDecl.ResolvedSuperclass = superclassDecl;
                 }
                 // else: cross-module or ObjC base — leave null (HasExternalSuperclass will be true)
+            }
+
+            // Compute IsObjCRooted via fixed-point loop.
+            // A class is ObjC-rooted if it directly inherits an ObjC class (HasObjCSuperclass),
+            // or if its resolved superclass is ObjC-rooted, or if the TypeDatabase has its
+            // parent TypeRecord marked ObjCRooted (cross-module case).
+            bool changed = true;
+            while (changed)
+            {
+                changed = false;
+                foreach (var (_, classDecl) in classesByName)
+                {
+                    if (classDecl.IsObjCRooted)
+                        continue;
+
+                    if (classDecl.HasObjCSuperclass)
+                    {
+                        classDecl.IsObjCRooted = true;
+                        changed = true;
+                        continue;
+                    }
+
+                    if (classDecl.ResolvedSuperclass?.IsObjCRooted == true)
+                    {
+                        classDecl.IsObjCRooted = true;
+                        changed = true;
+                        continue;
+                    }
+
+                    // Cross-module: check parent TypeRecord in the global database.
+                    // Skip generic superclass names (contain '<') — SwiftTypeName rejects them.
+                    if (classDecl.DirectSuperclassName != null &&
+                        !classDecl.DirectSuperclassName.Contains('<'))
+                    {
+                        var parentSwiftName = SwiftTypeName.FromModuleQualifiedName(classDecl.DirectSuperclassName);
+                        if (_typeDatabase.TryGetTypeRecord(parentSwiftName, out var parentRecord) &&
+                            MarshallingHelpers.IsObjCRooted(parentRecord))
+                        {
+                            classDecl.IsObjCRooted = true;
+                            changed = true;
+                        }
+                    }
+                }
             }
 
             // Validate: detect cycles (should be impossible in valid ABI, but guard).

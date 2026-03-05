@@ -118,6 +118,9 @@ namespace BindingsGeneration
             if ((record.Flags & TypeRecordFlags.ClassBound) != 0)
                 writer.WriteAttributeString("classBound", "true");
 
+            if ((record.Flags & TypeRecordFlags.ObjCRooted) != 0)
+                writer.WriteAttributeString("objcRooted", "true");
+
             if (!string.IsNullOrEmpty(record.RawValueTypeName))
                 writer.WriteAttributeString("rawValueType", record.RawValueTypeName);
 

@@ -71,5 +71,16 @@ namespace BindingsGeneration
         /// (cross-module or ObjC base class).
         /// </summary>
         public bool HasExternalSuperclass => DirectSuperclassName != null && ResolvedSuperclass == null;
+
+        /// <summary>
+        /// Whether the direct superclass is an Objective-C class (USR starts with "c:").
+        /// </summary>
+        public bool HasObjCSuperclass => SuperclassUsr?.StartsWith("c:") == true;
+
+        /// <summary>
+        /// Whether this class is rooted in an ObjC type hierarchy (directly or transitively).
+        /// Set by ModuleProcessor after hierarchy resolution via fixed-point computation.
+        /// </summary>
+        public bool IsObjCRooted { get; set; }
     }
 }

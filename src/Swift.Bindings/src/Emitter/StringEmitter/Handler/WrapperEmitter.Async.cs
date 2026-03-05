@@ -120,7 +120,17 @@ namespace BindingsGeneration
                 // SwiftSelf passes a raw pointer - no ARC semantics. By the time Swift's Task{}
                 // closure runs, 'self' may be deallocated. Retain ensures Swift ARC tracks it.
                 string selfInHolder;
-                if (isInstanceMethod && isSwiftClass)
+                bool isObjCRootedClass = isSwiftClass && _env.ParentDecl is ClassDecl asyncClassDecl && asyncClassDecl.IsObjCRooted;
+                if (isInstanceMethod && isObjCRootedClass)
+                {
+                    // ObjC-rooted classes: Handle IS the Swift object pointer (no _payload buffer)
+                    csWriter.WriteLines($$"""
+            IntPtr _selfPtr = Handle;
+            Arc.Retain(_selfPtr);
+            """);
+                    selfInHolder = ", new RetainedSelfPtr(_selfPtr), (object)this";
+                }
+                else if (isInstanceMethod && isSwiftClass)
                 {
                     // For Swift classes, retain self and store a RetainedSelfPtr marker
                     // The payload buffer contains a pointer to the class instance - we need to dereference it
@@ -150,7 +160,19 @@ namespace BindingsGeneration
             {
                 // No non-frozen parameters, but still need to keep 'this' alive for instance methods
                 // For Swift classes, also retain self to prevent deallocation during async execution
-                if (isSwiftClass)
+                bool isObjCRootedClassNoParams = isSwiftClass && _env.ParentDecl is ClassDecl asyncClassDeclNoParams && asyncClassDeclNoParams.IsObjCRooted;
+                if (isObjCRootedClassNoParams)
+                {
+                    // ObjC-rooted classes: Handle IS the Swift object pointer (no _payload buffer)
+                    csWriter.WriteLines($$"""
+            TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}} _tcs = new TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}}();
+            IntPtr _selfPtr = Handle;
+            Arc.Retain(_selfPtr);
+            object[] _asyncCallHolder = new object[] { _tcs, new RetainedSelfPtr(_selfPtr), (object)this, null! };
+            GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
+            """);
+                }
+                else if (isSwiftClass)
                 {
                     // The payload buffer contains a pointer to the class instance - we need to dereference it
                     csWriter.WriteLines($$"""

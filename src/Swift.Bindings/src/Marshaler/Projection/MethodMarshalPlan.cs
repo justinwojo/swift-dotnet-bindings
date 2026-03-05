@@ -167,6 +167,9 @@ public enum SwiftSelfKind
     /// <summary>Class: SwiftSelf(*(void**)payload) — dereference pointer to pointer</summary>
     Class,
 
+    /// <summary>ObjC-rooted class: SwiftSelf((void*)Handle) — Handle IS the object pointer</summary>
+    ObjCRootedClass,
+
     /// <summary>Non-frozen struct: SwiftSelf((void*)payload) — buffer IS the data</summary>
     NonFrozenStruct,
 

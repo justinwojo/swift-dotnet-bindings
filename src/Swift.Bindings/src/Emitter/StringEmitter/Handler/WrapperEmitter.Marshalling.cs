@@ -577,11 +577,15 @@ namespace BindingsGeneration
                         csWriter.WriteLine($"_payload.DangerousAddRef(ref success);");
                     }
                 }
-                else if (_env.ParentDecl is ClassDecl)
+                else if (_env.ParentDecl is ClassDecl classParent)
                 {
-                    // Swift classes always need ref counting - they use _payload SafeHandle
-                    csWriter.WriteLine($"var success = false;");
-                    csWriter.WriteLine($"_payload.DangerousAddRef(ref success);");
+                    if (!classParent.IsObjCRooted)
+                    {
+                        // Swift classes always need ref counting - they use _payload SafeHandle
+                        csWriter.WriteLine($"var success = false;");
+                        csWriter.WriteLine($"_payload.DangerousAddRef(ref success);");
+                    }
+                    // ObjC-rooted: no SafeHandle — lifecycle managed by NSObject via ARC
                 }
                 else if (_env.ParentDecl is EnumDecl)
                 {
@@ -644,11 +648,15 @@ namespace BindingsGeneration
                         csWriter.WriteLine($"   _payload.DangerousRelease();");
                     }
                 }
-                else if (_env.ParentDecl is ClassDecl)
+                else if (_env.ParentDecl is ClassDecl classParentRel)
                 {
-                    // Swift classes always need ref counting - they use _payload SafeHandle
-                    csWriter.WriteLine($"if (success)");
-                    csWriter.WriteLine($"   _payload.DangerousRelease();");
+                    if (!classParentRel.IsObjCRooted)
+                    {
+                        // Swift classes always need ref counting - they use _payload SafeHandle
+                        csWriter.WriteLine($"if (success)");
+                        csWriter.WriteLine($"   _payload.DangerousRelease();");
+                    }
+                    // ObjC-rooted: no SafeHandle release — NSObject manages lifecycle
                 }
                 else if (_env.ParentDecl is EnumDecl)
                 {

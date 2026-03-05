@@ -30,7 +30,7 @@ Quick reference mapping feedback items to sessions.
 | 2 | Universal IDisposable / disposal anxiety | Medium | BX3 | Done |
 | 7 | Types with zero public members | Low | BX3 | Done |
 | 5 | Protocol proxy internals visible | Low | BX3 | Done |
-| 11 | No inheritance from Apple framework types | High | BX4 | Pending |
+| 11 | No inheritance from Apple framework types | High | BX4 | Done |
 | 6 | Structs projected as classes | Medium | Deferred | — |
 
 ---
@@ -214,36 +214,73 @@ No-payload enums with `CustomStringConvertible`, `CaseIterable`, static members,
 
 ---
 
-## Session BX4: Apple Framework Type Hierarchy
+## Session BX4: Apple Framework Type Hierarchy — Done
 
 **Feedback item**: #11 (no inheritance from Apple framework base types)
 **Theme**: Swift classes extending UIKit/CoreAnimation types should participate in the Apple type hierarchy from C#
+**Status**: Done
 
 ### Problem
 
-`LottieAnimationLayer` inherits from `CALayer` in Swift but is projected as a flat type implementing only `ISwiftObject`. You can't pass it where a `CALayer` is expected, can't use `CALayer` methods, can't add it as a sublayer. This is the most impactful limitation for UI-heavy libraries.
+`LottieAnimationLayer` inherits from `CALayer` in Swift but was projected as a flat type implementing only `ISwiftObject`. You couldn't pass it where a `CALayer` is expected, couldn't use `CALayer` methods, couldn't add it as a sublayer. This was the most impactful limitation for UI-heavy libraries.
 
-### Why this is hard
+### Solution
 
-Apple framework types (`UIView`, `CALayer`, `NSObject`) live in the ObjC binding world (Xamarin/MAUI's `ObjCRuntime`). Swift bindings live in the Swift interop world (`SwiftSafeHandle`, `ISwiftObject`). Bridging them requires one of:
+Option 2 — **ObjC base class + Swift interop interface**. For ObjC-compatible Swift classes, `swift_release == objc_release` (same ARC), so `NSObject.Dispose()` handles lifecycle correctly. The generated class inherits from the MAUI ObjC binding type and implements `ISwiftObject`:
 
-1. **Dual inheritance** (not possible in C#) — can't inherit from both `CALayer` and have `SwiftSafeHandle`
-2. **ObjC base class + Swift interop interface** — the generated class inherits from the ObjC binding's `CALayer` and implements `ISwiftObject` via composition. Swift method dispatch goes through the Swift handle; inherited ObjC methods go through the ObjC handle. Both handles point to the same underlying object (Swift classes that extend ObjC classes are ObjC-compatible).
-3. **Implicit conversion operators** — lightweight approach where `LottieAnimationLayer` has an implicit conversion to `CALayer` via handle unwrapping. Less seamless but much simpler.
+```csharp
+// Before
+public partial class LottieAnimationLayer : ISwiftObject, IDisposable { ... }
 
-### Approach
+// After
+public partial class LottieAnimationLayer : CoreAnimation.CALayer, ISwiftObject { ... }
+```
 
-This session starts with a design spike to evaluate options 2 and 3 against real library patterns (Lottie's `LottieAnimationLayer : CALayer`, SnapKit's constraint types, etc.). Then implement the chosen approach.
+### Implementation
 
-**Design considerations**:
-- Swift classes inheriting ObjC classes share the same object pointer — `Unmanaged.toOpaque()` on the Swift side yields the ObjC object pointer
-- MAUI's ObjC binding runtime can wrap an existing `IntPtr` as a managed `CALayer` via `Runtime.GetNSObject<CALayer>(ptr)`
-- The generator already knows the superclass chain from ABI JSON (`Superclass` field on `ClassDecl`)
-- Scope to ObjC-rooted class hierarchies only (pure Swift class inheritance already works via skip-to-ancestor dispatch)
+**Model layer**:
+- `ClassDecl.HasObjCSuperclass` — direct ObjC base detection via `c:` USR prefix
+- `ClassDecl.IsObjCRooted` — set by `ModuleProcessor.ResolveClassHierarchy()` via fixed-point loop: direct ObjC base → transitive through resolved superclass → cross-module TypeRecord flag lookup
+- `TypeRecordFlags.ObjCRooted` (1 << 8) — serialized/deserialized in module database XML for cross-module transitivity
+- Generic superclass names (containing `<`) guarded against `SwiftTypeName.FromModuleQualifiedName` crash
 
-**Key files**: `ClassHandler.cs`, `TypeHandlerHelpers.cs`, `SwiftABIParser.cs` (superclass chain), runtime interop layer (new)
+**Namespace mapping**: Static `SwiftModuleToNetNamespace` dictionary: `ObjectiveC` → `Foundation`, `QuartzCore` → `CoreAnimation`, `Dispatch` → `CoreFoundation`. All others pass through 1:1. `GetObjCBaseTypeName()` maps Swift module-qualified superclass name to .NET namespace-qualified type. Cross-module transitive ObjC-rooted classes with unresolved Swift parents fall back to `Foundation.NSObject`.
 
-**Success criteria**: `LottieAnimationLayer` can be passed to any API expecting `CALayer`. `layer.Sublayers` returns it in the collection. Basic `CALayer` properties (frame, bounds, opacity) are accessible on the generated type.
+**Emission (ClassHandler)**:
+- **Interface list**: ObjC boundary classes use mapped ObjC base type (e.g., `CoreAnimation.CALayer`) instead of `IDisposable`. Derived ObjC-rooted classes inherit from their same-module Swift parent (existing logic). Cross-module transitives fall back to `Foundation.NSObject`.
+- **No `_payload` / Dispose / finalizer**: All gated by `!isObjCRooted`. NSObject manages lifecycle via ARC.
+- **`ISwiftObject.SwiftHandle => Handle`**: NSObject.Handle IS the Swift object pointer.
+- **Constructor pattern**: Internal `SwiftHandle` ctor chains `base((ObjCRuntime.NativeHandle)handle.Pointer)` + `DangerousRelease()` to balance ARC (Swift +1, MAUI retain +2, release back to +1). Protected `NativeHandle` ctor for same-module subclass chaining (no release). Public constructors use static `CreateSwiftInstance_{name}(args)` helper — resolves handle BEFORE `base()`, null/error checked before construction.
+- **NewFromPayload**: Reads pointer, frees buffer, wraps via `SwiftHandle`.
+- **MarshalToSwift**: Uses `Handle` directly, no SafeHandle add/release.
+
+**Self-parameter**:
+- `_selfClassObjC` parameter name in `PInvokeEmitter` → resolved to `Handle` in `MethodSignature`
+- `WrapperEmitter.Marshalling` skips `EmitSafeHandleAddRef`/`Release` for ObjC-rooted classes
+- `MethodMarshalPlanBuilder` adds `SwiftSelfKind.ObjCRootedClass` → `new SwiftSelf((void*)Handle)`
+
+**Type projection**: `ObjCRootedClassProjection` — parameters use call-scoped stackalloc temp buffer (`IntPtr* buf = stackalloc IntPtr[1]; *buf = param.Handle`); returns use same pattern as `ClassProjection` (allocate buffer, `MarshalFromSwift<T>`).
+
+**Async**: `WrapperEmitter.Async` — ObjC-rooted classes use `Handle` directly for `_selfPtr` (no `_payload.DangerousGetHandle()` dereference), still `Arc.Retain` for async safety.
+
+**Key files**: `ClassDecl.cs`, `TypeRecord.cs`, `MarshallingHelpers.cs`, `ModuleProcessor.cs`, `ModuleDatabaseEmitter.cs`, `TypeDatabase.cs`, `ClassHandler.cs`, `WrapperEmitter.cs`/`.Signature.cs`/`.Return.cs`/`.Marshalling.cs`/`.Async.cs`, `PInvokeEmitter.cs`, `MethodSignature.cs`, `MethodMarshalPlanBuilder.cs`, `MethodMarshalPlan.cs`, `TypeProjectionFactory.cs`, `ObjCRootedClassProjection.cs` (new)
+
+### Tests
+
+52 new unit tests in `ClassObjCRootedTests.cs`:
+- **Model tests** (7): `HasObjCSuperclass` for ObjC/Swift/no USR, `IsObjCRooted` default/settable
+- **Resolution tests** (7): Direct ObjC base, transitive 2-level and 3-level, pure Swift not rooted, reverse declaration order, generic superclass name guard (RxSwift regression)
+- **TypeRecord tests** (4): Flag bit value, `IsObjCRooted` helper positive/negative/combined
+- **Serialization tests** (2): Round-trip XML persistence, default-false when absent
+- **Namespace mapping tests** (6): QuartzCore→CoreAnimation, ObjectiveC→Foundation, Dispatch→CoreFoundation, UIKit passthrough, null for non-ObjC/Swift superclass
+- **Emission tests** (15): Declaration with ObjC base, no IDisposable, no _payload, no Dispose/finalizer, SwiftHandle→Handle, constructors (SwiftHandle chain, DangerousRelease, protected NativeHandle), NewFromPayload (free+wrap), MarshalToSwift (Handle, no SafeHandle)
+- **Derived class tests** (3): Inherits from Swift parent not ObjC type, no payload, has DangerousRelease
+- **Cross-module transitive tests** (3): Falls back to Foundation.NSObject, no payload, ObjC-rooted constructors
+- **Projection tests** (5): PublicType, PInvokeType, parameter stackalloc, return MarshalFromSwift, element conversion via Handle
+
+### Success criteria
+
+`LottieAnimationLayer : CoreAnimation.CALayer`, `AnimatedControl : UIKit.UIControl`, `AnimatedButton : AnimatedControl` (derived from same-module Swift parent). No `_payload`, `Dispose()`, or finalizer on ObjC-rooted classes. Self-params use `Handle` directly. All 53 validation library targets pass (no regressions). Line count decreases in Stripe/FSPagerView libraries are expected (removed payload/dispose boilerplate).
 
 ---
 

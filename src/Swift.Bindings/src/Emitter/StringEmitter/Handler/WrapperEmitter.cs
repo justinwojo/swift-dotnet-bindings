@@ -112,6 +112,14 @@ namespace BindingsGeneration
         /// <param name="writer">The IndentedTextWriter instance.</param>
         internal void EmitConstructor(CSharpWriter csWriter)
         {
+            bool isObjCRooted = _env.ParentDecl is ClassDecl cd && cd.IsObjCRooted;
+
+            if (isObjCRooted)
+            {
+                EmitObjCRootedConstructor(csWriter);
+                return;
+            }
+
             bool isGeneric = _env.MethodDecl.IsGeneric;
             bool hasClosures = _env.MethodDecl.CSSignature.Skip(1).Any(_env.ClosureHandler.IsClosure);
             bool needsTryFinally = isGeneric || hasClosures;
@@ -168,6 +176,81 @@ namespace BindingsGeneration
             }
 
             EmitUnsafeBlockEnd(csWriter);
+            EmitBodyEnd(csWriter);
+        }
+
+        /// <summary>
+        /// Emits a constructor for ObjC-rooted classes using the static helper pattern.
+        /// The P/Invoke call happens inside a static CreateSwiftInstance_... method that
+        /// returns NativeHandle. The constructor chains to base(NativeHandle) and calls
+        /// DangerousRelease() to balance NSObject's retain.
+        /// </summary>
+        private void EmitObjCRootedConstructor(CSharpWriter csWriter)
+        {
+            bool isGeneric = _env.MethodDecl.IsGeneric;
+            bool hasClosures = _env.MethodDecl.CSSignature.Skip(1).Any(_env.ClosureHandler.IsClosure);
+            bool needsTryFinally = isGeneric || hasClosures;
+
+            // Emit closure callbacks and error helper P/Invokes before constructor
+            EmitErrorHelperPInvokes(csWriter);
+            if (hasClosures)
+            {
+                EmitClosureCallbacks(csWriter);
+            }
+
+            // Emit the static helper method first
+            var helperName = $"CreateSwiftInstance_{NameProvider.GetPInvokeName((MethodDecl)_env.MethodDecl)}";
+            var helperParams = _wrapperSignature.ParametersString();
+            csWriter.WriteLine($"private static unsafe ObjCRuntime.NativeHandle {helperName}({helperParams})");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+
+            // The helper body contains the full P/Invoke call sequence
+            EmitBoundGenericArguments(csWriter);
+            EmitClosureMarshalling(csWriter);
+            EmitTypeConversions(csWriter);
+
+            if (needsTryFinally)
+            {
+                EmitDeclarationsForAllocations(csWriter);
+                EmitTryBlockStart(csWriter);
+            }
+
+            if (isGeneric)
+            {
+                EmitGenericArguments(csWriter);
+                EmitProtocolWitnessTables(csWriter);
+            }
+
+            // Allocate buffer for the constructor result
+            csWriter.WriteLine("IntPtr* buf = stackalloc IntPtr[1];");
+            // Emit the P/Invoke call — result goes into 'buf'
+            EmitPInvokeCall(csWriter);
+            EmitSwiftError(csWriter);
+
+            // Extract the result pointer
+            csWriter.WriteLine("if (*buf == IntPtr.Zero)");
+            csWriter.Indent++;
+            csWriter.WriteLine("throw new InvalidOperationException(\"Swift initializer returned null.\");");
+            csWriter.Indent--;
+            csWriter.WriteLine("return new ObjCRuntime.NativeHandle(*buf);");
+
+            if (needsTryFinally)
+            {
+                EmitTryBlockEnd(csWriter);
+                EmitFinally(csWriter);
+            }
+
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+
+            // Now emit the public constructor that calls the helper
+            EmitSafetyObsolete(csWriter);
+            XmlDocCommentEmitter.EmitMethodDocComment(csWriter, _env.MethodDecl, isConstructor: true);
+            EmitSignatureConstructor(csWriter);
+            EmitBodyStart(csWriter);
+            EmitReturnConstructor(csWriter); // Emits DangerousRelease()
             EmitBodyEnd(csWriter);
         }
 

@@ -173,6 +173,7 @@ namespace BindingsGeneration
                 string simpleEnum = typeDeclarationNode?.Attributes?["simpleEnum"]?.Value ?? "false";
                 string inheritedRequirementsOnly = typeDeclarationNode?.Attributes?["inheritedRequirementsOnly"]?.Value ?? "false";
                 string classBound = typeDeclarationNode?.Attributes?["classBound"]?.Value ?? "false";
+                string objcRooted = typeDeclarationNode?.Attributes?["objcRooted"]?.Value ?? "false";
                 string? rawValueType = typeDeclarationNode?.Attributes?["rawValueType"]?.Value;
                 string? emittedMemberCountStr = typeDeclarationNode?.Attributes?["emittedMemberCount"]?.Value;
                 int? emittedMemberCount = emittedMemberCountStr != null ? int.Parse(emittedMemberCountStr) : null;
@@ -211,7 +212,8 @@ namespace BindingsGeneration
                             (hasSelfRequirement.ToLower() == "true" ? TypeRecordFlags.HasSelfRequirement : TypeRecordFlags.None) |
                             (simpleEnum.ToLower() == "true" ? TypeRecordFlags.SimpleEnum : TypeRecordFlags.None) |
                             (inheritedRequirementsOnly.ToLower() == "true" ? TypeRecordFlags.InheritedRequirementsOnly : TypeRecordFlags.None) |
-                            (classBound.ToLower() == "true" ? TypeRecordFlags.ClassBound : TypeRecordFlags.None),
+                            (classBound.ToLower() == "true" ? TypeRecordFlags.ClassBound : TypeRecordFlags.None) |
+                            (objcRooted.ToLower() == "true" ? TypeRecordFlags.ObjCRooted : TypeRecordFlags.None),
                     Kind = kindStr.ToLower() switch
                     {
                         "class" => TypeRecordKind.Class,
