@@ -608,7 +608,7 @@ public static class GenericClosureBridgeEmitter
         retParams.Add("void* resultBuf");
         AddNonClosureAndSelfParams(retParams, methodDecl, env, closureArg);
         if (methodDecl.Throws)
-            retParams.Add("out SwiftError error");
+            retParams.Add("out SwiftError swiftError");
 
         PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
         {
@@ -628,7 +628,7 @@ public static class GenericClosureBridgeEmitter
         voidParams.Add("IntPtr blockContext");
         AddNonClosureAndSelfParams(voidParams, methodDecl, env, closureArg);
         if (methodDecl.Throws)
-            voidParams.Add("out SwiftError error");
+            voidParams.Add("out SwiftError swiftError");
 
         PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
         {
@@ -724,17 +724,17 @@ public static class GenericClosureBridgeEmitter
         if (methodDecl.MethodType == MethodType.Instance)
             callArgs.Add("new SwiftSelf((void*)_payload.DangerousGetHandle())");
         if (methodDecl.Throws)
-            callArgs.Add("out SwiftError error");
+            callArgs.Add("out SwiftError swiftError");
 
         csWriter.WriteLine($"{pInvokeName}_XC({string.Join(", ", callArgs)});");
 
         if (methodDecl.Throws)
         {
-            csWriter.WriteLine("if (error.Value != null)");
+            csWriter.WriteLine("if (swiftError.Value != null)");
             csWriter.WriteLine("{");
             csWriter.Indent++;
             csWriter.WriteLine("string _errorMessage;");
-            csWriter.WriteLine("var _errorPtr = (IntPtr)error.Value;");
+            csWriter.WriteLine("var _errorPtr = (IntPtr)swiftError.Value;");
             csWriter.WriteLine("var _descPtr = SBW_GetErrorDescription(_errorPtr);");
             csWriter.WriteLine("try");
             csWriter.WriteLine("{");
@@ -820,17 +820,17 @@ public static class GenericClosureBridgeEmitter
         if (methodDecl.MethodType == MethodType.Instance)
             callArgs.Add("new SwiftSelf((void*)_payload.DangerousGetHandle())");
         if (methodDecl.Throws)
-            callArgs.Add("out SwiftError error");
+            callArgs.Add("out SwiftError swiftError");
 
         csWriter.WriteLine($"{pInvokeName}_XC_void({string.Join(", ", callArgs)});");
 
         if (methodDecl.Throws)
         {
-            csWriter.WriteLine("if (error.Value != null)");
+            csWriter.WriteLine("if (swiftError.Value != null)");
             csWriter.WriteLine("{");
             csWriter.Indent++;
             csWriter.WriteLine("string _errorMessage;");
-            csWriter.WriteLine("var _errorPtr = (IntPtr)error.Value;");
+            csWriter.WriteLine("var _errorPtr = (IntPtr)swiftError.Value;");
             csWriter.WriteLine("var _descPtr = SBW_GetErrorDescription(_errorPtr);");
             csWriter.WriteLine("try");
             csWriter.WriteLine("{");

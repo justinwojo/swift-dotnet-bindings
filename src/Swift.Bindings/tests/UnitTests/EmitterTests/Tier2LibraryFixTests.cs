@@ -811,4 +811,60 @@ public class Tier2LibraryFixTests
     }
 
     #endregion
+
+    #region P14C: AVCaptureDevice.FocusMode enum remap (StripeCameraCore)
+
+    [Fact]
+    public void AppleFrameworkValueTypes_AVCaptureDeviceFocusMode_IsValueType()
+    {
+        // AVCaptureDevice.FocusMode is an ObjC enum — must be in value types list
+        // to prevent misclassification as an ObjC class
+        var typeSpec = new NamedTypeSpec("AVFoundation.AVCaptureDevice.FocusMode");
+        Assert.False(TypeDatabaseExtensions.IsObjCModuleType(typeSpec));
+    }
+
+    [Fact]
+    public void AppleEnumRemap_AVCaptureDeviceFocusMode_RemapsToAVCaptureFocusMode()
+    {
+        // Swift: AVCaptureDevice.FocusMode → .NET: AVFoundation.AVCaptureFocusMode
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("AVFoundation.AVCaptureDevice.FocusMode");
+        var record = TypeDatabaseExtensions.TryCreateAppleFrameworkEnumRecord(swiftTypeName);
+
+        Assert.NotNull(record);
+        Assert.Equal("AVCaptureFocusMode", record.CSharpTypeName.Name);
+        Assert.Equal("AVFoundation", record.CSharpTypeName.Namespace);
+    }
+
+    #endregion
+
+    #region P14C: Foundation.Formatter → NSFormatter remap (PhoneNumberKit)
+
+    [Fact]
+    public void MapQualifiedTypeToNet_FoundationFormatter_RemapsToNSFormatter()
+    {
+        var result = MarshallingHelpers.MapQualifiedTypeToNet("Foundation.Formatter");
+        Assert.Equal("Foundation.NSFormatter", result);
+    }
+
+    [Fact]
+    public void MapQualifiedTypeToNet_NormalType_PassesThrough()
+    {
+        // Non-remapped types should pass through unchanged
+        var result = MarshallingHelpers.MapQualifiedTypeToNet("Foundation.NSObject");
+        Assert.Equal("Foundation.NSObject", result);
+    }
+
+    #endregion
+
+    #region P14C: UITextLayoutDirection as value type (StripeUICore)
+
+    [Fact]
+    public void AppleFrameworkValueTypes_UITextLayoutDirection_IsValueType()
+    {
+        // UITextLayoutDirection is an ObjC enum — must be in value types list
+        var typeSpec = new NamedTypeSpec("UIKit.UITextLayoutDirection");
+        Assert.False(TypeDatabaseExtensions.IsObjCModuleType(typeSpec));
+    }
+
+    #endregion
 }

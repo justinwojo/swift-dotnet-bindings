@@ -1311,6 +1311,10 @@ public class ClosureHandler
         if (!_typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord))
             return false;
 
+        // NativeRemapped types (Foundation.URL → NSUrl) are ObjC types in C# — no .Payload
+        if (typeRecord.NativeTypeName != null)
+            return false;
+
         // Must be a struct and NOT be frozen
         return typeRecord.Kind == TypeRecordKind.Struct &&
                (typeRecord.Flags & TypeRecordFlags.Frozen) == 0;
@@ -1335,7 +1339,9 @@ public class ClosureHandler
         if (!_typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord))
             return false;
 
-        return typeRecord.Kind == TypeRecordKind.Class && !MarshallingHelpers.IsObjCBridged(typeRecord);
+        return typeRecord.Kind == TypeRecordKind.Class
+            && !MarshallingHelpers.IsObjCBridged(typeRecord)
+            && !MarshallingHelpers.IsObjCRooted(typeRecord);
     }
 
     /// <summary>
@@ -1387,8 +1393,9 @@ public class ClosureHandler
     }
 
     /// <summary>
-    /// Checks if a type is an Objective-C bridged class in the type database.
-    /// ObjC-bridged types (e.g., NSError, UIImage) pass as raw pointers in closure callbacks.
+    /// Checks if a type is an Objective-C bridged or ObjC-rooted class in the type database.
+    /// ObjC-bridged types (e.g., NSError, UIImage) and ObjC-rooted types (Swift classes
+    /// inheriting NSObject) pass as raw pointers (.Handle) in closure callbacks.
     /// </summary>
     public bool IsObjCBridgedClass(TypeSpec typeSpec)
     {
@@ -1405,7 +1412,8 @@ public class ClosureHandler
         if (!_typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord))
             return false;
 
-        return MarshallingHelpers.IsObjCBridged(typeRecord);
+        return MarshallingHelpers.IsObjCBridged(typeRecord)
+            || MarshallingHelpers.IsObjCRooted(typeRecord);
     }
 
     /// <summary>

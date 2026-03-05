@@ -215,6 +215,44 @@ public static class ProtocolExtensionEmitter
             return;
         }
 
+        // Check projected C# signature collision — Swift overloads with different labels
+        // (e.g., verify(_:expectedData:) vs verify(_:for:)) may produce identical C# signatures.
+        {
+            bool hasReturnValue = returnTypeSpec != null && !returnTypeSpec.IsEmptyTuple;
+            var csMethodName = NameProvider.GetPublicMethodName(extMethod.MethodName, isAsync: false,
+                hasReturnValue: hasReturnValue, parameterCount: parameters.Count);
+            var projParamTypes = new List<string>();
+            foreach (var (_, paramTypeSpec, _) in parameters)
+            {
+                var factory = new TypeProjectionFactory();
+                var projection = factory.Project(paramTypeSpec, new ProjectionContext
+                {
+                    TypeDatabase = typeDatabase,
+                    IsParameter = true
+                });
+                projParamTypes.Add(projection?.PublicType ?? paramTypeSpec.ToString());
+            }
+            var projectedKey = $"{csMethodName}({string.Join(",", projParamTypes)})";
+
+            // Compute projected keys for existing methods
+            var existingProjectedKeys = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var m in conformingType.Methods)
+            {
+                if (m.IsAccessor || m.IsConstructor) continue;
+                try
+                {
+                    existingProjectedKeys.Add(BaseHandler.GetProjectedCSharpMethodKey(m, typeDatabase));
+                }
+                catch { /* skip unresolvable methods */ }
+            }
+            if (existingProjectedKeys.Contains(projectedKey))
+            {
+                logger.LogDebug("Skipping extension method {Type}.{Method}: projected C# signature collision ({Key})",
+                    typeName, extMethod.MethodName, projectedKey);
+                return;
+            }
+        }
+
         // --- All gates passed: emit Swift wrapper and synthetic MethodDecl ---
 
         // Determine if method throws (untyped "throws" only — rethrows treated as non-throwing)
@@ -2008,8 +2046,16 @@ public static class ProtocolExtensionEmitter
     /// </summary>
     private static string GetParamNameFromType(string swiftType)
     {
-        var dotIdx = swiftType.LastIndexOf('.');
-        var typeName = dotIdx >= 0 ? swiftType.Substring(dotIdx + 1) : swiftType;
+        // Strip "any " prefix from existential types
+        var cleaned = swiftType.StartsWith("any ", StringComparison.Ordinal) ? swiftType.Substring(4) : swiftType;
+
+        // Strip generic parameters (e.g., "RetryStrategy<T>" → "RetryStrategy")
+        var angleIdx = cleaned.IndexOf('<');
+        if (angleIdx >= 0)
+            cleaned = cleaned.Substring(0, angleIdx);
+
+        var dotIdx = cleaned.LastIndexOf('.');
+        var typeName = dotIdx >= 0 ? cleaned.Substring(dotIdx + 1) : cleaned;
 
         if (typeName == "Bool") return "enabled";
         if (typeName == "Int" || typeName == "Int32" || typeName == "Int64") return "value";

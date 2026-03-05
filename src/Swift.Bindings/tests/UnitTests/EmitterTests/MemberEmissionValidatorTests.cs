@@ -412,4 +412,45 @@ public class MemberEmissionValidatorTests
     }
 
     #endregion
+
+    #region NetStaticClassType Tests
+
+    [Fact]
+    public void ReferencesUnsupportedModule_UITextContentType_ReturnsTrue()
+    {
+        // UITextContentType is a static class in .NET iOS — can't be used as a variable or type arg
+        var typeSpec = new NamedTypeSpec("UIKit.UITextContentType");
+        Assert.True(MemberEmissionValidator.ReferencesUnsupportedModule(typeSpec));
+    }
+
+    [Fact]
+    public void ReferencesUnsupportedModule_OptionalUITextContentType_ReturnsTrue()
+    {
+        // SwiftOptional<UITextContentType> should also be caught (generic parameter recursion)
+        var inner = new NamedTypeSpec("UIKit.UITextContentType");
+        var optional = new NamedTypeSpec("Swift.Optional", inner);
+        Assert.True(MemberEmissionValidator.ReferencesUnsupportedModule(optional));
+    }
+
+    [Fact]
+    public void ReferencesUnsupportedModule_NormalUIKitType_ReturnsFalse()
+    {
+        // Normal UIKit types (UIView etc.) are NOT static classes
+        var typeSpec = new NamedTypeSpec("UIKit.UIView");
+        Assert.False(MemberEmissionValidator.ReferencesUnsupportedModule(typeSpec));
+    }
+
+    [Fact]
+    public void IsNetStaticClassType_UITextContentType_ReturnsTrue()
+    {
+        Assert.True(MemberEmissionValidator.IsNetStaticClassType("UIKit.UITextContentType"));
+    }
+
+    [Fact]
+    public void IsNetStaticClassType_UIKeyboardType_ReturnsFalse()
+    {
+        Assert.False(MemberEmissionValidator.IsNetStaticClassType("UIKit.UIKeyboardType"));
+    }
+
+    #endregion
 }

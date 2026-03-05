@@ -853,7 +853,11 @@ public static class NestedClosureBridge
         // SwiftSelf — instance methods only
         if (!isStatic)
         {
-            callArgs.Add("new SwiftSelf((void*)Payload.DangerousGetHandle())");
+            bool isObjCRooted = method.ParentDecl is ClassDecl cd && cd.IsObjCRooted;
+            var selfExpr = isObjCRooted
+                ? "new SwiftSelf((void*)Handle)"
+                : "new SwiftSelf((void*)Payload.DangerousGetHandle())";
+            callArgs.Add(selfExpr);
         }
 
         if (returnsClass)

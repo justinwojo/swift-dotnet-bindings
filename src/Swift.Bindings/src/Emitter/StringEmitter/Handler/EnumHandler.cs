@@ -158,7 +158,7 @@ namespace BindingsGeneration
                 csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
                 csWriter.WriteLine($"SwiftSafeHandle<{typeNameWithGenerics}> _payload = SwiftSafeHandle<{typeNameWithGenerics}>.Zero;");
                 csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
-                csWriter.WriteLine($"internal SwiftSafeHandle<{typeNameWithGenerics}> Payload => _payload;");
+                csWriter.WriteLine($"public SwiftSafeHandle<{typeNameWithGenerics}> Payload => _payload;");
                 csWriter.WriteLine($"IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();");
                 csWriter.WriteLine("#pragma warning disable CS0649");
                 csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");

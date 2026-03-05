@@ -371,10 +371,10 @@ internal class MethodMarshalPlanBuilder
             // C2: Typed throws — extract error value with nil-check fallback.
             // SBW_ReleaseError is in the outermost finally, guaranteeing exactly-once release.
             errorCheckCode = $$"""
-                if (error.Value != null)
+                if (swiftError.Value != null)
                 {
                     string _errorMessage;
-                    var _errorPtr = (IntPtr)error.Value;
+                    var _errorPtr = (IntPtr)swiftError.Value;
                     try
                     {
                         var _descPtr = {{hp}}SBW_GetErrorDescription(_errorPtr);
@@ -414,10 +414,10 @@ internal class MethodMarshalPlanBuilder
         {
             // Untyped throws — extract message via SBW_GetErrorDescription, release via SBW_ReleaseError
             errorCheckCode = $$"""
-                if (error.Value != null)
+                if (swiftError.Value != null)
                 {
                     string _errorMessage;
-                    var _errorPtr = (IntPtr)error.Value;
+                    var _errorPtr = (IntPtr)swiftError.Value;
                     var _descPtr = {{hp}}SBW_GetErrorDescription(_errorPtr);
                     try
                     {

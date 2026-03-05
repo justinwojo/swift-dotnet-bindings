@@ -578,6 +578,13 @@ public static class NameProvider
         if (string.IsNullOrEmpty(name))
             return name;
 
+        // CX-2: Strip characters illegal in C# identifiers (e.g., '<', '>' from existential annotations).
+        // Kingfisher produces params like "retryStrategy>" from "any RetryStrategy" type annotations.
+        name = StripIllegalIdentifierChars(name);
+
+        if (string.IsNullOrEmpty(name))
+            return "_param";
+
         // "value" is a contextual keyword — valid as a parameter name in all positions
         // we generate (method params, not property setters).
         if (name == "value")
@@ -592,6 +599,19 @@ public static class NameProvider
             return $"_{name}";
 
         return name;
+    }
+
+    /// <summary>
+    /// Strips characters that are illegal in C# identifiers.
+    /// Keeps only letters, digits, and underscores.
+    /// </summary>
+    private static string StripIllegalIdentifierChars(string name)
+    {
+        if (name.All(c => char.IsLetterOrDigit(c) || c == '_' || c == '@'))
+            return name;
+
+        var cleaned = new string(name.Where(c => char.IsLetterOrDigit(c) || c == '_' || c == '@').ToArray());
+        return cleaned;
     }
 
     /// <summary>
@@ -743,6 +763,7 @@ public static class NameProvider
     private static readonly HashSet<string> _inheritedMethodCollisions = new()
     {
         "Dispose",        // IDisposable.Dispose() from SafeHandle (RxSwift dispose())
+        "Finalize",       // Object.Finalize() (C# destructor) — GRDB DatabaseAggregate.finalize()
     };
 
     public static string GetMetadataName(string typeName) => $"{typeName}Metadata";

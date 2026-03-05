@@ -117,7 +117,7 @@ public class MethodMarshalPlanBuilderTests
 
         Assert.NotNull(plan.SwiftError);
         Assert.False(plan.SwiftError!.IsTypedThrows);
-        Assert.Contains("error.Value != null", plan.SwiftError.ErrorCheckCode);
+        Assert.Contains("swiftError.Value != null", plan.SwiftError.ErrorCheckCode);
         Assert.Contains("SBW_GetErrorDescription", plan.SwiftError.ErrorCheckCode);
         Assert.Contains("SBW_ReleaseError", plan.SwiftError.ErrorCheckCode);
         Assert.Contains("SBW_Free", plan.SwiftError.ErrorCheckCode);
@@ -133,7 +133,7 @@ public class MethodMarshalPlanBuilderTests
 
         Assert.NotNull(plan.SwiftError);
         Assert.True(plan.SwiftError!.IsTypedThrows);
-        Assert.Contains("error.Value != null", plan.SwiftError.ErrorCheckCode);
+        Assert.Contains("swiftError.Value != null", plan.SwiftError.ErrorCheckCode);
         Assert.Contains("SBW_GetErrorDescription", plan.SwiftError.ErrorCheckCode);
         Assert.Contains("SBW_ReleaseError", plan.SwiftError.ErrorCheckCode);
         Assert.Contains("SwiftException<", plan.SwiftError.ErrorCheckCode);

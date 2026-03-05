@@ -572,7 +572,7 @@ namespace BindingsGeneration
 
             if (_env.MethodDecl.Throws)
             {
-                AddParameter("SwiftError", "error", "out");
+                AddParameter("SwiftError", "swiftError", "out");
             }
         }
 

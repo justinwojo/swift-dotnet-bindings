@@ -95,6 +95,7 @@ namespace BindingsGeneration
             }
 
             ResolveClassHierarchy();
+            UpdateObjCRootedTypeRecords();
             DemoteSimpleEnumsUsedAsGenericArgs();
 
             return new ModuleProcessingResult(_moduleDatabase);
@@ -683,6 +684,26 @@ namespace BindingsGeneration
                     "Cyclic class hierarchy detected for '{ClassName}'. Clearing resolved superclass.",
                     participant.SwiftTypeName.ModuleQualifiedName);
                 participant.ResolvedSuperclass = null;
+            }
+        }
+
+        /// <summary>
+        /// After ResolveClassHierarchy sets IsObjCRooted on ClassDecls, update the
+        /// already-registered TypeRecords to include the ObjCRooted flag.
+        /// RegisterClassType runs before ResolveClassHierarchy, so the flag is stale.
+        /// </summary>
+        private void UpdateObjCRootedTypeRecords()
+        {
+            foreach (var (_, typeDecl) in _typeDecls)
+            {
+                if (typeDecl is ClassDecl classDecl && classDecl.IsObjCRooted)
+                {
+                    if (_moduleDatabase.TryGetTypeRecord(classDecl.SwiftTypeName, out var record) &&
+                        !record.Flags.HasFlag(TypeRecordFlags.ObjCRooted))
+                    {
+                        record.Flags |= TypeRecordFlags.ObjCRooted;
+                    }
+                }
             }
         }
 

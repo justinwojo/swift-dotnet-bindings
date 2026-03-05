@@ -678,7 +678,7 @@ public class PInvokeEmitterTests
         var typeDb = CreateBasicTypeDatabase("Loader");
         var sig = GetPInvokeSignature(method, typeDb);
 
-        var errorParam = sig.Parameters.FirstOrDefault(p => p.Name == "error");
+        var errorParam = sig.Parameters.FirstOrDefault(p => p.Name == "swiftError");
         Assert.NotNull(errorParam);
         Assert.Equal(new MarshalledType.Simple("SwiftError"), errorParam.Type);
         Assert.Equal("out", errorParam.modifier);

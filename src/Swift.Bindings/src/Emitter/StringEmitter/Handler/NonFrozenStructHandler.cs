@@ -254,7 +254,7 @@ namespace BindingsGeneration
         private static void WritePayload(CSharpWriter csWriter, string typeNameWithGenerics)
         {
             csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
-            csWriter.WriteLine($"internal SwiftSafeHandle<{typeNameWithGenerics}> Payload => _payload;");
+            csWriter.WriteLine($"public SwiftSafeHandle<{typeNameWithGenerics}> Payload => _payload;");
             csWriter.WriteLine($"IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();");
             csWriter.WriteLine();
             var simpleName = typeNameWithGenerics.Contains('<')

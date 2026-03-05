@@ -41,10 +41,11 @@ namespace BindingsGeneration
                 .Where(p =>
                 {
                     var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(p.SwiftTypeSpec);
-                    // C4: ObjC-bridged types (UIViewController, etc.) are .NET GC-managed objects,
-                    // not Swift value types — they don't need copy-buffer treatment and emitting
-                    // SwiftObjectHelper<T> for them causes CS0311/CS1061.
-                    if (MarshallingHelpers.IsObjCBridged(typeRecord))
+                    // C4: ObjC-bridged types (UIViewController, etc.) and ObjC-rooted types
+                    // (STPAPIClient, etc.) are .NET GC-managed objects, not Swift value types —
+                    // they don't need copy-buffer treatment and emitting SwiftObjectHelper<T>
+                    // for them causes CS0311/CS1061.
+                    if (MarshallingHelpers.IsObjCBridged(typeRecord) || MarshallingHelpers.IsObjCRooted(typeRecord))
                         return false;
                     // Simple enums are C# value types — they don't need copy-buffer treatment
                     if (typeRecord.Kind == TypeRecordKind.Enum &&

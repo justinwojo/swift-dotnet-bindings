@@ -96,15 +96,21 @@ public static class PInvokeEmitHelper
             ? "CallConvSwift"
             : "CallConvCdecl";
 
+        // If any parameter or return type is string, add StringMarshalling attribute
+        var needsStringMarshalling = info.ParametersString.Contains("string ")
+            || info.ParametersString.Contains("string?")
+            || (!info.IsAsync && info.ReturnType == "string");
+        var stringMarshalSuffix = needsStringMarshalling ? ", StringMarshalling = StringMarshalling.Utf8" : "";
+
         if (info.UseFullyQualifiedNames)
         {
             lines.Add($"[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] {{ typeof(global::System.Runtime.CompilerServices.{callConvType}) }})]");
-            lines.Add($"[global::System.Runtime.InteropServices.LibraryImport(\"{info.LibraryPath}\", EntryPoint = \"{info.EntryPoint}\")]");
+            lines.Add($"[global::System.Runtime.InteropServices.LibraryImport(\"{info.LibraryPath}\", EntryPoint = \"{info.EntryPoint}\"{stringMarshalSuffix})]");
         }
         else
         {
             lines.Add($"[UnmanagedCallConv(CallConvs = new Type[] {{ typeof({callConvType}) }})]");
-            lines.Add($"[LibraryImport(\"{info.LibraryPath}\", EntryPoint = \"{info.EntryPoint}\")]");
+            lines.Add($"[LibraryImport(\"{info.LibraryPath}\", EntryPoint = \"{info.EntryPoint}\"{stringMarshalSuffix})]");
         }
 
         // Return type (async always returns void)

@@ -58,7 +58,7 @@ using Swift.Runtime.InteropServices;
     [EditorBrowsable(EditorBrowsableState.Never)]
     SwiftSafeHandle<" + typeName + @"> _payload = SwiftSafeHandle<" + typeName + @">.Zero;
     [EditorBrowsable(EditorBrowsableState.Never)]
-    internal SwiftSafeHandle<" + typeName + @"> Payload => _payload;
+    public SwiftSafeHandle<" + typeName + @"> Payload => _payload;
     IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
 
     public void Dispose()

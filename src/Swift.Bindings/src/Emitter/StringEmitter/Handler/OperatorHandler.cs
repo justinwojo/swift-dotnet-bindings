@@ -318,6 +318,9 @@ namespace BindingsGeneration
                     }
                 }
 
+                // Emit handle extraction for ObjC-bridged/rooted parameters
+                EmitObjCHandleExtraction(csWriter, pInvokeSignature, wrapperSignature);
+
                 // Wrap in unsafe block when indirect result uses pointer operations
                 if (requiresIndirectResult) { csWriter.WriteLine("unsafe {"); csWriter.Indent++; }
 
@@ -347,6 +350,9 @@ namespace BindingsGeneration
                 csWriter.WriteLine($"public static {returnType} operator {csOperator}({operandType} {operand.Name})");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
+
+                // Emit handle extraction for ObjC-bridged/rooted parameters
+                EmitObjCHandleExtraction(csWriter, pInvokeSignature, wrapperSignature);
 
                 // Wrap in unsafe block when indirect result uses pointer operations
                 if (requiresIndirectResult) { csWriter.WriteLine("unsafe {"); csWriter.Indent++; }
@@ -410,6 +416,25 @@ namespace BindingsGeneration
                         csWriter.WriteLine($"{pinvokeName}({callArgs});");
                     else
                         csWriter.WriteLine($"return {pinvokeName}({callArgs});");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Emits handle extraction for ObjC-bridged/rooted parameters in operator wrappers.
+        /// For each parameter with ObjCBridged type, emits: IntPtr {name}Handle = {name}.Handle;
+        /// This is needed because CallArgumentsString() generates "{name}Handle" references.
+        /// </summary>
+        private static void EmitObjCHandleExtraction(CSharpWriter csWriter, Signature pInvokeSignature, Signature wrapperSignature)
+        {
+            foreach (var param in pInvokeSignature.Parameters)
+            {
+                if (param.Type is MarshalledType.ObjCBridged)
+                {
+                    // Find the matching wrapper parameter name for the source object
+                    var wrapperParam = wrapperSignature.Parameters.FirstOrDefault(p => p.Name == param.Name);
+                    var sourceName = wrapperParam?.Name ?? param.Name;
+                    csWriter.WriteLine($"IntPtr {sourceName}Handle = {sourceName}.Handle;");
                 }
             }
         }

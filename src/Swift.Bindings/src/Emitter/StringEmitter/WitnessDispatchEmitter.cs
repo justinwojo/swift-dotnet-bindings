@@ -684,6 +684,27 @@ public class WitnessDispatchEmitter
     }
 
     /// <summary>
+    /// Checks if a TypeSpec represents an ObjC-rooted Swift class (inherits from NSObject).
+    /// These use .Handle (ObjC pointer) instead of .Payload.DangerousGetHandle().
+    /// </summary>
+    public bool IsObjCRootedClassType(TypeSpec? typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec namedType)
+            return false;
+        try
+        {
+            var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+            if (_typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord))
+                return MarshallingHelpers.IsObjCRooted(typeRecord);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Checks if a TypeSpec represents a struct that requires indirect dispatch
     /// (non-frozen struct or frozen struct with RequiresMemoryManagement).
     /// Does NOT check IsTypeBlittable/IsStringType — use for raw type identification only.

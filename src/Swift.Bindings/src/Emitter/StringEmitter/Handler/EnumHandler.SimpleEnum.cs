@@ -1245,7 +1245,9 @@ namespace BindingsGeneration
                 var marshalPrefix = MarshallingHelpers.IsBoolType(pinvokeType) ? "[MarshalAs(UnmanagedType.U1)] " : "";
                 pinvokeParams.Add($"{marshalPrefix}{pinvokeType} {NameProvider.GetCSharpParameterName(param)}");
             }
-            csWriter.WriteLine($"[LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{wrapperSymbol}\")]");
+            var hasStringParam = pinvokeParams.Any(p => p.Contains("string ") || p.Contains("string?"));
+            var stringMarshal = hasStringParam ? ", StringMarshalling = StringMarshalling.Utf8" : "";
+            csWriter.WriteLine($"[LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{wrapperSymbol}\"{stringMarshal})]");
             csWriter.WriteLine($"private static partial IntPtr PInvoke_{methodPascalName}({string.Join(", ", pinvokeParams)});");
             csWriter.WriteLine();
 

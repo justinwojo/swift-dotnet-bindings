@@ -1511,8 +1511,11 @@ public partial class ProtocolProxyEmitter
                      (dispatchEmitter.IsSwiftClassType(paramSwiftTypeSpecs[i]) ||
                       dispatchEmitter.IsIndirectStructType(paramSwiftTypeSpecs[i])))
             {
-                // Class/struct parameter: extract SafeHandle payload pointer
-                writer.WriteLine($"var arg{i}Slice = {argNames[i]}.Payload.DangerousGetHandle();");
+                // ObjC-rooted classes use .Handle (ObjC pointer), pure Swift classes use .Payload
+                if (dispatchEmitter.IsObjCRootedClassType(paramSwiftTypeSpecs[i]))
+                    writer.WriteLine($"var arg{i}Slice = {argNames[i]}.Handle;");
+                else
+                    writer.WriteLine($"var arg{i}Slice = {argNames[i]}.Payload.DangerousGetHandle();");
             }
             else
             {

@@ -96,7 +96,7 @@ public record TypeRecord
     /// <summary>
     /// Type flags.
     /// </summary>
-    public required TypeRecordFlags Flags { get; init; }
+    public required TypeRecordFlags Flags { get; set; }
 
     /// <summary>
     /// The kind of type.

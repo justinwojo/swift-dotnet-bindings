@@ -4982,4 +4982,38 @@ public class ProtocolProxyEmitterTests
     }
 
     #endregion
+
+    #region P14C: Nested protocol proxy qualification
+
+    [Fact]
+    public void EmitProxyClass_NestedProtocol_QualifiesInterfaceWithParentType()
+    {
+        // When a protocol is nested inside a class, the proxy (emitted at module level)
+        // must use the parent-qualified interface name
+        var parentClass = new ClassDecl
+        {
+            Name = "CountryCodePickerViewController",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.CountryCodePickerViewController"),
+            MangledName = "$s10TestModule33CountryCodePickerViewControllerC",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            Conformances = new List<TypeConformance>(),
+            IsFinal = false,
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+
+        var protocol = CreateProtocolWithProperty("CellProtocol", "cellValue", hasGetter: true, hasSetter: false);
+        protocol.ParentDecl = parentClass;
+
+        var output = EmitProxyClass(protocol);
+
+        // The interface name should be qualified with the parent class name
+        Assert.Contains("CountryCodePickerViewController.ICellProtocol", output);
+    }
+
+    #endregion
 }

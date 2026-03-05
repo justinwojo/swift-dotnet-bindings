@@ -47,8 +47,8 @@ public class ConstructorHandlerOutputTests
 
         var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
 
-        Assert.Contains("out SwiftError error", csOutput);
-        Assert.Contains("if (error.Value != null)", csOutput);
+        Assert.Contains("out SwiftError swiftError", csOutput);
+        Assert.Contains("if (swiftError.Value != null)", csOutput);
         Assert.Contains("SBW_GetErrorDescription", csOutput);
         Assert.Contains("SBW_ReleaseError", csOutput);
         Assert.Contains("throw new SwiftRuntimeException(_errorMessage)", csOutput);

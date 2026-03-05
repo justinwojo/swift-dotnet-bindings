@@ -3,6 +3,7 @@
 // Licensed under the MIT License.
 
 using System.CodeDom.Compiler;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Swift.Runtime;
 
@@ -73,10 +74,30 @@ namespace BindingsGeneration
                     SwiftUIBridgeCollector.Reset();
                 }
 
+                var csOutput = csStringWriter.ToString();
+
+                // CX-1: When the namespace has a type with the same name (e.g., module "Valet"
+                // has class "Valet"), C# resolves Valet.OtherType as a nested type lookup on the
+                // class instead of a namespace member. Fix by adding global:: qualifier.
+                var collisionType = moduleDecl.Types.FirstOrDefault(t => t.Name == @namespace)
+                    ?? (BaseDecl?)moduleDecl.Protocols.FirstOrDefault(p => p.Name == @namespace);
+                if (collisionType != null)
+                {
+                    // Collect nested type names — Namespace.NestedType refers to the collision class's
+                    // nested type, not a namespace member. These must NOT get global:: qualification.
+                    var nestedTypeNames = new HashSet<string>();
+                    if (collisionType is TypeDecl td)
+                    {
+                        foreach (var nested in td.Types)
+                            nestedTypeNames.Add(nested.Name);
+                    }
+                    csOutput = QualifyNamespaceReferences(csOutput, @namespace, nestedTypeNames);
+                }
+
                 string csOutputPath = Path.Combine(_outputDirectory, $"{@namespace}.cs");
                 using (StreamWriter outputFile = new(csOutputPath))
                 {
-                    outputFile.Write(csStringWriter.ToString());
+                    outputFile.Write(csOutput);
                 }
                 string swiftOutputPath = Path.Combine(_outputDirectory, $"{@namespace}.swift");
                 using (StreamWriter outputFile = new(swiftOutputPath))
@@ -119,6 +140,41 @@ namespace BindingsGeneration
             {
                 _logger.LogWarning($"No module handler found for {moduleDecl.Name}");
             }
+        }
+
+        /// <summary>
+        /// Replaces bare namespace-qualified type references with global:: qualified references.
+        /// Called when the module namespace collides with a type name (e.g., module "Valet" has class "Valet").
+        /// </summary>
+        /// <param name="csOutput">The generated C# source code.</param>
+        /// <param name="namespace">The namespace that collides with a type name.</param>
+        /// <param name="nestedTypeNames">Names of types nested within the collision class.
+        /// References like Namespace.NestedType should NOT be qualified because they resolve
+        /// to nested types of the class, not namespace members.</param>
+        private static string QualifyNamespaceReferences(string csOutput, string @namespace, HashSet<string> nestedTypeNames)
+        {
+            // Match Namespace.Identifier where Namespace is NOT preceded by global:: or another identifier char,
+            // and NOT in a namespace declaration (namespace Valet.SwiftInterop).
+            // This handles type references like Valet.SecureEnclaveValet in parameter types, return types,
+            // generic arguments, typeof(), casts, etc.
+            var escapedNs = Regex.Escape(@namespace);
+            var pattern = $@"(?<!global::)(?<!namespace )(?<![.\w]){escapedNs}\.(?=[A-Z])";
+            return Regex.Replace(csOutput, pattern, match =>
+            {
+                // Check if the following identifier is a nested type of the collision class.
+                // If so, leave it unqualified — Reachability.Connection refers to the nested enum.
+                var afterDot = csOutput.Substring(match.Index + match.Length);
+                var identEnd = 0;
+                while (identEnd < afterDot.Length && (char.IsLetterOrDigit(afterDot[identEnd]) || afterDot[identEnd] == '_'))
+                    identEnd++;
+                if (identEnd > 0)
+                {
+                    var nextIdent = afterDot.Substring(0, identEnd);
+                    if (nestedTypeNames.Contains(nextIdent))
+                        return match.Value; // Keep unqualified
+                }
+                return $"global::{@namespace}.";
+            });
         }
     }
 }

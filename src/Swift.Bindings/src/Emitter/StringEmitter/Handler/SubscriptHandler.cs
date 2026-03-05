@@ -447,7 +447,7 @@ namespace BindingsGeneration
                 ClosureProjection => (null, false),
                 // Existentials, classes, non-frozen structs: accessor already returns
                 // the projected type — no conversion or disposal needed.
-                ExistentialProjection or ClassProjection or NonFrozenStructProjection => (null, false),
+                ExistentialProjection or ClassProjection or NonFrozenStructProjection or ObjCRootedClassProjection => (null, false),
                 _ => ($"(({inner.PublicType}?){resultExpr})", true)
             };
         }
@@ -511,7 +511,7 @@ namespace BindingsGeneration
             ArrayProjection arr, string valueExpr)
         {
             var rawElem = arr.ElementProjection.MarshalFromSwiftType;
-            var elemConv = arr.ElementProjection is ClassProjection or NonFrozenStructProjection
+            var elemConv = arr.ElementProjection is ClassProjection or NonFrozenStructProjection or ObjCRootedClassProjection
                 ? null
                 : arr.ElementProjection.GetParameterElementConversion("e");
             if (elemConv != null)
@@ -524,10 +524,10 @@ namespace BindingsGeneration
         {
             var rawK = dict.KeyProjection.MarshalFromSwiftType;
             var rawV = dict.ValueProjection.MarshalFromSwiftType;
-            var keyConv = dict.KeyProjection is ClassProjection or NonFrozenStructProjection
+            var keyConv = dict.KeyProjection is ClassProjection or NonFrozenStructProjection or ObjCRootedClassProjection
                 ? null
                 : dict.KeyProjection.GetParameterElementConversion("kvp.Key");
-            var valConv = dict.ValueProjection is ClassProjection or NonFrozenStructProjection
+            var valConv = dict.ValueProjection is ClassProjection or NonFrozenStructProjection or ObjCRootedClassProjection
                 ? null
                 : dict.ValueProjection.GetParameterElementConversion("kvp.Value");
             if (keyConv != null || valConv != null)
@@ -560,7 +560,7 @@ namespace BindingsGeneration
                 return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({dictConv}) : SwiftOptional<{optType}>.NewNone())", true);
             }
 
-            if (inner is ClassProjection or NonFrozenStructProjection or ExistentialProjection)
+            if (inner is ClassProjection or NonFrozenStructProjection or ObjCRootedClassProjection or ExistentialProjection)
                 return (null, false);
 
             var innerConv = inner.GetParameterElementConversion($"{valueExpr}Val");

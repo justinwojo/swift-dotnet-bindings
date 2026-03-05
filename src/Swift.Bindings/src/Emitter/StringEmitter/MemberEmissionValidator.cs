@@ -696,6 +696,12 @@ public static class MemberEmissionValidator
         switch (typeSpec)
         {
             case NamedTypeSpec namedType:
+                // Types that are static classes in .NET — cannot be used as variables,
+                // parameters, return types, or generic type arguments (CS0718/CS0723).
+                // In Swift these are RawRepresentable structs backed by NSString, but
+                // .NET iOS maps them to static classes with string constants.
+                if (NetStaticClassTypes.Contains(namedType.Name))
+                    return true;
                 if (namedType.HasModule() && GenericTypeEmitter.IsUnsupportedModule(namedType.Module))
                 {
                     // If the specific type is registered in the type database, it's supported
@@ -1116,4 +1122,22 @@ public static class MemberEmissionValidator
 
         return (emittable, skipped);
     }
+
+    /// <summary>
+    /// Apple framework types that are static classes in .NET iOS.
+    /// In Swift these are typically RawRepresentable structs (NSString-backed),
+    /// but .NET iOS maps them to static classes with string constants.
+    /// Static classes cannot be used as variables, parameters, return types,
+    /// or generic type arguments (CS0718/CS0723).
+    /// </summary>
+    private static readonly HashSet<string> NetStaticClassTypes = new(StringComparer.Ordinal)
+    {
+        "UIKit.UITextContentType",
+    };
+
+    /// <summary>
+    /// Returns true if the given module-qualified type name is a known .NET static class.
+    /// </summary>
+    internal static bool IsNetStaticClassType(string moduleQualifiedName)
+        => NetStaticClassTypes.Contains(moduleQualifiedName);
 }

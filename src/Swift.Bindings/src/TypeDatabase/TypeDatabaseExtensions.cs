@@ -70,6 +70,10 @@ public static class TypeDatabaseExtensions
             return true;
         }
 
+        // Unsupported Apple modules (SwiftUI, XCTest, etc.) are considered processed (→ AnyType)
+        if (IsUnsupportedAppleModule(typeSpec))
+            return true;
+
         var typeName = SwiftTypeName.FromTypeSpec(typeSpec);
         if (typeDatabase.IsTypeProcessed(typeName))
             return true;
@@ -226,6 +230,14 @@ public static class TypeDatabaseExtensions
             return true;
         }
 
+        // Types from unsupported Apple framework modules (SwiftUI, XCTest, Combine, etc.)
+        // get mapped to AnyType so members referencing them are gracefully suppressed.
+        if (IsUnsupportedAppleModule(typeSpec))
+        {
+            record = AnyType;
+            return true;
+        }
+
         var typeName = SwiftTypeName.FromTypeSpec(typeSpec);
         if (typeDatabase.TryGetTypeRecord(typeName, out record))
             return true;
@@ -294,6 +306,12 @@ public static class TypeDatabaseExtensions
         if (IsPointerType(typeSpec))
         {
             return IntPtrType;
+        }
+
+        // Unsupported Apple modules (SwiftUI, XCTest, etc.) → AnyType
+        if (IsUnsupportedAppleModule(typeSpec))
+        {
+            return AnyType;
         }
 
         // ObjC types are handled in the SwiftTypeName overload (DB-first, synthetic second)
@@ -404,6 +422,13 @@ public static class TypeDatabaseExtensions
 
         // Pointer types are fully handled (mapped to IntPtr), not a fallback
         if (IsPointerType(typeSpec))
+        {
+            fallbackInfo = null;
+            return false;
+        }
+
+        // Unsupported Apple modules are intentionally mapped to AnyType, not a fallback
+        if (IsUnsupportedAppleModule(typeSpec))
         {
             fallbackInfo = null;
             return false;
@@ -604,6 +629,7 @@ public static class TypeDatabaseExtensions
         "UIKit.NSTextAlignment",
         "UIKit.NSWritingDirection",
         "UIKit.UIKeyboardType",
+        "UIKit.UITextLayoutDirection",
         "UIKit.UIUserInterfaceLayoutDirection",
         // AVFoundation structs
         "AVFoundation.AVAudioFramePosition", "AVFoundation.AVAudioFrameCount",
@@ -612,6 +638,7 @@ public static class TypeDatabaseExtensions
         "AVFoundation.AVCaptureSession.Preset",
         "AVFoundation.AVCaptureDevice.AutoFocusRangeRestriction",
         "AVFoundation.AVCaptureDevice.DeviceType",
+        "AVFoundation.AVCaptureDevice.FocusMode",
         // CoreData structs
         "CoreData.NSFetchRequestResultType",
         // SceneKit structs
@@ -851,6 +878,8 @@ public static class TypeDatabaseExtensions
         // UIKit NS_OPTIONS(NSUInteger) → UInt64
         ["UIKit.UIControl.State"] = ("UIKit", "UIControlState", "UInt64"),
         ["UIKit.UIControl.Event"] = ("UIKit", "UIControlEvent", "UInt64"),
+        // AVFoundation nested ObjC enums
+        ["AVFoundation.AVCaptureDevice.FocusMode"] = ("AVFoundation", "AVCaptureFocusMode", "Int64"),
     };
 
     /// <summary>
@@ -918,6 +947,7 @@ public static class TypeDatabaseExtensions
         ["Foundation.UndoManager"] = ("Foundation", "NSUndoManager"),
         ["Foundation.Progress"] = ("Foundation", "NSProgress"),
         ["Foundation.Scanner"] = ("Foundation", "NSScanner"),
+        ["Foundation.Formatter"] = ("Foundation", "NSFormatter"),
         ["Foundation.NumberFormatter"] = ("Foundation", "NSNumberFormatter"),
         ["Foundation.DateFormatter"] = ("Foundation", "NSDateFormatter"),
         ["Foundation.InputStream"] = ("Foundation", "NSInputStream"),
@@ -1119,6 +1149,35 @@ public static class TypeDatabaseExtensions
         // but exclude known value types (structs/enums) from those modules
         return AppleObjCFrameworkModules.Contains(typeSpec.Module)
             && !AppleFrameworkValueTypes.Contains(typeSpec.Name);
+    }
+
+    /// <summary>
+    /// Apple framework modules that have no .NET iOS binding equivalents.
+    /// Types from these modules are mapped to AnyType so members referencing them
+    /// are suppressed with [UnsupportedSwiftType] annotations.
+    /// </summary>
+    private static readonly HashSet<string> UnsupportedAppleModules = new(StringComparer.Ordinal)
+    {
+        "SwiftUI",
+        "XCTest",
+        "Combine",
+        "_Concurrency",
+        "Observation",
+        "WidgetKit",
+        "AppIntents",
+        "Charts",
+        "TipKit",
+    };
+
+    /// <summary>
+    /// Determines whether the specified NamedTypeSpec is from an Apple framework module
+    /// that has no .NET iOS binding equivalent (SwiftUI, XCTest, Combine, etc.).
+    /// </summary>
+    private static bool IsUnsupportedAppleModule(NamedTypeSpec typeSpec)
+    {
+        if (!typeSpec.HasModule())
+            return false;
+        return UnsupportedAppleModules.Contains(typeSpec.Module);
     }
 
     /// <summary>

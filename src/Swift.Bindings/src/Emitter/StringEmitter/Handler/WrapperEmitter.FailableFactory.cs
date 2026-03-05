@@ -118,11 +118,15 @@ namespace BindingsGeneration
             else
             {
                 // Non-frozen or frozen-with-memory-management (C# class):
-                // copy payload and create instance via the private SwiftHandle constructor
+                // copy payload and create instance via the private SwiftHandle/NativeHandle constructor
+                bool isObjCRooted = _env.ParentDecl is ClassDecl cd && cd.IsObjCRooted;
+                var ctorArg = isObjCRooted
+                    ? "new ObjCRuntime.NativeHandle(payloadBuffer)"
+                    : "(SwiftHandle)payloadBuffer";
                 csWriter.WriteLines($$"""
                     IntPtr payloadBuffer = (IntPtr)NativeMemory.Alloc(selfMetadata.Size);
                     selfMetadata.ValueWitnessTable->InitializeWithCopy((void*)payloadBuffer, resultBuffer, selfMetadata);
-                    result = new {{typeName}}(payloadBuffer);
+                    result = new {{typeName}}({{ctorArg}});
                     return true;
                     """);
             }

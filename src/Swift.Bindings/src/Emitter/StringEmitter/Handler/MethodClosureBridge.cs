@@ -657,12 +657,13 @@ public static class MethodClosureBridge
             }
         }
 
-        // N × (funcPtr, context) pairs — one per closure
+        // N × (funcPtr, closureCtx) pairs — one per closure
+        // Use __closureCtx prefix to avoid collision with user parameter names like 'context'
         foreach (var ci in closures)
         {
             var suffix = closures.Count > 1 ? $"_{ci.Index}" : "";
-            pinvokeParams.Add($"IntPtr funcPtr{suffix}");
-            pinvokeParams.Add($"IntPtr context{suffix}");
+            pinvokeParams.Add($"IntPtr __funcPtr{suffix}");
+            pinvokeParams.Add($"IntPtr __closureCtx{suffix}");
         }
 
         // SwiftSelf last (standard Swift calling convention) — instance methods only
@@ -876,7 +877,11 @@ public static class MethodClosureBridge
         // SwiftSelf — instance methods only
         if (!isStatic)
         {
-            callArgs.Add("new SwiftSelf((void*)Payload.DangerousGetHandle())");
+            bool isObjCRooted = method.ParentDecl is ClassDecl cd && cd.IsObjCRooted;
+            var selfExpr = isObjCRooted
+                ? "new SwiftSelf((void*)Handle)"
+                : "new SwiftSelf((void*)Payload.DangerousGetHandle())";
+            callArgs.Add(selfExpr);
         }
 
         if (returnsClass)

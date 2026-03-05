@@ -831,9 +831,9 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         // Use MarshalFromSwiftType (public type) — accessor methods use the public type in their signatures,
         // not PInvokeType (IntPtr) which SwiftContainerGenericType returns for Class/NonFrozenStruct.
         var rawElem = arr.ElementProjection.MarshalFromSwiftType;
-        // Class/NonFrozenStruct elements: skip element conversion (DangerousGetHandle returns nint,
-        // but accessor methods take the public type directly — P/Invoke handles extraction).
-        var elemConv = arr.ElementProjection is ClassProjection or NonFrozenStructProjection
+        // Class/NonFrozenStruct/ObjCRooted elements: skip element conversion (DangerousGetHandle/Handle
+        // returns nint, but accessor methods take the public type directly — P/Invoke handles extraction).
+        var elemConv = arr.ElementProjection is ClassProjection or NonFrozenStructProjection or ObjCRootedClassProjection
             ? null
             : arr.ElementProjection.GetParameterElementConversion("e");
         if (elemConv != null)
@@ -841,17 +841,17 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         return ($"SwiftArray<{rawElem}>.FromEnumerable({valueExpr})", true);
     }
 
-    private static (string? conversion, bool requiresDisposal) GetDictAccessorSetterConversion(
+    internal static (string? conversion, bool requiresDisposal) GetDictAccessorSetterConversion(
         DictionaryProjection dict, string valueExpr)
     {
         // Use MarshalFromSwiftType — accessor methods use the public type, not PInvokeType (IntPtr)
         var rawK = dict.KeyProjection.MarshalFromSwiftType;
         var rawV = dict.ValueProjection.MarshalFromSwiftType;
-        // Class/NonFrozenStruct elements: skip element conversion (accessor methods take the public type directly)
-        var keyConv = dict.KeyProjection is ClassProjection or NonFrozenStructProjection
+        // Class/NonFrozenStruct/ObjCRooted elements: skip element conversion (accessor methods take the public type directly)
+        var keyConv = dict.KeyProjection is ClassProjection or NonFrozenStructProjection or ObjCRootedClassProjection
             ? null
             : dict.KeyProjection.GetParameterElementConversion("kvp.Key");
-        var valConv = dict.ValueProjection is ClassProjection or NonFrozenStructProjection
+        var valConv = dict.ValueProjection is ClassProjection or NonFrozenStructProjection or ObjCRootedClassProjection
             ? null
             : dict.ValueProjection.GetParameterElementConversion("kvp.Value");
         if (keyConv != null || valConv != null)
@@ -863,11 +863,11 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         return ($"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({valueExpr})", true);
     }
 
-    private static (string? conversion, bool requiresDisposal) GetSetAccessorSetterConversion(
+    internal static (string? conversion, bool requiresDisposal) GetSetAccessorSetterConversion(
         SetProjection set, string valueExpr)
     {
         var rawElem = set.ElementProjection.MarshalFromSwiftType;
-        var elemConv = set.ElementProjection is ClassProjection or NonFrozenStructProjection
+        var elemConv = set.ElementProjection is ClassProjection or NonFrozenStructProjection or ObjCRootedClassProjection
             ? null
             : set.ElementProjection.GetParameterElementConversion("e");
         if (elemConv != null)
@@ -913,6 +913,10 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         // ObjC bridged inner — nullable pointer ABI, no SwiftOptional wrapper needed
         if (inner is ObjCBridgedProjection)
             return ($"({valueExpr} is {{}} {valueExpr}Val ? {valueExpr}Val.Handle : IntPtr.Zero)", false);
+
+        // ObjC-rooted inner — accessor methods take SwiftOptional<T>, pass as-is
+        if (inner is ObjCRootedClassProjection)
+            return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({valueExpr}Val) : SwiftOptional<{optType}>.NewNone())", true);
 
         // Element conversion (String, NativeRemapped, etc.)
         var innerConv = inner.GetParameterElementConversion($"{valueExpr}Val");

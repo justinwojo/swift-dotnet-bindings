@@ -141,6 +141,12 @@ public class TypeProjectionFactory
         if (name == "Swift.Optional" && namedType.GenericParameters.Count == 1)
         {
             var inner = namedType.GenericParameters[0];
+
+            // CX-16: Reject nested optionals (Optional<Optional<T>>) — no clean C# representation.
+            // Swift allows T?? but C# nullable doesn't nest. Skip these members.
+            if (inner is NamedTypeSpec innerOpt && innerOpt.Name == "Swift.Optional")
+                return null;
+
             var isExistentialInner = inner is ProtocolListTypeSpec ||
                 (inner is NamedTypeSpec innerNamed && innerNamed.IsAny);
 
@@ -246,7 +252,30 @@ public class TypeProjectionFactory
         // Try to resolve from the type database
         if (!context.TypeDatabase.TryGetTypeRecord(
                 SwiftTypeName.FromModuleQualifiedName(name), out var typeRecord))
-            return null;
+        {
+            // Fall back to extension method ONLY for types whose Swift module maps to a
+            // different .NET namespace (e.g., QuartzCore → CoreAnimation). This handles
+            // the case where QuartzCore.CALayer needs CoreAnimation.CALayer as its C# name.
+            // Don't fall back for UIKit/Foundation types — they resolve via the normal DB
+            // and falling through creates projection/marshalling mismatches.
+            if (namedType.HasModule())
+            {
+                var mappedNs = MarshallingHelpers.MapSwiftModuleToNetNamespace(namedType.Module);
+                if (mappedNs != namedType.Module)
+                {
+                    if (!context.TypeDatabase.TryGetTypeRecord(namedType, out typeRecord))
+                        return null;
+                }
+                else
+                {
+                    return null;
+                }
+            }
+            else
+            {
+                return null;
+            }
+        }
 
         return CreateProjectionForTypeRecord(typeRecord);
     }

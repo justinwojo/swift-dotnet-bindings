@@ -1612,4 +1612,80 @@ public class PropertyHandlerTests
     }
 
     #endregion
+
+    #region ObjCRooted Container Accessor Conversion Tests
+
+    [Fact]
+    public void GetDictAccessorSetterConversion_ObjCRootedKey_SkipsElementConversion()
+    {
+        // ObjCRooted keys should NOT get .Handle element conversion — accessor takes typed value directly
+        var key = new ObjCRootedClassProjection("UIKit.UIViewController");
+        var value = new StringProjection();
+        var dict = new DictionaryProjection(key, value, isParameter: true);
+
+        var (conversion, _) = PropertyHandler.GetDictAccessorSetterConversion(dict, "value");
+
+        // Should have value conversion for String but NOT key conversion (.Handle)
+        Assert.NotNull(conversion);
+        Assert.DoesNotContain("kvp.Key.Handle", conversion!);
+    }
+
+    [Fact]
+    public void GetDictAccessorSetterConversion_ObjCRootedValue_SkipsElementConversion()
+    {
+        var key = new StringProjection();
+        var value = new ObjCRootedClassProjection("UIKit.UIView");
+        var dict = new DictionaryProjection(key, value, isParameter: true);
+
+        var (conversion, _) = PropertyHandler.GetDictAccessorSetterConversion(dict, "value");
+
+        // Should have key conversion for String but NOT value conversion (.Handle)
+        Assert.NotNull(conversion);
+        Assert.DoesNotContain("kvp.Value.Handle", conversion!);
+    }
+
+    [Fact]
+    public void GetDictAccessorSetterConversion_BothObjCRooted_NoElementConversion()
+    {
+        var key = new ObjCRootedClassProjection("UIKit.UIViewController");
+        var value = new ObjCRootedClassProjection("UIKit.UIView");
+        var dict = new DictionaryProjection(key, value, isParameter: true);
+
+        var (conversion, _) = PropertyHandler.GetDictAccessorSetterConversion(dict, "value");
+
+        // Neither key nor value should have element conversion — passthrough
+        Assert.NotNull(conversion);
+        Assert.DoesNotContain(".Handle", conversion!);
+        Assert.DoesNotContain(".Select", conversion!);
+    }
+
+    [Fact]
+    public void GetSetAccessorSetterConversion_ObjCRooted_SkipsElementConversion()
+    {
+        var elem = new ObjCRootedClassProjection("UIKit.UIView");
+        var set = new SetProjection(elem, isParameter: true);
+
+        var (conversion, _) = PropertyHandler.GetSetAccessorSetterConversion(set, "value");
+
+        Assert.NotNull(conversion);
+        Assert.DoesNotContain(".Handle", conversion!);
+        Assert.DoesNotContain(".Select", conversion!);
+    }
+
+    [Fact]
+    public void GetOptionalAccessorSetterConversion_ObjCRooted_UsesSwiftOptionalWrapper()
+    {
+        var inner = new ObjCRootedClassProjection("UIKit.UIView");
+        var opt = new OptionalProjection(inner);
+
+        var (conversion, requiresDisposal) = PropertyHandler.GetOptionalAccessorSetterConversion(opt, "value");
+
+        Assert.NotNull(conversion);
+        Assert.Contains("SwiftOptional", conversion!);
+        Assert.Contains("NewSome", conversion!);
+        Assert.Contains("NewNone", conversion!);
+        Assert.True(requiresDisposal);
+    }
+
+    #endregion
 }

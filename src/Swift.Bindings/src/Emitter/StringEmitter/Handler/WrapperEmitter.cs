@@ -206,13 +206,20 @@ namespace BindingsGeneration
             csWriter.Indent++;
 
             // The helper body contains the full P/Invoke call sequence
+            EmitSafeHandleAddRef(csWriter);
             EmitBoundGenericArguments(csWriter);
+
+            // Declare GCHandle variables before closure marshalling uses them
+            if (needsTryFinally)
+            {
+                EmitDeclarationsForAllocations(csWriter);
+            }
+
             EmitClosureMarshalling(csWriter);
             EmitTypeConversions(csWriter);
 
             if (needsTryFinally)
             {
-                EmitDeclarationsForAllocations(csWriter);
                 EmitTryBlockStart(csWriter);
             }
 
@@ -222,9 +229,10 @@ namespace BindingsGeneration
                 EmitProtocolWitnessTables(csWriter);
             }
 
-            // Allocate buffer for the constructor result
+            // Allocate buffer for the constructor result and create SwiftIndirectResult
             csWriter.WriteLine("IntPtr* buf = stackalloc IntPtr[1];");
-            // Emit the P/Invoke call — result goes into 'buf'
+            csWriter.WriteLine("var swiftIndirectResult = new SwiftIndirectResult(buf);");
+            // Emit the P/Invoke call — result goes into 'buf' via swiftIndirectResult
             EmitPInvokeCall(csWriter);
             EmitSwiftError(csWriter);
 

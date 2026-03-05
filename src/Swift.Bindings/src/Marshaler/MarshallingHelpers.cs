@@ -257,10 +257,24 @@ namespace BindingsGeneration
         /// .NET equivalent (e.g., "CoreAnimation.CALayer"). If the module has no mapping,
         /// the original name is returned unchanged.
         /// </summary>
+        /// <summary>
+        /// Swift type names that differ from their .NET iOS equivalents.
+        /// Swift drops the NS/UI prefix for some Foundation types, but .NET keeps the ObjC names.
+        /// Key: "Module.SwiftTypeName", Value: "NetNamespace.NetTypeName".
+        /// </summary>
+        private static readonly Dictionary<string, string> SwiftToNetTypeRemappings = new(StringComparer.Ordinal)
+        {
+            ["Foundation.Formatter"] = "Foundation.NSFormatter",
+        };
+
         public static string MapQualifiedTypeToNet(string qualifiedSwiftTypeName)
         {
             if (string.IsNullOrEmpty(qualifiedSwiftTypeName))
                 return qualifiedSwiftTypeName;
+
+            // Check explicit remapping first (Swift names that differ from .NET names)
+            if (SwiftToNetTypeRemappings.TryGetValue(qualifiedSwiftTypeName, out var remapped))
+                return remapped;
 
             var dotIndex = qualifiedSwiftTypeName.IndexOf('.');
             if (dotIndex <= 0)
@@ -283,6 +297,17 @@ namespace BindingsGeneration
         {
             if (!classDecl.HasObjCSuperclass || classDecl.DirectSuperclassName == null)
                 return null;
+
+            // If the superclass is from an unsupported Apple module (XCTest, SwiftUI, etc.),
+            // fall back to Foundation.NSObject — all ObjC-rooted types ultimately derive from it.
+            var dotIdx = classDecl.DirectSuperclassName.IndexOf('.');
+            if (dotIdx > 0)
+            {
+                var module = classDecl.DirectSuperclassName.Substring(0, dotIdx);
+                if (module is "SwiftUI" or "XCTest" or "Combine" or "_Concurrency"
+                    or "Observation" or "WidgetKit" or "AppIntents" or "Charts" or "TipKit")
+                    return "Foundation.NSObject";
+            }
 
             return MapQualifiedTypeToNet(classDecl.DirectSuperclassName);
         }

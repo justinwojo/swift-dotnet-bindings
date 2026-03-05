@@ -429,6 +429,7 @@ public partial class ProtocolProxyEmitter
                 ? $"{nrp.SwiftWrapperType}.{nrp.FromFactoryMethod}({varName})"
                 : $"new {nrp.SwiftWrapperType}({varName})",
             ObjCBridgedProjection => $"{varName}.Handle",
+            ObjCRootedClassProjection => $"{varName}.Handle",
             ArrayProjection arr => GetReceiverArrayGetterConversion(arr, varName),
             DictionaryProjection dict => GetReceiverDictGetterConversion(dict, varName),
             SetProjection set => GetReceiverSetGetterConversion(set, varName),
@@ -489,6 +490,8 @@ public partial class ProtocolProxyEmitter
             // Closures have their own ABI (SwiftClosureData/function pointers) — can't wrap in SwiftOptional.
             // Passthrough; accessor methods handle closure marshalling.
             ClosureProjection => null,
+            // ObjC-rooted classes use .Handle (ObjC pointer), not .Payload
+            ObjCRootedClassProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome({varName}Val.Handle) : SwiftOptional<{optType}>.NewNone())",
             // Class/NonFrozenStruct: optType is IntPtr (PInvokeType), but varName is the public C# type.
             // Extract IntPtr via .Payload.DangerousGetHandle() — matches GetParameterElementConversion.
             ClassProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome({varName}Val.Payload.DangerousGetHandle()) : SwiftOptional<{optType}>.NewNone())",

@@ -466,10 +466,27 @@ namespace BindingsGeneration
         {
             if (typeSpecForKey is NamedTypeSpec namedSpec)
             {
-                // Array<T> and Set<T> both project to IEnumerable<T> as parameters
-                if (namedSpec.Name is "Swift.Array" or "Swift.Set" && namedSpec.GenericParameters.Count == 1)
+                // Array<T>, ArraySlice<T>, and Set<T> all project to IEnumerable<T> as parameters.
+                // Project the element type so keys match regardless of container
+                // (e.g., ArraySlice<UInt8> and Array<UInt8> both → IEnumerable<byte>).
+                if (namedSpec.Name is "Swift.Array" or "Swift.ArraySlice" or "Swift.Set" && namedSpec.GenericParameters.Count == 1)
                 {
-                    var elemKey = namedSpec.GenericParameters[0].ToString();
+                    var elemSpec = namedSpec.GenericParameters[0];
+                    string elemKey;
+                    try
+                    {
+                        var factory = new TypeProjectionFactory();
+                        var projection = factory.Project(elemSpec, new ProjectionContext
+                        {
+                            TypeDatabase = typeDatabase,
+                            IsParameter = true
+                        });
+                        elemKey = projection?.PublicType ?? elemSpec.ToString();
+                    }
+                    catch
+                    {
+                        elemKey = elemSpec.ToString();
+                    }
                     return $"IEnumerable<{elemKey}>";
                 }
                 // Dictionary<K,V> projects to IReadOnlyDictionary<K,V> as parameters

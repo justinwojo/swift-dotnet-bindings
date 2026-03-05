@@ -220,10 +220,27 @@ public partial class ProtocolProxyEmitter
 
     /// <summary>
     /// Gets the interface name with generic type parameters for protocols with associated types.
+    /// For nested protocols (declared inside a class/struct), the interface name is qualified
+    /// with the parent type name so the proxy class (emitted at module level) can find it.
     /// </summary>
     private static string GetInterfaceNameWithGenerics(ProtocolDecl protocolDecl)
     {
         var baseName = NameProvider.GetInterfaceName(protocolDecl.Name, moduleName: protocolDecl.ModuleDecl?.Name ?? "");
+
+        // For nested protocols, qualify with parent type name(s).
+        // The proxy class is emitted at module level, so it needs the full path
+        // (e.g., CountryCodePickerViewController.ICountryCodePickerTableViewCellProtocol).
+        if (protocolDecl.ParentDecl is TypeDecl parentType)
+        {
+            var parentNames = new List<string>();
+            BaseDecl? current = parentType;
+            while (current is TypeDecl td)
+            {
+                parentNames.Insert(0, td.Name);
+                current = td.ParentDecl;
+            }
+            baseName = string.Join(".", parentNames) + "." + baseName;
+        }
 
         if (protocolDecl.AssociatedTypes.Count > 0)
         {
