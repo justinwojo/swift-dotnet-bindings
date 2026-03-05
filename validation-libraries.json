@@ -34,7 +34,8 @@
       "mode": "manual",
       "products": [
         {
-          "framework": "BlinkIDUX"
+          "framework": "BlinkIDUX",
+          "dependencies": ["BlinkID"]
         }
       ],
       "note": "BlinkIDUX SDK \u2014 place xcframework in .libraries/BlinkIDUX/",
@@ -277,7 +278,7 @@
         {
           "scheme": "StripeiOS",
           "framework": "Stripe",
-          "dependencies": ["StripePayments"]
+          "dependencies": ["StripeApplePay", "StripePayments"]
         },
         {
           "scheme": "StripeApplePay",
@@ -305,7 +306,7 @@
         {
           "scheme": "StripeCryptoOnramp",
           "framework": "StripeCryptoOnramp",
-          "dependencies": ["StripeCore", "StripePayments"]
+          "dependencies": ["StripeApplePay", "StripeCore", "StripePaymentSheet", "StripePayments"]
         },
         {
           "scheme": "StripeFinancialConnections",
@@ -314,7 +315,8 @@
         },
         {
           "scheme": "StripeIdentity",
-          "framework": "StripeIdentity"
+          "framework": "StripeIdentity",
+          "dependencies": ["StripeCameraCore", "StripeCore", "StripeUICore"]
         },
         {
           "scheme": "StripeIssuing",

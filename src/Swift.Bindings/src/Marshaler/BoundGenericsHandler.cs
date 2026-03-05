@@ -929,7 +929,8 @@ public class BoundGenericsHandler
         if (_typeDatabase.TryGetTypeRecord(protocolType, out var protocolRecord) &&
             protocolRecord.Kind == TypeRecordKind.Protocol &&
             (protocolRecord.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes) ||
-             protocolRecord.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement)))
+             protocolRecord.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement) ||
+             protocolRecord.Flags.HasFlag(TypeRecordFlags.HasMethodSelfTypeParams)))
         {
             return true;
         }
@@ -1031,37 +1032,15 @@ public class BoundGenericsHandler
                 return true;
         }
 
-        // Fallback: check if the method has a conditional extension constraint that satisfies
-        // this requirement. Conditional extension methods inherit constraints from the extension
-        // (e.g., `extension Table<T> where T: FetchableRecord`), which appear in the method's
-        // GenericParameters but not on the parent type. These are emitted unconditionally in C#
-        // with runtime witness table enforcement via ProtocolWitnessTable.GetOrThrow<T, IProtocol>().
-        if (methodGenericParams != null)
-        {
-            var methodParam = methodGenericParams.FirstOrDefault(p => p.TypeName == paramName);
-            if (methodParam != null)
-            {
-                foreach (var conformance in methodParam.GenericConformances)
-                {
-                    if (conformance.Kind != ConformanceKind.Protocol)
-                        continue;
-
-                    if (conformance.ConformanceTarget != protocolConstraint)
-                    {
-                        // Also check protocol inheritance
-                        if (moduleDecl == null || !ProtocolInheritsFrom(conformance.ConformanceTarget, protocolConstraint, moduleDecl))
-                            continue;
-                    }
-
-                    // Only accept if the protocol is emittable (no associated types or Self)
-                    // — aligned with IsProtocolAvailableForConstraint in PInvokeEmitter.
-                    if (!IsProtocolEmittableForConditionalConstraint(conformance.ConformanceTarget))
-                        continue;
-
-                    return true;
-                }
-            }
-        }
+        // Note: conditional extension constraints (e.g., `extension Table<T> where T: FetchableRecord`)
+        // appear in the method's GenericParameters but NOT on the parent type. C# cannot express
+        // method-level `where` constraints on parent type parameters (CS0699). Methods whose
+        // signatures use bound generic types requiring these constraints (e.g., RecordCursor<T>
+        // where T: IFetchableRecord) will not compile. We return false here to skip such methods.
+        //
+        // Methods from conditional extensions that DON'T reference constrained bound generics
+        // in their signatures are unaffected — TryGetFirstUnsatisfiedConstraint is only called
+        // for bound generic types, so those methods are never checked here.
 
         // The parent type does not constrain this parameter to conform to the required protocol,
         // and no conditional extension constraint was found.

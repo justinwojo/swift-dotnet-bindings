@@ -85,6 +85,12 @@ public static class GenericTypeEmitter
                     if (typeDatabase != null && HasAssociatedTypes(typeDatabase, conformance.ConformanceTarget))
                         continue;
 
+                    // Skip protocols whose methods use Self (τ_0_0) in parameter/return types.
+                    // The interface emits AnyType for Self positions, so concrete types can't
+                    // implement the interface (CS0738) and the constraint can't be satisfied.
+                    if (typeDatabase != null && HasMethodSelfTypeParams(typeDatabase, conformance.ConformanceTarget))
+                        continue;
+
                     // Skip cross-module protocol constraints not registered in TypeDatabase.
                     // Same-module protocols are always registered during module processing.
                     if (typeDatabase != null
@@ -165,6 +171,21 @@ public static class GenericTypeEmitter
         {
             return record.Kind == TypeRecordKind.Protocol &&
                    record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes);
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Checks if a protocol's methods use Self (τ_0_0) in parameter/return types.
+    /// Such protocols emit AnyType for Self positions in the interface, making the
+    /// constraint unsatisfiable by concrete types (CS0738/CS0311).
+    /// </summary>
+    private static bool HasMethodSelfTypeParams(ITypeDatabase typeDatabase, SwiftTypeName protocolTypeName)
+    {
+        if (typeDatabase.TryGetTypeRecord(protocolTypeName, out var record))
+        {
+            return record.Kind == TypeRecordKind.Protocol &&
+                   record.Flags.HasFlag(TypeRecordFlags.HasMethodSelfTypeParams);
         }
         return false;
     }

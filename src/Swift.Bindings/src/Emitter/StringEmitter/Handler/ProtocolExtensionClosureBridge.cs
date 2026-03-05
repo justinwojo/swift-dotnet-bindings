@@ -270,11 +270,16 @@ public static class ProtocolExtensionClosureBridge
             pinvokeParams.Add($"TypeMetadata {gpLabel}ImplicitMetadata");
         }
 
-        // Return type — class returns IntPtr, otherwise void
+        // Return type — class returns IntPtr, primitives return their P/Invoke type, otherwise void
         var returnSpec = method.CSSignature[0].SwiftTypeSpec;
         bool returnsClass = returnSpec is NamedTypeSpec rn && !returnSpec.IsEmptyTuple &&
             !MarshallingHelpers.IsSwiftPrimitive(rn.Name);
         string pinvokeReturnType = returnsClass ? "IntPtr" : "void";
+
+        if (!returnSpec.IsEmptyTuple && !returnsClass)
+        {
+            pinvokeReturnType = GetPInvokePrimitiveType(returnSpec);
+        }
 
         PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
         {
@@ -369,7 +374,7 @@ public static class ProtocolExtensionClosureBridge
         else
         {
             returnType = GetCSharpReturnType(returnSpec, env, method, methodLevelGenerics);
-            returnsClass = true;
+            returnsClass = returnSpec is NamedTypeSpec rn2 && !MarshallingHelpers.IsSwiftPrimitive(rn2.Name);
         }
 
         // Build public parameter list
@@ -497,6 +502,11 @@ public static class ProtocolExtensionClosureBridge
             csWriter.WriteLine("throw;");
             csWriter.Indent--;
             csWriter.WriteLine("}");
+        }
+        else if (!returnSpec.IsEmptyTuple)
+        {
+            // Primitive return — P/Invoke returns the value directly
+            csWriter.WriteLine($"return {helperPrefix}{pInvokeName}({string.Join(", ", callArgs)});");
         }
         else
         {
@@ -745,5 +755,33 @@ public static class ProtocolExtensionClosureBridge
         }
 
         return gp.SugaredTypeName ?? "T";
+    }
+
+    /// <summary>
+    /// Maps a Swift primitive TypeSpec to its C# P/Invoke return type.
+    /// </summary>
+    private static string GetPInvokePrimitiveType(TypeSpec typeSpec)
+    {
+        if (typeSpec is NamedTypeSpec named)
+        {
+            return named.Name switch
+            {
+                "Swift.Bool" => "bool",
+                "Swift.Int" => "nint",
+                "Swift.UInt" => "nuint",
+                "Swift.Int8" => "sbyte",
+                "Swift.UInt8" => "byte",
+                "Swift.Int16" => "short",
+                "Swift.UInt16" => "ushort",
+                "Swift.Int32" => "int",
+                "Swift.UInt32" => "uint",
+                "Swift.Int64" => "long",
+                "Swift.UInt64" => "ulong",
+                "Swift.Float" => "float",
+                "Swift.Double" => "double",
+                _ => "nint"
+            };
+        }
+        return "nint";
     }
 }

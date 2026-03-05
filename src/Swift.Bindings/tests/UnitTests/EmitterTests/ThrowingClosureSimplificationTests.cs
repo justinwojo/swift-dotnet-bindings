@@ -180,6 +180,25 @@ public class ThrowingClosureSimplificationTests
         Assert.Equal("A Swift error occurred.", ex.Message);
     }
 
+    [Fact]
+    public void WrapperLambda_UsesProjectedReturnType()
+    {
+        // Closure returns Swift.String which projects to "string".
+        // The wrapper lambda's SwiftResult<T, SwiftError> must use the projected type,
+        // not raw "SwiftString". Otherwise the delegate types disagree (P1 finding).
+        var method = CreateMethodWithThrowingClosure("fetchName", "loader",
+            hasClosureReturn: true, closureArgType: "Swift.Int",
+            closureReturnType: "Swift.String");
+        var output = EmitOverload(method);
+
+        // The simplified overload should use Func<..., string> (projected)
+        Assert.Contains("Func<", output);
+        // The SwiftResult in the wrapper body must also use "string" (projected),
+        // not "SwiftString" (raw). This ensures the lambda types are consistent.
+        Assert.Contains("SwiftResult<string,", output);
+        Assert.DoesNotContain("SwiftResult<SwiftString,", output);
+    }
+
     #region Helper Methods
 
     private string EmitOverload(MethodDecl method)

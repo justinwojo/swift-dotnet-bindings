@@ -100,14 +100,17 @@ internal static class ThrowingClosureSimplificationEmitter
 
             if (throwingClosure != default)
             {
-                // Simplified parameter type
-                var simplifiedType = GetSimplifiedDelegateType(throwingClosure.ClosureSpec, closureHandler);
+                // Simplified parameter type — use projected types (IEnumerable<T> not SwiftSet<T>)
+                var simplifiedType = GetSimplifiedDelegateType(throwingClosure.ClosureSpec, closureHandler, methodEnv);
                 paramParts.Add($"{simplifiedType} {paramName}");
 
-                // Wrapper delegate that converts simplified to SwiftResult-returning
-                var originalType = closureHandler.GetCSharpDelegateType(throwingClosure.ClosureSpec);
+                // Wrapper delegate that converts simplified to SwiftResult-returning.
+                // Must use projected types to match the original method's signature
+                // (WrapperSignatureBuilder projects closure args via TypeProjectionFactory).
+                var originalType = GetProjectedDelegateType(throwingClosure.ClosureSpec, methodEnv)
+                    ?? closureHandler.GetCSharpDelegateType(throwingClosure.ClosureSpec);
                 var wrapperName = $"_wrapped_{paramName}";
-                var wrapperBody = BuildWrapperLambda(throwingClosure, closureHandler, paramName);
+                var wrapperBody = BuildWrapperLambda(throwingClosure, closureHandler, paramName, methodEnv);
                 wrapperSetup.Add($"{originalType} {wrapperName} = {wrapperBody};");
                 callArgs.Add(wrapperName);
             }
@@ -244,18 +247,25 @@ internal static class ThrowingClosureSimplificationEmitter
     /// Gets the simplified delegate type for a throwing closure.
     /// void throws → Action; T throws → Func&lt;..., T&gt;
     /// </summary>
-    private static string GetSimplifiedDelegateType(ClosureTypeSpec closureSpec, ClosureHandler closureHandler)
+    private static string GetSimplifiedDelegateType(ClosureTypeSpec closureSpec, ClosureHandler closureHandler, MethodEnvironment? methodEnv = null)
     {
         var argTypes = new List<string>();
         foreach (var arg in closureSpec.EachArgument())
         {
-            argTypes.Add(closureHandler.TranslateTypeSpecToCSharp(arg));
+            // Use projected types (e.g., IEnumerable<string> not SwiftSet<string>)
+            // to match what WrapperSignatureBuilder emits for the original method.
+            if (methodEnv != null)
+                argTypes.Add(NativeIntOverloadEmitter.ResolveType(arg, methodEnv, isParameter: true));
+            else
+                argTypes.Add(closureHandler.TranslateTypeSpecToCSharp(arg));
         }
 
         bool hasReturn = !closureSpec.ReturnType.IsEmptyTuple;
         if (hasReturn)
         {
-            var returnType = closureHandler.TranslateTypeSpecToCSharp(closureSpec.ReturnType, isReturnType: true);
+            var returnType = methodEnv != null
+                ? NativeIntOverloadEmitter.ResolveType(closureSpec.ReturnType, methodEnv, isParameter: false)
+                : closureHandler.TranslateTypeSpecToCSharp(closureSpec.ReturnType, isReturnType: true);
             if (argTypes.Count == 0)
                 return $"Func<{returnType}>";
             return $"Func<{string.Join(", ", argTypes)}, {returnType}>";
@@ -269,9 +279,25 @@ internal static class ThrowingClosureSimplificationEmitter
     }
 
     /// <summary>
+    /// Gets the projected delegate type for a throwing closure, matching the type used
+    /// in the original method's signature (via TypeProjectionFactory).
+    /// Returns null if projection fails (falls back to raw type).
+    /// </summary>
+    private static string? GetProjectedDelegateType(ClosureTypeSpec closureSpec, MethodEnvironment methodEnv)
+    {
+        var factory = new TypeProjectionFactory();
+        var projection = factory.Project(closureSpec, new ProjectionContext
+        {
+            TypeDatabase = methodEnv.TypeDatabase,
+            IsParameter = true
+        });
+        return projection?.PublicType;
+    }
+
+    /// <summary>
     /// Builds the wrapper lambda that converts a simplified delegate to a SwiftResult-returning delegate.
     /// </summary>
-    private static string BuildWrapperLambda(ThrowingClosureInfo info, ClosureHandler closureHandler, string paramName)
+    private static string BuildWrapperLambda(ThrowingClosureInfo info, ClosureHandler closureHandler, string paramName, MethodEnvironment? methodEnv = null)
     {
         var closureSpec = info.ClosureSpec;
         var argNames = new List<string>();
@@ -285,9 +311,13 @@ internal static class ThrowingClosureSimplificationEmitter
         var argList = argNames.Count > 0 ? string.Join(", ", argNames) : "";
         var callArgs = argList;
 
-        // Determine the success type
+        // Determine the success type — must use projected types to match the delegate declaration.
+        // The wrapper lambda's return type (SwiftResult<T, SwiftError>) must agree with the
+        // original method's projected delegate type from GetProjectedDelegateType.
         string successType = info.HasReturn
-            ? closureHandler.TranslateTypeSpecToCSharp(closureSpec.ReturnType, isReturnType: true)
+            ? (methodEnv != null
+                ? NativeIntOverloadEmitter.ResolveType(closureSpec.ReturnType, methodEnv, isParameter: false)
+                : closureHandler.TranslateTypeSpecToCSharp(closureSpec.ReturnType, isReturnType: true))
             : "Swift.SwiftVoid";
         var resultType = $"Swift.SwiftResult<{successType}, SwiftError>";
 
@@ -364,7 +394,7 @@ internal static class ThrowingClosureSimplificationEmitter
             var throwingClosure = throwingClosures.Find(tc => tc.Index == i);
             if (throwingClosure != default)
             {
-                paramTypes.Add(GetSimplifiedDelegateType(throwingClosure.ClosureSpec, closureHandler));
+                paramTypes.Add(GetSimplifiedDelegateType(throwingClosure.ClosureSpec, closureHandler, methodEnv));
             }
             else
             {

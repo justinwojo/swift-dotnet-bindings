@@ -50,6 +50,11 @@ public enum TypeRecordFlags
     // Such classes are projected as C# classes inheriting from the MAUI ObjC binding type
     // (e.g., CoreAnimation.CALayer) instead of using SwiftSafeHandle-based payload management.
     ObjCRooted = 1 << 8,
+    // This flag indicates a protocol's methods use Self (τ_0_0) in parameter/return types
+    // but the protocol is NOT flagged with HasSelfRequirement. The interface emits AnyType
+    // for Self positions, making the constraint unsatisfiable by concrete types (CS0738).
+    // Used to skip the constraint in generic where clauses and bound generic validation.
+    HasMethodSelfTypeParams = 1 << 9,
 }
 
 /// <summary>

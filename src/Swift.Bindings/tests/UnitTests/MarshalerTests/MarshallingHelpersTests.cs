@@ -306,6 +306,79 @@ public class MarshallingHelpersTests
 
     #endregion
 
+    #region IsOptionalObjCBridged — System Framework Fallback Tests
+
+    [Fact]
+    public void IsOptionalObjCBridged_SystemFrameworkObjCClass_ReturnsTrueViaAppleModuleFallback()
+    {
+        // QuartzCore.CALayer is not in the mock TypeDatabase, but the Apple module fallback
+        // matches: IsKnownAppleModule("QuartzCore") + HasObjCClassPrefix("QuartzCore.CALayer").
+        var typeSpec = TypeSpecParser.Parse("Swift.Optional<QuartzCore.CALayer>");
+        var db = new MockTypeDatabase();
+        Assert.True(MarshallingHelpers.IsOptionalObjCBridged(typeSpec, db));
+    }
+
+    [Fact]
+    public void IsOptionalObjCBridged_ObjCBridgedInDatabase_ReturnsTrue()
+    {
+        // Type IS in the database with ObjCBridged flag — existing behavior still works.
+        var typeSpec = TypeSpecParser.Parse("Swift.Optional<UIKit.UIImage>");
+        var db = new MockTypeDatabaseWithObjC();
+        Assert.True(MarshallingHelpers.IsOptionalObjCBridged(typeSpec, db));
+    }
+
+    [Fact]
+    public void IsOptionalObjCBridged_ObjCRootedInDatabase_ReturnsFalse()
+    {
+        // ObjCRooted types use SwiftOptional<T> marshalling (NOT IntPtr nullable pointer ABI).
+        // PropertyHandler's GetOptionalAccessorSetterConversion dispatches ObjCRootedClassProjection
+        // to SwiftOptional<T>.NewSome, not IntPtr. IsOptionalObjCBridged must NOT return true.
+        var typeSpec = TypeSpecParser.Parse("Swift.Optional<TestModule.ObjCRooted>");
+        var db = new MockTypeDatabaseWithObjC();
+        Assert.False(MarshallingHelpers.IsOptionalObjCBridged(typeSpec, db));
+    }
+
+    [Fact]
+    public void IsOptionalObjCBridged_NonObjCType_ReturnsFalse()
+    {
+        // Non-ObjC type in the database — returns false.
+        var typeSpec = TypeSpecParser.Parse("Swift.Optional<TestModule.NonFrozen>");
+        var db = new MockTypeDatabase();
+        Assert.False(MarshallingHelpers.IsOptionalObjCBridged(typeSpec, db));
+    }
+
+    /// <summary>Mock database with ObjC type records for IsOptionalObjCBridged tests.</summary>
+    private class MockTypeDatabaseWithObjC : ITypeDatabase
+    {
+        private readonly Dictionary<string, TypeRecord> _types = new()
+        {
+            ["UIKit.UIImage"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("UIKit", "UIImage"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("UIKit.UIImage"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            },
+            ["TestModule.ObjCRooted"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ObjCRooted"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ObjCRooted"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.ObjCRooted | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            }
+        };
+
+        public string? AsyncLibraryName => null;
+        public bool IsTypeProcessed(SwiftTypeName s) => _types.ContainsKey(s.ModuleQualifiedName);
+        public bool TryGetTypeRecord(SwiftTypeName s, [NotNullWhen(true)] out TypeRecord? r) => _types.TryGetValue(s.ModuleQualifiedName, out r);
+        public string GetLibraryPath(string m) => "";
+        public void UpdateTypeRecord(SwiftTypeName n, TypeRecord r) { }
+    }
+
+    #endregion
+
     #region SwiftModule → .NET Namespace Mapping
 
     [Fact]

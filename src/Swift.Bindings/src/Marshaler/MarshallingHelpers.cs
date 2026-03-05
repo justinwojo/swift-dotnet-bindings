@@ -100,9 +100,16 @@ namespace BindingsGeneration
             var inner = namedType.GenericParameters[0];
             if (inner is not NamedTypeSpec innerNamed || !innerNamed.HasModule())
                 return false;
-            if (!typeDatabase.TryGetTypeRecord(SwiftTypeName.FromModuleQualifiedName(innerNamed.Name), out var typeRecord))
-                return false;
-            return IsObjCBridged(typeRecord);
+            var innerTypeName = SwiftTypeName.FromModuleQualifiedName(innerNamed.Name);
+            if (typeDatabase.TryGetTypeRecord(innerTypeName, out var typeRecord))
+                return IsObjCBridged(typeRecord);
+            // Fallback: Apple framework ObjC classes (e.g., QuartzCore.CALayer) not in the module
+            // database. Must match TypeProjectionFactory's Optional<T> fallback exactly:
+            // IsKnownAppleModule + HasObjCClassPrefix → ObjCBridgedProjection.
+            if (TypeProjectionFactory.IsKnownAppleModule(innerNamed.Module) &&
+                TypeProjectionFactory.HasObjCClassPrefix(innerNamed.Name))
+                return true;
+            return false;
         }
 
         public static bool MethodRequiresIndirectResult(MethodEnvironment env)

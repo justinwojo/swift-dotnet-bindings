@@ -327,7 +327,7 @@ process_target() {
     # Find .csproj to compile
     local CSPROJ_FILE=""
     if ls "$outdir"/*.csproj >/dev/null 2>&1; then
-        CSPROJ_FILE=$(ls "$outdir"/*.csproj | grep -v Test.csproj | head -1)
+        CSPROJ_FILE=$(ls "$outdir"/*.csproj | grep -v 'Test.csproj\|_dep_test.csproj' | head -1)
     fi
 
     # Fallback .csproj when wrapper compilation fails
@@ -501,25 +501,40 @@ elif [[ $COMPILE_FAILED -eq 0 ]]; then
 else
     echo -e "${RED}Compile gate: $COMPILE_PASSED/$TOTAL passed, $COMPILE_FAILED failed${NC}${COMPILE_NO_OUTPUT:+ ${DIM}($COMPILE_NO_OUTPUT no output)${NC}}"
 fi
-# --- Phase 3.5: Dependency Gate ---
+# --- Phase 3.5: Dependency Gate (Cascading) ---
 
-# Extract dependency groups from manifest and compile them together.
-# Each dependent library is recompiled with assembly references to its dependencies.
-# This catches cross-module type reference errors (e.g., StripeApplePay → StripeCore).
+# Resolves cross-module type references by compiling libraries with assembly references
+# to their dependencies. Computes transitive dependency closure so indirect deps are
+# included. Runs in cascading rounds: each round's successful compilations produce DLLs
+# that unlock the next round's compilations (e.g., StripeCore → StripePayments → Stripe).
 
 DEP_PASSED=0
 DEP_FAILED=0
 DEP_SKIPPED=0
 DEP_TOTAL=0
 
-DEP_GROUPS=$(python3 -c "
+# Compute transitive dependency closures from manifest
+DEP_CLOSURES=$(python3 -c "
 import json
 libs = json.load(open('$MANIFEST'))['libraries']
+dep_map = {}
 for lib in libs:
     for prod in lib['products']:
         deps = prod.get('dependencies', [])
         if deps:
-            print(prod['framework'] + '|' + ','.join(deps))
+            dep_map[prod['framework']] = deps
+def closure(fw, seen=None):
+    if seen is None:
+        seen = set()
+    for dep in dep_map.get(fw, []):
+        if dep not in seen:
+            seen.add(dep)
+            closure(dep, seen)
+    return seen
+for fw in dep_map:
+    all_deps = closure(fw)
+    if all_deps:
+        print(fw + '|' + ','.join(sorted(all_deps)))
 " 2>/dev/null)
 
 # Build lookup set of target framework names actually in this run (pipe-delimited string; bash 3.2 compatible)
@@ -529,52 +544,70 @@ for entry in "${TARGETS[@]}"; do
     RUN_TARGETS="${RUN_TARGETS}${_fw}|"
 done
 
-if [[ -n "$DEP_GROUPS" ]]; then
+if [[ -n "$DEP_CLOSURES" ]]; then
     echo ""
     echo -e "${BOLD}--- Dependency Gate ---${NC}"
 
     RUNTIME_DLL="$SCRIPT_DIR/src/Swift.Runtime/src/bin/Debug/net10.0-ios/Swift.Runtime.dll"
 
+    # Collect libraries needing dep gate processing (newline-separated, bash 3.2 compatible)
+    DEP_PENDING=""
     while IFS='|' read -r dep_fw dep_list; do
-        # Skip if this target wasn't in the compile gate run (tier/filter/availability)
         if [[ "$RUN_TARGETS" != *"|${dep_fw}|"* ]]; then
             continue
         fi
-
-        dep_outdir="$OUTPUT_BASE/$dep_fw"
-
-        # Find main C# source file
-        local_cs=$(ls "$dep_outdir"/*.cs 2>/dev/null | grep -v '\.Wrappers\.cs' | grep -v '\.SwiftUIBridge\.cs' | head -1)
-        [[ -z "$local_cs" ]] && continue
-
         DEP_TOTAL=$((DEP_TOTAL + 1))
+        if [[ -n "$DEP_PENDING" ]]; then DEP_PENDING+=$'\n'; fi
+        DEP_PENDING+="$dep_fw|$dep_list"
+    done <<< "$DEP_CLOSURES"
 
-        # Locate dependency DLLs
-        MISSING_DEPS=()
-        FOUND_REFS=""
-        IFS=',' read -ra DEPS <<< "$dep_list"
-        for dep in "${DEPS[@]}"; do
-            # Try generated csproj name ($dep.dll, $dep.Swift.iOS.dll) then fallback (Test.dll)
-            dep_dll=$(find "$OUTPUT_BASE/$dep/bin" -name "$dep.dll" -o -name "$dep.Swift.iOS.dll" -o -name "Test.dll" 2>/dev/null | grep -v 'Swift.Runtime.dll' | head -1)
-            if [[ -n "$dep_dll" && -f "$dep_dll" ]]; then
-                FOUND_REFS="$FOUND_REFS
-    <Reference Include=\"$dep\"><HintPath>$dep_dll</HintPath></Reference>"
-            else
-                MISSING_DEPS+=("$dep")
+    # Cascading resolution: compile when all deps have DLLs, repeat until no progress
+    while [[ -n "$DEP_PENDING" ]]; do
+        DEP_PROGRESS=false
+        NEXT_PENDING=""
+
+        while IFS='|' read -r dep_fw dep_list; do
+            [[ -z "$dep_fw" ]] && continue
+            dep_outdir="$OUTPUT_BASE/$dep_fw"
+
+            # Find main C# source file
+            local_cs=$(ls "$dep_outdir"/*.cs 2>/dev/null | grep -v '\.Wrappers\.cs' | grep -v '\.SwiftUIBridge\.cs' | head -1)
+            if [[ -z "$local_cs" ]]; then
+                DEP_SKIPPED=$((DEP_SKIPPED + 1))
+                echo -e "  ${YELLOW}$dep_fw: no C# source${NC}"
+                continue
             fi
-        done
 
-        # If any dependency DLL is missing (dependency didn't compile), skip
-        if [[ ${#MISSING_DEPS[@]} -gt 0 ]]; then
-            DEP_SKIPPED=$((DEP_SKIPPED + 1))
-            echo -e "  ${YELLOW}$dep_fw + [${dep_list}]: skipped (${MISSING_DEPS[*]} not compiled)${NC}"
-            continue
-        fi
+            # Locate all transitive dependency DLLs (prioritize specific names over generic Test.dll)
+            MISSING_DEPS=()
+            FOUND_REFS=""
+            IFS=',' read -ra DEPS <<< "$dep_list"
+            for dep in "${DEPS[@]}"; do
+                dep_dll=""
+                for dll_name in "$dep.dll" "$dep.Swift.iOS.dll" "Test.dll"; do
+                    dep_dll=$(find "$OUTPUT_BASE/$dep/bin" -name "$dll_name" 2>/dev/null | grep -v 'Swift.Runtime.dll' | head -1)
+                    [[ -n "$dep_dll" && -f "$dep_dll" ]] && break
+                    dep_dll=""
+                done
+                if [[ -n "$dep_dll" && -f "$dep_dll" ]]; then
+                    FOUND_REFS="$FOUND_REFS
+    <Reference Include=\"$dep\"><HintPath>$dep_dll</HintPath></Reference>"
+                else
+                    MISSING_DEPS+=("$dep")
+                fi
+            done
 
-        # Create a clean dep-test csproj with Swift.Runtime + all dependency DLLs
-        local_cs_basename=$(basename "$local_cs")
-        DEP_CSPROJ="$dep_outdir/_dep_test.csproj"
-        cat > "$DEP_CSPROJ" <<DEP_EOF
+            # If any dependency DLL is missing, defer to next round
+            if [[ ${#MISSING_DEPS[@]} -gt 0 ]]; then
+                if [[ -n "$NEXT_PENDING" ]]; then NEXT_PENDING+=$'\n'; fi
+                NEXT_PENDING+="$dep_fw|$dep_list"
+                continue
+            fi
+
+            # Create dep test csproj with AssemblyName so DLL is findable by later rounds
+            local_cs_basename=$(basename "$local_cs")
+            DEP_CSPROJ="$dep_outdir/_dep_test.csproj"
+            cat > "$DEP_CSPROJ" <<DEP_EOF
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Library</OutputType>
@@ -583,6 +616,7 @@ if [[ -n "$DEP_GROUPS" ]]; then
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Nullable>enable</Nullable>
     <NoWarn>0169;CA1420</NoWarn>
+    <AssemblyName>$dep_fw</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.DisableRuntimeMarshallingAttribute" />
@@ -598,34 +632,53 @@ if [[ -n "$DEP_GROUPS" ]]; then
 </Project>
 DEP_EOF
 
-        # Restore + build
-        dotnet restore "$DEP_CSPROJ" -v quiet 2>/dev/null
-        DEP_BUILD_OUTPUT=$(dotnet build "$DEP_CSPROJ" -p:EnableDefaultCompileItems=false --no-restore -v quiet 2>&1)
-        DEP_BUILD_EXIT=$?
-        DEP_ERRORS=$(echo "$DEP_BUILD_OUTPUT" | grep "error CS" | sort -u | wc -l | tr -d ' ')
+            # Restore + build
+            dotnet restore "$DEP_CSPROJ" -v quiet 2>/dev/null
+            DEP_BUILD_OUTPUT=$(dotnet build "$DEP_CSPROJ" -p:EnableDefaultCompileItems=false --no-restore -v quiet 2>&1)
+            DEP_BUILD_EXIT=$?
+            DEP_ERRORS=$(echo "$DEP_BUILD_OUTPUT" | grep "error CS" | sort -u | wc -l | tr -d ' ')
 
-        if [[ $DEP_BUILD_EXIT -eq 0 && $DEP_ERRORS -eq 0 ]]; then
-            DEP_PASSED=$((DEP_PASSED + 1))
-            echo -e "  ${GREEN}$dep_fw + [${dep_list}]: OK${NC}"
-        elif [[ $DEP_BUILD_EXIT -ne 0 && $DEP_ERRORS -eq 0 ]]; then
-            INFRA_ERR=$(echo "$DEP_BUILD_OUTPUT" | grep -i "error " | grep -v "error CS" | head -1)
-            DEP_FAILED=$((DEP_FAILED + 1))
-            echo -e "  ${RED}$dep_fw + [${dep_list}]: build failure${NC}"
-            if $VERBOSE && [[ -n "$INFRA_ERR" ]]; then
-                echo -e "    ${DIM}$INFRA_ERR${NC}"
+            dep_display_deps=$(echo "$dep_list" | tr ',' ' ')
+            if [[ $DEP_BUILD_EXIT -eq 0 && $DEP_ERRORS -eq 0 ]]; then
+                DEP_PASSED=$((DEP_PASSED + 1))
+                DEP_PROGRESS=true
+                echo -e "  ${GREEN}$dep_fw + [${dep_display_deps}]: OK${NC}"
+                # Record dep gate result separately — do NOT mutate compile-gate status.
+                # Compile gate reflects standalone compilation; dep gate is a separate signal.
+                set_result "$dep_fw" dep_compile "ok"
+                set_result "$dep_fw" dep_errors 0
+            elif [[ $DEP_BUILD_EXIT -ne 0 && $DEP_ERRORS -eq 0 ]]; then
+                INFRA_ERR=$(echo "$DEP_BUILD_OUTPUT" | grep -i "error " | grep -v "error CS" | head -1)
+                DEP_FAILED=$((DEP_FAILED + 1))
+                echo -e "  ${RED}$dep_fw + [${dep_display_deps}]: build failure${NC}"
+                if $VERBOSE && [[ -n "$INFRA_ERR" ]]; then
+                    echo -e "    ${DIM}$INFRA_ERR${NC}"
+                fi
+            else
+                DEP_FAILED=$((DEP_FAILED + 1))
+                echo -e "  ${RED}$dep_fw + [${dep_display_deps}]: $DEP_ERRORS errors${NC}"
+                if $VERBOSE; then
+                    echo "$DEP_BUILD_OUTPUT" | grep "error CS" | head -5 | while IFS= read -r line; do
+                        echo -e "    ${DIM}$line${NC}"
+                    done
+                fi
             fi
-        else
-            DEP_FAILED=$((DEP_FAILED + 1))
-            echo -e "  ${RED}$dep_fw + [${dep_list}]: $DEP_ERRORS errors${NC}"
-            if $VERBOSE; then
-                echo "$DEP_BUILD_OUTPUT" | grep "error CS" | head -5 | while IFS= read -r line; do
-                    echo -e "    ${DIM}$line${NC}"
-                done
-            fi
-        fi
+        done <<< "$DEP_PENDING"
 
-        rm -f "$DEP_CSPROJ"
-    done <<< "$DEP_GROUPS"
+        DEP_PENDING="$NEXT_PENDING"
+        # Stop if no progress was made this round
+        $DEP_PROGRESS || break
+    done
+
+    # Report libraries that couldn't be resolved after all rounds
+    if [[ -n "$DEP_PENDING" ]]; then
+        while IFS='|' read -r dep_fw dep_list; do
+            [[ -z "$dep_fw" ]] && continue
+            DEP_SKIPPED=$((DEP_SKIPPED + 1))
+            dep_display_deps=$(echo "$dep_list" | tr ',' ' ')
+            echo -e "  ${YELLOW}$dep_fw + [${dep_display_deps}]: skipped (dependencies not resolved)${NC}"
+        done <<< "$DEP_PENDING"
+    fi
 
     echo ""
     if [[ $DEP_TOTAL -gt 0 ]]; then
@@ -641,6 +694,7 @@ DEP_EOF
         fi
     fi
 fi
+
 echo ""
 
 # --- Phase 4: Baseline & Regression Detection ---
@@ -667,8 +721,9 @@ for entry in "${DISPLAY_TARGETS[@]}"; do
     errs=$(get_result "$name" errors 0)
     lines=$(get_result "$name" lines 0)
     secs=$(get_result "$name" seconds 0)
+    dep_comp=$(get_result "$name" dep_compile "none")
     if [[ -n "$COMPILE_JSON" ]]; then COMPILE_JSON+=","; fi
-    COMPILE_JSON+="\"$name\":{\"generate\":\"$gen\",\"compile\":\"$comp\",\"errors\":$errs,\"lines\":$lines,\"gen_seconds\":$secs}"
+    COMPILE_JSON+="\"$name\":{\"generate\":\"$gen\",\"compile\":\"$comp\",\"errors\":$errs,\"lines\":$lines,\"gen_seconds\":$secs,\"dep_compile\":\"$dep_comp\"}"
 done
 
 # Only write baseline on full (unfiltered) runs to prevent partial corruption
@@ -771,9 +826,12 @@ for name, curr_data in curr_libs.items():
     prev_errs = prev_data.get('errors', 0)
     curr_errs = curr_data.get('errors', 0)
 
-    # Status regressions: ok/known_errors -> fail/no_csproj/regressed
-    prev_ok = prev_status in ('ok', 'known_errors')
-    curr_ok = curr_status in ('ok', 'known_errors')
+    # A library passes if it compiles standalone OR with its dependencies.
+    # dep_compile is 'ok' when the library passes the dependency gate, 'none' otherwise.
+    prev_dep = prev_data.get('dep_compile', 'none')
+    curr_dep = curr_data.get('dep_compile', 'none')
+    prev_ok = prev_status in ('ok', 'known_errors') or prev_dep == 'ok'
+    curr_ok = curr_status in ('ok', 'known_errors') or curr_dep == 'ok'
 
     if prev_ok and not curr_ok:
         regressions.append((name, f'{prev_status}({prev_errs})', f'{curr_status}({curr_errs})'))
@@ -841,6 +899,16 @@ TIER2_TARGET_COUNT="$(echo "$TIER_INFO" | cut -d'|' -f2)"
 MANUAL_TARGET_COUNT="${TIER_INFO##*|}"
 
 echo -e "${BOLD}=== Summary ===${NC}"
+
+# Overall = compile-gate passes + dep-gate passes (no double-counting)
+OVERALL_PASSED=$((COMPILE_PASSED + DEP_PASSED))
+OVERALL_FAILED=$((TOTAL - OVERALL_PASSED - COMPILE_NO_OUTPUT))
+if [[ $OVERALL_FAILED -le 0 && ${COMPILE_NO_OUTPUT:-0} -eq 0 ]]; then
+    echo -e "  Overall: ${GREEN}${OVERALL_PASSED}/$TOTAL passed${NC}"
+else
+    echo -e "  Overall: ${RED}${OVERALL_PASSED}/$TOTAL passed, $OVERALL_FAILED failed${NC}${COMPILE_NO_OUTPUT:+, ${DIM}${COMPILE_NO_OUTPUT} no output${NC}}"
+fi
+
 if [[ ${COMPILE_FAILED:-0} -eq 0 && ${COMPILE_NO_OUTPUT:-0} -eq 0 ]]; then
     echo -e "  Compile: ${GREEN}${COMPILE_PASSED:-0}/$TOTAL passed${NC}"
 elif [[ ${COMPILE_FAILED:-0} -eq 0 ]]; then

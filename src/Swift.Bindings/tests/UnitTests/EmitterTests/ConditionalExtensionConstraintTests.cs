@@ -177,11 +177,13 @@ public class ConditionalExtensionConstraintTests
     #region BoundGenericsHandler Constraint Tests
 
     [Fact]
-    public void TryGetFirstUnsatisfiedConstraint_ConditionalExtension_SimpleProtocol_ReturnsFalse()
+    public void TryGetFirstUnsatisfiedConstraint_ConditionalExtension_SimpleProtocol_ReturnsTrue()
     {
         // Scenario: Method in conditional extension `where T: FetchableRecord`
         // returns RecordCursor<T> where RecordCursor requires T: FetchableRecord.
         // Parent type (Table<T>) does NOT declare FetchableRecord, but method does.
+        // C# cannot express method-level `where` constraints on parent type parameters
+        // (CS0699), so the bound generic constraint is unsatisfied and the method is skipped.
         var typeDatabase = CreateTypeDatabase(
             ("GRDB.FetchableRecord", TypeRecordKind.Protocol, TypeRecordFlags.None));
 
@@ -202,8 +204,8 @@ public class ConditionalExtensionConstraintTests
         var handler = new BoundGenericsHandler(typeDatabase);
         var found = handler.TryGetFirstUnsatisfiedConstraint(boundGeneric, method, out var details);
 
-        Assert.False(found);
-        Assert.Equal(string.Empty, details);
+        Assert.True(found);
+        Assert.Contains("FetchableRecord", details);
     }
 
     [Fact]

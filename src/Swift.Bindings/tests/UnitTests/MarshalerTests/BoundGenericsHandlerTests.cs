@@ -1430,4 +1430,247 @@ public class BoundGenericsHandlerTests
     }
 
     #endregion
+
+    #region HasMethodSelfTypeParams — Constraint Skipping Tests
+
+    [Fact]
+    public void TryGetFirstUnsatisfiedConstraint_ProtocolWithMethodSelfTypeParams_SkipsConstraint()
+    {
+        // Protocol with HasMethodSelfTypeParams flag (methods use τ_0_0 in signatures,
+        // e.g., Lottie.AnyInterpolatable._interpolate). The constraint on the bound generic
+        // should be skipped because ShouldSkipConstraint returns true for HasMethodSelfTypeParams.
+        var types = new Dictionary<string, TypeRecord>
+        {
+            ["Lottie.AnyInterpolatable"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Lottie", "IAnyInterpolatable"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Lottie.AnyInterpolatable"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.HasMethodSelfTypeParams,
+                Kind = TypeRecordKind.Protocol
+            },
+            ["Lottie.ValueProviderStorage"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Lottie", "ValueProviderStorage"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Lottie.ValueProviderStorage"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Struct
+            }
+        };
+        var db = new MockTypeDatabaseWithCustomTypes(types);
+        var handler = new BoundGenericsHandler(db);
+
+        // Build the generic struct declaration: ValueProviderStorage<T> where T: AnyInterpolatable
+        var storageTypeDecl = new StructDecl
+        {
+            Name = "ValueProviderStorage",
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Lottie.ValueProviderStorage"),
+            MangledName = "",
+            Properties = new(),
+            Methods = new(),
+            Types = new(),
+            Operators = new(),
+            IsFrozen = false,
+            Conformances = new(),
+            MetadataAccessor = ""
+        };
+        storageTypeDecl.GenericParameters.Add(new GenericArgumentDecl(
+            "τ_0_0", "T",
+            new List<GenericParameterConformance>
+            {
+                new(new[] { "τ_0_0" }, SwiftTypeName.FromModuleQualifiedName("Lottie.AnyInterpolatable"), ConformanceKind.Protocol)
+            },
+            new List<GenericParameterConformance>()));
+
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "Lottie",
+            ParentDecl = null,
+            ModuleDecl = null,
+            Properties = new(),
+            Methods = new(),
+            Types = new List<TypeDecl> { storageTypeDecl },
+            Dependencies = new(),
+            Protocols = new()
+        };
+        storageTypeDecl.ModuleDecl = moduleDecl;
+
+        // Parent type with generic param T (no constraints — doesn't matter for skip)
+        var parentType = new StructDecl
+        {
+            Name = "SomeContainer",
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Lottie.SomeContainer"),
+            MangledName = "",
+            Properties = new(),
+            Methods = new(),
+            Types = new(),
+            Operators = new(),
+            IsFrozen = false,
+            Conformances = new(),
+            MetadataAccessor = ""
+        };
+
+        var boundGeneric = new NamedTypeSpec("Lottie.ValueProviderStorage", new NamedTypeSpec("τ_0_0"));
+
+        var method = new MethodDecl
+        {
+            Name = "testMethod",
+            ParentDecl = parentType,
+            ModuleDecl = moduleDecl,
+            MangledName = "",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>(),
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+        };
+
+        var found = handler.TryGetFirstUnsatisfiedConstraint(boundGeneric, method, out _);
+
+        // HasMethodSelfTypeParams causes the constraint to be SKIPPED (not checked),
+        // so no unsatisfied constraint is found.
+        Assert.False(found);
+    }
+
+    [Fact]
+    public void TryGetFirstUnsatisfiedConstraint_ProtocolWithoutMethodSelfTypeParams_ChecksConstraint()
+    {
+        // Regular protocol without HasMethodSelfTypeParams — constraint IS checked.
+        // If the parent type doesn't declare the conformance, it's unsatisfied.
+        var types = new Dictionary<string, TypeRecord>
+        {
+            ["TestModule.Sortable"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ISortable"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Sortable"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol
+            },
+            ["TestModule.SortedList"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "SortedList"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.SortedList"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Struct
+            }
+        };
+        var db = new MockTypeDatabaseWithCustomTypes(types);
+        var handler = new BoundGenericsHandler(db);
+
+        // Build the generic struct declaration: SortedList<T> where T: Sortable
+        var sortedListDecl = new StructDecl
+        {
+            Name = "SortedList",
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.SortedList"),
+            MangledName = "",
+            Properties = new(),
+            Methods = new(),
+            Types = new(),
+            Operators = new(),
+            IsFrozen = false,
+            Conformances = new(),
+            MetadataAccessor = ""
+        };
+        sortedListDecl.GenericParameters.Add(new GenericArgumentDecl(
+            "τ_0_0", "T",
+            new List<GenericParameterConformance>
+            {
+                new(new[] { "τ_0_0" }, SwiftTypeName.FromModuleQualifiedName("TestModule.Sortable"), ConformanceKind.Protocol)
+            },
+            new List<GenericParameterConformance>()));
+
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            ParentDecl = null,
+            ModuleDecl = null,
+            Properties = new(),
+            Methods = new(),
+            Types = new List<TypeDecl> { sortedListDecl },
+            Dependencies = new(),
+            Protocols = new()
+        };
+        sortedListDecl.ModuleDecl = moduleDecl;
+
+        // Parent type with generic param T but NO Sortable conformance
+        var parentType = new StructDecl
+        {
+            Name = "Container",
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Container"),
+            MangledName = "",
+            Properties = new(),
+            Methods = new(),
+            Types = new(),
+            Operators = new(),
+            IsFrozen = false,
+            Conformances = new(),
+            MetadataAccessor = ""
+        };
+        parentType.GenericParameters.Add(new GenericArgumentDecl(
+            "τ_0_0", "T",
+            new List<GenericParameterConformance>(), // No constraints
+            new List<GenericParameterConformance>()));
+
+        var boundGeneric = new NamedTypeSpec("TestModule.SortedList", new NamedTypeSpec("τ_0_0"));
+
+        var method = new MethodDecl
+        {
+            Name = "sort",
+            ParentDecl = parentType,
+            ModuleDecl = moduleDecl,
+            MangledName = "",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>(),
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+        };
+
+        var found = handler.TryGetFirstUnsatisfiedConstraint(boundGeneric, method, out var details);
+
+        // Regular protocol constraint IS checked and found unsatisfied.
+        Assert.True(found);
+        Assert.Contains("Sortable", details);
+    }
+
+    private class MockTypeDatabaseWithCustomTypes : ITypeDatabase
+    {
+        private readonly Dictionary<string, TypeRecord> _types;
+
+        public string AsyncLibraryName => null!;
+
+        public MockTypeDatabaseWithCustomTypes(Dictionary<string, TypeRecord> types)
+        {
+            _types = types;
+        }
+
+        public bool IsTypeProcessed(SwiftTypeName swiftTypeName) =>
+            _types.ContainsKey(swiftTypeName.ModuleQualifiedName);
+
+        public bool TryGetTypeRecord(SwiftTypeName swiftTypeName, out TypeRecord record)
+        {
+            return _types.TryGetValue(swiftTypeName.ModuleQualifiedName, out record!);
+        }
+
+        public string GetLibraryPath(string moduleName) => "";
+
+        public void UpdateTypeRecord(SwiftTypeName name, TypeRecord record) { }
+    }
+
+    #endregion
 }

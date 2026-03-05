@@ -140,6 +140,15 @@ public static class TypeDatabaseExtensions
             return IntPtrType;
         }
 
+        // Types from unsupported Apple framework modules (SwiftUI, XCTest, Combine, etc.)
+        // get mapped to AnyType so members referencing them are gracefully suppressed.
+        // Must be checked before the SwiftTypeName overload, which finds records in
+        // built-in databases (SwiftUIDatabase.xml) but the types have no C# equivalents.
+        if (IsUnsupportedAppleModule(typeSpec))
+        {
+            return AnyType;
+        }
+
         // Guard: known-generic types used without type arguments produce bare
         // C# types like "SwiftDictionary" (CS0305). Return AnyType to trigger skip.
         if (!typeSpec.ContainsGenericParameters && IsKnownGenericType(typeSpec.Name))

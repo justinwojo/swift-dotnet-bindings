@@ -767,6 +767,12 @@ namespace BindingsGeneration
             if (protocolDecl.HasSelfRequirement)
                 flags |= TypeRecordFlags.HasSelfRequirement;
 
+            // Detect Self (τ_0_0) usage in method parameter/return types.
+            // When methods use τ_0_0, the interface emits AnyType for Self positions,
+            // making the constraint unsatisfiable by concrete types.
+            if (!protocolDecl.HasSelfRequirement && HasMethodSelfTypeParams(protocolDecl))
+                flags |= TypeRecordFlags.HasMethodSelfTypeParams;
+
             // Protocols with no own instance members but inherited protocol requirements
             // won't get proxy classes emitted (ProtocolProxyEmitter skips them to avoid CS0535).
             // Mark them so existential return gates can reject them.
@@ -794,6 +800,60 @@ namespace BindingsGeneration
             };
 
             _moduleDatabase.RegisterType(protocolDecl.SwiftTypeName, typeRecord);
+        }
+
+        /// <summary>
+        /// Checks if any of the protocol's methods use τ_0_0 (Self) in parameter or return types.
+        /// </summary>
+        private static bool HasMethodSelfTypeParams(ProtocolDecl protocolDecl)
+        {
+            foreach (var method in protocolDecl.Methods)
+            {
+                if (method.IsConstructor || method.MethodType == MethodType.Static)
+                    continue;
+                foreach (var arg in method.CSSignature)
+                {
+                    if (TypeSpecContainsSelfParam(arg.SwiftTypeSpec))
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Recursively checks if a TypeSpec contains a reference to τ_0_0 (Self type param).
+        /// </summary>
+        private static bool TypeSpecContainsSelfParam(TypeSpec typeSpec)
+        {
+            if (typeSpec is NamedTypeSpec named)
+            {
+                if (named.Name == "τ_0_0")
+                    return true;
+                foreach (var gp in named.GenericParameters)
+                {
+                    if (TypeSpecContainsSelfParam(gp))
+                        return true;
+                }
+            }
+            else if (typeSpec is TupleTypeSpec tuple)
+            {
+                foreach (var elem in tuple.Elements)
+                {
+                    if (TypeSpecContainsSelfParam(elem))
+                        return true;
+                }
+            }
+            else if (typeSpec is ClosureTypeSpec closure)
+            {
+                if (TypeSpecContainsSelfParam(closure.ReturnType))
+                    return true;
+                foreach (var arg in closure.EachArgument())
+                {
+                    if (TypeSpecContainsSelfParam(arg))
+                        return true;
+                }
+            }
+            return false;
         }
 
     }

@@ -1421,4 +1421,45 @@ public class TypeDatabaseExtensionsTests
     }
 
     #endregion
+
+    #region GetTypeRecordOrAnyType — Unsupported Apple Module Suppression
+
+    [Theory]
+    [InlineData("SwiftUI.AnyView")]
+    [InlineData("Combine.Publisher")]
+    [InlineData("XCTest.XCTestCase")]
+    public async Task GetTypeRecordOrAnyType_UnsupportedAppleModule_ReturnsAnyType(string typeName)
+    {
+        // Types from unsupported Apple modules (SwiftUI, Combine, XCTest) must resolve
+        // to AnyType so that members referencing them are suppressed. This prevents
+        // CS0246 errors for types that have no C# equivalent.
+        // Regression: SwiftUIDatabase.xml has records for SwiftUI types, but
+        // GetTypeRecordOrAnyType must intercept BEFORE the database lookup.
+        var typeDatabase = new TypeDatabase();
+        // Load the built-in SwiftUI database to reproduce the regression scenario
+        var dbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Swift", "SwiftUIDatabase.xml");
+        if (File.Exists(dbPath))
+            await typeDatabase.LoadModuleDatabaseFromFile(dbPath);
+
+        var typeSpec = new NamedTypeSpec(typeName);
+        var record = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
+
+        Assert.Equal(TypeDatabaseExtensions.AnyType, record);
+    }
+
+    [Theory]
+    [InlineData("UIKit.UIImage")]
+    [InlineData("Foundation.NSData")]
+    public void GetTypeRecordOrAnyType_SupportedAppleModule_DoesNotReturnAnyType(string typeName)
+    {
+        // Types from supported Apple modules (UIKit, Foundation) should NOT be
+        // suppressed — they have C# equivalents via .NET iOS bindings.
+        var typeDatabase = new TypeDatabase();
+        var typeSpec = new NamedTypeSpec(typeName);
+        var record = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
+
+        Assert.NotEqual(TypeDatabaseExtensions.AnyType, record);
+    }
+
+    #endregion
 }

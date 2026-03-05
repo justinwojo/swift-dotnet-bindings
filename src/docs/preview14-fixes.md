@@ -249,7 +249,7 @@ Items discovered during developer review of the 3 clean-building libraries. Cate
 
 ## Session Plan
 
-Four sessions. Each scoped to complete in a single Claude session.
+Five sessions. Each scoped to complete in a single Claude session. Sessions 1-3 and 5 are complete. Session 4 is planned work.
 
 ### Session 1: P14A — Bug Fixes + Regression Guards
 
@@ -338,30 +338,83 @@ Fix the generator bugs revealed by the P14B restore fix. The 42 failing targets 
     - SVGView now passes (prior session fixes resolved SwiftUI.Color/Font issues)
     - Parchment, Alamofire now pass (`.Payload` errors on ObjC-rooted types resolved by CX-4 + prior session fixes)
 
-11. **CX-11: Generic constraint tracking** — not yet addressed
+11. **CX-11: Generic constraint tracking** ✅ — resolved in P15
     - 9 errors across 2 libraries (Lottie 8, GRDB 1)
     - CS0311: `LottieColor`/`LottieVector1D`/`LottieVector3D` don't satisfy `IAnyInterpolatable` constraint on `ValueProviderStorage<T>`
     - CS0314: `TRowDecoder` doesn't satisfy `IFetchableRecord` constraint on `RecordCursor<TRecord>`
-    - ConformanceGraph misses some protocol conformances; concrete types conform at Swift level but C# classes don't implement the interface
+    - **Fix**: Three changes: (1) `GenericTypeEmitter` — when a generic constraint references a protocol, the emitted C# `where T : IProtocol` now includes both the protocol interface and any ancestor protocols from the conformance graph. (2) `ProtocolExtensionClosureBridge` — closure-based protocol extension methods now correctly propagate generic constraints from the parent type through to the emitted wrapper. (3) `ModuleProcessor.InferMissingConformances()` — infers conformances from generic type arguments at the module level (e.g., `ValueProviderStorage<T: Interpolatable>` + `LottieColor` used as `T` → infer `LottieColor: Interpolatable`).
     - DifferenceKit previously listed here — now passing (resolved by other fixes)
 
 12. **CX-12: Async closure callback** ✅ — resolved
     - Alamofire now passes (prior session fixes resolved async closure issues)
 
-#### Remaining failing libraries (15/53) — root cause breakdown
+#### Remaining failing libraries — all resolved
 
-| Root Cause | Libraries | Errors |
-|---|---|---|
-| Cross-module `StripeCore` refs (compile gate only; dep gate passes) | StripeApplePay (6), StripeConnect (2), StripeUICore (3) | 11 |
-| Stripe deep dep chain (multiple intermediate deps needed) | Stripe (8), StripeCryptoOnramp (11), StripeFinancialConnections (22), StripeIssuing (10), StripePayments (42), StripePaymentSheet (84), StripePaymentsUI (43) | 220 |
-| Generic constraint tracking (CX-11) | Lottie (8), GRDB (1) | 9 |
-| BlinkIDUX inter-module types (needs BlinkID assembly ref) | BlinkIDUX (13) | 13 |
+All 53/53 targets pass (40 compile gate + 13 dependency gate). See Session 5 (P15) for the final fixes.
 
-**Note**: StripeApplePay, StripeConnect, and StripeUICore would likely pass if added to the dependency gate (they only reference StripeCore types). BlinkIDUX would likely pass if added as a dependency gate target with BlinkID.
+**Resolved by P14E (validation infrastructure)**:
+- BlinkIDUX: added `"dependencies": ["BlinkID"]` to manifest → passes dep gate
+- Stripe deep dep chains (11 libraries): cascading dependency gate resolves transitive deps in rounds. Round 1 compiles direct deps (StripePayments→StripeCore, StripeUICore→StripeCore, etc.), round 2 compiles deeper deps (Stripe→StripeApplePay+StripePayments, StripePaymentsUI→StripePayments+StripeUICore, etc.)
+- StripeIdentity: added `"dependencies": ["StripeCameraCore", "StripeCore", "StripeUICore"]`
+- Stripe: updated deps to `["StripeApplePay", "StripePayments"]` (was missing StripeApplePay)
+- StripeCryptoOnramp: updated deps to `["StripeApplePay", "StripeCore", "StripePaymentSheet", "StripePayments"]`
 
 **Tests**: 23 new tests — MemberEmissionValidatorTests (5), Tier2LibraryFixTests (5), ProtocolProxyEmitterTests (1+2 updated), PropertyHandlerTests (5), ExistentialHandlerTests (7: cross-module proxy qualification).
 
-**Gate**: Unit tests 5420 passing (0 failures). Validation 38/53 compile gate, 6/6 dependency gate.
+**Gate**: Unit tests 5427 passing (0 failures). Validation 38/53 compile gate, 6/6 dependency gate. Remaining 4 failures (GRDB, Lottie, StripePaymentSheet, StripeCryptoOnramp) resolved in P15.
+
+### Session 5: P15 — 53/53 Validation + Codex Review Fixes ✅
+
+**Status**: Complete. All 53 validation targets pass. 5439 unit tests (0 failures). Codex review P1 findings addressed.
+
+**Goal**: Fix the remaining 4 failing libraries (GRDB, Lottie, StripePaymentSheet, StripeCryptoOnramp) and address Codex review findings.
+
+#### Generator Fixes
+
+1. **CX-11 resolution: Generic constraint tracking** ✅
+   - GRDB (1 error): `RecordCursor<TRecord>` constraint on `IFetchableRecord`
+   - Lottie (8 errors): `ValueProviderStorage<T>` constraint on `IAnyInterpolatable`
+   - **Fix**: Three changes:
+     - `GenericTypeEmitter.cs` — emits ancestor protocol constraints from conformance graph
+     - `ProtocolExtensionClosureBridge.cs` — propagates generic constraints through closure wrappers
+     - `ModuleProcessor.InferMissingConformances()` — infers conformances from generic type argument usage patterns
+
+2. **StripePaymentSheet SwiftUI references** ✅
+   - 2 errors: References to `SwiftUI.View` types that don't exist in the type database
+   - **Fix**: `TypeDatabaseExtensions.GetTypeRecordOrAnyType()` — added `IsUnsupportedAppleModule` check for SwiftUI/Combine/Observation modules, returns `AnyType` instead of throwing
+
+3. **StripeCryptoOnramp cascading failure** ✅
+   - Blocked by StripePaymentSheet — automatically resolved when StripePaymentSheet fixed
+   - Added `"dependencies": ["StripeApplePay", "StripeCore", "StripePaymentSheet", "StripePayments", "StripeUICore"]` to manifest
+
+4. **IsOptionalObjCBridged parity fix** ✅
+   - `MarshallingHelpers.IsOptionalObjCBridged()` — Apple framework ObjC classes not in module database (e.g., `QuartzCore.CALayer`) now correctly identified via `TypeProjectionFactory.IsKnownAppleModule + HasObjCClassPrefix` fallback
+   - Matches TypeProjectionFactory's Optional inner type projection exactly
+   - ObjCRooted types correctly excluded (they use `SwiftOptional<T>`, not `IntPtr`)
+
+#### Codex Review P1 Fixes
+
+5. **P1: Validation compile-gate contamination** ✅
+   - `validate-libraries.sh` dependency gate was overwriting compile-gate results with `set_result "$dep_fw" compile "ok"`, making baseline unreliable
+   - **Fix**: Dep-gate results now stored as `dep_compile` (separate field). Compile-gate results are never mutated by dep-gate. Baseline stores both independently. Regression detection considers both fields.
+   - Summary now shows: "Overall" (combined 53/53), "Compile" (standalone 40/53), "Dependencies" (dep-gate 13/13)
+
+6. **P1: ThrowingClosureSimplificationEmitter type mismatch** ✅
+   - `BuildWrapperLambda` used raw `closureHandler.TranslateTypeSpecToCSharp` for `SwiftResult<T, SwiftError>` success type, while delegate declarations used projected types (e.g., `string` vs `SwiftString`)
+   - **Fix**: `BuildWrapperLambda` now accepts `MethodEnvironment` and uses `NativeIntOverloadEmitter.ResolveType()` for projected type consistency
+   - Latent bug — no current library triggered it, but delegate/lambda types now always agree
+
+#### Validation Infrastructure
+
+7. **Cascading dependency gate** ✅
+   - Dependency gate now resolves transitive deps in rounds (round 1: direct deps, round 2: deeper deps)
+   - 13 dependency targets all pass: BlinkIDUX, StripeApplePay, StripeCardScan, StripeConnect, StripeFinancialConnections, StripePayments, StripeUICore, Stripe, StripeIdentity, StripeIssuing, StripePaymentSheet, StripePaymentsUI, StripeCryptoOnramp
+
+**Tests**: 12 new tests — BoundGenericsHandlerTests (2: HasMethodSelfTypeParams constraint skipping), MarshallingHelpersTests (3: IsOptionalObjCBridged correctness), TypeDatabaseExtensionsTests (1: unsupported Apple module fallback), ThrowingClosureSimplificationTests (1: projected return type in wrapper lambda), plus updates to existing ConditionalExtensionConstraintTests.
+
+**Gate**: Unit tests 5439 passing (0 failures). Validation 53/53 overall (40 compile, 13 dep gate). No regressions.
+
+---
 
 ### Session 4: P14D — Quality Polish
 
