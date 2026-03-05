@@ -86,7 +86,7 @@ public class NameProviderRenameTests
     {
         // Scenario: ImagePipeline has property "cache" (PascalCase: "Cache")
         // and nested type "Cache" which itself has nested type "Entry".
-        // Property "Cache" should be renamed to "CacheValue".
+        // Property "Cache" should be renamed to "CacheValue" (CS0102 avoidance).
         // TypeDatabase should NOT be modified.
         var typeDatabase = new TypeDatabase();
         var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");

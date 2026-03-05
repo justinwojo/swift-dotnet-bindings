@@ -480,7 +480,7 @@ public class WitnessDispatchEmitter
             {
                 if (!IsTypeDispatchable(param.SwiftTypeSpec))
                     return new DispatchClassification(MethodDispatchKind.NotDispatchable,
-                        $"parameter '{param.Name}' has non-dispatchable type '{param.SwiftTypeSpec}'");
+                        $"parameter '{param.Name}' has non-dispatchable type '{MapForDiagnostic(param.SwiftTypeSpec)}'");
             }
             return new DispatchClassification(MethodDispatchKind.ExistentialReturn, null);
         }
@@ -491,7 +491,7 @@ public class WitnessDispatchEmitter
             {
                 if (!IsTypeDispatchable(param.SwiftTypeSpec))
                     return new DispatchClassification(MethodDispatchKind.NotDispatchable,
-                        $"parameter '{param.Name}' has non-dispatchable type '{param.SwiftTypeSpec}'");
+                        $"parameter '{param.Name}' has non-dispatchable type '{MapForDiagnostic(param.SwiftTypeSpec)}'");
             }
             return new DispatchClassification(MethodDispatchKind.BoundGenericReturn, null);
         }
@@ -502,7 +502,7 @@ public class WitnessDispatchEmitter
             {
                 if (!IsTypeDispatchable(param.SwiftTypeSpec))
                     return new DispatchClassification(MethodDispatchKind.NotDispatchable,
-                        $"parameter '{param.Name}' has non-dispatchable type '{param.SwiftTypeSpec}'");
+                        $"parameter '{param.Name}' has non-dispatchable type '{MapForDiagnostic(param.SwiftTypeSpec)}'");
             }
             return new DispatchClassification(MethodDispatchKind.ClassReturn, null);
         }
@@ -513,7 +513,7 @@ public class WitnessDispatchEmitter
             {
                 if (!IsTypeDispatchable(param.SwiftTypeSpec))
                     return new DispatchClassification(MethodDispatchKind.NotDispatchable,
-                        $"parameter '{param.Name}' has non-dispatchable type '{param.SwiftTypeSpec}'");
+                        $"parameter '{param.Name}' has non-dispatchable type '{MapForDiagnostic(param.SwiftTypeSpec)}'");
             }
             return new DispatchClassification(MethodDispatchKind.StructReturn, null);
         }
@@ -522,29 +522,36 @@ public class WitnessDispatchEmitter
         {
             if (hasReturn && !IsTypeDispatchable(returnType!))
                 return new DispatchClassification(MethodDispatchKind.NotDispatchable,
-                    $"return type '{returnType}' is not dispatchable");
+                    $"return type '{MapForDiagnostic(returnType!)}' is not dispatchable");
             foreach (var param in method.CSSignature.Skip(1))
             {
                 if (!IsTypeDispatchable(param.SwiftTypeSpec))
                     return new DispatchClassification(MethodDispatchKind.NotDispatchable,
-                        $"parameter '{param.Name}' has non-dispatchable type '{param.SwiftTypeSpec}'");
+                        $"parameter '{param.Name}' has non-dispatchable type '{MapForDiagnostic(param.SwiftTypeSpec)}'");
             }
             return new DispatchClassification(MethodDispatchKind.ThrowingBlittableOrString, null);
         }
 
         if (hasReturn && !IsTypeDispatchable(returnType!))
             return new DispatchClassification(MethodDispatchKind.NotDispatchable,
-                $"return type '{returnType}' is not dispatchable");
+                $"return type '{MapForDiagnostic(returnType!)}' is not dispatchable");
 
         foreach (var param in method.CSSignature.Skip(1))
         {
             if (!IsTypeDispatchable(param.SwiftTypeSpec))
                 return new DispatchClassification(MethodDispatchKind.NotDispatchable,
-                    $"parameter '{param.Name}' has non-dispatchable type '{param.SwiftTypeSpec}'");
+                    $"parameter '{param.Name}' has non-dispatchable type '{MapForDiagnostic(param.SwiftTypeSpec)}'");
         }
 
         return new DispatchClassification(MethodDispatchKind.BlittableOrString, null);
     }
+
+    /// <summary>
+    /// Maps Swift module names to .NET namespace equivalents in a TypeSpec's string representation
+    /// for use in diagnostic messages (e.g., QuartzCore.CALayer → CoreAnimation.CALayer).
+    /// </summary>
+    private static string MapForDiagnostic(TypeSpec typeSpec)
+        => MarshallingHelpers.MapModulesInString(typeSpec.ToString());
 
     /// <summary>
     /// Returns a human-readable reason why a property type is not dispatchable via witness table.
@@ -558,7 +565,7 @@ public class WitnessDispatchEmitter
             || IsPropertyCollectionReturn(property))
             return null;
 
-        return $"property type '{property.SwiftTypeSpec}' is not dispatchable via witness table";
+        return $"property type '{MapForDiagnostic(property.SwiftTypeSpec)}' is not dispatchable via witness table";
     }
 
     /// <summary>

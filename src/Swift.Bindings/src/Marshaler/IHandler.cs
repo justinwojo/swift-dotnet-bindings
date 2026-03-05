@@ -199,14 +199,16 @@ namespace BindingsGeneration
             var emissionCtx = context.GetEmissionContext();
             foreach (var baseDecl in sortedDecl)
             {
-                // Suppress underscore-prefixed types that are not structurally required
-                if (baseDecl is TypeDecl typeDecl &&
-                    typeDecl.SwiftTypeName != null &&
-                    emissionCtx.IsUnderscoreSuppressed(typeDecl.SwiftTypeName.ToString()))
+                if (baseDecl is TypeDecl typeDecl)
                 {
-                    ReportCollector.RecordTypeSkipped(typeDecl, SkipReason.UnderscorePrefixInternal,
-                        "Underscore-prefixed type suppressed from public API.");
-                    continue;
+                    // Suppress underscore-prefixed types that are not structurally required
+                    if (typeDecl.SwiftTypeName != null &&
+                        emissionCtx.IsUnderscoreSuppressed(typeDecl.SwiftTypeName.ToString()))
+                    {
+                        ReportCollector.RecordTypeSkipped(typeDecl, SkipReason.UnderscorePrefixInternal,
+                            "Underscore-prefixed type suppressed from public API.");
+                        continue;
+                    }
                 }
 
                 if (baseDecl is StructDecl structDecl)

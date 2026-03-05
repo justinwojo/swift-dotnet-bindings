@@ -183,6 +183,10 @@ public class OptionalAppleFallbackTests
         Assert.False(TypeProjectionFactory.IsKnownAppleModule("Alamofire"));
         Assert.False(TypeProjectionFactory.IsKnownAppleModule("ThirdParty"));
         Assert.False(TypeProjectionFactory.IsKnownAppleModule("Swift"));
+        // UIKit and Foundation are excluded from the Optional fallback set
+        // because they contain many non-class types (enums, structs) with
+        // NS/UI prefixes. They are checked separately for collection elements.
+        Assert.False(TypeProjectionFactory.IsKnownAppleModule("UIKit"));
         Assert.False(TypeProjectionFactory.IsKnownAppleModule("Foundation"));
     }
 
@@ -253,6 +257,132 @@ public class OptionalAppleFallbackTests
         public string? AsyncLibraryName => null;
         public void UpdateTypeRecord(SwiftTypeName name, TypeRecord record) { }
     }
+
+    #region CQ-5: Array<ObjCClass> Projection Tests
+
+    [Fact]
+    public void Project_ArrayOfObjCClass_ReturnsArrayProjection()
+    {
+        // Array<UIKit.UIImage> — UIKit is a known Apple module, UIImage has ObjC prefix
+        var element = new NamedTypeSpec("UIKit.UIImage");
+        var array = new NamedTypeSpec("Swift.Array", element);
+        var ctx = CreateContext();
+
+        var projection = _factory.Project(array, ctx);
+
+        Assert.NotNull(projection);
+        Assert.Contains("IReadOnlyList", projection!.PublicType);
+    }
+
+    [Fact]
+    public void Project_ArrayOfNonObjCAppleType_ReturnsNull()
+    {
+        // Array<StoreKit.Transaction> — StoreKit is Apple but Transaction lacks ObjC prefix
+        var element = new NamedTypeSpec("StoreKit.Transaction");
+        var array = new NamedTypeSpec("Swift.Array", element);
+        var ctx = CreateContext();
+
+        var projection = _factory.Project(array, ctx);
+
+        Assert.Null(projection);
+    }
+
+    [Fact]
+    public void Project_ArrayOfThirdPartyType_ReturnsNull()
+    {
+        // Array<Nuke.ImagePipeline> — Nuke is not an Apple module
+        var element = new NamedTypeSpec("Nuke.ImagePipeline");
+        var array = new NamedTypeSpec("Swift.Array", element);
+        var ctx = CreateContext();
+
+        var projection = _factory.Project(array, ctx);
+
+        Assert.Null(projection);
+    }
+
+    [Fact]
+    public void Project_ArrayOfNestedObjCType_ReturnsNull()
+    {
+        // Array<Foundation.NSAttributedString.Key> — nested type, not an ObjC class
+        var element = new NamedTypeSpec("Foundation.NSAttributedString.Key");
+        var array = new NamedTypeSpec("Swift.Array", element);
+        var ctx = CreateContext();
+
+        var projection = _factory.Project(array, ctx);
+
+        Assert.Null(projection);
+    }
+
+    [Fact]
+    public void Project_ArrayOfNonUIKitAppleType_ReturnsNull()
+    {
+        // Array<PassKit.PKPaymentNetwork> — PassKit is Apple but not UIKit/Foundation
+        var element = new NamedTypeSpec("PassKit.PKPaymentNetwork");
+        var array = new NamedTypeSpec("Swift.Array", element);
+        var ctx = CreateContext();
+
+        var projection = _factory.Project(array, ctx);
+
+        Assert.Null(projection);
+    }
+
+    [Fact]
+    public void Project_SetOfObjCClass_ReturnsSetProjection()
+    {
+        // Set<UIKit.UIImage> — UIKit ObjC class in Set
+        var element = new NamedTypeSpec("UIKit.UIImage");
+        var set = new NamedTypeSpec("Swift.Set", element);
+        var ctx = CreateContext();
+
+        var projection = _factory.Project(set, ctx);
+
+        Assert.NotNull(projection);
+        Assert.Contains("IReadOnlySet", projection!.PublicType);
+    }
+
+    [Fact]
+    public void Project_DictionaryWithObjCClassValue_ReturnsDictionaryProjection()
+    {
+        // Dictionary<Swift.String, UIKit.UIImage> — ObjC class as dictionary value
+        var key = new NamedTypeSpec("Swift.String");
+        var value = new NamedTypeSpec("UIKit.UIImage");
+        var dict = new NamedTypeSpec("Swift.Dictionary", key, value);
+        var ctx = CreateContext();
+
+        var projection = _factory.Project(dict, ctx);
+
+        Assert.NotNull(projection);
+        Assert.Contains("IReadOnlyDictionary", projection!.PublicType);
+    }
+
+    [Fact]
+    public void Project_SetOfNestedObjCType_ReturnsNull()
+    {
+        // Set<Foundation.NSAttributedString.Key> — nested type rejected in Set
+        var element = new NamedTypeSpec("Foundation.NSAttributedString.Key");
+        var set = new NamedTypeSpec("Swift.Set", element);
+        var ctx = CreateContext();
+
+        var projection = _factory.Project(set, ctx);
+
+        Assert.Null(projection);
+    }
+
+    [Fact]
+    public void Project_DictionaryWithNonUIKitAppleKey_ReturnsNull()
+    {
+        // Dictionary<PassKit.PKPaymentNetwork, Swift.String> — PassKit excluded from element fallback
+        var key = new NamedTypeSpec("PassKit.PKPaymentNetwork");
+        var value = new NamedTypeSpec("Swift.String");
+        var dict = new NamedTypeSpec("Swift.Dictionary", key, value);
+        var ctx = CreateContext();
+
+        var projection = _factory.Project(dict, ctx);
+
+        Assert.Null(projection);
+    }
+
+    #endregion
 }
 
 #endregion
@@ -437,6 +567,7 @@ public class AsyncCollectionProjectionTests
 
         return (csStringWriter.ToString(), swiftStringWriter.ToString());
     }
+
 }
 
 #endregion

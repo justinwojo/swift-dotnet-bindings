@@ -61,6 +61,7 @@ public enum SkipReason
     GenericTypeCallback,
     SynthesizedCodable,
     UnderscorePrefixInternal,
+    ModuleInternal,
     ExtensionDefault,
     Unknown,
 }

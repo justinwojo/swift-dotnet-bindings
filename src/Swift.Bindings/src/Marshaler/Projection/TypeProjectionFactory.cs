@@ -203,7 +203,8 @@ public class TypeProjectionFactory
 
         if (name == "Swift.Array" && namedType.GenericParameters.Count == 1)
         {
-            var elemProjection = Project(namedType.GenericParameters[0], context);
+            var elemProjection = Project(namedType.GenericParameters[0], context)
+                ?? TryProjectObjCElement(namedType.GenericParameters[0]);
             if (elemProjection == null)
                 return null;
             return new ArrayProjection(elemProjection, context.IsParameter);
@@ -211,7 +212,8 @@ public class TypeProjectionFactory
 
         if (name == "Swift.Set" && namedType.GenericParameters.Count == 1)
         {
-            var elemProjection = Project(namedType.GenericParameters[0], context);
+            var elemProjection = Project(namedType.GenericParameters[0], context)
+                ?? TryProjectObjCElement(namedType.GenericParameters[0]);
             if (elemProjection == null)
                 return null;
             return new SetProjection(elemProjection, context.IsParameter);
@@ -219,8 +221,10 @@ public class TypeProjectionFactory
 
         if (name == "Swift.Dictionary" && namedType.GenericParameters.Count == 2)
         {
-            var keyProjection = Project(namedType.GenericParameters[0], context);
-            var valueProjection = Project(namedType.GenericParameters[1], context);
+            var keyProjection = Project(namedType.GenericParameters[0], context)
+                ?? TryProjectObjCElement(namedType.GenericParameters[0]);
+            var valueProjection = Project(namedType.GenericParameters[1], context)
+                ?? TryProjectObjCElement(namedType.GenericParameters[1]);
             if (keyProjection == null || valueProjection == null)
                 return null;
             return new DictionaryProjection(keyProjection, valueProjection, context.IsParameter);
@@ -457,6 +461,51 @@ public class TypeProjectionFactory
     /// </summary>
     internal static bool IsKnownAppleModule(string moduleName)
         => KnownAppleModules.Contains(moduleName);
+
+    /// <summary>
+    /// Fallback projection for collection element types that are unresolved Apple ObjC classes.
+    /// Uses a broader module set than the Optional fallback (includes UIKit/Foundation)
+    /// because collection elements are projected by value — no Optional ABI parity concern.
+    /// Returns ObjCBridgedProjection if the element is an ObjC class, null otherwise.
+    /// </summary>
+    private static ITypeProjection? TryProjectObjCElement(TypeSpec elementTypeSpec)
+    {
+        if (elementTypeSpec is NamedTypeSpec elemNamed &&
+            elemNamed.HasModule() &&
+            !elemNamed.ContainsGenericParameters &&
+            !IsStdlibContainer(elemNamed.Name) &&
+            !IsPointerType(elemNamed.Name) &&
+            !IsNestedType(elemNamed.Name) &&
+            IsKnownAppleModuleForElements(elemNamed.Module) &&
+            HasObjCClassPrefix(elemNamed.Name))
+        {
+            return new ObjCBridgedProjection(elemNamed.Name);
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Returns true if the module-qualified name represents a nested type
+    /// (e.g., "Foundation.NSAttributedString.Key" has two dots → nested).
+    /// Nested types like NSAttributedString.Key are structs/enums, not ObjC classes.
+    /// </summary>
+    private static bool IsNestedType(string moduleQualifiedName)
+    {
+        var firstDot = moduleQualifiedName.IndexOf('.');
+        if (firstDot < 0) return false;
+        return moduleQualifiedName.IndexOf('.', firstDot + 1) >= 0;
+    }
+
+    /// <summary>
+    /// Module check for collection element fallback. Limited to UIKit and Foundation
+    /// which are the primary modules containing ObjC classes used as collection elements
+    /// (e.g., Array&lt;UIImage&gt;). Other Apple modules are excluded because their types
+    /// often have ObjC prefixes but are string typedefs or static classes in C#
+    /// (e.g., PassKit.PKPaymentNetwork is a static class, not an ObjC class).
+    /// </summary>
+    private static bool IsKnownAppleModuleForElements(string moduleName)
+        => moduleName == "UIKit"
+           || moduleName == "Foundation";
 
     /// <summary>
     /// Known ObjC class name prefixes used by Apple frameworks.

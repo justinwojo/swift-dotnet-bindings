@@ -651,4 +651,36 @@ public class MarshallingHelpersTests
     }
 
     #endregion
+
+    #region MapModulesInString Tests (CQ-1)
+
+    [Theory]
+    [InlineData("QuartzCore.CALayerContentsGravity", "CoreAnimation.CALayerContentsGravity")]
+    [InlineData("ObjectiveC.NSObject", "Foundation.NSObject")]
+    [InlineData("Dispatch.DispatchQueue", "CoreFoundation.DispatchQueue")]
+    [InlineData("AVFAudio.AVAudioPlayer", "AVFoundation.AVAudioPlayer")]
+    public void MapModulesInString_MapsKnownModules(string input, string expected)
+    {
+        Assert.Equal(expected, MarshallingHelpers.MapModulesInString(input));
+    }
+
+    [Theory]
+    [InlineData("UIKit.UIImage")]
+    [InlineData("Swift.Int")]
+    [InlineData("NoModule")]
+    [InlineData("")]
+    public void MapModulesInString_LeavesUnmappedModulesUnchanged(string input)
+    {
+        Assert.Equal(input, MarshallingHelpers.MapModulesInString(input));
+    }
+
+    [Fact]
+    public void MapModulesInString_MapsModulesInDiagnosticString()
+    {
+        var input = "return type 'QuartzCore.CALayerContentsGravity' is not dispatchable";
+        var expected = "return type 'CoreAnimation.CALayerContentsGravity' is not dispatchable";
+        Assert.Equal(expected, MarshallingHelpers.MapModulesInString(input));
+    }
+
+    #endregion
 }

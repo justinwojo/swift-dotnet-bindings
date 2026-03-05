@@ -813,4 +813,8 @@ public class ModuleHandlerTests
     }
 
     #endregion
+
+    #region CQ-3: Module-Internal Type Suppression Tests
+
+    #endregion
 }

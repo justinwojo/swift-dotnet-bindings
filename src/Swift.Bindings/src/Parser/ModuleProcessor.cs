@@ -555,10 +555,51 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Well-known stdlib container types that are projected to constraint-free C# types.
+        /// Enums used as type arguments of these containers don't need demotion because the
+        /// C# projection (IReadOnlyList, T?, IReadOnlyDictionary, IReadOnlySet) has no ISwiftObject constraint.
+        /// </summary>
+        private static readonly HashSet<string> ConstraintFreeContainers = new(StringComparer.Ordinal)
+        {
+            "Swift.Array", "Swift.Optional", "Swift.Dictionary", "Swift.Set",
+        };
+
+        /// <summary>
+        /// Checks whether a generic parameter at a given position in a type declaration
+        /// has protocol conformance constraints that would require ISwiftObject implementation.
+        /// Returns true if the parameter has conformances (meaning enums at that position need demotion).
+        /// Returns true (conservative) if the type declaration is not found.
+        /// </summary>
+        private bool HasProtocolConstraintAtPosition(string parentTypeName, int paramIndex)
+        {
+            // Look up the parent type in the module's type declarations
+            foreach (var (typeSpec, typeDecl) in _typeDecls)
+            {
+                var swiftTypeName = SwiftTypeName.FromTypeSpec(typeSpec);
+                if (swiftTypeName.ModuleQualifiedName == parentTypeName)
+                {
+                    if (paramIndex < typeDecl.GenericParameters.Count)
+                    {
+                        var genericParam = typeDecl.GenericParameters[paramIndex];
+                        // If the parameter has any protocol conformances, the enum needs
+                        // ISwiftObject (which maps to C# interface constraints)
+                        return genericParam.GenericConformances.Count > 0;
+                    }
+                    // Parameter index out of range — conservative demotion
+                    return true;
+                }
+            }
+            // Type not found in module — conservative demotion for unknown external types
+            return true;
+        }
+
+        /// <summary>
         /// Recursively extracts concrete type names used as generic type arguments from a TypeSpec.
         /// Only collects from NamedTypeSpec nodes that have generic parameters (bound generics).
+        /// Skips well-known stdlib containers (Array, Optional, etc.) that are projected to
+        /// constraint-free C# types, and checks generic parameter constraints for user-defined types.
         /// </summary>
-        private static void CollectGenericArgsFromTypeSpec(TypeSpec? typeSpec, HashSet<string> result)
+        private void CollectGenericArgsFromTypeSpec(TypeSpec? typeSpec, HashSet<string> result)
         {
             if (typeSpec == null)
                 return;
@@ -567,15 +608,23 @@ namespace BindingsGeneration
             {
                 if (named.ContainsGenericParameters)
                 {
+                    // Skip well-known stdlib containers — their C# projections have no ISwiftObject constraint
+                    bool isConstraintFree = ConstraintFreeContainers.Contains(named.Name);
+
                     // This is a bound generic — collect concrete type arguments
-                    foreach (var genericParam in named.GenericParameters)
+                    for (int i = 0; i < named.GenericParameters.Count; i++)
                     {
+                        var genericParam = named.GenericParameters[i];
                         if (genericParam is NamedTypeSpec argNamed &&
                             argNamed.HasModule() &&
                             !argNamed.ContainsGenericParameters)
                         {
-                            // Concrete type argument (not itself generic)
-                            result.Add(argNamed.Name); // Name includes module prefix
+                            // Only collect if the parent type's constraint at this position
+                            // requires protocol conformance (ISwiftObject or interface)
+                            if (!isConstraintFree && HasProtocolConstraintAtPosition(named.Name, i))
+                            {
+                                result.Add(argNamed.Name); // Name includes module prefix
+                            }
                         }
 
                         // Recurse into nested generics (e.g., Array<ScanningResult<T, MyEnum>>)

@@ -294,6 +294,25 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Replaces all known Swift module names with their .NET namespace equivalents
+        /// within a free-form string (e.g., diagnostic messages, attribute content).
+        /// Matches module names followed by a dot to avoid false positives.
+        /// </summary>
+        public static string MapModulesInString(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+                return text;
+
+            foreach (var (swiftModule, netNamespace) in SwiftModuleToNetNamespace)
+            {
+                var swiftPrefix = $"{swiftModule}.";
+                if (text.Contains(swiftPrefix, StringComparison.Ordinal))
+                    text = text.Replace(swiftPrefix, $"{netNamespace}.", StringComparison.Ordinal);
+            }
+            return text;
+        }
+
+        /// <summary>
         /// Gets the fully-qualified .NET base type name for an ObjC-rooted class.
         /// Maps the Swift module to the corresponding .NET namespace and uses the
         /// ObjC class name from the superclass chain.
