@@ -19,6 +19,12 @@ public class ExistentialHandler
     /// </summary>
     public const int MaxSupportedWitnessTables = 8;
 
+    /// <summary>
+    /// The name of the module currently being generated. When set, cross-module
+    /// protocol references are qualified with the protocol's module namespace.
+    /// </summary>
+    public string? CurrentModuleName { get; set; }
+
     public ExistentialHandler(ITypeDatabase typeDatabase, SortedDictionary<string, List<string>>? compositionCollector = null)
     {
         _typeDatabase = typeDatabase;
@@ -340,7 +346,20 @@ public class ExistentialHandler
             if (firstProtocol.GenericParameters.Count > 0)
                 return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
 
-            return NameProvider.GetInterfaceName(firstProtocol.NameWithoutModule, moduleName: firstProtocol.Module);
+            var interfaceName = NameProvider.GetInterfaceName(firstProtocol.NameWithoutModule, moduleName: firstProtocol.Module);
+
+            // Cross-module protocol reference: qualify with module namespace.
+            // When module A references a protocol from module B, C# needs "B.IProtocol"
+            // because the type lives in namespace B, not namespace A.
+            if (!string.IsNullOrEmpty(CurrentModuleName) &&
+                !string.IsNullOrEmpty(firstProtocol.Module) &&
+                firstProtocol.Module != CurrentModuleName &&
+                firstProtocol.Module != "Swift")
+            {
+                interfaceName = $"{firstProtocol.Module}.{interfaceName}";
+            }
+
+            return interfaceName;
         }
 
         // Multi-protocol: generate combined interface name
@@ -377,6 +396,39 @@ public class ExistentialHandler
             .OrderBy(n => n, StringComparer.Ordinal)
             .ToList();
         return string.Join("And", names) + "Proxy";
+    }
+
+    /// <summary>
+    /// Gets the proxy class name qualified for cross-module use. When CurrentModuleName is set
+    /// and the protocol belongs to a different module, returns "OtherModule.SwiftInterop.ProxyName".
+    /// Proxy classes live in the {Module}.SwiftInterop namespace, so cross-assembly references
+    /// require the full namespace qualification.
+    /// </summary>
+    public string GetQualifiedProxyClassName(ProtocolListTypeSpec protocolList)
+    {
+        return QualifyProxyClassName(GetProxyClassName(protocolList), protocolList);
+    }
+
+    /// <summary>
+    /// Applies cross-module qualification to a proxy class name.
+    /// Returns "Module.SwiftInterop.ProxyName" when the protocol belongs to a different module.
+    /// Used by both GetQualifiedProxyClassName and TryGetFilteredProxyClassName callers that
+    /// need cross-module qualification on an already-computed (ObjC-filtered) name.
+    /// </summary>
+    public string QualifyProxyClassName(string proxyClassName, ProtocolListTypeSpec protocolList)
+    {
+        if (string.IsNullOrEmpty(CurrentModuleName))
+            return proxyClassName;
+
+        var protocolModule = protocolList.Protocols.Keys
+            .Where(p => !TypeDatabaseExtensions.IsObjCModuleType(p))
+            .Select(p => p.Module)
+            .FirstOrDefault(m => !string.IsNullOrEmpty(m));
+
+        if (protocolModule == null || protocolModule == CurrentModuleName || protocolModule == "Swift")
+            return proxyClassName;
+
+        return $"{protocolModule}.SwiftInterop.{proxyClassName}";
     }
 
     /// <summary>
@@ -484,7 +536,19 @@ public class ExistentialHandler
         // If filtering leaves only 1 protocol, return its interface name directly
         if (protocols.Count == 1)
         {
-            return NameProvider.GetInterfaceName(protocols[0].NameWithoutModule, moduleName: protocols[0].Module);
+            var interfaceName = NameProvider.GetInterfaceName(protocols[0].NameWithoutModule, moduleName: protocols[0].Module);
+
+            // Cross-module protocol reference: qualify with module namespace.
+            // Same logic as GetPublicExistentialType single-protocol path (lines 354-360).
+            if (!string.IsNullOrEmpty(CurrentModuleName) &&
+                !string.IsNullOrEmpty(protocols[0].Module) &&
+                protocols[0].Module != CurrentModuleName &&
+                protocols[0].Module != "Swift")
+            {
+                interfaceName = $"{protocols[0].Module}.{interfaceName}";
+            }
+
+            return interfaceName;
         }
 
         // If all protocols were filtered out, return object

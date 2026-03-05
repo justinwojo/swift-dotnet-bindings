@@ -421,7 +421,7 @@ public class ProtocolProxyEmitterTests
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("internal TestProtocolProxy(ExistentialContainer1 container)", output);
+        Assert.Contains("public TestProtocolProxy(ExistentialContainer1 container)", output);
     }
 
     [Fact]
@@ -603,7 +603,7 @@ public class ProtocolProxyEmitterTests
         Assert.Contains(": IEmptyProtocol, ISwiftObject, IDisposable", output);
         // Constructor and ISwiftObject implementation still emitted
         Assert.Contains("public EmptyProtocolProxy(IEmptyProtocol implementation)", output);
-        Assert.Contains("internal EmptyProtocolProxy(ExistentialContainer1 container)", output);
+        Assert.Contains("public EmptyProtocolProxy(ExistentialContainer1 container)", output);
         Assert.Contains("public static TypeMetadata GetTypeMetadata()", output);
     }
 

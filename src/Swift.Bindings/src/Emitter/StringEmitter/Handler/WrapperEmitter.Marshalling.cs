@@ -150,7 +150,7 @@ namespace BindingsGeneration
                 if (!_env.MethodDecl.IsAccessor && MarshallingHelpers.IsConvertibleType(argumentDecl.SwiftTypeSpec))
                 {
                     var projection = s_projectionFactory.Project(argumentDecl.SwiftTypeSpec,
-                        new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = true, GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl });
+                        new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = true, GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl, CurrentModuleName = _env.ExistentialHandler.CurrentModuleName });
                     if (projection != null)
                         continue;
                 }
@@ -344,7 +344,7 @@ namespace BindingsGeneration
         private bool TryEmitParameterConversionViaProjection(CSharpWriter csWriter, ArgumentDecl argumentDecl)
         {
             var projection = s_projectionFactory.Project(argumentDecl.SwiftTypeSpec,
-                new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = true, GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl });
+                new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = true, GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl, CurrentModuleName = _env.ExistentialHandler.CurrentModuleName });
             if (projection == null)
                 return false;
 

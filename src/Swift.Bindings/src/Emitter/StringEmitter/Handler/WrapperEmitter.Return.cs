@@ -78,7 +78,7 @@ namespace BindingsGeneration
                 (_env.MethodDecl.HasOptionalPointerWrapper || _env.MethodDecl.UsesWrapperLibrary))
             {
                 var projection = s_projectionFactory.Project(returnArg.SwiftTypeSpec,
-                    new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false, GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl });
+                    new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false, GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl, CurrentModuleName = _env.ExistentialHandler.CurrentModuleName });
                 var swiftType = projection?.ContainerTypeName ?? _wrapperSignature.ReturnType;
                 csWriter.WriteLines($$"""
                     var swiftResult = SwiftMarshal.MarshalFromSwift<{{swiftType}}>(_optRetPtr);
@@ -116,7 +116,7 @@ namespace BindingsGeneration
                     }
                     else
                     {
-                        var proxyName = _env.ExistentialHandler.GetProxyClassName(innerProtocolList);
+                        var proxyName = _env.ExistentialHandler.GetQualifiedProxyClassName(innerProtocolList);
                         csWriter.WriteLines($$"""
                             var swiftResult = SwiftMarshal.MarshalFromSwift<{{marshalType}}>(new IntPtr(&result));
                             if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
@@ -131,7 +131,7 @@ namespace BindingsGeneration
             if (_env.BoundGenericsHandler.RequiresBoundGenericMarshalling(returnArg))
             {
                 var projection = s_projectionFactory.Project(returnArg.SwiftTypeSpec,
-                    new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false, GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl });
+                    new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false, GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl, CurrentModuleName = _env.ExistentialHandler.CurrentModuleName });
                 if (projection != null)
                 {
                     var marshalType = projection.ContainerTypeName;
@@ -222,7 +222,7 @@ namespace BindingsGeneration
                     return;
                 }
 
-                var proxyClassName = _env.ExistentialHandler.GetProxyClassName(protocolList);
+                var proxyClassName = _env.ExistentialHandler.GetQualifiedProxyClassName(protocolList);
                 csWriter.WriteLine($"return new {proxyClassName}(result);");
                 return;
             }
@@ -245,7 +245,7 @@ namespace BindingsGeneration
                     }
                     else
                     {
-                        var optProxyClassName = _env.ExistentialHandler.GetProxyClassName(innerProtocolList);
+                        var optProxyClassName = _env.ExistentialHandler.GetQualifiedProxyClassName(innerProtocolList);
                         csWriter.WriteLine($"return new {optProxyClassName}(result);");
                     }
                     return;
@@ -354,7 +354,7 @@ namespace BindingsGeneration
             if (returnArg.IsGeneric) return false;
 
             var projection = s_projectionFactory.Project(returnArg.SwiftTypeSpec,
-                new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false, GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl });
+                new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false, GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl, CurrentModuleName = _env.ExistentialHandler.CurrentModuleName });
             if (projection == null) return false;
 
             var strategy = DetermineReturnStrategy();
@@ -528,7 +528,8 @@ namespace BindingsGeneration
                 {
                     TypeDatabase = _env.TypeDatabase,
                     IsParameter = false,
-                    GenericContext = _genericContext
+                    GenericContext = _genericContext,
+                    CurrentModuleName = _env.ExistentialHandler.CurrentModuleName
                 });
                 if (projection != null)
                     return projection.PublicType;
@@ -599,7 +600,8 @@ namespace BindingsGeneration
                     {
                         TypeDatabase = _env.TypeDatabase,
                         IsParameter = false,
-                        GenericContext = _genericContext
+                        GenericContext = _genericContext,
+                        CurrentModuleName = _env.ExistentialHandler.CurrentModuleName
                     });
                     if (projection != null)
                     {

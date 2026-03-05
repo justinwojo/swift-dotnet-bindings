@@ -79,6 +79,10 @@ public class MemberGateEvaluator
     {
         var boundGenericsHandler = new BoundGenericsHandler(_typeDatabase);
 
+        // P2: Leaked associated type reference (e.g., TElement, TRowDecoder.ID)
+        if (MemberEmissionValidator.ContainsAssociatedTypeReference(property.SwiftTypeSpec))
+            return GateResult.Skipped(SkipReason.UnsupportedSignature, "Property type contains unresolvable associated type reference.");
+
         // P3: Bare generic usage
         if (boundGenericsHandler.HasBareGenericUsage(property.SwiftTypeSpec, property.ModuleDecl ?? moduleDecl))
             return GateResult.Skipped(SkipReason.UnsupportedSignature, "Property type uses generic type without type arguments.");
@@ -121,6 +125,10 @@ public class MemberGateEvaluator
     {
         var boundGenericsHandler = new BoundGenericsHandler(_typeDatabase);
         var softFlags = SoftGateFlags.None;
+
+        // M4: Leaked associated type reference (e.g., TElement, TRowDecoder.ID)
+        if (method.CSSignature.Any(arg => MemberEmissionValidator.ContainsAssociatedTypeReference(arg.SwiftTypeSpec)))
+            return GateResult.Skipped(SkipReason.UnsupportedSignature, "Method signature contains unresolvable associated type reference.");
 
         // M5: Non-ISwiftObject bound generic args
         bool hasNonSwiftObjectArg = method.CSSignature.Any(arg =>
@@ -179,6 +187,11 @@ public class MemberGateEvaluator
         var boundGenericsHandler = new BoundGenericsHandler(_typeDatabase);
         var resolvedModuleDecl = subscript.ModuleDecl ?? moduleDecl;
 
+        // S2: Leaked associated type reference (e.g., TElement.Element)
+        if (MemberEmissionValidator.ContainsAssociatedTypeReference(subscript.ReturnTypeSpec) ||
+            subscript.IndexParameters.Any(p => MemberEmissionValidator.ContainsAssociatedTypeReference(p.SwiftTypeSpec)))
+            return GateResult.Skipped(SkipReason.UnsupportedSignature, "Subscript type contains unresolvable associated type reference.");
+
         // S3: Bare generic usage
         if (boundGenericsHandler.HasBareGenericUsage(subscript.ReturnTypeSpec, resolvedModuleDecl))
             return GateResult.Skipped(SkipReason.UnsupportedSignature, "Subscript type uses generic type without type arguments.");
@@ -222,6 +235,10 @@ public class MemberGateEvaluator
     {
         var boundGenericsHandler = new BoundGenericsHandler(_typeDatabase);
 
+        // Leaked associated type reference (e.g., TElement, TRowDecoder.ID)
+        if (method.CSSignature.Any(arg => MemberEmissionValidator.ContainsAssociatedTypeReference(arg.SwiftTypeSpec)))
+            return GateResult.Skipped(SkipReason.UnsupportedSignature, "Method signature contains unresolvable associated type reference.");
+
         foreach (var argument in method.CSSignature)
         {
             // Bare generic usage
@@ -257,6 +274,10 @@ public class MemberGateEvaluator
     public GateResult EvaluatePropertyHardGates(PropertyDecl property, ModuleDecl? moduleDecl)
     {
         var boundGenericsHandler = new BoundGenericsHandler(_typeDatabase);
+
+        // Leaked associated type reference (e.g., TElement, TRowDecoder.ID)
+        if (MemberEmissionValidator.ContainsAssociatedTypeReference(property.SwiftTypeSpec))
+            return GateResult.Skipped(SkipReason.UnsupportedSignature, "Property type contains unresolvable associated type reference.");
 
         // Bare generic usage
         if (boundGenericsHandler.HasBareGenericUsage(property.SwiftTypeSpec, property.ModuleDecl ?? moduleDecl))

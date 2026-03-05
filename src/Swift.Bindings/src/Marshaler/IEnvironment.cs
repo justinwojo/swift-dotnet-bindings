@@ -120,7 +120,10 @@ namespace BindingsGeneration
         /// <summary>
         /// Existential handler instance for handling protocol existential types.
         /// </summary>
-        public ExistentialHandler ExistentialHandler { get; } = new ExistentialHandler(typeDatabase, compositionCollector);
+        public ExistentialHandler ExistentialHandler { get; } = new ExistentialHandler(typeDatabase, compositionCollector)
+        {
+            CurrentModuleName = (methodDecl.ModuleDecl as ModuleDecl)?.Name
+        };
 
         /// <summary>
         /// Gets the set of property names in the same parent type.
@@ -248,7 +251,10 @@ namespace BindingsGeneration
         /// <summary>
         /// Existential handler instance for handling protocol existential types.
         /// </summary>
-        public ExistentialHandler ExistentialHandler { get; } = new ExistentialHandler(typeDatabase, compositionCollector);
+        public ExistentialHandler ExistentialHandler { get; } = new ExistentialHandler(typeDatabase, compositionCollector)
+        {
+            CurrentModuleName = (propertyDecl.ModuleDecl as ModuleDecl)?.Name
+        };
 
         /// <summary>
         /// Composition collector for multi-protocol existential interfaces.

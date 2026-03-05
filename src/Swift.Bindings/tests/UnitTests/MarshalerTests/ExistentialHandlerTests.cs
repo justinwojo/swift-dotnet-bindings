@@ -566,6 +566,340 @@ public class ExistentialHandlerTests
 
     #endregion
 
+    #region Cross-Module Qualification Tests
+
+    [Fact]
+    public void GetPublicExistentialType_SameModule_NoNamespacePrefix()
+    {
+        // Protocol from same module — should NOT be namespace-qualified
+        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
+        var handler = new ExistentialHandler(db) { CurrentModuleName = "StripeCore" };
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol") });
+
+        var result = handler.GetPublicExistentialType(protocolList);
+
+        Assert.Equal("ISTPAnalyticsClientProtocol", result);
+    }
+
+    [Fact]
+    public void GetPublicExistentialType_DifferentModule_HasNamespacePrefix()
+    {
+        // Protocol from different module — SHOULD be namespace-qualified
+        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
+        var handler = new ExistentialHandler(db) { CurrentModuleName = "StripeFinancialConnections" };
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol") });
+
+        var result = handler.GetPublicExistentialType(protocolList);
+
+        Assert.Equal("StripeCore.ISTPAnalyticsClientProtocol", result);
+    }
+
+    [Fact]
+    public void GetPublicExistentialType_NoCurrentModule_NoNamespacePrefix()
+    {
+        // No current module set — should NOT be namespace-qualified (backward compat)
+        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
+        var handler = new ExistentialHandler(db);
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol") });
+
+        var result = handler.GetPublicExistentialType(protocolList);
+
+        Assert.Equal("ISTPAnalyticsClientProtocol", result);
+    }
+
+    [Fact]
+    public void GetPublicExistentialType_SwiftModule_NeverQualified()
+    {
+        // Swift stdlib protocols are never namespace-qualified
+        var handler = new ExistentialHandler(_typeDatabase) { CurrentModuleName = "SomeModule" };
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Equatable") });
+
+        var result = handler.GetPublicExistentialType(protocolList);
+
+        // Swift protocols resolve to well-known types or "object" — never "Swift.IEquatable"
+        Assert.DoesNotContain("Swift.", result);
+    }
+
+    [Fact]
+    public void TypeProjectionFactory_CrossModuleExistential_QualifiesName()
+    {
+        // TypeProjectionFactory should thread CurrentModuleName to its ExistentialHandler
+        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
+        var factory = new TypeProjectionFactory();
+        var typeSpec = new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol") { IsAny = true };
+
+        var projection = factory.Project(typeSpec, new ProjectionContext
+        {
+            TypeDatabase = db,
+            IsParameter = false,
+            CurrentModuleName = "StripeFinancialConnections"
+        });
+
+        Assert.NotNull(projection);
+        Assert.Equal("StripeCore.ISTPAnalyticsClientProtocol", projection!.PublicType);
+    }
+
+    [Fact]
+    public void TypeProjectionFactory_SameModuleExistential_NoQualification()
+    {
+        // TypeProjectionFactory: same module should NOT qualify
+        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
+        var factory = new TypeProjectionFactory();
+        var typeSpec = new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol") { IsAny = true };
+
+        var projection = factory.Project(typeSpec, new ProjectionContext
+        {
+            TypeDatabase = db,
+            IsParameter = false,
+            CurrentModuleName = "StripeCore"
+        });
+
+        Assert.NotNull(projection);
+        Assert.Equal("ISTPAnalyticsClientProtocol", projection!.PublicType);
+    }
+
+    [Fact]
+    public void GetQualifiedProxyClassName_SameModule_NoPrefix()
+    {
+        // Same module — proxy name should NOT be namespace-qualified
+        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
+        var handler = new ExistentialHandler(db) { CurrentModuleName = "StripeCore" };
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol") });
+
+        var result = handler.GetQualifiedProxyClassName(protocolList);
+
+        Assert.Equal("STPAnalyticsClientProtocolProxy", result);
+    }
+
+    [Fact]
+    public void GetQualifiedProxyClassName_DifferentModule_HasSwiftInteropPrefix()
+    {
+        // Different module — proxy name SHOULD include Module.SwiftInterop prefix
+        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
+        var handler = new ExistentialHandler(db) { CurrentModuleName = "StripeFinancialConnections" };
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol") });
+
+        var result = handler.GetQualifiedProxyClassName(protocolList);
+
+        Assert.Equal("StripeCore.SwiftInterop.STPAnalyticsClientProtocolProxy", result);
+    }
+
+    [Fact]
+    public void GetQualifiedProxyClassName_NoCurrentModule_NoPrefix()
+    {
+        // No current module set — backward compat, no qualification
+        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
+        var handler = new ExistentialHandler(db);
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol") });
+
+        var result = handler.GetQualifiedProxyClassName(protocolList);
+
+        Assert.Equal("STPAnalyticsClientProtocolProxy", result);
+    }
+
+    [Fact]
+    public void GetQualifiedProxyClassName_SwiftModule_NeverQualified()
+    {
+        // Swift stdlib protocols never get qualified
+        var handler = new ExistentialHandler(_typeDatabase) { CurrentModuleName = "SomeModule" };
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Equatable") });
+
+        var result = handler.GetQualifiedProxyClassName(protocolList);
+
+        Assert.DoesNotContain("Swift.SwiftInterop", result);
+    }
+
+    [Fact]
+    public void TypeProjectionFactory_CrossModuleExistential_QualifiesProxyName()
+    {
+        // The ExistentialProjection created by TypeProjectionFactory should have qualified proxy class name
+        var db = new MockTypeDatabaseWithProtocol("StripeCore", "FinancialConnectionsSDKInterface");
+        var factory = new TypeProjectionFactory();
+        var typeSpec = new NamedTypeSpec("StripeCore.FinancialConnectionsSDKInterface") { IsAny = true };
+
+        var projection = factory.Project(typeSpec, new ProjectionContext
+        {
+            TypeDatabase = db,
+            IsParameter = false,
+            CurrentModuleName = "StripePayments"
+        });
+
+        Assert.NotNull(projection);
+        // The return element conversion should reference the qualified proxy
+        var conversion = projection!.GetReturnElementConversion("container");
+        Assert.NotNull(conversion);
+        Assert.Contains("StripeCore.SwiftInterop.FinancialConnectionsSDKInterfaceProxy", conversion);
+    }
+
+    [Fact]
+    public void TypeProjectionFactory_CrossModuleOptionalExistential_QualifiesProxyName()
+    {
+        // Optional<any Protocol> from another module should qualify the proxy in the return plan
+        var db = new MockTypeDatabaseWithProtocol("StripeCore", "FinancialConnectionsSDKInterface");
+        var factory = new TypeProjectionFactory();
+        var innerTypeSpec = new NamedTypeSpec("StripeCore.FinancialConnectionsSDKInterface") { IsAny = true };
+        var optionalTypeSpec = new NamedTypeSpec("Swift.Optional");
+        optionalTypeSpec.GenericParameters.Add(innerTypeSpec);
+
+        var projection = factory.Project(optionalTypeSpec, new ProjectionContext
+        {
+            TypeDatabase = db,
+            IsParameter = false,
+            CurrentModuleName = "StripePayments"
+        });
+
+        Assert.NotNull(projection);
+        // PublicType should be the qualified optional interface
+        Assert.Equal("StripeCore.IFinancialConnectionsSDKInterface?", projection!.PublicType);
+    }
+
+    [Fact]
+    public void GetCompositionInterfaceName_ObjCFilteredToOne_CrossModuleQualified()
+    {
+        // P1: When ObjC filtering reduces a multi-protocol composition to 1 protocol,
+        // the returned interface name should be cross-module qualified.
+        // Example: `any NSObjectProtocol & StripeCore.FooProtocol` in module StripePayments
+        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
+        var handler = new ExistentialHandler(db) { CurrentModuleName = "StripePayments" };
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("Foundation.NSObjectProtocol"),
+            new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol")
+        });
+
+        var result = handler.GetCompositionInterfaceName(protocolList);
+
+        Assert.Equal("StripeCore.ISTPAnalyticsClientProtocol", result);
+    }
+
+    [Fact]
+    public void GetCompositionInterfaceName_ObjCFilteredToOne_SameModule_NoQualification()
+    {
+        // Same module — no qualification even after ObjC filtering
+        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
+        var handler = new ExistentialHandler(db) { CurrentModuleName = "StripeCore" };
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("Foundation.NSObjectProtocol"),
+            new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol")
+        });
+
+        var result = handler.GetCompositionInterfaceName(protocolList);
+
+        Assert.Equal("ISTPAnalyticsClientProtocol", result);
+    }
+
+    [Fact]
+    public void GetCompositionInterfaceName_ObjCFilteredToOne_NoCurrentModule_NoQualification()
+    {
+        // No CurrentModuleName set — backward compat, no qualification
+        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
+        var handler = new ExistentialHandler(db);
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("Foundation.NSObjectProtocol"),
+            new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol")
+        });
+
+        var result = handler.GetCompositionInterfaceName(protocolList);
+
+        Assert.Equal("ISTPAnalyticsClientProtocol", result);
+    }
+
+    [Fact]
+    public void QualifyProxyClassName_DifferentModule_AddsSwiftInteropPrefix()
+    {
+        // P2: QualifyProxyClassName should add Module.SwiftInterop prefix for cross-module proxy names
+        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
+        var handler = new ExistentialHandler(db) { CurrentModuleName = "StripePayments" };
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol") });
+
+        var result = handler.QualifyProxyClassName("STPAnalyticsClientProtocolProxy", protocolList);
+
+        Assert.Equal("StripeCore.SwiftInterop.STPAnalyticsClientProtocolProxy", result);
+    }
+
+    [Fact]
+    public void QualifyProxyClassName_SameModule_NoPrefix()
+    {
+        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
+        var handler = new ExistentialHandler(db) { CurrentModuleName = "StripeCore" };
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol") });
+
+        var result = handler.QualifyProxyClassName("STPAnalyticsClientProtocolProxy", protocolList);
+
+        Assert.Equal("STPAnalyticsClientProtocolProxy", result);
+    }
+
+    [Fact]
+    public void QualifyProxyClassName_NoCurrentModule_NoPrefix()
+    {
+        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
+        var handler = new ExistentialHandler(db);
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol") });
+
+        var result = handler.QualifyProxyClassName("STPAnalyticsClientProtocolProxy", protocolList);
+
+        Assert.Equal("STPAnalyticsClientProtocolProxy", result);
+    }
+
+    [Fact]
+    public void QualifyProxyClassName_ObjCFilteredComposition_QualifiesCorrectModule()
+    {
+        // QualifyProxyClassName with a mixed ObjC+Swift composition — should use the Swift module
+        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
+        var handler = new ExistentialHandler(db) { CurrentModuleName = "StripePayments" };
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("Foundation.NSObjectProtocol"),
+            new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol")
+        });
+
+        var result = handler.QualifyProxyClassName("STPAnalyticsClientProtocolProxy", protocolList);
+
+        Assert.Equal("StripeCore.SwiftInterop.STPAnalyticsClientProtocolProxy", result);
+    }
+
+    #endregion
+
+    #region MockTypeDatabaseWithProtocol
+
+    private class MockTypeDatabaseWithProtocol : ITypeDatabase
+    {
+        private readonly Dictionary<string, TypeRecord> _types;
+        public string AsyncLibraryName => null!;
+
+        public MockTypeDatabaseWithProtocol(string moduleName, string protocolName)
+        {
+            var fqn = $"{moduleName}.{protocolName}";
+            _types = new Dictionary<string, TypeRecord>
+            {
+                [fqn] = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName(moduleName, $"I{protocolName}"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(fqn),
+                    MetadataAccessor = "",
+                    Flags = TypeRecordFlags.Frozen,
+                    Kind = TypeRecordKind.Protocol,
+                    EmittedMemberCount = 0
+                }
+            };
+        }
+
+        public bool IsTypeProcessed(SwiftTypeName swiftTypeName) =>
+            _types.ContainsKey(swiftTypeName.ModuleQualifiedName);
+
+        public bool TryGetTypeRecord(SwiftTypeName swiftTypeName, out TypeRecord record)
+        {
+            return _types.TryGetValue(swiftTypeName.ModuleQualifiedName, out record!);
+        }
+
+        public string GetLibraryPath(string moduleName) => "";
+        public void UpdateTypeRecord(SwiftTypeName name, TypeRecord record) { }
+    }
+
+    #endregion
+
     #region MockTypeDatabase
 
     private class MockTypeDatabase : ITypeDatabase

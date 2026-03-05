@@ -1817,7 +1817,88 @@ public class ProtocolConformanceValidatorTests
         var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
         var result = validator.CanFullyImplementProtocol(concreteType, protocolDecl);
 
-        Assert.True(result);
+        // AnyType in the interface (from unresolved Self/generic param) is NOT
+        // compatible with the concrete type's name. C# interface methods require exact
+        // type match — transform() -> AnyType != transform() -> Builder.
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void CanFullyImplementProtocol_AnyTypeParam_RejectsConformance()
+    {
+        // Protocol: isContentEqual(to: AnyType) — from unresolved Self/τ_0_0
+        // Concrete: isContentEqual(to: Widget) — uses actual type
+        // C# interface requires exact type match: IsContentEqual(AnyType) != IsContentEqual(Widget)
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "ContentEquatable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ContentEquatable"),
+            MangledName = "$s10TestModule16ContentEquatableP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                new()
+                {
+                    Name = "isContentEqual",
+                    MangledName = "$s10TestModule16ContentEquatableP02isC5Equalyp2to_tF",
+                    MethodType = MethodType.Instance,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        // Return: Swift.Bool
+                        CreateArgument(string.Empty, new NamedTypeSpec("Swift.Bool"), moduleDecl),
+                        // Param: AnyType (unresolved Self)
+                        CreateArgument("source", new NamedTypeSpec("Swift.AnyType"), moduleDecl)
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl,
+                    Throws = false,
+                    IsAsync = false,
+                    Visibility = Visibility.Public
+                }
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        var concreteType = CreateClassDecl("Widget", moduleDecl);
+        concreteType.Methods.Add(new MethodDecl
+        {
+            Name = "isContentEqual",
+            MangledName = "$s10TestModule6WidgetC02isC5EqualyAC2to_tF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, new NamedTypeSpec("Swift.Bool"), moduleDecl),
+                CreateArgument("source", new NamedTypeSpec("TestModule.Widget"), moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = concreteType,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        });
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var result = validator.CanFullyImplementProtocol(concreteType, protocolDecl);
+
+        // AnyType param in interface != Widget param in concrete → reject
+        Assert.False(result);
     }
 
     #endregion

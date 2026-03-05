@@ -32,6 +32,9 @@ public record ProjectionContext
 
     /// <summary>Optional parent type declaration. When set, enables resolution of "Self" to the concrete type.</summary>
     public TypeDecl? ParentTypeDecl { get; init; }
+
+    /// <summary>Optional module name of the emitting context. When set, existential types from other modules are namespace-qualified.</summary>
+    public string? CurrentModuleName { get; init; }
 }
 
 /// <summary>
@@ -130,7 +133,8 @@ public class TypeProjectionFactory
         // Route NamedTypeSpec.IsAny to existential
         if (namedType.IsAny)
         {
-            var handler = new ExistentialHandler(context.TypeDatabase, context.CompositionCollector);
+            var handler = new ExistentialHandler(context.TypeDatabase, context.CompositionCollector)
+            { CurrentModuleName = context.CurrentModuleName };
             var protocolList = handler.ToProtocolListTypeSpec(namedType);
             if (protocolList != null)
                 return ProjectExistential(protocolList, context);
@@ -395,7 +399,8 @@ public class TypeProjectionFactory
 
     private ITypeProjection? ProjectExistential(ProtocolListTypeSpec protocolList, ProjectionContext context)
     {
-        var handler = new ExistentialHandler(context.TypeDatabase, context.CompositionCollector);
+        var handler = new ExistentialHandler(context.TypeDatabase, context.CompositionCollector)
+        { CurrentModuleName = context.CurrentModuleName };
         var containerType = handler.GetCSharpExistentialType(protocolList);
         var publicType = handler.GetPublicExistentialType(protocolList);
 
@@ -406,7 +411,7 @@ public class TypeProjectionFactory
         string? proxyClassName = null;
         if (!handler.TryGetWellKnownProtocolType(protocolList, out _) && publicType != "object")
         {
-            proxyClassName = handler.GetProxyClassName(protocolList);
+            proxyClassName = handler.GetQualifiedProxyClassName(protocolList);
         }
 
         return new ExistentialProjection(containerType, publicType, proxyClassName);

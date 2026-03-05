@@ -266,6 +266,13 @@ public class ProtocolConformanceValidator
             var interfaceReturnType = GetInterfaceMethodReturnType(protoMethod, protocolDecl, boundGenericsHandler);
             if (!AreTypesCompatible(interfaceReturnType, concreteReturnType, conformingTypeName))
                 return false;
+
+            // Check parameter type compatibility (CS0535/CS0738)
+            // The interface emits projected types for protocol params (e.g., τ_0_0 → AnyType),
+            // but the concrete type uses its actual types (e.g., AnyDifferentiable).
+            // If these don't match, C# will reject the conformance.
+            if (!AreMethodParamsCompatible(protoMethod, concreteMethod, protocolDecl, conformingTypeName))
+                return false;
         }
 
         // Recursively check inherited protocols
@@ -620,14 +627,70 @@ public class ProtocolConformanceValidator
         if (conformingTypeName != null && ni.Contains("TSelf"))
             ni = ni.Replace("TSelf", NormalizeTypeName(conformingTypeName));
         if (ni == np) return true;
-        // AnyType in interface = unresolved Self/generic param, compatible with conforming type
-        if (ni == "Swift.AnyType" && conformingTypeName != null && np == NormalizeTypeName(conformingTypeName))
-            return true;
+        // Note: AnyType in the interface (from unresolved Self/generic param) is NOT
+        // compatible with the concrete type's name. C# interface methods require exact
+        // type match — Interpolate(LottieColor, double) does NOT implement
+        // Interpolate(AnyType, double). The conformance must be suppressed.
         return false;
     }
 
     private static string NormalizeTypeName(string typeName)
         => typeName.Replace(" ", "").Trim();
+
+    /// <summary>
+    /// Validates that the projected parameter types in the interface method match
+    /// the concrete method's parameter types. This catches cases where the interface
+    /// emits AnyType (from unresolved Self/τ_0_0) but the concrete type uses its actual type.
+    /// </summary>
+    private bool AreMethodParamsCompatible(
+        MethodDecl protoMethod, MethodDecl concreteMethod,
+        ProtocolDecl protocolDecl, string? conformingTypeName)
+    {
+        var genericContext = protocolDecl.HasSelfRequirement
+            ? GenericContext.ForProtocolSelf()
+            : GenericContext.Empty;
+
+        // Skip return (index 0), compare parameter types
+        for (int i = 1; i < protoMethod.CSSignature.Count && i < concreteMethod.CSSignature.Count; i++)
+        {
+            var protoArg = protoMethod.CSSignature[i];
+            var concreteArg = concreteMethod.CSSignature[i];
+
+            string interfaceParamType;
+            string concreteParamType;
+
+            try
+            {
+                var factory = new TypeProjectionFactory();
+                var protoProjection = factory.Project(protoArg.SwiftTypeSpec, new ProjectionContext
+                {
+                    TypeDatabase = _typeDatabase,
+                    IsParameter = true,
+                    GenericContext = genericContext
+                });
+                interfaceParamType = protoProjection?.PublicType
+                    ?? _typeDatabase.GetTypeRecordOrAnyType(protoArg.SwiftTypeSpec).CSharpTypeName.FullyQualifiedName;
+
+                var concreteProjection = factory.Project(concreteArg.SwiftTypeSpec, new ProjectionContext
+                {
+                    TypeDatabase = _typeDatabase,
+                    IsParameter = true,
+                    GenericContext = GenericContext.Empty
+                });
+                concreteParamType = concreteProjection?.PublicType
+                    ?? _typeDatabase.GetTypeRecordOrAnyType(concreteArg.SwiftTypeSpec).CSharpTypeName.FullyQualifiedName;
+            }
+            catch
+            {
+                continue; // Can't project — skip this param check
+            }
+
+            if (!AreTypesCompatible(interfaceParamType, concreteParamType, conformingTypeName))
+                return false;
+        }
+
+        return true;
+    }
 
     /// <summary>
     /// Gets the set of module-qualified protocol names that a concrete type conforms to.

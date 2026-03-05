@@ -704,28 +704,11 @@ public static class MemberEmissionValidator
                     return true;
                 if (namedType.HasModule() && GenericTypeEmitter.IsUnsupportedModule(namedType.Module))
                 {
-                    // If the specific type is registered in the type database, it's supported
-                    // (e.g., SwiftUI.Color, SwiftUI.Font are in SwiftUIDatabase.xml).
-                    // But we must still recurse into generic parameters — a registered container
-                    // like SwiftUI.Binding<SwiftUI.View> should still be rejected because View
-                    // is not registered.
-                    bool typeIsRegistered = false;
-                    if (typeDatabase != null)
-                    {
-                        try
-                        {
-                            // namedType.Name is module-qualified (e.g., "SwiftUI.Color")
-                            var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
-                            typeIsRegistered = typeDatabase.TryGetTypeRecord(swiftTypeName, out _);
-                        }
-                        catch (ArgumentException)
-                        {
-                            // Generic types (contain '<') or malformed names — stay rejected
-                        }
-                    }
-                    if (!typeIsRegistered)
-                        return true;
-                    // Type itself is registered — fall through to check generic parameters
+                    // SwiftUI/Combine types are always unsupported for member emission,
+                    // even when registered in the type database (SwiftUIDatabase.xml).
+                    // The database registration is for marshalling in the SwiftUI bridge emitter,
+                    // not for standalone library bindings where SwiftUI C# types don't exist.
+                    return true;
                 }
                 foreach (var genericParam in namedType.GenericParameters)
                 {
@@ -755,6 +738,51 @@ public static class MemberEmissionValidator
                     if (ReferencesUnsupportedModule(protocol, typeDatabase))
                         return true;
                 }
+                return false;
+
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// Returns true if the TypeSpec contains an associated type reference (e.g., Self.Element,
+    /// τ_0_0.ID) that would produce an unresolvable C# type like TElement or TRowDecoder.ID.
+    /// These are protocol-scoped type parameters that leak into interface/proxy member signatures
+    /// when the protocol doesn't declare them as generic parameters.
+    /// </summary>
+    internal static bool ContainsAssociatedTypeReference(TypeSpec? typeSpec)
+    {
+        if (typeSpec == null)
+            return false;
+
+        switch (typeSpec)
+        {
+            case AssociatedTypeReferenceSpec:
+                return true;
+
+            case NamedTypeSpec namedType:
+                // Optional<AssocType> etc.
+                foreach (var genericParam in namedType.GenericParameters)
+                {
+                    if (ContainsAssociatedTypeReference(genericParam))
+                        return true;
+                }
+                return false;
+
+            case TupleTypeSpec tupleType:
+                foreach (var element in tupleType.Elements)
+                {
+                    if (ContainsAssociatedTypeReference(element))
+                        return true;
+                }
+                return false;
+
+            case ClosureTypeSpec closureType:
+                if (ContainsAssociatedTypeReference(closureType.Arguments))
+                    return true;
+                if (ContainsAssociatedTypeReference(closureType.ReturnType))
+                    return true;
                 return false;
 
             default:

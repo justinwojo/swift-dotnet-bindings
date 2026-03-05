@@ -178,6 +178,12 @@ public class ClosureHandler
         if (closureTypeSpec.IsAsync && closureTypeSpec.Throws && closureTypeSpec.EachArgument().Any())
             return false;
 
+        // CX-12: Async-only closures with non-void returns are not supported.
+        // The delegate returns Task<T> but the sync [UnmanagedCallersOnly] callback
+        // can't await it. The emitter generates an invalid cast (e.g., (int)Task<Enum>).
+        if (closureTypeSpec.IsAsync && !closureTypeSpec.Throws && !closureTypeSpec.ReturnType.IsEmptyTuple)
+            return false;
+
         // Async+throwing closures are now supported via Swift continuation wrapper pattern (Phase 28)
         // The C# side provides a synchronous "start" callback that spawns Task.Run,
         // while Swift uses withCheckedThrowingContinuation to create the actual async closure.

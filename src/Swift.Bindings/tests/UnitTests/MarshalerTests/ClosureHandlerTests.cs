@@ -476,18 +476,52 @@ public class ClosureHandlerTests
     }
 
     [Fact]
-    public void IsSupportedClosure_WithAsyncClosure_ReturnsTrue()
+    public void IsSupportedClosure_WithAsyncNonVoidClosure_ReturnsFalse()
     {
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
 
-        // Async closures are now supported - they map to Func<..., Task> or Func<..., Task<T>>
+        // CX-12: Async-only closures with non-void returns are not supported.
+        // The delegate returns Task<T> but the sync [UnmanagedCallersOnly] callback
+        // can't await it — the emitter generates an invalid cast (e.g., (int)Task<Enum>).
         var closureTypeSpec = new ClosureTypeSpec(
             new NamedTypeSpec("Swift.Int"),
             new NamedTypeSpec("Swift.Bool"));
         closureTypeSpec.IsAsync = true;
 
+        Assert.False(handler.IsSupportedClosure(closureTypeSpec));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_WithAsyncVoidReturnClosure_ReturnsTrue()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Async closures with void return ARE supported (no cast needed).
+        // (Bool) -> Void, async
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Bool"),
+            TupleTypeSpec.Empty);
+        closureTypeSpec.IsAsync = true;
+
         Assert.True(handler.IsSupportedClosure(closureTypeSpec));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_WithAsyncNonVoidNonThrowingClosureWithParams_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // CX-12: (Int) async -> Bool — delegate returns Task<Bool> but sync callback
+        // can't await it, producing invalid cast (int)Task<Bool>.
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),    // return
+            new NamedTypeSpec("Swift.Bool"));  // param
+        closureTypeSpec.IsAsync = true;
+
+        Assert.False(handler.IsSupportedClosure(closureTypeSpec));
     }
 
     [Fact]

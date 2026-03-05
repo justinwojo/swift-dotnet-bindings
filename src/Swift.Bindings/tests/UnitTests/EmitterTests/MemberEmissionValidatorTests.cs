@@ -453,4 +453,100 @@ public class MemberEmissionValidatorTests
     }
 
     #endregion
+
+    #region ContainsAssociatedTypeReference Tests
+
+    [Fact]
+    public void ContainsAssociatedTypeReference_NullTypeSpec_ReturnsFalse()
+    {
+        Assert.False(MemberEmissionValidator.ContainsAssociatedTypeReference(null));
+    }
+
+    [Fact]
+    public void ContainsAssociatedTypeReference_SimpleNamedType_ReturnsFalse()
+    {
+        Assert.False(MemberEmissionValidator.ContainsAssociatedTypeReference(new NamedTypeSpec("Swift.Int")));
+    }
+
+    [Fact]
+    public void ContainsAssociatedTypeReference_DirectAssociatedType_ReturnsTrue()
+    {
+        Assert.True(MemberEmissionValidator.ContainsAssociatedTypeReference(
+            new AssociatedTypeReferenceSpec("Self.Element")));
+    }
+
+    [Fact]
+    public void ContainsAssociatedTypeReference_NestedInGenericParam_ReturnsTrue()
+    {
+        // Swift.Array<Self.Element> — the generic param contains an associated type ref
+        var arrayType = new NamedTypeSpec("Swift.Array",
+            new TypeSpec[] { new AssociatedTypeReferenceSpec("Self.Element") });
+        Assert.True(MemberEmissionValidator.ContainsAssociatedTypeReference(arrayType));
+    }
+
+    [Fact]
+    public void ContainsAssociatedTypeReference_InClosureReturn_ReturnsTrue()
+    {
+        // (Swift.Int) -> Self.Element
+        var closure = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            new AssociatedTypeReferenceSpec("Self.Element"));
+        Assert.True(MemberEmissionValidator.ContainsAssociatedTypeReference(closure));
+    }
+
+    [Fact]
+    public void ContainsAssociatedTypeReference_InClosureArgs_ReturnsTrue()
+    {
+        // (Self.Element) -> Swift.Int
+        var closure = new ClosureTypeSpec(
+            new AssociatedTypeReferenceSpec("Self.Element"),
+            new NamedTypeSpec("Swift.Int"));
+        Assert.True(MemberEmissionValidator.ContainsAssociatedTypeReference(closure));
+    }
+
+    [Fact]
+    public void ContainsAssociatedTypeReference_InTupleElement_ReturnsTrue()
+    {
+        var tuple = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int"),
+            new AssociatedTypeReferenceSpec("Self.Element")
+        });
+        Assert.True(MemberEmissionValidator.ContainsAssociatedTypeReference(tuple));
+    }
+
+    [Fact]
+    public void ContainsAssociatedTypeReference_CleanClosure_ReturnsFalse()
+    {
+        var closure = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Bool"));
+        Assert.False(MemberEmissionValidator.ContainsAssociatedTypeReference(closure));
+    }
+
+    #endregion
+
+    #region ReferencesUnsupportedModule SwiftUI Tests
+
+    [Fact]
+    public void ReferencesUnsupportedModule_SwiftUIType_AlwaysReturnsTrue()
+    {
+        // SwiftUI types are always unsupported in standalone library bindings,
+        // even if registered in the type database.
+        Assert.True(MemberEmissionValidator.ReferencesUnsupportedModule(new NamedTypeSpec("SwiftUI.Color")));
+    }
+
+    [Fact]
+    public void ReferencesUnsupportedModule_CombineType_AlwaysReturnsTrue()
+    {
+        Assert.True(MemberEmissionValidator.ReferencesUnsupportedModule(new NamedTypeSpec("Combine.Publisher")));
+    }
+
+    [Fact]
+    public void ReferencesUnsupportedModule_SwiftType_ReturnsFalse()
+    {
+        Assert.False(MemberEmissionValidator.ReferencesUnsupportedModule(new NamedTypeSpec("Swift.Int")));
+    }
+
+    #endregion
 }

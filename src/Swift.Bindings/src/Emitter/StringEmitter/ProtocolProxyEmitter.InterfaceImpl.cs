@@ -548,7 +548,7 @@ public partial class ProtocolProxyEmitter
         // and projected return type is a valid interface (not "object" or "AnyType")
         if (dispatchKind == MethodDispatchKind.ExistentialReturn && hasReturn)
         {
-            var existentialHandler = new ExistentialHandler(_typeDatabase);
+            var existentialHandler = new ExistentialHandler(_typeDatabase) { CurrentModuleName = _moduleName };
             // Handle Optional<any Protocol> — unwrap before resolving protocol list
             bool isOptionalExistential = existentialHandler.IsOptionalExistential(returnType!);
             var protocolList = isOptionalExistential
@@ -908,13 +908,14 @@ public partial class ProtocolProxyEmitter
         var freeSymbol = WitnessDispatchEmitter.GetFreeSymbol(protocolDecl.Name, "method", method.Name, methodIndex);
 
         // Resolve the existential container type and proxy class name
-        var existentialHandler = new ExistentialHandler(_typeDatabase);
+        var existentialHandler = new ExistentialHandler(_typeDatabase) { CurrentModuleName = _moduleName };
         bool isOptionalExistential = existentialHandler.IsOptionalExistential(returnType);
         var protocolList = isOptionalExistential
             ? existentialHandler.UnwrapOptionalExistential(returnType)
             : existentialHandler.ToProtocolListTypeSpec(returnType);
         var containerType = existentialHandler.GetCSharpExistentialType(protocolList!);
         existentialHandler.TryGetFilteredProxyClassName(protocolList!, out var proxyClassName);
+        proxyClassName = existentialHandler.QualifyProxyClassName(proxyClassName, protocolList!);
 
         writer.WriteLines($$"""
             if (_csharpImpl != null)

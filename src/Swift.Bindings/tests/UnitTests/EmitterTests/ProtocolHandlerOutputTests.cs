@@ -58,7 +58,10 @@ public class ProtocolHandlerOutputTests
         var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
 
         Assert.Contains("public interface IReader<TElement>", csOutput);
-        Assert.Contains("TElement GetNext();", csOutput);
+        // The method's return type is an AssociatedTypeReferenceSpec, which is now
+        // skipped by the associated type reference gate in MemberGateEvaluator.
+        // The interface is still emitted but the method is absent.
+        Assert.DoesNotContain("TElement GetNext();", csOutput);
         Assert.DoesNotContain("class ReaderProxy", csOutput);
     }
 

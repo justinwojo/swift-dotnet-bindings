@@ -365,7 +365,8 @@ namespace BindingsGeneration
                     TypeDatabase = _env.TypeDatabase,
                     IsParameter = false,
                     GenericContext = _genericContext,
-                    ParentTypeDecl = _env.ParentDecl as TypeDecl
+                    ParentTypeDecl = _env.ParentDecl as TypeDecl,
+                    CurrentModuleName = _env.ExistentialHandler.CurrentModuleName
                 });
                 if (projection != null && !ShouldSkipProjectionForAccessor(argument.SwiftTypeSpec))
                 {
@@ -402,7 +403,8 @@ namespace BindingsGeneration
                             TypeDatabase = _env.TypeDatabase,
                             IsParameter = false,
                             GenericContext = _genericContext,
-                            ParentTypeDecl = _env.ParentDecl as TypeDecl
+                            ParentTypeDecl = _env.ParentDecl as TypeDecl,
+                            CurrentModuleName = _env.ExistentialHandler.CurrentModuleName
                         });
                         if (projection != null)
                             return projection.PublicType;
@@ -495,7 +497,8 @@ namespace BindingsGeneration
                         TypeDatabase = _env.TypeDatabase,
                         IsParameter = true,
                         GenericContext = _genericContext,
-                        ParentTypeDecl = _env.ParentDecl as TypeDecl
+                        ParentTypeDecl = _env.ParentDecl as TypeDecl,
+                        CurrentModuleName = _env.ExistentialHandler.CurrentModuleName
                     });
                     if (projection != null && !ShouldSkipProjectionForAccessor(argument.SwiftTypeSpec))
                     {

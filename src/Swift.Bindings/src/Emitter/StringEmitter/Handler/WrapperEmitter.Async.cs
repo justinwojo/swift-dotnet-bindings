@@ -215,7 +215,7 @@ namespace BindingsGeneration
             csWriter.WriteLines(preCancelCleanup);
             csWriter.WriteLines($$"""
                 handle.Free();
-                return Task.FromCanceled{{tcsTypeParam}}(cancellationToken);
+                return global::System.Threading.Tasks.Task.FromCanceled{{tcsTypeParam}}(cancellationToken);
             }
             if (cancellationToken.CanBeCanceled)
             {
