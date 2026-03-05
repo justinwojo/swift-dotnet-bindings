@@ -182,8 +182,41 @@ public class ProtocolExtensionDefaultsIndex
     }
 
     /// <summary>
+    /// Checks if a property requirement has an extension default on this protocol or a sub-protocol.
+    /// Used by ProtocolHandler for DIM emission — both direct and inherited defaults become DIMs.
+    /// </summary>
+    /// <param name="requiresSetter">When true, the default must include a setter to match.</param>
+    public bool HasPropertyDefault(string qualifiedProtocolName, string propertyName,
+        bool requiresSetter = false)
+    {
+        // Direct: protocol itself has the default
+        if (_propertyDefaults.TryGetValue(qualifiedProtocolName, out var directSet) &&
+            directSet.Contains(propertyName))
+        {
+            if (requiresSetter && !HasSetterDefault(qualifiedProtocolName, propertyName))
+                return false;
+            return true;
+        }
+
+        // Sub-protocol: a child protocol provides the default for a parent's requirement
+        foreach (var (providerProto, propSet) in _propertyDefaults)
+        {
+            if (providerProto == qualifiedProtocolName)
+                continue;
+            if (propSet.Contains(propertyName) && InheritsFrom(providerProto, qualifiedProtocolName))
+            {
+                if (requiresSetter && !HasSetterDefault(providerProto, propertyName))
+                    continue;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Checks if a property requirement has a DIRECT extension default on this protocol only.
-    /// Does NOT check sub-protocols. Used by ProtocolHandler for DIM emission.
+    /// Does NOT check sub-protocols.
     /// </summary>
     /// <param name="requiresSetter">When true, the default must include a setter to match.</param>
     public bool HasDirectPropertyDefault(string qualifiedProtocolName, string propertyName,

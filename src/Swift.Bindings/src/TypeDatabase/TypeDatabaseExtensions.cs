@@ -580,15 +580,7 @@ public static class TypeDatabaseExtensions
         "AVFAudio",
     };
 
-    /// <summary>
-    /// Apple framework modules whose Swift module name differs from the .NET C# namespace.
-    /// Used by <see cref="CreateObjCBridgedTypeRecord"/> to resolve the correct namespace.
-    /// </summary>
-    private static readonly Dictionary<string, string> ModuleToCSharpNamespaceOverrides = new(StringComparer.Ordinal)
-    {
-        { "QuartzCore", "CoreAnimation" },
-        { "AVFAudio", "AVFoundation" },
-    };
+    // Swift module → .NET namespace overrides are centralized in MarshallingHelpers.MapSwiftModuleToNetNamespace().
 
     /// <summary>
     /// Known value types (structs/enums) from Apple ObjC framework modules.
@@ -1044,11 +1036,12 @@ public static class TypeDatabaseExtensions
             };
         }
 
-        // Resolve C# namespace: check module override table first, then ObjectiveC/Foundation → Foundation,
+        // Resolve C# namespace: use centralized Swift→.NET mapping, then ObjectiveC/Foundation → Foundation,
         // then use Swift module name as-is (e.g., UIKit → UIKit).
+        var mappedModule = MarshallingHelpers.MapSwiftModuleToNetNamespace(swiftTypeName.Module);
         string csharpNamespace;
-        if (ModuleToCSharpNamespaceOverrides.TryGetValue(swiftTypeName.Module, out var nsOverride))
-            csharpNamespace = nsOverride;
+        if (mappedModule != swiftTypeName.Module)
+            csharpNamespace = mappedModule;
         else if (swiftTypeName.Module == ObjCModuleName || swiftTypeName.Module == "Foundation")
             csharpNamespace = "Foundation";
         else

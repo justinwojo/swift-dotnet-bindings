@@ -190,6 +190,14 @@ namespace BindingsGeneration
                 ForeignTypeExtensionEmitter.EmitSwiftWrappers(swiftWriter, emissionCtx);
                 ForeignTypeExtensionEmitter.EmitCSharpExtensionClasses(csWriter, env.TypeDatabase, moduleDecl.Name, emissionCtx);
 
+                // Emit deferred enum extension classes (from nested simple enums).
+                // C# requires extension methods to be in top-level static classes, so nested
+                // enums (e.g., ImageProcessingOptions.Unit) defer their extension classes here.
+                foreach (var extensionSource in emissionCtx.DeferredEnumExtensionClasses)
+                {
+                    csWriter.InnerWriter.Write(extensionSource);
+                }
+
                 // Emit composition interfaces (e.g., IAgeableAndNameable : IAgeable, INameable)
                 // These are collected during method/property emission when multi-protocol existentials are encountered.
                 // SortedDictionary ensures deterministic emission order regardless of encounter order.

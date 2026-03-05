@@ -221,13 +221,20 @@ public static class CrossModuleExtensionEmitter
         csWriter.WriteLine("{");
         csWriter.Indent++;
 
-        EmitMethodBody(csWriter, method, pInvokeName, parameters, returnCategory.Value, csharpReturnType, isStatic, typeDatabase);
+        EmitMethodBody(csWriter, method, pInvokeName, parameters, returnCategory.Value, csharpReturnType, isStatic, classDecl.IsObjCRooted, typeDatabase);
 
         csWriter.Indent--;
         csWriter.WriteLine("}");
 
         return true;
     }
+
+    /// <summary>
+    /// Gets the self expression for P/Invoke calls.
+    /// ObjC-rooted classes use .Handle (ObjC pointer), pure Swift classes use .Payload.DangerousGetHandle().
+    /// </summary>
+    private static string GetSelfExpression(bool isObjCRooted) =>
+        isObjCRooted ? "self.Handle" : "self.Payload.DangerousGetHandle()";
 
     private static void EmitMethodBody(
         CSharpWriter csWriter,
@@ -237,6 +244,7 @@ public static class CrossModuleExtensionEmitter
         ReturnKind returnCategory,
         string csharpReturnType,
         bool isStatic,
+        bool isObjCRooted,
         ITypeDatabase typeDatabase)
     {
         var nativeArgs = new List<string>();
@@ -247,7 +255,7 @@ public static class CrossModuleExtensionEmitter
 
         // Self parameter
         if (!isStatic)
-            nativeArgs.Add("self.Payload.DangerousGetHandle()");
+            nativeArgs.Add(GetSelfExpression(isObjCRooted));
 
         // Method parameters
         foreach (var (name, _, pinvokeExpr, _) in parameters)
@@ -305,7 +313,7 @@ public static class CrossModuleExtensionEmitter
             var nativeArgs = new List<string>();
             if (returnCategory.Value == ReturnKind.NonFrozenStruct)
                 nativeArgs.Add("indirectResult");
-            nativeArgs.Add("self.Payload.DangerousGetHandle()");
+            nativeArgs.Add(GetSelfExpression(classDecl.IsObjCRooted));
             var nativeCall = $"NativeMethods.{nativeMethodName}({string.Join(", ", nativeArgs)})";
 
             EmitReturnValueMarshalling(csWriter, returnCategory.Value, nativeCall, csharpType);
@@ -325,7 +333,7 @@ public static class CrossModuleExtensionEmitter
             csWriter.Indent++;
 
             var nativeMethodName = GetNativeMethodName(setterAccessor.Method);
-            csWriter.WriteLine($"NativeMethods.{nativeMethodName}(value, self.Payload.DangerousGetHandle());");
+            csWriter.WriteLine($"NativeMethods.{nativeMethodName}(value, {GetSelfExpression(classDecl.IsObjCRooted)});");
 
             csWriter.Indent--;
             csWriter.WriteLine("}");

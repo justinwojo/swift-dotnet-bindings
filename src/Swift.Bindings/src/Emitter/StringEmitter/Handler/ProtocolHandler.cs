@@ -298,10 +298,9 @@ namespace BindingsGeneration
                     }
                 }
 
-                // Check if this method has a DIRECT extension default on this protocol.
-                // Only direct defaults become DIMs — sub-protocol defaults only affect
-                // conformance validation (not interface shape). A sub-protocol default
-                // should not turn a parent's requirement into a throwing DIM for all implementers.
+                // Check if this method has a direct extension default on this protocol.
+                // Only direct defaults become DIMs — sub-protocol defaults are emitted on the
+                // sub-protocol interface, not propagated upward to parent protocols.
                 bool isExtensionDefault = false;
                 if (extensionDefaultsIndex != null)
                 {

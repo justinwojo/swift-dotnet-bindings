@@ -49,6 +49,40 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Computes the fully qualified C# name for a nested enum by walking up the parent chain.
+        /// E.g., for Swift's ImageProcessingOptions.Unit, returns "ImageProcessingOptions.Unit".
+        /// </summary>
+        private static string GetQualifiedEnumName(EnumDecl enumDecl)
+        {
+            var parts = new List<string>();
+            BaseDecl? current = enumDecl;
+            while (current is TypeDecl typeDecl)
+            {
+                parts.Add(NameProvider.ToPascalCaseForTypeName(typeDecl.Name));
+                current = typeDecl.ParentDecl;
+            }
+            parts.Reverse();
+            return string.Join(".", parts);
+        }
+
+        /// <summary>
+        /// Computes the flattened extension class name for a nested enum.
+        /// E.g., ImageProcessingOptions.Unit → "ImageProcessingOptionsUnitExtensions"
+        /// </summary>
+        private static string GetFlattenedExtensionClassName(EnumDecl enumDecl)
+        {
+            var parts = new List<string>();
+            BaseDecl? current = enumDecl;
+            while (current is TypeDecl typeDecl)
+            {
+                parts.Add(NameProvider.ToPascalCaseForTypeName(typeDecl.Name));
+                current = typeDecl.ParentDecl;
+            }
+            parts.Reverse();
+            return string.Concat(parts) + "Extensions";
+        }
+
+        /// <summary>
         /// Emits a simple enum as a C# enum value type, with an optional extensions class
         /// for instance methods and properties.
         /// </summary>
@@ -101,10 +135,28 @@ namespace BindingsGeneration
             csWriter.WriteLine("}");
             csWriter.WriteLine();
 
+            // Determine if this enum is nested inside another type (not just a module).
+            // C# extension methods must be in top-level static classes, so nested enums
+            // need their extension classes deferred to namespace level.
+            bool isNestedEnum = enumDecl.ParentDecl is TypeDecl;
+            string qualifiedEnumName = isNestedEnum ? GetQualifiedEnumName(enumDecl) : enumName;
+
             // For String-raw-value enums, emit ToRawValue/FromRawValue extension methods
             if (enumDecl.IsStringRawValue)
             {
-                EmitStringRawValueExtensions(csWriter, enumDecl, enumName, caseNameMap);
+                if (isNestedEnum)
+                {
+                    var flatClassName = GetFlattenedExtensionClassName(enumDecl);
+                    var deferredSw = new System.IO.StringWriter();
+                    var deferredWriter = new CSharpWriter(deferredSw);
+                    deferredWriter.Indent = 1; // namespace level
+                    EmitStringRawValueExtensions(deferredWriter, enumDecl, qualifiedEnumName, caseNameMap, extensionsClassName: flatClassName);
+                    context.GetEmissionContext().AddDeferredEnumExtensionClass(deferredSw.ToString());
+                }
+                else
+                {
+                    EmitStringRawValueExtensions(csWriter, enumDecl, enumName, caseNameMap);
+                }
             }
 
             // Emit extension methods class if there are instance methods or properties.
@@ -152,8 +204,27 @@ namespace BindingsGeneration
             if (instanceMethods.Count > 0 || staticMethods.Count > 0 || instanceProperties.Count > 0
                 || staticProperties.Count > 0 || hasCaseIterable)
             {
-                EmitSimpleEnumExtensions(csWriter, swiftWriter, enumDecl, enumName, instanceMethods,
-                    staticMethods, instanceProperties, staticProperties, hasCaseIterable, moduleDecl, typeDatabase, conductor, context);
+                if (isNestedEnum)
+                {
+                    // Buffer extensions at namespace level and defer.
+                    // Use the flattened name for the class (ImageProcessingOptionsUnitExtensions)
+                    // and the qualified name for type references (ImageProcessingOptions.Unit).
+                    var flatClassName = GetFlattenedExtensionClassName(enumDecl);
+                    var deferredSw = new System.IO.StringWriter();
+                    var deferredWriter = new CSharpWriter(deferredSw);
+                    deferredWriter.Indent = 1; // namespace level
+                    EmitSimpleEnumExtensions(deferredWriter, swiftWriter, enumDecl, qualifiedEnumName, instanceMethods,
+                        staticMethods, instanceProperties, staticProperties, hasCaseIterable, moduleDecl, typeDatabase, conductor, context,
+                        extensionsClassName: flatClassName);
+                    var content = deferredSw.ToString();
+                    if (!string.IsNullOrWhiteSpace(content))
+                        context.GetEmissionContext().AddDeferredEnumExtensionClass(content);
+                }
+                else
+                {
+                    EmitSimpleEnumExtensions(csWriter, swiftWriter, enumDecl, enumName, instanceMethods,
+                        staticMethods, instanceProperties, staticProperties, hasCaseIterable, moduleDecl, typeDatabase, conductor, context);
+                }
             }
 
             // Emit nested types using base handler
@@ -168,7 +239,8 @@ namespace BindingsGeneration
             EnumDecl enumDecl, string enumName, List<MethodDecl> instanceMethods, List<MethodDecl> staticMethods,
             List<PropertyDecl> instanceProperties, List<PropertyDecl> staticProperties,
             bool hasCaseIterable, ModuleDecl moduleDecl,
-            ITypeDatabase typeDatabase, Conductor conductor, TypeHandlerContext context)
+            ITypeDatabase typeDatabase, Conductor conductor, TypeHandlerContext context,
+            string? extensionsClassName = null)
         {
             var csUnderlyingType = GetCSharpEnumUnderlyingType(enumDecl.RawValueTypeName);
             var swiftScalarType = GetSwiftScalarType(csUnderlyingType);
@@ -201,21 +273,21 @@ namespace BindingsGeneration
             // Emit instance properties as extension methods
             foreach (var propertyDecl in instanceProperties)
             {
-                EmitSimpleEnumExtensionProperty(bufferWriter, swiftWriter, enumDecl, propertyDecl,
+                EmitSimpleEnumExtensionProperty(bufferWriter, swiftWriter, enumDecl, enumName, propertyDecl,
                     moduleDecl, typeDatabase, csUnderlyingType, swiftScalarType);
             }
 
             // Emit static methods directly
             foreach (var methodDecl in staticMethods)
             {
-                EmitSimpleEnumStaticMethod(bufferWriter, swiftWriter, enumDecl, methodDecl,
+                EmitSimpleEnumStaticMethod(bufferWriter, swiftWriter, enumDecl, enumName, methodDecl,
                     moduleDecl, typeDatabase, csUnderlyingType, swiftScalarType);
             }
 
             // Emit static properties
             foreach (var propertyDecl in staticProperties)
             {
-                EmitSimpleEnumStaticProperty(bufferWriter, swiftWriter, enumDecl, propertyDecl,
+                EmitSimpleEnumStaticProperty(bufferWriter, swiftWriter, enumDecl, enumName, propertyDecl,
                     moduleDecl, typeDatabase, csUnderlyingType, swiftScalarType);
             }
 
@@ -228,7 +300,8 @@ namespace BindingsGeneration
             var bufferedContent = bufferSw.ToString();
             if (!string.IsNullOrWhiteSpace(bufferedContent))
             {
-                csWriter.WriteLine($"public static partial class {enumName}Extensions");
+                var className = extensionsClassName ?? $"{enumName}Extensions";
+                csWriter.WriteLine($"public static partial class {className}");
                 csWriter.WriteLine("{");
                 csWriter.InnerWriter.Write(bufferedContent);
                 csWriter.WriteLine("}");
@@ -241,9 +314,10 @@ namespace BindingsGeneration
         /// These are pure C# (no Swift P/Invoke needed) since the mapping is known at codegen time.
         /// Note: Uses case names as raw values (known limitation — ABI JSON lacks individual case raw values).
         /// </summary>
-        private static void EmitStringRawValueExtensions(CSharpWriter csWriter, EnumDecl enumDecl, string enumName, Dictionary<string, string>? caseNameMap = null)
+        private static void EmitStringRawValueExtensions(CSharpWriter csWriter, EnumDecl enumDecl, string enumName, Dictionary<string, string>? caseNameMap = null, string? extensionsClassName = null)
         {
-            csWriter.WriteLine($"public static partial class {enumName}Extensions");
+            var className = extensionsClassName ?? $"{enumName}Extensions";
+            csWriter.WriteLine($"public static partial class {className}");
             csWriter.WriteLine("{");
             csWriter.Indent++;
 
@@ -576,11 +650,10 @@ namespace BindingsGeneration
         /// so mutations cannot propagate back to the caller.
         /// </summary>
         private void EmitSimpleEnumExtensionProperty(CSharpWriter csWriter, SwiftWriter swiftWriter,
-            EnumDecl enumDecl, PropertyDecl propertyDecl, ModuleDecl moduleDecl,
+            EnumDecl enumDecl, string enumName, PropertyDecl propertyDecl, ModuleDecl moduleDecl,
             ITypeDatabase typeDatabase, string csUnderlyingType, string swiftScalarType)
         {
             var moduleName = moduleDecl.Name;
-            var enumName = NameProvider.ToPascalCaseForTypeName(enumDecl.Name);
             var propertyPascalName = NameProvider.ToPascalCase(propertyDecl.Name);
 
             // Record setter as skipped if present
@@ -666,11 +739,10 @@ namespace BindingsGeneration
         /// Emits a static method in the extensions class.
         /// </summary>
         private void EmitSimpleEnumStaticMethod(CSharpWriter csWriter, SwiftWriter swiftWriter,
-            EnumDecl enumDecl, MethodDecl methodDecl, ModuleDecl moduleDecl,
+            EnumDecl enumDecl, string enumName, MethodDecl methodDecl, ModuleDecl moduleDecl,
             ITypeDatabase typeDatabase, string csUnderlyingType, string swiftScalarType)
         {
             var moduleName = moduleDecl.Name;
-            var enumName = NameProvider.ToPascalCaseForTypeName(enumDecl.Name);
             var methodPascalName = NameProvider.ToPascalCase(methodDecl.Name);
 
             // Determine return type
@@ -781,11 +853,10 @@ namespace BindingsGeneration
         /// Emits a static property in the extensions class.
         /// </summary>
         private void EmitSimpleEnumStaticProperty(CSharpWriter csWriter, SwiftWriter swiftWriter,
-            EnumDecl enumDecl, PropertyDecl propertyDecl, ModuleDecl moduleDecl,
+            EnumDecl enumDecl, string enumName, PropertyDecl propertyDecl, ModuleDecl moduleDecl,
             ITypeDatabase typeDatabase, string csUnderlyingType, string swiftScalarType)
         {
             var moduleName = moduleDecl.Name;
-            var enumName = NameProvider.ToPascalCaseForTypeName(enumDecl.Name);
             var propertyPascalName = NameProvider.ToPascalCase(propertyDecl.Name);
 
             // Record setter as skipped if present

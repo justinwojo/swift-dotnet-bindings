@@ -600,8 +600,11 @@ namespace BindingsGeneration
                 TypeRecord typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(argumentDecl.SwiftTypeSpec);
                 var csName = NameProvider.GetCSharpParameterName(argumentDecl);
 
-                // ObjC bridged types: extract Handle from .NET iOS binding object
-                if (MarshallingHelpers.IsObjCBridged(typeRecord))
+                // ObjC bridged/rooted types: extract Handle from .NET iOS binding object.
+                // ObjC-rooted classes (same-module Swift classes inheriting NSObject) use .Handle
+                // instead of .Payload, just like Apple framework ObjC-bridged types.
+                if (MarshallingHelpers.IsObjCBridged(typeRecord) ||
+                    MarshallingHelpers.IsObjCRooted(typeRecord))
                 {
                     csWriter.WriteLine($"IntPtr {csName}Handle = {csName}?.Handle ?? IntPtr.Zero;");
                     continue;

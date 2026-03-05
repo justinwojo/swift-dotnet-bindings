@@ -862,17 +862,7 @@ public static class ForeignTypeExtensionEmitter
         }
 
         // Fallback: manual module.typeName construction
-        var dotIdx = foreignTypeQualifiedName.IndexOf('.');
-        if (dotIdx >= 0)
-        {
-            var module = foreignTypeQualifiedName.Substring(0, dotIdx);
-            var typeName = foreignTypeQualifiedName.Substring(dotIdx + 1);
-            if (ModuleToCSharpNamespace.TryGetValue(module, out var csharpNamespace))
-                return $"{csharpNamespace}.{typeName}";
-            return $"{module}.{typeName}";
-        }
-
-        return foreignTypeQualifiedName;
+        return MarshallingHelpers.MapQualifiedTypeToNet(foreignTypeQualifiedName);
     }
 
     /// <summary>
@@ -896,14 +886,6 @@ public static class ForeignTypeExtensionEmitter
     {
         return ExtensionMarshallingHelper.ResolveCSharpTypeName(typeSpec, typeDatabase);
     }
-
-    /// <summary>
-    /// Swift module → C# namespace overrides for ObjC framework types.
-    /// </summary>
-    private static readonly Dictionary<string, string> ModuleToCSharpNamespace = new(StringComparer.Ordinal)
-    {
-        { "QuartzCore", "CoreAnimation" },
-    };
 
     // ==================== Parsing Helpers ====================
 

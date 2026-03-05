@@ -68,8 +68,8 @@ public class OptionalProjection : ITypeProjection
 
     public MarshalPlan GetParameterPlan(string paramName)
     {
-        // ObjC bridged types use nullable pointer ABI — no SwiftOptional wrapper needed.
-        if (_innerProjection is ObjCBridgedProjection)
+        // ObjC bridged and ObjC-rooted types use nullable pointer ABI — no SwiftOptional wrapper needed.
+        if (_innerProjection is ObjCBridgedProjection or ObjCRootedClassProjection)
         {
             return new MarshalPlan
             {
@@ -164,12 +164,13 @@ public class OptionalProjection : ITypeProjection
         // this is the actual type name (not IntPtr), which MarshalFromSwift needs to construct instances.
         var returnTypeParam = _innerProjection.MarshalFromSwiftType;
 
-        // ObjC bridged types use nullable pointer ABI (nil = IntPtr.Zero, Some = ObjC pointer).
+        // ObjC bridged and ObjC-rooted types use nullable pointer ABI (nil = IntPtr.Zero, Some = ObjC pointer).
         // Bypass SwiftOptional entirely — the IntPtr result IS the payload.
-        if (_innerProjection is ObjCBridgedProjection objcInner)
+        if (_innerProjection is ObjCBridgedProjection or ObjCRootedClassProjection)
         {
-            var bridgeCall = MarshallingHelpers.FormatObjCBridgeCall(objcInner.PublicType, resultName);
-            var indirectBridgeCall = MarshallingHelpers.FormatObjCBridgeCall(objcInner.PublicType, $"*(IntPtr*){resultName}");
+            var innerPublicType = _innerProjection.PublicType;
+            var bridgeCall = MarshallingHelpers.FormatObjCBridgeCall(innerPublicType, resultName);
+            var indirectBridgeCall = MarshallingHelpers.FormatObjCBridgeCall(innerPublicType, $"*(IntPtr*){resultName}");
             return strategy switch
             {
                 ReturnStrategy.Direct => new MarshalPlan

@@ -69,6 +69,9 @@ public static class ExtensionMarshallingHelper
             var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
             if (typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord))
             {
+                // ObjC-rooted classes (Swift classes inheriting NSObject) use ObjC bridge marshalling
+                if (typeRecord.Kind == TypeRecordKind.Class && MarshallingHelpers.IsObjCRooted(typeRecord))
+                    return ReturnKind.ObjCClass;
                 if (typeRecord.Kind == TypeRecordKind.Class)
                     return ReturnKind.SwiftClass;
                 if (typeRecord.Kind == TypeRecordKind.Struct)
@@ -117,6 +120,9 @@ public static class ExtensionMarshallingHelper
             var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
             if (typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord))
             {
+                // ObjC-rooted classes (Swift classes inheriting NSObject) use .Handle like ObjC classes
+                if (typeRecord.Kind == TypeRecordKind.Class && MarshallingHelpers.IsObjCRooted(typeRecord))
+                    return ParamKind.ObjCClass;
                 if (typeRecord.Kind == TypeRecordKind.Class)
                     return ParamKind.SwiftClass;
                 if (typeRecord.Kind == TypeRecordKind.Enum && typeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))

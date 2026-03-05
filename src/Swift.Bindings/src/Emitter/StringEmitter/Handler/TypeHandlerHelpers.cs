@@ -411,7 +411,12 @@ namespace BindingsGeneration
             _structDecl = structDecl;
             _typeNameWithGenerics = typeNameWithGenerics;
             _implementsEquatable = _structDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
-            _implementsHashable = _structDecl.Conformances.Any(c => c.Protocol.ModuleQualifiedName == "Swift.Hashable" || (c.Protocol.Name == "Hashable" && string.IsNullOrEmpty(c.Protocol.Module)));
+            // OptionSet and RawRepresentable imply Hashable in Swift — ABI may not list it explicitly.
+            _implementsHashable = _structDecl.Conformances.Any(c =>
+                c.Protocol.ModuleQualifiedName == "Swift.Hashable" ||
+                (c.Protocol.Name == "Hashable" && string.IsNullOrEmpty(c.Protocol.Module)) ||
+                c.Protocol.Name == "OptionSet" ||
+                c.Protocol.Name == "RawRepresentable");
             _isRefType = refType;
             _hasExplicitEqualityOperator = hasExplicitEqualityOperator;
             _hasExplicitInequalityOperator = hasExplicitInequalityOperator;

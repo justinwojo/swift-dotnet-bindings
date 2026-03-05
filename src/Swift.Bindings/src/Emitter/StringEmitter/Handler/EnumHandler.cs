@@ -94,8 +94,15 @@ namespace BindingsGeneration
             // CanSafelyEmitAsSimpleEnum checks structural constraints (nested types,
             // non-equality operators). Compatible members are emitted as extensions;
             // incompatible members are skipped with ReportCollector tracking.
-            if ((enumDecl.IsSimpleEnum && CanSafelyEmitAsSimpleEnum(enumDecl)) ||
-                (enumDecl.IsStringRawValueSimpleEnum && CanSafelyEmitAsSimpleEnum(enumDecl)))
+            // Also check TypeRecord flag — post-scan may have demoted the enum if it's
+            // used as a generic type argument (C# enums can't implement ISwiftObject).
+            // If no TypeRecord exists (test scenarios), fall back to decl-level check only.
+            var wasDemotedFromSimple = enumEnv.TypeDatabase.TryGetTypeRecord(
+                enumDecl.SwiftTypeName, out var enumTypeRecord) &&
+                !enumTypeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum);
+            if (!wasDemotedFromSimple &&
+                ((enumDecl.IsSimpleEnum && CanSafelyEmitAsSimpleEnum(enumDecl)) ||
+                (enumDecl.IsStringRawValueSimpleEnum && CanSafelyEmitAsSimpleEnum(enumDecl))))
             {
                 EmitSimpleEnum(csWriter, swiftWriter, enumDecl, moduleDecl, env.TypeDatabase, conductor, context);
                 return;

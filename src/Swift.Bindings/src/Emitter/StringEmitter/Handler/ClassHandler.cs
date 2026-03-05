@@ -567,7 +567,7 @@ namespace BindingsGeneration
                 // ObjC-rooted: SwiftHandle entry-point constructor chains to base(NativeHandle).
                 // DangerousRelease() balances: Swift returns +1, MAUI NSObject(NativeHandle,false) retains +2, release back to +1.
                 var text = $$"""
-                internal {{_constructorName}}(SwiftHandle handle) : base((ObjCRuntime.NativeHandle)handle.Pointer)
+                internal {{_constructorName}}(SwiftHandle handle) : base((ObjCRuntime.NativeHandle)handle.Handle)
                 {
                     DangerousRelease();
                 }
@@ -828,7 +828,13 @@ namespace BindingsGeneration
             _classDecl = classDecl;
             _typeNameWithGenerics = typeNameWithGenerics;
             _implementsEquatable = _classDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
-            _implementsHashable = _classDecl.Conformances.Any(c => c.Protocol.ModuleQualifiedName == "Swift.Hashable" || (c.Protocol.Name == "Hashable" && string.IsNullOrEmpty(c.Protocol.Module)));
+            // OptionSet, RawRepresentable, and SetAlgebra imply Hashable in Swift.
+            // The ABI JSON may not list Hashable explicitly for types that get it transitively.
+            _implementsHashable = _classDecl.Conformances.Any(c =>
+                c.Protocol.ModuleQualifiedName == "Swift.Hashable" ||
+                (c.Protocol.Name == "Hashable" && string.IsNullOrEmpty(c.Protocol.Module)) ||
+                c.Protocol.Name == "OptionSet" ||
+                c.Protocol.Name == "RawRepresentable");
             _hasExplicitEqualityOperator = hasExplicitEqualityOperator;
             _hasExplicitInequalityOperator = hasExplicitInequalityOperator;
         }

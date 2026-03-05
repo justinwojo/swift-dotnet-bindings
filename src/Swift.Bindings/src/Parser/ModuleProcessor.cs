@@ -95,6 +95,7 @@ namespace BindingsGeneration
             }
 
             ResolveClassHierarchy();
+            DemoteSimpleEnumsUsedAsGenericArgs();
 
             return new ModuleProcessingResult(_moduleDatabase);
         }
@@ -473,6 +474,132 @@ namespace BindingsGeneration
         /// in the module's type declarations. Same-module matches are resolved;
         /// cross-module and ObjC base classes are left unresolved (HasExternalSuperclass = true).
         /// </summary>
+        /// <summary>
+        /// Post-scan pass: demotes simple enums that are used as bound generic type arguments.
+        /// C# enums cannot implement interfaces (ISwiftObject), so they fail generic constraints
+        /// like <c>where T : ISwiftObject</c> that are automatically added to all generic type parameters.
+        /// Such enums must fall back to the class-based representation.
+        /// </summary>
+        private void DemoteSimpleEnumsUsedAsGenericArgs()
+        {
+            // Collect all type specs used as concrete generic type arguments across the module
+            var enumsUsedAsGenericArgs = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (var (_, typeDecl) in _typeDecls)
+            {
+                CollectBoundGenericEnumArgs(typeDecl, enumsUsedAsGenericArgs);
+            }
+
+            if (enumsUsedAsGenericArgs.Count == 0)
+                return;
+
+            // Demote any simple enum whose module-qualified name appears as a generic type argument
+            foreach (var (typeSpec, typeDecl) in _typeDecls)
+            {
+                if (typeDecl is not EnumDecl)
+                    continue;
+
+                var swiftTypeName = SwiftTypeName.FromTypeSpec(typeSpec);
+                if (!enumsUsedAsGenericArgs.Contains(swiftTypeName.ModuleQualifiedName))
+                    continue;
+
+                if (!_moduleDatabase.TryGetTypeRecord(swiftTypeName, out var record))
+                    continue;
+
+                if (!record.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
+                    continue;
+
+                var demotedRecord = record with { Flags = record.Flags & ~TypeRecordFlags.SimpleEnum };
+                _moduleDatabase.RegisterType(swiftTypeName, demotedRecord);
+                _logger.LogInformation($"Demoted simple enum '{swiftTypeName}' to class-based: used as generic type argument with ISwiftObject constraint.");
+            }
+        }
+
+        /// <summary>
+        /// Recursively collects module-qualified names of types used as concrete generic type arguments
+        /// in the given type declaration's properties, methods, and subscripts.
+        /// </summary>
+        private void CollectBoundGenericEnumArgs(TypeDecl typeDecl, HashSet<string> result)
+        {
+            // Properties
+            foreach (var prop in typeDecl.Properties)
+            {
+                CollectGenericArgsFromTypeSpec(prop.SwiftTypeSpec, result);
+            }
+
+            // Methods (return types + parameters)
+            foreach (var method in typeDecl.Methods)
+            {
+                foreach (var arg in method.CSSignature)
+                {
+                    CollectGenericArgsFromTypeSpec(arg.SwiftTypeSpec, result);
+                }
+            }
+
+            // Subscripts
+            foreach (var subscript in typeDecl.Subscripts)
+            {
+                CollectGenericArgsFromTypeSpec(subscript.ReturnTypeSpec, result);
+                foreach (var idx in subscript.IndexParameters)
+                {
+                    CollectGenericArgsFromTypeSpec(idx.SwiftTypeSpec, result);
+                }
+            }
+
+            // Nested types
+            foreach (var nested in typeDecl.Types)
+            {
+                CollectBoundGenericEnumArgs(nested, result);
+            }
+        }
+
+        /// <summary>
+        /// Recursively extracts concrete type names used as generic type arguments from a TypeSpec.
+        /// Only collects from NamedTypeSpec nodes that have generic parameters (bound generics).
+        /// </summary>
+        private static void CollectGenericArgsFromTypeSpec(TypeSpec? typeSpec, HashSet<string> result)
+        {
+            if (typeSpec == null)
+                return;
+
+            if (typeSpec is NamedTypeSpec named)
+            {
+                if (named.ContainsGenericParameters)
+                {
+                    // This is a bound generic — collect concrete type arguments
+                    foreach (var genericParam in named.GenericParameters)
+                    {
+                        if (genericParam is NamedTypeSpec argNamed &&
+                            argNamed.HasModule() &&
+                            !argNamed.ContainsGenericParameters)
+                        {
+                            // Concrete type argument (not itself generic)
+                            result.Add(argNamed.Name); // Name includes module prefix
+                        }
+
+                        // Recurse into nested generics (e.g., Array<ScanningResult<T, MyEnum>>)
+                        CollectGenericArgsFromTypeSpec(genericParam, result);
+                    }
+                }
+                else
+                {
+                    // Not a bound generic at this level, but recurse into generic params if any
+                    foreach (var gp in named.GenericParameters)
+                        CollectGenericArgsFromTypeSpec(gp, result);
+                }
+            }
+            else if (typeSpec is TupleTypeSpec tuple)
+            {
+                foreach (var elem in tuple.Elements)
+                    CollectGenericArgsFromTypeSpec(elem, result);
+            }
+            else if (typeSpec is ClosureTypeSpec closure)
+            {
+                CollectGenericArgsFromTypeSpec(closure.Arguments, result);
+                CollectGenericArgsFromTypeSpec(closure.ReturnType, result);
+            }
+        }
+
         private void ResolveClassHierarchy()
         {
             // Build a lookup from module-qualified name to ClassDecl for efficient resolution.

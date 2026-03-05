@@ -60,11 +60,15 @@ These are real improvements with lower effort-to-impact ratios than the complete
 | Item | Impact | Libraries | Notes |
 |------|--------|-----------|-------|
 | String enum raw values from swiftinterface | GRDB `ResultCode` as enum | GRDB | ABI JSON lacks raw values; parse from swiftinterface |
-| `Optional<Primitive/Enum>` in closures | Various closure-accepting APIs | Broad | Different ABI from pointer-based Optional |
+| `Optional<Primitive/Enum>` in closures | Various closure-accepting APIs | Broad | Different ABI from pointer-based Optional. Also covers E1 (`SwiftOptional<T>` in closure params from preview.14 review) |
 | Complex enums in closures | Various | Broad | Structural emitter change |
 | Multi-closure params per method | Rare today | Deferred from S3 | No real-world library currently requires it |
 | ~~Protocol conformance with default extension implementations~~ | ~~Lottie `IAnyInterpolatable` constraint~~ | ~~Lottie~~ | **Done** — `ProtocolExtensionDefaultsIndex` indexes unconstrained extension defaults with transitive inheritance; `ProtocolConformanceValidator` recognizes extension-satisfied requirements; extension-defaulted interface members emitted as DIMs with `NotSupportedException` bodies; property defaults enforce getter/setter accessor contracts |
 | Method bypass with marshalled passthrough params | Theoretical | None today | 0 real-world methods currently bypass |
+| `AnyError` → Exception-based error handling (E3) | Error handling ergonomics | Broad | Add `SwiftException : Exception` wrapping `AnyError`, or `ToException()` conversion. Runtime design decision |
+| `ConfigurationValue` property name collision (E14) | Readability of core APIs | Nuke, others | Alternative disambiguation strategy when property type name == property name |
+| `Array<ObjCClass>` properties not bound (E17) | Testing convenience APIs | StripeIdentity | Extend collection projection for ObjC-bridged element types |
+| Cross-module protocol conformances (E18) | Polymorphic use through cross-module interfaces | StripeIdentity | Thread conformance declarations across module boundaries |
 
 ### Small Effort
 

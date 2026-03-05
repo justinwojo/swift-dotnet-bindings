@@ -391,7 +391,7 @@ public class ClassObjCRootedTests
         var output = EmitSingleObjCRootedClass(cls);
 
         var body = GetClassBody(output, "CustomLayer");
-        Assert.Contains("base((ObjCRuntime.NativeHandle)handle.Pointer)", body);
+        Assert.Contains("base((ObjCRuntime.NativeHandle)handle.Handle)", body);
         Assert.Contains("DangerousRelease()", body);
         Assert.Contains("IntPtr ISwiftObject.SwiftHandle => Handle", body);
     }
@@ -466,8 +466,8 @@ public class ClassObjCRootedTests
         var output = EmitObjCRootedClass("MyLayer", "QuartzCore.CALayer");
 
         var body = GetClassBody(output, "MyLayer");
-        // Internal SwiftHandle constructor: base((ObjCRuntime.NativeHandle)handle.Pointer)
-        Assert.Contains("base((ObjCRuntime.NativeHandle)handle.Pointer)", body);
+        // Internal SwiftHandle constructor: base((ObjCRuntime.NativeHandle)handle.Handle)
+        Assert.Contains("base((ObjCRuntime.NativeHandle)handle.Handle)", body);
     }
 
     [Fact]
@@ -674,6 +674,57 @@ public class ClassObjCRootedTests
         var kind = SwiftSelfKind.ObjCRootedClass;
         Assert.NotEqual(SwiftSelfKind.Class, kind);
         Assert.NotEqual(SwiftSelfKind.FrozenStructValue, kind);
+    }
+
+    #endregion
+
+    #region ObjC-Rooted TypeRecord Classification
+
+    [Fact]
+    public void IsObjCRooted_ObjCRootedFlag_ReturnsTrue()
+    {
+        var record = new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("StripeCore", "STPAPIClient"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("StripeCore.STPAPIClient"),
+            MetadataAccessor = "testAccessor",
+            Kind = TypeRecordKind.Class,
+            Flags = TypeRecordFlags.ObjCRooted | TypeRecordFlags.RequiresMemoryManagement
+        };
+
+        Assert.True(MarshallingHelpers.IsObjCRooted(record));
+        Assert.False(MarshallingHelpers.IsObjCBridged(record));
+    }
+
+    #endregion
+
+    #region ObjC-Rooted Constructor Emission
+
+    [Fact]
+    public void Emit_ObjCRootedConstructor_UsesHandleDotHandle()
+    {
+        var output = EmitObjCRootedClass("MyLayer", "QuartzCore.CALayer");
+
+        Assert.Contains("handle.Handle", output);
+        Assert.DoesNotContain("handle.Pointer", output);
+    }
+
+    #endregion
+
+    #region ObjC-Rooted Namespace Consistency
+
+    [Fact]
+    public void NamespaceMapping_ObjCBaseType_ConsistentAcrossPaths()
+    {
+        var mapped = MarshallingHelpers.MapQualifiedTypeToNet("QuartzCore.CALayer");
+        Assert.Equal("CoreAnimation.CALayer", mapped);
+
+        var cls = CreateClassDecl("MyLayer", "TestModule",
+            superclassUsr: "c:objc(cs)CALayer",
+            superclassNames: new[] { "QuartzCore.CALayer" });
+
+        var baseName = MarshallingHelpers.GetObjCBaseTypeName(cls);
+        Assert.Equal("CoreAnimation.CALayer", baseName);
     }
 
     #endregion

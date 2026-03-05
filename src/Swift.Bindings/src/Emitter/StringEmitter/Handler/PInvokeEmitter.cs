@@ -348,8 +348,11 @@ namespace BindingsGeneration
 
                 TypeRecord argumentTypeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(argument.SwiftTypeSpec);
 
-                // ObjC bridged types use IntPtr in P/Invoke, Handle extracted from the .NET iOS binding
-                if (MarshallingHelpers.IsObjCBridged(argumentTypeRecord))
+                // ObjC bridged/rooted types use IntPtr in P/Invoke, Handle extracted from the .NET iOS binding.
+                // ObjC-rooted classes (same-module Swift classes inheriting NSObject) use the same
+                // marshalling as ObjC-bridged types — .Handle instead of .Payload.
+                if (MarshallingHelpers.IsObjCBridged(argumentTypeRecord) ||
+                    MarshallingHelpers.IsObjCRooted(argumentTypeRecord))
                 {
                     // Store the original C# type name for use in wrapper generation
                     AddParameter(new MarshalledType.ObjCBridged(argumentTypeRecord.CSharpTypeName.FullyQualifiedName), csName);

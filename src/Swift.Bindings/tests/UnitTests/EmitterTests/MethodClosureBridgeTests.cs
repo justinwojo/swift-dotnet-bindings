@@ -1088,6 +1088,59 @@ public class MethodClosureBridgeTests
         return (method, typeDatabase, env);
     }
 
+    // ─── ObjC-Rooted Parameter Classification ─────────────────────────
+
+    [Fact]
+    public void ClassifyParam_ObjCRootedClass_ReturnsObjCHandle()
+    {
+        var typeDatabase = new TypeDatabase();
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.STPAPIClient"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "STPAPIClient"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.STPAPIClient"),
+                MetadataAccessor = "testAccessor",
+                Kind = TypeRecordKind.Class,
+                Flags = TypeRecordFlags.ObjCRooted | TypeRecordFlags.RequiresMemoryManagement
+            });
+        typeDatabase.AddModuleDatabase(testModule);
+
+        var arg = new ArgumentDecl
+        {
+            Name = "client",
+            PrivateName = "",
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeSpec = new NamedTypeSpec("TestModule.STPAPIClient"),
+        };
+
+        var category = MethodClosureBridge.ClassifyParam(arg, typeDatabase);
+        Assert.Equal(MethodClosureBridge.ParamAbiCategory.ObjCHandle, category);
+    }
+
+    [Fact]
+    public void ClassifyParam_PureSwiftClass_ReturnsPayloadHandle()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var arg = new ArgumentDecl
+        {
+            Name = "obj",
+            PrivateName = "",
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeSpec = new NamedTypeSpec("TestModule.MyClass"),
+        };
+
+        var category = MethodClosureBridge.ClassifyParam(arg, typeDatabase);
+        Assert.Equal(MethodClosureBridge.ParamAbiCategory.PayloadHandle, category);
+    }
+
     // ─── Type/Declaration Factory Methods ─────────────────────────────
 
     private static TypeDatabase CreateTypeDatabase()

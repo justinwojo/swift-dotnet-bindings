@@ -940,6 +940,116 @@ public class TypeHandlerHelpersTests
         };
     }
 
+    #endregion
+
+    #region OptionSet/RawRepresentable Imply Hashable
+
+    [Fact]
+    public void OptionSetConformance_ImpliesHashable()
+    {
+        var conformances = new List<TypeConformance>
+        {
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Caches"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.OptionSet"),
+                ProtocolConformanceDescriptor: string.Empty)
+        };
+
+        bool impliesHashable = conformances.Any(c =>
+            c.Protocol.ModuleQualifiedName == "Swift.Hashable" ||
+            c.Protocol.Name == "OptionSet" ||
+            c.Protocol.Name == "RawRepresentable");
+
+        Assert.True(impliesHashable,
+            "OptionSet conformance should be treated as implying Hashable");
+    }
+
+    [Fact]
+    public void RawRepresentableConformance_ImpliesHashable()
+    {
+        var conformances = new List<TypeConformance>
+        {
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Status"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.RawRepresentable"),
+                ProtocolConformanceDescriptor: string.Empty)
+        };
+
+        bool impliesHashable = conformances.Any(c =>
+            c.Protocol.Name == "OptionSet" ||
+            c.Protocol.Name == "RawRepresentable");
+
+        Assert.True(impliesHashable);
+    }
+
+    #endregion
+
+    #region Extension Marshalling — ObjC-Rooted Classification
+
+    [Fact]
+    public void ClassifyParameterType_ObjCRooted_ReturnsObjCClass()
+    {
+        var typeDatabase = new TypeDatabase();
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.STPAPIClient"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "STPAPIClient"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.STPAPIClient"),
+                MetadataAccessor = "testAccessor",
+                Kind = TypeRecordKind.Class,
+                Flags = TypeRecordFlags.ObjCRooted | TypeRecordFlags.RequiresMemoryManagement
+            });
+        typeDatabase.AddModuleDatabase(testModule);
+
+        var result = ExtensionMarshallingHelper.ClassifyParameterType(
+            new NamedTypeSpec("TestModule.STPAPIClient"), typeDatabase);
+
+        Assert.Equal(ExtensionMarshallingHelper.ParamKind.ObjCClass, result);
+    }
+
+    [Fact]
+    public void ClassifyReturnType_ObjCRooted_ReturnsObjCClass()
+    {
+        var typeDatabase = new TypeDatabase();
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.STPAPIClient"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "STPAPIClient"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.STPAPIClient"),
+                MetadataAccessor = "testAccessor",
+                Kind = TypeRecordKind.Class,
+                Flags = TypeRecordFlags.ObjCRooted | TypeRecordFlags.RequiresMemoryManagement
+            });
+        typeDatabase.AddModuleDatabase(testModule);
+
+        var result = ExtensionMarshallingHelper.ClassifyReturnType(
+            new NamedTypeSpec("TestModule.STPAPIClient"), typeDatabase);
+
+        Assert.Equal(ExtensionMarshallingHelper.ReturnKind.ObjCClass, result);
+    }
+
+    [Fact]
+    public void GetPInvokeArgExpression_ObjCClass_UsesHandle()
+    {
+        var expr = ExtensionMarshallingHelper.GetPInvokeArgExpression("client", ExtensionMarshallingHelper.ParamKind.ObjCClass);
+        Assert.Equal("client.Handle", expr);
+    }
+
+    [Fact]
+    public void GetPInvokeArgExpression_SwiftClass_UsesPayload()
+    {
+        var expr = ExtensionMarshallingHelper.GetPInvokeArgExpression("pipeline", ExtensionMarshallingHelper.ParamKind.SwiftClass);
+        Assert.Equal("pipeline.Payload.DangerousGetHandle()", expr);
+    }
+
+    #endregion
+
+    #region Test Helpers (Struct Factory)
+
     private static StructDecl CreateStructDeclWithConformances(string name, ModuleDecl moduleDecl, params TypeConformance[] conformances)
     {
         return new StructDecl

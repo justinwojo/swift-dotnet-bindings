@@ -990,13 +990,16 @@ namespace BindingsGeneration
             // Determine if void result (Task without type param requires special handling)
             var awaitResult = resultTypeName != null ? "return await tcs.Task;" : "await tcs.Task;";
 
+            // Propagate SB0001/SB0002 safety attributes from the underlying method
+            var safetyAttr = GetSafetyObsoleteAttribute(methodDecl);
+
             // Emit the overload
             csWriter.WriteLines($$"""
                 /// <summary>
                 /// Task-returning overload for <see cref="{{baseMethodName}}"/>.
                 /// </summary>
                 /// <param name="cancellationToken">Cancels the returned Task but does not cancel the underlying operation.</param>
-                {{accessModifier}} async {{taskType}} {{asyncMethodName}}({{paramString}})
+                {{(safetyAttr != null ? safetyAttr + "\n    " : "")}}{{accessModifier}} async {{taskType}} {{asyncMethodName}}({{paramString}})
                 {
                     var tcs = new {{tcsType}}(TaskCreationOptions.RunContinuationsAsynchronously);
                     var registration = cancellationToken.Register(() => tcs.TrySetCanceled(cancellationToken));
@@ -1011,6 +1014,43 @@ namespace BindingsGeneration
                     }
                 }
                 """);
+        }
+
+        /// <summary>
+        /// Returns the [Obsolete] attribute string for SB0001/SB0002 safety diagnostics if the method
+        /// has JIT risk or missing symbol issues, or null if no safety attribute is needed.
+        /// Used to propagate safety attributes to derived methods (e.g., async wrappers).
+        /// </summary>
+        internal static string? GetSafetyObsoleteAttribute(MethodDecl methodDecl)
+        {
+            bool hasJitRisk = false;
+            var issues = new List<string>();
+
+            if (methodDecl.DetectedJitRisks != MonoJitRiskDetector.MonoJitRisk.None)
+            {
+                var (_, needsWrapper) = PInvokeEmitter.ComputeEntryPoint(methodDecl);
+                if (!needsWrapper)
+                {
+                    hasJitRisk = true;
+                    issues.Add("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns " +
+                        "that crash on Mono runtime. Safe on NativeAOT (PublishAot=true)");
+                }
+            }
+
+            if (methodDecl.IsMissingExportedSymbol)
+            {
+                issues.Add("P/Invoke entry point not exported by the library. " +
+                    "This method will throw EntryPointNotFoundException at runtime");
+            }
+
+            if (issues.Count == 0)
+                return null;
+
+            var message = string.Join(". ", issues) + ".";
+            var diagnosticId = hasJitRisk ? "SB0001" : "SB0002";
+            return $"[Obsolete(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(message)}\", " +
+                $"DiagnosticId = \"{diagnosticId}\", " +
+                $"UrlFormat = \"https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md\")]";
         }
 
         /// <summary>

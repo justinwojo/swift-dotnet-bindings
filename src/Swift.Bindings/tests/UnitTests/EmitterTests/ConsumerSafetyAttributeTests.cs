@@ -390,6 +390,46 @@ public class ConsumerSafetyAttributeTests
 
     #endregion
 
+    #region GetSafetyObsoleteAttribute (async wrapper propagation)
+
+    [Fact]
+    public void GetSafetyObsoleteAttribute_JitRisk_ReturnsSB0001()
+    {
+        var method = CreateMethod("present", CreateClassDecl("Foo", CreateModuleDecl()), CreateModuleDecl());
+        method.DetectedJitRisks = MonoJitRiskDetector.MonoJitRisk.ClosureParameter;
+
+        var attr = MethodHandler.GetSafetyObsoleteAttribute(method);
+
+        Assert.NotNull(attr);
+        Assert.Contains("SB0001", attr);
+        Assert.Contains("Mono JIT crash risk", attr);
+    }
+
+    [Fact]
+    public void GetSafetyObsoleteAttribute_MissingSymbol_ReturnsSB0002()
+    {
+        var method = CreateMethod("present", CreateClassDecl("Foo", CreateModuleDecl()), CreateModuleDecl());
+        method.IsMissingExportedSymbol = true;
+
+        var attr = MethodHandler.GetSafetyObsoleteAttribute(method);
+
+        Assert.NotNull(attr);
+        Assert.Contains("SB0002", attr);
+        Assert.Contains("EntryPointNotFoundException", attr);
+    }
+
+    [Fact]
+    public void GetSafetyObsoleteAttribute_NoRisks_ReturnsNull()
+    {
+        var method = CreateMethod("present", CreateClassDecl("Foo", CreateModuleDecl()), CreateModuleDecl());
+
+        var attr = MethodHandler.GetSafetyObsoleteAttribute(method);
+
+        Assert.Null(attr);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static int CountOccurrences(string text, string pattern)

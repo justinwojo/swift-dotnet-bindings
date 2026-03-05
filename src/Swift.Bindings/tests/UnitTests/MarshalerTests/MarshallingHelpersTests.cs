@@ -306,6 +306,46 @@ public class MarshallingHelpersTests
 
     #endregion
 
+    #region SwiftModule → .NET Namespace Mapping
+
+    [Fact]
+    public void MapSwiftModuleToNetNamespace_QuartzCore_ReturnsCoreAnimation()
+    {
+        Assert.Equal("CoreAnimation", MarshallingHelpers.MapSwiftModuleToNetNamespace("QuartzCore"));
+    }
+
+    [Fact]
+    public void MapSwiftModuleToNetNamespace_Dispatch_ReturnsCoreFoundation()
+    {
+        Assert.Equal("CoreFoundation", MarshallingHelpers.MapSwiftModuleToNetNamespace("Dispatch"));
+    }
+
+    [Fact]
+    public void MapSwiftModuleToNetNamespace_AVFAudio_ReturnsAVFoundation()
+    {
+        Assert.Equal("AVFoundation", MarshallingHelpers.MapSwiftModuleToNetNamespace("AVFAudio"));
+    }
+
+    [Fact]
+    public void MapSwiftModuleToNetNamespace_UnmappedModule_ReturnsPassthrough()
+    {
+        Assert.Equal("UIKit", MarshallingHelpers.MapSwiftModuleToNetNamespace("UIKit"));
+    }
+
+    [Fact]
+    public void MapQualifiedTypeToNet_MapsModulePrefix()
+    {
+        Assert.Equal("CoreAnimation.CALayer", MarshallingHelpers.MapQualifiedTypeToNet("QuartzCore.CALayer"));
+    }
+
+    [Fact]
+    public void MapQualifiedTypeToNet_UnmappedModule_ReturnsUnchanged()
+    {
+        Assert.Equal("UIKit.UIView", MarshallingHelpers.MapQualifiedTypeToNet("UIKit.UIView"));
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static MethodDecl CreateMethodDecl(string name)

@@ -417,4 +417,60 @@ public class CompositeProjectionTests
     }
 
     #endregion
+
+    #region Optional × ObjC-Rooted Projection
+
+    [Fact]
+    public void OptionalProjection_ObjCRootedInner_DirectReturn_UsesNullablePointerABI()
+    {
+        var inner = new ObjCRootedClassProjection("CoreAnimation.CALayer");
+        var proj = new OptionalProjection(inner);
+
+        var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
+
+        Assert.Contains("CoreAnimation.CALayer>", plan.PInvokeExpression);
+        Assert.Contains("IntPtr.Zero", plan.PInvokeExpression);
+        Assert.DoesNotContain("SwiftOptional", plan.PInvokeExpression);
+    }
+
+    [Fact]
+    public void OptionalProjection_ObjCRootedInner_IndirectReturn_UsesPointerDereference()
+    {
+        var inner = new ObjCRootedClassProjection("CoreAnimation.CALayer");
+        var proj = new OptionalProjection(inner);
+
+        var plan = proj.GetReturnPlan("result", ReturnStrategy.IndirectResult);
+
+        Assert.Contains("*(IntPtr*)result", plan.PInvokeExpression);
+        Assert.Contains("CoreAnimation.CALayer>", plan.PInvokeExpression);
+        Assert.DoesNotContain("SwiftOptional", plan.PInvokeExpression);
+        Assert.True(plan.RequiresUnsafe);
+    }
+
+    [Fact]
+    public void OptionalProjection_ObjCRootedInner_ParameterPlan_UsesHandle()
+    {
+        var inner = new ObjCRootedClassProjection("CoreAnimation.CALayer");
+        var proj = new OptionalProjection(inner);
+
+        var plan = proj.GetParameterPlan("layer");
+
+        Assert.Equal("layerBuffer", plan.PInvokeExpression);
+        var line = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
+        Assert.Contains(".Handle", line.Code);
+        Assert.Contains("IntPtr.Zero", line.Code);
+        Assert.DoesNotContain("SwiftOptional", line.Code);
+    }
+
+    [Fact]
+    public void OptionalProjection_ObjCRootedInner_PublicType_IsNullable()
+    {
+        var inner = new ObjCRootedClassProjection("CoreAnimation.CALayer");
+        var proj = new OptionalProjection(inner);
+
+        Assert.Equal("CoreAnimation.CALayer?", proj.PublicType);
+        Assert.Equal("IntPtr", proj.PInvokeType);
+    }
+
+    #endregion
 }

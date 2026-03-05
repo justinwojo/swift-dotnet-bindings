@@ -200,6 +200,21 @@ public sealed class ModuleEmissionContext
     /// <summary>Adds a proxy class source block for deferred emission.</summary>
     public void AddDeferredProxyClass(string proxySource) => _deferredProxyClasses.Add(proxySource);
 
+    // ==================== Deferred Enum Extension Classes ====================
+
+    private readonly List<string> _deferredEnumExtensionClasses = new();
+
+    /// <summary>Accumulated enum extension class source blocks for deferred emission at namespace level.</summary>
+    /// <remarks>
+    /// Nested simple enums (e.g., ImageProcessingOptions.Unit) generate extension methods,
+    /// but C# requires extension methods to be in top-level static classes. These are collected
+    /// during nested enum emission and emitted at namespace level by ModuleHandler.
+    /// </remarks>
+    public IReadOnlyList<string> DeferredEnumExtensionClasses => _deferredEnumExtensionClasses;
+
+    /// <summary>Adds an enum extension class source block for deferred namespace-level emission.</summary>
+    public void AddDeferredEnumExtensionClass(string extensionSource) => _deferredEnumExtensionClasses.Add(extensionSource);
+
     // ==================== Enum Handler RawRepresentable ====================
 
     private readonly HashSet<string> _enumRawRepSymbols = new();

@@ -1369,6 +1369,10 @@ public static class MethodClosureBridge
                 if (MarshallingHelpers.IsObjCBridged(record))
                     return ParamAbiCategory.ObjCHandle;
 
+                // ObjC-rooted classes (Swift classes inheriting NSObject) use .Handle, not .Payload
+                if (MarshallingHelpers.IsObjCRooted(record))
+                    return ParamAbiCategory.ObjCHandle;
+
                 // Native-remapped types (Foundation.URL → NSUrl, Foundation.Data → NSData)
                 // require FromX/ToX conversion that MethodClosureBridge doesn't emit.
                 // Must be checked before struct/class classification.

@@ -83,9 +83,13 @@ public class ProtocolConformanceValidator
         if (!visited.Add(qualifiedName))
             return true;
 
-        // Resolve the concrete type's C# name for TSelf-aware type matching
+        // Resolve the concrete type's C# name for Self-typed position matching.
+        // Always resolve — protocols may use Self (τ_0_0) in method signatures without
+        // HasSelfRequirement being explicitly set (e.g., AnyInterpolatable._interpolate
+        // returns Self but the interface emits AnyType). Without conformingTypeName,
+        // AreTypesCompatible rejects AnyType vs the concrete type name.
         string? conformingTypeName = null;
-        if (protocolDecl.HasSelfRequirement && concreteType.SwiftTypeName != null &&
+        if (concreteType.SwiftTypeName != null &&
             _typeDatabase.TryGetTypeRecord(concreteType.SwiftTypeName, out var concreteRecord))
         {
             conformingTypeName = concreteRecord.CSharpTypeName.FullyQualifiedName;

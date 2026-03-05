@@ -230,13 +230,47 @@ namespace BindingsGeneration
         /// Maps Swift module names to their corresponding .NET namespace.
         /// Most Swift modules map 1:1 to .NET namespaces (e.g., UIKit → UIKit).
         /// Overrides handle cases where Swift and .NET use different names.
+        /// All emission paths MUST use <see cref="MapSwiftModuleToNetNamespace"/> instead
+        /// of maintaining local copies of this mapping.
         /// </summary>
         private static readonly Dictionary<string, string> SwiftModuleToNetNamespace = new(StringComparer.Ordinal)
         {
             { "ObjectiveC", "Foundation" },
             { "QuartzCore", "CoreAnimation" },
             { "Dispatch", "CoreFoundation" },
+            { "AVFAudio", "AVFoundation" },
         };
+
+        /// <summary>
+        /// Maps a Swift module name to its corresponding .NET namespace.
+        /// Returns the original module name if no mapping exists.
+        /// </summary>
+        public static string MapSwiftModuleToNetNamespace(string swiftModule)
+        {
+            if (string.IsNullOrEmpty(swiftModule))
+                return swiftModule;
+            return SwiftModuleToNetNamespace.TryGetValue(swiftModule, out var mapped) ? mapped : swiftModule;
+        }
+
+        /// <summary>
+        /// Maps a module-qualified Swift type name (e.g., "QuartzCore.CALayer") to its
+        /// .NET equivalent (e.g., "CoreAnimation.CALayer"). If the module has no mapping,
+        /// the original name is returned unchanged.
+        /// </summary>
+        public static string MapQualifiedTypeToNet(string qualifiedSwiftTypeName)
+        {
+            if (string.IsNullOrEmpty(qualifiedSwiftTypeName))
+                return qualifiedSwiftTypeName;
+
+            var dotIndex = qualifiedSwiftTypeName.IndexOf('.');
+            if (dotIndex <= 0)
+                return qualifiedSwiftTypeName;
+
+            var swiftModule = qualifiedSwiftTypeName.Substring(0, dotIndex);
+            var typeName = qualifiedSwiftTypeName.Substring(dotIndex + 1);
+            var netNamespace = MapSwiftModuleToNetNamespace(swiftModule);
+            return $"{netNamespace}.{typeName}";
+        }
 
         /// <summary>
         /// Gets the fully-qualified .NET base type name for an ObjC-rooted class.
@@ -250,16 +284,7 @@ namespace BindingsGeneration
             if (!classDecl.HasObjCSuperclass || classDecl.DirectSuperclassName == null)
                 return null;
 
-            // DirectSuperclassName is module-qualified: e.g., "QuartzCore.CALayer", "UIKit.UIControl"
-            var dotIndex = classDecl.DirectSuperclassName.IndexOf('.');
-            if (dotIndex <= 0)
-                return classDecl.DirectSuperclassName; // No module prefix — use as-is
-
-            var swiftModule = classDecl.DirectSuperclassName.Substring(0, dotIndex);
-            var typeName = classDecl.DirectSuperclassName.Substring(dotIndex + 1);
-
-            var netNamespace = SwiftModuleToNetNamespace.TryGetValue(swiftModule, out var mapped) ? mapped : swiftModule;
-            return $"{netNamespace}.{typeName}";
+            return MapQualifiedTypeToNet(classDecl.DirectSuperclassName);
         }
 
         /// <summary>
