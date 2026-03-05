@@ -276,11 +276,13 @@
       "products": [
         {
           "scheme": "StripeiOS",
-          "framework": "Stripe"
+          "framework": "Stripe",
+          "dependencies": ["StripePayments"]
         },
         {
           "scheme": "StripeApplePay",
-          "framework": "StripeApplePay"
+          "framework": "StripeApplePay",
+          "dependencies": ["StripeCore"]
         },
         {
           "scheme": "StripeCameraCore",
@@ -288,11 +290,13 @@
         },
         {
           "scheme": "StripeCardScan",
-          "framework": "StripeCardScan"
+          "framework": "StripeCardScan",
+          "dependencies": ["StripeCore"]
         },
         {
           "scheme": "StripeConnect",
-          "framework": "StripeConnect"
+          "framework": "StripeConnect",
+          "dependencies": ["StripeCore"]
         },
         {
           "scheme": "StripeCore",
@@ -300,11 +304,13 @@
         },
         {
           "scheme": "StripeCryptoOnramp",
-          "framework": "StripeCryptoOnramp"
+          "framework": "StripeCryptoOnramp",
+          "dependencies": ["StripeCore", "StripePayments"]
         },
         {
           "scheme": "StripeFinancialConnections",
-          "framework": "StripeFinancialConnections"
+          "framework": "StripeFinancialConnections",
+          "dependencies": ["StripeCore"]
         },
         {
           "scheme": "StripeIdentity",
@@ -312,23 +318,28 @@
         },
         {
           "scheme": "StripeIssuing",
-          "framework": "StripeIssuing"
+          "framework": "StripeIssuing",
+          "dependencies": ["StripeCore", "StripePayments"]
         },
         {
           "scheme": "StripePayments",
-          "framework": "StripePayments"
+          "framework": "StripePayments",
+          "dependencies": ["StripeCore"]
         },
         {
           "scheme": "StripePaymentSheet",
-          "framework": "StripePaymentSheet"
+          "framework": "StripePaymentSheet",
+          "dependencies": ["StripeCore", "StripePayments", "StripeUICore"]
         },
         {
           "scheme": "StripePaymentsUI",
-          "framework": "StripePaymentsUI"
+          "framework": "StripePaymentsUI",
+          "dependencies": ["StripePayments", "StripeUICore"]
         },
         {
           "scheme": "StripeUICore",
-          "framework": "StripeUICore"
+          "framework": "StripeUICore",
+          "dependencies": ["StripeCore"]
         }
       ],
       "tier": 1

@@ -252,8 +252,9 @@ if ! $QUICK; then
     if [[ -f "$BUILD_STAMP" ]] && [[ "$(cat "$BUILD_STAMP" 2>/dev/null)" == "$BUILD_FINGERPRINT" ]] && [[ -f "$GENERATOR_DLL" ]]; then
         echo -e "${DIM}Generator unchanged — skipping build${NC}"
     else
-        echo -e "${BOLD}--- Building generator ---${NC}"
-        if dotnet build "$SCRIPT_DIR/SwiftBindings.sln" -v quiet 2>&1 | tail -3; then
+        echo -e "${BOLD}--- Building generator + runtime ---${NC}"
+        if dotnet build "$SCRIPT_DIR/src/Swift.Bindings/src/Swift.Bindings.csproj" -v quiet 2>&1 | tail -3 \
+           && dotnet build "$SCRIPT_DIR/src/Swift.Runtime/src/Swift.Runtime.csproj" -v quiet 2>&1 | tail -3; then
             echo -e "${GREEN}Generator built${NC}"
             mkdir -p "$OUTPUT_BASE"
             echo "$BUILD_FINGERPRINT" > "$BUILD_STAMP"
@@ -356,10 +357,31 @@ process_target() {
     [[ -n "$CS_FILE" ]] && LINES=$(wc -l < "$CS_FILE" | tr -d ' ')
     set_result "$name" lines "$LINES"
 
+    # Restore if no assets file (fallback csproj needs this)
+    if [[ ! -f "$outdir/obj/project.assets.json" ]]; then
+        dotnet restore "$CSPROJ_FILE" -v quiet 2>/dev/null
+    fi
+
     # Compile
-    local BUILD_OUTPUT ERRORS
+    local BUILD_OUTPUT BUILD_EXIT ERRORS
     BUILD_OUTPUT=$(dotnet build "$CSPROJ_FILE" -p:EnableDefaultCompileItems=false --no-restore -v quiet 2>&1)
+    BUILD_EXIT=$?
     ERRORS=$(echo "$BUILD_OUTPUT" | grep "error CS" | sort -u | wc -l | tr -d ' ')
+
+    # Detect non-CS build failures (e.g., NETSDK1004, MSB errors)
+    if [[ $BUILD_EXIT -ne 0 && $ERRORS -eq 0 ]]; then
+        local INFRA_ERRORS
+        INFRA_ERRORS=$(echo "$BUILD_OUTPUT" | grep -i "error " | grep -v "error CS" | head -1)
+        if [[ -n "$INFRA_ERRORS" ]]; then
+            set_result "$name" compile "infra_fail"
+            set_result "$name" errors 0
+            {
+                echo -e "  ${RED}$name: build infrastructure failure${NC}"
+                echo -e "    ${DIM}$INFRA_ERRORS${NC}"
+            } > "$output_file"
+            return
+        fi
+    fi
     set_result "$name" errors "$ERRORS"
 
     local GEN_SECS EXPECTED_ERRORS
@@ -465,7 +487,7 @@ for entry in "${DISPLAY_TARGETS[@]}"; do
     comp_status=$(get_result "$name" compile "unknown")
     case "$comp_status" in
         ok|known_errors) COMPILE_PASSED=$((COMPILE_PASSED + 1)) ;;
-        fail|regressed) COMPILE_FAILED=$((COMPILE_FAILED + 1)) ;;
+        fail|regressed|infra_fail) COMPILE_FAILED=$((COMPILE_FAILED + 1)) ;;
         *) COMPILE_NO_OUTPUT=$((COMPILE_NO_OUTPUT + 1)) ;;
     esac
 done
@@ -478,6 +500,146 @@ elif [[ $COMPILE_FAILED -eq 0 ]]; then
     echo -e "${GREEN}Compile gate: $COMPILE_PASSED/$TOTAL passed${NC} ${DIM}($COMPILE_NO_OUTPUT no output)${NC}"
 else
     echo -e "${RED}Compile gate: $COMPILE_PASSED/$TOTAL passed, $COMPILE_FAILED failed${NC}${COMPILE_NO_OUTPUT:+ ${DIM}($COMPILE_NO_OUTPUT no output)${NC}}"
+fi
+# --- Phase 3.5: Dependency Gate ---
+
+# Extract dependency groups from manifest and compile them together.
+# Each dependent library is recompiled with assembly references to its dependencies.
+# This catches cross-module type reference errors (e.g., StripeApplePay → StripeCore).
+
+DEP_PASSED=0
+DEP_FAILED=0
+DEP_SKIPPED=0
+DEP_TOTAL=0
+
+DEP_GROUPS=$(python3 -c "
+import json
+libs = json.load(open('$MANIFEST'))['libraries']
+for lib in libs:
+    for prod in lib['products']:
+        deps = prod.get('dependencies', [])
+        if deps:
+            print(prod['framework'] + '|' + ','.join(deps))
+" 2>/dev/null)
+
+# Build lookup set of target framework names actually in this run (pipe-delimited string; bash 3.2 compatible)
+RUN_TARGETS="|"
+for entry in "${TARGETS[@]}"; do
+    IFS='|' read -r _fw _ <<< "$entry"
+    RUN_TARGETS="${RUN_TARGETS}${_fw}|"
+done
+
+if [[ -n "$DEP_GROUPS" ]]; then
+    echo ""
+    echo -e "${BOLD}--- Dependency Gate ---${NC}"
+
+    RUNTIME_DLL="$SCRIPT_DIR/src/Swift.Runtime/src/bin/Debug/net10.0-ios/Swift.Runtime.dll"
+
+    while IFS='|' read -r dep_fw dep_list; do
+        # Skip if this target wasn't in the compile gate run (tier/filter/availability)
+        if [[ "$RUN_TARGETS" != *"|${dep_fw}|"* ]]; then
+            continue
+        fi
+
+        dep_outdir="$OUTPUT_BASE/$dep_fw"
+
+        # Find main C# source file
+        local_cs=$(ls "$dep_outdir"/*.cs 2>/dev/null | grep -v '\.Wrappers\.cs' | grep -v '\.SwiftUIBridge\.cs' | head -1)
+        [[ -z "$local_cs" ]] && continue
+
+        DEP_TOTAL=$((DEP_TOTAL + 1))
+
+        # Locate dependency DLLs
+        MISSING_DEPS=()
+        FOUND_REFS=""
+        IFS=',' read -ra DEPS <<< "$dep_list"
+        for dep in "${DEPS[@]}"; do
+            # Try generated csproj name ($dep.dll, $dep.Swift.iOS.dll) then fallback (Test.dll)
+            dep_dll=$(find "$OUTPUT_BASE/$dep/bin" -name "$dep.dll" -o -name "$dep.Swift.iOS.dll" -o -name "Test.dll" 2>/dev/null | grep -v 'Swift.Runtime.dll' | head -1)
+            if [[ -n "$dep_dll" && -f "$dep_dll" ]]; then
+                FOUND_REFS="$FOUND_REFS
+    <Reference Include=\"$dep\"><HintPath>$dep_dll</HintPath></Reference>"
+            else
+                MISSING_DEPS+=("$dep")
+            fi
+        done
+
+        # If any dependency DLL is missing (dependency didn't compile), skip
+        if [[ ${#MISSING_DEPS[@]} -gt 0 ]]; then
+            DEP_SKIPPED=$((DEP_SKIPPED + 1))
+            echo -e "  ${YELLOW}$dep_fw + [${dep_list}]: skipped (${MISSING_DEPS[*]} not compiled)${NC}"
+            continue
+        fi
+
+        # Create a clean dep-test csproj with Swift.Runtime + all dependency DLLs
+        local_cs_basename=$(basename "$local_cs")
+        DEP_CSPROJ="$dep_outdir/_dep_test.csproj"
+        cat > "$DEP_CSPROJ" <<DEP_EOF
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net10.0-ios</TargetFramework>
+    <SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>enable</Nullable>
+    <NoWarn>0169;CA1420</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.DisableRuntimeMarshallingAttribute" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="Swift.Runtime">
+      <HintPath>$RUNTIME_DLL</HintPath>
+    </Reference>$FOUND_REFS
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="$local_cs_basename" />
+  </ItemGroup>
+</Project>
+DEP_EOF
+
+        # Restore + build
+        dotnet restore "$DEP_CSPROJ" -v quiet 2>/dev/null
+        DEP_BUILD_OUTPUT=$(dotnet build "$DEP_CSPROJ" -p:EnableDefaultCompileItems=false --no-restore -v quiet 2>&1)
+        DEP_BUILD_EXIT=$?
+        DEP_ERRORS=$(echo "$DEP_BUILD_OUTPUT" | grep "error CS" | sort -u | wc -l | tr -d ' ')
+
+        if [[ $DEP_BUILD_EXIT -eq 0 && $DEP_ERRORS -eq 0 ]]; then
+            DEP_PASSED=$((DEP_PASSED + 1))
+            echo -e "  ${GREEN}$dep_fw + [${dep_list}]: OK${NC}"
+        elif [[ $DEP_BUILD_EXIT -ne 0 && $DEP_ERRORS -eq 0 ]]; then
+            INFRA_ERR=$(echo "$DEP_BUILD_OUTPUT" | grep -i "error " | grep -v "error CS" | head -1)
+            DEP_FAILED=$((DEP_FAILED + 1))
+            echo -e "  ${RED}$dep_fw + [${dep_list}]: build failure${NC}"
+            if $VERBOSE && [[ -n "$INFRA_ERR" ]]; then
+                echo -e "    ${DIM}$INFRA_ERR${NC}"
+            fi
+        else
+            DEP_FAILED=$((DEP_FAILED + 1))
+            echo -e "  ${RED}$dep_fw + [${dep_list}]: $DEP_ERRORS errors${NC}"
+            if $VERBOSE; then
+                echo "$DEP_BUILD_OUTPUT" | grep "error CS" | head -5 | while IFS= read -r line; do
+                    echo -e "    ${DIM}$line${NC}"
+                done
+            fi
+        fi
+
+        rm -f "$DEP_CSPROJ"
+    done <<< "$DEP_GROUPS"
+
+    echo ""
+    if [[ $DEP_TOTAL -gt 0 ]]; then
+        DEP_TESTED=$((DEP_PASSED + DEP_FAILED))
+        if [[ $DEP_TESTED -eq 0 ]]; then
+            echo -e "${YELLOW}Dependency gate: $DEP_TOTAL targets, all skipped (dependencies not compiled)${NC}"
+        elif [[ $DEP_FAILED -eq 0 && $DEP_SKIPPED -eq 0 ]]; then
+            echo -e "${GREEN}Dependency gate: $DEP_PASSED/$DEP_TOTAL passed${NC}"
+        elif [[ $DEP_FAILED -eq 0 ]]; then
+            echo -e "${GREEN}Dependency gate: $DEP_PASSED/$DEP_TESTED tested, passed${NC} ${DIM}($DEP_SKIPPED skipped — dependencies not compiled)${NC}"
+        else
+            echo -e "${RED}Dependency gate: $DEP_PASSED/$DEP_TESTED tested, $DEP_FAILED failed${NC}${DEP_SKIPPED:+ ${DIM}($DEP_SKIPPED skipped)${NC}}"
+        fi
+    fi
 fi
 echo ""
 
@@ -525,13 +687,19 @@ compile_json = '''${COMPILE_JSON:-}'''
 if compile_json:
     libs = json.loads('{' + compile_json + '}')
     passed = sum(1 for v in libs.values() if v['compile'] in ('ok', 'known_errors'))
-    failed = sum(1 for v in libs.values() if v['compile'] in ('fail', 'regressed'))
+    failed = sum(1 for v in libs.values() if v['compile'] in ('fail', 'regressed', 'infra_fail'))
     baseline['compile_gate'] = {
         'total': len(libs),
         'passed': passed,
         'failed': failed,
         'libraries': libs
     }
+
+baseline['dependency_gate'] = {
+    'total': $DEP_TOTAL,
+    'passed': $DEP_PASSED,
+    'failed': $DEP_FAILED
+}
 
 with open('$BASELINE_FILE', 'w') as f:
     json.dump(baseline, f, indent=2)
@@ -680,6 +848,15 @@ elif [[ ${COMPILE_FAILED:-0} -eq 0 ]]; then
 else
     echo -e "  Compile: ${RED}${COMPILE_PASSED:-0}/$TOTAL passed, $COMPILE_FAILED failed${NC}${COMPILE_NO_OUTPUT:+, ${DIM}${COMPILE_NO_OUTPUT} no output${NC}}"
 fi
+if [[ ${DEP_TOTAL:-0} -gt 0 ]]; then
+    if [[ ${DEP_TESTED:-0} -eq 0 ]]; then
+        echo -e "  Dependencies: ${DIM}$DEP_TOTAL targets, all skipped${NC}"
+    elif [[ ${DEP_FAILED:-0} -eq 0 ]]; then
+        echo -e "  Dependencies: ${GREEN}${DEP_PASSED:-0}/${DEP_TESTED:-0} tested, passed${NC}${DEP_SKIPPED:+ ${DIM}($DEP_SKIPPED skipped)${NC}}"
+    else
+        echo -e "  Dependencies: ${RED}${DEP_PASSED:-0}/${DEP_TESTED:-0} tested, $DEP_FAILED failed${NC}${DEP_SKIPPED:+ ${DIM}($DEP_SKIPPED skipped)${NC}}"
+    fi
+fi
 
 # Show tier and profile info
 TOTAL_TARGETS_IN_RUN=${#TARGETS[@]}
@@ -701,7 +878,7 @@ fi
 echo ""
 
 # Exit with failure if any target failed or produced no output
-if [[ ${COMPILE_FAILED:-0} -gt 0 || ${COMPILE_NO_OUTPUT:-0} -gt 0 ]]; then
+if [[ ${COMPILE_FAILED:-0} -gt 0 || ${COMPILE_NO_OUTPUT:-0} -gt 0 || ${DEP_FAILED:-0} -gt 0 ]]; then
     exit 1
 fi
 exit 0

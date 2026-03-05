@@ -8,7 +8,7 @@
 
 ## Session P14A: Bug Fixes ✅
 
-**Status**: Complete. All fixes applied, 53/53 library validation passing, 5371 unit tests passing.
+**Status**: Complete. All fixes applied, 5371 unit tests passing. Note: the 53/53 library validation baseline was later discovered to be incorrect (see P14B — restore bug masked 42 real failures).
 
 ### P14-1: QuartzCore Namespace Mapping Not Applied Uniformly ✅
 
@@ -120,23 +120,27 @@
 
 ---
 
-## Session P14B: Validation Pipeline Hardening
+## Session P14B: Validation Pipeline Hardening ✅
+
+**Status**: Complete. V1 (dependency gate), V3 (7 compile-smoke tests), V5 (covered by V3).
 
 **Goal**: Prevent this class of failure from leaking again. Every issue in P14A represents a gap in the validation pipeline.
 
-### V1: Multi-Library Compilation Mode
+**Key discovery**: The restore fix revealed that 42/53 validation targets have real compile errors (previously masked by silent NETSDK1004 failures when `dotnet build --no-restore` ran without `project.assets.json`). True baseline is 11/53 passing.
+
+### V1: Multi-Library Compilation Mode ✅
 
 **Gap addressed**: P14-7 (cross-module assembly refs)
 
-**Problem**: `validate-libraries.sh` compiles each library target in isolation with only `Swift.Runtime` as a reference. It cannot detect cross-assembly reference failures.
-
 **Implementation**:
-- Add a `"dependencies"` field to `validation-libraries.json` entries (e.g., `StripeApplePay` depends on `StripeCore`)
-- After individual compile gate, run a second pass that compiles dependency groups together
-- For Stripe: compile StripeCore first, then compile each dependent library with a reference to StripeCore's output DLL
-- Report results as a separate "dependency gate" section in the output
+- Added `"dependencies"` arrays to 11 of 14 Stripe products in `validation-libraries.json`
+- Added Phase 3.5 "Dependency Gate" to `validate-libraries.sh`: checks if dependency DLLs exist, creates csproj with assembly references, compiles with `dotnet restore` + `dotnet build`
+- Fixed restore gap: fallback `Test.csproj` now gets `dotnet restore` before compile
+- Added infrastructure failure detection (NETSDK1004, MSB errors not counted as "0 CS errors")
+- Changed solution build to targeted project builds (generator + runtime only)
+- Dependency gate reports: passed/failed/skipped per target, with "all skipped" display when dependencies haven't compiled
 
-**Scope**: Start with Stripe (the only multi-module family in the current manifest). The infrastructure should generalize to any library with declared dependencies.
+**Scope**: Stripe family (11 dependent targets). Infrastructure generalizes to any library with declared dependencies.
 
 ---
 
@@ -159,18 +163,20 @@ Each test constructs a synthetic `ModuleDecl` combining features from multiple B
 
 ---
 
-### V3: Compile-Smoke Tests for Generated Output
+### V3: Compile-Smoke Tests for Generated Output ✅
 
 **Gap addressed**: P14-3, P14-5, P14-6 (string-pattern tests miss type system errors)
 
-**Problem**: Unit tests use `Assert.Contains("string pattern", output)` — they verify the generated code *looks right* but never compile it. `handle.Pointer` passed the test because the test expected `handle.Pointer`.
+**Implementation**: 7 compile-smoke tests in `CompileSmokeTests.cs` that generate representative C# code and `dotnet build` it against real `Swift.Runtime.dll`:
+1. `SwiftClass_HandleBoilerplate_Compiles` — P14-3 regression guard (handle.Handle not .Pointer)
+2. `ObjCRootedClass_HandleProperty_Compiles` — P14-6/P14-11 regression guard (.Handle not .Payload)
+3. `SimpleEnum_WithExtensions_Compiles` — P14-5 regression guard (enum + extensions)
+4. `OptionalObjCRooted_NullablePattern_Compiles` — P14-4 regression guard (nullable ObjC type)
+5. `CrossModuleReference_WithAssemblyRef_Compiles` — P14-7 regression guard (cross-module types)
+6. `ProtocolProxy_Compiles` — Protocol proxy pattern
+7. `OptionSet_GetHashCode_Compiles` — P14-8 regression guard (GetHashCode on OptionSet)
 
-**Implementation**:
-- Add a small set of "compile-smoke" integration tests that take representative generated C# and actually `dotnet build` it
-- Requires a test project with references to `Swift.Runtime`, MAUI iOS bindings (`Microsoft.iOS`), and a mock xcframework
-- Cases: ObjC-rooted class, simple enum with extensions, cross-module type reference, optional ObjC type
-- These are slower than unit tests (seconds vs milliseconds) — run as part of `run-tests.sh` integration suite, not on every unit test invocation
-- Alternative: expand TestFramework golden files to cover these scenarios (generates from a real xcframework, so covers the full pipeline)
+Uses `MakeSwiftClassBody()` helper for full `ISwiftObject` boilerplate. Each test writes temp csproj + code, runs `dotnet restore` + `dotnet build`, asserts exit code 0.
 
 ---
 
@@ -188,16 +194,11 @@ Each test constructs a synthetic `ModuleDecl` combining features from multiple B
 
 ---
 
-### V5: Runtime API Compatibility Check
+### V5: Runtime API Compatibility Check ✅
 
 **Gap addressed**: P14-3 (generated code references non-existent runtime API)
 
-**Problem**: The generator emits code that calls `SwiftHandle.Pointer`, but `SwiftHandle` only has `.Handle`. No validation step checks that generated code is compatible with the actual runtime API surface.
-
-**Implementation**:
-- Add a test or build step that extracts the public API surface of `Swift.Runtime.dll` and verifies all generated runtime references resolve
-- Simpler alternative: the compile-smoke tests (V3) inherently catch this — if the generated code doesn't compile against the real runtime DLL, the test fails
-- V3 is likely sufficient; this is only needed as a separate check if V3 doesn't cover enough cases
+**Status**: Covered by V3. The compile-smoke tests build against the real `Swift.Runtime.dll`, so any reference to a non-existent runtime API (like `SwiftHandle.Pointer`) fails the build.
 
 ---
 
@@ -213,7 +214,7 @@ Items discovered during developer review of the 3 clean-building libraries. Cate
 | E10 | GetHashCode returns 0 for OptionSet | P14-8 |
 | E19 | SB0001 not propagated to async | P14-10 |
 
-### In P14C (quality polish session)
+### In P14D (quality polish session, moved from P14C)
 
 | Item | Description |
 |------|-------------|
@@ -248,7 +249,7 @@ Items discovered during developer review of the 3 clean-building libraries. Cate
 
 ## Session Plan
 
-Three sessions. Each scoped to complete in a single Claude session.
+Four sessions. Each scoped to complete in a single Claude session.
 
 ### Session 1: P14A — Bug Fixes + Regression Guards
 
@@ -272,24 +273,87 @@ All 10 bug fixes, each with a dedicated regression test (V4) and cross-feature i
 
 **Gate**: `run-tests.sh` + `validate-libraries.sh` must pass.
 
-### Session 2: P14B — Validation Pipeline Hardening
+### Session 2: P14B — Validation Pipeline Hardening ✅
 
-Infrastructure changes to `validate-libraries.sh` and the test suite so this category of failure can't leak again.
+**Status**: Complete. V1 + V3 + V5 delivered. 7 compile-smoke tests passing. Dependency gate infrastructure in place.
 
-1. **V1** — Multi-library compilation mode in `validate-libraries.sh`
-   - Add `"dependencies"` to `validation-libraries.json`
-   - Compile Stripe family together (StripeCore first, dependents reference its DLL)
-   - New "dependency gate" section in output
-2. **V3** — Compile-smoke tests for generated output
-   - Integration tests that `dotnet build` representative generated C# against real `Swift.Runtime.dll` + MAUI refs
-   - Cases: ObjC-rooted class, simple enum in generic context, cross-module refs, optional ObjC type
-3. **V5** — Runtime API compatibility (if V3 doesn't fully cover)
+**Note**: The restore fix revealed 42/53 targets have pre-existing compile errors (previously masked). True baseline updated to 11/53. The 42 failures are pre-existing generator bugs, not P14B regressions.
 
-**Gate**: Full downstream revalidation — all 15 libraries build clean in `swift-dotnet-packages`.
+### Session 3: P14C — Compile Error Fixes (42 failures → target 35+/53)
 
-### Session 3: P14C — Quality Polish
+Fix the generator bugs revealed by the P14B restore fix. The 42 failing targets break down into 12 root causes (16 error patterns). Ordered by ROI (errors eliminated × libraries affected).
 
-Developer experience improvements from the E-series findings. Mix of quick wins and two high-impact medium-effort items.
+**Error pattern analysis**: 42 targets, ~1,425 unique CS errors, 16 patterns, 12 fix groups.
+
+#### Tier 1 — High ROI, low-to-medium complexity (target: +15-20 libraries)
+
+1. **CX-1: Namespace/type name collision** — ~285 errors across 8 libraries (Valet, SwiftyBeaver, FSPagerView, Mixpanel, NVActivityIndicatorView, AnimatedCollectionViewLayout, Reachability, KeychainSwift)
+   - CS0426: `Valet.SecureEnclaveValet` resolves to nested type, not namespace member
+   - When Swift module name == top-level type name, C# resolves ambiguously
+   - Fix: emit `global::Namespace.Type` qualified references, or detect collision and use alias
+   - Also fixes Pattern 10 (CS0563/CS0216 operator type mismatch in Valet — cascading from this)
+
+2. **CX-2: Identifier sanitization** — ~218 errors in 1 library (Kingfisher)
+   - CS1002/CS1003/CS1525: parameter names contain `>` from existential annotations (`retryStrategy>`)
+   - Fix: sanitize illegal C# characters (`<`, `>`, etc.) in identifier emitter
+   - Single library but massive error count; trivial fix
+
+3. **CX-3: ObjC class initializer emitter** — ~68 errors across 9 libraries (SnapKit, Starscream, BonMot, XMLCoder, SwipeCellKit, Alamofire, StripeCore, AMPopTip, Mappedin)
+   - CS0103: `swiftIndirectResult` used without declaration; `{param}Handle` used without marshaling
+   - CS0121: ambiguous constructor (SwiftHandle vs NativeHandle) on ObjC-rooted types
+   - CS0841: `handlerHandle` used before declared in closure params
+   - Fix: repair `CreateSwiftInstance_PInvoke_init_*` emitter — add indirect result construction, parameter marshaling, explicit handle cast
+
+4. **CX-4: External type handle accessor** — ~52 errors across 5 libraries (Alamofire, StripeCore, BonMot, AMPopTip, SwipeCellKit)
+   - CS1061: `.Payload` emitted for Apple framework types / dependency types that use `.Handle`
+   - Fix: type classification — `ISwiftObject` → `.Payload`, `NSObject` → `.Handle`, unknown → guard/suppress
+
+5. **CX-5: Variable name scoping in throw paths** — ~24 errors across 2 libraries (Alamofire, SwipeCellKit)
+   - CS0841/CS0136: `error` variable used for existential container clashes with `out var error` from P/Invoke
+   - Fix: rename existential container variable to `errorContainer` or similar
+
+6. **CX-6: Reserved C# name collision** — ~4 errors across 2 libraries (GRDB, CryptoSwift)
+   - CS0111: Swift `Finalize` method clashes with C# destructor; `Verify` overload erasure
+   - Fix: rename methods colliding with reserved C# member names
+
+7. **CX-7: Unresolved base class IDisposable** — ~10 errors across 4 libraries (Quick, PhoneNumberKit, DifferenceKit, Lottie)
+   - CS0535: class inherits from unresolved Apple type but lists `IDisposable` without providing `Dispose()`
+   - Fix: generate default `Dispose()` stub or suppress `IDisposable` for unresolved base types
+
+8. **CX-8: Nested protocol type qualification** — ~12 errors in 1 library (PhoneNumberKit)
+   - CS0246: proxy classes reference nested protocol interfaces without namespace qualification
+   - Fix: use fully qualified nested type name in proxy emitter
+
+#### Tier 2 — Medium-to-high complexity or infrastructure (target: +5-10 more)
+
+9. **CX-9: Cross-module dependency resolution** — ~378 errors across 11 libraries (Stripe family, BlinkIDUX)
+   - CS0246: references to types from dependency modules (StripeCore, BlinkID, etc.)
+   - Not a generator bug — validation infra needs `--framework-dependency` support
+   - Fix: extend `validate-libraries.sh` to generate with dependency xcframeworks, not just compile with DLL refs
+   - Likely resolves StripeCardScan/StripeIdentity infra_fail (NU1101) as well
+
+10. **CX-10: Apple framework type mapping** — ~356 errors across 10+ libraries
+    - CS0246: SwiftUI types (~330 errors — suppress or gate SwiftUI-dependent types)
+    - CS0234: incorrect Apple type names (`Foundation.Formatter`, `AVCaptureDeviceFocusMode`)
+    - CS0718: static types as generic args (`UITextContentType` is `static class` in .NET)
+    - Fix: multi-part — SwiftUI suppression gate + name mapping table + static class detection
+
+11. **CX-11: Generic constraint tracking** — ~26 errors across 3 libraries (Lottie, GRDB, DifferenceKit)
+    - CS0311/CS0314: concrete types don't satisfy emitted generic constraints
+    - ConformanceGraph misses some protocol conformances; generic parameter leakage
+    - Fix: improve conformance tracking + guard unresolved generic params
+
+12. **CX-12: Async closure callback** — ~4 errors in 1 library (Alamofire)
+    - CS0030: `Task<ResponseDisposition>` cast to `int` instead of awaiting
+    - Fix: detect async return in closure callback emitter, generate await pattern
+
+**Estimated outcome**: Tier 1 fixes (CX-1 through CX-8) should bring validation from 11/53 to ~35/53. Tier 2 adds the remaining.
+
+**Gate**: `run-tests.sh` + `validate-libraries.sh` must pass. Target 35+/53 compile gate.
+
+### Session 4: P14D — Quality Polish
+
+Developer experience improvements from the E-series findings. Moved from original P14C to prioritize compile error fixes.
 
 **Quick wins** (isolated, low-risk):
 1. **E9** — Deduplicate `Utf8Slice` across BX2 extension classes

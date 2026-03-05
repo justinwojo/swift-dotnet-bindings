@@ -152,13 +152,33 @@ dotnet add package MyLibrary.Bindings
 
 For prerequisites, CLI usage, and a full walkthrough, see the [Getting Started guide](docs/Getting-Started.md).
 
+## AI-Assisted Binding Creation
+
+A [Claude Code skill](https://github.com/justinwojo/claude-skills) is available that walks you through the entire binding process — from SPM package or xcframework to a validated NuGet package. It checks prerequisites, builds xcframeworks, diagnoses errors using the latest docs, and optionally reviews the generated binding for completeness.
+
+**Claude Code:**
+
+```bash
+# Add the skills marketplace
+/plugin marketplace add justinwojo/claude-skills
+
+# Install the skill
+/plugin install swift-binding-assistant@justinwojo-claude-skills
+```
+
+Then just ask Claude: *"I want to create a Swift binding for [library name]"*
+
+**Codex / other AI tools:** The skill definition is a standalone markdown file ([`swift-binding-assistant/SKILL.md`](https://github.com/justinwojo/claude-skills/blob/main/swift-binding-assistant/SKILL.md)). Copy its contents into your tool's custom instructions or system prompt to get the same guided workflow.
+
+---
+
 ### Working with Swift Package Manager Libraries
 
 Swift Bindings requires a compiled `.xcframework` as input. If you're working with a library distributed through Swift Package Manager (SPM), you'll need to build it into an xcframework first.
 
 This is intentionally out of scope for Swift Bindings — SPM dependency resolution, multi-platform builds, and ABI-stable framework generation involve a significant amount of complexity that's orthogonal to binding generation. Keeping the concerns separate means each tool can evolve independently.
 
-We maintain a standalone script for this: **[spm-to-xcframework](https://github.com/justinwojo/spm-to-xcframework)**
+I maintain a standalone script for this: **[spm-to-xcframework](https://github.com/justinwojo/spm-to-xcframework)**
 
 It handles the full conversion — resolving the package, building for device and simulator, enabling `BUILD_LIBRARY_FOR_DISTRIBUTION` for ABI stability, and producing a ready-to-use xcframework:
 
