@@ -59,6 +59,17 @@ Microsoft's Objective Sharpie tool generates C# binding definitions (`ApiDefinit
 
 This document explores whether Swift Bindings could absorb Objective Sharpie's role — generating ObjC binding definitions alongside Swift bindings from a single tool.
 
+## Output Format and User Expectations
+
+The ObjC pipeline emits the same `ApiDefinition.cs` + `StructsAndEnums.cs` files that Sharpie users are familiar with, using the same `[BaseType]`, `[Export]`, `[Protocol]`, `[Model]` attribute format. The binding project compilation model is identical — the MAUI registrar processes these files the same way regardless of which tool generated them.
+
+**Users will still need to hand-edit some output.** This is inherent to the binding definition format, not a tooling limitation:
+- **`[Model]` vs `[Protocol]`** — The ObjC AST doesn't always make it clear whether a protocol is meant to be a delegate model (concrete default impl) or a pure protocol (abstract interface). v1 emits `[Protocol]` conservatively; users add `[Model]` where needed. Future sessions can improve this by analyzing usage patterns (e.g., is the protocol used as a `delegate` property type?).
+- **`[NullAllowed]` placement** — Depends on nullability annotations in headers. Well-annotated frameworks are fine. Older headers without `NS_ASSUME_NONNULL_BEGIN` need manual review.
+- **Complex block signatures** — May need manual `delegate` typedef definitions for deeply nested block types.
+
+**v1 target: Sharpie-equivalent output quality.** The immediate win is a tool that actually works with current Xcode versions. Improvements over Sharpie are expected over time — we have advantages Sharpie didn't (the existing type database with 26 framework mappings, access to Swift ABI JSON for mixed frameworks, and the ability to analyze protocol usage patterns). The goal is to surpass Sharpie quality, but matching it is already a major win given Sharpie is effectively dead.
+
 ## Architecture Comparison
 
 ### Swift Pipeline (existing)
@@ -129,7 +140,7 @@ CLI Entry Point (Program.cs)
   +-- Framework Detection:
   |   +-- Has abi.json?       -> Swift pipeline (existing)
   |   +-- Has modulemap only? -> ObjC pipeline (new)
-  |   +-- Has both?           -> Both pipelines, merged output
+  |   +-- Has both?           -> Both pipelines, two-project output
   |
   +-- Swift Pipeline (existing, unchanged):
   |   +-- ABI JSON Parser -> TypeDatabase -> Marshaler -> Emitter
@@ -160,7 +171,7 @@ dotnet run --project src/Swift.Bindings/src -- \
 dotnet run --project src/Swift.Bindings/src -- \
   --xcframework SomeObjCLib.xcframework -o output/
 
-# Mixed library -- both pipelines run, unified output (NEW)
+# Mixed library -- both pipelines run, two projects emitted (NEW)
 dotnet run --project src/Swift.Bindings/src -- \
   --xcframework MixedLib.xcframework -o output/
 ```
@@ -270,8 +281,8 @@ A framework with both Swift and ObjC public API would run both pipelines:
 1. **Detection**: XCFramework has both ABI JSON (Swift module) and Headers directory (ObjC)
 2. **Swift pipeline**: Generates `Swift.Module.cs` with P/Invoke bindings
 3. **ObjC pipeline**: Generates `ApiDefinition.cs` + `StructsAndEnums.cs` with binding definitions
-4. **Type database merge**: Swift types referencing ObjC types get correct cross-references
-5. **Project emission**: Single `.csproj` that includes both direct P/Invoke code and binding definitions
+4. **Member-level dedup**: Types appearing in both pipelines are NOT suppressed entirely — ObjC categories can add members not in Swift ABI. The ObjC pipeline skips individual members with Swift ABI equivalents and emits ObjC-only additions.
+5. **Project emission**: Two projects — Swift `.csproj` (regular) + ObjC `.csproj` (`<IsBindingProject>`) with `<ProjectReference>` from Swift to ObjC
 
 **Already working (partial mixed support):** Swift libraries that inherit from or reference ObjC types are fully handled today. The ObjC-rooted class support (BX4) bridges the two worlds — Swift classes emit as C# classes inheriting from their .NET MAUI ObjC counterparts. The type database, namespace mapping, and cross-module resolution infrastructure all support this. What's missing is generating bindings for ObjC API that isn't re-exported through the Swift module.
 
@@ -329,11 +340,13 @@ dotnet-objc-sharpie (separate repo)
 
 ## Proposed Session Work (Claude-assisted)
 
-Based on the velocity of this project (~500 commits in 1 month, all Claude-driven), and that the ObjC type system is dramatically simpler than Swift's (all reference types, no value witnesses, no existentials, no generics complexity), the full ObjC binding pipeline can be built in **3-4 focused sessions**.
+Based on the velocity of this project (~500 commits in 1 month, all Claude-driven), and that the ObjC type system is dramatically simpler than Swift's (all reference types, no value witnesses, no existentials, no generics complexity), the full ObjC binding pipeline can be built in **3-5 focused sessions**.
 
-For context: the entire Swift pipeline (35,000+ lines, calling conventions, ARC, value types, existentials, closures, generics, async) was built in ~30 sessions. ObjC bindings are ~5% of that complexity.
+For context: the entire Swift pipeline (35,000+ lines, calling conventions, ARC, value types, existentials, closures, generics, async) was built in ~30 sessions. ObjC bindings are ~5% of that complexity. The 5th session is a buffer for edge cases discovered during real-framework validation (vendor header quirks, ObjC patterns not seen in initial targets).
 
 ### Session O1: Foundation — Parser + Model + Routing
+
+**v1 scope gate:** Parse classes, protocols, methods, properties, enums, structs, constants, and C functions. Do NOT attempt delegate/event sugar, advanced category synthesis, or `__kindof`/variadic handling — those are O4 edge cases.
 
 **Goal:** Parse any ObjC framework's headers into a structured model and route ObjC-only frameworks through the new pipeline.
 
@@ -354,9 +367,12 @@ For context: the entire Swift pipeline (35,000+ lines, calling conventions, ARC,
   - `RecordDecl` (C structs — fields, layout)
   - `TypedefDecl` (type aliases — resolve chains)
   - `FunctionDecl` (C functions — name, params, return type)
+  - `VarDecl` (exported constants — `extern NSString *const`, notification names, etc.)
 - Handle nullability annotations (`_Nullable`, `_Nonnull`, `NS_ASSUME_NONNULL_BEGIN` regions)
 - Handle availability/deprecation attributes (`__attribute__((availability(...)))`)
 - Filter to public API only (skip internal/private declarations from transitive includes)
+- **Compile argument resolution**: Read modulemap to determine module name and header structure. Build clang invocation with correct `-fmodules`, `-D` defines, and `-I` include paths. XCFrameworks are predictable (headers + modulemap are self-contained), but vendor headers may need additional flags — resolve from the framework's structure.
+- **AST parser guardrails**: Define a required compile-args matrix (minimum: `-isysroot`, `-F`, `-x objective-c`, `-fmodules`). When clang fails (ObjC++ headers, missing deps, unsupported language mode), emit a diagnostic with the failing header path and skip gracefully rather than aborting the entire pipeline. Log which headers were skipped so the user knows what's missing from the binding.
 
 **ObjC type mapper:**
 - Map ObjC types to .NET types (reuse existing `MarshallingHelpers` + `TypeDatabaseExtensions` mappings)
@@ -373,6 +389,8 @@ For context: the entire Swift pipeline (35,000+ lines, calling conventions, ARC,
 
 ### Session O2: Emission — ApiDefinition + StructsAndEnums + Binding Project
 
+**v1 scope gate:** Emit correct `[BaseType]`/`[Export]`/`[Protocol]` attributes, enums, structs, constants. Categories merge onto main class. Do NOT implement delegate/event sugar (`[Wrap]`/`[EventArgs]`), advanced block signature inference, or `[Verify]` hint annotations in v1 — those are polish for O4/O5.
+
 **Goal:** Emit compilable `ApiDefinition.cs`, `StructsAndEnums.cs`, and an `<IsBindingProject>` `.csproj` from the ObjC model.
 
 **ApiDefinition emitter:**
@@ -384,7 +402,7 @@ For context: the entire Swift pipeline (35,000+ lines, calling conventions, ARC,
 - Constructor binding: `[Export("initWithFoo:bar:")]`
 - Factory methods: `[Static] [Export("fooWithBar:")]`
 - Categories: merge onto main class definition (most compatible with existing MAUI patterns)
-- Delegate/event patterns: detect `delegate` properties, emit `[Wrap]`/`[EventArgs]` where possible
+- Delegate/event patterns: **deferred to O4/O5** — detect `delegate` properties but don't emit `[Wrap]`/`[EventArgs]` sugar in v1
 
 **StructsAndEnums emitter:**
 - `NS_ENUM` -> `public enum Foo : long { ... }` with `[Native]`
@@ -397,6 +415,7 @@ For context: the entire Swift pipeline (35,000+ lines, calling conventions, ARC,
 - Include `<NativeReference>` for the framework
 - Correct `<Compile Include="ApiDefinition.cs" />` and `<Compile Include="StructsAndEnums.cs" />`
 - Wire into existing NuGet packaging flow
+- Apply naming convention: ObjC-only libraries emit as `{Library}.ObjC.iOS` (decided — see Naming Convention section)
 
 **Tests:**
 - Unit tests for each emission pattern (classes, protocols, enums, structs, categories)
@@ -411,11 +430,11 @@ For context: the entire Swift pipeline (35,000+ lines, calling conventions, ARC,
 
 **Mixed framework pipeline:**
 - Detect mixed frameworks: has both ABI JSON (Swift module) and ObjC headers with public API not re-exported through Swift
-- Run both pipelines, merge output into a single project:
-  - Swift API -> direct P/Invoke C# code (existing pipeline)
-  - ObjC-only API -> `ApiDefinition.cs` + `StructsAndEnums.cs` (new pipeline)
-  - Single `.csproj` that includes both — needs `<IsBindingProject>` for the ObjC portion while also having regular C# for Swift
-- **Type deduplication**: Types exposed through both Swift ABI and ObjC headers should be bound once. The Swift pipeline already handles ObjC-rooted classes via `ObjCRootedClassProjection` — the ObjC pipeline should skip types that appear in the Swift ABI JSON.
+- Run both pipelines, emit two projects (Option A):
+  - Swift API -> direct P/Invoke C# code + regular `.csproj` (existing pipeline)
+  - ObjC-only API -> `ApiDefinition.cs` + `StructsAndEnums.cs` + binding `.csproj` (`<IsBindingProject>`)
+  - Swift project has `<ProjectReference>` to ObjC binding project
+- **Type deduplication** (member-level, not type-level): Types that appear in both Swift ABI and ObjC headers must NOT be suppressed entirely — ObjC categories can add members (selectors, protocol refinements) not visible in Swift ABI JSON. Instead, emit the ObjC type but skip individual members that have Swift ABI equivalents. The Swift pipeline already handles ObjC-rooted classes via `ObjCRootedClassProjection`, so the ObjC pipeline defers to Swift for members it already binds and adds ObjC-only members on top.
 - Cross-pipeline type references: ObjC types referenced from Swift code use `ObjCBridgedProjection` (already works). Swift types referenced from ObjC categories may need TypeDatabase cross-entries.
 
 **MSBuild SDK integration:**
@@ -424,18 +443,34 @@ For context: the entire Swift pipeline (35,000+ lines, calling conventions, ARC,
 - Single `dotnet build` and `dotnet pack` for any framework type
 - `<SwiftFrameworkDependency>` items may point to ObjC-only frameworks — handle gracefully
 
-**Mixed `.csproj` challenge:**
-- `<IsBindingProject>` changes the entire MSBuild compilation model
-- Option A: Two projects in one output dir (Swift `.csproj` + ObjC binding `.csproj`) with a `<ProjectReference>`
-- Option B: Single project with `<IsBindingProject>` and both regular + binding C# code (may not work — needs investigation)
-- Option C: Emit ObjC bindings as regular P/Invoke code (skip `<IsBindingProject>` entirely) — more code but simpler build model, consistent with Swift pipeline
+**Why two projects for mixed frameworks:**
+
+The core issue is that `<IsBindingProject>true</IsBindingProject>` fundamentally replaces how MSBuild compiles C#. In a normal project, `.cs` files are regular source code compiled by Roslyn. In a binding project, `ApiDefinition.cs` files aren't real C# — they're partial interfaces decorated with `[BaseType]`/`[Export]` attributes that the MAUI registrar processes to generate trampolines, selector dispatch code, and ObjC runtime registration. The registrar injects its own generated code and takes over the compile pipeline.
+
+This means you can't mix the two models in one project:
+- The Swift pipeline's output is regular C# (`[LibraryImport]` P/Invoke declarations, concrete classes, real method bodies). It needs a normal `CoreCompile`.
+- The ObjC pipeline's output is binding definitions (partial interfaces with no method bodies, attribute-driven). It needs the registrar's specialized compile pipeline.
+- If you set `<IsBindingProject>true`, the registrar takes over and the Swift P/Invoke code won't compile correctly (it's not binding definition syntax). If you leave it false, the `ApiDefinition.cs` won't compile (partial interfaces with no bodies aren't valid C#).
+
+Two projects is the clean solution — each uses its native build model, and `<ProjectReference>` wires them together. The consumer sees a single NuGet package; the two-project split is an internal build detail.
+
+**Mixed `.csproj` options:**
+- **Option A (primary)**: Two projects in one output dir — Swift `.csproj` (regular P/Invoke code) + ObjC binding `.csproj` (`<IsBindingProject>`) with a `<ProjectReference>` from Swift to ObjC. Clean separation, each project uses its native build model.
+- **Option B (investigate but don't depend on)**: Single project with `<IsBindingProject>` and both regular + binding C# code. Almost certainly incompatible for the reasons above.
+- **Option C (last resort only)**: Emit ObjC bindings as direct P/Invoke code (skip `<IsBindingProject>` entirely). This is NOT a simple fallback — it means recreating registrar-like behavior (selector dispatch, method family semantics, block ABI handling, metadata mapping). Only pursue if Option A proves unworkable.
+
+**NuGet packaging contract (Option A):**
+- The **Swift project** owns the NuGet pack metadata (package ID, version, description). It produces the final `.nupkg`.
+- The **ObjC binding project** is a build-time dependency only — it compiles into a DLL that the Swift project references, but does NOT produce its own NuGet package.
+- **Native framework embedding**: The ObjC binding `.csproj` includes the `<NativeReference>` so the framework gets embedded in its output. The Swift project's `<ProjectReference>` transitively includes the native framework in the final pack. Must verify this transitive flow works — if not, the Swift project also needs the `<NativeReference>`.
+- For **ObjC-only** libraries (no Swift project), the ObjC binding `.csproj` IS the pack project and owns all metadata directly.
 
 **Tests:**
 - Unit tests for mixed detection and type deduplication
 - Integration test: a known mixed framework (find or create one in validation set)
 - SDK integration test: `dotnet build` with SDK for ObjC-only, Swift-only, and mixed xcframeworks
 
-**Deliverable:** Mixed frameworks produce a unified, compilable binding project. MSBuild SDK works for all three framework types.
+**Deliverable:** Mixed frameworks produce two compilable projects (Swift + ObjC binding) with `ProjectReference` wiring. ObjC-only frameworks produce a single binding project. MSBuild SDK works for all three framework types.
 
 ### Session O4: Validation + Edge Cases + Polish
 
@@ -456,22 +491,40 @@ For context: the entire Swift pipeline (35,000+ lines, calling conventions, ARC,
 - Typedef chains (e.g., `typedef NSString *FooKey NS_TYPED_ENUM`)
 - Complex block signatures (blocks returning blocks, blocks with nullable params)
 - `NS_SWIFT_NAME` annotations (relevant for mixed frameworks — tells you what Swift sees)
+- `instancetype` return types — must map to the declaring class, not `id`
+- `__kindof` type annotations — covariant return type hints
+- Variadic methods (`-[NSString stringWithFormat:]`) — limited binding support, mark or skip
+- `NS_REFINED_FOR_SWIFT` — methods hidden from Swift, ObjC pipeline should still bind them
+- ObjC++ headers (`.mm` / mixed C++ content) — detect and skip or fall back gracefully
+- Exported constants (`extern NSString *const`) — `VarDecl` nodes, emit as `[Field]` attributes
 
 **Validation pipeline integration:**
 - Add ObjC targets to `validation-libraries.json` (promote Realm, Stripe3DS2 from "known non-binding failures" to real targets)
 - `./validate-libraries.sh` runs both Swift and ObjC validation
 - Baseline update for new targets
 
-**Documentation:**
-- Update `CLAUDE.md` with ObjC pipeline usage
-- Update SDK docs with mixed framework guidance
+**Documentation (user-facing):**
+- **`README.md`**: Update project description and feature list to reflect that the tool handles pure ObjC, hybrid (Swift + ObjC), and pure Swift frameworks. The README is the first thing users see — it must be clear this isn't Swift-only.
+- **`docs/objc-bindings.md`** (new): Dedicated ObjC binding guide covering:
+  - What the tool does for ObjC frameworks (auto-detection, `ApiDefinition.cs` + `StructsAndEnums.cs` generation)
+  - How it differs from Objective Sharpie (no libclang dependency, always Xcode-version-matched)
+  - ObjC-only workflow: drop xcframework, run generator or `dotnet build` with SDK
+  - Mixed framework workflow: what gets bound where, two-project output explained
+  - Supported ObjC patterns and known limitations
+  - Naming convention (`.ObjC.iOS` vs `.Swift.iOS`)
+- **`docs/binding-overview.md`**: Update to cover all three framework types (currently Swift-focused)
+- **`docs/Troubleshooting.md`**: Add ObjC-specific SWIFTBIND error codes and common failure modes (ObjC++ headers, missing modulemap, clang parse failures)
+- **`CLAUDE.md`**: Update with ObjC pipeline usage and CLI examples
+
+**Documentation (internal):**
 - Error codes for ObjC-specific failures (SWIFTBIND0xx range)
+- Update SDK design doc with mixed framework routing
 
 **Deliverable:** All ObjC validation targets compile. Mixed framework support validated. Documentation complete.
 
-### Estimated Total: 3-4 sessions
+### Estimated Total: 3-5 sessions
 
-The biggest risk is Session O3 (mixed framework `.csproj` model). If `<IsBindingProject>` proves incompatible with mixed output, the fallback is Option C (emit ObjC bindings as regular P/Invoke code), which is more work but avoids the MSBuild complexity entirely.
+The biggest risk is Session O3 (mixed framework `.csproj` model). Option A (two projects + `ProjectReference`) is the primary strategy. Option C (ObjC as direct P/Invoke) is last resort only — it's a major architectural fork, not a simple fallback.
 
 ---
 
@@ -533,7 +586,7 @@ Keep all existing Swift naming. ObjC-only libraries get a `.ObjC.` suffix in the
 
 - **SDK**: `Swift.Bindings.Sdk` (unchanged)
 - **Runtime**: `Swift.Runtime` (unchanged — ObjC bindings don't need it, they use MAUI's registrar)
-- **Template**: `dotnet new swift-binding` (unchanged — auto-detects framework type, works for both)
+- **Template**: `dotnet new swift-binding` (unchanged — auto-detects framework type, works for both). Add `dotnet new objc-binding` as a template alias pointing to the same underlying template for discoverability by users searching for ObjC binding tooling.
 - **Mixed libraries** get `.Swift.` because the Swift pipeline is the primary binding mechanism; the ObjC portion is supplementary
 - The `.ObjC.` suffix for ObjC-only packages signals to consumers that this is a traditional binding project (`[Export]`/`[BaseType]`) with different debugging/runtime characteristics than direct P/Invoke
 

@@ -148,15 +148,9 @@ Three-phase architecture: type pre-processing (graph traversal + marshalling lab
 
 **When to revisit**: If adding a new feature (e.g., class inheritance hierarchies) becomes prohibitively difficult due to emitter architecture constraints. The proposal is the right north star — the question is whether to migrate incrementally or rebuild.
 
-### 12. Roslyn Analyzer (`roslyn-analyzer-plan.md`)
+### ~~12. Roslyn Analyzer~~ — COMPLETE (F6, March 2026)
 
-**Priority**: P3 | **Effort**: Small-Medium | **Blocked on**: Nothing
-
-Warn at compile time when Swift objects implementing `IDisposable` are created without `using` or explicit `Dispose()`.
-
-**Why last**: Nice DX polish, but the impact is narrow. Swift objects already implement `IDisposable` — any .NET developer familiar with the pattern will use `using`. The analyzer catches mistakes, but it's unlikely to be the difference between someone adopting the bindings or not. Better to invest in capabilities (more platforms, more libraries) first.
-
-**When to build**: When packaging `Swift.Runtime` for broader distribution. Ship it as part of the NuGet analyzer package alongside the runtime.
+SB1001 analyzer shipped in `Swift.Analyzers`, packaged into `Swift.Runtime` NuGet at `analyzers/dotnet/cs/`. Warns on undisposed `ISwiftObject` locals. Code fix adds `using` modifier.
 
 ---
 
@@ -202,7 +196,7 @@ Repo goes public
 | ~~9~~ | ~~Mono JIT remaining work~~ | ~~`mono-jit-future-work.md`~~ | — | — | Archived (March 2026) |
 | ~~10~~ | ~~Unsupported existentials~~ | ~~`unsupported-existential-analysis.md`~~ | — | — | Archived (March 2026) |
 | 11 | Emitter redesign | `emitter-redesign-proposal.md` | P4 | Very Large | No (but risky) |
-| 12 | Roslyn analyzer | `roslyn-analyzer-plan.md` | P3 | Small | No |
+| ~~12~~ | ~~Roslyn analyzer~~ | ~~`roslyn-analyzer-plan.md`~~ | — | — | Complete (F6) |
 | 13 | Witness dispatch emission dedup | `witness-dispatch-emission-dedup.md` | P4 | Small | No |
 
 ---

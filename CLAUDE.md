@@ -195,9 +195,9 @@ Use `<SwiftFrameworkDependency>` when your library imports another Swift framewo
 
 ## Key References
 
-- `src/docs/roadmap.md` — Master roadmap (sequencing, production readiness, future vision)
-- `src/docs/usability-roadmap.md` — Active work: 8 sessions to push all libraries above 4.0
-- `src/docs/binding-review-v2.md` — Latest binding quality scores (18 libraries, 10 categories)
+- `src/docs/roadmap.md` — Single consolidated roadmap (remaining work to ship + post-ship improvements)
+- `src/docs/swiftui-roadmap.md` — SwiftUI bridge sessions (4 remaining)
+- `src/docs/known-issues-workarounds.md` — Runtime workarounds and revert plan
 - `src/docs/Completed/dx-msbuild-sdk-design.md` — MSBuild SDK design (Steps 1-5, all complete)
-- `src/docs/Future/emitter-redesign-proposal.md` — Architecture direction
-- `src/docs/known-issues-workarounds.md` — Runtime workarounds
+- `src/docs/Future/future-roadmap.md` — Prioritized future vision items
+- `src/docs/Completed/` — All archived roadmaps, reviews, session notes
