@@ -206,6 +206,9 @@ src/samples/
 # Fetched library xcframeworks (rebuilt by scripts/fetch-libraries.sh)
 .libraries/
 
+# Validation build artifacts (fingerprint stamps, rebuilt by validate-libraries.sh)
+.validation-output/
+
 # SDK build artifacts (published generator tooling, rebuilt by build-sdk.sh)
 src/Swift.Bindings.Sdk/tools/
 src/Swift.Bindings.Sdk/bin/
