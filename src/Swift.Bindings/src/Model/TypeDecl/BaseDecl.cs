@@ -41,5 +41,11 @@ namespace BindingsGeneration
         /// Documentation from Swift symbol graph (null when --symbolgraph is not provided).
         /// </summary>
         public DocComment? Documentation { get; set; }
+
+        /// <summary>
+        /// Availability annotations from @available in .swiftinterface.
+        /// Null when not provided or no annotations exist.
+        /// </summary>
+        public List<AvailabilityAnnotation>? AvailabilityAnnotations { get; set; }
     }
 }

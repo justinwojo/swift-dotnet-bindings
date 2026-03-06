@@ -131,6 +131,7 @@ namespace BindingsGeneration
                 EmitClosureCallbacks(csWriter);
             }
 
+            AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, _env.MethodDecl, _env.ParentDecl, emitObsolete: false);
             EmitSafetyObsolete(csWriter);
             XmlDocCommentEmitter.EmitMethodDocComment(csWriter, _env.MethodDecl, isConstructor: true);
             EmitSignatureConstructor(csWriter);
@@ -254,6 +255,7 @@ namespace BindingsGeneration
             csWriter.WriteLine();
 
             // Now emit the public constructor that calls the helper
+            AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, _env.MethodDecl, _env.ParentDecl, emitObsolete: false);
             EmitSafetyObsolete(csWriter);
             XmlDocCommentEmitter.EmitMethodDocComment(csWriter, _env.MethodDecl, isConstructor: true);
             EmitSignatureConstructor(csWriter);
@@ -275,6 +277,7 @@ namespace BindingsGeneration
             {
                 UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, _fallbackInfo.Value);
             }
+            AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, _env.MethodDecl, _env.ParentDecl, emitObsolete: false);
             EmitSafetyObsolete(csWriter);
             if (!_env.MethodDecl.IsAccessor)
             {

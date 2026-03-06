@@ -99,6 +99,7 @@ namespace BindingsGeneration
 
             // Emit the C# enum declaration
             XmlDocCommentEmitter.EmitDocComment(csWriter, enumDecl);
+            AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, enumDecl, emitObsolete: true);
             if (enumDecl.Name.StartsWith("_"))
                 csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
             csWriter.WriteLine($"public enum {enumName} : {csUnderlyingType}");

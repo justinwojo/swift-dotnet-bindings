@@ -464,6 +464,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, fallbackInfo.Value);
         }
         XmlDocCommentEmitter.EmitDocComment(csWriter, propertyDecl);
+        AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, propertyDecl, propertyDecl.ParentDecl, emitObsolete: true);
         csWriter.WriteLine($"public {staticModifier}{dispatchModifier}{csTypeName} {propertyName}");
         csWriter.WriteLine("{");
         csWriter.Indent++;

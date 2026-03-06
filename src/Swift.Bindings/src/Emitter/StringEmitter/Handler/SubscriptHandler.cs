@@ -219,6 +219,7 @@ namespace BindingsGeneration
                 UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, fallbackInfo);
             }
 
+            AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, subscriptDecl, subscriptDecl.ParentDecl, emitObsolete: true);
             csWriter.WriteLine($"public {returnTypeName} this[{paramList}]");
             csWriter.WriteLine("{");
             csWriter.Indent++;

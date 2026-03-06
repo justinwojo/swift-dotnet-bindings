@@ -178,6 +178,7 @@ namespace BindingsGeneration
                     csWriter.WriteLine("// Swift actor type - methods are actor-isolated unless marked nonisolated");
 
                 XmlDocCommentEmitter.EmitDocComment(csWriter, classDecl);
+                AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, classDecl, emitObsolete: true);
                 var (opaqueEmittable, opaqueSkipped) = MemberEmissionValidator.CountEmittableMembers(classDecl, env.TypeDatabase);
                 if (opaqueEmittable == 0 && opaqueSkipped > 0)
                     TypeAnnotationHelper.EmitOpaqueTypeAnnotation(csWriter, opaqueSkipped);

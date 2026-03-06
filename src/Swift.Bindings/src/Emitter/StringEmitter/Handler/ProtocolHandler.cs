@@ -330,6 +330,7 @@ namespace BindingsGeneration
             // We deferred writing the declaration until after the body was buffered
             // so we know whether any members were emitted.
             XmlDocCommentEmitter.EmitDocComment(csWriter, protocolDecl);
+            AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, protocolDecl, emitObsolete: true);
             if (emittedInterfaceMemberCount == 0 && totalDeclaredMembers > 0 && inheritedInterfaces.Count == 0)
             {
                 csWriter.WriteLine($"[Obsolete(\"All {totalDeclaredMembers} protocol member(s) were skipped during binding generation (SB0004). \" +");
@@ -502,6 +503,7 @@ namespace BindingsGeneration
             }
 
             XmlDocCommentEmitter.EmitDocComment(csWriter, propertyDecl);
+            AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, propertyDecl, protocolContext, emitObsolete: true);
             if (isExtensionDefault)
             {
                 // Emit as DIM (Default Interface Method) with NotSupportedException body.
@@ -602,6 +604,7 @@ namespace BindingsGeneration
                 }
             }
 
+            AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, subscriptDecl, protocolContext, emitObsolete: true);
             csWriter.WriteLine($"{returnTypeName} this[{string.Join(", ", parameters)}] {accessors}");
         }
 
@@ -696,6 +699,7 @@ namespace BindingsGeneration
                 propertyNames: propertyNames, isSelfReturning: isSelfReturning,
                 parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
             XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl);
+            AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, methodDecl, protocolContext, emitObsolete: true);
             if (isExtensionDefault)
             {
                 // Emit as DIM (Default Interface Method) with NotSupportedException body.

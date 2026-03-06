@@ -736,6 +736,7 @@ namespace BindingsGeneration
             HashSet<string>? actorIsolatedMembers = null;
             HashSet<string>? nonisolatedMembers = null;
             Dictionary<string, List<string>>? markerProtocolConformances = null;
+            Dictionary<string, List<AvailabilityAnnotation>>? availabilityAnnotations = null;
             if (!string.IsNullOrWhiteSpace(swiftInterfacePath) && File.Exists(swiftInterfacePath))
             {
                 internalMemberKeys = SwiftInterfaceAccessParser.GetInternalMembers(swiftInterfacePath);
@@ -758,6 +759,8 @@ namespace BindingsGeneration
                 logger.LogInformation("Loaded {Count} nonisolated member keys from swiftinterface", nonisolatedMembers.Count);
                 markerProtocolConformances = SwiftInterfaceAccessParser.GetMarkerProtocolConformances(swiftInterfacePath);
                 logger.LogInformation("Loaded {Count} marker protocol conformance entries from swiftinterface", markerProtocolConformances.Count);
+                availabilityAnnotations = SwiftInterfaceAccessParser.GetAvailabilityAnnotations(swiftInterfacePath);
+                logger.LogInformation("Loaded {Count} availability annotation entries from swiftinterface", availabilityAnnotations.Count);
             }
 
             // Parse symbol graph for doc comments (supplementary data)
@@ -776,7 +779,7 @@ namespace BindingsGeneration
             }
 
             // Initialize the Swift ABI parser
-            var swiftParser = new SwiftABIParser(swiftAbiPath, typeDatabase, demangledTbdFile, loggerFactory.CreateLogger<SwiftABIParser>(), internalMemberKeys, parameterNames, docComments, typedThrowsErrors, enumCaseLabels, publicTypeNames, mainActorTypes, customActorTypes, actorIsolatedMembers, nonisolatedMembers);
+            var swiftParser = new SwiftABIParser(swiftAbiPath, typeDatabase, demangledTbdFile, loggerFactory.CreateLogger<SwiftABIParser>(), internalMemberKeys, parameterNames, docComments, typedThrowsErrors, enumCaseLabels, publicTypeNames, mainActorTypes, customActorTypes, actorIsolatedMembers, nonisolatedMembers, availabilityAnnotations);
             var moduleName = swiftParser.GetModuleName();
             var frameworkName = InferFrameworkName(dylibPath, moduleName);
             var namespaceResolver = new NamespacePatternResolver(namespacePattern, frameworkName);

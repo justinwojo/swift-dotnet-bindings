@@ -222,6 +222,50 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Sets availability annotations on a type declaration from swiftinterface data.
+        /// </summary>
+        private void ApplyAvailability(TypeDecl typeDecl)
+        {
+            if (_availabilityAnnotations == null) return;
+            var qualifiedPath = BuildTypeQualifiedPath(typeDecl);
+            if (_availabilityAnnotations.TryGetValue(qualifiedPath, out var annotations))
+                typeDecl.AvailabilityAnnotations = annotations;
+        }
+
+        /// <summary>
+        /// Sets availability annotations on a member declaration from swiftinterface data.
+        /// </summary>
+        private void ApplyMemberAvailability(BaseDecl decl, TypeDecl parentTypeDecl, string printedName)
+        {
+            if (_availabilityAnnotations == null) return;
+            var key = $"{BuildTypeQualifiedPath(parentTypeDecl)}.{printedName}";
+            if (_availabilityAnnotations.TryGetValue(key, out var annotations))
+                decl.AvailabilityAnnotations = annotations;
+        }
+
+        /// <summary>
+        /// Checks if a member is unconditionally unavailable from swiftinterface availability annotations.
+        /// </summary>
+        private bool IsUnavailableFromSwiftInterface(TypeDecl parentTypeDecl, string printedName)
+        {
+            if (_availabilityAnnotations == null) return false;
+            var key = $"{BuildTypeQualifiedPath(parentTypeDecl)}.{printedName}";
+            return _availabilityAnnotations.TryGetValue(key, out var annotations)
+                && annotations.Any(a => a.IsUnconditionallyUnavailable);
+        }
+
+        /// <summary>
+        /// Checks if a type is unconditionally unavailable from swiftinterface availability annotations.
+        /// </summary>
+        private bool IsTypeUnavailableFromSwiftInterface(TypeDecl typeDecl)
+        {
+            if (_availabilityAnnotations == null) return false;
+            var key = BuildTypeQualifiedPath(typeDecl);
+            return _availabilityAnnotations.TryGetValue(key, out var annotations)
+                && annotations.Any(a => a.IsUnconditionallyUnavailable);
+        }
+
+        /// <summary>
         /// Checks if a type is internal based on the public type names set from swiftinterface.
         /// Returns true if the set is available, non-empty, and the type is NOT in it.
         /// </summary>
@@ -308,6 +352,12 @@ namespace BindingsGeneration
         /// </summary>
         private readonly HashSet<string>? _nonisolatedMembers;
 
+        /// <summary>
+        /// Optional availability annotations from swiftinterface parsing.
+        /// Keys are qualified type paths or "TypePath.printedName" for members.
+        /// </summary>
+        private readonly Dictionary<string, List<AvailabilityAnnotation>>? _availabilityAnnotations;
+
         public SwiftABIParser(
             string filePath,
             ITypeDatabase typeDatabase,
@@ -322,7 +372,8 @@ namespace BindingsGeneration
             HashSet<string>? mainActorTypes = null,
             HashSet<string>? customActorTypes = null,
             HashSet<string>? actorIsolatedMembers = null,
-            HashSet<string>? nonisolatedMembers = null)
+            HashSet<string>? nonisolatedMembers = null,
+            Dictionary<string, List<AvailabilityAnnotation>>? availabilityAnnotations = null)
         {
             _filePath = filePath;
             _typeDatabase = typeDatabase;
@@ -338,6 +389,7 @@ namespace BindingsGeneration
             _customActorTypes = customActorTypes;
             _actorIsolatedMembers = actorIsolatedMembers;
             _nonisolatedMembers = nonisolatedMembers;
+            _availabilityAnnotations = availabilityAnnotations;
 
             string jsonContent = File.ReadAllText(_filePath);
             _moduleRoot = JsonConvert.DeserializeObject<ABIRootNode>(jsonContent) ?? throw new InvalidOperationException("Invalid ABI structure.");
@@ -627,7 +679,10 @@ namespace BindingsGeneration
             };
             if (!decl.IsModuleInternal)
                 decl.IsModuleInternal = IsInternalFromPublicTypeNames(decl);
+            if (!decl.IsModuleInternal && IsTypeUnavailableFromSwiftInterface(decl))
+                decl.IsModuleInternal = true;
             ApplyActorIsolation(decl);
+            ApplyAvailability(decl);
             PopulateDocumentation(decl, node);
             return decl;
         }
@@ -666,7 +721,10 @@ namespace BindingsGeneration
             };
             if (!decl.IsModuleInternal)
                 decl.IsModuleInternal = IsInternalFromPublicTypeNames(decl);
+            if (!decl.IsModuleInternal && IsTypeUnavailableFromSwiftInterface(decl))
+                decl.IsModuleInternal = true;
             ApplyActorIsolation(decl);
+            ApplyAvailability(decl);
             PopulateDocumentation(decl, node);
             return decl;
         }
@@ -855,7 +913,10 @@ namespace BindingsGeneration
             };
             if (!decl.IsModuleInternal)
                 decl.IsModuleInternal = IsInternalFromPublicTypeNames(decl);
+            if (!decl.IsModuleInternal && IsTypeUnavailableFromSwiftInterface(decl))
+                decl.IsModuleInternal = true;
             ApplyActorIsolation(decl);
+            ApplyAvailability(decl);
             PopulateDocumentation(decl, node);
             return decl;
         }
@@ -925,7 +986,10 @@ namespace BindingsGeneration
             };
             if (!decl.IsModuleInternal)
                 decl.IsModuleInternal = IsInternalFromPublicTypeNames(decl);
+            if (!decl.IsModuleInternal && IsTypeUnavailableFromSwiftInterface(decl))
+                decl.IsModuleInternal = true;
             ApplyActorIsolation(decl);
+            ApplyAvailability(decl);
             PopulateDocumentation(decl, node);
             return decl;
         }
@@ -989,6 +1053,13 @@ namespace BindingsGeneration
                     IsInternalFromSwiftInterface(parentDecl.Name, node.PrintedName),
             };
 
+            // Suppress unconditionally unavailable methods
+            if (!methodDecl.IsModuleInternal && parentDecl is TypeDecl parentTypeForUnavail &&
+                IsUnavailableFromSwiftInterface(parentTypeForUnavail, node.PrintedName))
+            {
+                methodDecl.IsModuleInternal = true;
+            }
+
             // Look up typed throws error type from swiftinterface data
             if (methodDecl.Throws && _typedThrowsErrors != null)
             {
@@ -1008,7 +1079,10 @@ namespace BindingsGeneration
 
             // Apply member-level actor isolation from swiftinterface data
             if (parentDecl is TypeDecl parentType)
+            {
                 ApplyMemberActorIsolation(methodDecl, parentType, node.PrintedName);
+                ApplyMemberAvailability(methodDecl, parentType, node.PrintedName);
+            }
 
             PopulateDocumentation(methodDecl, node);
 
@@ -1112,7 +1186,8 @@ namespace BindingsGeneration
                 IsPrefix = isPrefix,
                 UnderlyingMethod = methodDecl,
                 ParentDecl = parentDecl,
-                ModuleDecl = moduleDecl
+                ModuleDecl = moduleDecl,
+                AvailabilityAnnotations = methodDecl.AvailabilityAnnotations
             };
             PopulateDocumentation(operatorDecl, node);
             return operatorDecl;
@@ -1298,7 +1373,10 @@ namespace BindingsGeneration
                 Accessors = HandleAccessors(node.Accessors, sanitizedName, parentDecl, moduleDecl)
             };
             if (parentDecl is TypeDecl propParentType)
+            {
                 ApplyPropertyActorIsolation(decl, propParentType);
+                ApplyMemberAvailability(decl, propParentType, sanitizedName);
+            }
             PopulateDocumentation(decl, node);
             return decl;
         }
@@ -1354,6 +1432,10 @@ namespace BindingsGeneration
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl
             };
+            if (parentDecl is TypeDecl subscriptParentType)
+            {
+                ApplyMemberAvailability(decl, subscriptParentType, node.PrintedName);
+            }
             PopulateDocumentation(decl, node);
             return decl;
         }

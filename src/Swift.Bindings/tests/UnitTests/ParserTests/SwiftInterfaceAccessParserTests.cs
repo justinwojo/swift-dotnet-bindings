@@ -640,6 +640,414 @@ public class SwiftInterfaceAccessParserTests
 
     #endregion
 
+    #region Availability Annotations
+
+    [Fact]
+    public void GetAvailabilityAnnotations_PlatformVersionOnType()
+    {
+        var swiftInterface = """
+            @available(iOS 16.0, *)
+            public class NewFeature {
+              public func doStuff()
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetAvailabilityAnnotations(path);
+            Assert.True(result.ContainsKey("NewFeature"));
+            var annotations = result["NewFeature"];
+            Assert.Contains(annotations, a => a.Platform == "iOS" && a.IntroducedVersion == "16.0");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetAvailabilityAnnotations_PlatformVersionOnMember()
+    {
+        var swiftInterface = """
+            public class MyClass {
+              @available(iOS 13, *)
+              public func newFunc() -> Swift.Int
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetAvailabilityAnnotations(path);
+            Assert.True(result.ContainsKey("MyClass.newFunc()"));
+            var annotations = result["MyClass.newFunc()"];
+            Assert.Contains(annotations, a => a.Platform == "iOS" && a.IntroducedVersion == "13");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetAvailabilityAnnotations_MultiPlatform()
+    {
+        var swiftInterface = """
+            @available(macOS 10.15, iOS 13, tvOS 13, watchOS 6, *)
+            public class CrossPlatform {
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetAvailabilityAnnotations(path);
+            Assert.True(result.ContainsKey("CrossPlatform"));
+            var annotations = result["CrossPlatform"];
+            Assert.Contains(annotations, a => a.Platform == "macOS" && a.IntroducedVersion == "10.15");
+            Assert.Contains(annotations, a => a.Platform == "iOS" && a.IntroducedVersion == "13");
+            Assert.Contains(annotations, a => a.Platform == "tvOS" && a.IntroducedVersion == "13");
+            Assert.Contains(annotations, a => a.Platform == "watchOS" && a.IntroducedVersion == "6");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetAvailabilityAnnotations_DeprecatedWithMessage()
+    {
+        var swiftInterface = """
+            public class MyClass {
+              @available(*, deprecated, message: "Use newMethod instead")
+              public func oldMethod()
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetAvailabilityAnnotations(path);
+            Assert.True(result.ContainsKey("MyClass.oldMethod()"));
+            var annotations = result["MyClass.oldMethod()"];
+            Assert.Contains(annotations, a => a.IsUnconditionallyDeprecated && a.Message == "Use newMethod instead");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetAvailabilityAnnotations_DeprecatedWithRenamed()
+    {
+        var swiftInterface = """
+            public class MyClass {
+              @available(*, deprecated, renamed: "newName")
+              public func oldName()
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetAvailabilityAnnotations(path);
+            Assert.True(result.ContainsKey("MyClass.oldName()"));
+            Assert.Contains(result["MyClass.oldName()"], a => a.IsUnconditionallyDeprecated && a.Renamed == "newName");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetAvailabilityAnnotations_Unavailable()
+    {
+        var swiftInterface = """
+            public class MyClass {
+              @available(*, unavailable)
+              public func unavailableFunc()
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetAvailabilityAnnotations(path);
+            Assert.True(result.ContainsKey("MyClass.unavailableFunc()"));
+            Assert.Contains(result["MyClass.unavailableFunc()"], a => a.IsUnconditionallyUnavailable);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetAvailabilityAnnotations_SwiftObsoleted_Skipped()
+    {
+        var swiftInterface = """
+            public class MyClass {
+              @available(swift, obsoleted: 1.0)
+              public func swiftOnly()
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetAvailabilityAnnotations(path);
+            Assert.False(result.ContainsKey("MyClass.swiftOnly()"));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetAvailabilityAnnotations_StackedAvailable()
+    {
+        var swiftInterface = """
+            public class MyClass {
+              @available(iOS 13, *)
+              @available(*, deprecated, message: "Old API")
+              public func stackedFunc()
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetAvailabilityAnnotations(path);
+            Assert.True(result.ContainsKey("MyClass.stackedFunc()"));
+            var annotations = result["MyClass.stackedFunc()"];
+            Assert.Contains(annotations, a => a.Platform == "iOS" && a.IntroducedVersion == "13");
+            Assert.Contains(annotations, a => a.IsUnconditionallyDeprecated && a.Message == "Old API");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetAvailabilityAnnotations_ExtensionLevel_InheritedByMembers()
+    {
+        var swiftInterface = """
+            @available(iOS 13, *)
+            extension Module.MyType {
+              public func extFunc() -> Swift.Int
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetAvailabilityAnnotations(path);
+            Assert.True(result.ContainsKey("MyType.extFunc()"));
+            Assert.Contains(result["MyType.extFunc()"], a => a.Platform == "iOS" && a.IntroducedVersion == "13");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetAvailabilityAnnotations_NestedType()
+    {
+        var swiftInterface = """
+            public class Outer {
+              @available(iOS 16, *)
+              public class Inner {
+              }
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetAvailabilityAnnotations(path);
+            Assert.True(result.ContainsKey("Outer.Inner"));
+            Assert.Contains(result["Outer.Inner"], a => a.Platform == "iOS" && a.IntroducedVersion == "16");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetAvailabilityAnnotations_PendingAnnotation()
+    {
+        var swiftInterface = """
+            public class MyClass {
+              @available(iOS 14, *)
+              public func pendingFunc() -> Swift.String
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetAvailabilityAnnotations(path);
+            Assert.True(result.ContainsKey("MyClass.pendingFunc()"));
+            Assert.Contains(result["MyClass.pendingFunc()"], a => a.Platform == "iOS" && a.IntroducedVersion == "14");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetAvailabilityAnnotations_PerPlatformLifecycle()
+    {
+        var swiftInterface = """
+            public class MyClass {
+              @available(iOS, introduced: 10, deprecated: 12)
+              public func lifecycleFunc()
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetAvailabilityAnnotations(path);
+            Assert.True(result.ContainsKey("MyClass.lifecycleFunc()"));
+            var annotation = Assert.Single(result["MyClass.lifecycleFunc()"]);
+            Assert.Equal("iOS", annotation.Platform);
+            Assert.Equal("10", annotation.IntroducedVersion);
+            Assert.Equal("12", annotation.DeprecatedVersion);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetAvailabilityAnnotations_PropertyLevel()
+    {
+        var swiftInterface = """
+            public class MyClass {
+              @available(iOS 14, *)
+              public var newProp: Swift.Int { get }
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetAvailabilityAnnotations(path);
+            Assert.True(result.ContainsKey("MyClass.newProp"));
+            Assert.Contains(result["MyClass.newProp"], a => a.Platform == "iOS" && a.IntroducedVersion == "14");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetAvailabilityAnnotations_MessageWithNestedParens()
+    {
+        var swiftInterface = """
+            public class MyClass {
+              @available(*, deprecated, message: "Use init(config:) instead")
+              public func oldInit()
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetAvailabilityAnnotations(path);
+            Assert.True(result.ContainsKey("MyClass.oldInit()"));
+            Assert.Contains(result["MyClass.oldInit()"],
+                a => a.IsUnconditionallyDeprecated && a.Message == "Use init(config:) instead");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetAvailabilityAnnotations_TypeLevelDeprecation()
+    {
+        var swiftInterface = """
+            @available(*, deprecated, message: "Use NewClass instead")
+            public class OldClass {
+              public func foo()
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetAvailabilityAnnotations(path);
+            Assert.True(result.ContainsKey("OldClass"));
+            Assert.Contains(result["OldClass"],
+                a => a.IsUnconditionallyDeprecated && a.Message == "Use NewClass instead");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void ParseAvailableClause_ShorthandPlatformForm()
+    {
+        var annotations = SwiftInterfaceAccessParser.ParseAvailableClause("iOS 16.0, macOS 13, *");
+        Assert.Equal(2, annotations.Count);
+        Assert.Contains(annotations, a => a.Platform == "iOS" && a.IntroducedVersion == "16.0");
+        Assert.Contains(annotations, a => a.Platform == "macOS" && a.IntroducedVersion == "13");
+    }
+
+    [Fact]
+    public void ParseAvailableClause_UnconditionalDeprecated()
+    {
+        var annotations = SwiftInterfaceAccessParser.ParseAvailableClause("*, deprecated, message: \"old\"");
+        var annotation = Assert.Single(annotations);
+        Assert.True(annotation.IsUnconditionallyDeprecated);
+        Assert.Equal("old", annotation.Message);
+    }
+
+    [Fact]
+    public void ParseAvailableClause_Unavailable()
+    {
+        var annotations = SwiftInterfaceAccessParser.ParseAvailableClause("*, unavailable");
+        var annotation = Assert.Single(annotations);
+        Assert.True(annotation.IsUnconditionallyUnavailable);
+    }
+
+    [Fact]
+    public void ParseAvailableClause_SwiftObsoleted_SkipsCompilerLevel()
+    {
+        var annotations = SwiftInterfaceAccessParser.ParseAvailableClause("swift, obsoleted: 1.0");
+        Assert.Empty(annotations);
+    }
+
+    [Fact]
+    public void ExtractAvailableClauses_BalancedParenHandling()
+    {
+        var clauses = SwiftInterfaceAccessParser.ExtractAvailableClauses(
+            "@available(*, deprecated, message: \"Use init(config:) instead\")");
+        var clause = Assert.Single(clauses);
+        Assert.Equal("*, deprecated, message: \"Use init(config:) instead\"", clause);
+    }
+
+    [Fact]
+    public void GetAvailabilityAnnotations_MultiLineMember()
+    {
+        var swiftInterface = """
+            public class MyClass {
+              @available(iOS 16.0, *)
+              public func longSignature(_ x: Swift.Int,
+                y: Swift.String) -> Swift.Bool
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetAvailabilityAnnotations(path);
+            Assert.True(result.ContainsKey("MyClass.longSignature(_:y:)"));
+            var annotations = result["MyClass.longSignature(_:y:)"];
+            Assert.Contains(annotations, a => a.Platform == "iOS" && a.IntroducedVersion == "16.0");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetAvailabilityAnnotations_NestedTypeExtension()
+    {
+        var swiftInterface = """
+            @available(iOS 15.0, *)
+            extension Module.Outer.Inner {
+              public func nestedFunc()
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetAvailabilityAnnotations(path);
+            // Extension-scope annotations should be inherited by members
+            // and the type path should be "Outer.Inner" (not just "Inner")
+            Assert.True(result.ContainsKey("Outer.Inner.nestedFunc()"));
+            var annotations = result["Outer.Inner.nestedFunc()"];
+            Assert.Contains(annotations, a => a.Platform == "iOS" && a.IntroducedVersion == "15.0");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetAvailabilityAnnotations_SubscriptMember()
+    {
+        var swiftInterface = """
+            public class MyCollection {
+              @available(iOS 14.0, *)
+              public subscript(index: Swift.Int) -> Swift.String { get }
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetAvailabilityAnnotations(path);
+            Assert.True(result.ContainsKey("MyCollection.subscript(index:)"));
+            var annotations = result["MyCollection.subscript(index:)"];
+            Assert.Contains(annotations, a => a.Platform == "iOS" && a.IntroducedVersion == "14.0");
+        }
+        finally { File.Delete(path); }
+    }
+
+    #endregion
+
     private static string WriteTempFile(string content)
     {
         var path = Path.GetTempFileName();

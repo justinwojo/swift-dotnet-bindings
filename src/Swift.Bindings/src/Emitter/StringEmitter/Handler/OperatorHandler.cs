@@ -298,6 +298,7 @@ namespace BindingsGeneration
                 var rightType = ApplyRemap(FixGenericTypeName(rightParam.Type.PublicTypeName));
 
                 XmlDocCommentEmitter.EmitDocComment(csWriter, operatorDecl);
+                AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, operatorDecl, operatorDecl.ParentDecl, emitObsolete: true);
                 csWriter.WriteLine($"public static {returnType} operator {csOperator}({leftType} {leftParam.Name}, {rightType} {rightParam.Name})");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
@@ -347,6 +348,7 @@ namespace BindingsGeneration
                 var operandType = ApplyRemap(FixGenericTypeName(operand.Type.PublicTypeName));
 
                 XmlDocCommentEmitter.EmitDocComment(csWriter, operatorDecl);
+                AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, operatorDecl, operatorDecl.ParentDecl, emitObsolete: true);
                 csWriter.WriteLine($"public static {returnType} operator {csOperator}({operandType} {operand.Name})");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;

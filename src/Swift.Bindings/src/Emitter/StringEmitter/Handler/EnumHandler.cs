@@ -147,6 +147,7 @@ namespace BindingsGeneration
                     env.TypeDatabase,
                     conformanceValidator);
                 XmlDocCommentEmitter.EmitDocComment(csWriter, enumDecl);
+                AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, enumDecl, emitObsolete: true);
                 var (opaqueEmittable, opaqueSkipped) = MemberEmissionValidator.CountEmittableMembers(enumDecl, env.TypeDatabase);
                 if (opaqueEmittable == 0 && opaqueSkipped > 0)
                     TypeAnnotationHelper.EmitOpaqueTypeAnnotation(csWriter, opaqueSkipped);
@@ -381,6 +382,7 @@ namespace BindingsGeneration
             var whereClause = GenericTypeEmitter.GetWhereClause(enumDecl, typeDatabase);
 
             XmlDocCommentEmitter.EmitDocComment(csWriter, enumDecl);
+            AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, enumDecl, emitObsolete: true);
             if (enumDecl.Name.StartsWith("_"))
                 csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
             var classDeclaration = $"public static partial class {typeNameWithGenerics}";

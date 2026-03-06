@@ -187,6 +187,11 @@ namespace BindingsGeneration
             bool hasJitRisk = false;
             var issues = new List<string>();
 
+            // Merge availability deprecation into safety obsolete
+            var deprecationMsg = AvailabilityAttributeEmitter.GetDeprecationMessage(_env.MethodDecl);
+            if (deprecationMsg != null)
+                issues.Insert(0, $"Deprecated: {deprecationMsg}");
+
             // Deliverable 1: JIT risk (skip accessors — see property deferral)
             if (!_env.MethodDecl.IsAccessor &&
                 _env.MethodDecl.DetectedJitRisks != MonoJitRiskDetector.MonoJitRisk.None)
@@ -207,15 +212,24 @@ namespace BindingsGeneration
                     "This method will throw EntryPointNotFoundException at runtime");
             }
 
+            bool hasSafetyIssues = hasJitRisk || (!_env.MethodDecl.IsAccessor && _env.MethodDecl.IsMissingExportedSymbol);
             if (issues.Count > 0)
             {
                 var message = string.Join(". ", issues) + ".";
-                // SB0001: JIT risk (suppressible on NativeAOT via SwiftBindingsInteropMode=Direct)
-                // SB0002: Missing symbol (not runtime-dependent — always relevant)
-                var diagnosticId = hasJitRisk ? "SB0001" : "SB0002";
-                csWriter.WriteLine($"[Obsolete(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(message)}\", " +
-                    $"DiagnosticId = \"{diagnosticId}\", " +
-                    $"UrlFormat = \"https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md\")]");
+                if (hasSafetyIssues)
+                {
+                    // SB0001: JIT risk (suppressible on NativeAOT via SwiftBindingsInteropMode=Direct)
+                    // SB0002: Missing symbol (not runtime-dependent — always relevant)
+                    var diagnosticId = hasJitRisk ? "SB0001" : "SB0002";
+                    csWriter.WriteLine($"[Obsolete(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(message)}\", " +
+                        $"DiagnosticId = \"{diagnosticId}\", " +
+                        $"UrlFormat = \"https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md\")]");
+                }
+                else
+                {
+                    // Deprecation-only — plain [Obsolete] without DiagnosticId
+                    csWriter.WriteLine($"[Obsolete(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(message)}\")]");
+                }
             }
 
             // Hide original method when a simplified throwing closure overload exists.

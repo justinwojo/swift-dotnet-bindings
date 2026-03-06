@@ -96,31 +96,47 @@ Generated code references `SwiftUI.Color`, `SwiftUI.Font`, `SwiftUI.Binding`, `S
 ## Session 3: @available -> [SupportedOSPlatform]
 
 **Effort:** 1 session
-**Planning:** Plan Mode Required — entirely new infrastructure. Design questions: .swiftinterface parsing strategy, declaration correlation with ABI JSON entries (mangled name vs signature), handling inherited/class-level availability, edge cases (deprecated, unavailable, platform variants).
-**Dependency note:** Session 4 (default parameter values) also parses .swiftinterface files and correlates declarations with ABI JSON. The plan for this session should design the .swiftinterface reading and declaration-correlation infrastructure as reusable components (not availability-specific), so Session 4 can extend rather than refactor.
-**Theme:** Extract availability annotations from .swiftinterface files.
+**Completed:** March 5, 2026
+**Status:** CQ-8 completed
+**Validation:** 53/53 passing (no regressions)
+**Unit tests:** 5516 passing (+49 from Session 1 baseline)
 
-### CQ-8: Missing Platform Availability Annotations (Q5)
+### CQ-8: Missing Platform Availability Annotations (Q5) -- COMPLETED
 
 **Affects:** All libraries with iOS version-constrained APIs.
 **Severity:** High — silent runtime crash on older iOS instead of compile-time warning.
 
-Swift `@available(iOS 16.0, *)` annotations aren't mapped to `[SupportedOSPlatform("ios16.0")]`. The .swiftinterface files in xcframeworks contain these annotations in a predictable format.
+Swift `@available(iOS 16.0, *)` annotations weren't mapped to `[SupportedOSPlatform("ios16.0")]`. The .swiftinterface files in xcframeworks contain these annotations in a predictable format.
 
-**Fix:**
-1. Parse `@available` annotations from .swiftinterface files (pattern matching, not full parser).
-2. Correlate declarations in .swiftinterface with ABI JSON entries by mangled name or signature.
-3. Emit `[SupportedOSPlatform("iosX.Y")]` on the corresponding C# declarations.
-4. Handle class-level, method-level, and property-level availability.
+**Fix:** End-to-end pipeline: parse → model → correlate → emit.
 
-**Acceptance:** Generated bindings include `[SupportedOSPlatform]` attributes. Consumer code targeting iOS 14 gets warnings when calling iOS 16+ APIs.
+1. **SwiftInterfaceContextTracker** (`Parser/SwiftInterfaceContextTracker.cs`) — NEW reusable infrastructure for .swiftinterface parsing. Extracts boilerplate duplicated across 12+ methods: type stack with brace depth, extension scope tracking, pending annotation accumulation, multi-line continuation, qualified type path building. Designed for Session 4 reuse.
+
+2. **AvailabilityAnnotation model** (`Model/AvailabilityAnnotation.cs`) — NEW record type capturing platform, introduced/deprecated/obsoleted versions, unconditional deprecation/unavailability, message, and renamed fields.
+
+3. **GetAvailabilityAnnotations** (`Parser/SwiftInterfaceAccessParser.cs`) — First consumer of the tracker. Extracts `@available(...)` clauses using balanced-paren matching (handles nested parens in messages like `"Use init(config:) instead"`). Parses into annotations keyed by qualified type/member path. Handles: multi-platform, per-platform lifecycle, stacked annotations, extension-scope inheritance, multi-line continuations.
+
+4. **ABI correlation** (`Parser/SwiftABIParser.cs`) — New `ApplyAvailability`/`ApplyMemberAvailability` wired into all decl creation: types (struct/class/enum/protocol), methods, properties, subscripts, operators. `IsUnavailableFromSwiftInterface` suppresses `@available(*, unavailable)` members/types.
+
+5. **AvailabilityAttributeEmitter** (`Emitter/StringEmitter/AvailabilityAttributeEmitter.cs`) — NEW static utility. Emits `[SupportedOSPlatform]`, `[ObsoletedOSPlatform]`, `[Obsolete]`. Two-path deprecation: types/properties emit `[Obsolete]` directly; methods merge into `EmitSafetyObsolete` via `GetDeprecationMessage()` to avoid duplicate attributes. Parent-relative dedup skips redundant platform+version. Platform mapping: iOS→ios, macOS→macos, tvOS→tvos, watchOS→watchos; visionOS skipped.
+
+6. **Emission integration** — 16 emission points across all surfaces: 7 type-level (class, struct×2, enum×3, protocol), 5 method-level (WrapperEmitter×3, ProtocolHandler, OperatorHandler×2), 3 property-level (PropertyHandler, ProtocolHandler), 1 subscript-level (SubscriptHandler, ProtocolHandler).
+
+**Design decisions:**
+- `[Obsolete]` conflict: Safety DiagnosticId wins when both safety + deprecation apply.
+- Unavailable: Suppressed via `IsModuleInternal = true` (same pattern as SPI types).
+- Platforms: Emit ALL platforms (ios, macos, tvos, watchos), not just iOS.
+- Nested-type extensions: Strip module prefix only (first dot component), preserve nested path. `extension Module.Outer.Inner` → `Outer.Inner`.
+
+**Files modified:** 20 files (3 new, 17 modified). See plan for full listing.
+**Tests:** 49 new tests — SwiftInterfaceContextTrackerTests (14), SwiftInterfaceAccessParserTests availability region (23), AvailabilityAttributeEmitterTests (12)
 
 ---
 
 ## Session 4: Default Parameter Values
 
 **Effort:** 1-2 sessions
-**Planning:** Plan Mode Required — new parsing infrastructure (shares foundation with Session 3). Design questions: which default expressions can be reliably mapped to C#, how to resolve enum case defaults (needs type context), optional params vs convenience overloads, handling `default` keyword for non-trivial types.
+**Planning:** Plan Mode Required — parsing infrastructure is ready from Session 3. Remaining design questions: which default expressions can be reliably mapped to C#, how to resolve enum case defaults (needs type context), optional params vs convenience overloads, handling `default` keyword for non-trivial types.
 **Theme:** Extract default parameter values from .swiftinterface files.
 
 ### CQ-9: Swift Default Parameter Values Lost (Q2)
@@ -146,7 +162,11 @@ public init(timeout: Swift.Double = 10.0, showOverlay: Swift.Bool = true, ...)
 
 **Acceptance:** `ScanningSettings` constructor has reasonable defaults. Common literal defaults (numbers, bools, nil, enum cases) are preserved in generated C# signatures.
 
-**Shares infrastructure with Session 3** — both read .swiftinterface files from xcframeworks.
+**Session 3 infrastructure ready for reuse:**
+- **`SwiftInterfaceContextTracker`** — Instantiate same tracker, iterate lines, on each `MemberLine` extract default values from the declaration line. Use `tracker.CompletedMultiLine` for multi-line signatures. Use `tracker.QualifiedTypePath` for context and `tracker.BuildMemberKey()` for ABI correlation. No refactoring needed — just a new consumer.
+- **`ExtractMemberPrintedName()`** — Already handles func, var, init, subscript. Returns the printed name needed for ABI key correlation.
+- **Balanced-paren parsing** — `ExtractAvailableClauses` pattern reusable for extracting default value expressions where closures contain parens.
+- **ABI correlation pattern** — Same `Dictionary<string, T>` keyed by qualified path, wired through `SwiftABIParser` constructor. Follow `ApplyMemberAvailability` pattern for `ApplyDefaultValues`.
 
 ---
 
@@ -187,6 +207,6 @@ These items were evaluated and determined to not be worth pursuing:
 |---------|--------|------|-------|
 | 1 — Quick Wins | **3/5 done** | Mar 5, 2026 | CQ-1, CQ-4, CQ-5 done; CQ-2, CQ-3 deferred |
 | 2 — SwiftUI + Optional | Not started | | CQ-6, CQ-7 |
-| 3 — @available | Not started | | CQ-8 |
-| 4 — Default Params | Not started | | CQ-9 |
+| 3 — @available | **Done** | Mar 5, 2026 | CQ-8 done; 49 new tests, 53/53 validation |
+| 4 — Default Params | Not started | | CQ-9; Session 3 infrastructure ready for reuse |
 | 5 — Auto-ProjectRefs | Not started | | CQ-10 |

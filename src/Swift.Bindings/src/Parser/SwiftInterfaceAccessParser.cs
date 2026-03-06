@@ -1431,7 +1431,7 @@ public static class SwiftInterfaceAccessParser
     /// <summary>
     /// Counts opening and closing braces in a line, ignoring those inside string literals.
     /// </summary>
-    private static (int Open, int Close) CountBraces(string line)
+    internal static (int Open, int Close) CountBraces(string line)
     {
         int open = 0, close = 0;
         bool inString = false;
@@ -1469,7 +1469,7 @@ public static class SwiftInterfaceAccessParser
     /// Extracts a printed name in ABI format (e.g., "encrypt(block:)") from a Swift function
     /// declaration line. Parses parameter labels from the function signature.
     /// </summary>
-    private static string ExtractPrintedName(string line, string funcName)
+    internal static string ExtractPrintedName(string line, string funcName)
     {
         // Find the opening parenthesis after the function name
         var funcNameIdx = line.IndexOf($" {funcName}(", StringComparison.Ordinal);
@@ -2104,5 +2104,323 @@ public static class SwiftInterfaceAccessParser
         }
 
         return (printedName, internalNames);
+    }
+
+    /// <summary>
+    /// Parses @available annotations from a .swiftinterface file.
+    /// Returns a dictionary keyed by qualified path ("TypeName" for types,
+    /// "TypeName.printedName" for members) to lists of availability annotations.
+    /// </summary>
+    public static Dictionary<string, List<AvailabilityAnnotation>> GetAvailabilityAnnotations(
+        string swiftInterfacePath)
+    {
+        var result = new Dictionary<string, List<AvailabilityAnnotation>>();
+
+        if (!File.Exists(swiftInterfacePath))
+            return result;
+
+        var lines = File.ReadAllLines(swiftInterfacePath);
+        var tracker = new SwiftInterfaceContextTracker();
+
+        foreach (var line in lines)
+        {
+            var trimmed = line.TrimStart();
+            var kind = tracker.ProcessLine(trimmed, line);
+
+            switch (kind)
+            {
+                case SwiftInterfaceContextTracker.LineKind.TypeDeclaration:
+                {
+                    var annotations = CollectAvailabilityAnnotations(trimmed, tracker);
+                    if (annotations.Count > 0)
+                    {
+                        var key = tracker.QualifiedTypePath;
+                        AddAnnotations(result, key, annotations);
+                    }
+                    tracker.ConsumePendingAnnotations();
+                    break;
+                }
+
+                case SwiftInterfaceContextTracker.LineKind.ExtensionDeclaration:
+                    // Extension-scope annotations are handled by the tracker
+                    tracker.ConsumePendingAnnotations();
+                    break;
+
+                case SwiftInterfaceContextTracker.LineKind.MemberLine:
+                {
+                    // Use the completed multi-line text when available (multi-line continuations),
+                    // otherwise use the current trimmed line.
+                    var memberText = tracker.CompletedMultiLine ?? trimmed;
+                    var printedName = SwiftInterfaceContextTracker.ExtractMemberPrintedName(memberText);
+                    if (printedName != null)
+                    {
+                        var annotations = CollectAvailabilityAnnotations(memberText, tracker);
+                        if (annotations.Count > 0)
+                        {
+                            var key = tracker.BuildMemberKey(printedName);
+                            AddAnnotations(result, key, annotations);
+                        }
+                    }
+                    tracker.ConsumePendingAnnotations();
+                    break;
+                }
+
+                case SwiftInterfaceContextTracker.LineKind.AnnotationOnly:
+                    // Accumulation handled by tracker
+                    break;
+
+                default:
+                    break;
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Collects availability annotations from pending annotation lines, extension scope, and inline.
+    /// </summary>
+    private static List<AvailabilityAnnotation> CollectAvailabilityAnnotations(
+        string declarationLine, SwiftInterfaceContextTracker tracker)
+    {
+        var annotations = new List<AvailabilityAnnotation>();
+
+        // 1. Pending annotation lines (preceding @available lines)
+        foreach (var pendingLine in tracker.PendingAnnotationLines)
+        {
+            foreach (var clause in ExtractAvailableClauses(pendingLine))
+            {
+                annotations.AddRange(ParseAvailableClause(clause));
+            }
+        }
+
+        // 2. Extension-scope annotations (inherited from @available on extension decl)
+        if (tracker.ExtensionScopeAnnotations != null)
+        {
+            foreach (var extLine in tracker.ExtensionScopeAnnotations)
+            {
+                foreach (var clause in ExtractAvailableClauses(extLine))
+                {
+                    annotations.AddRange(ParseAvailableClause(clause));
+                }
+            }
+        }
+
+        // 3. Inline @available on the declaration line itself
+        foreach (var clause in ExtractAvailableClauses(declarationLine))
+        {
+            annotations.AddRange(ParseAvailableClause(clause));
+        }
+
+        return annotations;
+    }
+
+    /// <summary>
+    /// Finds all @available(...) clauses on a line using balanced-paren matching.
+    /// Handles nested parens in messages (e.g., "Use init(config:) instead").
+    /// </summary>
+    internal static List<string> ExtractAvailableClauses(string line)
+    {
+        var results = new List<string>();
+        int searchFrom = 0;
+        while (true)
+        {
+            int idx = line.IndexOf("@available(", searchFrom, StringComparison.Ordinal);
+            if (idx < 0) break;
+            int openParen = idx + "@available".Length;
+            int depth = 1, i = openParen + 1;
+            while (i < line.Length && depth > 0)
+            {
+                if (line[i] == '(') depth++;
+                else if (line[i] == ')') depth--;
+                i++;
+            }
+            if (depth == 0)
+                results.Add(line.Substring(openParen + 1, i - openParen - 2));
+            searchFrom = i;
+        }
+        return results;
+    }
+
+    /// <summary>
+    /// Parses a single @available clause content (without the @available( ) wrapper).
+    /// Returns one or more AvailabilityAnnotation records.
+    /// </summary>
+    internal static List<AvailabilityAnnotation> ParseAvailableClause(string clause)
+    {
+        var annotations = new List<AvailabilityAnnotation>();
+        var parts = SplitAvailableClause(clause);
+
+        if (parts.Count == 0)
+            return annotations;
+
+        // Detect the form: @available(*, deprecated, ...) or @available(*, unavailable)
+        // vs. platform-specific: @available(iOS 16.0, macOS 13, *)
+        // vs. per-platform lifecycle: @available(iOS, introduced: 10, deprecated: 12)
+
+        var first = parts[0].Trim();
+
+        // Skip compiler-level: @available(swift, ...) or @available(SwiftStdlib, ...)
+        if (first.Equals("swift", StringComparison.OrdinalIgnoreCase) ||
+            first.StartsWith("swift ", StringComparison.OrdinalIgnoreCase) ||
+            first.Equals("SwiftStdlib", StringComparison.OrdinalIgnoreCase) ||
+            first.StartsWith("SwiftStdlib ", StringComparison.OrdinalIgnoreCase) ||
+            first.Equals("_PackageDescription", StringComparison.OrdinalIgnoreCase) ||
+            first.StartsWith("_PackageDescription ", StringComparison.OrdinalIgnoreCase))
+            return annotations;
+
+        // Check for per-platform lifecycle form: @available(iOS, introduced: 10, deprecated: 12)
+        if (parts.Count >= 2 && IsKnownPlatform(first) && !first.Contains(' '))
+        {
+            // Per-platform form with key-value pairs
+            string? introduced = null, deprecated = null, obsoleted = null, message = null, renamed = null;
+            bool isUnavailable = false, isDeprecated = false;
+            foreach (var part in parts.Skip(1))
+            {
+                var kv = part.Trim();
+                if (kv.StartsWith("introduced:"))
+                    introduced = kv.Substring("introduced:".Length).Trim();
+                else if (kv.StartsWith("deprecated:"))
+                    deprecated = kv.Substring("deprecated:".Length).Trim();
+                else if (kv.StartsWith("obsoleted:"))
+                    obsoleted = kv.Substring("obsoleted:".Length).Trim();
+                else if (kv.StartsWith("message:"))
+                    message = ExtractQuotedString(kv.Substring("message:".Length).Trim());
+                else if (kv.StartsWith("renamed:"))
+                    renamed = ExtractQuotedString(kv.Substring("renamed:".Length).Trim());
+                else if (kv == "unavailable")
+                    isUnavailable = true;
+                else if (kv == "deprecated")
+                    isDeprecated = true;
+            }
+            annotations.Add(new AvailabilityAnnotation(
+                NormalizePlatformName(first),
+                introduced,
+                deprecated,
+                obsoleted,
+                isDeprecated && deprecated == null,
+                isUnavailable,
+                message,
+                renamed));
+            return annotations;
+        }
+
+        // Unconditional form: @available(*, deprecated, ...) or @available(*, unavailable)
+        if (first == "*" && parts.Count >= 2)
+        {
+            string? message = null, renamed = null;
+            bool isDeprecated = false, isUnavailable = false;
+            foreach (var part in parts.Skip(1))
+            {
+                var kv = part.Trim();
+                if (kv == "deprecated")
+                    isDeprecated = true;
+                else if (kv == "unavailable")
+                    isUnavailable = true;
+                else if (kv.StartsWith("message:"))
+                    message = ExtractQuotedString(kv.Substring("message:".Length).Trim());
+                else if (kv.StartsWith("renamed:"))
+                    renamed = ExtractQuotedString(kv.Substring("renamed:".Length).Trim());
+            }
+            annotations.Add(new AvailabilityAnnotation(
+                null, null, null, null,
+                isDeprecated, isUnavailable, message, renamed));
+            return annotations;
+        }
+
+        // Shorthand platform form: @available(iOS 16.0, macOS 13, tvOS 13, watchOS 6, *)
+        foreach (var part in parts)
+        {
+            var p = part.Trim();
+            if (p == "*") continue;
+
+            var spaceIdx = p.IndexOf(' ');
+            if (spaceIdx > 0)
+            {
+                var platform = p.Substring(0, spaceIdx);
+                var version = p.Substring(spaceIdx + 1).Trim();
+
+                if (IsKnownPlatform(platform))
+                {
+                    annotations.Add(new AvailabilityAnnotation(
+                        NormalizePlatformName(platform),
+                        version, null, null, false, false, null, null));
+                }
+            }
+        }
+
+        return annotations;
+    }
+
+    /// <summary>
+    /// Splits an @available clause by commas, respecting quoted strings.
+    /// </summary>
+    private static List<string> SplitAvailableClause(string clause)
+    {
+        var parts = new List<string>();
+        int start = 0;
+        bool inQuote = false;
+        int parenDepth = 0;
+        for (int i = 0; i < clause.Length; i++)
+        {
+            var c = clause[i];
+            if (c == '"') inQuote = !inQuote;
+            else if (!inQuote && c == '(') parenDepth++;
+            else if (!inQuote && c == ')') parenDepth--;
+            else if (!inQuote && parenDepth == 0 && c == ',')
+            {
+                parts.Add(clause.Substring(start, i - start));
+                start = i + 1;
+            }
+        }
+        parts.Add(clause.Substring(start));
+        return parts;
+    }
+
+    private static bool IsKnownPlatform(string name)
+    {
+        return name switch
+        {
+            "iOS" or "macOS" or "tvOS" or "watchOS" or "visionOS" or
+            "macCatalyst" or "iOSApplicationExtension" or "macOSApplicationExtension" or
+            "tvOSApplicationExtension" or "watchOSApplicationExtension" => true,
+            _ => false
+        };
+    }
+
+    private static string? NormalizePlatformName(string name)
+    {
+        return name switch
+        {
+            "iOS" or "iOSApplicationExtension" => "iOS",
+            "macOS" or "macOSApplicationExtension" => "macOS",
+            "tvOS" or "tvOSApplicationExtension" => "tvOS",
+            "watchOS" or "watchOSApplicationExtension" => "watchOS",
+            "visionOS" => "visionOS",
+            "macCatalyst" => "macCatalyst",
+            _ => name
+        };
+    }
+
+    private static string? ExtractQuotedString(string value)
+    {
+        if (value.Length >= 2 && value[0] == '"' && value[value.Length - 1] == '"')
+            return value.Substring(1, value.Length - 2);
+        return value;
+    }
+
+    private static void AddAnnotations(
+        Dictionary<string, List<AvailabilityAnnotation>> dict,
+        string key,
+        List<AvailabilityAnnotation> annotations)
+    {
+        if (!dict.TryGetValue(key, out var existing))
+        {
+            dict[key] = annotations;
+        }
+        else
+        {
+            existing.AddRange(annotations);
+        }
     }
 }
