@@ -46,6 +46,7 @@ These errors come from the SDK's build targets and have clear remediation steps.
 | `SWIFTBIND071` | Module database targets current module | Don't pass the current module's own database as a dependency. |
 | `SWIFTBIND072` | Invalid module database XML | Verify XML validity; regenerate by building the dependency project. |
 | `SWIFTBIND073` | Module database path doesn't exist (SDK) | Build dependency project first, or remove `ModuleDatabasePath` metadata. |
+| `SWIFTBIND080` | Cross-module dependency detected, no sibling project found | Add a `<ProjectReference>` to the dependency binding project, or use `<SwiftFrameworkDependency>` with `PackageId`/`PackageVersion` for NuGet. The warning message includes both options with concrete paths. |
 | `SWIFTBIND100` | `<SwiftPackage>` used (not yet available) | SPM support is planned. Build your SPM package into an xcframework first, then use `<SwiftFramework>`. |
 
 ---

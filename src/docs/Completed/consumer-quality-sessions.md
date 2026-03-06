@@ -189,18 +189,33 @@ ABI JSON only has `hasDefaultArg: bool` — the actual default value is lost. .s
 ## Session 5: SDK Auto-ProjectReferences
 
 **Effort:** 1 session
-**Planning:** Plan Mode Recommended — need to decide how the generator surfaces cross-module dependency metadata, how the SDK targets consume it, and whether to emit `<ProjectReference>` vs `<PackageReference>` (or both depending on context). Less complex than Sessions 3-4 but has MSBuild design choices.
+**Completed:** March 5, 2026
+**Status:** CQ-10 completed
+**Validation:** 53/53 passing (no regressions)
+**Unit tests:** 5599 passing (+12 from Session 4 baseline)
 **Theme:** MSBuild SDK automation for cross-module dependencies.
 
-### CQ-10: Cross-Module Dependencies Require Manual ProjectReferences (Issue 3)
+### CQ-10: Cross-Module Dependencies Require Manual ProjectReferences (Issue 3) -- COMPLETED
 
-**Affects:** All Stripe libraries except StripeCore and StripeIdentity.
+**Affects:** All Stripe libraries except StripeCore and StripeCameraCore (every library with cross-module imports).
 **Severity:** Medium — manual configuration required per dependency.
 
-When generated code references types from another module, the consuming project needs `<ProjectReference>` entries. This is correct behavior but adds friction.
+When generated code references types from another module, the consuming project needs `<ProjectReference>` entries. The generator already auto-detects dependencies via `otool -L` and resolves sibling xcframeworks — but that metadata wasn't surfaced to the SDK for .NET assembly references.
 
-**Fix:** After generation, scan emitted C# for cross-module type references and auto-add `<ProjectReference>` or `<PackageReference>` entries in the SDK targets. The generator already knows which modules it references — surface this as metadata the SDK can consume.
-**Acceptance:** `dotnet build` on a Stripe library project auto-resolves sibling dependencies without manual `<ProjectReference>` entries (or at minimum emits an actionable diagnostic with the needed references).
+**Fix:** Four-part approach:
+1. **Generator metadata** (`XCFrameworkMetadataExtractor.EmitMetadataProps`): Extended to accept `IReadOnlyList<FrameworkDependencyInfo>` and emit `_SwiftBindingDependencies` property in binding-metadata.props. Format: semicolon-delimited `ModuleName|PackageId|Version|XCFrameworkPath` entries. ObjC-only dependencies filtered out. Two-layer encoding: delimiter percent-encoding (`%` → `%25`, `|` → `%7C`, `;` → `%3B`) protects the custom format layer, then XML escaping (`&` → `&amp;`, etc.) protects the XML layer.
+2. **Build timing** (`Sdk.targets`): Moved `_GenerateSwiftBindings` from `BeforeTargets="CoreCompile"` to `BeforeTargets="ResolveProjectReferences"` so generated metadata is available before MSBuild resolves project references.
+3. **Auto-resolution** (`_ResolveSwiftAutoDetectedDependencies` target): Reads `_SwiftBindingDependencies` via XmlPeek, parses entries with `pctdec` shell function for delimiter decoding, deduplicates against explicit `SwiftFrameworkDependency` items, searches for sibling .csproj files (same dir, peer subdir by PackageId, peer subdir by ModuleName, parent dir), and injects `<ProjectReference>` items for found projects. POSIX sh compatible (no bash-isms). WARN output lines preserve encoded fields so MSBuild `.Split('|')` remains safe; `Uri.UnescapeDataString` decodes for user-facing warning text.
+4. **Diagnostics** (`SWIFTBIND080`): For unresolved dependencies, emits actionable warning with both local-source and NuGet resolution options including concrete paths.
+
+**Design decisions:**
+- Task-level `Condition` (not Target-level) for `_ResolveSwiftAutoDetectedDependencies` — `_SwiftBindingDependencies` is set at execution time by XmlPeek, but Target-level Conditions evaluate at evaluation time.
+- Shell variables use `%24` (MSBuild percent-escape for `$`) to avoid MSBuild property evaluation of `$VAR` patterns.
+- `$(dirname ...)` replaced with backtick `` `dirname ...` `` — MSBuild interprets `$(...)` as property references even in Exec commands.
+- WARN payload stays percent-encoded through MSBuild Split; decoded via `Uri.UnescapeDataString` only in warning text. This ensures paths with `|` don't corrupt field extraction.
+
+**Files:** `XCFrameworkMetadataExtractor.cs`, `Program.cs`, `Sdk.targets`, `Troubleshooting.md`
+**Tests:** 12 new tests — XCFrameworkMetadataPropsTests (7 unit: dependencies, no-deps, ObjC filter, format, XML special chars, delimiter encoding, percent round-trip), SdkTargetsContentTests (4 content), SdkTargetsBehaviorTests (1 behavioral integration)
 
 ---
 
@@ -225,4 +240,4 @@ These items were evaluated and determined to not be worth pursuing:
 | 2 — SwiftUI + Optional | **Done** | Mar 5, 2026 | CQ-6, CQ-7 done; 8 new tests, 53/53 validation |
 | 3 — @available | **Done** | Mar 5, 2026 | CQ-8 done; 49 new tests, 53/53 validation |
 | 4 — Default Params | **Done** | Mar 5, 2026 | CQ-9 done; 63 new tests, 53/53 validation |
-| 5 — Auto-ProjectRefs | Not started | | CQ-10 |
+| 5 — Auto-ProjectRefs | **Done** | Mar 5, 2026 | CQ-10 done; 12 new tests, 53/53 validation |

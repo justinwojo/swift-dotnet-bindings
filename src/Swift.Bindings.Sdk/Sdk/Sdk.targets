@@ -153,7 +153,7 @@
   <!-- Target 3: Invoke generator (gated on fingerprint)                      -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_GenerateSwiftBindings"
-          BeforeTargets="CoreCompile"
+          BeforeTargets="ResolveProjectReferences"
           DependsOnTargets="_ComputeSwiftFingerprint">
     <!--
       No Target-level Condition on @(SwiftFramework): MSBuild evaluates Target
@@ -241,10 +241,90 @@
       <SupportedOSPlatformVersion Condition="'$(SupportedOSPlatformVersion)' == ''">$(_SwiftBindingMinimumOSVersion)</SupportedOSPlatformVersion>
     </PropertyGroup>
 
+    <!-- Read auto-detected dependency metadata (may be absent for no-dep libraries) -->
+    <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)binding-metadata.props"
+             Query="/Project/PropertyGroup/_SwiftBindingDependencies/text()"
+             Condition="Exists('$(_SwiftBindingIntermediateDir)binding-metadata.props')">
+      <Output TaskParameter="Result" PropertyName="_SwiftBindingDependencies" />
+    </XmlPeek>
+
     <!-- Warn on version placeholder (SWIFTBIND020) -->
     <Warning Condition="'$(_SwiftBindingIsVersionPlaceholder)' == 'True'"
              Code="SWIFTBIND020"
              Text="The xcframework version (1.0) appears to be an Xcode placeholder. Set &lt;PackageVersion&gt; explicitly in your project file." />
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 4b: Auto-resolve cross-module dependencies via ProjectReference -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <Target Name="_ResolveSwiftAutoDetectedDependencies"
+          AfterTargets="_ImportSwiftBindingMetadata"
+          BeforeTargets="ResolveProjectReferences">
+
+    <!--
+      No Target-level Condition on $(_SwiftBindingDependencies): MSBuild evaluates
+      Target Conditions at evaluation time, but _SwiftBindingDependencies is set at
+      execution time by XmlPeek in _ImportSwiftBindingMetadata. Task-level Conditions
+      see the execution-time value. Same pattern as _GenerateSwiftBindings fingerprint gate.
+
+      Parse the semicolon-delimited _SwiftBindingDependencies property.
+      Each entry: ModuleName|PackageId|Version|XCFrameworkPath
+      Dedup against explicit SwiftFrameworkDependency items (by framework name).
+      Search for sibling .csproj files and inject ProjectReference for found projects.
+      Emit SWIFTBIND080 warning with guidance for unresolved dependencies.
+    -->
+    <!-- POSIX sh: echo | tr | while read (no bash arrays or here-strings).
+         Shell variables use %24 (MSBuild percent-escape for $) to avoid
+         MSBuild property evaluation of $VAR patterns.
+         Uses \ line continuations (single logical line) like the fingerprint Exec. -->
+    <Exec Condition="'$(_SwiftBindingDependencies)' != ''"
+          Command="pctdec() { echo &quot;%241&quot; | sed 's/%7C/|/g;s/%3B/;/g;s/%25/%/g'; }; \
+EXPLICIT_DEPS=&quot;@(SwiftFrameworkDependency->'%(Filename)', ';')&quot;; \
+echo &quot;$(_SwiftBindingDependencies)&quot; | tr ';' '\n' | while IFS='|' read -r MOD_NAME PKG_ID PKG_VER XCFW_PATH; do \
+  [ -z &quot;%24MOD_NAME&quot; ] &amp;&amp; continue; \
+  RAW_MOD=&quot;%24MOD_NAME&quot;; RAW_PKG=&quot;%24PKG_ID&quot;; RAW_VER=&quot;%24PKG_VER&quot;; RAW_XCFW=&quot;%24XCFW_PATH&quot;; \
+  MOD_NAME=`pctdec &quot;%24RAW_MOD&quot;`; \
+  PKG_ID=`pctdec &quot;%24RAW_PKG&quot;`; \
+  PKG_VER=`pctdec &quot;%24RAW_VER&quot;`; \
+  XCFW_PATH=`pctdec &quot;%24RAW_XCFW&quot;`; \
+  case &quot;;%24EXPLICIT_DEPS;&quot; in *&quot;;%24MOD_NAME;&quot;*) continue ;; esac; \
+  FOUND=&quot;&quot;; \
+  XCFW_PARENT=`dirname &quot;%24XCFW_PATH&quot;`; \
+  XCFW_GRANDPARENT=`dirname &quot;%24XCFW_PARENT&quot;`; \
+  if [ -f &quot;%24XCFW_PARENT/%24PKG_ID.csproj&quot; ]; then \
+    FOUND=&quot;%24XCFW_PARENT/%24PKG_ID.csproj&quot;; \
+  elif [ -f &quot;%24XCFW_GRANDPARENT/%24PKG_ID/%24PKG_ID.csproj&quot; ]; then \
+    FOUND=&quot;%24XCFW_GRANDPARENT/%24PKG_ID/%24PKG_ID.csproj&quot;; \
+  elif [ -f &quot;%24XCFW_GRANDPARENT/%24MOD_NAME/%24PKG_ID.csproj&quot; ]; then \
+    FOUND=&quot;%24XCFW_GRANDPARENT/%24MOD_NAME/%24PKG_ID.csproj&quot;; \
+  elif [ -f &quot;%24XCFW_GRANDPARENT/%24PKG_ID.csproj&quot; ]; then \
+    FOUND=&quot;%24XCFW_GRANDPARENT/%24PKG_ID.csproj&quot;; \
+  fi; \
+  if [ -n &quot;%24FOUND&quot; ]; then \
+    FOUND_DIR=`dirname &quot;%24FOUND&quot;`; \
+    FOUND_BASE=`basename &quot;%24FOUND&quot;`; \
+    FOUND_ABS=`cd &quot;%24FOUND_DIR&quot; &amp;&amp; pwd`; \
+    echo &quot;PROJREF|%24FOUND_ABS/%24FOUND_BASE&quot;; \
+  else \
+    echo &quot;WARN|%24RAW_MOD|%24RAW_PKG|%24RAW_VER|%24RAW_XCFW&quot;; \
+  fi; \
+done"
+          ConsoleToMSBuild="true" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" ItemName="_SwiftAutoDepResult" />
+    </Exec>
+
+    <!-- Inject ProjectReference for each resolved sibling project -->
+    <ItemGroup Condition="'$(_SwiftBindingDependencies)' != ''">
+      <ProjectReference Include="$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Substring(8))"
+                         Condition="$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').StartsWith('PROJREF|'))" />
+    </ItemGroup>
+
+    <!-- Emit SWIFTBIND080 warnings for unresolved dependencies -->
+    <!-- WARN fields are percent-encoded (|→%7C, ;→%3B, %→%25) so Split('|') is safe.
+         Uri.UnescapeDataString decodes for user-facing text. -->
+    <Warning Condition="'$(_SwiftBindingDependencies)' != '' AND $([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').StartsWith('WARN|'))"
+             Code="SWIFTBIND080"
+             Text="Cross-module dependency detected but no sibling binding project found. To resolve, add one of:%0A%0A  For local source builds:%0A    &lt;ProjectReference Include=&quot;../$([System.Uri]::UnescapeDataString($([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[2])))/$([System.Uri]::UnescapeDataString($([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[2]))).csproj&quot; /&gt;%0A%0A  For NuGet package consumption:%0A    &lt;SwiftFrameworkDependency Include=&quot;$([System.Uri]::UnescapeDataString($([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[4])))&quot;%0A                              PackageId=&quot;$([System.Uri]::UnescapeDataString($([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[2])))&quot; PackageVersion=&quot;$([System.Uri]::UnescapeDataString($([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[3])))&quot; /&gt;" />
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->

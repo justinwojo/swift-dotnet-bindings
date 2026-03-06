@@ -359,6 +359,88 @@ namespace BindingsGeneration.Tests
             Assert.Contains("CoreDatabase.xml", output);
         }
 
+        // ── Auto-detected dependency resolution behavioral tests ──
+
+        [Fact]
+        public void ResolveAutoDetectedDeps_FindsSiblingProject_InjectsProjectReference()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            // Create a "dependency" sibling project directory
+            var siblingDir = Path.Combine(_tempDir, "StripeCore.Swift.iOS");
+            Directory.CreateDirectory(siblingDir);
+            File.WriteAllText(Path.Combine(siblingDir, "StripeCore.Swift.iOS.csproj"),
+                "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>");
+
+            // Create fake xcframework inside a "binding project" directory
+            var bindingDir = Path.Combine(_tempDir, "StripePaymentSheet.Swift.iOS");
+            Directory.CreateDirectory(bindingDir);
+            var fakeXcfw = Path.Combine(bindingDir, "StripePaymentSheet.xcframework");
+            Directory.CreateDirectory(fakeXcfw);
+
+            // Create binding-metadata.props with dependency pointing near the sibling
+            var intermediateDir = Path.Combine(bindingDir, "obj", "swift-binding") + "/";
+            Directory.CreateDirectory(intermediateDir);
+
+            // The xcframework path is inside bindingDir, so grandparent is _tempDir,
+            // and peer subdirectory search will find _tempDir/StripeCore.Swift.iOS/StripeCore.Swift.iOS.csproj
+            var depsValue = $"StripeCore|StripeCore.Swift.iOS|25.6.2|{fakeXcfw}";
+            var metadataProps = $"""
+                <Project>
+                  <PropertyGroup>
+                    <_SwiftBindingPackageVersion>1.0.0</_SwiftBindingPackageVersion>
+                    <_SwiftBindingMinimumOSVersion>15.0</_SwiftBindingMinimumOSVersion>
+                    <_SwiftBindingModuleName>StripePaymentSheet</_SwiftBindingModuleName>
+                    <_SwiftBindingIsVersionPlaceholder>False</_SwiftBindingIsVersionPlaceholder>
+                    <_SwiftBindingHasWrapperXCFramework>False</_SwiftBindingHasWrapperXCFramework>
+                    <_SwiftBindingWrapperModuleName>StripePaymentSheetSwiftBindings</_SwiftBindingWrapperModuleName>
+                    <_SwiftBindingWrapperSliceCount>0</_SwiftBindingWrapperSliceCount>
+                    <_SwiftBindingDependencies>{depsValue}</_SwiftBindingDependencies>
+                  </PropertyGroup>
+                </Project>
+                """;
+            File.WriteAllText(Path.Combine(intermediateDir, "binding-metadata.props"), metadataProps);
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+
+            // Project imports real Sdk.targets, overrides targets that need real xcframework,
+            // and has a TestDump target that outputs ProjectReference items.
+            // _SwiftBindingIntermediateDir must be set AFTER the Sdk.targets import because
+            // Sdk.targets redefines it from $(IntermediateOutputPath) which would overwrite our value.
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                  </PropertyGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <PropertyGroup>
+                    <_SwiftBindingIntermediateDir>{intermediateDir}</_SwiftBindingIntermediateDir>
+                  </PropertyGroup>
+                  <Target Name="_ComputeSwiftFingerprint" />
+                  <Target Name="_DiscoverSwiftFrameworks" />
+                  <Target Name="_ValidateSwiftPackageItems" />
+                  <Target Name="_GenerateSwiftBindings" />
+                  <Target Name="TestDump"
+                          DependsOnTargets="_ImportSwiftBindingMetadata;_ResolveSwiftAutoDetectedDependencies">
+                    <Message Importance="High" Text="PROJREF_ITEM:%(ProjectReference.Identity)" />
+                  </Target>
+                </Project>
+                """;
+
+            File.WriteAllText(Path.Combine(bindingDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(bindingDir, "Test.csproj")}\" -t:TestDump -nologo -v:n");
+            Assert.True(result.ExitCode == 0,
+                $"_ResolveSwiftAutoDetectedDependencies test failed.\nStdErr: {result.StdErr}\nStdOut: {result.StdOut}");
+
+            var output = result.StdOut + "\n" + result.StdErr;
+            Assert.Contains("StripeCore.Swift.iOS.csproj", output);
+        }
+
         /// <summary>
         /// Creates a minimal project that imports the real Sdk.targets and overrides
         /// targets that would fail without a real xcframework. The TestDump target

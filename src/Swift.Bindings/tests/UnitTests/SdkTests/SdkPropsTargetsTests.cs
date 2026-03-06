@@ -159,6 +159,7 @@ namespace BindingsGeneration.Tests
                 "_CollectSwiftModuleDatabases",
                 "_GenerateSwiftBindings",
                 "_ImportSwiftBindingMetadata",
+                "_ResolveSwiftAutoDetectedDependencies",
                 "_IncludeGeneratedSwiftBindings",
                 "_ResolveSwiftNativeReferences",
                 "_ValidateSwiftDependencyMetadata",
@@ -438,6 +439,39 @@ namespace BindingsGeneration.Tests
         public void Targets_CollectModuleDatabases_SupportsLocalModuleDatabasePath()
         {
             Assert.Contains("%(SwiftFrameworkDependency.ModuleDatabasePath)", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_ContainsResolveAutoDetectedDependenciesTarget()
+        {
+            Assert.Contains("Name=\"_ResolveSwiftAutoDetectedDependencies\"", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_AutoDetectedDeps_BeforeResolveProjectReferences()
+        {
+            var target = TargetsContent.Substring(
+                TargetsContent.IndexOf("Name=\"_ResolveSwiftAutoDetectedDependencies\"", StringComparison.Ordinal));
+            var endOfTag = target.IndexOf('>', StringComparison.Ordinal);
+            var targetTag = target.Substring(0, endOfTag);
+            Assert.Contains("BeforeTargets=\"ResolveProjectReferences\"", targetTag);
+        }
+
+        [Fact]
+        public void Targets_HasSwiftBind080WarningCode()
+        {
+            Assert.Contains("SWIFTBIND080", TargetsContent);
+            Assert.Contains("Cross-module dependency detected", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_GenerateSwiftBindings_BeforeResolveProjectReferences()
+        {
+            var generateTarget = TargetsContent.Substring(
+                TargetsContent.IndexOf("Name=\"_GenerateSwiftBindings\"", StringComparison.Ordinal));
+            var endOfTag = generateTarget.IndexOf('>', StringComparison.Ordinal);
+            var targetTag = generateTarget.Substring(0, endOfTag);
+            Assert.Contains("BeforeTargets=\"ResolveProjectReferences\"", targetTag);
         }
 
         private static string FindRepoRoot()

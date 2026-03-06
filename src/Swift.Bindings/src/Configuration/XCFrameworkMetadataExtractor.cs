@@ -160,15 +160,27 @@ namespace BindingsGeneration
         /// <param name="wrapperModuleName">The wrapper module name (e.g., "NukeSwiftBindings").</param>
         /// <param name="wrapperSliceCount">Number of architecture slices in the wrapper xcframework.</param>
         /// <param name="logger">Logger instance.</param>
+        /// <param name="dependencies">Auto-detected framework dependencies (from BinaryDependencyAnalyzer).</param>
         public static void EmitMetadataProps(
             XCFrameworkMetadata metadata,
             string outputDirectory,
             bool hasWrapperXCFramework,
             string wrapperModuleName,
             int wrapperSliceCount,
-            ILogger logger)
+            ILogger logger,
+            IReadOnlyList<FrameworkDependencyInfo>? dependencies = null)
         {
             var propsPath = Path.Combine(outputDirectory, "binding-metadata.props");
+
+            // Build dependency string: semicolon-delimited ModuleName|PackageId|Version|XCFrameworkPath
+            // Delimiter-escape each field (%; |; ;) then XML-escape for the XML layer.
+            var depEntries = dependencies?
+                .Where(d => !d.IsObjCOnly)
+                .Select(d => $"{XmlEscape(DelimiterEscape(d.ModuleName))}|{XmlEscape(DelimiterEscape(d.EffectivePackageId))}|{XmlEscape(DelimiterEscape(d.EffectiveVersion))}|{XmlEscape(DelimiterEscape(d.XCFrameworkPath))}")
+                .ToList();
+            var depsProperty = depEntries != null && depEntries.Count > 0
+                ? $"\n    <_SwiftBindingDependencies>{string.Join(";", depEntries)}</_SwiftBindingDependencies>"
+                : "";
 
             var content = $"""
                 <Project>
@@ -179,7 +191,7 @@ namespace BindingsGeneration
                     <_SwiftBindingIsVersionPlaceholder>{metadata.IsVersionPlaceholder}</_SwiftBindingIsVersionPlaceholder>
                     <_SwiftBindingHasWrapperXCFramework>{hasWrapperXCFramework}</_SwiftBindingHasWrapperXCFramework>
                     <_SwiftBindingWrapperModuleName>{wrapperModuleName}</_SwiftBindingWrapperModuleName>
-                    <_SwiftBindingWrapperSliceCount>{wrapperSliceCount}</_SwiftBindingWrapperSliceCount>
+                    <_SwiftBindingWrapperSliceCount>{wrapperSliceCount}</_SwiftBindingWrapperSliceCount>{depsProperty}
                   </PropertyGroup>
                 </Project>
                 """;
@@ -246,6 +258,29 @@ namespace BindingsGeneration
             if (!versionStr.Contains('.'))
                 versionStr += ".0";
             return Version.TryParse(versionStr, out version!);
+        }
+
+        /// <summary>
+        /// Percent-encodes the custom delimiter characters (| and ;) so that
+        /// field values containing them survive the split-based parsing in Sdk.targets.
+        /// Encode order: % first (so existing %xx aren't double-decoded), then | and ;.
+        /// </summary>
+        private static string DelimiterEscape(string value)
+        {
+            return value
+                .Replace("%", "%25")
+                .Replace("|", "%7C")
+                .Replace(";", "%3B");
+        }
+
+        private static string XmlEscape(string value)
+        {
+            return value
+                .Replace("&", "&amp;")
+                .Replace("<", "&lt;")
+                .Replace(">", "&gt;")
+                .Replace("\"", "&quot;")
+                .Replace("'", "&apos;");
         }
     }
 }

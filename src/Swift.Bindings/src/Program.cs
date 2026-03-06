@@ -523,7 +523,8 @@ namespace BindingsGeneration
                         XCFrameworkMetadataExtractor.EmitMetadataProps(
                             metadata, outputDirectory, hasWrapperXcfw,
                             wrapperModuleName,
-                            compilationResult?.SliceCount ?? 0, logger);
+                            compilationResult?.SliceCount ?? 0, logger,
+                            resolvedDependencies);
 
                         // Only emit .csproj in non-SDK mode
                         if (!sdkMode)

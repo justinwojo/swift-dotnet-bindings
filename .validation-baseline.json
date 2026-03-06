@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-03-06T03:27:18Z",
-  "git_sha": "ea819eb",
+  "timestamp": "2026-03-06T04:21:31Z",
+  "git_sha": "1e49630",
   "runtime_version": "0.1.0-preview.5",
   "compile_gate": {
     "total": 53,
@@ -12,7 +12,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 52931,
-        "gen_seconds": 3,
+        "gen_seconds": 4,
         "dep_compile": "none"
       },
       "BlinkID": {
@@ -20,7 +20,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 46123,
-        "gen_seconds": 2,
+        "gen_seconds": 4,
         "dep_compile": "none"
       },
       "BlinkIDUX": {
@@ -36,7 +36,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 55,
-        "gen_seconds": 4,
+        "gen_seconds": 3,
         "dep_compile": "none"
       },
       "CryptoSwift": {
@@ -52,7 +52,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 90548,
-        "gen_seconds": 6,
+        "gen_seconds": 7,
         "dep_compile": "none"
       },
       "KeychainAccess": {
@@ -60,7 +60,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 4566,
-        "gen_seconds": 2,
+        "gen_seconds": 3,
         "dep_compile": "none"
       },
       "Kingfisher": {
@@ -92,7 +92,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 4494,
-        "gen_seconds": 2,
+        "gen_seconds": 3,
         "dep_compile": "none"
       },
       "Mixpanel": {
@@ -116,7 +116,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 18613,
-        "gen_seconds": 3,
+        "gen_seconds": 4,
         "dep_compile": "none"
       },
       "SkeletonView": {
@@ -124,7 +124,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 14088,
-        "gen_seconds": 2,
+        "gen_seconds": 1,
         "dep_compile": "none"
       },
       "SmartCardIO": {
@@ -132,7 +132,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 5287,
-        "gen_seconds": 3,
+        "gen_seconds": 1,
         "dep_compile": "none"
       },
       "SnapKit": {
@@ -140,7 +140,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 11596,
-        "gen_seconds": 2,
+        "gen_seconds": 3,
         "dep_compile": "none"
       },
       "Starscream": {
@@ -148,7 +148,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 15400,
-        "gen_seconds": 2,
+        "gen_seconds": 4,
         "dep_compile": "none"
       },
       "Stripe": {
@@ -164,7 +164,7 @@
         "compile": "fail",
         "errors": 6,
         "lines": 1747,
-        "gen_seconds": 3,
+        "gen_seconds": 2,
         "dep_compile": "ok"
       },
       "StripeCameraCore": {
@@ -180,7 +180,7 @@
         "compile": "infra_fail",
         "errors": 0,
         "lines": 2692,
-        "gen_seconds": 2,
+        "gen_seconds": 3,
         "dep_compile": "ok"
       },
       "StripeConnect": {
@@ -204,7 +204,7 @@
         "compile": "fail",
         "errors": 8,
         "lines": 6032,
-        "gen_seconds": 49,
+        "gen_seconds": 51,
         "dep_compile": "ok"
       },
       "StripeFinancialConnections": {
@@ -212,7 +212,7 @@
         "compile": "fail",
         "errors": 22,
         "lines": 2729,
-        "gen_seconds": 3,
+        "gen_seconds": 2,
         "dep_compile": "ok"
       },
       "StripeIdentity": {
@@ -228,7 +228,7 @@
         "compile": "fail",
         "errors": 10,
         "lines": 1850,
-        "gen_seconds": 13,
+        "gen_seconds": 15,
         "dep_compile": "ok"
       },
       "StripePayments": {
@@ -244,7 +244,7 @@
         "compile": "fail",
         "errors": 82,
         "lines": 49667,
-        "gen_seconds": 17,
+        "gen_seconds": 15,
         "dep_compile": "ok"
       },
       "StripePaymentsUI": {
@@ -252,7 +252,7 @@
         "compile": "fail",
         "errors": 43,
         "lines": 13923,
-        "gen_seconds": 6,
+        "gen_seconds": 8,
         "dep_compile": "ok"
       },
       "StripeUICore": {
@@ -300,7 +300,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 8915,
-        "gen_seconds": 1,
+        "gen_seconds": 2,
         "dep_compile": "none"
       },
       "Reachability": {
@@ -316,7 +316,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 7626,
-        "gen_seconds": 1,
+        "gen_seconds": 3,
         "dep_compile": "none"
       },
       "ObjectMapper": {
@@ -340,7 +340,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 17477,
-        "gen_seconds": 4,
+        "gen_seconds": 3,
         "dep_compile": "none"
       },
       "KeychainSwift": {
@@ -380,7 +380,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 4210,
-        "gen_seconds": 1,
+        "gen_seconds": 2,
         "dep_compile": "none"
       },
       "DifferenceKit": {
@@ -412,7 +412,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 21751,
-        "gen_seconds": 1,
+        "gen_seconds": 2,
         "dep_compile": "none"
       },
       "AnimatedCollectionViewLayout": {
@@ -420,7 +420,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 2844,
-        "gen_seconds": 2,
+        "gen_seconds": 1,
         "dep_compile": "none"
       },
       "SVGView": {

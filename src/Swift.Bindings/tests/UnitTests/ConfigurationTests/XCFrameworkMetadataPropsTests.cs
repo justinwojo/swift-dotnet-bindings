@@ -112,6 +112,227 @@ namespace BindingsGeneration.Tests
             finally { Directory.Delete(dir, true); }
         }
 
+        [Fact]
+        public void EmitMetadataProps_WithDependencies_IncludesDependencyProperty()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var metadata = CreateTestMetadata();
+                var deps = new List<FrameworkDependencyInfo>
+                {
+                    new() { XCFrameworkPath = "/path/to/StripeCore.xcframework", ModuleName = "StripeCore", PackageVersion = "25.6.2" },
+                    new() { XCFrameworkPath = "/path/to/StripeUICore.xcframework", ModuleName = "StripeUICore" }
+                };
+
+                XCFrameworkMetadataExtractor.EmitMetadataProps(
+                    metadata, dir, true, "NukeSwiftBindings", 2, _logger, deps);
+
+                var doc = new XmlDocument();
+                doc.Load(Path.Combine(dir, "binding-metadata.props"));
+                var root = doc.DocumentElement!;
+
+                var node = root.SelectSingleNode("//PropertyGroup/_SwiftBindingDependencies");
+                Assert.NotNull(node);
+                var value = node!.InnerText;
+                Assert.Contains("StripeCore|StripeCore.Swift.iOS|25.6.2|/path/to/StripeCore.xcframework", value);
+                Assert.Contains("StripeUICore|StripeUICore.Swift.iOS|0.0.0|/path/to/StripeUICore.xcframework", value);
+                // Entries are semicolon-delimited
+                Assert.Contains(";", value);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void EmitMetadataProps_NoDependencies_OmitsDependencyProperty()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var metadata = CreateTestMetadata();
+
+                XCFrameworkMetadataExtractor.EmitMetadataProps(
+                    metadata, dir, true, "NukeSwiftBindings", 2, _logger);
+
+                var doc = new XmlDocument();
+                doc.Load(Path.Combine(dir, "binding-metadata.props"));
+                var root = doc.DocumentElement!;
+
+                var node = root.SelectSingleNode("//PropertyGroup/_SwiftBindingDependencies");
+                Assert.Null(node);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void EmitMetadataProps_FiltersObjCOnlyDependencies()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var metadata = CreateTestMetadata();
+                var deps = new List<FrameworkDependencyInfo>
+                {
+                    new() { XCFrameworkPath = "/path/to/StripeCore.xcframework", ModuleName = "StripeCore", PackageVersion = "25.6.2" },
+                    new() { XCFrameworkPath = "/path/to/ObjCLib.xcframework", ModuleName = "ObjCLib", IsObjCOnly = true }
+                };
+
+                XCFrameworkMetadataExtractor.EmitMetadataProps(
+                    metadata, dir, true, "NukeSwiftBindings", 2, _logger, deps);
+
+                var doc = new XmlDocument();
+                doc.Load(Path.Combine(dir, "binding-metadata.props"));
+                var root = doc.DocumentElement!;
+
+                var node = root.SelectSingleNode("//PropertyGroup/_SwiftBindingDependencies");
+                Assert.NotNull(node);
+                var value = node!.InnerText;
+                Assert.Contains("StripeCore", value);
+                Assert.DoesNotContain("ObjCLib", value);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void EmitMetadataProps_DependencyFormat_IncludesXCFrameworkPath()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var metadata = CreateTestMetadata();
+                var deps = new List<FrameworkDependencyInfo>
+                {
+                    new()
+                    {
+                        XCFrameworkPath = "/abs/path/StripeCore.xcframework",
+                        ModuleName = "StripeCore",
+                        PackageVersion = "25.6.2",
+                        PackageId = "Custom.StripeCore"
+                    }
+                };
+
+                XCFrameworkMetadataExtractor.EmitMetadataProps(
+                    metadata, dir, true, "NukeSwiftBindings", 2, _logger, deps);
+
+                var doc = new XmlDocument();
+                doc.Load(Path.Combine(dir, "binding-metadata.props"));
+                var root = doc.DocumentElement!;
+
+                var node = root.SelectSingleNode("//PropertyGroup/_SwiftBindingDependencies");
+                Assert.NotNull(node);
+                // Format: ModuleName|PackageId|Version|XCFrameworkPath
+                Assert.Equal("StripeCore|Custom.StripeCore|25.6.2|/abs/path/StripeCore.xcframework", node!.InnerText);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void EmitMetadataProps_XmlSpecialCharsInPath_ProducesValidXml()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var metadata = CreateTestMetadata();
+                var deps = new List<FrameworkDependencyInfo>
+                {
+                    new()
+                    {
+                        XCFrameworkPath = "/Users/dev/R&D/Libs<2>/Core.xcframework",
+                        ModuleName = "Core",
+                        PackageVersion = "1.0.0"
+                    }
+                };
+
+                XCFrameworkMetadataExtractor.EmitMetadataProps(
+                    metadata, dir, true, "NukeSwiftBindings", 2, _logger, deps);
+
+                // Must parse as valid XML (would throw if & or < are unescaped)
+                var doc = new XmlDocument();
+                doc.Load(Path.Combine(dir, "binding-metadata.props"));
+                var root = doc.DocumentElement!;
+
+                var node = root.SelectSingleNode("//PropertyGroup/_SwiftBindingDependencies");
+                Assert.NotNull(node);
+                // XmlDocument.InnerText returns XML-decoded text; delimiter encoding (%7C, %3B, %25)
+                // is transparent here since the path has no |, ;, or % characters.
+                // The original path round-trips through XML escaping.
+                Assert.Contains("/Users/dev/R&D/Libs<2>/Core.xcframework", node!.InnerText);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void EmitMetadataProps_DelimiterCharsInPath_ArePercentEncoded()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var metadata = CreateTestMetadata();
+                var deps = new List<FrameworkDependencyInfo>
+                {
+                    new()
+                    {
+                        XCFrameworkPath = "/Users/dev/path;with|delimiters/Core.xcframework",
+                        ModuleName = "Core",
+                        PackageVersion = "1.0.0"
+                    }
+                };
+
+                XCFrameworkMetadataExtractor.EmitMetadataProps(
+                    metadata, dir, true, "NukeSwiftBindings", 2, _logger, deps);
+
+                var doc = new XmlDocument();
+                doc.Load(Path.Combine(dir, "binding-metadata.props"));
+                var root = doc.DocumentElement!;
+
+                var node = root.SelectSingleNode("//PropertyGroup/_SwiftBindingDependencies");
+                Assert.NotNull(node);
+                var text = node!.InnerText;
+
+                // | and ; in path are percent-encoded so they don't corrupt the delimiter format
+                Assert.Contains("%7C", text);
+                Assert.Contains("%3B", text);
+                // The encoded path should be in the 4th field (after 3 literal | delimiters)
+                var fields = text.Split('|');
+                Assert.Equal(4, fields.Length);
+                Assert.Equal("/Users/dev/path%3Bwith%7Cdelimiters/Core.xcframework", fields[3]);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void EmitMetadataProps_PercentInPath_DoesNotDoubleEncode()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var metadata = CreateTestMetadata();
+                var deps = new List<FrameworkDependencyInfo>
+                {
+                    new()
+                    {
+                        XCFrameworkPath = "/Users/dev/100%done/Core.xcframework",
+                        ModuleName = "Core",
+                        PackageVersion = "1.0.0"
+                    }
+                };
+
+                XCFrameworkMetadataExtractor.EmitMetadataProps(
+                    metadata, dir, true, "NukeSwiftBindings", 2, _logger, deps);
+
+                var doc = new XmlDocument();
+                doc.Load(Path.Combine(dir, "binding-metadata.props"));
+                var root = doc.DocumentElement!;
+
+                var node = root.SelectSingleNode("//PropertyGroup/_SwiftBindingDependencies");
+                Assert.NotNull(node);
+                var fields = node!.InnerText.Split('|');
+                // % is encoded as %25 so decoding won't corrupt %7C/%3B sequences
+                Assert.Equal("/Users/dev/100%25done/Core.xcframework", fields[3]);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
         private static void AssertPropertyValue(XmlElement root, string propertyName, string expectedValue)
         {
             var node = root.SelectSingleNode($"//PropertyGroup/{propertyName}");

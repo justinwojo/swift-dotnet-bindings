@@ -14,8 +14,7 @@
 | Runtime library tests | 247 passing (0 failures, 1 skipped) |
 | Analyzer tests | 9 passing |
 | TestFramework must-pass | 94/94, golden files: 1 |
-| Library validation | **49/53 passing** (32 tier-1 + 21 tier-2) |
-| Remaining failures | GRDB (1), Lottie (8), StripePaymentSheet (84), StripeCryptoOnramp (11) |
+| Library validation | **53/53 passing** (32 tier-1 + 21 tier-2) |
 | SwiftUI bridged views | 20 |
 
 **Completed roadmaps** (all archived to `Completed/`):
@@ -42,17 +41,6 @@ These are the gates between current state and a public release.
 | **Contributor onboarding** | `CONTRIBUTING.md`, architecture overview, issue/PR templates. Currently excellent AI docs but nothing for human contributors. | 0.5 session | Not started |
 
 **Total**: ~2 sessions to ship-ready.
-
-### 2. Remaining Validation Failures (4/53)
-
-| Target | Errors | Root Cause | Fix Difficulty |
-|--------|--------|------------|----------------|
-| GRDB | 1 | CX-11 (cross-module existential qualification edge case) | Small |
-| Lottie | 8 | CX-11 (same pattern as GRDB) | Small |
-| StripePaymentSheet | 84 | SwiftUI type references in generated code | Medium |
-| StripeCryptoOnramp | 11 | Blocked by StripePaymentSheet | N/A (cascading) |
-
-These are tracked in `preview14-fixes.md` (active work).
 
 ---
 
