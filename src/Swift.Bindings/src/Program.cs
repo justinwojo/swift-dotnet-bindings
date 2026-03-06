@@ -6,6 +6,7 @@ using System.CommandLine;
 using System.CommandLine.Invocation;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
+using BindingsGeneration.ObjC;
 
 namespace BindingsGeneration
 {
@@ -88,6 +89,10 @@ namespace BindingsGeneration
                 aliases: new[] { "--no-auto-detect" },
                 description: "Disable automatic dependency detection from binary linkage.",
                 getDefaultValue: () => false);
+            Option<bool> objcOption = new(
+                aliases: new[] { "--objc" },
+                description: "Force ObjC binding pipeline (auto-detected if not specified).",
+                getDefaultValue: () => false);
             Option<int> verboseOption = new(
                 aliases: new[] { "-v", "--verbose" },
                 description: "Verbosity level. 0 = No logging, 1 = General information, 2 = Debugging information. (default: 1)",
@@ -115,6 +120,7 @@ namespace BindingsGeneration
                 frameworkDependencyOption,
                 moduleDatabaseOption,
                 noAutoDetectOption,
+                objcOption,
                 configOption,
                 verboseOption,
                 helpOption,
@@ -141,6 +147,7 @@ namespace BindingsGeneration
                 var frameworkDependencies = parseResult.GetValueForOption(frameworkDependencyOption);
                 var moduleDatabases = parseResult.GetValueForOption(moduleDatabaseOption);
                 var noAutoDetect = parseResult.GetValueForOption(noAutoDetectOption);
+                var objcForced = parseResult.GetValueForOption(objcOption);
                 var configPath = parseResult.GetValueForOption(configOption);
                 var verbose = parseResult.GetValueForOption(verboseOption);
                 var help = parseResult.GetValueForOption(helpOption);
@@ -167,6 +174,7 @@ namespace BindingsGeneration
                     Console.WriteLine("  --framework-dependency   Optional. Repeatable. Path to dependency xcframework for -F search paths. Requires --xcframework.");
                     Console.WriteLine("  --module-database    Optional. Repeatable. Path to dependency module database XML for cross-module type resolution.");
                     Console.WriteLine("  --no-auto-detect     Optional. Disable automatic dependency detection from binary linkage.");
+                    Console.WriteLine("  --objc               Optional. Force ObjC binding pipeline (auto-detected if not specified).");
                     Console.WriteLine($"  --config             Optional. Path to config file. Default: {DefaultConfigFileName}");
                     Console.WriteLine("  -v, --verbose        Verbosity level. 0 = No logging, 1 = General information, 2 = Debugging information. (default: 1)");
                     return;
@@ -226,6 +234,25 @@ namespace BindingsGeneration
                             return;
                     }
 
+                    // If --objc forced, skip Swift resolution entirely
+                    if (objcForced)
+                    {
+                        var objcResolution = XCFrameworkResolver.ResolveObjCFramework(
+                            xcframeworkPath!, platformTarget, logger);
+                        if (objcResolution == null)
+                        {
+                            logger.LogError("Failed to resolve ObjC framework from '{Path}'.", xcframeworkPath);
+                            context.ExitCode = 1;
+                            return;
+                        }
+                        var objcResult = ObjCPipeline.Run(
+                            objcResolution, xcframeworkPath!, outputDirectory, platformTarget, logger);
+                        context.ExitCode = objcResult.ExitCode;
+                        if (objcResult.ErrorMessage != null)
+                            logger.LogError("{Message}", objcResult.ErrorMessage);
+                        return;
+                    }
+
                     try
                     {
                         resolution = XCFrameworkResolver.Resolve(
@@ -235,6 +262,25 @@ namespace BindingsGeneration
                         tbdPath = resolution.TbdPath;
                         swiftInterface ??= resolution.SwiftInterfacePath;
                         libraryName ??= resolution.ModuleName;
+                    }
+                    catch (SwiftModuleNotFoundException)
+                    {
+                        // Auto-detect ObjC fallback
+                        logger.LogInformation("No Swift module found — attempting ObjC framework detection...");
+                        var objcResolution = XCFrameworkResolver.ResolveObjCFramework(
+                            xcframeworkPath!, platformTarget, logger);
+                        if (objcResolution == null)
+                        {
+                            logger.LogError("Framework has no Swift module and no ObjC module.modulemap.");
+                            context.ExitCode = 1;
+                            return;
+                        }
+                        var objcResult = ObjCPipeline.Run(
+                            objcResolution, xcframeworkPath!, outputDirectory, platformTarget, logger);
+                        context.ExitCode = objcResult.ExitCode;
+                        if (objcResult.ErrorMessage != null)
+                            logger.LogError("{Message}", objcResult.ErrorMessage);
+                        return;
                     }
                     catch (Exception ex)
                     {

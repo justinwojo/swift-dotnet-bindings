@@ -1,0 +1,245 @@
+// Copyright (c) 2026 Justin Wojciechowski.
+// Licensed under the MIT License.
+
+namespace BindingsGeneration.ObjC;
+
+/// <summary>
+/// Parses Clang qualType strings (e.g., "NSString * _Nonnull") into ObjCTypeRef.
+/// </summary>
+public static class ObjCTypeRefParser
+{
+    public static ObjCTypeRef Parse(string qualType)
+    {
+        var raw = qualType;
+        var s = qualType.Trim();
+
+        // 1. Strip and record nullability annotations
+        var nullability = ObjCNullability.Unspecified;
+        s = StripNullability(s, ref nullability);
+
+        // 2. Detect block types: void (^)(NSString *)
+        if (TryParseBlock(s, nullability, raw, out var blockRef))
+            return blockRef;
+
+        // 3. Detect id<Protocol>
+        if (TryParseIdProtocol(s, nullability, raw, out var idRef))
+            return idRef;
+
+        // 4. Detect double pointer: NSError **
+        if (s.EndsWith("**"))
+        {
+            var inner = s[..^2].Trim();
+            return new ObjCTypeRef
+            {
+                Name = inner,
+                IsPointer = true,
+                Nullability = nullability,
+                PointeeType = new ObjCTypeRef
+                {
+                    Name = inner,
+                    IsPointer = true,
+                    RawQualType = $"{inner} *"
+                },
+                RawQualType = raw
+            };
+        }
+
+        // 5. Detect generics: NSArray<NSString *> *
+        if (TryParseGeneric(s, nullability, raw, out var genRef))
+            return genRef;
+
+        // 6. Detect single pointer: strip trailing " *"
+        var isPointer = false;
+        if (s.EndsWith("*"))
+        {
+            s = s[..^1].Trim();
+            isPointer = true;
+        }
+
+        return new ObjCTypeRef
+        {
+            Name = s,
+            IsPointer = isPointer,
+            Nullability = nullability,
+            RawQualType = raw
+        };
+    }
+
+    private static string StripNullability(string s, ref ObjCNullability nullability)
+    {
+        if (s.Contains("_Nonnull") || s.Contains("__nonnull"))
+        {
+            nullability = ObjCNullability.Nonnull;
+            s = s.Replace("_Nonnull", "").Replace("__nonnull", "");
+        }
+        else if (s.Contains("_Nullable") || s.Contains("__nullable"))
+        {
+            nullability = ObjCNullability.Nullable;
+            s = s.Replace("_Nullable", "").Replace("__nullable", "");
+        }
+
+        // Collapse multiple spaces
+        while (s.Contains("  "))
+            s = s.Replace("  ", " ");
+
+        return s.Trim();
+    }
+
+    private static bool TryParseBlock(string s, ObjCNullability nullability, string raw, out ObjCTypeRef result)
+    {
+        result = null!;
+
+        // Pattern: ReturnType (^)(ParamTypes)
+        var caretIdx = s.IndexOf("(^)");
+        if (caretIdx < 0)
+        {
+            // Also try (^ _Nullable)(...) and (^ _Nonnull)(...)
+            caretIdx = s.IndexOf("(^");
+            if (caretIdx < 0)
+                return false;
+            var closeIdx = s.IndexOf(')', caretIdx + 2);
+            if (closeIdx < 0)
+                return false;
+            // Must be followed by (
+            if (closeIdx + 1 >= s.Length || s[closeIdx + 1] != '(')
+                return false;
+        }
+
+        // Extract return type (everything before the caret group)
+        var returnTypeStr = s[..caretIdx].Trim();
+        if (string.IsNullOrEmpty(returnTypeStr))
+            returnTypeStr = "void";
+
+        // Find params section: last (...) in the string
+        var lastOpen = s.LastIndexOf('(');
+        var lastClose = s.LastIndexOf(')');
+        if (lastOpen < 0 || lastClose <= lastOpen)
+            return false;
+
+        var paramsStr = s[(lastOpen + 1)..lastClose].Trim();
+        var blockParams = new List<ObjCTypeRef>();
+
+        if (!string.IsNullOrEmpty(paramsStr) && paramsStr != "void")
+        {
+            foreach (var param in SplitBlockParams(paramsStr))
+            {
+                var trimmed = param.Trim();
+                if (!string.IsNullOrEmpty(trimmed))
+                    blockParams.Add(Parse(trimmed));
+            }
+        }
+
+        result = new ObjCTypeRef
+        {
+            Name = "Block",
+            IsBlock = true,
+            Nullability = nullability,
+            BlockReturnType = Parse(returnTypeStr),
+            BlockParams = blockParams,
+            RawQualType = raw
+        };
+        return true;
+    }
+
+    private static List<string> SplitBlockParams(string paramsStr)
+    {
+        var result = new List<string>();
+        var depth = 0;
+        var start = 0;
+
+        for (var i = 0; i < paramsStr.Length; i++)
+        {
+            switch (paramsStr[i])
+            {
+                case '<' or '(':
+                    depth++;
+                    break;
+                case '>' or ')':
+                    depth--;
+                    break;
+                case ',' when depth == 0:
+                    result.Add(paramsStr[start..i]);
+                    start = i + 1;
+                    break;
+            }
+        }
+
+        result.Add(paramsStr[start..]);
+        return result;
+    }
+
+    private static bool TryParseIdProtocol(string s, ObjCNullability nullability, string raw, out ObjCTypeRef result)
+    {
+        result = null!;
+
+        // id<Protocol> or id<Protocol> *
+        if (!s.StartsWith("id<"))
+            return false;
+
+        var closeAngle = s.IndexOf('>');
+        if (closeAngle < 0)
+            return false;
+
+        var protocol = s[3..closeAngle].Trim();
+        result = new ObjCTypeRef
+        {
+            Name = "id",
+            IsPointer = true,
+            Nullability = nullability,
+            ProtocolQualification = protocol,
+            RawQualType = raw
+        };
+        return true;
+    }
+
+    private static bool TryParseGeneric(string s, ObjCNullability nullability, string raw, out ObjCTypeRef result)
+    {
+        result = null!;
+
+        // NSArray<NSString *> * — find the outermost < > pair
+        var angleOpen = s.IndexOf('<');
+        if (angleOpen < 0)
+            return false;
+
+        var baseName = s[..angleOpen].Trim();
+
+        // Find matching close angle
+        var depth = 0;
+        var angleClose = -1;
+        for (var i = angleOpen; i < s.Length; i++)
+        {
+            if (s[i] == '<') depth++;
+            else if (s[i] == '>')
+            {
+                depth--;
+                if (depth == 0) { angleClose = i; break; }
+            }
+        }
+
+        if (angleClose < 0)
+            return false;
+
+        var argsStr = s[(angleOpen + 1)..angleClose].Trim();
+        var genericArgs = new List<ObjCTypeRef>();
+        foreach (var arg in SplitBlockParams(argsStr))
+        {
+            var trimmed = arg.Trim();
+            if (!string.IsNullOrEmpty(trimmed))
+                genericArgs.Add(Parse(trimmed));
+        }
+
+        // Check if pointer after the generic args
+        var remainder = s[(angleClose + 1)..].Trim();
+        var isPointer = remainder.Contains('*');
+
+        result = new ObjCTypeRef
+        {
+            Name = baseName,
+            IsPointer = isPointer,
+            Nullability = nullability,
+            GenericArgs = genericArgs,
+            RawQualType = raw
+        };
+        return true;
+    }
+}
