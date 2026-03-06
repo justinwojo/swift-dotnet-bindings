@@ -17,6 +17,7 @@ public sealed record ObjCMethodDecl
     public bool IsInstanceMethod { get; init; }
     public bool IsOptional { get; init; }
     public bool IsFromCategory { get; init; }
+    public string CategoryName { get; init; } = "";
     public List<ObjCAvailability> Availability { get; init; } = [];
 }
 
@@ -28,6 +29,7 @@ public sealed record ObjCPropertyDecl
     public bool IsClass { get; init; }
     public bool IsOptional { get; init; }
     public bool IsFromCategory { get; init; }
+    public string CategoryName { get; init; } = "";
     public string? GetterSelector { get; init; }
     public string? SetterSelector { get; init; }
     public List<ObjCAvailability> Availability { get; init; } = [];
@@ -99,4 +101,15 @@ public sealed record ObjCTypedefDecl
 {
     public required string Name { get; init; }
     public required ObjCTypeRef UnderlyingType { get; init; }
+}
+
+public sealed record ObjCCategoryDecl
+{
+    public required string CategoryName { get; init; }
+    public required string ClassName { get; init; }
+    public List<string> ProtocolNames { get; init; } = [];
+    public List<string> GenericTypeParamNames { get; init; } = [];
+    public List<ObjCMethodDecl> Methods { get; init; } = [];
+    public List<ObjCPropertyDecl> Properties { get; init; } = [];
+    public List<ObjCAvailability> Availability { get; init; } = [];
 }

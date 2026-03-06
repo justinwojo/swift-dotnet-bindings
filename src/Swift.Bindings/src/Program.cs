@@ -587,11 +587,12 @@ namespace BindingsGeneration
                         var effectivePackageId = packageId ?? $"{resolution.ModuleName}.Swift.iOS";
                         var wrapperModuleName = $"{resolution.ModuleName}SwiftBindings";
 
-                        // Mixed requires at least one ObjC class or protocol.
+                        // Mixed requires at least one ObjC class, protocol, or category.
                         // Enums/structs/functions without classes are typically C internals.
                         bool isMixed = mixedObjcResult?.ExitCode == 0
                             && (mixedObjcResult.Module?.Classes.Count > 0
-                                || mixedObjcResult.Module?.Protocols.Count > 0);
+                                || mixedObjcResult.Module?.Protocols.Count > 0
+                                || mixedObjcResult.Module?.Categories.Count > 0);
                         string? objcProjFileName = isMixed
                             ? Path.GetFileName(mixedObjcResult!.ProjectPath!)
                             : null;

@@ -14,6 +14,7 @@ public sealed record ObjCModule
     public List<ObjCFunctionDecl> Functions { get; init; } = [];
     public List<ObjCConstantDecl> Constants { get; init; } = [];
     public List<ObjCTypedefDecl> Typedefs { get; init; } = [];
+    public List<ObjCCategoryDecl> Categories { get; init; } = [];
 
     public int TotalDeclarations =>
         Classes.Count + Protocols.Count + Enums.Count + Structs.Count +

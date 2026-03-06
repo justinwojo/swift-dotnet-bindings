@@ -1562,4 +1562,391 @@ public class ClangAstParserTests
         Assert.Single(module.Typedefs);
         Assert.Equal("BRLMSerialNumber", module.Typedefs[0].Name);
     }
+
+    // ──────────────────────────────────────────────
+    // Category parsing tests
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public void Parse_ObjCCategoryDecl_PreservesCategoryName()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "Widget",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "init",
+                    "instance": true,
+                    "returnType": { "qualType": "instancetype" },
+                    "inner": []
+                }
+            ]
+        },
+        {
+            "kind": "ObjCCategoryDecl",
+            "name": "Extras",
+            {{MakeLoc()}},
+            "interface": { "name": "Widget" },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "doExtra",
+                    "instance": true,
+                    "returnType": { "qualType": "void" },
+                    "inner": []
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+
+        // Category should be preserved on module
+        Assert.Single(module.Categories);
+        Assert.Equal("Extras", module.Categories[0].CategoryName);
+        Assert.Equal("Widget", module.Categories[0].ClassName);
+        Assert.Single(module.Categories[0].Methods);
+        Assert.Equal("doExtra", module.Categories[0].Methods[0].Selector);
+
+        // Category method should also be merged onto the class with IsFromCategory + CategoryName
+        var cls = Assert.Single(module.Classes);
+        var catMethod = cls.Methods.FirstOrDefault(m => m.Selector == "doExtra");
+        Assert.NotNull(catMethod);
+        Assert.True(catMethod.IsFromCategory);
+        Assert.Equal("Extras", catMethod.CategoryName);
+    }
+
+    [Fact]
+    public void Parse_UnnamedCategory_HasEmptyCategoryName()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "Widget",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "init",
+                    "instance": true,
+                    "returnType": { "qualType": "instancetype" },
+                    "inner": []
+                }
+            ]
+        },
+        {
+            "kind": "ObjCCategoryDecl",
+            {{MakeLoc()}},
+            "interface": { "name": "Widget" },
+            "inner": [
+                {
+                    "kind": "ObjCPropertyDecl",
+                    "name": "version",
+                    "type": { "qualType": "NSString *" }
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+
+        Assert.Single(module.Categories);
+        Assert.Equal("", module.Categories[0].CategoryName);
+        Assert.Equal("Widget", module.Categories[0].ClassName);
+        Assert.Single(module.Categories[0].Properties);
+    }
+
+    [Fact]
+    public void Parse_MultipleCategoriesOnSameClass_PreservesDistinctNames()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "Widget",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "init",
+                    "instance": true,
+                    "returnType": { "qualType": "instancetype" },
+                    "inner": []
+                }
+            ]
+        },
+        {
+            "kind": "ObjCCategoryDecl",
+            "name": "Alpha",
+            {{MakeLoc()}},
+            "interface": { "name": "Widget" },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "alphaMethod",
+                    "instance": true,
+                    "returnType": { "qualType": "void" },
+                    "inner": []
+                }
+            ]
+        },
+        {
+            "kind": "ObjCCategoryDecl",
+            "name": "Beta",
+            {{MakeLoc()}},
+            "interface": { "name": "Widget" },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "betaMethod",
+                    "instance": true,
+                    "returnType": { "qualType": "void" },
+                    "inner": []
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+
+        Assert.Equal(2, module.Categories.Count);
+        Assert.Contains(module.Categories, c => c.CategoryName == "Alpha");
+        Assert.Contains(module.Categories, c => c.CategoryName == "Beta");
+
+        // Both methods should be merged onto the class
+        var cls = Assert.Single(module.Classes);
+        Assert.Equal(3, cls.Methods.Count); // init + alphaMethod + betaMethod
+    }
+
+    [Fact]
+    public void Parse_CategoryWithProtocols_MergesOntoClass()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "Widget",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "protocols": [{ "name": "NSCoding" }],
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "init",
+                    "instance": true,
+                    "returnType": { "qualType": "instancetype" },
+                    "inner": []
+                }
+            ]
+        },
+        {
+            "kind": "ObjCCategoryDecl",
+            "name": "Extras",
+            {{MakeLoc()}},
+            "interface": { "name": "Widget" },
+            "protocols": [{ "name": "NSSecureCoding" }],
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "doExtra",
+                    "instance": true,
+                    "returnType": { "qualType": "void" },
+                    "inner": []
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+
+        // Category protocols should be merged onto the class
+        var cls = Assert.Single(module.Classes);
+        Assert.Contains("NSCoding", cls.ProtocolNames);
+        Assert.Contains("NSSecureCoding", cls.ProtocolNames);
+
+        // Category should also preserve its own protocols
+        var cat = Assert.Single(module.Categories);
+        Assert.Contains("NSSecureCoding", cat.ProtocolNames);
+    }
+
+    [Fact]
+    public void Parse_CategoryAvailability_Preserved()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "Widget",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "init",
+                    "instance": true,
+                    "returnType": { "qualType": "instancetype" },
+                    "inner": []
+                }
+            ]
+        },
+        {
+            "kind": "ObjCCategoryDecl",
+            "name": "NewStuff",
+            {{MakeLoc()}},
+            "interface": { "name": "Widget" },
+            "inner": [
+                {
+                    "kind": "AvailabilityAttr",
+                    "platform": "ios",
+                    "introduced": "16.0"
+                },
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "newMethod",
+                    "instance": true,
+                    "returnType": { "qualType": "void" },
+                    "inner": []
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+
+        var cat = Assert.Single(module.Categories);
+        Assert.Single(cat.Availability);
+        Assert.Equal("ios", cat.Availability[0].Platform);
+        Assert.Equal("16.0", cat.Availability[0].IntroducedVersion);
+    }
+
+    [Fact]
+    public void Parse_DuplicateCategories_Merged()
+    {
+        // Same category appearing twice (e.g., via umbrella + direct header include)
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "Widget",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "init",
+                    "instance": true,
+                    "returnType": { "qualType": "instancetype" },
+                    "inner": []
+                }
+            ]
+        },
+        {
+            "kind": "ObjCCategoryDecl",
+            "name": "Extras",
+            {{MakeLoc()}},
+            "interface": { "name": "Widget" },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "doExtra",
+                    "instance": true,
+                    "returnType": { "qualType": "void" },
+                    "inner": []
+                },
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "doMore",
+                    "instance": true,
+                    "returnType": { "qualType": "void" },
+                    "inner": []
+                }
+            ]
+        },
+        {
+            "kind": "ObjCCategoryDecl",
+            "name": "Extras",
+            {{MakeLoc()}},
+            "interface": { "name": "Widget" },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "doExtra",
+                    "instance": true,
+                    "returnType": { "qualType": "void" },
+                    "inner": []
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+
+        // Duplicates should be merged — richest wins (2 methods)
+        Assert.Single(module.Categories);
+        Assert.Equal("Extras", module.Categories[0].CategoryName);
+        Assert.Equal(2, module.Categories[0].Methods.Count);
+    }
+
+    [Fact]
+    public void Parse_DuplicateCategories_DisjointMembers_AllMerged()
+    {
+        // Two duplicate categories with disjoint methods — both sets must survive merge
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "Widget",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "init",
+                    "instance": true,
+                    "returnType": { "qualType": "instancetype" },
+                    "inner": []
+                }
+            ]
+        },
+        {
+            "kind": "ObjCCategoryDecl",
+            "name": "Extras",
+            {{MakeLoc()}},
+            "interface": { "name": "Widget" },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "methodA",
+                    "instance": true,
+                    "returnType": { "qualType": "void" },
+                    "inner": []
+                }
+            ]
+        },
+        {
+            "kind": "ObjCCategoryDecl",
+            "name": "Extras",
+            {{MakeLoc()}},
+            "interface": { "name": "Widget" },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "methodB",
+                    "instance": true,
+                    "returnType": { "qualType": "void" },
+                    "inner": []
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+
+        Assert.Single(module.Categories);
+        // Both disjoint methods must be present
+        Assert.Equal(2, module.Categories[0].Methods.Count);
+        Assert.Contains(module.Categories[0].Methods, m => m.Selector == "methodA");
+        Assert.Contains(module.Categories[0].Methods, m => m.Selector == "methodB");
+    }
 }

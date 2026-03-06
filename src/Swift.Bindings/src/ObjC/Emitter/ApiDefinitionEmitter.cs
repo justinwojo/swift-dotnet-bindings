@@ -31,6 +31,9 @@ public static class ApiDefinitionEmitter
         foreach (var cls in module.Classes)
             EmitClass(sb, cls, typedefMap, blockTypedefMap);
 
+        foreach (var cat in module.Categories)
+            EmitCategory(sb, cat, typedefMap, blockTypedefMap);
+
         sb.AppendLine("}");
 
         Directory.CreateDirectory(outputDir);
@@ -112,6 +115,52 @@ public static class ApiDefinitionEmitter
 
         sb.AppendLine("    }");
         sb.AppendLine();
+    }
+
+    static void EmitCategory(StringBuilder sb, ObjCCategoryDecl cat, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap)
+    {
+        EmitAvailabilityAttributes(sb, cat.Availability, "    ");
+
+        sb.AppendLine("    [Category]");
+        sb.AppendLine($"    [BaseType(typeof({cat.ClassName}))]");
+
+        var filteredProtocols = cat.ProtocolNames
+            .Where(n => n != "NSObject" && n != "NSFastEnumeration")
+            .ToList();
+        var protocols = filteredProtocols.Count > 0
+            ? $" : {string.Join(", ", filteredProtocols.Select(n => $"I{n}"))}"
+            : "";
+
+        var interfaceName = GenerateCategoryInterfaceName(cat.ClassName, cat.CategoryName);
+        sb.AppendLine($"    partial interface {interfaceName}{protocols}");
+        sb.AppendLine("    {");
+
+        var categoryGenericParams = cat.GenericTypeParamNames.Count > 0
+            ? new HashSet<string>(cat.GenericTypeParamNames)
+            : null;
+
+        var emittedMethodSignatures = new HashSet<string>();
+
+        // Filter out init methods — MAUI category interfaces cannot declare constructors
+        foreach (var method in cat.Methods)
+        {
+            if (method.Selector == "init" || method.Selector.StartsWith("initWith", StringComparison.Ordinal))
+                continue;
+            EmitMethod(sb, method, declaringClassName: cat.ClassName, isProtocol: false, genericTypeParams: categoryGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMethodSignatures: emittedMethodSignatures);
+        }
+
+        foreach (var prop in cat.Properties)
+            EmitProperty(sb, prop, declaringClassName: cat.ClassName, genericTypeParams: categoryGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap);
+
+        sb.AppendLine("    }");
+        sb.AppendLine();
+    }
+
+    internal static string GenerateCategoryInterfaceName(string className, string categoryName)
+    {
+        return string.IsNullOrEmpty(categoryName)
+            ? $"{className}_Extensions"
+            : $"{className}_{categoryName}";
     }
 
     static void EmitMethod(StringBuilder sb, ObjCMethodDecl method, string? declaringClassName, bool isProtocol, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null, HashSet<string>? emittedConstructorSignatures = null, HashSet<string>? emittedMethodSignatures = null)

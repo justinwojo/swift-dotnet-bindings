@@ -76,20 +76,20 @@ public static class ObjCPipeline
             return new ObjCPipelineResult(1, null, $"AST parsing failed: {ex.Message}");
         }
 
-        // 4b. Apply type-level dedup for mixed frameworks
+        // 4b. Apply mixed-framework filtering (member-level dedup with category extraction)
         if (excludeTypeNames != null && excludeTypeNames.Count > 0)
         {
             module = FilterForMixedFramework(module, excludeTypeNames, logger);
         }
+        else
+        {
+            // Pure ObjC: clear categories — members are already merged inline into classes.
+            // Mixed: FilterForMixedFramework already set Categories to shared-class categories only.
+            module = module with { Categories = [] };
+        }
 
-        // Post-hoc mixed validation: require at least one ObjC class or protocol.
-        // ObjC binding projects (<IsBindingProject>) are designed for class/protocol bindings
-        // with [BaseType]/[Export] attributes. Enums/structs/functions without classes or
-        // protocols are typically C library internals (e.g., Mappedin's geodesic types),
-        // not meaningful ObjC API surface. Constants alone (e.g., version numbers) also
-        // don't qualify. If O4 discovers a real mixed framework with ObjC-only enums but
-        // no classes/protocols, this can be revisited.
-        if (isMixed && module.Classes.Count == 0 && module.Protocols.Count == 0)
+        // Post-hoc mixed validation: require at least one ObjC class, protocol, or category.
+        if (isMixed && module.Classes.Count == 0 && module.Protocols.Count == 0 && module.Categories.Count == 0)
         {
             logger.LogInformation(
                 "Mixed framework '{Module}': no ObjC classes or protocols found — skipping ObjC emission.",
@@ -133,9 +133,9 @@ public static class ObjCPipeline
     }
 
     /// <summary>
-    /// O3 type-level dedup: removes ObjC types whose name matches a Swift-emitted type.
-    /// O4 will replace this with selector-based member-level dedup.
-    /// Known limitation: ObjC-only members on shared types (e.g., category additions) are lost.
+    /// Member-level dedup for mixed frameworks: shared classes are dropped from ObjC output,
+    /// but their category members are extracted into separate [Category] binding interfaces.
+    /// Shared protocols are still dropped entirely.
     /// </summary>
     internal static ObjCModule FilterForMixedFramework(
         ObjCModule module, HashSet<string> swiftTypeNames, ILogger logger)
@@ -143,17 +143,30 @@ public static class ObjCPipeline
         var removedClasses = module.Classes.Where(c => swiftTypeNames.Contains(c.Name)).ToList();
         var removedProtocols = module.Protocols.Where(p => swiftTypeNames.Contains(p.Name)).ToList();
 
+        // Extract categories for shared classes from module.Categories (populated at parse time).
+        // Copy the owning class's GenericTypeParamNames onto each matching category.
+        var sharedClassCategories = new List<ObjCCategoryDecl>();
+        var classGenericParams = removedClasses.ToDictionary(c => c.Name, c => c.GenericTypeParamNames);
+        foreach (var cat in module.Categories)
+        {
+            if (swiftTypeNames.Contains(cat.ClassName) && classGenericParams.TryGetValue(cat.ClassName, out var genericParams))
+            {
+                sharedClassCategories.Add(cat with { GenericTypeParamNames = genericParams });
+            }
+        }
+
         if (removedClasses.Count > 0 || removedProtocols.Count > 0)
         {
             logger.LogInformation(
-                "Mixed dedup: removed {ClassCount} shared class(es) and {ProtoCount} shared protocol(s) from ObjC output.",
-                removedClasses.Count, removedProtocols.Count);
+                "Mixed dedup: removed {ClassCount} shared class(es) and {ProtoCount} shared protocol(s) from ObjC output, extracted {CatCount} category interface(s).",
+                removedClasses.Count, removedProtocols.Count, sharedClassCategories.Count);
         }
 
         return module with
         {
             Classes = module.Classes.Where(c => !swiftTypeNames.Contains(c.Name)).ToList(),
             Protocols = module.Protocols.Where(p => !swiftTypeNames.Contains(p.Name)).ToList(),
+            Categories = sharedClassCategories,
             // Enums, structs, functions, constants, typedefs are never filtered
         };
     }
@@ -169,6 +182,8 @@ public static class ObjCPipeline
         logger.LogInformation("  Functions: {Count}", module.Functions.Count);
         logger.LogInformation("  Constants: {Count}", module.Constants.Count);
         logger.LogInformation("  Typedefs:  {Count}", module.Typedefs.Count);
+        if (module.Categories.Count > 0)
+            logger.LogInformation("  Categories:{Count}", module.Categories.Count);
         logger.LogInformation("  Total:     {Count}", module.TotalDeclarations);
         logger.LogInformation("");
 

@@ -1,6 +1,6 @@
 # Objective-C Binding Integration
 
-## Status: Session O5 Complete — Zero Compile Errors (55/55 Validation Targets)
+## Status: Session O6 Complete — Mixed-Framework `[Category]` Emission (55/55 Validation Targets)
 
 **Date:** 2026-02-14 (original), updated 2026-03-06
 
@@ -250,7 +250,7 @@ O1 is complete. Remaining work (O2-O4) estimated below.
 | Binding Project Emitter (ObjC variant) | ~60 | ✅ O2 — `<IsBindingProject>` `.csproj`, conditional StructsAndEnums, relative NativeReference |
 | ObjC Tests (O2) | ~1,350 | ✅ O2 — 73 new tests (type mapper, api definition, structs/enums, binding project, integration) |
 | Mixed Framework Detection | ~60 | ✅ O3 — `DetectMixedFrameworkObjC`, post-hoc validation |
-| Type-Level Dedup | ~30 | ✅ O3 — `FilterForMixedFramework`, `CollectSwiftEmittedTypeNames` |
+| Member-Level Dedup + `[Category]` Emission | ~30+100 | ✅ O3/O6 — `FilterForMixedFramework` (O3 type-level → O6 member-level), `[Category]` extraction, `EmitCategory` |
 | ObjC Metadata Props Emitter | ~50 | ✅ O3 — `binding-metadata.props` for ObjC/mixed |
 | Dual-Pipeline Orchestration | ~50 | ✅ O3 — Program.cs mixed detection + ObjC pipeline invocation |
 | BindingProject ProjectRef | ~15 | ✅ O3 — conditional `<ProjectReference>` for mixed |
@@ -259,7 +259,9 @@ O1 is complete. Remaining work (O2-O4) estimated below.
 | ObjC Tests (O3) | ~700 | ✅ O3 — 26 new tests |
 | O5 zero-error fixes (all emitters + mapper + parser) | ~300 | ✅ O5 — typedef resolution (fully threaded), block typedef maps, constructor dedup, protocol init guard, DisableDefaultCtor, method dedup (with second-order collision handling), module-local type skipping, fixed-size arrays (end-to-end model), binding project fixes |
 | ObjC Tests (O5) | ~450 | ✅ O5 — 29 new tests |
-| **Total new code** | **~5,600+** | **~5,500 complete (O1+O2+O3+O4+O5)** |
+| O6 `[Category]` emission | ~200 | ✅ O6 — `ObjCCategoryDecl` model, parser category preservation + dedup, `EmitCategory`, `FilterForMixedFramework` member-level rewrite, `Program.cs` mixed classification fix |
+| ObjC Tests (O6) | ~770 | ✅ O6 — 24 new tests (parser, emitter, pipeline) |
+| **Total new code** | **~6,600+** | **~6,500 complete (O1+O2+O3+O4+O5+O6)** |
 
 For context: Swift pipeline is ~35,000+ lines; ObjC-rooted support added ~2,000 lines across model/marshaler/emitter/tests.
 
@@ -295,9 +297,9 @@ A framework with both Swift and ObjC public API would run both pipelines:
 
 1. **Detection**: After Swift pipeline succeeds, `DetectMixedFrameworkObjC()` checks for modulemap + non-Swift headers
 2. **Swift pipeline**: Generates `Swift.Module.cs` with P/Invoke bindings (as normal)
-3. **ObjC pipeline**: Runs with type-level dedup — removes ObjC classes/protocols already in Swift output
-4. **Post-hoc validation**: If ObjC pipeline finds zero classes + protocols (only constants like version numbers), the framework is NOT treated as mixed
-5. **Type-level dedup (O3)**: Entire ObjC types matching Swift type names are removed. Known limitation: ObjC-only members on shared types are suppressed. O4 will upgrade to selector-based member-level dedup using `IsFromCategory` tracking.
+3. **ObjC pipeline**: Runs with member-level dedup — shared classes are dropped, but their ObjC category members are extracted as `[Category]` binding interfaces
+4. **Post-hoc validation**: If ObjC pipeline finds zero classes + protocols + categories (only constants like version numbers), the framework is NOT treated as mixed
+5. **Member-level dedup (O6)**: Shared classes are removed from ObjC output, but their category members are preserved. Each category becomes a separate `[Category]` binding interface (e.g., `Widget_Extras`). Shared protocols are still dropped entirely. Category-adopted protocols and lightweight generic params are preserved from the original category/class declarations.
 6. **Project emission**: Two projects — Swift `.csproj` (regular) + ObjC `.csproj` (`<IsBindingProject>`) with `<ProjectReference>` from Swift to ObjC
 
 **Already working:** Swift libraries that inherit from or reference ObjC types are fully handled. The ObjC-rooted class support (BX4) bridges the two worlds — Swift classes emit as C# classes inheriting from their .NET MAUI ObjC counterparts.
@@ -474,10 +476,10 @@ Mixed framework detection, type-level dedup, ObjC metadata props emission, MSBui
 4. **sdkMode suppression**: `sdkMode && !isMixed` → skip .csproj (SDK IS the project). `sdkMode && isMixed` → emit .csproj (SDK is Swift project, ObjC is separate).
 5. **`CollectSwiftEmittedTypeNames`**: Regex scan of `*.cs` in output directory for `public [unsafe] [partial] class|struct|enum|interface NAME`. Used for dedup exclude set.
 
-**Known O3 limitations (deferred to O4):**
-- ObjC-only members on shared types (e.g., category additions to Swift-visible classes) are suppressed. `IsFromCategory` infrastructure ready for O4's selector-based dedup.
+**Known O3 limitations (resolved in O4-O6):**
+- ~~ObjC-only members on shared types (e.g., category additions to Swift-visible classes) are suppressed.~~ **Resolved in O6** — category members are now extracted as `[Category]` binding interfaces.
 - Mixed SDK `ProjectReference` injection uses `BeforeTargets="ResolveProjectReferences"` timing — not yet behaviorally tested beyond static XML assertions.
-- **BRLMPrinterKit duplicate enum definitions**: When the same enum appears in multiple ObjC headers (e.g., public header + internal header both declaring `BRLMPrinterModel`), the parser emits duplicate definitions → 96 CS0101 "already defined" errors. Requires parser-level enum dedup (deduplicate by fully-qualified name before emission). Three emitter bugs discovered during BRLMPrinterKit testing were fixed in O3: digit-leading identifiers after prefix stripping, `unsigned int`/`unsigned short`/`unsigned char` type mappings, and `enum`/`struct` C type specifier stripping from clang qualType.
+- ~~**BRLMPrinterKit duplicate enum definitions**~~ **Resolved in O4** — parser-level declaration dedup (Pass 3).
 
 ### Session O4: Validation + Parser Dedup + Polish (complete)
 
@@ -577,21 +579,45 @@ All planned fixes are implemented and tested (29 new tests, 5892 total unit test
 - `ObjCBindingProjectEmitterTests.cs` — 2 new tests (EnableDefaultCompileItems, absolute NativeReference path)
 - `ObjCTypeRefParserTests.cs` — 3 new tests (constant array types: scalar, unsigned char, pointer element)
 
-### Session O6: Mixed-Framework `[Category]` Emission (planned)
+### Session O6: Mixed-Framework `[Category]` Emission ✅ COMPLETE
 
-**Goal:** Upgrade mixed-framework dedup from type-level (drop entire shared types) to member-level using `[Category]` emission.
+**Completed:** 2026-03-06
 
-**Work items:**
-- Preserve category name + owning class in `ObjCModule` model
-- Stop merging category members into shared classes for mixed-framework emission
-- Emit shared-type category additions as `[Category]` bindings with distinct generated names
-- Update `FilterForMixedFramework` to use member-level filtering with `[Category]` emission
-- Add parser/emitter/integration tests
-- Find or add a real mixed Swift+ObjC framework to validation set
+**Goal:** Upgrade mixed-framework dedup from type-level (drop entire shared types) to member-level using MAUI's `[Category]` binding pattern.
 
-### Estimated Total: 3-6 sessions (5 complete, 1 remaining)
+**What was built:**
 
-Sessions O1-O3 built the ObjC pipeline (parser, emitter, binding project, mixed-framework support). O4 added parser dedup, type mapping improvements, and real-world validation. O5 achieved 55/55 validation targets with zero compile errors. O6 will upgrade mixed-framework dedup from type-level to member-level.
+All planned work is implemented and tested (24 new tests, 5918 total unit tests passing). All 55/55 validation targets pass with zero regressions.
+
+**Changes:**
+
+1. **`ObjCCategoryDecl` model** (`ObjCDeclarations.cs`): New record with `CategoryName`, `ClassName`, `ProtocolNames`, `GenericTypeParamNames`, `Methods`, `Properties`, `Availability`. Added `CategoryName` field to `ObjCMethodDecl` and `ObjCPropertyDecl` (defaults to `""`). Added `Categories` list to `ObjCModule` (not counted in `TotalDeclarations`).
+
+2. **Parser category preservation** (`ClangAstParser.cs`): `ParseCategoryDecl` returns `ObjCCategoryDecl` with category name (empty string for unnamed categories), protocols adopted by the category, and category-level availability. Pass 2 merge tags members with `CategoryName` and merges category-adopted protocols onto the owning class. Pass 4 deduplicates categories by `(ClassName, CategoryName)` key via `MergeCategories` — unions methods, properties, protocols, and availability from all duplicates.
+
+3. **`FilterForMixedFramework` rewrite** (`ObjCPipeline.cs`): Member-level dedup. Shared classes are dropped from ObjC output, but their `ObjCCategoryDecl` records (populated at parse time) are extracted as separate category interfaces. `GenericTypeParamNames` are copied from the owning class onto each extracted category. ObjC-only class categories are discarded (they stay merged inline). Pure ObjC frameworks clear `Categories` before emission to prevent double-emitting. Post-hoc validation gate updated to check `Categories.Count`.
+
+4. **`EmitCategory`** (`ApiDefinitionEmitter.cs`): Emits `[Category]` + `[BaseType(typeof(ClassName))]` + `partial interface ClassName_CategoryName`. Category-level availability attributes. Protocol conformances as interface inheritance. Init methods filtered out (MAUI limitation). Generic type params from owning class passed to `ObjCTypeMapper`. Duplicate method signature collision handling (same as class emission).
+
+5. **`Program.cs` mixed classification fix**: `isMixed` check now includes `Categories.Count > 0`, so categories-only mixed frameworks get correct `frameworkType: "Mixed"` metadata and ObjC project references.
+
+**Test files (24 new tests across 3 files):**
+- `ClangAstParserTests.cs` — 7 new tests (named category, unnamed category, multiple categories, category protocols, category availability, duplicate category dedup, disjoint member merge)
+- `ApiDefinitionEmitterTests.cs` — 10 new tests (`[Category]`/`[BaseType]` attributes, method export, properties, init skipping, unnamed suffix, generic param resolution, protocol conformance inheritance, pure ObjC no double-emit, duplicate method signature collision, `GenerateCategoryInterfaceName` theory)
+- `MixedFrameworkDedupTests.cs` — 7 new tests (shared class with categories extracted, shared class without categories dropped, ObjC-only class keeps merged, multiple categories grouped, mixed members only category extracted, shared protocol still dropped, categories-only not skipped by post-hoc gate)
+
+**Edge cases handled:**
+- Init methods in categories filtered at emission (MAUI can't handle constructors in `[Category]`)
+- Unnamed categories emitted as `ClassName_Extensions`
+- Multiple categories per class each get their own interface
+- Pure ObjC frameworks: categories cleared before emission (no double-emit)
+- Category lightweight generic params resolved via owning class's `GenericTypeParamNames`
+- Category protocol conformances preserved and emitted as interface inheritance
+- Duplicate method signatures in categories renamed (same collision handling as classes)
+
+### Estimated Total: 3-6 sessions (6 complete)
+
+Sessions O1-O3 built the ObjC pipeline (parser, emitter, binding project, mixed-framework support). O4 added parser dedup, type mapping improvements, and real-world validation. O5 achieved 55/55 validation targets with zero compile errors. O6 upgraded mixed-framework dedup from type-level to member-level with `[Category]` emission.
 
 ---
 

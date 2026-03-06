@@ -25,7 +25,7 @@ public static class ClangAstParser
         var functions = new List<ObjCFunctionDecl>();
         var constants = new List<ObjCConstantDecl>();
         var typedefs = new List<ObjCTypedefDecl>();
-        var categories = new List<(string ClassName, List<ObjCMethodDecl> Methods, List<ObjCPropertyDecl> Properties)>();
+        var categories = new List<ObjCCategoryDecl>();
 
         // Normalize headers path for comparison
         frameworkHeadersPath = frameworkHeadersPath.TrimEnd('/');
@@ -84,7 +84,7 @@ public static class ClangAstParser
                 case "ObjCCategoryDecl":
                     var category = ParseCategoryDecl(node);
                     if (category != null)
-                        categories.Add(category.Value);
+                        categories.Add(category);
                     break;
 
                 case "EnumDecl":
@@ -130,18 +130,27 @@ public static class ClangAstParser
 
         // Pass 2: Merge categories onto their owning classes.
         // Merge onto ALL matching duplicates so Pass 3 dedup doesn't discard category members.
-        foreach (var (className, methods, properties) in categories)
+        // Also merge category-adopted protocols onto the class's ProtocolNames.
+        foreach (var cat in categories)
         {
-            var taggedMethods = methods.Select(m => m with { IsFromCategory = true }).ToList();
-            var taggedProperties = properties.Select(p => p with { IsFromCategory = true }).ToList();
+            var taggedMethods = cat.Methods.Select(m => m with { IsFromCategory = true, CategoryName = cat.CategoryName }).ToList();
+            var taggedProperties = cat.Properties.Select(p => p with { IsFromCategory = true, CategoryName = cat.CategoryName }).ToList();
             for (int i = 0; i < classes.Count; i++)
             {
-                if (classes[i].Name == className)
+                if (classes[i].Name == cat.ClassName)
                 {
+                    var mergedProtocols = classes[i].ProtocolNames;
+                    if (cat.ProtocolNames.Count > 0)
+                    {
+                        var allProtos = new HashSet<string>(classes[i].ProtocolNames);
+                        foreach (var p in cat.ProtocolNames) allProtos.Add(p);
+                        mergedProtocols = allProtos.ToList();
+                    }
                     classes[i] = classes[i] with
                     {
                         Methods = [.. classes[i].Methods, .. taggedMethods],
-                        Properties = [.. classes[i].Properties, .. taggedProperties]
+                        Properties = [.. classes[i].Properties, .. taggedProperties],
+                        ProtocolNames = mergedProtocols
                     };
                 }
             }
@@ -162,6 +171,10 @@ public static class ClangAstParser
         constants = DeduplicateByFirst(constants, c => c.Name);
         typedefs = DeduplicateByFirst(typedefs, t => t.Name);
 
+        // Pass 4: Deduplicate categories by (ClassName, CategoryName).
+        // Same category can appear through umbrella + public header.
+        var dedupedCategories = MergeCategories(categories);
+
         return new ObjCModule
         {
             ModuleName = moduleName,
@@ -172,7 +185,8 @@ public static class ClangAstParser
             Structs = structs,
             Functions = functions,
             Constants = constants,
-            Typedefs = typedefs
+            Typedefs = typedefs,
+            Categories = dedupedCategories
         };
     }
 
@@ -269,7 +283,7 @@ public static class ClangAstParser
         };
     }
 
-    private static (string ClassName, List<ObjCMethodDecl> Methods, List<ObjCPropertyDecl> Properties)? ParseCategoryDecl(JsonElement element)
+    private static ObjCCategoryDecl? ParseCategoryDecl(JsonElement element)
     {
         // In clang AST, the owning class is in "interface.name", not "name".
         // "name" is the category name (e.g., "NSCoderMethods" in NSObject(NSCoderMethods)).
@@ -281,13 +295,36 @@ public static class ClangAstParser
         }
         if (className == null) return null;
 
+        // Category name: null from AST means unnamed category (class extension) → normalize to ""
+        var categoryName = GetName(element) ?? "";
+
+        // Extract protocols adopted by this category
+        var protocols = new List<string>();
+        if (element.TryGetProperty("protocols", out var protocolsArr))
+        {
+            foreach (var p in protocolsArr.EnumerateArray())
+            {
+                var pName = GetOptionalString(p, "name");
+                if (pName != null)
+                    protocols.Add(pName);
+            }
+        }
+
         var methods = new List<ObjCMethodDecl>();
         var properties = new List<ObjCPropertyDecl>();
         var availability = new List<ObjCAvailability>();
 
         ParseContainerChildren(element, methods, properties, availability, isProtocol: false);
 
-        return (className, methods, properties);
+        return new ObjCCategoryDecl
+        {
+            CategoryName = categoryName,
+            ClassName = className,
+            ProtocolNames = protocols,
+            Methods = methods,
+            Properties = properties,
+            Availability = availability
+        };
     }
 
     private static ObjCEnumDecl? ParseEnumDecl(JsonElement element)
@@ -1018,6 +1055,60 @@ public static class ClangAstParser
                 return richest with
                 {
                     InheritedProtocolNames = allInherited.ToList(),
+                    Availability = allAvailability
+                };
+            })
+            .ToList();
+    }
+
+    /// <summary>
+    /// Deduplicates categories by (ClassName, CategoryName), merging members from all duplicates
+    /// onto the richest instance (most methods+properties). Same pattern as MergeClasses.
+    /// </summary>
+    private static List<ObjCCategoryDecl> MergeCategories(List<ObjCCategoryDecl> categories)
+    {
+        if (categories.Count <= 1) return categories;
+        return categories.GroupBy(c => (c.ClassName, c.CategoryName))
+            .Select(g =>
+            {
+                var richest = g.OrderByDescending(c => c.Methods.Count + c.Properties.Count).First();
+                if (g.Count() == 1) return richest;
+
+                var allProtocols = new HashSet<string>(richest.ProtocolNames);
+                var allMethodSelectors = new HashSet<string>(richest.Methods.Select(m => m.Selector));
+                var allMethods = new List<ObjCMethodDecl>(richest.Methods);
+                var allPropertyNames = new HashSet<string>(richest.Properties.Select(p => p.Name));
+                var allProperties = new List<ObjCPropertyDecl>(richest.Properties);
+                var allAvailability = new List<ObjCAvailability>(richest.Availability);
+
+                foreach (var dup in g)
+                {
+                    if (ReferenceEquals(dup, richest)) continue;
+                    foreach (var p in dup.ProtocolNames) allProtocols.Add(p);
+                    foreach (var m in dup.Methods)
+                    {
+                        if (allMethodSelectors.Add(m.Selector))
+                            allMethods.Add(m);
+                    }
+                    foreach (var p in dup.Properties)
+                    {
+                        if (allPropertyNames.Add(p.Name))
+                            allProperties.Add(p);
+                    }
+                    foreach (var a in dup.Availability)
+                    {
+                        if (!allAvailability.Any(existing =>
+                            existing.Platform == a.Platform && existing.IntroducedVersion == a.IntroducedVersion
+                            && existing.DeprecatedVersion == a.DeprecatedVersion))
+                            allAvailability.Add(a);
+                    }
+                }
+
+                return richest with
+                {
+                    ProtocolNames = allProtocols.ToList(),
+                    Methods = allMethods,
+                    Properties = allProperties,
                     Availability = allAvailability
                 };
             })

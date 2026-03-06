@@ -1284,4 +1284,309 @@ public class ApiDefinitionEmitterTests
         // In KeyTypeConsumer, KeyType is a real type → passthrough as-is
         Assert.Contains("KeyType key", result.Split("partial interface KeyTypeConsumer")[1]);
     }
+
+    // ──────────────────────────────────────────────
+    // Category emission tests
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public void Emit_Category_HasCategoryAndBaseTypeAttributes()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Categories =
+            [
+                new ObjCCategoryDecl
+                {
+                    CategoryName = "Extras",
+                    ClassName = "Widget",
+                    Methods = [new ObjCMethodDecl
+                    {
+                        Selector = "doExtra",
+                        ReturnType = new ObjCTypeRef { Name = "void" },
+                        IsInstanceMethod = true
+                    }]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("[Category]", result);
+        Assert.Contains("[BaseType(typeof(Widget))]", result);
+        Assert.Contains("partial interface Widget_Extras", result);
+    }
+
+    [Fact]
+    public void Emit_Category_MethodsHaveExport()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Categories =
+            [
+                new ObjCCategoryDecl
+                {
+                    CategoryName = "Extras",
+                    ClassName = "Widget",
+                    Methods = [new ObjCMethodDecl
+                    {
+                        Selector = "doExtra:",
+                        ReturnType = new ObjCTypeRef { Name = "void" },
+                        IsInstanceMethod = true,
+                        Parameters = [new ObjCParameterDecl
+                        {
+                            Name = "value",
+                            Type = new ObjCTypeRef { Name = "int" }
+                        }]
+                    }]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("[Export(\"doExtra:\")]", result);
+        Assert.Contains("void DoExtra(int value);", result);
+    }
+
+    [Fact]
+    public void Emit_Category_Properties_EmittedCorrectly()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Categories =
+            [
+                new ObjCCategoryDecl
+                {
+                    CategoryName = "Info",
+                    ClassName = "Widget",
+                    Properties = [new ObjCPropertyDecl
+                    {
+                        Name = "version",
+                        Type = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                        IsReadonly = true
+                    }]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("[Category]", result);
+        Assert.Contains("partial interface Widget_Info", result);
+        Assert.Contains("[Export(\"version\")]", result);
+        Assert.Contains("string Version { get; }", result);
+    }
+
+    [Fact]
+    public void Emit_Category_InitMethodsSkipped()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Categories =
+            [
+                new ObjCCategoryDecl
+                {
+                    CategoryName = "Creation",
+                    ClassName = "Widget",
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "initWithName:",
+                            ReturnType = new ObjCTypeRef { Name = "instancetype" },
+                            IsInstanceMethod = true,
+                            Parameters = [new ObjCParameterDecl
+                            {
+                                Name = "name",
+                                Type = new ObjCTypeRef { Name = "NSString", IsPointer = true }
+                            }]
+                        },
+                        new ObjCMethodDecl
+                        {
+                            Selector = "doSomething",
+                            ReturnType = new ObjCTypeRef { Name = "void" },
+                            IsInstanceMethod = true
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.DoesNotContain("Constructor", result);
+        Assert.DoesNotContain("initWithName", result);
+        Assert.Contains("DoSomething", result);
+    }
+
+    [Fact]
+    public void Emit_Category_UnnamedCategory_UsesExtensionsSuffix()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Categories =
+            [
+                new ObjCCategoryDecl
+                {
+                    CategoryName = "",
+                    ClassName = "Widget",
+                    Methods = [new ObjCMethodDecl
+                    {
+                        Selector = "doStuff",
+                        ReturnType = new ObjCTypeRef { Name = "void" },
+                        IsInstanceMethod = true
+                    }]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("partial interface Widget_Extensions", result);
+    }
+
+    [Fact]
+    public void Emit_Category_GenericTypeParams_ResolvedToNSObject()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Categories =
+            [
+                new ObjCCategoryDecl
+                {
+                    CategoryName = "Extended",
+                    ClassName = "NSArray",
+                    GenericTypeParamNames = ["ObjectType"],
+                    Methods = [new ObjCMethodDecl
+                    {
+                        Selector = "firstItem",
+                        ReturnType = new ObjCTypeRef { Name = "ObjectType" },
+                        IsInstanceMethod = true
+                    }]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("NSObject FirstItem", result);
+    }
+
+    [Fact]
+    public void Emit_Category_WithProtocolConformance_EmitsInheritance()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Categories =
+            [
+                new ObjCCategoryDecl
+                {
+                    CategoryName = "Coding",
+                    ClassName = "Widget",
+                    ProtocolNames = ["NSCoding", "NSSecureCoding"],
+                    Methods = [new ObjCMethodDecl
+                    {
+                        Selector = "encode",
+                        ReturnType = new ObjCTypeRef { Name = "void" },
+                        IsInstanceMethod = true
+                    }]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("partial interface Widget_Coding : INSCoding, INSSecureCoding", result);
+    }
+
+    [Fact]
+    public void Emit_Category_DuplicateMethodSignatures_Renamed()
+    {
+        // Two methods with the same short C# name and identical param types should not produce
+        // duplicate signatures — the second should fall back to full selector naming.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Categories =
+            [
+                new ObjCCategoryDecl
+                {
+                    CategoryName = "Extras",
+                    ClassName = "Widget",
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "doThing:",
+                            ReturnType = new ObjCTypeRef { Name = "void" },
+                            IsInstanceMethod = true,
+                            Parameters = [new ObjCParameterDecl
+                            {
+                                Name = "value",
+                                Type = new ObjCTypeRef { Name = "int" }
+                            }]
+                        },
+                        new ObjCMethodDecl
+                        {
+                            // Same short name "doThing" and same single int param — collision
+                            Selector = "doThing:fromSource:",
+                            ReturnType = new ObjCTypeRef { Name = "void" },
+                            IsInstanceMethod = true,
+                            Parameters = [new ObjCParameterDecl
+                            {
+                                Name = "source",
+                                Type = new ObjCTypeRef { Name = "int" }
+                            }]
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+        // First "DoThing" keeps its short name
+        Assert.Contains("void DoThing(int value);", result);
+        // Second collides on DoThing(int) → renamed to full selector form
+        Assert.Contains("DoThingFromSource", result);
+    }
+
+    [Fact]
+    public void Emit_PureObjC_CategoriesNotDoubleEmitted()
+    {
+        // Module with populated Categories but no mixed-mode filtering applied.
+        // In the pipeline, categories are cleared for pure ObjC before emission.
+        // Here we test that when Categories is empty, no [Category] appears.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes = [new ObjCClassDecl
+            {
+                Name = "Widget",
+                Methods = [new ObjCMethodDecl
+                {
+                    Selector = "doExtra",
+                    ReturnType = new ObjCTypeRef { Name = "void" },
+                    IsInstanceMethod = true,
+                    IsFromCategory = true,
+                    CategoryName = "Extras"
+                }]
+            }],
+            Categories = [] // Cleared for pure ObjC
+        };
+
+        var result = EmitAndRead(module);
+        Assert.DoesNotContain("[Category]", result);
+        // The method is still emitted inline on the class
+        Assert.Contains("[Export(\"doExtra\")]", result);
+    }
+
+    [Theory]
+    [InlineData("Widget", "Extras", "Widget_Extras")]
+    [InlineData("Widget", "", "Widget_Extensions")]
+    [InlineData("NSArray", "NSExtendedArray", "NSArray_NSExtendedArray")]
+    public void GenerateCategoryInterfaceName_ReturnsCorrectName(string className, string categoryName, string expected)
+    {
+        Assert.Equal(expected, ApiDefinitionEmitter.GenerateCategoryInterfaceName(className, categoryName));
+    }
 }
