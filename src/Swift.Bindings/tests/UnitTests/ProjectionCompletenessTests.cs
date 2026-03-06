@@ -183,11 +183,10 @@ public class OptionalAppleFallbackTests
         Assert.False(TypeProjectionFactory.IsKnownAppleModule("Alamofire"));
         Assert.False(TypeProjectionFactory.IsKnownAppleModule("ThirdParty"));
         Assert.False(TypeProjectionFactory.IsKnownAppleModule("Swift"));
-        // UIKit and Foundation are excluded from the Optional fallback set
-        // because they contain many non-class types (enums, structs) with
-        // NS/UI prefixes. They are checked separately for collection elements.
-        Assert.False(TypeProjectionFactory.IsKnownAppleModule("UIKit"));
-        Assert.False(TypeProjectionFactory.IsKnownAppleModule("Foundation"));
+        // UIKit and Foundation are now in the set — the IsNestedType guard
+        // prevents misprojection of nested types like NSAttributedString.Key.
+        Assert.True(TypeProjectionFactory.IsKnownAppleModule("UIKit"));
+        Assert.True(TypeProjectionFactory.IsKnownAppleModule("Foundation"));
     }
 
     [Fact]
@@ -209,6 +208,48 @@ public class OptionalAppleFallbackTests
     {
         // Optional<Vision.RecognizedText> — "RecognizedText" lacks ObjC prefix
         var inner = new NamedTypeSpec("Vision.RecognizedText");
+        var optional = new NamedTypeSpec("Swift.Optional", inner);
+        var ctx = CreateContext();
+
+        var projection = _factory.Project(optional, ctx);
+
+        Assert.Null(projection);
+    }
+
+    [Fact]
+    public void Project_OptionalUIKitObjCClass_ReturnsOptionalProjection()
+    {
+        // CQ-7: UIKit ObjC classes like UIFont should project as nullable (UIKit.UIFont?)
+        // not as SwiftOptional<UIKit.UIFont>.
+        var inner = new NamedTypeSpec("UIKit.UIFont");
+        var optional = new NamedTypeSpec("Swift.Optional", inner);
+        var ctx = CreateContext();
+
+        var projection = _factory.Project(optional, ctx);
+
+        Assert.NotNull(projection);
+        Assert.Equal("UIKit.UIFont?", projection!.PublicType);
+    }
+
+    [Fact]
+    public void Project_OptionalFoundationObjCClass_ReturnsOptionalProjection()
+    {
+        var inner = new NamedTypeSpec("Foundation.NSAttributedString");
+        var optional = new NamedTypeSpec("Swift.Optional", inner);
+        var ctx = CreateContext();
+
+        var projection = _factory.Project(optional, ctx);
+
+        Assert.NotNull(projection);
+        Assert.Equal("Foundation.NSAttributedString?", projection!.PublicType);
+    }
+
+    [Fact]
+    public void Project_OptionalNestedUIKitType_ReturnsNull()
+    {
+        // Nested types like UIControl.State are structs/enums, not ObjC classes.
+        // The IsNestedType guard prevents misprojection.
+        var inner = new NamedTypeSpec("UIKit.UIControl.State");
         var optional = new NamedTypeSpec("Swift.Optional", inner);
         var ctx = CreateContext();
 

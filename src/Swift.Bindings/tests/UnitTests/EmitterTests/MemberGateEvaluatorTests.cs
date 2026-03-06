@@ -456,23 +456,21 @@ public class MemberGateEvaluatorTests
     #region SwiftUI Database-Aware Gate Tests
 
     [Fact]
-    public void EvaluateProperty_SwiftUIColorWithDatabase_StillSkipped()
+    public void EvaluateProperty_SwiftUIColorWithDatabase_NowAllowed()
     {
-        // SwiftUI types are always unsupported in standalone library bindings,
-        // even when registered in the type database (SwiftUIDatabase.xml).
-        // The database registration is for the SwiftUI bridge emitter only.
+        // CQ-6: Registered non-generic SwiftUI types with C# ISwiftObject stubs
+        // are now fully supported surface area in generated bindings.
         var typeDatabase = CreateTypeDatabaseWithSwiftUI();
         var evaluator = new MemberGateEvaluator(typeDatabase);
         var property = CreateProperty("primaryColor", new NamedTypeSpec("SwiftUI.Color"));
 
         var result = evaluator.EvaluateProperty(property, CreateModuleDecl("TestModule"), null);
 
-        Assert.True(result.IsSkipped);
-        Assert.Equal(SkipReason.SwiftUIConstraint, result.Reason);
+        Assert.True(result.IsEmittable);
     }
 
     [Fact]
-    public void EvaluateProperty_SwiftUIFontWithDatabase_StillSkipped()
+    public void EvaluateProperty_SwiftUIFontWithDatabase_NowAllowed()
     {
         var typeDatabase = CreateTypeDatabaseWithSwiftUI();
         var evaluator = new MemberGateEvaluator(typeDatabase);
@@ -480,8 +478,7 @@ public class MemberGateEvaluatorTests
 
         var result = evaluator.EvaluateProperty(property, CreateModuleDecl("TestModule"), null);
 
-        Assert.True(result.IsSkipped);
-        Assert.Equal(SkipReason.SwiftUIConstraint, result.Reason);
+        Assert.True(result.IsEmittable);
     }
 
     [Fact]
@@ -499,7 +496,7 @@ public class MemberGateEvaluatorTests
     }
 
     [Fact]
-    public void EvaluateMethod_SwiftUIColorParamWithDatabase_StillSkipped()
+    public void EvaluateMethod_SwiftUIColorParamWithDatabase_NowAllowed()
     {
         var typeDatabase = CreateTypeDatabaseWithSwiftUI();
         var evaluator = new MemberGateEvaluator(typeDatabase);
@@ -507,8 +504,7 @@ public class MemberGateEvaluatorTests
 
         var result = evaluator.EvaluateMethod(method, CreateModuleDecl("TestModule"), null);
 
-        Assert.True(result.IsSkipped);
-        Assert.Equal(SkipReason.SwiftUIConstraint, result.Reason);
+        Assert.True(result.IsEmittable);
     }
 
     [Fact]
@@ -525,7 +521,7 @@ public class MemberGateEvaluatorTests
     }
 
     [Fact]
-    public void EvaluateHardGates_SwiftUIColorWithDatabase_StillSkipped()
+    public void EvaluateHardGates_SwiftUIColorWithDatabase_NowAllowed()
     {
         var typeDatabase = CreateTypeDatabaseWithSwiftUI();
         var evaluator = new MemberGateEvaluator(typeDatabase);
@@ -533,12 +529,11 @@ public class MemberGateEvaluatorTests
 
         var result = evaluator.EvaluateHardGates(method, CreateModuleDecl("TestModule"));
 
-        Assert.True(result.IsSkipped);
-        Assert.Equal(SkipReason.SwiftUIConstraint, result.Reason);
+        Assert.True(result.IsEmittable);
     }
 
     [Fact]
-    public void EvaluatePropertyHardGates_SwiftUIColorWithDatabase_StillSkipped()
+    public void EvaluatePropertyHardGates_SwiftUIColorWithDatabase_NowAllowed()
     {
         var typeDatabase = CreateTypeDatabaseWithSwiftUI();
         var evaluator = new MemberGateEvaluator(typeDatabase);
@@ -546,12 +541,11 @@ public class MemberGateEvaluatorTests
 
         var result = evaluator.EvaluatePropertyHardGates(property, CreateModuleDecl("TestModule"));
 
-        Assert.True(result.IsSkipped);
-        Assert.Equal(SkipReason.SwiftUIConstraint, result.Reason);
+        Assert.True(result.IsEmittable);
     }
 
     [Fact]
-    public void EvaluateSubscript_SwiftUIColorReturnWithDatabase_StillSkipped()
+    public void EvaluateSubscript_SwiftUIColorReturnWithDatabase_NowAllowed()
     {
         var typeDatabase = CreateTypeDatabaseWithSwiftUI();
         var evaluator = new MemberGateEvaluator(typeDatabase);
@@ -559,8 +553,7 @@ public class MemberGateEvaluatorTests
 
         var result = evaluator.EvaluateSubscript(subscript, CreateModuleDecl("TestModule"), null);
 
-        Assert.True(result.IsSkipped);
-        Assert.Equal(SkipReason.SwiftUIConstraint, result.Reason);
+        Assert.True(result.IsEmittable);
     }
 
     [Fact]
@@ -578,13 +571,13 @@ public class MemberGateEvaluatorTests
     }
 
     [Fact]
-    public void ReferencesUnsupportedModule_SwiftUIColorWithDatabase_ReturnsTrue()
+    public void ReferencesUnsupportedModule_SwiftUIColorWithDatabase_ReturnsFalse()
     {
-        // SwiftUI types are always unsupported even when registered in the database.
+        // CQ-6: Registered non-generic SwiftUI types pass through.
         var typeDatabase = CreateTypeDatabaseWithSwiftUI();
         var typeSpec = new NamedTypeSpec("SwiftUI.Color");
 
-        Assert.True(MemberEmissionValidator.ReferencesUnsupportedModule(typeSpec, typeDatabase));
+        Assert.False(MemberEmissionValidator.ReferencesUnsupportedModule(typeSpec, typeDatabase));
     }
 
     [Fact]
@@ -644,6 +637,31 @@ public class MemberGateEvaluatorTests
         var evaluator = new MemberGateEvaluator(typeDatabase);
         var property = CreateProperty("content",
             new NamedTypeSpec("SwiftUI.Binding", new TypeSpec[] { new NamedTypeSpec("SwiftUI.View") }));
+
+        var result = evaluator.EvaluateProperty(property, CreateModuleDecl("TestModule"), null);
+
+        Assert.True(result.IsSkipped);
+        Assert.Equal(SkipReason.SwiftUIConstraint, result.Reason);
+    }
+
+    [Fact]
+    public void ReferencesUnsupportedModule_RegisteredGenericUsage_ReturnsTrue()
+    {
+        // Binding<String> — base type is registered but generic usage can't be
+        // projected with a non-generic C# stub. Generic guard blocks it.
+        var typeDatabase = CreateTypeDatabaseWithSwiftUI();
+        var typeSpec = new NamedTypeSpec("SwiftUI.Binding", new TypeSpec[] { new NamedTypeSpec("Swift.String") });
+
+        Assert.True(MemberEmissionValidator.ReferencesUnsupportedModule(typeSpec, typeDatabase));
+    }
+
+    [Fact]
+    public void EvaluateProperty_UnregisteredSwiftUIType_StillSkipped()
+    {
+        // SwiftUI.State is NOT registered in the database — still rejected.
+        var typeDatabase = CreateTypeDatabaseWithSwiftUI();
+        var evaluator = new MemberGateEvaluator(typeDatabase);
+        var property = CreateProperty("viewState", new NamedTypeSpec("SwiftUI.State"));
 
         var result = evaluator.EvaluateProperty(property, CreateModuleDecl("TestModule"), null);
 

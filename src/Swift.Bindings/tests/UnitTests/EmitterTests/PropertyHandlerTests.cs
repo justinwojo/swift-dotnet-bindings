@@ -437,6 +437,24 @@ public class PropertyHandlerTests
     }
 
     [Fact]
+    public void Emit_OptionalUIFontProperty_EmitsNullableUIFont()
+    {
+        // CQ-7: Optional<UIKit.UIFont> should emit UIKit.UIFont? (ObjCBridged)
+        // not SwiftOptional<UIKit.UIFont>.
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("Label", moduleDecl);
+        var optionalUIFontType = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("UIKit.UIFont"));
+        var property = CreateEmittablePropertyDeclWithTypeSpec(classDecl, moduleDecl, "font", optionalUIFontType, hasGetter: true, hasSetter: true);
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        // Property type should be UIKit.UIFont? (not SwiftOptional<UIKit.UIFont>)
+        Assert.Contains("UIKit.UIFont?", csOutput);
+        Assert.DoesNotContain("SwiftOptional", csOutput);
+    }
+
+    [Fact]
     public void Emit_URLProperty_EmitsNSUrlWithDisposal()
     {
         var typeDatabase = CreateTypeDatabaseWithFoundationTypes();

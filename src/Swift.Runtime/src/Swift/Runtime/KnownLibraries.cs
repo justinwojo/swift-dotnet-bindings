@@ -12,4 +12,5 @@ internal static class KnownLibraries
     public const string AppKit = "/System/Library/Frameworks/AppKit.framework/AppKit";
     public const string CoreImage = "/System/Library/Frameworks/CoreImage.framework/CoreImage";
     public const string UIKit = "/System/Library/Frameworks/UIKit.framework/UIKit";
+    public const string SwiftUI = "/System/Library/Frameworks/SwiftUI.framework/SwiftUI";
 }

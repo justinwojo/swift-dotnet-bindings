@@ -107,6 +107,10 @@ namespace BindingsGeneration
             // database. Must match TypeProjectionFactory's Optional<T> fallback exactly:
             // IsKnownAppleModule + HasObjCClassPrefix → ObjCBridgedProjection.
             if (TypeProjectionFactory.IsKnownAppleModule(innerNamed.Module) &&
+                !TypeProjectionFactory.IsNestedType(innerNamed.Name) &&
+                !TypeDatabaseExtensions.IsKnownAppleValueType(innerNamed) &&
+                !TypeDatabaseExtensions.IsRemappedAppleValueType(innerNamed) &&
+                !TypeDatabaseExtensions.IsRemappedAppleEnum(innerNamed) &&
                 TypeProjectionFactory.HasObjCClassPrefix(innerNamed.Name))
                 return true;
             return false;

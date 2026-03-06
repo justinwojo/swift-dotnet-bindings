@@ -347,6 +347,26 @@ public class MarshallingHelpersTests
         Assert.False(MarshallingHelpers.IsOptionalObjCBridged(typeSpec, db));
     }
 
+    [Fact]
+    public void IsOptionalObjCBridged_UIKitObjCClass_ReturnsTrueViaFallback()
+    {
+        // CQ-7: UIKit.UIFont is not in the mock TypeDatabase, but the Apple module fallback
+        // now matches: IsKnownAppleModule("UIKit") + HasObjCClassPrefix("UIKit.UIFont").
+        var typeSpec = TypeSpecParser.Parse("Swift.Optional<UIKit.UIFont>");
+        var db = new MockTypeDatabase();
+        Assert.True(MarshallingHelpers.IsOptionalObjCBridged(typeSpec, db));
+    }
+
+    [Fact]
+    public void IsOptionalObjCBridged_NestedUIKitType_ReturnsFalse()
+    {
+        // Nested types like UIControl.State are structs/enums — the IsNestedType guard
+        // prevents the Apple module fallback from misidentifying them as ObjC classes.
+        var typeSpec = TypeSpecParser.Parse("Swift.Optional<UIKit.UIControl.State>");
+        var db = new MockTypeDatabase();
+        Assert.False(MarshallingHelpers.IsOptionalObjCBridged(typeSpec, db));
+    }
+
     /// <summary>Mock database with ObjC type records for IsOptionalObjCBridged tests.</summary>
     private class MockTypeDatabaseWithObjC : ITypeDatabase
     {

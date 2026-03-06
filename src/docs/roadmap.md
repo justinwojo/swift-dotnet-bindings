@@ -73,6 +73,7 @@ Items that add value but don't block a public release.
 | String enum raw values | GRDB ResultCode, CryptoSwift error codes | Blocked | No data source in compiled xcframeworks |
 | `Array<ObjCClass>` properties | StripeIdentity testing APIs | Small | Extend collection projection for ObjC-bridged element types |
 | `ConfigurationValue` property name collision | Nuke readability | Small | Alternative disambiguation strategy |
+| SwiftUI type public construction | Consumer ergonomics | Small | `SwiftUI.Color(red, green, blue)` like `SwiftColor`; current stubs are opaque pass-through handles |
 
 ### SwiftUI Bridge (4 remaining sessions)
 

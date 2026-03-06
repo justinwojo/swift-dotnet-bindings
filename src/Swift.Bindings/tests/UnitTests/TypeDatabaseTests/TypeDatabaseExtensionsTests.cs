@@ -1425,18 +1425,13 @@ public class TypeDatabaseExtensionsTests
     #region GetTypeRecordOrAnyType — Unsupported Apple Module Suppression
 
     [Theory]
-    [InlineData("SwiftUI.AnyView")]
     [InlineData("Combine.Publisher")]
     [InlineData("XCTest.XCTestCase")]
     public async Task GetTypeRecordOrAnyType_UnsupportedAppleModule_ReturnsAnyType(string typeName)
     {
-        // Types from unsupported Apple modules (SwiftUI, Combine, XCTest) must resolve
-        // to AnyType so that members referencing them are suppressed. This prevents
-        // CS0246 errors for types that have no C# equivalent.
-        // Regression: SwiftUIDatabase.xml has records for SwiftUI types, but
-        // GetTypeRecordOrAnyType must intercept BEFORE the database lookup.
+        // Types from unsupported Apple modules (Combine, XCTest) without C# stubs
+        // must resolve to AnyType so that members referencing them are suppressed.
         var typeDatabase = new TypeDatabase();
-        // Load the built-in SwiftUI database to reproduce the regression scenario
         var dbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Swift", "SwiftUIDatabase.xml");
         if (File.Exists(dbPath))
             await typeDatabase.LoadModuleDatabaseFromFile(dbPath);
@@ -1445,6 +1440,23 @@ public class TypeDatabaseExtensionsTests
         var record = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
 
         Assert.Equal(TypeDatabaseExtensions.AnyType, record);
+    }
+
+    [Fact]
+    public async Task GetTypeRecordOrAnyType_RegisteredSwiftUIType_ReturnsDatabaseRecord()
+    {
+        // CQ-6: Registered non-generic SwiftUI types (with C# ISwiftObject stubs)
+        // resolve to the database record, NOT AnyType.
+        var typeDatabase = new TypeDatabase();
+        var dbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Swift", "SwiftUIDatabase.xml");
+        if (File.Exists(dbPath))
+            await typeDatabase.LoadModuleDatabaseFromFile(dbPath);
+
+        var typeSpec = new NamedTypeSpec("SwiftUI.AnyView");
+        var record = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
+
+        Assert.NotEqual(TypeDatabaseExtensions.AnyType, record);
+        Assert.Equal("SwiftUI.AnyView", record.SwiftTypeName.ModuleQualifiedName);
     }
 
     [Theory]

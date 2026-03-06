@@ -704,11 +704,16 @@ public static class MemberEmissionValidator
                     return true;
                 if (namedType.HasModule() && GenericTypeEmitter.IsUnsupportedModule(namedType.Module))
                 {
-                    // SwiftUI/Combine types are always unsupported for member emission,
-                    // even when registered in the type database (SwiftUIDatabase.xml).
-                    // The database registration is for marshalling in the SwiftUI bridge emitter,
-                    // not for standalone library bindings where SwiftUI C# types don't exist.
-                    return true;
+                    // Registered non-generic types (with C# ISwiftObject stubs) pass through.
+                    // Generic usages, null DB, and unregistered types still rejected.
+                    if (typeDatabase == null ||
+                        namedType.ContainsGenericParameters ||
+                        !typeDatabase.TryGetTypeRecord(
+                            SwiftTypeName.FromModuleQualifiedName(namedType.Name), out _))
+                    {
+                        return true;
+                    }
+                    // Registered non-generic type — fall through to generic parameter check
                 }
                 foreach (var genericParam in namedType.GenericParameters)
                 {

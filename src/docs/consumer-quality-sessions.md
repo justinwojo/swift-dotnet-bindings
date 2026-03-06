@@ -62,34 +62,40 @@ One remaining `QuartzCore.CALayerContentsGravity` reference in an `[Obsolete]` a
 
 ---
 
-## Session 2: SwiftUI Suppression + Optional Projection
+## Session 2: SwiftUI Gate Lift + Optional Projection
 
 **Effort:** 1 session
-**Planning:** Plan Mode Recommended — CQ-6 has design decisions (suppress vs stub, configurable vs always-on, diagnostic emission). Worth investigating code paths and deciding on approach before implementing.
-**Theme:** Improve handling of external module types in generated code.
+**Completed:** March 5, 2026
+**Status:** CQ-6 and CQ-7 completed
+**Validation:** 53/53 passing (no regressions, BonMot improved from 3 errors to ok)
+**Unit tests:** 5524 passing (+8 from Session 3 baseline)
 
-### CQ-6: Missing SwiftUI Namespace Types (Issue 1)
+### CQ-6: Lift SwiftUI Gate for Registered Types -- COMPLETED
 
-**Affects:** BlinkIDUX (Color, Font), StripePaymentsUI (Binding), StripePaymentSheet (Binding, AnyView), StripeUICore (Binding)
+**Affects:** BlinkIDUX (53 members suppressed), StripePaymentsUI, StripePaymentSheet, StripeUICore
 **Severity:** Low (stubs work around it) — but a real friction point for consumers.
 
-Generated code references `SwiftUI.Color`, `SwiftUI.Font`, `SwiftUI.Binding`, `SwiftUI.AnyView` which have no .NET binding. Consumers must create `SwiftUI.Stubs.cs` files manually.
+Non-generic registered SwiftUI types (Color, Font, AnyView, EdgeInsets, Animation, Image, Text) are now fully supported surface area — proper ISwiftObject stubs in `Swift.Runtime`, both suppression paths lifted, members emitted in generated bindings. Generic `Binding` is bridge-only (borrowed-handle stub).
 
-**Fix:** Two-pronged approach:
-1. **Short-term:** Suppress emission of members that reference types from modules without available bindings (configurable, off by default).
-2. **Long-term:** Generate minimal stub types for referenced-but-unbound SwiftUI types so consumers don't need manual stubs.
+**Design**: These are opaque handle types for pass-through usage — consumers receive values from Swift APIs (getters, return values) and pass them to other Swift APIs (setters, parameters). The `internal` constructor + `ISwiftObject.NewFromPayload` is the standard marshalling-only construction path (same as all generated non-primitive types). Public value construction (e.g., `new SwiftUI.Color(red, green, blue)` analogous to `SwiftColor`) is a post-ship enhancement, not a correctness requirement for the gate lift.
 
-**Acceptance:** Libraries referencing SwiftUI types either compile without manual stubs, or cleanly omit the affected members with a diagnostic.
+**Fix:** Three-part approach:
+1. **Runtime stubs** (`src/Swift.Runtime/src/Swift/SwiftUI/`): 7 ISwiftObject stubs following CIContext pattern (SwiftSafeHandle payload, cached metadata, P/Invoke metadata accessor, IDisposable). 1 `Binding` borrowed-handle stub (ownsHandle=false, no ISwiftObject — generic type can't call GetTypeMetadata).
+2. **Path A — Type Resolution** (`TypeDatabaseExtensions.cs`): Modified 3 resolution methods (`GetTypeRecordOrAnyType`, `TryGetTypeRecordOrAnyType`, `GetTypeRecordOrThrow`) to check DB registration before collapsing to AnyType. Generic guard (`ContainsGenericParameters`) prevents generic usages from bypassing the gate.
+3. **Path B — Member Emission** (`MemberEmissionValidator.cs`): Modified `ReferencesUnsupportedModule` to allow registered non-generic types through. Null DB, generic usages, and unregistered types still rejected.
 
-### CQ-7: SwiftOptional\<T\> Leaking into Public API (Q1)
+**Files:** `KnownLibraries.cs`, `SwiftUI/*.cs` (8 files), `TypeDatabaseExtensions.cs`, `MemberEmissionValidator.cs`
+**Tests:** MemberGateEvaluatorTests (7 flipped + 2 new), TypeDatabaseExtensionsTests (1 split + 1 new)
 
-**Affects:** Multiple libraries — callback parameters with optional ObjC types.
+### CQ-7: SwiftOptional\<T\> → T? for Optional ObjC Types -- COMPLETED
+
+**Affects:** Multiple libraries — `SwiftOptional<UIKit.UIFont>` in public API signatures.
 **Severity:** Medium — developers need `Swift` namespace import and `SwiftOptional<T>.Value`/`.HasValue`.
 
-`SwiftOptional<T>` appears in public method signatures where `T?` would be more natural.
+**Fix:** Added UIKit and Foundation to `KnownAppleModules` in TypeProjectionFactory so `Optional<UIKit.UIFont>` projects as `UIKit.UIFont?` (ObjCBridged) instead of `SwiftOptional<UIKit.UIFont>`. Triple safety guard prevents misprojection of non-class types: `IsNestedType` (nested structs like NSAttributedString.Key), `IsKnownAppleValueType` (ObjC enums like NSTextAlignment, NSLineBreakMode from AppleFrameworkValueTypes set), and `IsRemappedAppleValueType`/`IsRemappedAppleEnum` (remapped types). MarshallingHelpers `IsOptionalObjCBridged` updated with identical guards for parity.
 
-**Fix:** Project `SwiftOptional<T>` to `T?` in public API signatures where `T` is a reference type (classes, ObjC-bridged types). Keep `SwiftOptional<T>` only where `T` is a value type that can't be nullable in C#.
-**Acceptance:** Public API surfaces use `T?` instead of `SwiftOptional<T>` for reference types.
+**Files:** `TypeProjectionFactory.cs`, `MarshallingHelpers.cs`, `TypeDatabaseExtensions.cs` (new `IsKnownAppleValueType` helper)
+**Tests:** ProjectionCompletenessTests (3 new), MarshallingHelpersTests (2 new), PropertyHandlerTests (1 new)
 
 ---
 

@@ -189,6 +189,10 @@ public class TypeProjectionFactory
                     !innerUnresolved.ContainsGenericParameters &&
                     !IsStdlibContainer(innerUnresolved.Name) &&
                     !IsPointerType(innerUnresolved.Name) &&
+                    !IsNestedType(innerUnresolved.Name) &&
+                    !TypeDatabaseExtensions.IsKnownAppleValueType(innerUnresolved) &&
+                    !TypeDatabaseExtensions.IsRemappedAppleValueType(innerUnresolved) &&
+                    !TypeDatabaseExtensions.IsRemappedAppleEnum(innerUnresolved) &&
                     IsKnownAppleModule(innerUnresolved.Module) &&
                     HasObjCClassPrefix(innerUnresolved.Name))
                 {
@@ -453,6 +457,7 @@ public class TypeProjectionFactory
         "CoreNFC", "CarPlay", "ClassKit", "CloudKit", "CoreData",
         "CoreImage", "CoreSpotlight", "CoreTelephony", "FileProvider",
         "MessageUI", "SafariServices", "Social", "WatchConnectivity",
+        "UIKit", "Foundation",
     };
 
     /// <summary>
@@ -489,7 +494,7 @@ public class TypeProjectionFactory
     /// (e.g., "Foundation.NSAttributedString.Key" has two dots → nested).
     /// Nested types like NSAttributedString.Key are structs/enums, not ObjC classes.
     /// </summary>
-    private static bool IsNestedType(string moduleQualifiedName)
+    internal static bool IsNestedType(string moduleQualifiedName)
     {
         var firstDot = moduleQualifiedName.IndexOf('.');
         if (firstDot < 0) return false;

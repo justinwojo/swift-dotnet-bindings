@@ -142,10 +142,15 @@ public static class TypeDatabaseExtensions
 
         // Types from unsupported Apple framework modules (SwiftUI, XCTest, Combine, etc.)
         // get mapped to AnyType so members referencing them are gracefully suppressed.
-        // Must be checked before the SwiftTypeName overload, which finds records in
-        // built-in databases (SwiftUIDatabase.xml) but the types have no C# equivalents.
+        // Exception: registered non-generic types with C# ISwiftObject stubs resolve normally.
         if (IsUnsupportedAppleModule(typeSpec))
         {
+            if (!typeSpec.ContainsGenericParameters)
+            {
+                var registeredName = SwiftTypeName.FromTypeSpec(typeSpec);
+                if (typeDatabase.TryGetTypeRecord(registeredName, out var registeredRecord))
+                    return registeredRecord;
+            }
             return AnyType;
         }
 
@@ -241,8 +246,18 @@ public static class TypeDatabaseExtensions
 
         // Types from unsupported Apple framework modules (SwiftUI, XCTest, Combine, etc.)
         // get mapped to AnyType so members referencing them are gracefully suppressed.
+        // Exception: registered non-generic types with C# ISwiftObject stubs resolve normally.
         if (IsUnsupportedAppleModule(typeSpec))
         {
+            if (!typeSpec.ContainsGenericParameters)
+            {
+                var registeredName = SwiftTypeName.FromTypeSpec(typeSpec);
+                if (typeDatabase.TryGetTypeRecord(registeredName, out var registeredRecord))
+                {
+                    record = registeredRecord;
+                    return true;
+                }
+            }
             record = AnyType;
             return true;
         }
@@ -318,8 +333,15 @@ public static class TypeDatabaseExtensions
         }
 
         // Unsupported Apple modules (SwiftUI, XCTest, etc.) → AnyType
+        // Exception: registered non-generic types with C# ISwiftObject stubs resolve normally.
         if (IsUnsupportedAppleModule(typeSpec))
         {
+            if (!typeSpec.ContainsGenericParameters)
+            {
+                var registeredName = SwiftTypeName.FromTypeSpec(typeSpec);
+                if (typeDatabase.TryGetTypeRecord(registeredName, out var registeredRecord))
+                    return registeredRecord;
+            }
             return AnyType;
         }
 
@@ -1051,6 +1073,18 @@ public static class TypeDatabaseExtensions
         if (!typeSpec.HasModule())
             return false;
         return AppleFrameworkTypeRemappings.ContainsKey(typeSpec.Name);
+    }
+
+    /// <summary>
+    /// Returns true if the type is a known Apple framework value type (struct or enum)
+    /// from the <see cref="AppleFrameworkValueTypes"/> set. This includes types like
+    /// UIKit.NSTextAlignment, UIKit.UIEdgeInsets that should NOT be ObjC-bridged.
+    /// </summary>
+    internal static bool IsKnownAppleValueType(NamedTypeSpec typeSpec)
+    {
+        if (!typeSpec.HasModule())
+            return false;
+        return AppleFrameworkValueTypes.Contains(typeSpec.Name);
     }
 
     /// <summary>
