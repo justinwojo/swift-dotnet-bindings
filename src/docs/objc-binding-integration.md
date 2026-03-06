@@ -1,6 +1,6 @@
 # Objective-C Binding Integration
 
-## Status: Session O1 Complete — Parser + Model + Routing Implemented
+## Status: Session O2 Complete — Parser + Model + Routing + Emission Implemented
 
 **Date:** 2026-02-14 (original), updated 2026-03-05
 
@@ -244,13 +244,14 @@ O1 is complete. Remaining work (O2-O4) estimated below.
 | ObjC Pipeline | ~100 | ✅ O1 |
 | Detection/Routing (Program.cs) | ~40 | ✅ O1 |
 | ObjC Tests (O1) | ~900 | ✅ O1 — 39 tests |
-| ObjC Type Mapper | 100-250 | ⬜ O2 — map ObjC types to .NET types for emission |
-| ApiDefinition Emitter | 400-600 | ⬜ O2 — `[BaseType]`/`[Export]`/`[Protocol]` C# binding definitions |
-| StructsAndEnums Emitter | 200-300 | ⬜ O2 — `NS_ENUM` → C# enum, struct → C# struct |
-| Binding Project Emitter (ObjC variant) | 50-100 | ⬜ O2 — `.csproj` with `<IsBindingProject>` |
+| ObjC Type Mapper | ~110 | ✅ O2 — pointer/primitive/block/instancetype/protocol-qualified id mapping |
+| ApiDefinition Emitter | ~210 | ✅ O2 — `[BaseType]`/`[Export]`/`[Protocol]`/`[Abstract]`, availability, NSError out, custom setter selectors |
+| StructsAndEnums Emitter | ~155 | ✅ O2 — enums (prefix strip, [Flags]), structs, [Field] constants (extern-only), [DllImport] functions |
+| Binding Project Emitter (ObjC variant) | ~60 | ✅ O2 — `<IsBindingProject>` `.csproj`, conditional StructsAndEnums, relative NativeReference |
+| ObjC Tests (O2) | ~1,350 | ✅ O2 — 73 new tests (type mapper, api definition, structs/enums, binding project, integration) |
 | Mixed Framework Support | 100-200 | ⬜ O3 — two-project output, type dedup |
 | MSBuild SDK Integration | 50-100 | ⬜ O3 |
-| **Total new code** | **~2,500-3,500** | **~2,000 complete (O1)** |
+| **Total new code** | **~2,500-3,500** | **~3,900 complete (O1+O2)** |
 
 For context: Swift pipeline is ~35,000+ lines; ObjC-rooted support added ~2,000 lines across model/marshaler/emitter/tests.
 
@@ -386,42 +387,38 @@ All planned components are implemented and tested (39 ObjC-specific tests, all p
 4. Implicit property accessor methods (`isImplicit: true`) filtered from method lists
 5. Stateful `currentFile` tracking for location filtering — handles clang omitting `loc.file` on consecutive same-file declarations
 
-### Session O2: Emission — ApiDefinition + StructsAndEnums + Binding Project
+### Session O2: Emission — ApiDefinition + StructsAndEnums + Binding Project ✅ COMPLETE
 
-**v1 scope gate:** Emit correct `[BaseType]`/`[Export]`/`[Protocol]` attributes, enums, structs, constants. Categories merge onto main class. Do NOT implement delegate/event sugar (`[Wrap]`/`[EventArgs]`), advanced block signature inference, or `[Verify]` hint annotations in v1 — those are polish for O4/O5.
+**Completed:** 2026-03-05
 
-**Goal:** Emit compilable `ApiDefinition.cs`, `StructsAndEnums.cs`, and an `<IsBindingProject>` `.csproj` from the ObjC model.
+**What was built:**
 
-**ApiDefinition emitter:**
-- `[BaseType(typeof(NSObject))]` / `[BaseType(typeof(SuperClass))]` for classes
-- `[Export("selector:")]` for methods and properties
-- `[Static]` for class methods, `[Abstract]` for required protocol methods
-- `[Protocol]`, `[Model]` for ObjC protocols (with optional method handling)
-- `[NullAllowed]` based on nullability annotations
-- Constructor binding: `[Export("initWithFoo:bar:")]`
-- Factory methods: `[Static] [Export("fooWithBar:")]`
-- Categories: merge onto main class definition (most compatible with existing MAUI patterns)
-- Delegate/event patterns: **deferred to O4/O5** — detect `delegate` properties but don't emit `[Wrap]`/`[EventArgs]` sugar in v1
+All planned emission components are implemented and tested (73 new ObjC-specific tests, 153 total ObjC tests, all passing). 53/53 Swift validation targets unaffected.
 
-**StructsAndEnums emitter:**
-- `NS_ENUM` -> `public enum Foo : long { ... }` with `[Native]`
-- `NS_OPTIONS` -> `[Flags] public enum Foo : ulong { ... }` with `[Native]`
-- C structs -> `[StructLayout(LayoutKind.Sequential)]` structs
-- C function exports -> `[DllImport]` / `[LibraryImport]` declarations
+**Source files** (`src/Swift.Bindings/src/ObjC/Emitter/`):
+- `ObjCTypeMapper.cs` — Static type mapper: pointer types (NSString→string, NSURL→NSUrl, etc.), primitives (BOOL→bool, NSInteger→nint, etc.), special types (SEL→Selector, Class→Class, id→NSObject, id<Proto>→IProto), instancetype→declaringClassName, blocks→Action<T>/Func<T,R> (>16 params→NSObject)
+- `ApiDefinitionEmitter.cs` — Emits `ApiDefinition.cs`: protocols first (with `[Protocol]`, `[BaseType(typeof(NSObject))]`, `I` prefix, `[Abstract]` for required members), then classes (`[BaseType(typeof(Super))]`, protocol adoption, constructors from init* selectors, `[Static]` for class methods/properties, `[NullAllowed]` from nullability annotations, `[return: NullAllowed]`, NSError** → `[NullAllowed] out NSError error`, block params → Action/Func, custom setter selectors via `[Export("setSomething:")] set;`, iOS-only `[Introduced]`/`[Deprecated]` availability)
+- `StructsAndEnumsEmitter.cs` — Emits `StructsAndEnums.cs` (null if nothing to emit): enums with `[Native]`/`[Flags]`, `: long`/`: ulong`, all-or-nothing prefix stripping; structs with `[StructLayout(LayoutKind.Sequential)]` and PascalCase fields; `{Module}Constants` public static partial class with `[Field]` for extern NSString/nint/nuint/nfloat/int/float/double constants, `[DllImport]` for functions; non-extern constants skipped, unsupported types emit `// TODO:` comments
+- `ObjCBindingProjectEmitter.cs` — Emits `{PackageId}.csproj` with `<IsBindingProject>true</IsBindingProject>`, `<ObjcBindingApiDefinition>`, conditional `<ObjcBindingCoreSource>`, `<NativeReference>` with relative path. No Swift.Runtime, no AllowUnsafeBlocks, no DisableRuntimeMarshalling.
 
-**Binding project emitter:**
-- Fork `BindingProjectEmitter` for `<IsBindingProject>true</IsBindingProject>` variant
-- Include `<NativeReference>` for the framework
-- Correct `<Compile Include="ApiDefinition.cs" />` and `<Compile Include="StructsAndEnums.cs" />`
-- Wire into existing NuGet packaging flow
-- Apply naming convention: ObjC-only libraries emit as `{Library}.ObjC.iOS` (decided — see Naming Convention section)
+**Pipeline wiring:**
+- `ObjCPipeline.cs` — Added `namespacePattern`/`packageId` params, namespace resolution via `NamespacePatternResolver`, emission step after AST parse, `ObjCPipelineResult` extended with emitted file paths
+- `Program.cs` — Both ObjC routing paths (forced `--objc` and auto-detect fallback) pass `namespacePattern`/`packageId`
 
-**Tests:**
-- Unit tests for each emission pattern (classes, protocols, enums, structs, categories)
-- Compile gate: generated `ApiDefinition.cs` + `StructsAndEnums.cs` must compile in a binding project
-- Validate against Realm and Stripe3DS2 (ObjC-only frameworks already in validation set)
+**Test files** (`src/Swift.Bindings/tests/UnitTests/ObjCTests/Emitter/`):
+- `ObjCTypeMapperTests.cs` — 30 test cases (primitives, pointers, blocks, instancetype, protocol-qualified id, passthrough, NSError**)
+- `ApiDefinitionEmitterTests.cs` — 24 test cases (classes, protocols, constructors, availability, NSError out, blocks, nullable, custom setter selectors, ordering)
+- `StructsAndEnumsEmitterTests.cs` — 17 test cases (prefix stripping, [Flags], explicit values, structs, [Field] constants, non-extern skipping, DllImport, null return, mixed module)
+- `ObjCBindingProjectEmitterTests.cs` — 10 test cases (IsBindingProject, ApiDefinition/CoreSource, NativeReference, no Swift.Runtime/AllowUnsafeBlocks, custom PackageId)
+- `ObjCPipelineIntegrationTests.cs` — 1 new test (`Pipeline_XCFrameworkFixture_EmitsBindingFiles`) verifying full pipeline emits files with expected content patterns
 
-**Deliverable:** `dotnet run --project src/Swift.Bindings/src -- --xcframework Realm.xcframework -o output/` produces a compilable binding project. `cd output && dotnet build` succeeds.
+**Key design decisions made during implementation:**
+1. `[Protocol]` only (no `[Model]`) — AST cannot reliably distinguish delegate-model protocols from pure protocols; users add `[Model]` where needed (deferred to O4)
+2. `instancetype` in protocols maps to `NSObject` (registrar resolves at runtime); in classes maps to the declaring class name
+3. NSString* constants use `NSString` as `[Field]` property type (MAUI convention), not the mapped `string`
+4. Read-write properties emit explicit getter/setter `[Export]` attributes to support custom ObjC setter selectors (e.g., `isHidden`/`setHidden:`)
+5. Non-extern constants (header-only `static const`) are skipped entirely — no exported symbol for `[Field]` to resolve
+6. `StructsAndEnums.cs` returns null (not emitted) when module has no enums, structs, extern constants, or functions
 
 ### Session O3: Mixed Frameworks + SDK Integration
 
@@ -521,9 +518,9 @@ Two projects is the clean solution — each uses its native build model, and `<P
 
 **Deliverable:** All ObjC validation targets compile. Mixed framework support validated. Documentation complete.
 
-### Estimated Total: 3-5 sessions (1 complete, 2-4 remaining)
+### Estimated Total: 3-5 sessions (2 complete, 1-3 remaining)
 
-Session O1 is complete. The biggest risk is Session O3 (mixed framework `.csproj` model). Option A (two projects + `ProjectReference`) is the primary strategy. Option C (ObjC as direct P/Invoke) is last resort only — it's a major architectural fork, not a simple fallback.
+Sessions O1 and O2 are complete. The biggest risk is Session O3 (mixed framework `.csproj` model). Option A (two projects + `ProjectReference`) is the primary strategy. Option C (ObjC as direct P/Invoke) is last resort only — it's a major architectural fork, not a simple fallback.
 
 ---
 

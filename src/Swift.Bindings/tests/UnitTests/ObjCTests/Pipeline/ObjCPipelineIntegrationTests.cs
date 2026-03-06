@@ -156,6 +156,118 @@ public class ObjCPipelineIntegrationTests
     }
 
     /// <summary>
+    /// Full pipeline test: verifies that emitters produce ApiDefinition.cs, StructsAndEnums.cs, and .csproj.
+    /// </summary>
+    [Fact]
+    public void Pipeline_XCFrameworkFixture_EmitsBindingFiles()
+    {
+        if (!HasXcode())
+            return;
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"objc_emit_test_{Guid.NewGuid():N}");
+        try
+        {
+            var xcfwPath = Path.Combine(tempDir, "TestObjCLib.xcframework");
+            var sliceId = "ios-arm64_x86_64-simulator";
+            var fwName = "TestObjCLib";
+            var sliceDir = Path.Combine(xcfwPath, sliceId);
+            var fwDir = Path.Combine(sliceDir, $"{fwName}.framework");
+            var headersDir = Path.Combine(fwDir, "Headers");
+            var modulesDir = Path.Combine(fwDir, "Modules");
+
+            Directory.CreateDirectory(headersDir);
+            Directory.CreateDirectory(modulesDir);
+
+            File.WriteAllText(Path.Combine(xcfwPath, "Info.plist"), $"""
+                <?xml version="1.0" encoding="UTF-8"?>
+                <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+                <plist version="1.0">
+                <dict>
+                    <key>AvailableLibraries</key>
+                    <array>
+                        <dict>
+                            <key>BinaryPath</key><string>{fwName}.framework/{fwName}</string>
+                            <key>LibraryIdentifier</key><string>{sliceId}</string>
+                            <key>LibraryPath</key><string>{fwName}.framework</string>
+                            <key>SupportedArchitectures</key><array><string>arm64</string><string>x86_64</string></array>
+                            <key>SupportedPlatform</key><string>ios</string>
+                            <key>SupportedPlatformVariant</key><string>simulator</string>
+                        </dict>
+                    </array>
+                    <key>CFBundlePackageType</key><string>XFWK</string>
+                    <key>XCFrameworkFormatVersion</key><string>1.0</string>
+                </dict>
+                </plist>
+                """);
+
+            File.WriteAllText(Path.Combine(modulesDir, "module.modulemap"),
+                $"framework module {fwName} {{\n  umbrella header \"{fwName}.h\"\n  export *\n  module * {{ export * }}\n}}\n");
+
+            File.WriteAllText(Path.Combine(headersDir, $"{fwName}.h"), """
+                #import <Foundation/Foundation.h>
+
+                NS_ASSUME_NONNULL_BEGIN
+
+                typedef NS_ENUM(NSInteger, TLStatus) {
+                    TLStatusIdle = 0,
+                    TLStatusActive = 1,
+                };
+
+                @interface TLManager : NSObject
+                @property (nonatomic, readonly) BOOL isReady;
+                - (void)startWithCompletion:(void (^)(BOOL success))completion;
+                @end
+
+                NS_ASSUME_NONNULL_END
+                """);
+
+            File.WriteAllText(Path.Combine(sliceDir, $"{fwName}.framework/{fwName}"), "");
+
+            var outputDir = Path.Combine(tempDir, "output");
+            Directory.CreateDirectory(outputDir);
+
+            var resolution = XCFrameworkResolver.ResolveObjCFramework(
+                xcfwPath, XCFrameworkPlatformTarget.Simulator, Logger);
+            Assert.NotNull(resolution);
+
+            var result = ObjCPipeline.Run(
+                resolution!, xcfwPath, outputDir, XCFrameworkPlatformTarget.Simulator, Logger);
+
+            Assert.Equal(0, result.ExitCode);
+
+            // Verify emitted file paths are populated
+            Assert.NotNull(result.ApiDefinitionPath);
+            Assert.NotNull(result.ProjectPath);
+
+            // Verify files exist on disk
+            Assert.True(File.Exists(result.ApiDefinitionPath), "ApiDefinition.cs should exist");
+            Assert.True(File.Exists(result.ProjectPath), ".csproj should exist");
+
+            // Verify ApiDefinition.cs content
+            var apiDef = File.ReadAllText(result.ApiDefinitionPath!);
+            Assert.Contains("partial interface TLManager", apiDef);
+            Assert.Contains("[Export(", apiDef);
+            Assert.Contains("namespace TestObjCLib", apiDef);
+
+            // Verify .csproj content
+            var csproj = File.ReadAllText(result.ProjectPath!);
+            Assert.Contains("IsBindingProject", csproj);
+            Assert.Contains("ObjcBindingApiDefinition", csproj);
+
+            // StructsAndEnums may or may not be emitted depending on parsed declarations
+            if (result.StructsAndEnumsPath != null)
+                Assert.True(File.Exists(result.StructsAndEnumsPath), "StructsAndEnums.cs should exist when path is set");
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                try { Directory.Delete(tempDir, true); } catch { }
+            }
+        }
+    }
+
+    /// <summary>
     /// Parser-level test using CoreBluetooth SDK headers.
     /// Validates that the parser handles real Apple framework output correctly.
     /// </summary>

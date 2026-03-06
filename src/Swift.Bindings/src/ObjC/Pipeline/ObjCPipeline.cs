@@ -1,11 +1,18 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using BindingsGeneration;
 using Microsoft.Extensions.Logging;
 
 namespace BindingsGeneration.ObjC;
 
-public sealed record ObjCPipelineResult(int ExitCode, ObjCModule? Module, string? ErrorMessage);
+public sealed record ObjCPipelineResult(
+    int ExitCode,
+    ObjCModule? Module,
+    string? ErrorMessage,
+    string? ApiDefinitionPath = null,
+    string? StructsAndEnumsPath = null,
+    string? ProjectPath = null);
 
 /// <summary>
 /// Orchestrates the ObjC binding pipeline: resolve framework -> invoke clang -> parse AST -> summary.
@@ -18,7 +25,9 @@ public static class ObjCPipeline
         string outputDirectory,
         XCFrameworkPlatformTarget platformTarget,
         ILogger logger,
-        ICommandRunner? commandRunner = null)
+        ICommandRunner? commandRunner = null,
+        string? namespacePattern = null,
+        string? packageId = null)
     {
         commandRunner ??= new SystemCommandRunner();
 
@@ -64,10 +73,25 @@ public static class ObjCPipeline
             return new ObjCPipelineResult(1, null, $"AST parsing failed: {ex.Message}");
         }
 
-        // 5. Dump summary
+        // 5. Emit bindings
+        var namespaceResolver = new NamespacePatternResolver(namespacePattern, resolution.ModuleName);
+        var resolvedNamespace = namespaceResolver.ResolveNamespace(resolution.ModuleName);
+
+        var apiDefPath = ApiDefinitionEmitter.Emit(module, outputDirectory, resolvedNamespace, logger);
+        var structsPath = StructsAndEnumsEmitter.Emit(module, outputDirectory, resolvedNamespace, logger);
+        var projectPath = ObjCBindingProjectEmitter.Emit(
+            new ObjCBindingProjectOptions
+            {
+                OutputDirectory = outputDirectory,
+                ModuleName = resolution.ModuleName,
+                SourceXCFrameworkPath = xcframeworkPath,
+                PackageId = packageId,
+            }, logger);
+
+        // 6. Dump summary
         DumpSummary(module, logger);
 
-        return new ObjCPipelineResult(0, module, null);
+        return new ObjCPipelineResult(0, module, null, apiDefPath, structsPath, projectPath);
     }
 
     private static void DumpSummary(ObjCModule module, ILogger logger)

@@ -246,7 +246,8 @@ namespace BindingsGeneration
                             return;
                         }
                         var objcResult = ObjCPipeline.Run(
-                            objcResolution, xcframeworkPath!, outputDirectory, platformTarget, logger);
+                            objcResolution, xcframeworkPath!, outputDirectory, platformTarget, logger,
+                            namespacePattern: namespacePattern, packageId: packageId);
                         context.ExitCode = objcResult.ExitCode;
                         if (objcResult.ErrorMessage != null)
                             logger.LogError("{Message}", objcResult.ErrorMessage);
@@ -276,7 +277,8 @@ namespace BindingsGeneration
                             return;
                         }
                         var objcResult = ObjCPipeline.Run(
-                            objcResolution, xcframeworkPath!, outputDirectory, platformTarget, logger);
+                            objcResolution, xcframeworkPath!, outputDirectory, platformTarget, logger,
+                            namespacePattern: namespacePattern, packageId: packageId);
                         context.ExitCode = objcResult.ExitCode;
                         if (objcResult.ErrorMessage != null)
                             logger.LogError("{Message}", objcResult.ErrorMessage);
