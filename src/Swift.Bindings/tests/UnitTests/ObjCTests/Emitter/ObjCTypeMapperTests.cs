@@ -578,4 +578,32 @@ public class ObjCTypeMapperTests
         Assert.True(map.ContainsKey("MyBlock"));
         Assert.False(map.ContainsKey("MyAlias"));
     }
+
+    [Theory]
+    [InlineData("uint16_t", false, "ushort")]
+    [InlineData("int16_t", false, "short")]
+    [InlineData("CFAbsoluteTime", false, "double")]
+    [InlineData("Float64", false, "double")]
+    [InlineData("CLLocationDegrees", false, "double")]
+    [InlineData("size_t", false, "nuint")]
+    [InlineData("NSUUID", true, "NSUuid")]
+    [InlineData("NSURLRequest", true, "NSUrlRequest")]
+    public void MapType_NewSystemTypes(string name, bool isPointer, string expected)
+    {
+        var typeRef = new ObjCTypeRef { Name = name, IsPointer = isPointer };
+        Assert.Equal(expected, ObjCTypeMapper.MapType(typeRef));
+    }
+
+    [Theory]
+    [InlineData("CFTypeRef", "IntPtr")]
+    [InlineData("CFArrayRef", "IntPtr")]
+    [InlineData("CFStringRef", "IntPtr")]
+    [InlineData("CGColorSpaceRef", "CGColorSpace")]
+    [InlineData("CVPixelBufferRef", "IntPtr")]
+    [InlineData("dispatch_block_t", "Action")]
+    public void MapType_CoreFoundationRefTypes(string name, string expected)
+    {
+        var typeRef = new ObjCTypeRef { Name = name };
+        Assert.Equal(expected, ObjCTypeMapper.MapType(typeRef));
+    }
 }

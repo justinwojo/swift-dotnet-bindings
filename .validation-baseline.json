@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-03-06T20:48:21Z",
-  "git_sha": "a0e19fb",
+  "timestamp": "2026-03-06T21:58:04Z",
+  "git_sha": "caf98f2",
   "runtime_version": "0.1.0-preview.5",
   "compile_gate": {
     "total": 55,
@@ -20,7 +20,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 46123,
-        "gen_seconds": 4,
+        "gen_seconds": 3,
         "dep_compile": "none"
       },
       "BlinkIDUX": {
@@ -28,15 +28,15 @@
         "compile": "fail",
         "errors": 11,
         "lines": 11942,
-        "gen_seconds": 3,
+        "gen_seconds": 2,
         "dep_compile": "ok"
       },
       "BRLMPrinterKit": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
-        "lines": 1978,
-        "gen_seconds": 8,
+        "lines": 1985,
+        "gen_seconds": 7,
         "dep_compile": "none"
       },
       "CryptoSwift": {
@@ -44,7 +44,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 24145,
-        "gen_seconds": 3,
+        "gen_seconds": 2,
         "dep_compile": "none"
       },
       "GRDB": {
@@ -68,7 +68,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 54536,
-        "gen_seconds": 4,
+        "gen_seconds": 7,
         "dep_compile": "none"
       },
       "Lottie": {
@@ -84,7 +84,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 47521,
-        "gen_seconds": 7,
+        "gen_seconds": 6,
         "dep_compile": "none"
       },
       "MicroblinkPlatform": {
@@ -100,7 +100,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 8552,
-        "gen_seconds": 3,
+        "gen_seconds": 2,
         "dep_compile": "none"
       },
       "Nuke": {
@@ -108,7 +108,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 21721,
-        "gen_seconds": 3,
+        "gen_seconds": 2,
         "dep_compile": "none"
       },
       "RxSwift": {
@@ -140,7 +140,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 11596,
-        "gen_seconds": 3,
+        "gen_seconds": 2,
         "dep_compile": "none"
       },
       "Starscream": {
@@ -148,7 +148,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 15400,
-        "gen_seconds": 5,
+        "gen_seconds": 6,
         "dep_compile": "none"
       },
       "Stripe": {
@@ -180,7 +180,7 @@
         "compile": "infra_fail",
         "errors": 0,
         "lines": 2692,
-        "gen_seconds": 5,
+        "gen_seconds": 7,
         "dep_compile": "ok"
       },
       "StripeConnect": {
@@ -188,7 +188,7 @@
         "compile": "fail",
         "errors": 1,
         "lines": 12156,
-        "gen_seconds": 4,
+        "gen_seconds": 3,
         "dep_compile": "ok"
       },
       "StripeCore": {
@@ -196,7 +196,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 33268,
-        "gen_seconds": 2,
+        "gen_seconds": 3,
         "dep_compile": "none"
       },
       "StripeCryptoOnramp": {
@@ -204,7 +204,7 @@
         "compile": "fail",
         "errors": 8,
         "lines": 6032,
-        "gen_seconds": 6,
+        "gen_seconds": 7,
         "dep_compile": "ok"
       },
       "StripeFinancialConnections": {
@@ -212,7 +212,7 @@
         "compile": "fail",
         "errors": 22,
         "lines": 2729,
-        "gen_seconds": 2,
+        "gen_seconds": 4,
         "dep_compile": "ok"
       },
       "StripeIdentity": {
@@ -220,7 +220,7 @@
         "compile": "infra_fail",
         "errors": 0,
         "lines": 1846,
-        "gen_seconds": 5,
+        "gen_seconds": 7,
         "dep_compile": "ok"
       },
       "StripeIssuing": {
@@ -244,7 +244,7 @@
         "compile": "fail",
         "errors": 82,
         "lines": 49667,
-        "gen_seconds": 6,
+        "gen_seconds": 7,
         "dep_compile": "ok"
       },
       "StripePaymentsUI": {
@@ -252,7 +252,7 @@
         "compile": "fail",
         "errors": 43,
         "lines": 13923,
-        "gen_seconds": 3,
+        "gen_seconds": 5,
         "dep_compile": "ok"
       },
       "StripeUICore": {
@@ -260,23 +260,23 @@
         "compile": "fail",
         "errors": 3,
         "lines": 31910,
-        "gen_seconds": 3,
+        "gen_seconds": 4,
         "dep_compile": "ok"
       },
       "Realm": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
-        "lines": 3244,
-        "gen_seconds": 6,
+        "lines": 3251,
+        "gen_seconds": 7,
         "dep_compile": "none"
       },
       "Stripe3DS2": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
-        "lines": 777,
-        "gen_seconds": 4,
+        "lines": 784,
+        "gen_seconds": 6,
         "dep_compile": "none"
       },
       "DeviceKit": {
@@ -284,7 +284,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 6821,
-        "gen_seconds": 2,
+        "gen_seconds": 1,
         "dep_compile": "none"
       },
       "Swinject": {
@@ -332,7 +332,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 7626,
-        "gen_seconds": 2,
+        "gen_seconds": 1,
         "dep_compile": "none"
       },
       "ObjectMapper": {
@@ -340,7 +340,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 5255,
-        "gen_seconds": 2,
+        "gen_seconds": 1,
         "dep_compile": "none"
       },
       "BonMot": {
@@ -348,7 +348,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 14043,
-        "gen_seconds": 2,
+        "gen_seconds": 3,
         "dep_compile": "none"
       },
       "Parchment": {
@@ -356,7 +356,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 17477,
-        "gen_seconds": 8,
+        "gen_seconds": 7,
         "dep_compile": "none"
       },
       "KeychainSwift": {
@@ -380,7 +380,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 4258,
-        "gen_seconds": 2,
+        "gen_seconds": 3,
         "dep_compile": "none"
       },
       "SwiftyGif": {
@@ -396,7 +396,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 4210,
-        "gen_seconds": 1,
+        "gen_seconds": 2,
         "dep_compile": "none"
       },
       "DifferenceKit": {
@@ -412,7 +412,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 2084,
-        "gen_seconds": 1,
+        "gen_seconds": 2,
         "dep_compile": "none"
       },
       "AMPopTip": {
@@ -444,7 +444,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 12143,
-        "gen_seconds": 2,
+        "gen_seconds": 3,
         "dep_compile": "none"
       }
     }

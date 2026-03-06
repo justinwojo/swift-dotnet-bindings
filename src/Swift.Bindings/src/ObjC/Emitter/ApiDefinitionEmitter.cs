@@ -16,8 +16,15 @@ public static class ApiDefinitionEmitter
         var sb = new StringBuilder();
         sb.AppendLine("using System;");
         sb.AppendLine("using AuthenticationServices;");
+        sb.AppendLine("using AVFoundation;");
+        sb.AppendLine("using BackgroundAssets;");
         sb.AppendLine("using CoreFoundation;");
+        sb.AppendLine("using CoreImage;");
+        sb.AppendLine("using CoreLocation;");
+        sb.AppendLine("using CoreMedia;");
         sb.AppendLine("using Foundation;");
+        sb.AppendLine("using ImageIO;");
+        sb.AppendLine("using Metal;");
         sb.AppendLine("using ObjCRuntime;");
         sb.AppendLine("using CoreGraphics;");
         sb.AppendLine("using UIKit;");
@@ -63,11 +70,16 @@ public static class ApiDefinitionEmitter
         sb.AppendLine("    {");
 
         // Protocols don't declare ObjC lightweight generics — only pass the common fallback set
+        var emittedMethodSignatures = new HashSet<string>();
+        var emittedMemberNames = new HashSet<string>();
         foreach (var method in proto.Methods)
-            EmitMethod(sb, method, declaringClassName: null, isProtocol: true, genericTypeParams: null, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap);
+        {
+            var emittedName = EmitMethod(sb, method, declaringClassName: null, isProtocol: true, genericTypeParams: null, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMethodSignatures: emittedMethodSignatures);
+            if (emittedName != null) emittedMemberNames.Add(emittedName);
+        }
 
         foreach (var prop in proto.Properties)
-            EmitProperty(sb, prop, declaringClassName: null, genericTypeParams: null, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap);
+            EmitProperty(sb, prop, declaringClassName: null, genericTypeParams: null, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedPropertyNames: emittedMemberNames);
 
         sb.AppendLine("    }");
         sb.AppendLine();
@@ -103,15 +115,19 @@ public static class ApiDefinitionEmitter
             ? new HashSet<string>(cls.GenericTypeParamNames)
             : null;
 
-        // Track emitted signatures to detect duplicates (constructors and methods)
+        // Track emitted signatures to detect duplicates (constructors, methods, properties)
         var emittedConstructorSignatures = new HashSet<string>();
         var emittedMethodSignatures = new HashSet<string>();
+        var emittedMemberNames = new HashSet<string>();
 
         foreach (var method in cls.Methods)
-            EmitMethod(sb, method, declaringClassName: cls.Name, isProtocol: false, genericTypeParams: classGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedConstructorSignatures: emittedConstructorSignatures, emittedMethodSignatures: emittedMethodSignatures);
+        {
+            var emittedName = EmitMethod(sb, method, declaringClassName: cls.Name, isProtocol: false, genericTypeParams: classGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedConstructorSignatures: emittedConstructorSignatures, emittedMethodSignatures: emittedMethodSignatures);
+            if (emittedName != null) emittedMemberNames.Add(emittedName);
+        }
 
         foreach (var prop in cls.Properties)
-            EmitProperty(sb, prop, declaringClassName: cls.Name, genericTypeParams: classGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap);
+            EmitProperty(sb, prop, declaringClassName: cls.Name, genericTypeParams: classGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedPropertyNames: emittedMemberNames);
 
         sb.AppendLine("    }");
         sb.AppendLine();
@@ -140,17 +156,19 @@ public static class ApiDefinitionEmitter
             : null;
 
         var emittedMethodSignatures = new HashSet<string>();
+        var emittedMemberNames = new HashSet<string>();
 
         // Filter out init methods — MAUI category interfaces cannot declare constructors
         foreach (var method in cat.Methods)
         {
             if (method.Selector == "init" || method.Selector.StartsWith("initWith", StringComparison.Ordinal))
                 continue;
-            EmitMethod(sb, method, declaringClassName: cat.ClassName, isProtocol: false, genericTypeParams: categoryGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMethodSignatures: emittedMethodSignatures);
+            var emittedName = EmitMethod(sb, method, declaringClassName: cat.ClassName, isProtocol: false, genericTypeParams: categoryGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMethodSignatures: emittedMethodSignatures);
+            if (emittedName != null) emittedMemberNames.Add(emittedName);
         }
 
         foreach (var prop in cat.Properties)
-            EmitProperty(sb, prop, declaringClassName: cat.ClassName, genericTypeParams: categoryGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap);
+            EmitProperty(sb, prop, declaringClassName: cat.ClassName, genericTypeParams: categoryGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedPropertyNames: emittedMemberNames);
 
         sb.AppendLine("    }");
         sb.AppendLine();
@@ -163,7 +181,11 @@ public static class ApiDefinitionEmitter
             : $"{className}_{categoryName}";
     }
 
-    static void EmitMethod(StringBuilder sb, ObjCMethodDecl method, string? declaringClassName, bool isProtocol, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null, HashSet<string>? emittedConstructorSignatures = null, HashSet<string>? emittedMethodSignatures = null)
+    /// <summary>
+    /// Emits a method and returns the final emitted C# method name (after any dedup renaming),
+    /// or null for constructors. Callers use this to track method-property name collisions.
+    /// </summary>
+    static string? EmitMethod(StringBuilder sb, ObjCMethodDecl method, string? declaringClassName, bool isProtocol, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null, HashSet<string>? emittedConstructorSignatures = null, HashSet<string>? emittedMethodSignatures = null)
     {
         EmitAvailabilityAttributes(sb, method.Availability, "        ");
 
@@ -221,10 +243,15 @@ public static class ApiDefinitionEmitter
         var parameters = EmitParameters(method.Parameters, genericTypeParams, typedefMap, blockTypedefMap);
         sb.AppendLine($"        {returnType} {methodName}({parameters});");
         sb.AppendLine();
+
+        return isConstructor ? null : methodName;
     }
 
-    static void EmitProperty(StringBuilder sb, ObjCPropertyDecl prop, string? declaringClassName, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null)
+    static void EmitProperty(StringBuilder sb, ObjCPropertyDecl prop, string? declaringClassName, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null, HashSet<string>? emittedPropertyNames = null)
     {
+        var propName = ToPascalCase(prop.Name);
+        if (emittedPropertyNames != null && !emittedPropertyNames.Add(propName))
+            return;
         EmitAvailabilityAttributes(sb, prop.Availability, "        ");
 
         if (!prop.IsOptional)

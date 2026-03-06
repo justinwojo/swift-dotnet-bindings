@@ -1589,4 +1589,157 @@ public class ApiDefinitionEmitterTests
     {
         Assert.Equal(expected, ApiDefinitionEmitter.GenerateCategoryInterfaceName(className, categoryName));
     }
+
+    [Fact]
+    public void Emit_ProtocolMethodDedup_RenamesCollisions()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols = [new ObjCProtocolDecl
+            {
+                Name = "ManagerDelegate",
+                Methods =
+                [
+                    new ObjCMethodDecl { Selector = "manager:didConnect:", ReturnType = new ObjCTypeRef { Name = "void" }, IsInstanceMethod = true,
+                        Parameters = [new ObjCParameterDecl { Name = "manager", Type = new ObjCTypeRef { Name = "NSObject", IsPointer = true } }, new ObjCParameterDecl { Name = "peer", Type = new ObjCTypeRef { Name = "NSObject", IsPointer = true } }] },
+                    new ObjCMethodDecl { Selector = "manager:didDisconnect:", ReturnType = new ObjCTypeRef { Name = "void" }, IsInstanceMethod = true,
+                        Parameters = [new ObjCParameterDecl { Name = "manager", Type = new ObjCTypeRef { Name = "NSObject", IsPointer = true } }, new ObjCParameterDecl { Name = "peer", Type = new ObjCTypeRef { Name = "NSObject", IsPointer = true } }] },
+                ]
+            }]
+        };
+
+        var result = EmitAndRead(module);
+        // First method keeps short name
+        Assert.Contains("void Manager(NSObject manager, NSObject peer);", result);
+        // Second collision renamed to full selector
+        Assert.Contains("void ManagerDidDisconnect(NSObject manager, NSObject peer);", result);
+    }
+
+    [Fact]
+    public void Emit_DuplicateProperty_SecondSkipped()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes = [new ObjCClassDecl
+            {
+                Name = "Manager",
+                Properties =
+                [
+                    new ObjCPropertyDecl { Name = "authorization", Type = new ObjCTypeRef { Name = "int" }, IsReadonly = true },
+                    new ObjCPropertyDecl { Name = "authorization", Type = new ObjCTypeRef { Name = "int" }, IsReadonly = true },
+                ]
+            }]
+        };
+
+        var result = EmitAndRead(module);
+        // Only one property: Export contains selector name, property line has PascalCase
+        Assert.Single(result.Split('\n'), l => l.Contains("{ get; }"));
+    }
+
+    [Fact]
+    public void Emit_MethodPropertyNameCollision_PropertySkipped()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes = [new ObjCClassDecl
+            {
+                Name = "Manager",
+                Methods = [new ObjCMethodDecl { Selector = "isEnabled", ReturnType = new ObjCTypeRef { Name = "BOOL" }, IsInstanceMethod = false }],
+                Properties = [new ObjCPropertyDecl { Name = "isEnabled", Type = new ObjCTypeRef { Name = "BOOL" }, IsReadonly = true }]
+            }]
+        };
+
+        var result = EmitAndRead(module);
+        // Method emitted
+        Assert.Contains("[Export(\"isEnabled\")]", result);
+        // Property with same PascalCase name should be skipped
+        var lines = result.Split('\n').Where(l => l.Contains("IsEnabled")).ToList();
+        // Should have method line but NOT property line
+        Assert.Contains(lines, l => l.Contains("bool IsEnabled()"));
+        Assert.DoesNotContain(lines, l => l.Contains("{ get; }"));
+    }
+
+    [Fact]
+    public void Emit_RenamedMethodPropertyCollision_PropertySkipped()
+    {
+        // P2 fix: when method dedup renames "Manager" → "ManagerDidDisconnect",
+        // a property named "managerDidDisconnect" should be skipped
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes = [new ObjCClassDecl
+            {
+                Name = "Widget",
+                Methods =
+                [
+                    new ObjCMethodDecl { Selector = "manager:didConnect:", ReturnType = new ObjCTypeRef { Name = "void" }, IsInstanceMethod = true,
+                        Parameters = [new ObjCParameterDecl { Name = "m", Type = new ObjCTypeRef { Name = "NSObject", IsPointer = true } }, new ObjCParameterDecl { Name = "p", Type = new ObjCTypeRef { Name = "NSObject", IsPointer = true } }] },
+                    new ObjCMethodDecl { Selector = "manager:didDisconnect:", ReturnType = new ObjCTypeRef { Name = "void" }, IsInstanceMethod = true,
+                        Parameters = [new ObjCParameterDecl { Name = "m", Type = new ObjCTypeRef { Name = "NSObject", IsPointer = true } }, new ObjCParameterDecl { Name = "p", Type = new ObjCTypeRef { Name = "NSObject", IsPointer = true } }] },
+                ],
+                Properties = [new ObjCPropertyDecl { Name = "managerDidDisconnect", Type = new ObjCTypeRef { Name = "NSObject", IsPointer = true }, IsReadonly = true }]
+            }]
+        };
+
+        var result = EmitAndRead(module);
+        // First method: Manager(NSObject, NSObject)
+        Assert.Contains("void Manager(NSObject m, NSObject p);", result);
+        // Second method renamed to full selector: ManagerDidDisconnect(NSObject, NSObject)
+        Assert.Contains("void ManagerDidDisconnect(NSObject m, NSObject p);", result);
+        // Property with same PascalCase name as renamed method should be skipped
+        Assert.DoesNotContain("{ get; }", result.Split('\n').Where(l => l.Contains("ManagerDidDisconnect")).LastOrDefault() ?? "");
+    }
+
+    [Fact]
+    public void Emit_ProtocolMethodPropertyCollision_PropertySkipped()
+    {
+        // P2 fix: protocol paths also need method→property collision tracking
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols = [new ObjCProtocolDecl
+            {
+                Name = "MyDelegate",
+                Methods = [new ObjCMethodDecl { Selector = "isReady", ReturnType = new ObjCTypeRef { Name = "BOOL" }, IsInstanceMethod = true }],
+                Properties = [new ObjCPropertyDecl { Name = "isReady", Type = new ObjCTypeRef { Name = "BOOL" }, IsReadonly = true }]
+            }]
+        };
+
+        var result = EmitAndRead(module);
+        // Method emitted
+        Assert.Contains("bool IsReady();", result);
+        // Property with same name should be skipped
+        var propertyLines = result.Split('\n').Where(l => l.Contains("{ get; }")).ToList();
+        Assert.Empty(propertyLines);
+    }
+
+    [Fact]
+    public void Emit_CategoryMethodPropertyCollision_PropertySkipped()
+    {
+        // Category paths also need method→property collision tracking
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Categories =
+            [
+                new ObjCCategoryDecl
+                {
+                    CategoryName = "Styling",
+                    ClassName = "Widget",
+                    Methods = [new ObjCMethodDecl { Selector = "tintColor", ReturnType = new ObjCTypeRef { Name = "UIColor", IsPointer = true }, IsInstanceMethod = true }],
+                    Properties = [new ObjCPropertyDecl { Name = "tintColor", Type = new ObjCTypeRef { Name = "UIColor", IsPointer = true }, IsReadonly = true }]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+        // Method emitted
+        Assert.Contains("UIColor TintColor();", result);
+        // Property with same name should be skipped
+        var propertyLines = result.Split('\n').Where(l => l.Contains("{ get; }")).ToList();
+        Assert.Empty(propertyLines);
+    }
 }

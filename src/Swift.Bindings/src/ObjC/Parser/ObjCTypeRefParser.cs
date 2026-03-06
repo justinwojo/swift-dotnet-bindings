@@ -138,30 +138,21 @@ public static class ObjCTypeRefParser
 
     private static string StripObjCMacros(string s)
     {
-        // Strip NS_REFINED_FOR_SWIFT, NS_SWIFT_NAME(...), etc.
+        // Strip NS_REFINED_FOR_SWIFT
         s = s.Replace("NS_REFINED_FOR_SWIFT", "");
 
-        // NS_SWIFT_NAME(...) — strip the macro and its parenthesized argument
-        while (true)
-        {
-            var idx = s.IndexOf("NS_SWIFT_NAME(", StringComparison.Ordinal);
-            if (idx < 0) break;
-            var depth = 0;
-            var end = idx + 14; // skip "NS_SWIFT_NAME("
-            for (; end < s.Length; end++)
-            {
-                if (s[end] == '(') depth++;
-                else if (s[end] == ')')
-                {
-                    if (depth == 0) { end++; break; }
-                    depth--;
-                }
-            }
-            s = (s[..idx] + s[end..]).Trim();
-        }
+        // Strip availability macros (with optional parenthesized arguments).
+        // Pattern-based: strip any NS_/API_/__ prefixed macro token.
+        s = StripPrefixedMacros(s);
 
-        // Also strip bare NS_SWIFT_NAME (without parens — sometimes the parens don't survive clang AST)
-        s = s.Replace("NS_SWIFT_NAME", "");
+        // Strip C const qualifier (no C# equivalent in binding context)
+        if (s.StartsWith("const ", StringComparison.Ordinal))
+            s = s[6..];
+        s = s.Replace("* const", "*").Replace("*const", "*");
+
+        // Strip ObjC type qualifiers
+        if (s.StartsWith("__kindof ", StringComparison.Ordinal))
+            s = s[9..];
 
         // Collapse multiple spaces
         while (s.Contains("  "))
@@ -170,12 +161,63 @@ public static class ObjCTypeRefParser
         return s.Trim();
     }
 
+    private static readonly string[] MacroPrefixes = ["NS_", "API_", "__API_", "__TVOS_", "__IOS_", "__WATCHOS_", "UI_"];
+
+    private static string StripPrefixedMacros(string s)
+    {
+        // Strip any token starting with NS_/API_/__API_ (availability, deprecation, etc.)
+        // with optional parenthesized arguments. Handles all variants:
+        // NS_AVAILABLE, NS_DEPRECATED_MAC, API_AVAILABLE(ios(14.0)),
+        // API_DEPRECATED_WITH_REPLACEMENT("...", ios(14.0)), etc.
+        bool changed;
+        do
+        {
+            changed = false;
+            foreach (var prefix in MacroPrefixes)
+            {
+                var idx = s.IndexOf(prefix, StringComparison.Ordinal);
+                if (idx < 0) continue;
+
+                // Find end of the macro name (uppercase letters, digits, underscores)
+                var end = idx + prefix.Length;
+                while (end < s.Length && (char.IsLetterOrDigit(s[end]) || s[end] == '_'))
+                    end++;
+
+                // If followed by '(', strip the parenthesized argument too
+                if (end < s.Length && s[end] == '(')
+                {
+                    var depth = 0;
+                    for (; end < s.Length; end++)
+                    {
+                        if (s[end] == '(') depth++;
+                        else if (s[end] == ')')
+                        {
+                            depth--;
+                            if (depth == 0) { end++; break; }
+                        }
+                    }
+                }
+
+                s = (s[..idx] + s[end..]).Trim();
+                changed = true;
+                break; // Restart scan from beginning
+            }
+        } while (changed);
+
+        return s;
+    }
+
     private static string StripNullability(string s, ref ObjCNullability nullability)
     {
         if (s.Contains("_Nonnull") || s.Contains("__nonnull"))
         {
             nullability = ObjCNullability.Nonnull;
             s = s.Replace("_Nonnull", "").Replace("__nonnull", "");
+        }
+        else if (s.Contains("_Nullable_result"))
+        {
+            nullability = ObjCNullability.Nullable;
+            s = s.Replace("_Nullable_result", "");
         }
         else if (s.Contains("_Nullable") || s.Contains("__nullable"))
         {

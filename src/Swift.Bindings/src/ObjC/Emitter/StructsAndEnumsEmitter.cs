@@ -10,6 +10,19 @@ public static class StructsAndEnumsEmitter
 {
     static readonly HashSet<string> FieldSupportedTypes = ["NSString", "nint", "nuint", "nfloat", "int", "float", "double"];
 
+    // Structs already defined by .NET MAUI's framework bindings — skip re-emission.
+    static readonly HashSet<string> SystemStructs =
+    [
+        "CLLocationCoordinate2D", "MKCoordinateSpan", "MKCoordinateRegion",
+        "MKMapPoint", "MKMapSize", "MKMapRect",
+        "CMTime", "CMTimeRange", "CMTimeMapping",
+        "CGAffineTransform", "CGPoint", "CGSize", "CGRect", "CGVector",
+        "UIEdgeInsets", "NSDirectionalEdgeInsets",
+        "NSRange", "UIOffset", "CATransform3D",
+        "SCNVector3", "SCNVector4", "SCNMatrix4",
+        "MKTileOverlayPath",
+    ];
+
     public static string? Emit(ObjCModule module, string outputDir, string resolvedNamespace, ILogger logger)
     {
         var blockTypedefs = module.Typedefs.Where(t => t.UnderlyingType.IsBlock).ToList();
@@ -35,7 +48,10 @@ public static class StructsAndEnumsEmitter
         var sb = new StringBuilder();
         sb.AppendLine("using System;");
         sb.AppendLine("using System.Runtime.InteropServices;");
+        sb.AppendLine("using CoreFoundation;");
         sb.AppendLine("using CoreGraphics;");
+        sb.AppendLine("using CoreLocation;");
+        sb.AppendLine("using CoreMedia;");
         sb.AppendLine("using Foundation;");
         sb.AppendLine("using ObjCRuntime;");
         sb.AppendLine();
@@ -45,7 +61,7 @@ public static class StructsAndEnumsEmitter
         foreach (var enumDecl in module.Enums)
             EmitEnum(sb, enumDecl);
 
-        foreach (var structDecl in module.Structs)
+        foreach (var structDecl in module.Structs.Where(s => !SystemStructs.Contains(s.Name)))
             EmitStruct(sb, structDecl, typedefMap);
 
         foreach (var blockTypedef in blockTypedefs)

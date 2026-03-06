@@ -259,4 +259,77 @@ public class ObjCTypeRefParserTests
         Assert.Equal("NSData", result.BlockParams[1].BlockParams[0].Name);
         Assert.Equal("NSError", result.BlockParams[1].BlockParams[1].Name);
     }
+
+    [Theory]
+    [InlineData("NS_AVAILABLE NSString *", "NSString", true)]
+    [InlineData("NS_DEPRECATED NSNumber *", "NSNumber", true)]
+    [InlineData("API_AVAILABLE NSNumber *", "NSNumber", true)]
+    [InlineData("API_DEPRECATED_WITH_REPLACEMENT NSArray *", "NSArray", true)]
+    [InlineData("NS_AVAILABLE NSUUID *", "NSUUID", true)]
+    [InlineData("API_AVAILABLE(ios(14.0)) NSString *", "NSString", true)]
+    [InlineData("NS_DEPRECATED_IOS(8_0, 13_0) NSString *", "NSString", true)]
+    public void Parse_AvailabilityMacro_StrippedFromType(string qualType, string expectedName, bool expectedPointer)
+    {
+        var result = ObjCTypeRefParser.Parse(qualType);
+        Assert.Equal(expectedName, result.Name);
+        Assert.Equal(expectedPointer, result.IsPointer);
+    }
+
+    [Theory]
+    [InlineData("const MKMapPoint *", "MKMapPoint", true)]
+    [InlineData("const CLLocationCoordinate2D *", "CLLocationCoordinate2D", true)]
+    [InlineData("NSString *const", "NSString", true)]
+    [InlineData("NSString * const", "NSString", true)]
+    [InlineData("const int", "int", false)]
+    public void Parse_ConstQualifier_Stripped(string qualType, string expectedName, bool expectedPointer)
+    {
+        var result = ObjCTypeRefParser.Parse(qualType);
+        Assert.Equal(expectedName, result.Name);
+        Assert.Equal(expectedPointer, result.IsPointer);
+    }
+
+    [Fact]
+    public void Parse_AvailabilityMacroOnConstant_StrippedCorrectly()
+    {
+        // Pattern from system frameworks: "NS_AVAILABLE NSString *const"
+        var result = ObjCTypeRefParser.Parse("NS_AVAILABLE NSString *const");
+        Assert.Equal("NSString", result.Name);
+        Assert.True(result.IsPointer);
+    }
+
+    [Fact]
+    public void Parse_KindofQualifier_Stripped()
+    {
+        // __kindof means "this type or any subclass" — strip for binding purposes
+        var result = ObjCTypeRefParser.Parse("__kindof CLCondition *");
+        Assert.Equal("CLCondition", result.Name);
+        Assert.True(result.IsPointer);
+    }
+
+    [Fact]
+    public void Parse_NullableResult_TreatedAsNullable()
+    {
+        // _Nullable_result is a newer nullability annotation (Xcode 14+)
+        var result = ObjCTypeRefParser.Parse("MKLookAroundScene * _Nullable_result");
+        Assert.Equal("MKLookAroundScene", result.Name);
+        Assert.True(result.IsPointer);
+        Assert.Equal(ObjCNullability.Nullable, result.Nullability);
+    }
+
+    [Fact]
+    public void Parse_UIAppearanceSelector_Stripped()
+    {
+        // UI_APPEARANCE_SELECTOR is a UIKit macro in qualType
+        var result = ObjCTypeRefParser.Parse("UI_APPEARANCE_SELECTOR UIColor *");
+        Assert.Equal("UIColor", result.Name);
+        Assert.True(result.IsPointer);
+    }
+
+    [Fact]
+    public void Parse_TvosProhibited_Stripped()
+    {
+        var result = ObjCTypeRefParser.Parse("__TVOS_PROHIBITED NSString *");
+        Assert.Equal("NSString", result.Name);
+        Assert.True(result.IsPointer);
+    }
 }
