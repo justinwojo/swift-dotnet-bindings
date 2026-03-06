@@ -21,5 +21,6 @@ public sealed record ObjCTypeRef
     public List<ObjCTypeRef> BlockParams { get; init; } = [];
     public ObjCTypeRef? BlockReturnType { get; init; }
     public List<ObjCTypeRef> GenericArgs { get; init; } = [];
+    public int? FixedArraySize { get; init; }
     public string RawQualType { get; init; } = "";
 }

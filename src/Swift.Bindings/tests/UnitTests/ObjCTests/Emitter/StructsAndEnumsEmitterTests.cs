@@ -189,7 +189,7 @@ public class StructsAndEnumsEmitterTests
 
         var output = EmitAndRead(module);
         Assert.Contains("[Field(\"TLErrorDomain\", \"__Internal\")]", output);
-        Assert.Contains("public NSString TLErrorDomain { get; }", output);
+        Assert.Contains("public static NSString TLErrorDomain { get; }", output);
     }
 
     [Fact]
@@ -211,7 +211,7 @@ public class StructsAndEnumsEmitterTests
 
         var output = EmitAndRead(module);
         Assert.Contains("[Field(\"maxRetries\", \"__Internal\")]", output);
-        Assert.Contains("public int MaxRetries { get; }", output);
+        Assert.Contains("public static int MaxRetries { get; }", output);
     }
 
     [Fact]
@@ -338,7 +338,7 @@ public class StructsAndEnumsEmitterTests
         Assert.Contains("public nfloat Width;", output);
 
         // Constants class
-        Assert.Contains("public static partial class TestLibConstants", output);
+        Assert.Contains("public static class TestLibConstants", output);
         Assert.Contains("[Field(\"TLVersion\", \"__Internal\")]", output);
 
         // Function
@@ -367,6 +367,70 @@ public class StructsAndEnumsEmitterTests
     }
 
     [Fact]
+    public void EmitStruct_FieldWithTypedefAlias_Resolved()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Typedefs =
+            [
+                new ObjCTypedefDecl
+                {
+                    Name = "MyFloat",
+                    UnderlyingType = SimpleType("CGFloat")
+                }
+            ],
+            Structs =
+            [
+                new ObjCStructDecl
+                {
+                    Name = "TLRect",
+                    Fields =
+                    [
+                        new ObjCStructField { Name = "width", Type = SimpleType("MyFloat") }
+                    ]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        // MyFloat should resolve to CGFloat → nfloat via typedefMap
+        Assert.Contains("public nfloat Width;", output);
+        Assert.DoesNotContain("MyFloat", output);
+    }
+
+    [Fact]
+    public void EmitConstant_WithTypedefAlias_Resolved()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Typedefs =
+            [
+                new ObjCTypedefDecl
+                {
+                    Name = "MyInt",
+                    UnderlyingType = SimpleType("NSInteger")
+                }
+            ],
+            Constants =
+            [
+                new ObjCConstantDecl
+                {
+                    Name = "maxCount",
+                    Type = SimpleType("MyInt"),
+                    IsExtern = true
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        // MyInt should resolve to NSInteger → nint via typedefMap
+        Assert.Contains("public static nint MaxCount { get; }", output);
+        Assert.DoesNotContain("MyInt", output);
+    }
+
+    [Fact]
     public void ConstantsClassName_MatchesModuleName()
     {
         var module = new ObjCModule
@@ -384,7 +448,7 @@ public class StructsAndEnumsEmitterTests
         };
 
         var output = EmitAndRead(module);
-        Assert.Contains("public static partial class MyFrameworkConstants", output);
+        Assert.Contains("public static class MyFrameworkConstants", output);
     }
 
     [Fact]
@@ -419,7 +483,7 @@ public class StructsAndEnumsEmitterTests
 
         var output = EmitAndRead(module);
         Assert.Contains("[Field(\"defaultScale\", \"__Internal\")]", output);
-        Assert.Contains("public nfloat DefaultScale { get; }", output);
+        Assert.Contains("public static nfloat DefaultScale { get; }", output);
     }
 
     [Fact]
@@ -475,6 +539,232 @@ public class StructsAndEnumsEmitterTests
         Assert.Contains("_1ips", content);
         Assert.Contains("_2ips", content);
         Assert.DoesNotContain(" 1ips", content);
+    }
+
+    [Fact]
+    public void Emit_BlockTypedef_EmitsDelegateDeclaration()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Typedefs =
+            [
+                new ObjCTypedefDecl
+                {
+                    Name = "RLMNotificationBlock",
+                    UnderlyingType = new ObjCTypeRef
+                    {
+                        Name = "Block",
+                        IsBlock = true,
+                        BlockReturnType = new ObjCTypeRef { Name = "void" },
+                        BlockParams =
+                        [
+                            new ObjCTypeRef { Name = "NSInteger" },
+                            new ObjCTypeRef { Name = "NSError", IsPointer = true },
+                        ]
+                    }
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("public delegate void RLMNotificationBlock(nint arg0, NSError arg1);", output);
+    }
+
+    [Fact]
+    public void Emit_BlockTypedef_WithReturnType_EmitsDelegate()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Typedefs =
+            [
+                new ObjCTypedefDecl
+                {
+                    Name = "MyPredicate",
+                    UnderlyingType = new ObjCTypeRef
+                    {
+                        Name = "Block",
+                        IsBlock = true,
+                        BlockReturnType = new ObjCTypeRef { Name = "BOOL" },
+                        BlockParams =
+                        [
+                            new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                        ]
+                    }
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("public delegate bool MyPredicate(string arg0);", output);
+    }
+
+    [Fact]
+    public void Emit_ModuleWithOnlyBlockTypedefs_EmitsFile()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Typedefs =
+            [
+                new ObjCTypedefDecl
+                {
+                    Name = "CompletionHandler",
+                    UnderlyingType = new ObjCTypeRef
+                    {
+                        Name = "Block",
+                        IsBlock = true,
+                        BlockReturnType = new ObjCTypeRef { Name = "void" },
+                    }
+                }
+            ]
+        };
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"structs_enums_test_{Guid.NewGuid():N}");
+        try
+        {
+            var result = StructsAndEnumsEmitter.Emit(module, tempDir, "TestLib.Binding", Logger);
+            Assert.NotNull(result);
+            var content = File.ReadAllText(result!);
+            Assert.Contains("public delegate void CompletionHandler();", content);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void EmitStruct_WithFixedSizeArray_EmitsMarshalAs()
+    {
+        // Fixed-size arrays come from the parser via FixedArraySize on ObjCTypeRef
+        // (clang qualType "uint8_t [4]" → Name="uint8_t", FixedArraySize=4)
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Structs =
+            [
+                new ObjCStructDecl
+                {
+                    Name = "TLColor",
+                    Fields =
+                    [
+                        new ObjCStructField
+                        {
+                            Name = "components",
+                            Type = new ObjCTypeRef { Name = "uint8_t", FixedArraySize = 4 }
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("[MarshalAs(UnmanagedType.ByValArray, SizeConst = 4)]", output);
+        Assert.Contains("public byte[] Components;", output);
+    }
+
+    [Fact]
+    public void EmitFunction_ReferencingModuleLocalType_Skipped()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Classes = [new ObjCClassDecl { Name = "MyClient" }],
+            // Include a safe function alongside the one referencing a module-local type
+            Functions =
+            [
+                new ObjCFunctionDecl
+                {
+                    Name = "TLCreateClient",
+                    ReturnType = new ObjCTypeRef { Name = "MyClient", IsPointer = true },
+                    Parameters = []
+                },
+                new ObjCFunctionDecl
+                {
+                    Name = "TLVersion",
+                    ReturnType = SimpleType("int"),
+                    Parameters = []
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        // Safe function is emitted
+        Assert.Contains("TLVersion", output);
+        // Function referencing module-local type (MyClient) is skipped
+        Assert.DoesNotContain("TLCreateClient", output);
+    }
+
+    [Fact]
+    public void EmitBlockDelegate_ReferencingModuleLocalType_Skipped()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Classes = [new ObjCClassDecl { Name = "MyResponse" }],
+            Typedefs =
+            [
+                // This one references MyResponse (module-local) — should be skipped
+                new ObjCTypedefDecl
+                {
+                    Name = "ResponseHandler",
+                    UnderlyingType = new ObjCTypeRef
+                    {
+                        Name = "Block",
+                        IsBlock = true,
+                        BlockReturnType = new ObjCTypeRef { Name = "void" },
+                        BlockParams =
+                        [
+                            new ObjCTypeRef { Name = "MyResponse", IsPointer = true }
+                        ]
+                    }
+                },
+                // This one is safe — should be emitted
+                new ObjCTypedefDecl
+                {
+                    Name = "CompletionHandler",
+                    UnderlyingType = new ObjCTypeRef
+                    {
+                        Name = "Block",
+                        IsBlock = true,
+                        BlockReturnType = new ObjCTypeRef { Name = "void" },
+                    }
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        // Safe delegate is emitted
+        Assert.Contains("public delegate void CompletionHandler();", output);
+        // Delegate referencing module-local type is skipped
+        Assert.DoesNotContain("ResponseHandler", output);
+    }
+
+    [Fact]
+    public void EmitConstantsClass_NotPartial_NoStaticAttribute()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Constants =
+            [
+                new ObjCConstantDecl
+                {
+                    Name = "kVersion",
+                    Type = SimpleType("int"),
+                    IsExtern = true
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        // Constants class should be "public static class" (not partial, no [Static] attribute)
+        Assert.Contains("public static class TestLibConstants", output);
+        Assert.DoesNotContain("partial class TestLibConstants", output);
+        Assert.DoesNotContain("[Static]", output);
     }
 
     private static string EmitAndRead(ObjCModule module, string ns = "TestLib.Binding")

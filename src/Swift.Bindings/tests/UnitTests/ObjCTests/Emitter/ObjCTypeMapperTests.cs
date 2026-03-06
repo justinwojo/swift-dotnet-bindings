@@ -320,4 +320,262 @@ public class ObjCTypeMapperTests
         var typeRef = new ObjCTypeRef { Name = objcType };
         Assert.Equal(expected, ObjCTypeMapper.MapType(typeRef));
     }
+
+    // NSFastEnumeration protocol-qualified id
+
+    [Fact]
+    public void MapType_NSFastEnumeration_ProtocolQualified_ReturnsNSObject()
+    {
+        var typeRef = new ObjCTypeRef { Name = "id", ProtocolQualification = "NSFastEnumeration" };
+        Assert.Equal("NSObject", ObjCTypeMapper.MapType(typeRef));
+    }
+
+    // NSURLSession pointer mapping
+
+    [Fact]
+    public void MapType_NSURLSession_Pointer_ReturnsNSUrlSession()
+    {
+        var typeRef = new ObjCTypeRef { Name = "NSURLSession", IsPointer = true };
+        Assert.Equal("NSUrlSession", ObjCTypeMapper.MapType(typeRef));
+    }
+
+    // Nested block mapping
+
+    [Fact]
+    public void MapType_NestedBlock_MapsToActionOfAction()
+    {
+        var typeRef = new ObjCTypeRef
+        {
+            Name = "Block",
+            IsBlock = true,
+            BlockReturnType = new ObjCTypeRef { Name = "void" },
+            BlockParams =
+            [
+                new ObjCTypeRef { Name = "UIViewController", IsPointer = true },
+                new ObjCTypeRef
+                {
+                    Name = "Block",
+                    IsBlock = true,
+                    BlockReturnType = new ObjCTypeRef { Name = "void" },
+                }
+            ],
+        };
+        Assert.Equal("Action<UIViewController, Action>", ObjCTypeMapper.MapType(typeRef));
+    }
+
+    // Typedef alias resolution
+
+    [Fact]
+    public void MapType_TypedefAlias_ResolvesToUnderlying()
+    {
+        var typeRef = new ObjCTypeRef { Name = "BRLMSerialNumber" };
+        var typedefMap = new Dictionary<string, ObjCTypeRef>
+        {
+            ["BRLMSerialNumber"] = new ObjCTypeRef { Name = "NSString", IsPointer = true }
+        };
+        Assert.Equal("string", ObjCTypeMapper.MapType(typeRef, typedefMap: typedefMap));
+    }
+
+    [Fact]
+    public void MapType_TypedefAlias_MultiHopChain()
+    {
+        // BuildResolvedTypedefMap pre-resolves chains, so the map already contains final types
+        var typeRef = new ObjCTypeRef { Name = "MyAlias" };
+        var typedefMap = new Dictionary<string, ObjCTypeRef>
+        {
+            ["MyAlias"] = new ObjCTypeRef { Name = "NSString", IsPointer = true }
+        };
+        Assert.Equal("string", ObjCTypeMapper.MapType(typeRef, typedefMap: typedefMap));
+    }
+
+    [Fact]
+    public void MapType_TypedefAlias_NotInMap_PassesThrough()
+    {
+        var typeRef = new ObjCTypeRef { Name = "UnknownType" };
+        var typedefMap = new Dictionary<string, ObjCTypeRef>
+        {
+            ["SomeOtherType"] = new ObjCTypeRef { Name = "NSString", IsPointer = true }
+        };
+        Assert.Equal("UnknownType", ObjCTypeMapper.MapType(typeRef, typedefMap: typedefMap));
+    }
+
+    [Fact]
+    public void BuildResolvedTypedefMap_ResolvesChain()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Typedefs =
+            [
+                new ObjCTypedefDecl { Name = "AliasA", UnderlyingType = new ObjCTypeRef { Name = "AliasB" } },
+                new ObjCTypedefDecl { Name = "AliasB", UnderlyingType = new ObjCTypeRef { Name = "NSString", IsPointer = true } },
+            ]
+        };
+        var map = ObjCTypeMapper.BuildResolvedTypedefMap(module);
+        Assert.Equal("NSString", map["AliasA"].Name);
+        Assert.True(map["AliasA"].IsPointer);
+    }
+
+    [Fact]
+    public void BuildResolvedTypedefMap_ExcludesBlockTypedefs()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Typedefs =
+            [
+                new ObjCTypedefDecl
+                {
+                    Name = "MyBlock",
+                    UnderlyingType = new ObjCTypeRef
+                    {
+                        Name = "Block",
+                        IsBlock = true,
+                        BlockReturnType = new ObjCTypeRef { Name = "void" }
+                    }
+                },
+            ]
+        };
+        var map = ObjCTypeMapper.BuildResolvedTypedefMap(module);
+        Assert.Empty(map);
+    }
+
+    [Fact]
+    public void BuildResolvedTypedefMap_ExcludesStructTypedefs()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Structs = [new ObjCStructDecl { Name = "MyStruct" }],
+            Typedefs =
+            [
+                new ObjCTypedefDecl { Name = "MyStruct", UnderlyingType = new ObjCTypeRef { Name = "MyStruct" } },
+            ]
+        };
+        var map = ObjCTypeMapper.BuildResolvedTypedefMap(module);
+        Assert.Empty(map);
+    }
+
+    // --- Typedef pointer preservation ---
+
+    [Fact]
+    public void MapType_TypedefAlias_PointerPreserved()
+    {
+        // typedef NSString BRAlias; usage: BRAlias * → should resolve to string (NSString *)
+        var typedefMap = new Dictionary<string, ObjCTypeRef>
+        {
+            ["BRAlias"] = new ObjCTypeRef { Name = "NSString", IsPointer = false }
+        };
+        var typeRef = new ObjCTypeRef { Name = "BRAlias", IsPointer = true };
+        Assert.Equal("string", ObjCTypeMapper.MapType(typeRef, typedefMap: typedefMap));
+    }
+
+    [Fact]
+    public void MapType_TypedefAlias_NonPointer_ResolvesDirectly()
+    {
+        var typedefMap = new Dictionary<string, ObjCTypeRef>
+        {
+            ["MyAlias"] = new ObjCTypeRef { Name = "NSInteger" }
+        };
+        var typeRef = new ObjCTypeRef { Name = "MyAlias" };
+        Assert.Equal("nint", ObjCTypeMapper.MapType(typeRef, typedefMap: typedefMap));
+    }
+
+    // --- BOOL pointer mapping ---
+
+    [Fact]
+    public void MapType_BOOLPointer_ReturnsBool()
+    {
+        var typeRef = new ObjCTypeRef { Name = "BOOL", IsPointer = true };
+        Assert.Equal("bool", ObjCTypeMapper.MapType(typeRef));
+    }
+
+    // --- Unknown pointer types fall through to typedef resolution ---
+
+    [Fact]
+    public void MapType_UnknownPointerType_FallsThroughToTypedefResolution()
+    {
+        var typedefMap = new Dictionary<string, ObjCTypeRef>
+        {
+            ["CustomType"] = new ObjCTypeRef { Name = "NSString", IsPointer = false }
+        };
+        // CustomType * → typedef resolves to NSString, pointer preserved → string
+        var typeRef = new ObjCTypeRef { Name = "CustomType", IsPointer = true };
+        Assert.Equal("string", ObjCTypeMapper.MapType(typeRef, typedefMap: typedefMap));
+    }
+
+    [Fact]
+    public void MapType_UnknownPointerType_NoTypedefMap_PassesThrough()
+    {
+        var typeRef = new ObjCTypeRef { Name = "UIView", IsPointer = true };
+        Assert.Equal("UIView", ObjCTypeMapper.MapType(typeRef));
+    }
+
+    // --- Block typedef map ---
+
+    [Fact]
+    public void MapType_BlockTypedefName_ResolvesToActionFunc()
+    {
+        var blockTypedefMap = new Dictionary<string, ObjCTypeRef>
+        {
+            ["MyCallback"] = new ObjCTypeRef
+            {
+                Name = "block",
+                IsBlock = true,
+                BlockReturnType = new ObjCTypeRef { Name = "void" },
+                BlockParams = [new ObjCTypeRef { Name = "NSString", IsPointer = true }]
+            }
+        };
+        var typeRef = new ObjCTypeRef { Name = "MyCallback" };
+        Assert.Equal("Action<string>", ObjCTypeMapper.MapType(typeRef, blockTypedefMap: blockTypedefMap));
+    }
+
+    [Fact]
+    public void MapType_FixedArraySize_ReturnsMappedElementWithSize()
+    {
+        // uint8_t [4] → FixedArraySize=4, Name="uint8_t" → "byte[4]"
+        var typeRef = new ObjCTypeRef { Name = "uint8_t", FixedArraySize = 4 };
+        Assert.Equal("byte[4]", ObjCTypeMapper.MapType(typeRef));
+    }
+
+    [Fact]
+    public void MapType_FixedArraySize_UnsignedChar()
+    {
+        var typeRef = new ObjCTypeRef { Name = "unsigned char", FixedArraySize = 3 };
+        Assert.Equal("byte[3]", ObjCTypeMapper.MapType(typeRef));
+    }
+
+    [Fact]
+    public void MapType_FixedArraySize_PointerElement()
+    {
+        // NSString *[4] → Name="NSString", IsPointer=true, FixedArraySize=4 → "string[4]"
+        var typeRef = new ObjCTypeRef { Name = "NSString", IsPointer = true, FixedArraySize = 4 };
+        Assert.Equal("string[4]", ObjCTypeMapper.MapType(typeRef));
+    }
+
+    [Fact]
+    public void BuildBlockTypedefMap_ReturnsOnlyBlockTypedefs()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Typedefs =
+            [
+                new ObjCTypedefDecl
+                {
+                    Name = "MyBlock",
+                    UnderlyingType = new ObjCTypeRef { Name = "block", IsBlock = true, BlockReturnType = new ObjCTypeRef { Name = "void" } }
+                },
+                new ObjCTypedefDecl
+                {
+                    Name = "MyAlias",
+                    UnderlyingType = new ObjCTypeRef { Name = "NSString", IsPointer = true }
+                }
+            ]
+        };
+        var map = ObjCTypeMapper.BuildBlockTypedefMap(module);
+        Assert.Single(map);
+        Assert.True(map.ContainsKey("MyBlock"));
+        Assert.False(map.ContainsKey("MyAlias"));
+    }
 }

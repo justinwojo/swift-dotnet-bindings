@@ -10,21 +10,26 @@ public static class ApiDefinitionEmitter
 {
     public static string Emit(ObjCModule module, string outputDir, string resolvedNamespace, ILogger logger)
     {
+        var typedefMap = ObjCTypeMapper.BuildResolvedTypedefMap(module);
+        var blockTypedefMap = ObjCTypeMapper.BuildBlockTypedefMap(module);
+
         var sb = new StringBuilder();
         sb.AppendLine("using System;");
+        sb.AppendLine("using AuthenticationServices;");
         sb.AppendLine("using CoreFoundation;");
         sb.AppendLine("using Foundation;");
         sb.AppendLine("using ObjCRuntime;");
         sb.AppendLine("using CoreGraphics;");
+        sb.AppendLine("using UIKit;");
         sb.AppendLine();
         sb.AppendLine($"namespace {resolvedNamespace}");
         sb.AppendLine("{");
 
         foreach (var proto in module.Protocols)
-            EmitProtocol(sb, proto);
+            EmitProtocol(sb, proto, typedefMap, blockTypedefMap);
 
         foreach (var cls in module.Classes)
-            EmitClass(sb, cls);
+            EmitClass(sb, cls, typedefMap, blockTypedefMap);
 
         sb.AppendLine("}");
 
@@ -36,7 +41,7 @@ public static class ApiDefinitionEmitter
         return filePath;
     }
 
-    static void EmitProtocol(StringBuilder sb, ObjCProtocolDecl proto)
+    static void EmitProtocol(StringBuilder sb, ObjCProtocolDecl proto, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap)
     {
         EmitAvailabilityAttributes(sb, proto.Availability, "    ");
 
@@ -56,18 +61,26 @@ public static class ApiDefinitionEmitter
 
         // Protocols don't declare ObjC lightweight generics — only pass the common fallback set
         foreach (var method in proto.Methods)
-            EmitMethod(sb, method, declaringClassName: null, isProtocol: true, genericTypeParams: null);
+            EmitMethod(sb, method, declaringClassName: null, isProtocol: true, genericTypeParams: null, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap);
 
         foreach (var prop in proto.Properties)
-            EmitProperty(sb, prop, declaringClassName: null, genericTypeParams: null);
+            EmitProperty(sb, prop, declaringClassName: null, genericTypeParams: null, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap);
 
         sb.AppendLine("    }");
         sb.AppendLine();
     }
 
-    static void EmitClass(StringBuilder sb, ObjCClassDecl cls)
+    static void EmitClass(StringBuilder sb, ObjCClassDecl cls, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap)
     {
         EmitAvailabilityAttributes(sb, cls.Availability, "    ");
+
+        // Disable default constructor if the class declares any parameterless init
+        // to avoid bgen generating a duplicate parameterless constructor
+        var hasParameterlessInit = cls.Methods.Any(m =>
+            (m.Selector == "init" || m.Selector.StartsWith("initWith", StringComparison.Ordinal))
+            && m.Parameters.Count == 0);
+        if (hasParameterlessInit)
+            sb.AppendLine("    [DisableDefaultCtor]");
 
         var baseType = cls.SuperclassName ?? "NSObject";
         sb.AppendLine($"    [BaseType(typeof({baseType}))]");
@@ -87,21 +100,34 @@ public static class ApiDefinitionEmitter
             ? new HashSet<string>(cls.GenericTypeParamNames)
             : null;
 
+        // Track emitted signatures to detect duplicates (constructors and methods)
+        var emittedConstructorSignatures = new HashSet<string>();
+        var emittedMethodSignatures = new HashSet<string>();
+
         foreach (var method in cls.Methods)
-            EmitMethod(sb, method, declaringClassName: cls.Name, isProtocol: false, genericTypeParams: classGenericParams);
+            EmitMethod(sb, method, declaringClassName: cls.Name, isProtocol: false, genericTypeParams: classGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedConstructorSignatures: emittedConstructorSignatures, emittedMethodSignatures: emittedMethodSignatures);
 
         foreach (var prop in cls.Properties)
-            EmitProperty(sb, prop, declaringClassName: cls.Name, genericTypeParams: classGenericParams);
+            EmitProperty(sb, prop, declaringClassName: cls.Name, genericTypeParams: classGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap);
 
         sb.AppendLine("    }");
         sb.AppendLine();
     }
 
-    static void EmitMethod(StringBuilder sb, ObjCMethodDecl method, string? declaringClassName, bool isProtocol, HashSet<string>? genericTypeParams)
+    static void EmitMethod(StringBuilder sb, ObjCMethodDecl method, string? declaringClassName, bool isProtocol, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null, HashSet<string>? emittedConstructorSignatures = null, HashSet<string>? emittedMethodSignatures = null)
     {
         EmitAvailabilityAttributes(sb, method.Availability, "        ");
 
-        var isConstructor = method.Selector == "init" || method.Selector.StartsWith("initWith", StringComparison.Ordinal);
+        var isConstructor = !isProtocol && (method.Selector == "init" || method.Selector.StartsWith("initWith", StringComparison.Ordinal));
+
+        // Duplicate constructor detection: if the parameter signature has already been emitted,
+        // emit this one as a named instance method instead
+        if (isConstructor && emittedConstructorSignatures != null)
+        {
+            var paramSignature = string.Join(",", method.Parameters.Select(p => ObjCTypeMapper.MapType(p.Type, genericTypeParams: genericTypeParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap)));
+            if (!emittedConstructorSignatures.Add(paramSignature))
+                isConstructor = false; // Duplicate — emit as named method
+        }
 
         if (isProtocol && !method.IsOptional)
             sb.AppendLine("        [Abstract]");
@@ -113,7 +139,7 @@ public static class ApiDefinitionEmitter
 
         var returnType = isConstructor
             ? "NativeHandle"
-            : ObjCTypeMapper.MapType(method.ReturnType, declaringClassName, genericTypeParams);
+            : ObjCTypeMapper.MapType(method.ReturnType, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap);
 
         if (!isConstructor && ObjCTypeMapper.IsNullableAttribute(method.ReturnType))
             sb.AppendLine("        [return: NullAllowed]");
@@ -122,12 +148,33 @@ public static class ApiDefinitionEmitter
             ? "Constructor"
             : SelectorToMethodName(method.Selector);
 
-        var parameters = EmitParameters(method.Parameters, genericTypeParams);
+        // Duplicate method signature detection: rename with full selector parts if collision
+        if (!isConstructor && emittedMethodSignatures != null)
+        {
+            var paramSignature = string.Join(",", method.Parameters.Select(p => ObjCTypeMapper.MapType(p.Type, genericTypeParams: genericTypeParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap)));
+            var methodSig = $"{methodName}({paramSignature})";
+            if (!emittedMethodSignatures.Add(methodSig))
+            {
+                methodName = SelectorToFullMethodName(method.Selector);
+                // Register the renamed signature; if it still collides (e.g., a method
+                // already exists with the full selector form), append numeric suffix
+                var renamedSig = $"{methodName}({paramSignature})";
+                if (!emittedMethodSignatures.Add(renamedSig))
+                {
+                    var suffix = 2;
+                    while (!emittedMethodSignatures.Add($"{methodName}{suffix}({paramSignature})"))
+                        suffix++;
+                    methodName = $"{methodName}{suffix}";
+                }
+            }
+        }
+
+        var parameters = EmitParameters(method.Parameters, genericTypeParams, typedefMap, blockTypedefMap);
         sb.AppendLine($"        {returnType} {methodName}({parameters});");
         sb.AppendLine();
     }
 
-    static void EmitProperty(StringBuilder sb, ObjCPropertyDecl prop, string? declaringClassName, HashSet<string>? genericTypeParams)
+    static void EmitProperty(StringBuilder sb, ObjCPropertyDecl prop, string? declaringClassName, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null)
     {
         EmitAvailabilityAttributes(sb, prop.Availability, "        ");
 
@@ -150,7 +197,7 @@ public static class ApiDefinitionEmitter
         if (ObjCTypeMapper.IsNullableAttribute(prop.Type))
             sb.AppendLine("        [NullAllowed]");
 
-        var mappedType = ObjCTypeMapper.MapType(prop.Type, declaringClassName, genericTypeParams);
+        var mappedType = ObjCTypeMapper.MapType(prop.Type, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap);
         if (prop.IsReadonly)
         {
             sb.AppendLine($"        {mappedType} {ToPascalCase(prop.Name)} {{ get; }}");
@@ -188,7 +235,7 @@ public static class ApiDefinitionEmitter
         }
     }
 
-    static string EmitParameters(List<ObjCParameterDecl> parameters, HashSet<string>? genericTypeParams)
+    static string EmitParameters(List<ObjCParameterDecl> parameters, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null)
     {
         var parts = new List<string>();
         foreach (var param in parameters)
@@ -199,7 +246,7 @@ public static class ApiDefinitionEmitter
             }
             else
             {
-                var mappedType = ObjCTypeMapper.MapType(param.Type, genericTypeParams: genericTypeParams);
+                var mappedType = ObjCTypeMapper.MapType(param.Type, genericTypeParams: genericTypeParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap);
                 var nullAttr = ObjCTypeMapper.IsNullableAttribute(param.Type)
                     ? "[NullAllowed] "
                     : "";
@@ -234,6 +281,13 @@ public static class ApiDefinitionEmitter
         var colonIndex = selector.IndexOf(':');
         var baseName = colonIndex >= 0 ? selector[..colonIndex] : selector;
         return ToPascalCase(baseName);
+    }
+
+    internal static string SelectorToFullMethodName(string selector)
+    {
+        // Use ALL selector parts, PascalCase each: "setObject:forKey:" → "SetObjectForKey"
+        var parts = selector.Split(':', StringSplitOptions.RemoveEmptyEntries);
+        return string.Concat(parts.Select(ToPascalCase));
     }
 
     static (int major, int minor) ParseVersion(string version)

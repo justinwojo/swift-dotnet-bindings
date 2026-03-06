@@ -1494,4 +1494,72 @@ public class ClangAstParserTests
         Assert.Single(module.Typedefs);
         Assert.Equal(7, module.TotalDeclarations);
     }
+
+    [Fact]
+    public void Parse_TypedefDecl_AnonymousStruct_PromotesToStructs()
+    {
+        // typedef struct { CGFloat top; CGFloat left; } BRLMMargins;
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "TypedefDecl",
+            "name": "BRLMMargins",
+            {{MakeLoc()}},
+            "type": { "qualType": "struct BRLMMargins" },
+            "inner": [
+                {
+                    "kind": "RecordDecl",
+                    "inner": [
+                        {
+                            "kind": "FieldDecl",
+                            "name": "top",
+                            "type": { "qualType": "CGFloat" }
+                        },
+                        {
+                            "kind": "FieldDecl",
+                            "name": "left",
+                            "type": { "qualType": "CGFloat" }
+                        }
+                    ]
+                },
+                {
+                    "kind": "ElaboratedType",
+                    "qualType": "struct BRLMMargins"
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Single(module.Structs);
+        var s = module.Structs[0];
+        Assert.Equal("BRLMMargins", s.Name);
+        Assert.Equal(2, s.Fields.Count);
+        Assert.Equal("top", s.Fields[0].Name);
+        Assert.Equal("left", s.Fields[1].Name);
+    }
+
+    [Fact]
+    public void Parse_TypedefDecl_NoRecordDecl_NoPromotion()
+    {
+        // typedef NSString * BRLMSerialNumber;
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "TypedefDecl",
+            "name": "BRLMSerialNumber",
+            {{MakeLoc()}},
+            "type": { "qualType": "NSString *" },
+            "inner": [
+                {
+                    "kind": "ObjCObjectPointerType",
+                    "qualType": "NSString *"
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Empty(module.Structs);
+        Assert.Single(module.Typedefs);
+        Assert.Equal("BRLMSerialNumber", module.Typedefs[0].Name);
+    }
 }

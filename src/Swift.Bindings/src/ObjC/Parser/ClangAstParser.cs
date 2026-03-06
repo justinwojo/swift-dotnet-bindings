@@ -43,6 +43,10 @@ public static class ClangAstParser
         // the previous declaration, so we must carry it forward.
         string? currentFile = null;
 
+        // Track the last anonymous RecordDecl (struct with fields but no name)
+        // to promote when a typedef follows it.
+        List<ObjCStructField>? lastAnonymousStructFields = null;
+
         // Pass 1: Parse all top-level declarations
         foreach (var node in inner.EnumerateArray())
         {
@@ -93,6 +97,12 @@ public static class ClangAstParser
                     var structDecl = ParseStructDecl(node);
                     if (structDecl != null)
                         structs.Add(structDecl);
+                    else
+                    {
+                        // Anonymous struct — remember its fields for potential typedef promotion
+                        var fields = ParseStructFields(node);
+                        lastAnonymousStructFields = fields.Count > 0 ? fields : null;
+                    }
                     break;
 
                 case "FunctionDecl":
@@ -108,9 +118,12 @@ public static class ClangAstParser
                     break;
 
                 case "TypedefDecl":
-                    var typedefDecl = ParseTypedefDecl(node);
+                    var (typedefDecl, promotedStruct) = ParseTypedefDecl(node, lastAnonymousStructFields);
+                    lastAnonymousStructFields = null; // consumed
                     if (typedefDecl != null)
                         typedefs.Add(typedefDecl);
+                    if (promotedStruct != null)
+                        structs.Add(promotedStruct);
                     break;
             }
         }
@@ -344,6 +357,12 @@ public static class ClangAstParser
         var name = GetName(element);
         if (name == null) return null;
 
+        var fields = ParseStructFields(element);
+        return new ObjCStructDecl { Name = name, Fields = fields };
+    }
+
+    private static List<ObjCStructField> ParseStructFields(JsonElement element)
+    {
         var fields = new List<ObjCStructField>();
 
         if (element.TryGetProperty("inner", out var inner))
@@ -366,7 +385,7 @@ public static class ClangAstParser
             }
         }
 
-        return new ObjCStructDecl { Name = name, Fields = fields };
+        return fields;
     }
 
     private static ObjCFunctionDecl? ParseFunctionDecl(JsonElement element)
@@ -436,18 +455,29 @@ public static class ClangAstParser
         };
     }
 
-    private static ObjCTypedefDecl? ParseTypedefDecl(JsonElement element)
+    private static (ObjCTypedefDecl?, ObjCStructDecl?) ParseTypedefDecl(JsonElement element, List<ObjCStructField>? precedingAnonymousFields = null)
     {
         var name = GetName(element);
-        if (name == null) return null;
+        if (name == null) return (null, null);
 
         // Get the underlying type from inner or type
         string? underlyingQualType = null;
+        ObjCStructDecl? promotedStruct = null;
+
         if (element.TryGetProperty("inner", out var inner))
         {
             foreach (var child in inner.EnumerateArray())
             {
                 var childKind = GetOptionalString(child, "kind");
+
+                // Check for anonymous struct (RecordDecl with fields) inside typedef's inner
+                if (childKind == "RecordDecl")
+                {
+                    var fields = ParseStructFields(child);
+                    if (fields.Count > 0)
+                        promotedStruct = new ObjCStructDecl { Name = name, Fields = fields };
+                }
+
                 if (childKind is "BuiltinType" or "RecordType" or "ElaboratedType"
                     or "ObjCObjectPointerType" or "TypedefType" or "PointerType"
                     or "BlockPointerType" or "EnumType")
@@ -459,15 +489,25 @@ public static class ClangAstParser
             }
         }
 
+        // Promote anonymous struct from preceding sibling RecordDecl
+        // (clang emits anonymous struct as top-level sibling, then typedef referencing it)
+        if (promotedStruct == null && precedingAnonymousFields is { Count: > 0 })
+        {
+            var qualType = GetQualType(element);
+            if (qualType != null && qualType.StartsWith("struct ", StringComparison.Ordinal))
+                promotedStruct = new ObjCStructDecl { Name = name, Fields = precedingAnonymousFields };
+        }
+
         // Fall back to the type property
         underlyingQualType ??= GetQualType(element);
-        if (underlyingQualType == null) return null;
+        if (underlyingQualType == null) return (null, promotedStruct);
 
-        return new ObjCTypedefDecl
+        var typedefDecl = new ObjCTypedefDecl
         {
             Name = name,
             UnderlyingType = ObjCTypeRefParser.Parse(underlyingQualType)
         };
+        return (typedefDecl, promotedStruct);
     }
 
     // ──────────────────────────────────────────────

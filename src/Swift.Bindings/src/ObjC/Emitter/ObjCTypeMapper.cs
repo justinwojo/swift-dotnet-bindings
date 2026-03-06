@@ -18,6 +18,8 @@ public static class ObjCTypeMapper
         ["NSDate"] = "NSDate",
         ["NSObject"] = "NSObject",
         ["CGImageRef"] = "CGImage",
+        ["NSURLSession"] = "NSUrlSession",
+        ["BOOL"] = "bool",
     };
 
     // CoreFoundation Ref typedefs and opaque types that appear without '*' in clang AST.
@@ -60,11 +62,19 @@ public static class ObjCTypeMapper
         ["va_list"] = "IntPtr",
     };
 
-    public static string MapType(ObjCTypeRef typeRef, string? declaringClassName = null, HashSet<string>? genericTypeParams = null)
+    public static string MapType(ObjCTypeRef typeRef, string? declaringClassName = null, HashSet<string>? genericTypeParams = null, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null)
     {
+        // 0. Fixed-size C array (e.g., uint8_t [4] → "byte[4]", NSString *[4] → "string[4]")
+        // Must be checked before primitive mapping, which would discard the array size.
+        if (typeRef.FixedArraySize is > 0)
+        {
+            var elementType = MapType(new ObjCTypeRef { Name = typeRef.Name, IsPointer = typeRef.IsPointer }, declaringClassName, genericTypeParams, typedefMap);
+            return $"{elementType}[{typeRef.FixedArraySize}]";
+        }
+
         // 1. Block types
         if (typeRef.IsBlock)
-            return MapBlockType(typeRef, genericTypeParams);
+            return MapBlockType(typeRef, genericTypeParams, typedefMap);
 
         // 2. instancetype
         if (typeRef.Name == "instancetype")
@@ -72,15 +82,16 @@ public static class ObjCTypeMapper
 
         // 3. Protocol-qualified id (id<Proto>)
         if (typeRef.Name == "id" && typeRef.ProtocolQualification != null)
+        {
+            // NSFastEnumeration has no .NET MAUI binding interface
+            if (typeRef.ProtocolQualification == "NSFastEnumeration")
+                return "NSObject";
             return $"I{typeRef.ProtocolQualification}";
+        }
 
         // 4. Known pointer types
-        if (typeRef.IsPointer)
-        {
-            if (PointerTypeMappings.TryGetValue(typeRef.Name, out var mapped))
-                return mapped;
-            return typeRef.Name;
-        }
+        if (typeRef.IsPointer && PointerTypeMappings.TryGetValue(typeRef.Name, out var mapped))
+            return mapped;
 
         // 5. Special non-pointer types
         if (typeRef.Name == "id")
@@ -105,8 +116,65 @@ public static class ObjCTypeMapper
         if (CoreFoundationRefMappings.TryGetValue(typeRef.Name, out var cfMapped))
             return cfMapped;
 
-        // 9. Passthrough / fallback
+        // 9. Typedef alias resolution (pre-resolved, single-hop lookup)
+        if (typedefMap != null && typedefMap.TryGetValue(typeRef.Name, out var resolved))
+        {
+            // Preserve pointer from usage when the typedef itself is non-pointer.
+            // e.g., typedef NSString BRAlias; usage: BRAlias * → should resolve to NSString *
+            if (typeRef.IsPointer && !resolved.IsPointer)
+            {
+                var withPointer = new ObjCTypeRef
+                {
+                    Name = resolved.Name,
+                    IsPointer = true,
+                    Nullability = typeRef.Nullability,
+                    ProtocolQualification = resolved.ProtocolQualification,
+                    BlockReturnType = resolved.BlockReturnType,
+                    IsBlock = resolved.IsBlock,
+                };
+                withPointer.BlockParams.AddRange(resolved.BlockParams);
+                return MapType(withPointer, declaringClassName, genericTypeParams, typedefMap: null);
+            }
+            return MapType(resolved, declaringClassName, genericTypeParams, typedefMap: null);
+        }
+
+        // 10. Block typedef name resolution (e.g., RLMNotificationBlock → Action<string, RLMRealm>)
+        if (blockTypedefMap != null && blockTypedefMap.TryGetValue(typeRef.Name, out var blockResolved))
+            return MapBlockType(blockResolved, genericTypeParams, typedefMap);
+
+        // 11. Passthrough / fallback
         return typeRef.Name;
+    }
+
+    public static Dictionary<string, ObjCTypeRef> BuildBlockTypedefMap(ObjCModule module) =>
+        module.Typedefs
+            .Where(t => t.UnderlyingType.IsBlock)
+            .ToDictionary(t => t.Name, t => t.UnderlyingType);
+
+    public static Dictionary<string, ObjCTypeRef> BuildResolvedTypedefMap(ObjCModule module)
+    {
+        var raw = new Dictionary<string, ObjCTypeRef>();
+        var structNames = new HashSet<string>(module.Structs.Select(s => s.Name));
+
+        foreach (var t in module.Typedefs)
+        {
+            // Skip block typedefs (emitted as delegates) and struct typedefs (emitted as structs)
+            if (t.UnderlyingType.IsBlock || structNames.Contains(t.Name))
+                continue;
+            raw[t.Name] = t.UnderlyingType;
+        }
+
+        // Resolve chains: A → B → NSString* becomes A → NSString*
+        var resolved = new Dictionary<string, ObjCTypeRef>();
+        foreach (var (name, typeRef) in raw)
+        {
+            var current = typeRef;
+            var visited = new HashSet<string> { name };
+            while (raw.TryGetValue(current.Name, out var next) && visited.Add(current.Name))
+                current = next;
+            resolved[name] = current;
+        }
+        return resolved;
     }
 
     public static bool IsNullableAttribute(ObjCTypeRef typeRef) =>
@@ -117,13 +185,13 @@ public static class ObjCTypeMapper
         && typeRef.IsPointer
         && typeRef.PointeeType is { Name: "NSError", IsPointer: true };
 
-    static string MapBlockType(ObjCTypeRef typeRef, HashSet<string>? genericTypeParams = null)
+    static string MapBlockType(ObjCTypeRef typeRef, HashSet<string>? genericTypeParams = null, Dictionary<string, ObjCTypeRef>? typedefMap = null)
     {
         var returnType = typeRef.BlockReturnType != null
-            ? MapType(typeRef.BlockReturnType, genericTypeParams: genericTypeParams)
+            ? MapType(typeRef.BlockReturnType, genericTypeParams: genericTypeParams, typedefMap: typedefMap)
             : "void";
 
-        var paramTypes = typeRef.BlockParams.Select(p => MapType(p, genericTypeParams: genericTypeParams)).ToList();
+        var paramTypes = typeRef.BlockParams.Select(p => MapType(p, genericTypeParams: genericTypeParams, typedefMap: typedefMap)).ToList();
 
         if (paramTypes.Count > 16)
             return "NSObject";

@@ -20,7 +20,8 @@ public static class ObjCBindingProjectEmitter
         var packageId = options.PackageId ?? $"{options.ModuleName}.ObjC.iOS";
         var outputDirFull = Path.GetFullPath(options.OutputDirectory);
         var sourceXcfwFull = Path.GetFullPath(options.SourceXCFrameworkPath);
-        var relativeXcfwPath = Path.GetRelativePath(outputDirFull, sourceXcfwFull);
+        // Use absolute path for NativeReference to avoid /tmp → /private/tmp symlink issues
+        var xcfwPath = sourceXcfwFull;
 
         Directory.CreateDirectory(outputDirFull);
 
@@ -32,6 +33,7 @@ public static class ObjCBindingProjectEmitter
                 <TargetFramework>net10.0-ios</TargetFramework>
                 <Nullable>enable</Nullable>
                 <IsBindingProject>true</IsBindingProject>
+                <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
                 <IsPackable>true</IsPackable>
                 <PackageId>{packageId}</PackageId>
               </PropertyGroup>
@@ -44,7 +46,7 @@ public static class ObjCBindingProjectEmitter
 
               <!-- NativeReference for local build -->
               <ItemGroup>
-                <NativeReference Include="{relativeXcfwPath}">
+                <NativeReference Include="{xcfwPath}">
                   <Kind>Framework</Kind>
                 </NativeReference>
               </ItemGroup>

@@ -201,4 +201,62 @@ public class ObjCTypeRefParserTests
         Assert.Equal("CGRect", result.Name);
         Assert.False(result.IsPointer);
     }
+
+    [Fact]
+    public void Parse_ConstantArrayType_ReturnsFixedArraySize()
+    {
+        // Clang qualType for constant array: "uint8_t [4]"
+        var result = ObjCTypeRefParser.Parse("uint8_t [4]");
+        Assert.Equal("uint8_t", result.Name);
+        Assert.Equal(4, result.FixedArraySize);
+        Assert.False(result.IsPointer);
+    }
+
+    [Fact]
+    public void Parse_ConstantArrayType_UnsignedChar()
+    {
+        // Clang qualType: "unsigned char [3]"
+        var result = ObjCTypeRefParser.Parse("unsigned char [3]");
+        Assert.Equal("unsigned char", result.Name);
+        Assert.Equal(3, result.FixedArraySize);
+    }
+
+    [Fact]
+    public void Parse_ConstantArrayType_PointerElement()
+    {
+        // Clang qualType for pointer array: "NSString *[4]"
+        var result = ObjCTypeRefParser.Parse("NSString *[4]");
+        Assert.Equal("NSString", result.Name);
+        Assert.True(result.IsPointer);
+        Assert.Equal(4, result.FixedArraySize);
+    }
+
+    [Fact]
+    public void Parse_NestedBlock_OuterWithInnerVoidBlock()
+    {
+        // void (^)(UIViewController *, void(^)(void))
+        var result = ObjCTypeRefParser.Parse("void (^)(UIViewController *, void(^)(void))");
+        Assert.True(result.IsBlock);
+        Assert.NotNull(result.BlockReturnType);
+        Assert.Equal("void", result.BlockReturnType!.Name);
+        Assert.Equal(2, result.BlockParams.Count);
+        Assert.Equal("UIViewController", result.BlockParams[0].Name);
+        Assert.True(result.BlockParams[0].IsPointer);
+        Assert.True(result.BlockParams[1].IsBlock);
+    }
+
+    [Fact]
+    public void Parse_NestedBlock_InnerBlockWithParams()
+    {
+        // BOOL (^)(NSString *, void(^)(NSData *, NSError *))
+        var result = ObjCTypeRefParser.Parse("BOOL (^)(NSString *, void(^)(NSData *, NSError *))");
+        Assert.True(result.IsBlock);
+        Assert.Equal("BOOL", result.BlockReturnType!.Name);
+        Assert.Equal(2, result.BlockParams.Count);
+        Assert.Equal("NSString", result.BlockParams[0].Name);
+        Assert.True(result.BlockParams[1].IsBlock);
+        Assert.Equal(2, result.BlockParams[1].BlockParams.Count);
+        Assert.Equal("NSData", result.BlockParams[1].BlockParams[0].Name);
+        Assert.Equal("NSError", result.BlockParams[1].BlockParams[1].Name);
+    }
 }

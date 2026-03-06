@@ -124,6 +124,40 @@ public class ObjCBindingProjectEmitterTests
     }
 
     [Fact]
+    public void Contains_EnableDefaultCompileItemsFalse()
+    {
+        var tmpDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        try
+        {
+            ObjCBindingProjectEmitter.Emit(CreateOptions(tmpDir), Logger);
+            var content = File.ReadAllText(Path.Combine(tmpDir, "TestModule.ObjC.iOS.csproj"));
+            Assert.Contains("<EnableDefaultCompileItems>false</EnableDefaultCompileItems>", content);
+        }
+        finally
+        {
+            if (Directory.Exists(tmpDir)) Directory.Delete(tmpDir, true);
+        }
+    }
+
+    [Fact]
+    public void NativeReference_UsesAbsolutePath()
+    {
+        var tmpDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        try
+        {
+            ObjCBindingProjectEmitter.Emit(CreateOptions(tmpDir), Logger);
+            var content = File.ReadAllText(Path.Combine(tmpDir, "TestModule.ObjC.iOS.csproj"));
+            // NativeReference should use absolute path (starts with /)
+            var nativeRefLine = content.Split('\n').First(l => l.Contains("<NativeReference"));
+            Assert.Contains("Include=\"/", nativeRefLine);
+        }
+        finally
+        {
+            if (Directory.Exists(tmpDir)) Directory.Delete(tmpDir, true);
+        }
+    }
+
+    [Fact]
     public void DoesNotContain_SwiftRuntime()
     {
         var tmpDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());

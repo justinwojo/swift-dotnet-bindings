@@ -12,15 +12,30 @@ public static class StructsAndEnumsEmitter
 
     public static string? Emit(ObjCModule module, string outputDir, string resolvedNamespace, ILogger logger)
     {
-        if (module.Enums.Count == 0 && module.Structs.Count == 0 && !module.Constants.Any(c => c.IsExtern) && module.Functions.Count == 0)
+        var blockTypedefs = module.Typedefs.Where(t => t.UnderlyingType.IsBlock).ToList();
+        if (module.Enums.Count == 0 && module.Structs.Count == 0 && !module.Constants.Any(c => c.IsExtern) && module.Functions.Count == 0 && blockTypedefs.Count == 0)
         {
-            logger.LogDebug("No enums, structs, constants, or functions to emit for module {ModuleName}", module.ModuleName);
+            logger.LogDebug("No enums, structs, constants, functions, or block typedefs to emit for module {ModuleName}", module.ModuleName);
             return null;
+        }
+
+        var typedefMap = ObjCTypeMapper.BuildResolvedTypedefMap(module);
+
+        // Build set of module-local type names (classes + protocol interfaces)
+        // to detect accessibility issues with delegates and functions
+        var moduleLocalTypes = new HashSet<string>();
+        foreach (var cls in module.Classes)
+            moduleLocalTypes.Add(cls.Name);
+        foreach (var proto in module.Protocols)
+        {
+            moduleLocalTypes.Add(proto.Name);
+            moduleLocalTypes.Add($"I{proto.Name}");
         }
 
         var sb = new StringBuilder();
         sb.AppendLine("using System;");
         sb.AppendLine("using System.Runtime.InteropServices;");
+        sb.AppendLine("using CoreGraphics;");
         sb.AppendLine("using Foundation;");
         sb.AppendLine("using ObjCRuntime;");
         sb.AppendLine();
@@ -31,10 +46,13 @@ public static class StructsAndEnumsEmitter
             EmitEnum(sb, enumDecl);
 
         foreach (var structDecl in module.Structs)
-            EmitStruct(sb, structDecl);
+            EmitStruct(sb, structDecl, typedefMap);
+
+        foreach (var blockTypedef in blockTypedefs)
+            EmitBlockDelegate(sb, blockTypedef, typedefMap, moduleLocalTypes);
 
         if (module.Constants.Any(c => c.IsExtern) || module.Functions.Count > 0)
-            EmitConstantsClass(sb, module);
+            EmitConstantsClass(sb, module, typedefMap, moduleLocalTypes);
 
         sb.AppendLine("}");
 
@@ -79,7 +97,33 @@ public static class StructsAndEnumsEmitter
         return enumDecl.Cases.All(c => c.Name.StartsWith(enumDecl.Name, StringComparison.Ordinal));
     }
 
-    static void EmitStruct(StringBuilder sb, ObjCStructDecl structDecl)
+    static void EmitBlockDelegate(StringBuilder sb, ObjCTypedefDecl typedef, Dictionary<string, ObjCTypeRef> typedefMap, HashSet<string> moduleLocalTypes)
+    {
+        var block = typedef.UnderlyingType;
+        var returnType = block.BlockReturnType != null
+            ? ObjCTypeMapper.MapType(block.BlockReturnType, typedefMap: typedefMap)
+            : "void";
+
+        var paramParts = new List<string>();
+        var allMappedTypes = new List<string> { returnType };
+        for (var i = 0; i < block.BlockParams.Count; i++)
+        {
+            var mappedType = ObjCTypeMapper.MapType(block.BlockParams[i], typedefMap: typedefMap);
+            paramParts.Add($"{mappedType} arg{i}");
+            allMappedTypes.Add(mappedType);
+        }
+
+        // Skip delegates that reference module-local types (defined in ApiDefinition.cs)
+        // to avoid CS0059 accessibility errors — these are internal partial interfaces
+        if (allMappedTypes.Any(t => moduleLocalTypes.Contains(t)))
+            return;
+
+        var parameters = string.Join(", ", paramParts);
+        sb.AppendLine($"    public delegate {returnType} {typedef.Name}({parameters});");
+        sb.AppendLine();
+    }
+
+    static void EmitStruct(StringBuilder sb, ObjCStructDecl structDecl, Dictionary<string, ObjCTypeRef> typedefMap)
     {
         sb.AppendLine("    [StructLayout(LayoutKind.Sequential)]");
         sb.AppendLine($"    public struct {structDecl.Name}");
@@ -87,44 +131,54 @@ public static class StructsAndEnumsEmitter
 
         foreach (var field in structDecl.Fields)
         {
-            var mappedType = ObjCTypeMapper.MapType(field.Type);
+            var mappedType = ObjCTypeMapper.MapType(field.Type, typedefMap: typedefMap);
             var pascalName = ToPascalCase(field.Name);
-            sb.AppendLine($"        public {mappedType} {pascalName};");
+
+            // Handle C fixed-size array fields (parsed from clang's "uint8_t [4]" qualType)
+            if (field.Type.FixedArraySize is > 0)
+            {
+                var elementType = ObjCTypeMapper.MapType(new ObjCTypeRef { Name = field.Type.Name, IsPointer = field.Type.IsPointer }, typedefMap: typedefMap);
+                sb.AppendLine($"        [MarshalAs(UnmanagedType.ByValArray, SizeConst = {field.Type.FixedArraySize})]");
+                sb.AppendLine($"        public {elementType}[] {pascalName};");
+            }
+            else
+            {
+                sb.AppendLine($"        public {mappedType} {pascalName};");
+            }
         }
 
         sb.AppendLine("    }");
         sb.AppendLine();
     }
 
-    static void EmitConstantsClass(StringBuilder sb, ObjCModule module)
+    static void EmitConstantsClass(StringBuilder sb, ObjCModule module, Dictionary<string, ObjCTypeRef> typedefMap, HashSet<string> moduleLocalTypes)
     {
-        sb.AppendLine("    [Static]");
-        sb.AppendLine($"    public static partial class {module.ModuleName}Constants");
+        sb.AppendLine($"    public static class {module.ModuleName}Constants");
         sb.AppendLine("    {");
 
         foreach (var constant in module.Constants.Where(c => c.IsExtern))
-            EmitConstant(sb, constant);
+            EmitConstant(sb, constant, typedefMap);
 
         foreach (var function in module.Functions)
-            EmitFunction(sb, function);
+            EmitFunction(sb, function, typedefMap, moduleLocalTypes);
 
         sb.AppendLine("    }");
         sb.AppendLine();
     }
 
-    static void EmitConstant(StringBuilder sb, ObjCConstantDecl constant)
+    static void EmitConstant(StringBuilder sb, ObjCConstantDecl constant, Dictionary<string, ObjCTypeRef> typedefMap)
     {
         var pascalName = ToPascalCase(constant.Name);
 
         // NSString* constants use NSString as the [Field] property type (MAUI convention),
         // not the mapped "string" type that ObjCTypeMapper returns.
         var isNSString = constant.Type is { Name: "NSString", IsPointer: true };
-        var fieldType = isNSString ? "NSString" : ObjCTypeMapper.MapType(constant.Type);
+        var fieldType = isNSString ? "NSString" : ObjCTypeMapper.MapType(constant.Type, typedefMap: typedefMap);
 
         if (FieldSupportedTypes.Contains(fieldType))
         {
             sb.AppendLine($"        [Field(\"{constant.Name}\", \"__Internal\")]");
-            sb.AppendLine($"        public {fieldType} {pascalName} {{ get; }}");
+            sb.AppendLine($"        public static {fieldType} {pascalName} {{ get; }}");
             sb.AppendLine();
         }
         else
@@ -134,11 +188,18 @@ public static class StructsAndEnumsEmitter
         }
     }
 
-    static void EmitFunction(StringBuilder sb, ObjCFunctionDecl function)
+    static void EmitFunction(StringBuilder sb, ObjCFunctionDecl function, Dictionary<string, ObjCTypeRef> typedefMap, HashSet<string> moduleLocalTypes)
     {
-        var returnType = ObjCTypeMapper.MapType(function.ReturnType);
-        var parameters = string.Join(", ", function.Parameters.Select(p =>
-            $"{ObjCTypeMapper.MapType(p.Type)} {p.Name}"));
+        var returnType = ObjCTypeMapper.MapType(function.ReturnType, typedefMap: typedefMap);
+        var paramTypes = function.Parameters.Select(p => ObjCTypeMapper.MapType(p.Type, typedefMap: typedefMap)).ToList();
+
+        // Skip functions that reference module-local types (defined in ApiDefinition.cs)
+        // to avoid CS0050 accessibility errors
+        if (moduleLocalTypes.Contains(returnType) || paramTypes.Any(t => moduleLocalTypes.Contains(t)))
+            return;
+
+        var parameters = string.Join(", ", function.Parameters.Select((p, i) =>
+            $"{paramTypes[i]} {p.Name}"));
 
         sb.AppendLine($"        [DllImport(\"__Internal\")]");
         sb.AppendLine($"        public static extern {returnType} {function.Name}({parameters});");

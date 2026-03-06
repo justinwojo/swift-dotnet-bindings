@@ -1,6 +1,6 @@
 # Objective-C Binding Integration
 
-## Status: Session O3 Complete — Mixed Framework + MSBuild SDK Integration
+## Status: Session O5 Complete — Zero Compile Errors (55/55 Validation Targets)
 
 **Date:** 2026-02-14 (original), updated 2026-03-06
 
@@ -42,7 +42,7 @@ Swift classes that inherit from ObjC types (NSObject, CALayer, UIControl, etc.) 
 
 ### Validation Coverage
 
-35/53 validation targets pass, including libraries with ObjC-rooted classes (BlinkID, SkeletonView, Kingfisher, etc.) and libraries referencing ObjC framework types (Nuke/UIImage, Alamofire/URLCredential, etc.).
+55/55 validation targets pass (including 3 ObjC: BRLMPrinterKit, Realm, Stripe3DS2), libraries with ObjC-rooted classes (BlinkID, SkeletonView, Kingfisher, etc.) and libraries referencing ObjC framework types (Nuke/UIImage, Alamofire/URLCredential, etc.).
 
 ---
 
@@ -257,7 +257,9 @@ O1 is complete. Remaining work (O2-O4) estimated below.
 | MSBuild SDK Integration | ~80 | ✅ O3 — `SwiftFrameworkType`, Target 4c, Target 5 split, guards |
 | Category Origin Tracking | ~10 | ✅ O3 — `IsFromCategory` (O4 infrastructure) |
 | ObjC Tests (O3) | ~700 | ✅ O3 — 26 new tests |
-| **Total new code** | **~5,000+** | **~4,900 complete (O1+O2+O3)** |
+| O5 zero-error fixes (all emitters + mapper + parser) | ~300 | ✅ O5 — typedef resolution (fully threaded), block typedef maps, constructor dedup, protocol init guard, DisableDefaultCtor, method dedup (with second-order collision handling), module-local type skipping, fixed-size arrays (end-to-end model), binding project fixes |
+| ObjC Tests (O5) | ~450 | ✅ O5 — 29 new tests |
+| **Total new code** | **~5,600+** | **~5,500 complete (O1+O2+O3+O4+O5)** |
 
 For context: Swift pipeline is ~35,000+ lines; ObjC-rooted support added ~2,000 lines across model/marshaler/emitter/tests.
 
@@ -515,13 +517,67 @@ Mixed framework detection, type-level dedup, ObjC metadata props emission, MSBui
 
 8. **Documentation updates**: README ObjC section, CLAUDE.md ObjC CLI examples, count updates across all docs.
 
-**Remaining ObjC edge cases** (known, not blocking):
-- Block typedefs referenced by name (e.g., `RLMNotificationBlock`) — not expanded to `Action`/`Func`
-- Nested block types (e.g., `void (^)(UIViewController *, void(^)(void))`)
-- Typedef struct types (e.g., `BRLMCustomPaperSizeMargins`)
-- `BOOL` in non-property positions parsed as type name instead of mapped to `bool`
+**ObjC edge cases fixed in O5:**
+- Block typedefs referenced by name → resolved via `blockTypedefMap` to inline `Action`/`Func`
+- Nested block types → `FindMatchingParen` depth-aware parsing
+- Typedef alias resolution → pre-resolved chain maps with pointer preservation
+- `BOOL` in pointer positions → added to `PointerTypeMappings`
+- Duplicate constructors → disambiguated as named instance methods
+- Protocol init methods → guard prevents invalid bgen constructor generation
+- Module-local type accessibility → skip functions/delegates referencing ApiDefinition types
 
-### Session O5: Mixed-Framework `[Category]` Emission (planned)
+### Session O5: Zero Compile Errors ✅ COMPLETE
+
+**Completed:** 2026-03-06
+
+**Goal:** Get all 55 validation targets passing with 0 compile errors (BRLMPrinterKit, Realm, Stripe3DS2 had remaining errors after O4).
+
+**What was built:**
+
+All planned fixes are implemented and tested (29 new tests, 5892 total unit tests passing). All 55/55 validation targets pass. Post-session code review fixes: typedef resolution threaded through all emitters, fixed-size arrays modeled end-to-end (parser → mapper → emitter), method dedup handles second-order and full-name collisions.
+
+**Fixes applied (all generic — no library-specific workarounds):**
+
+1. **Nested block parsing** (`ObjCTypeRefParser.cs`): Replaced `LastIndexOf('(')` with `FindMatchingParen` helper for correct depth tracking. Fixed Stripe3DS2 `void (^)(UIViewController *, void(^)(void))` parse failures.
+
+2. **Type mapper additions** (`ObjCTypeMapper.cs`):
+   - `NSFastEnumeration` protocol-qualified id → `NSObject` (no .NET MAUI binding interface)
+   - `NSURLSession` pointer mapping → `NSUrlSession`
+   - `BOOL` added to `PointerTypeMappings` (BOOL* in block params)
+   - Removed early return for unknown pointer types (step 4) — allows typedef resolution to proceed at step 9
+
+3. **Typedef alias resolution** (`ObjCTypeMapper.cs`): Added `typedefMap` parameter to `MapType()`. Pre-resolved typedef chains (A → B → NSString* becomes A → NSString*). Pointer preservation: when typedef is non-pointer but usage is pointer (e.g., `typedef NSString Alias; Alias *`), creates new TypeRef with pointer flag before recursive resolution.
+
+4. **Block typedef → delegate emission** (`StructsAndEnumsEmitter.cs`): Block typedefs emitted as `public delegate` declarations. Module-local type detection skips delegates referencing types only defined in ApiDefinition.cs (avoids CS0059 accessibility errors).
+
+5. **Block typedef name resolution** (`ObjCTypeMapper.cs`): Added `blockTypedefMap` parameter. Named block typedef references (e.g., `RLMNotificationBlock`) resolved to inline `Action<>`/`Func<>` in ApiDefinition.cs.
+
+6. **Duplicate constructor disambiguation** (`ApiDefinitionEmitter.cs`): Track emitted constructor parameter signatures per class. Duplicates emitted as named instance methods (e.g., `InitWithBLELocalName(string)`) instead of colliding `Constructor(string)` overloads.
+
+7. **Method signature dedup** (`ApiDefinitionEmitter.cs`): Track emitted method signatures per class. Duplicates renamed using `SelectorToFullMethodName` (all selector parts PascalCased). Renamed signatures re-registered to prevent second-order collisions. If the full-selector name also collides with an existing method, a numeric suffix is appended.
+
+8. **Protocol init guard** (`ApiDefinitionEmitter.cs`): Protocol `init*` methods NOT emitted as constructors (bgen generates `public virtual` constructors → invalid C#). Added `!isProtocol` guard.
+
+9. **`[DisableDefaultCtor]`** (`ApiDefinitionEmitter.cs`): Emitted when class has any parameterless init method (including `initWith*` with 0 params) to prevent bgen duplicate constructor conflict.
+
+10. **Constants class fix** (`StructsAndEnumsEmitter.cs`): Removed `[Static]` attribute from constants class (confused bgen into processing it as a binding interface). Changed to plain `public static class` (not `partial`).
+
+11. **Fixed-size array struct fields** — End-to-end: `ObjCTypeRefParser` detects `uint8_t [4]` qualType and sets `FixedArraySize` on `ObjCTypeRef` model, `ObjCTypeMapper` maps to `byte[4]` (handles pointer elements like `NSString *[4]` → `string[4]`), `StructsAndEnumsEmitter` emits `[MarshalAs(UnmanagedType.ByValArray, SizeConst=N)]`.
+
+12. **Module-local type skipping** (`StructsAndEnumsEmitter.cs`): Functions and block delegates referencing types defined in ApiDefinition.cs are skipped to avoid CS0050/CS0059 accessibility errors.
+
+13. **Binding project fixes** (`ObjCBindingProjectEmitter.cs`): Added `<EnableDefaultCompileItems>false</EnableDefaultCompileItems>` (prevents auto-including unrelated .cs files), absolute NativeReference path (avoids macOS `/tmp` → `/private/tmp` symlink issues).
+
+14. **Emitter using directives**: Added `using CoreGraphics;` to StructsAndEnums, `using AuthenticationServices;` and `using UIKit;` to ApiDefinition.
+
+**Test files (29 new tests across 6 files):**
+- `ObjCTypeMapperTests.cs` — 10 new tests (typedef pointer preservation, BOOL pointer, unknown pointer fallthrough, block typedef map resolution, fixed-size array mapping incl. pointer elements)
+- `ApiDefinitionEmitterTests.cs` — 11 new tests (DisableDefaultCtor, protocol init guard, method signature dedup, triple dedup collision, full-name collision with suffix, SelectorToFullMethodName, NSFastEnumeration filtering)
+- `StructsAndEnumsEmitterTests.cs` — 6 new tests (fixed-size array, module-local function/delegate skipping, constants class format, typedef alias in struct fields, typedef alias in constants)
+- `ObjCBindingProjectEmitterTests.cs` — 2 new tests (EnableDefaultCompileItems, absolute NativeReference path)
+- `ObjCTypeRefParserTests.cs` — 3 new tests (constant array types: scalar, unsigned char, pointer element)
+
+### Session O6: Mixed-Framework `[Category]` Emission (planned)
 
 **Goal:** Upgrade mixed-framework dedup from type-level (drop entire shared types) to member-level using `[Category]` emission.
 
@@ -533,9 +589,9 @@ Mixed framework detection, type-level dedup, ObjC metadata props emission, MSBui
 - Add parser/emitter/integration tests
 - Find or add a real mixed Swift+ObjC framework to validation set
 
-### Estimated Total: 3-5 sessions (4 complete, 1 remaining)
+### Estimated Total: 3-6 sessions (5 complete, 1 remaining)
 
-Sessions O1-O3 built the ObjC pipeline (parser, emitter, binding project, mixed-framework support). O4 added parser dedup, type mapping improvements, and real-world validation. O5 will upgrade mixed-framework dedup from type-level to member-level.
+Sessions O1-O3 built the ObjC pipeline (parser, emitter, binding project, mixed-framework support). O4 added parser dedup, type mapping improvements, and real-world validation. O5 achieved 55/55 validation targets with zero compile errors. O6 will upgrade mixed-framework dedup from type-level to member-level.
 
 ---
 

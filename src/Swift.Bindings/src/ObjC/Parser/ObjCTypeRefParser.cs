@@ -66,6 +66,27 @@ public static class ObjCTypeRefParser
         else if (s.StartsWith("struct ", StringComparison.Ordinal))
             s = s[7..];
 
+        // 8. Detect C constant array types (e.g., "uint8_t [4]", "NSString *[4]")
+        var bracketIdx = s.IndexOf('[');
+        if (bracketIdx > 0 && s.EndsWith(']'))
+        {
+            var elementStr = s[..bracketIdx].Trim();
+            var sizeStr = s[(bracketIdx + 1)..^1].Trim();
+            if (int.TryParse(sizeStr, out var arraySize))
+            {
+                // Parse the element type to handle pointers, type specifiers, etc.
+                var elementRef = Parse(elementStr);
+                return new ObjCTypeRef
+                {
+                    Name = elementRef.Name,
+                    IsPointer = elementRef.IsPointer || isPointer,
+                    Nullability = nullability,
+                    FixedArraySize = arraySize,
+                    RawQualType = raw
+                };
+            }
+        }
+
         return new ObjCTypeRef
         {
             Name = s,
@@ -176,34 +197,31 @@ public static class ObjCTypeRefParser
     {
         result = null!;
 
-        // Pattern: ReturnType (^)(ParamTypes)
-        var caretIdx = s.IndexOf("(^)");
+        // Pattern: ReturnType (^)(ParamTypes) or ReturnType (^ _Nullable)(ParamTypes)
+        var caretIdx = s.IndexOf("(^");
         if (caretIdx < 0)
-        {
-            // Also try (^ _Nullable)(...) and (^ _Nonnull)(...)
-            caretIdx = s.IndexOf("(^");
-            if (caretIdx < 0)
-                return false;
-            var closeIdx = s.IndexOf(')', caretIdx + 2);
-            if (closeIdx < 0)
-                return false;
-            // Must be followed by (
-            if (closeIdx + 1 >= s.Length || s[closeIdx + 1] != '(')
-                return false;
-        }
+            return false;
+
+        // Find the closing ) of the caret group
+        var caretClose = FindMatchingParen(s, caretIdx);
+        if (caretClose < 0)
+            return false;
+
+        // Params section starts at '(' immediately after caret group close
+        if (caretClose + 1 >= s.Length || s[caretClose + 1] != '(')
+            return false;
+
+        var paramsOpen = caretClose + 1;
+        var paramsClose = FindMatchingParen(s, paramsOpen);
+        if (paramsClose < 0)
+            return false;
 
         // Extract return type (everything before the caret group)
         var returnTypeStr = s[..caretIdx].Trim();
         if (string.IsNullOrEmpty(returnTypeStr))
             returnTypeStr = "void";
 
-        // Find params section: last (...) in the string
-        var lastOpen = s.LastIndexOf('(');
-        var lastClose = s.LastIndexOf(')');
-        if (lastOpen < 0 || lastClose <= lastOpen)
-            return false;
-
-        var paramsStr = s[(lastOpen + 1)..lastClose].Trim();
+        var paramsStr = s[(paramsOpen + 1)..paramsClose].Trim();
         var blockParams = new List<ObjCTypeRef>();
 
         if (!string.IsNullOrEmpty(paramsStr) && paramsStr != "void")
@@ -226,6 +244,21 @@ public static class ObjCTypeRefParser
             RawQualType = raw
         };
         return true;
+    }
+
+    private static int FindMatchingParen(string s, int openIdx)
+    {
+        var depth = 0;
+        for (var i = openIdx; i < s.Length; i++)
+        {
+            if (s[i] == '(') depth++;
+            else if (s[i] == ')')
+            {
+                depth--;
+                if (depth == 0) return i;
+            }
+        }
+        return -1;
     }
 
     private static List<string> SplitBlockParams(string paramsStr)
