@@ -56,6 +56,11 @@ public static class DefaultParameterOverloadEmitter
         if (trailingDefaultCount == 0)
             return;
 
+        // Skip overload generation when all trailing defaults have C#-mappable inline values.
+        // In that case, the primary method signature already has `= value` defaults.
+        if (AllTrailingDefaultsAreCSharpMappable(methodDecl, env.TypeDatabase))
+            return;
+
         // Limit overloads
         var overloadCount = Math.Min(trailingDefaultCount, MaxOverloads);
 
@@ -704,6 +709,38 @@ public static class DefaultParameterOverloadEmitter
         methodDecl.CSSignature = methodDecl.CSSignature
             .Where((a, i) => i == 0 || !IsDebugParameter(a))
             .ToList();
+    }
+
+    /// <summary>
+    /// Returns true when every trailing default parameter has a SwiftDefaultExpression
+    /// that maps to a valid C# compile-time constant. When true, the primary method
+    /// already has inline `= value` defaults and overloads are unnecessary.
+    /// </summary>
+    internal static bool AllTrailingDefaultsAreCSharpMappable(MethodDecl methodDecl, ITypeDatabase typeDatabase)
+    {
+        var args = methodDecl.CSSignature.Skip(1).ToList();
+        if (args.Count == 0) return false;
+
+        bool foundAnyDefault = false;
+
+        // Walk backward through trailing defaults
+        for (int i = args.Count - 1; i >= 0; i--)
+        {
+            if (IsDebugParameter(args[i]))
+                continue;
+            if (!args[i].HasDefaultArg)
+                break;
+            foundAnyDefault = true;
+            // Must have both the Swift expression AND a successful C# mapping
+            if (args[i].SwiftDefaultExpression == null)
+                return false;
+            var mapped = SwiftDefaultValueMapper.TryMapToCSharpDefault(
+                args[i].SwiftDefaultExpression!, args[i].SwiftTypeSpec, typeDatabase);
+            if (mapped == null)
+                return false;
+        }
+
+        return foundAnyDefault;
     }
 
     internal static string DeterministicHash8(string input) => EmitterUtility.DeterministicHash8(input);

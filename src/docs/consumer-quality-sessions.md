@@ -141,38 +141,48 @@ Swift `@available(iOS 16.0, *)` annotations weren't mapped to `[SupportedOSPlatf
 
 ## Session 4: Default Parameter Values
 
-**Effort:** 1-2 sessions
-**Planning:** Plan Mode Required — parsing infrastructure is ready from Session 3. Remaining design questions: which default expressions can be reliably mapped to C#, how to resolve enum case defaults (needs type context), optional params vs convenience overloads, handling `default` keyword for non-trivial types.
-**Theme:** Extract default parameter values from .swiftinterface files.
+**Effort:** 1 session
+**Completed:** March 5, 2026
+**Status:** CQ-9 completed
+**Validation:** 53/53 passing (no regressions)
+**Unit tests:** 5587 passing (+63 from Session 3 baseline)
 
-### CQ-9: Swift Default Parameter Values Lost (Q2)
+### CQ-9: Swift Default Parameter Values Lost (Q2) -- COMPLETED
 
 **Affects:** All libraries with settings/configuration types (BlinkID `ScanningSettings` — 18+ required params).
 **Severity:** High — major usability cliff for settings-heavy APIs.
 
-ABI JSON doesn't contain default parameter values, but .swiftinterface files do:
-```swift
-public init(timeout: Swift.Double = 10.0, showOverlay: Swift.Bool = true, ...)
-```
+ABI JSON only has `hasDefaultArg: bool` — the actual default value is lost. .swiftinterface files contain the full expressions. C# default parameters must be compile-time constants, so only literal defaults (numbers, bools, strings, nil, simple enum cases) are mapped inline. Complex defaults (struct constructors, static properties, arrays) keep existing `DefaultParameterOverloadEmitter` overload behavior.
 
-**Fix:**
-1. Extract default value expressions from .swiftinterface init/method signatures.
-2. Map Swift literal defaults to C# equivalents:
-   - Numeric literals (`10.0` -> `10.0`)
-   - Bool literals (`true`/`false`)
-   - `nil` -> `null` / `default`
-   - Enum cases (`.someCase` -> `EnumType.SomeCase`)
-   - `default` keyword -> C# `default`
-3. Emit as C# optional parameters or generate convenience overloads.
-4. Gracefully skip computed/complex defaults that can't be mapped.
+**Fix:** End-to-end pipeline: parse → model → correlate → map → emit.
 
-**Acceptance:** `ScanningSettings` constructor has reasonable defaults. Common literal defaults (numbers, bools, nil, enum cases) are preserved in generated C# signatures.
+1. **Model** (`Model/TypeDecl/ArgumentDecl.cs`) — Added `SwiftDefaultExpression` property to store raw Swift default expressions extracted from .swiftinterface.
 
-**Session 3 infrastructure ready for reuse:**
-- **`SwiftInterfaceContextTracker`** — Instantiate same tracker, iterate lines, on each `MemberLine` extract default values from the declaration line. Use `tracker.CompletedMultiLine` for multi-line signatures. Use `tracker.QualifiedTypePath` for context and `tracker.BuildMemberKey()` for ABI correlation. No refactoring needed — just a new consumer.
-- **`ExtractMemberPrintedName()`** — Already handles func, var, init, subscript. Returns the printed name needed for ABI key correlation.
-- **Balanced-paren parsing** — `ExtractAvailableClauses` pattern reusable for extracting default value expressions where closures contain parens.
-- **ABI correlation pattern** — Same `Dictionary<string, T>` keyed by qualified path, wired through `SwiftABIParser` constructor. Follow `ApplyMemberAvailability` pattern for `ApplyDefaultValues`.
+2. **Parser** (`Parser/SwiftInterfaceAccessParser.cs`) — New `GetDefaultParameterValues()` method following Session 3's `GetAvailabilityAnnotations()` pattern. Uses `SwiftInterfaceContextTracker` for type context. `ExtractParameterDefaults()` parses member lines using depth-aware parameter splitting, extracting ` = expr` at paren depth 0. Handles both type members and free functions (top-level). `SplitParameters` hardened to track string literals (prevents splitting on commas inside `","` — fixed GRDB regression).
+
+3. **ABI correlation** (`Parser/SwiftABIParser.cs`) — New `_defaultParameterValues` field, constructor param, and two correlation methods: `ApplyMemberDefaultValues` (type-scoped key via `BuildTypeQualifiedPath`) and `ApplyFreeFunctionDefaultValues` (bare printedName key for module-level functions). Called after argument-construction loop in `HandleFunction`.
+
+4. **Mapper** (`Marshaler/SwiftDefaultValueMapper.cs`) — NEW. Maps Swift → C# compile-time constants:
+   - `nil` → `null` (reference/optional types) or `default` (value types)
+   - `true`/`false` → `true`/`false`
+   - Integer/float literals (underscore stripping, `f` suffix for `Swift.Float`)
+   - String literals
+   - `.caseName` → `EnumType.CaseName` (SimpleEnum via TypeDatabase + PascalCase)
+   - Qualified enum: `SVGColor.black` → resolves via paramTypeSpec fallback for unqualified forms
+   - Property chains (e.g., `LottieConfiguration.shared.decodingStrategy`) correctly rejected — dots in type part guard prevents misidentification as enum case
+   - Everything else → `null` (unmappable, falls back to overloads)
+
+5. **Emission** (`Emitter/StringEmitter/Handler/MethodSignature.cs`) — Added `DefaultValue` to `Parameter` record. `Signature.ParametersString()` appends `= value` for mapped defaults. `SignatureString()` unchanged (internal matching). `PInvokeParametersString()` unchanged. New `ParametersStringWithoutDefaults()` for failable factory (TryCreate has trailing `out` param — defaults would produce invalid C#). `WrapperSignatureBuilder.ResolveDefaultValues()` enforces maximal trailing suffix constraint: only consecutive trailing parameters where every `HasDefaultArg` param has a mappable C# default keep their defaults.
+
+6. **Overload suppression** (`Emitter/StringEmitter/Handler/DefaultParameterOverloadEmitter.cs`) — New `AllTrailingDefaultsAreCSharpMappable()` gate. When all trailing defaults map to C# constants, inline defaults suffice and overloads are skipped.
+
+**Design decisions:**
+- Failable factories (`TryCreate`) strip defaults via `ParametersStringWithoutDefaults()` — the trailing `out result` parameter makes C# defaults invalid.
+- Free functions use bare printedName keys (matching swiftinterface parser output at `TypeDepth == 0`).
+- Unqualified qualified enum forms (e.g., `SVGColor.black`) resolve via paramTypeSpec fallback, but only when the type part is a simple identifier (no dots) to avoid misidentifying property chains.
+
+**Files modified:** 10 files (2 new, 8 modified). `ArgumentDecl.cs`, `SwiftInterfaceAccessParser.cs`, `SwiftInterfaceContextTracker.cs`, `SwiftABIParser.cs`, `Program.cs`, `SwiftDefaultValueMapper.cs` (new), `MethodSignature.cs`, `DefaultParameterOverloadEmitter.cs`, `WrapperEmitter.FailableFactory.cs`. Tests: `SwiftDefaultValueMapperTests.cs` (new), `SwiftInterfaceAccessParserTests.cs`, `DefaultParameterOverloadEmitterTests.cs`, `SignatureBuilderTests.cs`.
+**Tests:** 63 new tests — SwiftDefaultValueMapperTests (21), SwiftInterfaceAccessParserTests (20), DefaultParameterOverloadEmitterTests (6), SignatureBuilderTests (6), parsing/mapping integration coverage for all literal types + edge cases
 
 ---
 
@@ -212,7 +222,7 @@ These items were evaluated and determined to not be worth pursuing:
 | Session | Status | Date | Notes |
 |---------|--------|------|-------|
 | 1 — Quick Wins | **3/5 done** | Mar 5, 2026 | CQ-1, CQ-4, CQ-5 done; CQ-2, CQ-3 deferred |
-| 2 — SwiftUI + Optional | Not started | | CQ-6, CQ-7 |
+| 2 — SwiftUI + Optional | **Done** | Mar 5, 2026 | CQ-6, CQ-7 done; 8 new tests, 53/53 validation |
 | 3 — @available | **Done** | Mar 5, 2026 | CQ-8 done; 49 new tests, 53/53 validation |
-| 4 — Default Params | Not started | | CQ-9; Session 3 infrastructure ready for reuse |
+| 4 — Default Params | **Done** | Mar 5, 2026 | CQ-9 done; 63 new tests, 53/53 validation |
 | 5 — Auto-ProjectRefs | Not started | | CQ-10 |

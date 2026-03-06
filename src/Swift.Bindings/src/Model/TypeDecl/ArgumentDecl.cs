@@ -36,6 +36,12 @@ namespace BindingsGeneration
         public bool HasDefaultArg { get; set; } = false;
 
         /// <summary>
+        /// The raw Swift default expression from .swiftinterface (e.g., "10", "true", ".mid", "nil").
+        /// Only populated when HasDefaultArg is true AND the .swiftinterface provided the value.
+        /// </summary>
+        public string? SwiftDefaultExpression { get; set; }
+
+        /// <summary>
         /// The deduplicated C# parameter name, set by NameProvider.DeduplicateParameterNames().
         /// When set, NameProvider.GetCSharpParameterName() returns this value.
         /// </summary>

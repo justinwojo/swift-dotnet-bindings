@@ -1048,6 +1048,416 @@ public class SwiftInterfaceAccessParserTests
 
     #endregion
 
+    // ===== GetDefaultParameterValues Tests =====
+
+    [Fact]
+    public void GetDefaultParameterValues_NumericDefaults()
+    {
+        var swiftInterface = """
+            public class Config {
+              public func setup(limit: Swift.Int = 10, offset: Swift.Int = 0)
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetDefaultParameterValues(path);
+            Assert.True(result.ContainsKey("Config.setup(limit:offset:)"));
+            var defaults = result["Config.setup(limit:offset:)"];
+            Assert.Equal(2, defaults.Count);
+            Assert.Equal("10", defaults[0]);
+            Assert.Equal("0", defaults[1]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetDefaultParameterValues_BoolDefaults()
+    {
+        var swiftInterface = """
+            public class Scanner {
+              public func scan(verbose: Swift.Bool = true, strict: Swift.Bool = false)
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetDefaultParameterValues(path);
+            Assert.True(result.ContainsKey("Scanner.scan(verbose:strict:)"));
+            var defaults = result["Scanner.scan(verbose:strict:)"];
+            Assert.Equal("true", defaults[0]);
+            Assert.Equal("false", defaults[1]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetDefaultParameterValues_StringDefault()
+    {
+        var swiftInterface = """
+            public class Greeter {
+              public func greet(name: Swift.String = "World")
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetDefaultParameterValues(path);
+            Assert.True(result.ContainsKey("Greeter.greet(name:)"));
+            Assert.Equal("\"World\"", result["Greeter.greet(name:)"][0]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetDefaultParameterValues_NilDefault()
+    {
+        var swiftInterface = """
+            public class Cache {
+              public func store(key: Swift.String, value: Swift.Optional<Swift.Int> = nil)
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetDefaultParameterValues(path);
+            Assert.True(result.ContainsKey("Cache.store(key:value:)"));
+            var defaults = result["Cache.store(key:value:)"];
+            Assert.Null(defaults[0]); // no default for 'key'
+            Assert.Equal("nil", defaults[1]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetDefaultParameterValues_EnumDotDefault()
+    {
+        var swiftInterface = """
+            public class Audio {
+              public func setLevel(level: MyLib.Level = .mid)
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetDefaultParameterValues(path);
+            Assert.True(result.ContainsKey("Audio.setLevel(level:)"));
+            Assert.Equal(".mid", result["Audio.setLevel(level:)"][0]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetDefaultParameterValues_QualifiedEnumDefault()
+    {
+        var swiftInterface = """
+            public class Painter {
+              public func setColor(color: SVGView.SVGColor = SVGColor.black)
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetDefaultParameterValues(path);
+            Assert.True(result.ContainsKey("Painter.setColor(color:)"));
+            Assert.Equal("SVGColor.black", result["Painter.setColor(color:)"][0]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetDefaultParameterValues_FloatDefault()
+    {
+        var swiftInterface = """
+            public class Animator {
+              public func animate(duration: Swift.Double = 0.02, speed: Swift.Float = 0.8)
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetDefaultParameterValues(path);
+            Assert.True(result.ContainsKey("Animator.animate(duration:speed:)"));
+            var defaults = result["Animator.animate(duration:speed:)"];
+            Assert.Equal("0.02", defaults[0]);
+            Assert.Equal("0.8", defaults[1]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetDefaultParameterValues_UnderscoreNumeric()
+    {
+        var swiftInterface = """
+            public class Counter {
+              public func setMax(max: Swift.Int = 1_000_000)
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetDefaultParameterValues(path);
+            Assert.True(result.ContainsKey("Counter.setMax(max:)"));
+            Assert.Equal("1_000_000", result["Counter.setMax(max:)"][0]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetDefaultParameterValues_MultiLineSignature()
+    {
+        var swiftInterface = """
+            public class Builder {
+              public func build(width: Swift.Int = 100,
+                height: Swift.Int = 200,
+                depth: Swift.Int = 50)
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetDefaultParameterValues(path);
+            Assert.True(result.ContainsKey("Builder.build(width:height:depth:)"));
+            var defaults = result["Builder.build(width:height:depth:)"];
+            Assert.Equal(3, defaults.Count);
+            Assert.Equal("100", defaults[0]);
+            Assert.Equal("200", defaults[1]);
+            Assert.Equal("50", defaults[2]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetDefaultParameterValues_NestedType()
+    {
+        var swiftInterface = """
+            public class Outer {
+              public class Inner {
+                public func configure(mode: Swift.Int = 1)
+              }
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetDefaultParameterValues(path);
+            Assert.True(result.ContainsKey("Outer.Inner.configure(mode:)"));
+            Assert.Equal("1", result["Outer.Inner.configure(mode:)"][0]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetDefaultParameterValues_NoDefaults_NotInResult()
+    {
+        var swiftInterface = """
+            public class Plain {
+              public func doSomething(x: Swift.Int, y: Swift.Int)
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetDefaultParameterValues(path);
+            Assert.False(result.ContainsKey("Plain.doSomething(x:y:)"));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetDefaultParameterValues_InitWithDefaults()
+    {
+        var swiftInterface = """
+            public class Settings {
+              public init(verbose: Swift.Bool = false, retries: Swift.Int = 3)
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetDefaultParameterValues(path);
+            Assert.True(result.ContainsKey("Settings.init(verbose:retries:)"));
+            var defaults = result["Settings.init(verbose:retries:)"];
+            Assert.Equal("false", defaults[0]);
+            Assert.Equal("3", defaults[1]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetDefaultParameterValues_MixedDefaultAndNonDefault()
+    {
+        var swiftInterface = """
+            public class Query {
+              public func search(query: Swift.String, limit: Swift.Int = 25, offset: Swift.Int = 0)
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetDefaultParameterValues(path);
+            Assert.True(result.ContainsKey("Query.search(query:limit:offset:)"));
+            var defaults = result["Query.search(query:limit:offset:)"];
+            Assert.Equal(3, defaults.Count);
+            Assert.Null(defaults[0]); // no default for 'query'
+            Assert.Equal("25", defaults[1]);
+            Assert.Equal("0", defaults[2]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetDefaultParameterValues_ComplexExpression_StillExtracted()
+    {
+        // Complex defaults are extracted as raw strings — the mapper will reject them later
+        var swiftInterface = """
+            public class Factory {
+              public func create(config: MyLib.Config = Config())
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetDefaultParameterValues(path);
+            Assert.True(result.ContainsKey("Factory.create(config:)"));
+            Assert.Equal("Config()", result["Factory.create(config:)"][0]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetDefaultParameterValues_NegativeNumber()
+    {
+        var swiftInterface = """
+            public class Math {
+              public func offset(x: Swift.Int = -1)
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetDefaultParameterValues(path);
+            Assert.True(result.ContainsKey("Math.offset(x:)"));
+            Assert.Equal("-1", result["Math.offset(x:)"][0]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetDefaultParameterValues_DotNoneOnOptional()
+    {
+        var swiftInterface = """
+            public class Opt {
+              public func configure(value: Swift.Optional<Swift.Int> = .none)
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetDefaultParameterValues(path);
+            Assert.True(result.ContainsKey("Opt.configure(value:)"));
+            Assert.Equal(".none", result["Opt.configure(value:)"][0]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetDefaultParameterValues_EmptyFile()
+    {
+        var result = SwiftInterfaceAccessParser.GetDefaultParameterValues("/nonexistent/path.swiftinterface");
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void GetDefaultParameterValues_StringWithComma()
+    {
+        // Regression: default value "," should not split the parameter list
+        var swiftInterface = """
+            public struct DumpFormat {
+              public init(header: Swift.Bool = false, separator: Swift.String = ",")
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetDefaultParameterValues(path);
+            Assert.True(result.ContainsKey("DumpFormat.init(header:separator:)"));
+            var defaults = result["DumpFormat.init(header:separator:)"];
+            Assert.Equal(2, defaults.Count);
+            Assert.Equal("false", defaults[0]);
+            Assert.Equal("\",\"", defaults[1]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetDefaultParameterValues_FreeFunction()
+    {
+        // Free functions (not inside a type) should use bare printedName as key
+        var swiftInterface = """
+            public func greet(name: Swift.String, loud: Swift.Bool = false)
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetDefaultParameterValues(path);
+            Assert.True(result.ContainsKey("greet(name:loud:)"));
+            var defaults = result["greet(name:loud:)"];
+            Assert.Equal(2, defaults.Count);
+            Assert.Null(defaults[0]); // name has no default
+            Assert.Equal("false", defaults[1]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    // ===== ExtractParameterDefaults Tests =====
+
+    [Fact]
+    public void ExtractParameterDefaults_SimpleDefault()
+    {
+        var line = "public func foo(x: Swift.Int = 10)";
+        var defaults = SwiftInterfaceAccessParser.ExtractParameterDefaults(line);
+        Assert.NotNull(defaults);
+        Assert.Single(defaults!);
+        Assert.Equal("10", defaults![0]);
+    }
+
+    [Fact]
+    public void ExtractParameterDefaults_NoDefault()
+    {
+        var line = "public func foo(x: Swift.Int)";
+        var defaults = SwiftInterfaceAccessParser.ExtractParameterDefaults(line);
+        Assert.Null(defaults); // No defaults at all
+    }
+
+    [Fact]
+    public void ExtractParameterDefaults_GenericTypeDefault()
+    {
+        // Default on Optional<Array<Int>> — expression should be extracted
+        var line = "public func foo(items: Swift.Optional<Swift.Array<Swift.Int>> = nil)";
+        var defaults = SwiftInterfaceAccessParser.ExtractParameterDefaults(line);
+        Assert.NotNull(defaults);
+        Assert.Equal("nil", defaults![0]);
+    }
+
     private static string WriteTempFile(string content)
     {
         var path = Path.GetTempFileName();

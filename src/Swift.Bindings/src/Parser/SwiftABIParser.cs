@@ -244,6 +244,42 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Applies default parameter value expressions from swiftinterface data to a method's arguments.
+        /// Must be called AFTER all ArgumentDecl instances have been added to CSSignature.
+        /// </summary>
+        private void ApplyMemberDefaultValues(MethodDecl methodDecl, TypeDecl parentTypeDecl, string printedName)
+        {
+            if (_defaultParameterValues == null) return;
+            var key = $"{BuildTypeQualifiedPath(parentTypeDecl)}.{printedName}";
+            if (!_defaultParameterValues.TryGetValue(key, out var defaultValues))
+                return;
+            // Apply to arguments (skip i=0, the return type)
+            for (int i = 1; i < methodDecl.CSSignature.Count; i++)
+            {
+                var argIdx = i - 1;
+                if (argIdx < defaultValues.Count && methodDecl.CSSignature[i].HasDefaultArg)
+                    methodDecl.CSSignature[i].SwiftDefaultExpression = defaultValues[argIdx];
+            }
+        }
+
+        /// <summary>
+        /// Applies default parameter values for free functions (module-level, not inside a type).
+        /// Uses the bare printedName as key (matching the swiftinterface parser's output for top-level funcs).
+        /// </summary>
+        private void ApplyFreeFunctionDefaultValues(MethodDecl methodDecl, string printedName)
+        {
+            if (_defaultParameterValues == null) return;
+            if (!_defaultParameterValues.TryGetValue(printedName, out var defaultValues))
+                return;
+            for (int i = 1; i < methodDecl.CSSignature.Count; i++)
+            {
+                var argIdx = i - 1;
+                if (argIdx < defaultValues.Count && methodDecl.CSSignature[i].HasDefaultArg)
+                    methodDecl.CSSignature[i].SwiftDefaultExpression = defaultValues[argIdx];
+            }
+        }
+
+        /// <summary>
         /// Checks if a member is unconditionally unavailable from swiftinterface availability annotations.
         /// </summary>
         private bool IsUnavailableFromSwiftInterface(TypeDecl parentTypeDecl, string printedName)
@@ -358,6 +394,13 @@ namespace BindingsGeneration
         /// </summary>
         private readonly Dictionary<string, List<AvailabilityAnnotation>>? _availabilityAnnotations;
 
+        /// <summary>
+        /// Optional default parameter value expressions from swiftinterface parsing.
+        /// Keys are "QualifiedType.printedName". Values are index-aligned lists of
+        /// raw Swift default expressions (null for params without defaults).
+        /// </summary>
+        private readonly Dictionary<string, List<string?>>? _defaultParameterValues;
+
         public SwiftABIParser(
             string filePath,
             ITypeDatabase typeDatabase,
@@ -373,7 +416,8 @@ namespace BindingsGeneration
             HashSet<string>? customActorTypes = null,
             HashSet<string>? actorIsolatedMembers = null,
             HashSet<string>? nonisolatedMembers = null,
-            Dictionary<string, List<AvailabilityAnnotation>>? availabilityAnnotations = null)
+            Dictionary<string, List<AvailabilityAnnotation>>? availabilityAnnotations = null,
+            Dictionary<string, List<string?>>? defaultParameterValues = null)
         {
             _filePath = filePath;
             _typeDatabase = typeDatabase;
@@ -390,6 +434,7 @@ namespace BindingsGeneration
             _actorIsolatedMembers = actorIsolatedMembers;
             _nonisolatedMembers = nonisolatedMembers;
             _availabilityAnnotations = availabilityAnnotations;
+            _defaultParameterValues = defaultParameterValues;
 
             string jsonContent = File.ReadAllText(_filePath);
             _moduleRoot = JsonConvert.DeserializeObject<ABIRootNode>(jsonContent) ?? throw new InvalidOperationException("Invalid ABI structure.");
@@ -1126,6 +1171,13 @@ namespace BindingsGeneration
                     ModuleDecl = moduleDecl
                 });
             }
+
+            // Apply default parameter value expressions from swiftinterface data.
+            // Must happen after the argument-construction loop since it mutates CSSignature entries.
+            if (parentDecl is TypeDecl parentTypeForDefaults)
+                ApplyMemberDefaultValues(methodDecl, parentTypeForDefaults, node.PrintedName);
+            else
+                ApplyFreeFunctionDefaultValues(methodDecl, node.PrintedName);
 
             return methodDecl;
         }

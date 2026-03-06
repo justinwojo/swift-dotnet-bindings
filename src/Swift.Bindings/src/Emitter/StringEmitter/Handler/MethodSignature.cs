@@ -12,7 +12,7 @@ namespace BindingsGeneration
     /// <param name="Type">The marshalled type of the parameter.</param>
     /// <param name="Name">The parameter name.</param>
     /// <param name="modifier">Optional modifier (e.g., "out", "ref").</param>
-    public record Parameter(MarshalledType Type, string Name, string modifier = "")
+    public record Parameter(MarshalledType Type, string Name, string modifier = "", string? DefaultValue = null)
     {
         public string CallString()
         {
@@ -116,7 +116,14 @@ namespace BindingsGeneration
         public bool ContainsPlaceholder =>
         Parameters.Any(p => p.Type.ContainsAnyTypePlaceholder())
         || ReturnType.Contains(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
-        public string ParametersString() => string.Join(", ", Parameters.Select(p => p.SignatureString()));
+        public string ParametersString() => string.Join(", ", Parameters.Select(p =>
+            p.DefaultValue != null ? $"{p.SignatureString()} = {p.DefaultValue}" : p.SignatureString()));
+
+        /// <summary>
+        /// Returns the parameters string without any default values.
+        /// Used by failable factory (TryCreate) where trailing 'out' param makes defaults invalid.
+        /// </summary>
+        public string ParametersStringWithoutDefaults() => string.Join(", ", Parameters.Select(p => p.SignatureString()));
 
         /// <summary>
         /// Returns the parameters string with optional per-parameter attribute prefixes.
@@ -129,7 +136,8 @@ namespace BindingsGeneration
             return string.Join(", ", Parameters.Select(p =>
             {
                 var prefix = paramAttributes.TryGetValue(p.Name, out var attr) ? attr + " " : "";
-                return prefix + p.SignatureString();
+                var defaultSuffix = p.DefaultValue != null ? $" = {p.DefaultValue}" : "";
+                return prefix + p.SignatureString() + defaultSuffix;
             }));
         }
 
@@ -569,6 +577,59 @@ namespace BindingsGeneration
                     continue;
                 }
                 AddParameter(resolvedParamName, csParamName, inoutModifier);
+            }
+
+            // Resolve C# default values from Swift default expressions.
+            // Must run after all parameters are added so we can enforce the trailing suffix constraint.
+            ResolveDefaultValues();
+        }
+
+        /// <summary>
+        /// Resolves C# default values from SwiftDefaultExpression on each parameter's ArgumentDecl.
+        /// Enforces the maximal trailing suffix constraint: only consecutive trailing parameters
+        /// where every HasDefaultArg param has a mappable C# default keep their defaults.
+        /// </summary>
+        private void ResolveDefaultValues()
+        {
+            // Skip property accessors — they don't have user-facing parameter defaults
+            if (_env.MethodDecl.IsAccessor)
+                return;
+
+            var args = _env.MethodDecl.CSSignature.Skip(1)
+                .Where(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple)
+                .ToList();
+
+            if (args.Count != _parameters.Count)
+                return; // Defensive — counts should match
+
+            // Map each parameter's default
+            var mappedDefaults = new string?[_parameters.Count];
+            for (int i = 0; i < args.Count; i++)
+            {
+                if (args[i].HasDefaultArg && args[i].SwiftDefaultExpression != null)
+                {
+                    mappedDefaults[i] = SwiftDefaultValueMapper.TryMapToCSharpDefault(
+                        args[i].SwiftDefaultExpression!, args[i].SwiftTypeSpec, _env.TypeDatabase);
+                }
+            }
+
+            // Find maximal trailing suffix: longest run from the end where every
+            // HasDefaultArg param also has a mapped C# default.
+            int suffixStart = _parameters.Count;
+            for (int i = _parameters.Count - 1; i >= 0; i--)
+            {
+                if (!args[i].HasDefaultArg)
+                    break; // Non-default param ends the suffix
+                if (mappedDefaults[i] == null)
+                    break; // Default param without C# mapping ends the suffix
+                suffixStart = i;
+            }
+
+            // Apply defaults only within the trailing suffix
+            for (int i = suffixStart; i < _parameters.Count; i++)
+            {
+                if (mappedDefaults[i] != null)
+                    _parameters[i] = _parameters[i] with { DefaultValue = mappedDefaults[i] };
             }
         }
 

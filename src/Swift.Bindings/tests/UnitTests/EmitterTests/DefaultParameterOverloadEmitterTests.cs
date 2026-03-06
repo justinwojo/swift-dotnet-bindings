@@ -416,4 +416,88 @@ public class DefaultParameterOverloadEmitterTests
     }
 
     #endregion
+
+    #region AllTrailingDefaultsAreCSharpMappable Tests
+
+    [Fact]
+    public void AllTrailingDefaultsAreCSharpMappable_AllLiterals_ReturnsTrue()
+    {
+        var (_, typeDb) = CreateTestEnvironment("Config");
+        var method = CreateMethodWithArgs(
+            CreateArg("query", hasDefault: false),
+            CreateArgWithDefault("limit", "10"),
+            CreateArgWithDefault("offset", "0"));
+        Assert.True(DefaultParameterOverloadEmitter.AllTrailingDefaultsAreCSharpMappable(method, typeDb));
+    }
+
+    [Fact]
+    public void AllTrailingDefaultsAreCSharpMappable_BoolLiterals_ReturnsTrue()
+    {
+        var (_, typeDb) = CreateTestEnvironment("Config");
+        var method = CreateMethodWithArgs(
+            CreateArgWithDefault("verbose", "true"),
+            CreateArgWithDefault("strict", "false"));
+        Assert.True(DefaultParameterOverloadEmitter.AllTrailingDefaultsAreCSharpMappable(method, typeDb));
+    }
+
+    [Fact]
+    public void AllTrailingDefaultsAreCSharpMappable_MixedWithComplex_ReturnsFalse()
+    {
+        var (_, typeDb) = CreateTestEnvironment("Config");
+        var method = CreateMethodWithArgs(
+            CreateArg("query", hasDefault: false),
+            CreateArgWithDefault("config", "Config()"), // unmappable
+            CreateArgWithDefault("limit", "10")); // mappable but gap before
+        Assert.False(DefaultParameterOverloadEmitter.AllTrailingDefaultsAreCSharpMappable(method, typeDb));
+    }
+
+    [Fact]
+    public void AllTrailingDefaultsAreCSharpMappable_NoDefaults_ReturnsFalse()
+    {
+        var (_, typeDb) = CreateTestEnvironment("Config");
+        var method = CreateMethodWithArgs(
+            CreateArg("x", hasDefault: false),
+            CreateArg("y", hasDefault: false));
+        Assert.False(DefaultParameterOverloadEmitter.AllTrailingDefaultsAreCSharpMappable(method, typeDb));
+    }
+
+    [Fact]
+    public void AllTrailingDefaultsAreCSharpMappable_MissingExpression_ReturnsFalse()
+    {
+        var (_, typeDb) = CreateTestEnvironment("Config");
+        // HasDefaultArg=true but no SwiftDefaultExpression (ABI-only default, no swiftinterface)
+        var method = CreateMethodWithArgs(
+            CreateArg("x", hasDefault: false),
+            CreateArg("y", hasDefault: true));
+        Assert.False(DefaultParameterOverloadEmitter.AllTrailingDefaultsAreCSharpMappable(method, typeDb));
+    }
+
+    [Fact]
+    public void AllTrailingDefaultsAreCSharpMappable_NilDefault_ReturnsTrue()
+    {
+        var (_, typeDb) = CreateTestEnvironment("Config");
+        var optionalArg = CreateArgWithDefault("value", "nil");
+        optionalArg.SwiftTypeSpec = new NamedTypeSpec("Swift.Optional");
+        ((NamedTypeSpec)optionalArg.SwiftTypeSpec).GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var method = CreateMethodWithArgs(optionalArg);
+        Assert.True(DefaultParameterOverloadEmitter.AllTrailingDefaultsAreCSharpMappable(method, typeDb));
+    }
+
+    private static ArgumentDecl CreateArgWithDefault(string name, string swiftDefaultExpr)
+    {
+        return new ArgumentDecl
+        {
+            Name = name,
+            PrivateName = name,
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            HasDefaultArg = true,
+            SwiftDefaultExpression = swiftDefaultExpr,
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+    }
+
+    #endregion
 }

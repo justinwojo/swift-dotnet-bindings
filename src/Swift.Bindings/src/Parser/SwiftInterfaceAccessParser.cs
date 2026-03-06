@@ -1539,10 +1539,19 @@ public static class SwiftInterfaceAccessParser
         var result = new List<string>();
         int depth = 0;
         int start = 0;
+        bool inString = false;
 
         for (int i = 0; i < paramStr.Length; i++)
         {
             char c = paramStr[i];
+            // Track string literals — skip commas inside "..."
+            if (c == '"' && (i == 0 || paramStr[i - 1] != '\\'))
+            {
+                inString = !inString;
+                continue;
+            }
+            if (inString)
+                continue;
             if (c == '<' || c == '(' || c == '[') depth++;
             if (c == '>' || c == ')' || c == ']') depth--;
             if (c == ',' && depth == 0)
@@ -2422,5 +2431,165 @@ public static class SwiftInterfaceAccessParser
         {
             existing.AddRange(annotations);
         }
+    }
+
+    /// <summary>
+    /// Parses a .swiftinterface file and returns a dictionary mapping
+    /// "QualifiedType.printedName" keys to lists of default value expressions.
+    /// Each list is index-aligned with ABI parameters — null for params without defaults.
+    /// Uses SwiftInterfaceContextTracker for type scope tracking and multi-line handling.
+    /// </summary>
+    public static Dictionary<string, List<string?>> GetDefaultParameterValues(string swiftInterfacePath)
+    {
+        var result = new Dictionary<string, List<string?>>();
+
+        if (!File.Exists(swiftInterfacePath))
+            return result;
+
+        var lines = File.ReadAllLines(swiftInterfacePath);
+        var tracker = new SwiftInterfaceContextTracker();
+
+        foreach (var line in lines)
+        {
+            var trimmed = line.TrimStart();
+            var kind = tracker.ProcessLine(trimmed, line);
+
+            // Process member lines (inside types) and free functions (top-level Other lines)
+            bool isMember = kind == SwiftInterfaceContextTracker.LineKind.MemberLine;
+            bool isFreeFunc = kind == SwiftInterfaceContextTracker.LineKind.Other &&
+                              tracker.TypeDepth == 0 &&
+                              SwiftInterfaceContextTracker.ExtractMemberPrintedName(trimmed) != null;
+
+            if (isMember || isFreeFunc)
+            {
+                var memberText = (isMember ? tracker.CompletedMultiLine : null) ?? trimmed;
+                var printedName = SwiftInterfaceContextTracker.ExtractMemberPrintedName(memberText);
+                if (printedName != null)
+                {
+                    var defaults = ExtractParameterDefaults(memberText);
+                    if (defaults != null && defaults.Any(d => d != null))
+                    {
+                        var key = tracker.BuildMemberKey(printedName);
+                        result[key] = defaults;
+                    }
+                }
+                tracker.ConsumePendingAnnotations();
+            }
+            else if (kind == SwiftInterfaceContextTracker.LineKind.TypeDeclaration ||
+                     kind == SwiftInterfaceContextTracker.LineKind.ExtensionDeclaration)
+            {
+                tracker.ConsumePendingAnnotations();
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Extracts default value expressions from a function/init declaration line.
+    /// Returns a list index-aligned with parameters — null for params without defaults.
+    /// Returns null if the line has no parameter list.
+    /// </summary>
+    internal static List<string?>? ExtractParameterDefaults(string memberLine)
+    {
+        // Find the function/init name and opening paren
+        string? funcName = null;
+        var funcMatch = AnyFuncRegex.Match(memberLine);
+        if (funcMatch.Success)
+            funcName = funcMatch.Groups[1].Value;
+        else if (AnyInitRegex.IsMatch(memberLine))
+            funcName = "init";
+        else
+            return null;
+
+        // Locate the parameter list
+        var funcNameIdx = memberLine.IndexOf($" {funcName}(", StringComparison.Ordinal);
+        if (funcNameIdx < 0)
+            funcNameIdx = memberLine.IndexOf($" {funcName} (", StringComparison.Ordinal);
+        if (funcNameIdx < 0)
+            funcNameIdx = memberLine.IndexOf($"{funcName}(", StringComparison.Ordinal);
+        if (funcNameIdx < 0)
+            funcNameIdx = memberLine.IndexOf($" {funcName}<", StringComparison.Ordinal);
+        if (funcNameIdx < 0)
+            return null;
+
+        var parenStart = memberLine.IndexOf('(', funcNameIdx);
+        if (parenStart < 0)
+            return null;
+
+        // Find matching close paren
+        int depth = 0, parenEnd = parenStart;
+        for (int i = parenStart; i < memberLine.Length; i++)
+        {
+            if (memberLine[i] == '(') depth++;
+            if (memberLine[i] == ')')
+            {
+                depth--;
+                if (depth == 0) { parenEnd = i; break; }
+            }
+        }
+
+        var paramStr = memberLine.Substring(parenStart + 1, parenEnd - parenStart - 1);
+        if (string.IsNullOrWhiteSpace(paramStr))
+            return null;
+
+        var parts = SplitParameters(paramStr);
+        var defaults = new List<string?>();
+        bool hasAnyDefault = false;
+
+        foreach (var part in parts)
+        {
+            var defaultExpr = ExtractDefaultFromParam(part.Trim());
+            defaults.Add(defaultExpr);
+            if (defaultExpr != null) hasAnyDefault = true;
+        }
+
+        return hasAnyDefault ? defaults : null;
+    }
+
+    /// <summary>
+    /// Extracts the default value expression from a single parameter segment.
+    /// Scans for " = " at depth-0 (outside nested parens/brackets/generics).
+    /// Returns the expression after "= " or null if no default.
+    /// </summary>
+    private static string? ExtractDefaultFromParam(string paramSegment)
+    {
+        // Find the colon that separates "label: Type" first
+        int colonIdx = -1;
+        int depth = 0;
+        for (int i = 0; i < paramSegment.Length; i++)
+        {
+            char c = paramSegment[i];
+            if (c == '<' || c == '(' || c == '[') depth++;
+            else if (c == '>' || c == ')' || c == ']') depth--;
+            else if (c == ':' && depth == 0)
+            {
+                colonIdx = i;
+                break;
+            }
+        }
+
+        if (colonIdx < 0)
+            return null;
+
+        // Search for " = " after the type annotation, at depth 0
+        depth = 0;
+        var afterColon = paramSegment.Substring(colonIdx + 1);
+        for (int i = 0; i < afterColon.Length; i++)
+        {
+            char c = afterColon[i];
+            if (c == '<' || c == '(' || c == '[') depth++;
+            else if (c == '>' || c == ')' || c == ']') depth--;
+            else if (c == '=' && depth == 0 && i > 0 && afterColon[i - 1] == ' ')
+            {
+                // Verify there's a space after '=' too (or it's the last char)
+                if (i + 1 < afterColon.Length && afterColon[i + 1] == ' ')
+                {
+                    return afterColon.Substring(i + 2).Trim();
+                }
+            }
+        }
+
+        return null;
     }
 }

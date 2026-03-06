@@ -260,9 +260,18 @@ internal sealed class SwiftInterfaceContextTracker
         var result = new List<string>();
         int depth = 0;
         int start = 0;
+        bool inString = false;
         for (int i = 0; i < paramContent.Length; i++)
         {
             var c = paramContent[i];
+            // Track string literals — skip commas inside "..."
+            if (c == '"' && (i == 0 || paramContent[i - 1] != '\\'))
+            {
+                inString = !inString;
+                continue;
+            }
+            if (inString)
+                continue;
             if (c == '(' || c == '<' || c == '[') depth++;
             else if (c == ')' || c == '>' || c == ']') depth--;
             else if (c == ',' && depth == 0)

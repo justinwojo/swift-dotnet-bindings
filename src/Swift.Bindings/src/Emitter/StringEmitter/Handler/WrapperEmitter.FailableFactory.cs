@@ -48,7 +48,7 @@ namespace BindingsGeneration
             // Emit signature: public static bool TryCreate(params, out TypeName result)
             var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.Visibility);
             // _needsUnsafeBody is already true: SyncMethodPlan.RequiresUnsafe returns true for all constructors
-            csWriter.WriteLine($"{accessModifier} static bool TryCreate({_wrapperSignature.ParametersString()}{(_wrapperSignature.Parameters.Count > 0 ? ", " : "")}out {typeName} result)");
+            csWriter.WriteLine($"{accessModifier} static bool TryCreate({_wrapperSignature.ParametersStringWithoutDefaults()}{(_wrapperSignature.Parameters.Count > 0 ? ", " : "")}out {typeName} result)");
             EmitBodyStart(csWriter);
             EmitUnsafeBlockStart(csWriter);
 

@@ -1212,4 +1212,88 @@ public class SignatureBuilderTests
     }
 
     #endregion
+
+    #region Parameter.DefaultValue / Signature.ParametersString Tests
+
+    [Fact]
+    public void ParametersString_WithDefaultValue_IncludesDefault()
+    {
+        var parameters = new List<Parameter>
+        {
+            new Parameter(new MarshalledType.Simple("string"), "name"),
+            new Parameter(new MarshalledType.Simple("int"), "limit", DefaultValue: "10"),
+            new Parameter(new MarshalledType.Simple("int"), "offset", DefaultValue: "0")
+        };
+        var sig = new Signature("void", parameters);
+        // SignatureString() produces " type name" (leading space from empty modifier)
+        Assert.Contains("= 10", sig.ParametersString());
+        Assert.Contains("= 0", sig.ParametersString());
+    }
+
+    [Fact]
+    public void ParametersString_WithoutDefaultValue_NoEquals()
+    {
+        var parameters = new List<Parameter>
+        {
+            new Parameter(new MarshalledType.Simple("string"), "name"),
+            new Parameter(new MarshalledType.Simple("int"), "count")
+        };
+        var sig = new Signature("void", parameters);
+        Assert.DoesNotContain("=", sig.ParametersString());
+    }
+
+    [Fact]
+    public void SignatureString_DoesNotIncludeDefault()
+    {
+        // SignatureString() is used for internal comparisons and must NOT include defaults
+        var param = new Parameter(new MarshalledType.Simple("int"), "limit", DefaultValue: "10");
+        Assert.DoesNotContain("=", param.SignatureString());
+    }
+
+    [Fact]
+    public void PInvokeParametersString_DoesNotIncludeDefault()
+    {
+        var parameters = new List<Parameter>
+        {
+            new Parameter(new MarshalledType.Simple("int"), "limit", DefaultValue: "10")
+        };
+        var sig = new Signature("void", parameters);
+        Assert.DoesNotContain("=", sig.PInvokeParametersString());
+    }
+
+    [Fact]
+    public void ParametersString_WithAttributes_IncludesDefault()
+    {
+        var parameters = new List<Parameter>
+        {
+            new Parameter(new MarshalledType.Simple("AnyType"), "value", DefaultValue: "null")
+        };
+        var sig = new Signature("void", parameters);
+        var attrs = new Dictionary<string, string> { ["value"] = "[OriginalSwiftType]" };
+        var result = sig.ParametersString(attrs);
+        Assert.Contains("= null", result);
+        Assert.Contains("[OriginalSwiftType]", result);
+    }
+
+    [Fact]
+    public void ParametersStringWithoutDefaults_StripsDefaults()
+    {
+        var parameters = new List<Parameter>
+        {
+            new Parameter(new MarshalledType.Simple("string"), "name"),
+            new Parameter(new MarshalledType.Simple("int"), "retries", DefaultValue: "3"),
+            new Parameter(new MarshalledType.Simple("bool"), "verbose", DefaultValue: "false")
+        };
+        var sig = new Signature("void", parameters);
+        // ParametersString should include defaults
+        Assert.Contains("= 3", sig.ParametersString());
+        Assert.Contains("= false", sig.ParametersString());
+        // ParametersStringWithoutDefaults should NOT include any defaults
+        var noDefaults = sig.ParametersStringWithoutDefaults();
+        Assert.DoesNotContain("=", noDefaults);
+        Assert.Contains("retries", noDefaults);
+        Assert.Contains("verbose", noDefaults);
+    }
+
+    #endregion
 }
