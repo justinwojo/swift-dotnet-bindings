@@ -95,6 +95,28 @@ public class ObjCTypeRefParserTests
     }
 
     [Fact]
+    public void Parse_DoublePointerWithSpace_ReturnsPointeeType()
+    {
+        // After nullability stripping, NSError * _Nullable * becomes NSError * *
+        var result = ObjCTypeRefParser.Parse("NSError * *");
+        Assert.Equal("NSError", result.Name);
+        Assert.True(result.IsPointer);
+        Assert.NotNull(result.PointeeType);
+        Assert.Equal("NSError", result.PointeeType!.Name);
+        Assert.True(result.PointeeType.IsPointer);
+    }
+
+    [Fact]
+    public void Parse_NullableDoublePointer_ReturnsPointeeType()
+    {
+        // NSError * _Nullable * — nullability stripped → NSError * *
+        var result = ObjCTypeRefParser.Parse("NSError * _Nullable *");
+        Assert.Equal("NSError", result.Name);
+        Assert.True(result.IsPointer);
+        Assert.NotNull(result.PointeeType);
+    }
+
+    [Fact]
     public void Parse_GenericArrayType_ReturnsGenericArgs()
     {
         var result = ObjCTypeRefParser.Parse("NSArray<NSString *> *");
@@ -103,6 +125,39 @@ public class ObjCTypeRefParserTests
         Assert.Single(result.GenericArgs);
         Assert.Equal("NSString", result.GenericArgs[0].Name);
         Assert.True(result.GenericArgs[0].IsPointer);
+    }
+
+    [Fact]
+    public void Parse_TypeWithNSRefinedForSwift_StripsMacro()
+    {
+        var result = ObjCTypeRefParser.Parse("NS_REFINED_FOR_SWIFT RLMSchema *");
+        Assert.Equal("RLMSchema", result.Name);
+        Assert.True(result.IsPointer);
+    }
+
+    [Fact]
+    public void Parse_NullUnspecified_Stripped()
+    {
+        var result = ObjCTypeRefParser.Parse("NSString * _Null_unspecified");
+        Assert.Equal("NSString", result.Name);
+        Assert.True(result.IsPointer);
+        Assert.Equal(ObjCNullability.Unspecified, result.Nullability);
+    }
+
+    [Fact]
+    public void Parse_TypeWithNSSwiftName_StripsMacro()
+    {
+        var result = ObjCTypeRefParser.Parse("NS_SWIFT_NAME(identifier) NSString *");
+        Assert.Equal("NSString", result.Name);
+        Assert.True(result.IsPointer);
+    }
+
+    [Fact]
+    public void Parse_TypeWithAttribute_StripsAttribute()
+    {
+        var result = ObjCTypeRefParser.Parse("RLMObjectMigrationBlock __attribute__((swift_attr(\"@nonSendable\")))");
+        Assert.Equal("RLMObjectMigrationBlock", result.Name);
+        Assert.False(result.IsPointer);
     }
 
     [Fact]

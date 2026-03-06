@@ -15,6 +15,7 @@ public class ObjCTypeMapperTests
     [InlineData("NSInteger", "nint")]
     [InlineData("NSUInteger", "nuint")]
     [InlineData("CGFloat", "nfloat")]
+    [InlineData("NSTimeInterval", "double")]
     [InlineData("void", "void")]
     [InlineData("int", "int")]
     [InlineData("float", "float")]
@@ -26,6 +27,8 @@ public class ObjCTypeMapperTests
     [InlineData("long long", "long")]
     [InlineData("unsigned long long", "ulong")]
     [InlineData("uint8_t", "byte")]
+    [InlineData("UInt8", "byte")]
+    [InlineData("va_list", "IntPtr")]
     [InlineData("int32_t", "int")]
     [InlineData("int64_t", "long")]
     [InlineData("uint32_t", "uint")]
@@ -49,6 +52,7 @@ public class ObjCTypeMapperTests
     [InlineData("NSSet", "NSSet")]
     [InlineData("NSDate", "NSDate")]
     [InlineData("NSObject", "NSObject")]
+    [InlineData("CGImageRef", "CGImage")]
     public void MapType_KnownPointerTypes_MapsCorrectly(string objcType, string expected)
     {
         var typeRef = new ObjCTypeRef { Name = objcType, IsPointer = true };
@@ -250,6 +254,37 @@ public class ObjCTypeMapperTests
         Assert.False(ObjCTypeMapper.IsNSErrorOutParameter(typeRef));
     }
 
+    // ObjC lightweight generic type parameters — AST-driven only (no hardcoded fallback)
+
+    [Theory]
+    [InlineData("ObjectType")]
+    [InlineData("T")]
+    [InlineData("KeyType")]
+    [InlineData("ValueType")]
+    [InlineData("ElementType")]
+    [InlineData("RLMObjectType")]
+    [InlineData("RLMKeyType")]
+    public void MapType_GenericTypeParam_WithAstSet_ReturnsNSObject(string typeName)
+    {
+        var typeRef = new ObjCTypeRef { Name = typeName };
+        var genericParams = new HashSet<string> { typeName };
+        Assert.Equal("NSObject", ObjCTypeMapper.MapType(typeRef, genericTypeParams: genericParams));
+    }
+
+    [Theory]
+    [InlineData("ObjectType")]
+    [InlineData("T")]
+    [InlineData("KeyType")]
+    [InlineData("RLMObjectType")]
+    public void MapType_GenericTypeParam_WithoutAstSet_FallsThrough(string typeName)
+    {
+        // Without the genericTypeParams set, generic param names are NOT auto-recognized.
+        // This prevents cross-type collisions where a generic param name in one class
+        // matches a real type name used elsewhere.
+        var typeRef = new ObjCTypeRef { Name = typeName };
+        Assert.Equal(typeName, ObjCTypeMapper.MapType(typeRef));
+    }
+
     [Fact]
     public void MapType_UnsignedInt_MapsToUint()
     {
@@ -269,5 +304,20 @@ public class ObjCTypeMapperTests
     {
         var typeRef = new ObjCTypeRef { Name = "unsigned char" };
         Assert.Equal("byte", ObjCTypeMapper.MapType(typeRef));
+    }
+
+    // CoreFoundation Ref types (non-pointer typedefs)
+
+    [Theory]
+    [InlineData("CGImageRef", "CGImage")]
+    [InlineData("CGColorRef", "CGColor")]
+    [InlineData("CGPathRef", "CGPath")]
+    [InlineData("CGContextRef", "CGContext")]
+    [InlineData("dispatch_queue_t", "DispatchQueue")]
+    [InlineData("dispatch_data_t", "DispatchData")]
+    public void MapType_CoreFoundationRef_MapsCorrectly(string objcType, string expected)
+    {
+        var typeRef = new ObjCTypeRef { Name = objcType };
+        Assert.Equal(expected, ObjCTypeMapper.MapType(typeRef));
     }
 }

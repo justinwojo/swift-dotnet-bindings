@@ -12,6 +12,7 @@ public static class ApiDefinitionEmitter
     {
         var sb = new StringBuilder();
         sb.AppendLine("using System;");
+        sb.AppendLine("using CoreFoundation;");
         sb.AppendLine("using Foundation;");
         sb.AppendLine("using ObjCRuntime;");
         sb.AppendLine("using CoreGraphics;");
@@ -42,17 +43,23 @@ public static class ApiDefinitionEmitter
         sb.AppendLine("    [Protocol]");
         sb.AppendLine("    [BaseType(typeof(NSObject))]");
 
-        var inheritList = proto.InheritedProtocolNames.Count > 0
-            ? $" : {string.Join(", ", proto.InheritedProtocolNames.Select(n => $"I{n}"))}"
+        // Filter out implicit protocols from inheritance — NSObject is implicit in .NET MAUI bindings,
+        // NSFastEnumeration maps to IEnumerable but isn't a binding interface
+        var filteredInherited = proto.InheritedProtocolNames
+            .Where(n => n != "NSObject" && n != "NSFastEnumeration")
+            .ToList();
+        var inheritList = filteredInherited.Count > 0
+            ? $" : {string.Join(", ", filteredInherited.Select(n => $"I{n}"))}"
             : "";
         sb.AppendLine($"    partial interface I{proto.Name}{inheritList}");
         sb.AppendLine("    {");
 
+        // Protocols don't declare ObjC lightweight generics — only pass the common fallback set
         foreach (var method in proto.Methods)
-            EmitMethod(sb, method, declaringClassName: null, isProtocol: true);
+            EmitMethod(sb, method, declaringClassName: null, isProtocol: true, genericTypeParams: null);
 
         foreach (var prop in proto.Properties)
-            EmitProperty(sb, prop, declaringClassName: null);
+            EmitProperty(sb, prop, declaringClassName: null, genericTypeParams: null);
 
         sb.AppendLine("    }");
         sb.AppendLine();
@@ -65,23 +72,32 @@ public static class ApiDefinitionEmitter
         var baseType = cls.SuperclassName ?? "NSObject";
         sb.AppendLine($"    [BaseType(typeof({baseType}))]");
 
-        var protocols = cls.ProtocolNames.Count > 0
-            ? $" : {string.Join(", ", cls.ProtocolNames.Select(n => $"I{n}"))}"
+        var filteredProtocols = cls.ProtocolNames
+            .Where(n => n != "NSObject" && n != "NSFastEnumeration")
+            .ToList();
+        var protocols = filteredProtocols.Count > 0
+            ? $" : {string.Join(", ", filteredProtocols.Select(n => $"I{n}"))}"
             : "";
         sb.AppendLine($"    partial interface {cls.Name}{protocols}");
         sb.AppendLine("    {");
 
+        // Scope generic type params to THIS class only — avoids cross-type collisions
+        // where one class's generic param name matches a real type used elsewhere.
+        var classGenericParams = cls.GenericTypeParamNames.Count > 0
+            ? new HashSet<string>(cls.GenericTypeParamNames)
+            : null;
+
         foreach (var method in cls.Methods)
-            EmitMethod(sb, method, declaringClassName: cls.Name, isProtocol: false);
+            EmitMethod(sb, method, declaringClassName: cls.Name, isProtocol: false, genericTypeParams: classGenericParams);
 
         foreach (var prop in cls.Properties)
-            EmitProperty(sb, prop, declaringClassName: cls.Name);
+            EmitProperty(sb, prop, declaringClassName: cls.Name, genericTypeParams: classGenericParams);
 
         sb.AppendLine("    }");
         sb.AppendLine();
     }
 
-    static void EmitMethod(StringBuilder sb, ObjCMethodDecl method, string? declaringClassName, bool isProtocol)
+    static void EmitMethod(StringBuilder sb, ObjCMethodDecl method, string? declaringClassName, bool isProtocol, HashSet<string>? genericTypeParams)
     {
         EmitAvailabilityAttributes(sb, method.Availability, "        ");
 
@@ -97,7 +113,7 @@ public static class ApiDefinitionEmitter
 
         var returnType = isConstructor
             ? "NativeHandle"
-            : ObjCTypeMapper.MapType(method.ReturnType, declaringClassName);
+            : ObjCTypeMapper.MapType(method.ReturnType, declaringClassName, genericTypeParams);
 
         if (!isConstructor && ObjCTypeMapper.IsNullableAttribute(method.ReturnType))
             sb.AppendLine("        [return: NullAllowed]");
@@ -106,12 +122,12 @@ public static class ApiDefinitionEmitter
             ? "Constructor"
             : SelectorToMethodName(method.Selector);
 
-        var parameters = EmitParameters(method.Parameters);
+        var parameters = EmitParameters(method.Parameters, genericTypeParams);
         sb.AppendLine($"        {returnType} {methodName}({parameters});");
         sb.AppendLine();
     }
 
-    static void EmitProperty(StringBuilder sb, ObjCPropertyDecl prop, string? declaringClassName)
+    static void EmitProperty(StringBuilder sb, ObjCPropertyDecl prop, string? declaringClassName, HashSet<string>? genericTypeParams)
     {
         EmitAvailabilityAttributes(sb, prop.Availability, "        ");
 
@@ -134,7 +150,7 @@ public static class ApiDefinitionEmitter
         if (ObjCTypeMapper.IsNullableAttribute(prop.Type))
             sb.AppendLine("        [NullAllowed]");
 
-        var mappedType = ObjCTypeMapper.MapType(prop.Type, declaringClassName);
+        var mappedType = ObjCTypeMapper.MapType(prop.Type, declaringClassName, genericTypeParams);
         if (prop.IsReadonly)
         {
             sb.AppendLine($"        {mappedType} {ToPascalCase(prop.Name)} {{ get; }}");
@@ -172,7 +188,7 @@ public static class ApiDefinitionEmitter
         }
     }
 
-    static string EmitParameters(List<ObjCParameterDecl> parameters)
+    static string EmitParameters(List<ObjCParameterDecl> parameters, HashSet<string>? genericTypeParams)
     {
         var parts = new List<string>();
         foreach (var param in parameters)
@@ -183,15 +199,34 @@ public static class ApiDefinitionEmitter
             }
             else
             {
-                var mappedType = ObjCTypeMapper.MapType(param.Type);
+                var mappedType = ObjCTypeMapper.MapType(param.Type, genericTypeParams: genericTypeParams);
                 var nullAttr = ObjCTypeMapper.IsNullableAttribute(param.Type)
                     ? "[NullAllowed] "
                     : "";
-                parts.Add($"{nullAttr}{mappedType} {param.Name}");
+                var safeName = EscapeCSharpKeyword(param.Name);
+                parts.Add($"{nullAttr}{mappedType} {safeName}");
             }
         }
         return string.Join(", ", parts);
     }
+
+    // C# reserved keywords that cannot be used as identifiers without '@' prefix
+    static readonly HashSet<string> CSharpKeywords = new(StringComparer.Ordinal)
+    {
+        "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char",
+        "checked", "class", "const", "continue", "decimal", "default", "delegate",
+        "do", "double", "else", "enum", "event", "explicit", "extern", "false",
+        "finally", "fixed", "float", "for", "foreach", "goto", "if", "implicit",
+        "in", "int", "interface", "internal", "is", "lock", "long", "namespace",
+        "new", "null", "object", "operator", "out", "override", "params", "private",
+        "protected", "public", "readonly", "ref", "return", "sbyte", "sealed",
+        "short", "sizeof", "stackalloc", "static", "string", "struct", "switch",
+        "this", "throw", "true", "try", "typeof", "uint", "ulong", "unchecked",
+        "unsafe", "ushort", "using", "virtual", "void", "volatile", "while",
+    };
+
+    internal static string EscapeCSharpKeyword(string name) =>
+        CSharpKeywords.Contains(name) ? $"@{name}" : name;
 
     internal static string SelectorToMethodName(string selector)
     {

@@ -1,6 +1,6 @@
 # Known Limitations
 
-This is preview-quality software. The generator has been validated against 40+ real-world Swift libraries and achieves 88–99% member coverage. The sections below document what doesn't work yet and why.
+This is preview-quality software. The generator has been validated against 42 real-world libraries (Swift and ObjC) and achieves 88–99% member coverage. The sections below document what doesn't work yet and why.
 
 ## Platform Requirements
 

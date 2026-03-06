@@ -244,8 +244,8 @@ O1 is complete. Remaining work (O2-O4) estimated below.
 | ObjC Pipeline | ~100 | ✅ O1 |
 | Detection/Routing (Program.cs) | ~40 | ✅ O1 |
 | ObjC Tests (O1) | ~900 | ✅ O1 — 39 tests |
-| ObjC Type Mapper | ~110 | ✅ O2 — pointer/primitive/block/instancetype/protocol-qualified id mapping |
-| ApiDefinition Emitter | ~210 | ✅ O2 — `[BaseType]`/`[Export]`/`[Protocol]`/`[Abstract]`, availability, NSError out, custom setter selectors |
+| ObjC Type Mapper | ~110 | ✅ O2+O4 — pointer/primitive/block/instancetype/protocol-qualified id/CoreFoundation ref mapping. AST-driven generic type param resolution (no hardcoded fallback). |
+| ApiDefinition Emitter | ~230 | ✅ O2+O4 — `[BaseType]`/`[Export]`/`[Protocol]`/`[Abstract]`, availability, NSError out, custom setter selectors, class-scoped generic param threading, `using CoreFoundation` |
 | StructsAndEnums Emitter | ~155 | ✅ O2 — enums (prefix strip, [Flags]), structs, [Field] constants (extern-only), [DllImport] functions |
 | Binding Project Emitter (ObjC variant) | ~60 | ✅ O2 — `<IsBindingProject>` `.csproj`, conditional StructsAndEnums, relative NativeReference |
 | ObjC Tests (O2) | ~1,350 | ✅ O2 — 73 new tests (type mapper, api definition, structs/enums, binding project, integration) |
@@ -403,7 +403,7 @@ All planned components are implemented and tested (39 ObjC-specific tests, all p
 All planned emission components are implemented and tested (73 new ObjC-specific tests, 153 total ObjC tests, all passing). 53/53 Swift validation targets unaffected.
 
 **Source files** (`src/Swift.Bindings/src/ObjC/Emitter/`):
-- `ObjCTypeMapper.cs` — Static type mapper: pointer types (NSString→string, NSURL→NSUrl, etc.), primitives (BOOL→bool, NSInteger→nint, etc.), special types (SEL→Selector, Class→Class, id→NSObject, id<Proto>→IProto), instancetype→declaringClassName, blocks→Action<T>/Func<T,R> (>16 params→NSObject)
+- `ObjCTypeMapper.cs` — Static type mapper: pointer types (NSString→string, NSURL→NSUrl, etc.), primitives (BOOL→bool, NSInteger→nint, etc.), special types (SEL→Selector, Class→Class, id→NSObject, id<Proto>→IProto), instancetype→declaringClassName, blocks→Action<T>/Func<T,R> (>16 params→NSObject), CoreFoundation ref types (dispatch_queue_t→DispatchQueue, CGImageRef→CGImage, etc.), AST-driven generic type params (class-scoped, no hardcoded fallback)
 - `ApiDefinitionEmitter.cs` — Emits `ApiDefinition.cs`: protocols first (with `[Protocol]`, `[BaseType(typeof(NSObject))]`, `I` prefix, `[Abstract]` for required members), then classes (`[BaseType(typeof(Super))]`, protocol adoption, constructors from init* selectors, `[Static]` for class methods/properties, `[NullAllowed]` from nullability annotations, `[return: NullAllowed]`, NSError** → `[NullAllowed] out NSError error`, block params → Action/Func, custom setter selectors via `[Export("setSomething:")] set;`, iOS-only `[Introduced]`/`[Deprecated]` availability)
 - `StructsAndEnumsEmitter.cs` — Emits `StructsAndEnums.cs` (null if nothing to emit): enums with `[Native]`/`[Flags]`, `: long`/`: ulong`, all-or-nothing prefix stripping; structs with `[StructLayout(LayoutKind.Sequential)]` and PascalCase fields; `{Module}Constants` public static partial class with `[Field]` for extern NSString/nint/nuint/nfloat/int/float/double constants, `[DllImport]` for functions; non-extern constants skipped, unsupported types emit `// TODO:` comments
 - `ObjCBindingProjectEmitter.cs` — Emits `{PackageId}.csproj` with `<IsBindingProject>true</IsBindingProject>`, `<ObjcBindingApiDefinition>`, conditional `<ObjcBindingCoreSource>`, `<NativeReference>` with relative path. No Swift.Runtime, no AllowUnsafeBlocks, no DisableRuntimeMarshalling.
@@ -477,63 +477,65 @@ Mixed framework detection, type-level dedup, ObjC metadata props emission, MSBui
 - Mixed SDK `ProjectReference` injection uses `BeforeTargets="ResolveProjectReferences"` timing — not yet behaviorally tested beyond static XML assertions.
 - **BRLMPrinterKit duplicate enum definitions**: When the same enum appears in multiple ObjC headers (e.g., public header + internal header both declaring `BRLMPrinterModel`), the parser emits duplicate definitions → 96 CS0101 "already defined" errors. Requires parser-level enum dedup (deduplicate by fully-qualified name before emission). Three emitter bugs discovered during BRLMPrinterKit testing were fixed in O3: digit-leading identifiers after prefix stripping, `unsigned int`/`unsigned short`/`unsigned char` type mappings, and `enum`/`struct` C type specifier stripping from clang qualType.
 
-### Session O4: Validation + Edge Cases + Polish
+### Session O4: Validation + Parser Dedup + Polish (complete)
 
-**Goal:** Validate against real-world ObjC frameworks, fix edge cases, add to validation pipeline.
+**Goal:** Validate against real-world ObjC frameworks, fix parser/emitter edge cases, add to validation pipeline. Includes post-session Codex review fixes.
 
-**Validation targets:**
-- **Realm** (already in validation set, currently skipped as ObjC-only) — large, complex ObjC framework
-- **Stripe3DS2** (already in validation set, currently skipped as ObjC-only) — moderate size
-- Add 2-3 additional ObjC-only frameworks to validation set (Firebase components, Facebook SDK, or similar)
-- Find or add a mixed Swift+ObjC library to validation set
+**Completed work:**
 
-**Concrete O4 work items from O3 discovery:**
-- **Parser-level enum dedup** (BRLMPrinterKit): Same enum defined in multiple headers → duplicate `EnumDecl` nodes → CS0101 errors. Fix: deduplicate enums by name in `ClangAstParser` before populating `ObjCModule.Enums`. Same issue may apply to structs/constants.
-- **Selector-based member-level dedup** (mixed frameworks): Replace O3's type-level `FilterForMixedFramework()` with member-level dedup using `IsFromCategory` tracking. Retain ObjC-only category members on shared types.
+1. **Parser-level declaration dedup** (`ClangAstParser.cs`): Added Pass 3 after category merging to deduplicate all declaration types by name. Enums and structs use "keep richest" (most cases/fields). Classes and protocols use metadata-merging dedup (`MergeClasses`/`MergeProtocols`) — selects richest by member count, then merges `SuperclassName`, `ProtocolNames`, `GenericTypeParamNames`, and `Availability` from all duplicates. Functions, constants, and typedefs use "keep first". Fixed BRLMPrinterKit's 96 CS0101 duplicate-definition errors (reduced to 23 — remaining are typedef struct/block-typedef references).
 
-**Edge case handling (as discovered during validation):**
-- Categories across multiple header files
-- Class extensions (anonymous categories)
-- `__attribute__` annotations beyond availability (swift_name, objc_runtime_name, etc.)
-- Forward declarations (`@class Foo;` before full definition)
-- `CF_ENUM` / `CF_OPTIONS` variants
-- Typedef chains (e.g., `typedef NSString *FooKey NS_TYPED_ENUM`)
-- Complex block signatures (blocks returning blocks, blocks with nullable params)
-- `NS_SWIFT_NAME` annotations (relevant for mixed frameworks — tells you what Swift sees)
-- `instancetype` return types — must map to the declaring class, not `id`
-- `__kindof` type annotations — covariant return type hints
-- Variadic methods (`-[NSString stringWithFormat:]`) — limited binding support, mark or skip
-- `NS_REFINED_FOR_SWIFT` — methods hidden from Swift, ObjC pipeline should still bind them
-- ObjC++ headers (`.mm` / mixed C++ content) — detect and skip or fall back gracefully
-- Exported constants (`extern NSString *const`) — `VarDecl` nodes, emit as `[Field]` attributes
+2. **Category-aware dedup** (`ClangAstParser.cs`): Pass 2 category merge now applies to ALL matching duplicate classes, not just `FirstOrDefault`. Ensures category members survive dedup regardless of which duplicate is richest. Members/properties are intentionally NOT merged across duplicates (only metadata is) — duplicate declarations come from the same header re-included via umbrella headers, so they have identical members. Disjoint members only arise from categories (handled in Pass 2).
 
-**Validation pipeline integration:**
-- Add ObjC targets to `validation-libraries.json` (promote Realm, Stripe3DS2 from "known non-binding failures" to real targets)
-- `./validate-libraries.sh` runs both Swift and ObjC validation
-- Baseline update for new targets
+3. **Type mapping improvements** (`ObjCTypeMapper.cs`):
+   - Added: `NSTimeInterval` → `double`, `UInt8` → `byte`, `va_list` → `IntPtr`
+   - Added: CoreFoundation ref types — `CGImageRef` → `CGImage`, `CGColorRef` → `CGColor`, `CGPathRef` → `CGPath`, `CGContextRef` → `CGContext`, `dispatch_queue_t` → `DispatchQueue`, `dispatch_data_t` → `DispatchData`
+   - Added: `using CoreFoundation;` to emitter (for `DispatchQueue`/`DispatchData`)
+   - Filtered `NSObject` and `NSFastEnumeration` from protocol/class inheritance lists
 
-**Documentation (user-facing):**
-- **`README.md`**: Update project description and feature list to reflect that the tool handles pure ObjC, hybrid (Swift + ObjC), and pure Swift frameworks. The README is the first thing users see — it must be clear this isn't Swift-only.
-- **`docs/objc-bindings.md`** (new): Dedicated ObjC binding guide covering:
-  - What the tool does for ObjC frameworks (auto-detection, `ApiDefinition.cs` + `StructsAndEnums.cs` generation)
-  - How it differs from Objective Sharpie (no libclang dependency, always Xcode-version-matched)
-  - ObjC-only workflow: drop xcframework, run generator or `dotnet build` with SDK
-  - Mixed framework workflow: what gets bound where, two-project output explained
-  - Supported ObjC patterns and known limitations
-  - Naming convention (`.ObjC.iOS` vs `.Swift.iOS`)
-- **`docs/binding-overview.md`**: Update to cover all three framework types (currently Swift-focused)
-- **`docs/Troubleshooting.md`**: Add ObjC-specific SWIFTBIND error codes and common failure modes (ObjC++ headers, missing modulemap, clang parse failures)
-- **`CLAUDE.md`**: Update with ObjC pipeline usage and CLI examples
+4. **AST-driven generic type param detection** (`ClangAstParser.cs`, `ObjCTypeMapper.cs`, `ApiDefinitionEmitter.cs`):
+   - Parser extracts `ObjCTypeParamDecl` nodes from class `inner` arrays (e.g., `@interface RLMResults<RLMObjectType>`)
+   - `GenericTypeParamNames` field added to `ObjCClassDecl`
+   - Generic param resolution is purely AST-driven — no hardcoded fallback set. Avoids cross-type collisions where a generic param name in one class matches a real type name used elsewhere.
+   - Params scoped to the declaring class only: each class passes its own `GenericTypeParamNames` to the mapper. Protocols pass null (ObjC protocols don't declare lightweight generics).
+   - Confirmed: Realm's `RLMObjectType`/`RLMKeyType` now correctly resolve to `NSObject` (0 leaks in output).
 
-**Documentation (internal):**
-- Error codes for ObjC-specific failures (SWIFTBIND0xx range)
-- Update SDK design doc with mixed framework routing
+5. **Type ref parser hardening** (`ObjCTypeRefParser.cs`):
+   - Strip `__attribute__((...))` decorations from qualType strings
+   - Strip ObjC macros: `NS_REFINED_FOR_SWIFT`, `NS_SWIFT_NAME(...)`
+   - Strip `_Null_unspecified` nullability annotation
+   - Handle `NSError * *` double-pointer (space between stars after nullability stripping)
 
-**Deliverable:** All ObjC validation targets compile. Mixed framework support validated. Documentation complete.
+6. **C# keyword escaping** (`ApiDefinitionEmitter.cs`): Parameter names that are C# keywords (`object`, `event`, `class`, etc.) are prefixed with `@`.
 
-### Estimated Total: 3-5 sessions (3 complete, 1-2 remaining)
+7. **Validation pipeline integration**:
+   - Realm and Stripe3DS2 added to `validation-libraries.json` (tier 1, manual mode)
+   - Xcframeworks copied to `.libraries/Realm/` and `.libraries/Stripe3DS2/`
+   - Updated all docs with new target counts (42 libraries, 55 targets)
 
-Sessions O1-O3 are complete. O3 implemented Option A (two projects + `ProjectReference`) with type-level dedup. O4 will upgrade dedup from type-level to selector-based member-level using the `IsFromCategory` infrastructure added in O3.
+8. **Documentation updates**: README ObjC section, CLAUDE.md ObjC CLI examples, count updates across all docs.
+
+**Remaining ObjC edge cases** (known, not blocking):
+- Block typedefs referenced by name (e.g., `RLMNotificationBlock`) — not expanded to `Action`/`Func`
+- Nested block types (e.g., `void (^)(UIViewController *, void(^)(void))`)
+- Typedef struct types (e.g., `BRLMCustomPaperSizeMargins`)
+- `BOOL` in non-property positions parsed as type name instead of mapped to `bool`
+
+### Session O5: Mixed-Framework `[Category]` Emission (planned)
+
+**Goal:** Upgrade mixed-framework dedup from type-level (drop entire shared types) to member-level using `[Category]` emission.
+
+**Work items:**
+- Preserve category name + owning class in `ObjCModule` model
+- Stop merging category members into shared classes for mixed-framework emission
+- Emit shared-type category additions as `[Category]` bindings with distinct generated names
+- Update `FilterForMixedFramework` to use member-level filtering with `[Category]` emission
+- Add parser/emitter/integration tests
+- Find or add a real mixed Swift+ObjC framework to validation set
+
+### Estimated Total: 3-5 sessions (4 complete, 1 remaining)
+
+Sessions O1-O3 built the ObjC pipeline (parser, emitter, binding project, mixed-framework support). O4 added parser dedup, type mapping improvements, and real-world validation. O5 will upgrade mixed-framework dedup from type-level to member-level.
 
 ---
 
@@ -577,7 +579,7 @@ Sessions O1-O3 are complete. O3 implemented Option A (two projects + `ProjectRef
 ## Open Questions
 
 1. **Categories**: ObjC categories add methods to existing classes. Should these become C# extension methods, or methods on the main binding class?
-2. **Lightweight generics**: ObjC has `NSArray<NSString *>` -- should we preserve generic type info in the binding?
+2. **Lightweight generics**: ~~ObjC has `NSArray<NSString *>` -- should we preserve generic type info in the binding?~~ **Resolved (O4):** Generic type parameters are detected from `ObjCTypeParamDecl` AST nodes and mapped to `NSObject`. Scoped per-class to avoid cross-type collisions. Generic *arguments* on container types (e.g., `NSArray<NSString *>`) are stripped — the binding uses unparameterized `NSArray`.
 3. **Swift-imported ObjC**: When Swift re-exports an ObjC type (common in mixed frameworks), which pipeline owns it? Note: the Swift pipeline already handles ObjC types referenced from Swift via `ObjCBridgedProjection` — this question is about the *definition* ownership, not references.
 4. **Binding project compatibility**: Does `<IsBindingProject>` work correctly with .NET 10 and the latest MAUI? It's had issues historically.
 5. **Block ABI**: ObjC blocks have a specific ABI layout. The registrar handles this, but do we need to annotate parameters correctly for complex block signatures?

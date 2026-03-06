@@ -39,7 +39,7 @@ Swift Bindings approach:
 
 This project is a fork of Microsoft's [`dotnet/runtimelab` (feature/swift-bindings branch)](https://github.com/dotnet/runtimelab/tree/feature/swift-bindings) — an experimental effort that established the foundational architecture (ABI JSON parsing, Swift symbol demangling, type database, code emitter) but was never intended as a shipping product. Development went inactive with support limited to basic classes, structs, and simple method signatures.
 
-This fork extends the generator substantially — adding protocols, generics, closures, async, SwiftUI bridging, protocol extensions, existential containers, and much more. The generator produces zero compilation errors across 40 real-world libraries (53 framework targets), with select libraries validated end-to-end on a .NET for iOS app.
+This fork extends the generator substantially — adding protocols, generics, closures, async, SwiftUI bridging, protocol extensions, existential containers, and much more. The generator produces zero compilation errors across 42 real-world libraries (55 framework targets), with select libraries validated end-to-end on a .NET for iOS app.
 
 ---
 
@@ -65,7 +65,7 @@ See the [full type conversion table](docs/Supported-Features.md#type-conversions
 
 ### Real-World Validation
 
-The generator produces **zero compilation errors** across **40 libraries (53 framework targets)** spanning image loading, payments, animation, networking, document scanning, analytics, and more:
+The generator produces **zero compilation errors** across **42 libraries (55 framework targets)** spanning image loading, payments, animation, networking, document scanning, analytics, and more:
 
 | Category | Libraries |
 |----------|-----------|
@@ -221,15 +221,20 @@ For full details, see [Known Limitations](docs/Known-Limitations.md).
 
 ## Project Status
 
-Swift Bindings is under active development. The core generator, MSBuild SDK, and NuGet packaging are all functional — validated across 40 libraries (53 framework targets) with zero compilation errors, and tested with **5,100+ unit tests**, **700+ integration tests**, and **240+ end-to-end runtime tests** on iOS Simulator.
+Swift Bindings is under active development. The core generator, MSBuild SDK, and NuGet packaging are all functional — validated across 42 libraries (55 framework targets) with zero compilation errors, and tested with **5,100+ unit tests**, **700+ integration tests**, and **240+ end-to-end runtime tests** on iOS Simulator.
 
-### Objective-C Support (Under Consideration)
+### Objective-C Support
 
-The generator currently targets Swift-only libraries. However, many libraries still ship with Objective-C APIs — either ObjC-only or mixed ObjC/Swift. Microsoft's Objective Sharpie tool handles ObjC binding generation but is effectively unmaintained and breaks with newer Xcode versions.
+The generator also handles **pure Objective-C frameworks**. When pointed at an xcframework with ObjC headers but no Swift module, the ObjC pipeline automatically:
 
-We're exploring whether Swift Bindings could absorb this role by adding an ObjC pipeline alongside the existing Swift pipeline. The approach would use `clang -ast-dump=json` (no native dependencies, ships with Xcode) to parse ObjC headers and emit standard `ApiDefinition.cs` + `StructsAndEnums.cs` binding definitions that work with .NET MAUI's existing ObjC registrar. The XCFramework resolution, dependency handling, MSBuild SDK, and NuGet packaging infrastructure would be shared — the user experience would be the same: point at any xcframework, get a NuGet package.
+1. Runs `clang -ast-dump=json` to parse all public headers (no native dependencies — uses Xcode's built-in clang)
+2. Emits standard `ApiDefinition.cs` + `StructsAndEnums.cs` binding definitions
+3. Generates a ready-to-build `.csproj` with `<IsBindingProject>true</IsBindingProject>`
+4. Produces a NuGet package that works with .NET MAUI's existing ObjC registrar
 
-This is not currently planned work — if ObjC binding support would be valuable to you, please [open an issue](../../issues) and let us know your use case. See the [design exploration](src/docs/Future/objc-binding-integration.md) for full architectural analysis, trade-offs, and implementation estimates.
+**Mixed frameworks** (Swift + ObjC) are also supported: the Swift pipeline handles the Swift module, the ObjC pipeline handles ObjC-only types, and a type-level dedup pass prevents duplicate definitions. Member-level dedup for shared-type categories is planned for a future session.
+
+The framework type is auto-detected — no flags needed. Drop any xcframework and the correct pipeline runs.
 
 ---
 

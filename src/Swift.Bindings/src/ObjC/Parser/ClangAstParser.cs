@@ -115,23 +115,39 @@ public static class ClangAstParser
             }
         }
 
-        // Pass 2: Merge categories onto their owning classes
+        // Pass 2: Merge categories onto their owning classes.
+        // Merge onto ALL matching duplicates so Pass 3 dedup doesn't discard category members.
         foreach (var (className, methods, properties) in categories)
         {
-            var owningClass = classes.FirstOrDefault(c => c.Name == className);
-            if (owningClass != null)
+            var taggedMethods = methods.Select(m => m with { IsFromCategory = true }).ToList();
+            var taggedProperties = properties.Select(p => p with { IsFromCategory = true }).ToList();
+            for (int i = 0; i < classes.Count; i++)
             {
-                var idx = classes.IndexOf(owningClass);
-                var taggedMethods = methods.Select(m => m with { IsFromCategory = true }).ToList();
-                var taggedProperties = properties.Select(p => p with { IsFromCategory = true }).ToList();
-                classes[idx] = owningClass with
+                if (classes[i].Name == className)
                 {
-                    Methods = [.. owningClass.Methods, .. taggedMethods],
-                    Properties = [.. owningClass.Properties, .. taggedProperties]
-                };
+                    classes[i] = classes[i] with
+                    {
+                        Methods = [.. classes[i].Methods, .. taggedMethods],
+                        Properties = [.. classes[i].Properties, .. taggedProperties]
+                    };
+                }
             }
             // If class not found (forward-declared in another framework), skip category
         }
+
+        // Pass 3: Deduplicate declarations by name.
+        // The same type can appear in multiple headers (public + internal, or multiple umbrella includes).
+        // Enums/structs: keep richest (most cases/fields) since empty forward-like decls precede full defs.
+        // Classes/protocols: merge metadata (superclass, protocols, availability, generic params)
+        //   from all duplicates onto the richest (most methods+properties).
+        // Functions/constants/typedefs: keep first (no richness variation).
+        enums = DeduplicateByRichest(enums, e => e.Name, e => e.Cases.Count);
+        structs = DeduplicateByRichest(structs, s => s.Name, s => s.Fields.Count);
+        classes = MergeClasses(classes);
+        protocols = MergeProtocols(protocols);
+        functions = DeduplicateByFirst(functions, f => f.Name);
+        constants = DeduplicateByFirst(constants, c => c.Name);
+        typedefs = DeduplicateByFirst(typedefs, t => t.Name);
 
         return new ObjCModule
         {
@@ -175,6 +191,21 @@ public static class ClangAstParser
             }
         }
 
+        // Extract ObjC lightweight generic type parameters (e.g., RLMObjectType in RLMResults<RLMObjectType>)
+        var genericTypeParamNames = new List<string>();
+        if (element.TryGetProperty("inner", out var innerForParams))
+        {
+            foreach (var child in innerForParams.EnumerateArray())
+            {
+                if (GetOptionalString(child, "kind") == "ObjCTypeParamDecl")
+                {
+                    var paramName = GetName(child);
+                    if (paramName != null)
+                        genericTypeParamNames.Add(paramName);
+                }
+            }
+        }
+
         var methods = new List<ObjCMethodDecl>();
         var properties = new List<ObjCPropertyDecl>();
         var availability = new List<ObjCAvailability>();
@@ -186,6 +217,7 @@ public static class ClangAstParser
             Name = name,
             SuperclassName = superclass,
             ProtocolNames = protocols,
+            GenericTypeParamNames = genericTypeParamNames,
             Methods = methods,
             Properties = properties,
             Availability = availability
@@ -853,6 +885,110 @@ public static class ClangAstParser
         if (parenIdx > 0)
             return funcTypeStr[..parenIdx].Trim();
         return funcTypeStr;
+    }
+
+    private static List<T> DeduplicateByRichest<T>(
+        List<T> items, Func<T, string> nameSelector, Func<T, int> richnessSelector)
+    {
+        if (items.Count <= 1) return items;
+        return items.GroupBy(nameSelector)
+            .Select(g => g.OrderByDescending(richnessSelector).First())
+            .ToList();
+    }
+
+    /// <summary>
+    /// Deduplicates classes by name, merging metadata from all duplicates onto the richest instance.
+    /// Metadata includes: SuperclassName, ProtocolNames, GenericTypeParamNames, Availability.
+    /// NOTE: Methods/properties are NOT merged across duplicates — only the richest instance's
+    /// members are kept. In practice, duplicate declarations of the same class come from the same
+    /// header definition (re-included via umbrella headers), so they have identical members.
+    /// Disjoint members only arise from categories, which are handled in Pass 2 before dedup.
+    /// </summary>
+    private static List<ObjCClassDecl> MergeClasses(List<ObjCClassDecl> classes)
+    {
+        if (classes.Count <= 1) return classes;
+        return classes.GroupBy(c => c.Name)
+            .Select(g =>
+            {
+                var richest = g.OrderByDescending(c => c.Methods.Count + c.Properties.Count).First();
+                if (g.Count() == 1) return richest;
+
+                // Merge metadata from all duplicates
+                string? superclass = richest.SuperclassName;
+                var allProtocols = new HashSet<string>(richest.ProtocolNames);
+                var allGenericParams = new HashSet<string>(richest.GenericTypeParamNames);
+                var allAvailability = new List<ObjCAvailability>(richest.Availability);
+
+                foreach (var dup in g)
+                {
+                    if (ReferenceEquals(dup, richest)) continue;
+                    superclass ??= dup.SuperclassName;
+                    foreach (var p in dup.ProtocolNames) allProtocols.Add(p);
+                    foreach (var gp in dup.GenericTypeParamNames) allGenericParams.Add(gp);
+                    foreach (var a in dup.Availability)
+                    {
+                        if (!allAvailability.Any(existing =>
+                            existing.Platform == a.Platform && existing.IntroducedVersion == a.IntroducedVersion
+                            && existing.DeprecatedVersion == a.DeprecatedVersion))
+                            allAvailability.Add(a);
+                    }
+                }
+
+                return richest with
+                {
+                    SuperclassName = superclass,
+                    ProtocolNames = allProtocols.ToList(),
+                    GenericTypeParamNames = allGenericParams.ToList(),
+                    Availability = allAvailability
+                };
+            })
+            .ToList();
+    }
+
+    /// <summary>
+    /// Deduplicates protocols by name, merging metadata from all duplicates onto the richest instance.
+    /// Metadata includes: InheritedProtocolNames, Availability.
+    /// NOTE: Methods/properties are NOT merged — same rationale as MergeClasses.
+    /// </summary>
+    private static List<ObjCProtocolDecl> MergeProtocols(List<ObjCProtocolDecl> protocols)
+    {
+        if (protocols.Count <= 1) return protocols;
+        return protocols.GroupBy(p => p.Name)
+            .Select(g =>
+            {
+                var richest = g.OrderByDescending(p => p.Methods.Count + p.Properties.Count).First();
+                if (g.Count() == 1) return richest;
+
+                var allInherited = new HashSet<string>(richest.InheritedProtocolNames);
+                var allAvailability = new List<ObjCAvailability>(richest.Availability);
+
+                foreach (var dup in g)
+                {
+                    if (ReferenceEquals(dup, richest)) continue;
+                    foreach (var ip in dup.InheritedProtocolNames) allInherited.Add(ip);
+                    foreach (var a in dup.Availability)
+                    {
+                        if (!allAvailability.Any(existing =>
+                            existing.Platform == a.Platform && existing.IntroducedVersion == a.IntroducedVersion
+                            && existing.DeprecatedVersion == a.DeprecatedVersion))
+                            allAvailability.Add(a);
+                    }
+                }
+
+                return richest with
+                {
+                    InheritedProtocolNames = allInherited.ToList(),
+                    Availability = allAvailability
+                };
+            })
+            .ToList();
+    }
+
+    private static List<T> DeduplicateByFirst<T>(
+        List<T> items, Func<T, string> nameSelector)
+    {
+        if (items.Count <= 1) return items;
+        return items.GroupBy(nameSelector).Select(g => g.First()).ToList();
     }
 
     private static long? TryExtractEnumValue(JsonElement innerArray)

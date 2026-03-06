@@ -17,6 +17,18 @@ public static class ObjCTypeMapper
         ["NSSet"] = "NSSet",
         ["NSDate"] = "NSDate",
         ["NSObject"] = "NSObject",
+        ["CGImageRef"] = "CGImage",
+    };
+
+    // CoreFoundation Ref typedefs and opaque types that appear without '*' in clang AST.
+    static readonly Dictionary<string, string> CoreFoundationRefMappings = new()
+    {
+        ["CGImageRef"] = "CGImage",
+        ["CGColorRef"] = "CGColor",
+        ["CGPathRef"] = "CGPath",
+        ["CGContextRef"] = "CGContext",
+        ["dispatch_queue_t"] = "DispatchQueue",
+        ["dispatch_data_t"] = "DispatchData",
     };
 
     static readonly Dictionary<string, string> PrimitiveTypeMappings = new()
@@ -25,6 +37,7 @@ public static class ObjCTypeMapper
         ["NSInteger"] = "nint",
         ["NSUInteger"] = "nuint",
         ["CGFloat"] = "nfloat",
+        ["NSTimeInterval"] = "double",
         ["void"] = "void",
         ["int"] = "int",
         ["float"] = "float",
@@ -39,17 +52,19 @@ public static class ObjCTypeMapper
         ["long long"] = "long",
         ["unsigned long long"] = "ulong",
         ["uint8_t"] = "byte",
+        ["UInt8"] = "byte",
         ["int32_t"] = "int",
         ["int64_t"] = "long",
         ["uint32_t"] = "uint",
         ["uint64_t"] = "ulong",
+        ["va_list"] = "IntPtr",
     };
 
-    public static string MapType(ObjCTypeRef typeRef, string? declaringClassName = null)
+    public static string MapType(ObjCTypeRef typeRef, string? declaringClassName = null, HashSet<string>? genericTypeParams = null)
     {
         // 1. Block types
         if (typeRef.IsBlock)
-            return MapBlockType(typeRef);
+            return MapBlockType(typeRef, genericTypeParams);
 
         // 2. instancetype
         if (typeRef.Name == "instancetype")
@@ -79,7 +94,18 @@ public static class ObjCTypeMapper
         if (PrimitiveTypeMappings.TryGetValue(typeRef.Name, out var primitive))
             return primitive;
 
-        // 7-8. Passthrough / fallback
+        // 7. ObjC lightweight generic type parameters → NSObject
+        // Only recognize params declared by the owning class via ObjCTypeParamDecl in the AST.
+        // No hardcoded fallback set — avoids cross-type collisions where a generic param name
+        // in one class matches a real type name used elsewhere.
+        if (genericTypeParams != null && genericTypeParams.Contains(typeRef.Name))
+            return "NSObject";
+
+        // 8. CoreFoundation Ref types (typedefs for CF pointers, e.g., CGImageRef → CGImage)
+        if (CoreFoundationRefMappings.TryGetValue(typeRef.Name, out var cfMapped))
+            return cfMapped;
+
+        // 9. Passthrough / fallback
         return typeRef.Name;
     }
 
@@ -91,13 +117,13 @@ public static class ObjCTypeMapper
         && typeRef.IsPointer
         && typeRef.PointeeType is { Name: "NSError", IsPointer: true };
 
-    static string MapBlockType(ObjCTypeRef typeRef)
+    static string MapBlockType(ObjCTypeRef typeRef, HashSet<string>? genericTypeParams = null)
     {
         var returnType = typeRef.BlockReturnType != null
-            ? MapType(typeRef.BlockReturnType)
+            ? MapType(typeRef.BlockReturnType, genericTypeParams: genericTypeParams)
             : "void";
 
-        var paramTypes = typeRef.BlockParams.Select(p => MapType(p)).ToList();
+        var paramTypes = typeRef.BlockParams.Select(p => MapType(p, genericTypeParams: genericTypeParams)).ToList();
 
         if (paramTypes.Count > 16)
             return "NSObject";

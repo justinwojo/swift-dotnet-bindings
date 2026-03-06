@@ -48,7 +48,7 @@ The generator covers the full breadth of Swift's type system:
 
 ## Validated Against Real Libraries
 
-The compile gate passes for all 53 targets across 40 libraries — including Alamofire, Nuke, Kingfisher, Lottie, CryptoSwift, all Stripe frameworks, GRDB, RxSwift, BlinkID, and more. Zero generator errors. See [Supported Features](Supported-Features.md) for details.
+The compile gate passes for all 55 targets across 42 libraries — including Alamofire, Nuke, Kingfisher, Lottie, CryptoSwift, all Stripe frameworks, GRDB, RxSwift, BlinkID, Realm, Stripe3DS2, and more. Zero generator errors. See [Supported Features](Supported-Features.md) for details.
 
 This project is a fork of Microsoft's [`dotnet/runtimelab` (feature/swift-bindings branch)](https://github.com/dotnet/runtimelab/tree/feature/swift-bindings), substantially extended with protocols, generics, closures, async, SwiftUI bridging, and more. See [Architecture](Architecture.md) for the full history.
 

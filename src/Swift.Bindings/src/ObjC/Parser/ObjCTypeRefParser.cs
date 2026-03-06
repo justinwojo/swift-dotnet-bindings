@@ -13,6 +13,10 @@ public static class ObjCTypeRefParser
         var raw = qualType;
         var s = qualType.Trim();
 
+        // 0. Strip __attribute__((...)) decorations and ObjC macros
+        s = StripAttributes(s);
+        s = StripObjCMacros(s);
+
         // 1. Strip and record nullability annotations
         var nullability = ObjCNullability.Unspecified;
         s = StripNullability(s, ref nullability);
@@ -25,10 +29,10 @@ public static class ObjCTypeRefParser
         if (TryParseIdProtocol(s, nullability, raw, out var idRef))
             return idRef;
 
-        // 4. Detect double pointer: NSError **
-        if (s.EndsWith("**"))
+        // 4. Detect double pointer: NSError ** or NSError * * (space between stars after nullability stripping)
+        if (s.EndsWith("**") || s.EndsWith("* *"))
         {
-            var inner = s[..^2].Trim();
+            var inner = s.TrimEnd(' ', '*').Trim();
             return new ObjCTypeRef
             {
                 Name = inner,
@@ -71,6 +75,80 @@ public static class ObjCTypeRefParser
         };
     }
 
+    private static string StripAttributes(string s)
+    {
+        // Remove __attribute__((...)) including nested parens
+        while (true)
+        {
+            var idx = s.IndexOf("__attribute__((", StringComparison.Ordinal);
+            if (idx < 0) break;
+
+            // Find matching )) — must handle nested parens
+            var depth = 0;
+            var end = idx + 15; // skip "__attribute__(("
+            for (; end < s.Length; end++)
+            {
+                if (s[end] == '(') depth++;
+                else if (s[end] == ')')
+                {
+                    if (depth == 0)
+                    {
+                        // Found the first ), look for the second )
+                        if (end + 1 < s.Length && s[end + 1] == ')')
+                        {
+                            end += 2;
+                            break;
+                        }
+                    }
+                    else
+                        depth--;
+                }
+            }
+
+            s = (s[..idx] + s[end..]).Trim();
+        }
+
+        // Collapse multiple spaces
+        while (s.Contains("  "))
+            s = s.Replace("  ", " ");
+
+        return s.Trim();
+    }
+
+    private static string StripObjCMacros(string s)
+    {
+        // Strip NS_REFINED_FOR_SWIFT, NS_SWIFT_NAME(...), etc.
+        s = s.Replace("NS_REFINED_FOR_SWIFT", "");
+
+        // NS_SWIFT_NAME(...) — strip the macro and its parenthesized argument
+        while (true)
+        {
+            var idx = s.IndexOf("NS_SWIFT_NAME(", StringComparison.Ordinal);
+            if (idx < 0) break;
+            var depth = 0;
+            var end = idx + 14; // skip "NS_SWIFT_NAME("
+            for (; end < s.Length; end++)
+            {
+                if (s[end] == '(') depth++;
+                else if (s[end] == ')')
+                {
+                    if (depth == 0) { end++; break; }
+                    depth--;
+                }
+            }
+            s = (s[..idx] + s[end..]).Trim();
+        }
+
+        // Also strip bare NS_SWIFT_NAME (without parens — sometimes the parens don't survive clang AST)
+        s = s.Replace("NS_SWIFT_NAME", "");
+
+        // Collapse multiple spaces
+        while (s.Contains("  "))
+            s = s.Replace("  ", " ");
+
+        return s.Trim();
+    }
+
     private static string StripNullability(string s, ref ObjCNullability nullability)
     {
         if (s.Contains("_Nonnull") || s.Contains("__nonnull"))
@@ -83,6 +161,9 @@ public static class ObjCTypeRefParser
             nullability = ObjCNullability.Nullable;
             s = s.Replace("_Nullable", "").Replace("__nullable", "");
         }
+
+        // Strip _Null_unspecified (no semantic impact, just noise)
+        s = s.Replace("_Null_unspecified", "");
 
         // Collapse multiple spaces
         while (s.Contains("  "))

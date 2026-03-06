@@ -11,7 +11,7 @@ Experimental Swift/.NET interop project. Generates C# bindings from compiled Swi
 - `src/Swift.Bindings.Templates/` — `dotnet new swift-binding` project template
 - `src/Swift.Runtime/src/Swift/` — Runtime: SwiftString, SwiftArray, SafeHandle, ARC (NuGet: `Swift.Runtime`)
 - `TestFramework/` — Comprehensive test library + runtime tests (iOS Simulator)
-- `validation-libraries.json` — Library validation manifest (32 targets across 19 libraries)
+- `validation-libraries.json` — Library validation manifest (55 targets across 42 libraries)
 - `scripts/` — `fetch-libraries.sh` (build xcframeworks), `lib.sh` (shared helpers)
 - `src/docs/` — Design docs, status, known issues
 - `docs/` — High-level philosophy (`binding-overview.md`)
@@ -39,8 +39,8 @@ cd TestFramework
 
 # Real-world library validation:
 scripts/fetch-libraries.sh              # Fetch xcframeworks (first time)
-./validate-libraries.sh                 # Compile gate (all tiers, 53 targets, ~35s cached)
-./validate-libraries.sh --tier 1        # Tier 1 only (32 targets)
+./validate-libraries.sh                 # Compile gate (all tiers, 55 targets, ~35s cached)
+./validate-libraries.sh --tier 1        # Tier 1 only (34 targets)
 ./validate-libraries.sh --tier 2        # Tier 2 only (21 targets)
 ./validate-libraries.sh --filter Nuke   # Validate one library
 ```
@@ -84,6 +84,16 @@ dotnet run --project src/Swift.Bindings/src -- \
 ```
 Mutually exclusive with `--xcframework`. Does NOT emit `.csproj`/`.targets`.
 
+### ObjC frameworks
+
+Pure ObjC frameworks are auto-detected — no flags needed:
+```bash
+# Generates ApiDefinition.cs + StructsAndEnums.cs + binding .csproj
+dotnet run --project src/Swift.Bindings/src -- \
+  --xcframework .libraries/Realm/Realm.xcframework \
+  -o /tmp/realm-output/
+```
+
 ## Validating Third-Party Libraries
 
 Track binding errors in `src/docs/Completed/binding-errors.md`. All validation libraries are declared in `validation-libraries.json`.
@@ -112,10 +122,10 @@ scripts/fetch-libraries.sh
 
 ### Validation tiers
 
-- **Tier 1** (32 targets): Established baseline libraries (Alamofire, Nuke, Kingfisher, RxSwift, Stripe, etc.).
+- **Tier 1** (34 targets): Established baseline libraries (Alamofire, Nuke, Kingfisher, RxSwift, Stripe, Realm, Stripe3DS2, etc.).
 - **Tier 2** (21 targets): Additional coverage libraries (DeviceKit, ObjectMapper, SVGView, etc.).
-- **Default**: `./validate-libraries.sh` runs all tiers (53 targets, ~35s with cached build). Baseline updates on full unfiltered runs.
-- **Manual** (4 targets within tier 1): Proprietary libraries (BRLMPrinterKit, Mappedin, MicroblinkPlatform, SmartCardIO). Place xcframeworks in `.libraries/<name>/`.
+- **Default**: `./validate-libraries.sh` runs all tiers (55 targets, ~35s with cached build). Baseline updates on full unfiltered runs.
+- **Manual** (7 targets within tier 1): Proprietary/ObjC libraries (BlinkIDUX, BRLMPrinterKit, Mappedin, MicroblinkPlatform, SmartCardIO, Realm, Stripe3DS2). Place xcframeworks in `.libraries/<name>/`.
 
 ### Adding a new library
 
@@ -127,7 +137,6 @@ scripts/fetch-libraries.sh
 ### Known non-binding failures (not generator bugs)
 
 - **RealmSwift** — generator crash: ABI JSON has empty module name (not built with `BUILD_LIBRARY_FOR_DISTRIBUTION=YES`)
-- **Realm, Stripe3DS2** — pure ObjC frameworks, no Swift module
 - **Wrapper compilation failures** (SkeletonView internal types, Mixpanel `#if compiler` types) — C# bindings are correct, but Swift wrapper can't compile without the types. Not dependency-related.
 - **Stripe inter-module dependencies** — use `--framework-dependency` to provide each dependency xcframework. See SDK section below for MSBuild equivalent.
 

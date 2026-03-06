@@ -838,6 +838,579 @@ public class ClangAstParserTests
         Assert.Empty(module.Classes);
     }
 
+    // ──────────────────────────────────────────────
+    // Pass 3: Dedup tests
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public void Parse_DuplicateEnums_KeepsRichest()
+    {
+        // First has 0 cases (forward-like), second has 3 cases → keep second
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "EnumDecl",
+            "name": "MyEnum",
+            {{MakeLoc()}}
+        },
+        {
+            "kind": "EnumDecl",
+            "name": "MyEnum",
+            {{MakeLoc()}},
+            "fixedUnderlyingType": { "qualType": "NSInteger" },
+            "inner": [
+                { "kind": "EnumConstantDecl", "name": "MyEnumA", "inner": [{ "kind": "ConstantExpr", "value": "0" }] },
+                { "kind": "EnumConstantDecl", "name": "MyEnumB", "inner": [{ "kind": "ConstantExpr", "value": "1" }] },
+                { "kind": "EnumConstantDecl", "name": "MyEnumC", "inner": [{ "kind": "ConstantExpr", "value": "2" }] }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Single(module.Enums);
+        Assert.Equal("MyEnum", module.Enums[0].Name);
+        Assert.Equal(3, module.Enums[0].Cases.Count);
+    }
+
+    [Fact]
+    public void Parse_DuplicateEnums_BothEmpty_KeepsFirst()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "EnumDecl",
+            "name": "EmptyEnum",
+            {{MakeLoc()}}
+        },
+        {
+            "kind": "EnumDecl",
+            "name": "EmptyEnum",
+            {{MakeLoc()}}
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Single(module.Enums);
+        Assert.Equal("EmptyEnum", module.Enums[0].Name);
+    }
+
+    [Fact]
+    public void Parse_DuplicateStructs_KeepsRichest()
+    {
+        // First empty, second has 2 fields → keep second
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "RecordDecl",
+            "name": "MyPoint",
+            {{MakeLoc()}}
+        },
+        {
+            "kind": "RecordDecl",
+            "name": "MyPoint",
+            {{MakeLoc()}},
+            "inner": [
+                { "kind": "FieldDecl", "name": "x", "type": { "qualType": "float" } },
+                { "kind": "FieldDecl", "name": "y", "type": { "qualType": "float" } }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Single(module.Structs);
+        Assert.Equal("MyPoint", module.Structs[0].Name);
+        Assert.Equal(2, module.Structs[0].Fields.Count);
+    }
+
+    [Fact]
+    public void Parse_DuplicateConstants_KeepsFirst()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "VarDecl",
+            "name": "MyConst",
+            {{MakeLoc()}},
+            "type": { "qualType": "NSString *" },
+            "storageClass": "extern"
+        },
+        {
+            "kind": "VarDecl",
+            "name": "MyConst",
+            {{MakeLoc()}},
+            "type": { "qualType": "NSString *" },
+            "storageClass": "extern"
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Single(module.Constants);
+        Assert.Equal("MyConst", module.Constants[0].Name);
+    }
+
+    [Fact]
+    public void Parse_DuplicateFunctions_KeepsFirst()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "FunctionDecl",
+            "name": "MyFunc",
+            {{MakeLoc()}},
+            "type": { "qualType": "void ()" },
+            "inner": []
+        },
+        {
+            "kind": "FunctionDecl",
+            "name": "MyFunc",
+            {{MakeLoc()}},
+            "type": { "qualType": "void ()" },
+            "inner": []
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Single(module.Functions);
+        Assert.Equal("MyFunc", module.Functions[0].Name);
+    }
+
+    [Fact]
+    public void Parse_DuplicateTypedefs_KeepsFirst()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "TypedefDecl",
+            "name": "MyType",
+            {{MakeLoc()}},
+            "type": { "qualType": "int" },
+            "inner": [{ "kind": "BuiltinType", "qualType": "int" }]
+        },
+        {
+            "kind": "TypedefDecl",
+            "name": "MyType",
+            {{MakeLoc()}},
+            "type": { "qualType": "int" },
+            "inner": [{ "kind": "BuiltinType", "qualType": "int" }]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Single(module.Typedefs);
+        Assert.Equal("MyType", module.Typedefs[0].Name);
+    }
+
+    [Fact]
+    public void Parse_DuplicateClasses_KeepsRichest()
+    {
+        // Same class in two headers — first empty, second has methods → keep second
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "Widget",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": []
+        },
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "Widget",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "doStuff",
+                    "instance": true,
+                    "returnType": { "qualType": "void" },
+                    "inner": []
+                },
+                {
+                    "kind": "ObjCPropertyDecl",
+                    "name": "title",
+                    "type": { "qualType": "NSString *" }
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Single(module.Classes);
+        Assert.Equal("Widget", module.Classes[0].Name);
+        Assert.Single(module.Classes[0].Methods);
+        Assert.Single(module.Classes[0].Properties);
+    }
+
+    [Fact]
+    public void Parse_DuplicateProtocols_KeepsRichest()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCProtocolDecl",
+            "name": "MyProto",
+            {{MakeLoc()}},
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "doIt",
+                    "instance": true,
+                    "returnType": { "qualType": "void" },
+                    "inner": []
+                }
+            ]
+        },
+        {
+            "kind": "ObjCProtocolDecl",
+            "name": "MyProto",
+            {{MakeLoc()}},
+            "inner": []
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Single(module.Protocols);
+        Assert.Equal("MyProto", module.Protocols[0].Name);
+        Assert.Single(module.Protocols[0].Methods);
+    }
+
+    [Fact]
+    public void Parse_DuplicateClasses_CategoryMembersPreserved_WhenLaterDuplicateIsRicher()
+    {
+        // Regression: if category methods were only merged onto the first duplicate,
+        // and a later duplicate had more inherent members, the "richest wins" dedup
+        // would discard the category-bearing instance and lose category members.
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "Widget",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "init",
+                    "instance": true,
+                    "returnType": { "qualType": "instancetype" },
+                    "inner": []
+                }
+            ]
+        },
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "Widget",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "doA",
+                    "instance": true,
+                    "returnType": { "qualType": "void" },
+                    "inner": []
+                },
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "doB",
+                    "instance": true,
+                    "returnType": { "qualType": "void" },
+                    "inner": []
+                },
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "doC",
+                    "instance": true,
+                    "returnType": { "qualType": "void" },
+                    "inner": []
+                },
+                {
+                    "kind": "ObjCPropertyDecl",
+                    "name": "title",
+                    "type": { "qualType": "NSString *" }
+                }
+            ]
+        },
+        {
+            "kind": "ObjCCategoryDecl",
+            "name": "Extras",
+            {{MakeLoc()}},
+            "interface": { "id": "0x1", "kind": "ObjCInterfaceDecl", "name": "Widget" },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "categoryMethod",
+                    "instance": true,
+                    "returnType": { "qualType": "void" },
+                    "inner": []
+                },
+                {
+                    "kind": "ObjCPropertyDecl",
+                    "name": "subtitle",
+                    "type": { "qualType": "NSString *" }
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Single(module.Classes);
+        var cls = module.Classes[0];
+        // The winner must have the category members regardless of which duplicate won
+        Assert.Contains(cls.Methods, m => m.Selector == "categoryMethod");
+        Assert.Contains(cls.Properties, p => p.Name == "subtitle");
+        Assert.True(cls.Methods.First(m => m.Selector == "categoryMethod").IsFromCategory);
+        Assert.True(cls.Properties.First(p => p.Name == "subtitle").IsFromCategory);
+    }
+
+    [Fact]
+    public void Parse_ObjCTypeParamDecl_ExtractsGenericTypeParamNames()
+    {
+        // Clang AST emits ObjCTypeParamDecl nodes for lightweight generics like
+        // @interface RLMResults<RLMObjectType>
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "RLMResults",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": [
+                {
+                    "kind": "ObjCTypeParamDecl",
+                    "name": "RLMObjectType"
+                },
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "objectAtIndex:",
+                    "instance": true,
+                    "returnType": { "qualType": "RLMObjectType" },
+                    "inner": [
+                        {
+                            "kind": "ParmVarDecl",
+                            "name": "index",
+                            "type": { "qualType": "NSUInteger" }
+                        }
+                    ]
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Single(module.Classes);
+        var cls = module.Classes[0];
+        Assert.Single(cls.GenericTypeParamNames);
+        Assert.Equal("RLMObjectType", cls.GenericTypeParamNames[0]);
+    }
+
+    [Fact]
+    public void Parse_ObjCTypeParamDecl_MultipleGenericParams()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "RLMDictionary",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": [
+                { "kind": "ObjCTypeParamDecl", "name": "RLMKeyType" },
+                { "kind": "ObjCTypeParamDecl", "name": "RLMObjectType" },
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "init",
+                    "instance": true,
+                    "returnType": { "qualType": "instancetype" },
+                    "inner": []
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        var cls = module.Classes[0];
+        Assert.Equal(2, cls.GenericTypeParamNames.Count);
+        Assert.Contains("RLMKeyType", cls.GenericTypeParamNames);
+        Assert.Contains("RLMObjectType", cls.GenericTypeParamNames);
+    }
+
+    [Fact]
+    public void Parse_DuplicateClasses_MergesMetadata()
+    {
+        // Two duplicates of Widget: first has superclass and protocol A,
+        // second has protocol B and availability. Merge should combine all metadata.
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "Widget",
+            {{MakeLoc()}},
+            "super": { "name": "UIView" },
+            "protocols": [{ "name": "NSCoding" }],
+            "inner": [
+                { "kind": "ObjCTypeParamDecl", "name": "WidgetType" },
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "init",
+                    "instance": true,
+                    "returnType": { "qualType": "instancetype" },
+                    "inner": []
+                }
+            ]
+        },
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "Widget",
+            {{MakeLoc()}},
+            "super": { "name": "UIView" },
+            "protocols": [{ "name": "NSCopying" }],
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "doA",
+                    "instance": true,
+                    "returnType": { "qualType": "void" },
+                    "inner": []
+                },
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "doB",
+                    "instance": true,
+                    "returnType": { "qualType": "void" },
+                    "inner": []
+                },
+                {
+                    "kind": "AvailabilityAttr",
+                    "platform": "ios",
+                    "introduced": "15.0"
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Single(module.Classes);
+        var cls = module.Classes[0];
+        // Richest by member count (2 methods vs 1) wins as base
+        Assert.Equal(2, cls.Methods.Count);
+        // Superclass preserved
+        Assert.Equal("UIView", cls.SuperclassName);
+        // Both protocols merged
+        Assert.Contains("NSCoding", cls.ProtocolNames);
+        Assert.Contains("NSCopying", cls.ProtocolNames);
+        // Generic type params merged from first duplicate
+        Assert.Contains("WidgetType", cls.GenericTypeParamNames);
+        // Availability merged from second duplicate
+        Assert.Contains(cls.Availability, a => a.IntroducedVersion == "15.0");
+    }
+
+    [Fact]
+    public void Parse_DuplicateProtocols_MergesMetadata()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCProtocolDecl",
+            "name": "MyProto",
+            {{MakeLoc()}},
+            "protocols": [{ "name": "NSCoding" }],
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "doIt",
+                    "instance": true,
+                    "returnType": { "qualType": "void" },
+                    "inner": []
+                }
+            ]
+        },
+        {
+            "kind": "ObjCProtocolDecl",
+            "name": "MyProto",
+            {{MakeLoc()}},
+            "protocols": [{ "name": "NSCopying" }],
+            "inner": [
+                {
+                    "kind": "AvailabilityAttr",
+                    "platform": "ios",
+                    "introduced": "14.0"
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Single(module.Protocols);
+        var proto = module.Protocols[0];
+        // Richest (1 method vs 0) wins as base
+        Assert.Single(proto.Methods);
+        // Both inherited protocols merged
+        Assert.Contains("NSCoding", proto.InheritedProtocolNames);
+        Assert.Contains("NSCopying", proto.InheritedProtocolNames);
+        // Availability merged
+        Assert.Contains(proto.Availability, a => a.IntroducedVersion == "14.0");
+    }
+
+    [Fact]
+    public void Parse_DuplicateClasses_SuperclassFromNonRichest_Preserved()
+    {
+        // Edge case: first duplicate has a superclass, second (richer) doesn't
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "Widget",
+            {{MakeLoc()}},
+            "super": { "name": "UIView" },
+            "inner": []
+        },
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "Widget",
+            {{MakeLoc()}},
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "doStuff",
+                    "instance": true,
+                    "returnType": { "qualType": "void" },
+                    "inner": []
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Single(module.Classes);
+        var cls = module.Classes[0];
+        Assert.Single(cls.Methods);
+        // Superclass from the non-richest duplicate is preserved
+        Assert.Equal("UIView", cls.SuperclassName);
+    }
+
+    [Fact]
+    public void Parse_NoDuplicates_Unchanged()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "EnumDecl",
+            "name": "EnumA",
+            {{MakeLoc()}},
+            "inner": [{ "kind": "EnumConstantDecl", "name": "A1" }]
+        },
+        {
+            "kind": "EnumDecl",
+            "name": "EnumB",
+            {{MakeLoc()}},
+            "inner": [{ "kind": "EnumConstantDecl", "name": "B1" }]
+        },
+        {
+            "kind": "VarDecl",
+            "name": "ConstA",
+            {{MakeLoc()}},
+            "type": { "qualType": "int" }
+        },
+        {
+            "kind": "VarDecl",
+            "name": "ConstB",
+            {{MakeLoc()}},
+            "type": { "qualType": "int" }
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Equal(2, module.Enums.Count);
+        Assert.Equal(2, module.Constants.Count);
+    }
+
     [Fact]
     public void Parse_FullModule_AllDeclTypes()
     {

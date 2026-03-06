@@ -507,6 +507,42 @@ public class ApiDefinitionEmitterTests
     }
 
     [Fact]
+    public void Emit_ProtocolInheritingNSObject_FiltersOutINSObject()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols = [new ObjCProtocolDecl
+            {
+                Name = "MyDelegate",
+                InheritedProtocolNames = ["NSObject", "NSCoding"]
+            }]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("partial interface IMyDelegate : INSCoding", result);
+        Assert.DoesNotContain("INSObject", result);
+    }
+
+    [Fact]
+    public void Emit_ProtocolInheritingOnlyNSObject_NoInheritanceList()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols = [new ObjCProtocolDecl
+            {
+                Name = "MyDelegate",
+                InheritedProtocolNames = ["NSObject"]
+            }]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("partial interface IMyDelegate\n", result);
+        Assert.DoesNotContain("INSObject", result);
+    }
+
+    [Fact]
     public void Emit_ProtocolRequiredProperty_HasAbstract()
     {
         var module = new ObjCModule
@@ -643,6 +679,76 @@ public class ApiDefinitionEmitterTests
         Assert.Contains("NSObject Copy();", result);
     }
 
+    // --- C# keyword escaping ---
+
+    [Fact]
+    public void Emit_ParamNameIsCSharpKeyword_EscapedWithAt()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes = [new ObjCClassDecl
+            {
+                Name = "MyClass",
+                Methods = [new ObjCMethodDecl
+                {
+                    Selector = "indexOfObject:",
+                    ReturnType = new ObjCTypeRef { Name = "NSUInteger" },
+                    IsInstanceMethod = true,
+                    Parameters = [new ObjCParameterDecl
+                    {
+                        Name = "object",
+                        Type = new ObjCTypeRef { Name = "NSObject", IsPointer = true }
+                    }]
+                }]
+            }]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("NSObject @object", result);
+    }
+
+    [Fact]
+    public void Emit_ParamNameEvent_EscapedWithAt()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols = [new ObjCProtocolDecl
+            {
+                Name = "MyDelegate",
+                Methods = [new ObjCMethodDecl
+                {
+                    Selector = "didReceiveEvent:",
+                    ReturnType = new ObjCTypeRef { Name = "void" },
+                    IsInstanceMethod = true,
+                    IsOptional = false,
+                    Parameters = [new ObjCParameterDecl
+                    {
+                        Name = "event",
+                        Type = new ObjCTypeRef { Name = "NSData", IsPointer = true }
+                    }]
+                }]
+            }]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("NSData @event", result);
+    }
+
+    [Theory]
+    [InlineData("object", "@object")]
+    [InlineData("event", "@event")]
+    [InlineData("class", "@class")]
+    [InlineData("string", "@string")]
+    [InlineData("delegate", "@delegate")]
+    [InlineData("normalName", "normalName")]
+    [InlineData("myObject", "myObject")]
+    public void EscapeCSharpKeyword_EscapesCorrectly(string input, string expected)
+    {
+        Assert.Equal(expected, ApiDefinitionEmitter.EscapeCSharpKeyword(input));
+    }
+
     // --- Selector to method name ---
 
     [Theory]
@@ -665,6 +771,7 @@ public class ApiDefinitionEmitterTests
 
         var result = EmitAndRead(module);
         Assert.Contains("using Foundation;", result);
+        Assert.Contains("using CoreFoundation;", result);
         Assert.Contains("namespace TestNamespace", result);
         Assert.Contains("{", result);
         Assert.Contains("}", result);
@@ -726,5 +833,61 @@ public class ApiDefinitionEmitterTests
 
         var result = EmitAndRead(module);
         Assert.Contains("[Introduced(PlatformName.iOS, 17, 0)]", result);
+    }
+
+    // --- Generic type param scoping ---
+
+    [Fact]
+    public void Emit_GenericTypeParam_ScopedToDeclaringClass()
+    {
+        // Class A declares generic param "KeyType". Class B uses "KeyType" as a real type name.
+        // The generic param should only be resolved to NSObject within class A, not class B.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "GenericCollection",
+                    GenericTypeParamNames = ["KeyType"],
+                    Methods = [new ObjCMethodDecl
+                    {
+                        Selector = "objectForKey:",
+                        ReturnType = new ObjCTypeRef { Name = "NSObject", IsPointer = true },
+                        IsInstanceMethod = true,
+                        Parameters = [new ObjCParameterDecl
+                        {
+                            Name = "key",
+                            Type = new ObjCTypeRef { Name = "KeyType" }
+                        }]
+                    }]
+                },
+                new ObjCClassDecl
+                {
+                    Name = "KeyTypeConsumer",
+                    Methods = [new ObjCMethodDecl
+                    {
+                        Selector = "processKey:",
+                        ReturnType = new ObjCTypeRef { Name = "void" },
+                        IsInstanceMethod = true,
+                        Parameters = [new ObjCParameterDecl
+                        {
+                            Name = "key",
+                            Type = new ObjCTypeRef { Name = "KeyType" }
+                        }]
+                    }]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+
+        // In GenericCollection, KeyType is a generic param → NSObject
+        Assert.Contains("NSObject key", result.Split("partial interface GenericCollection")[1]
+            .Split("partial interface KeyTypeConsumer")[0]);
+
+        // In KeyTypeConsumer, KeyType is a real type → passthrough as-is
+        Assert.Contains("KeyType key", result.Split("partial interface KeyTypeConsumer")[1]);
     }
 }

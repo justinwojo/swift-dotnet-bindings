@@ -347,6 +347,28 @@
       "tier": 1
     },
     {
+      "name": "Realm",
+      "mode": "manual",
+      "products": [
+        {
+          "framework": "Realm"
+        }
+      ],
+      "note": "Realm ObjC SDK",
+      "tier": 1
+    },
+    {
+      "name": "Stripe3DS2",
+      "mode": "manual",
+      "products": [
+        {
+          "framework": "Stripe3DS2"
+        }
+      ],
+      "note": "Stripe 3DS2 SDK",
+      "tier": 1
+    },
+    {
       "name": "DeviceKit",
       "repository": "https://github.com/devicekit/DeviceKit.git",
       "version": "5.7.0",

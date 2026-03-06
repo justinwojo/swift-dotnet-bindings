@@ -122,7 +122,7 @@ var result = Result.Success(42);
 
 ## Real-World Coverage
 
-The generator produces 0 errors across **40 production Swift libraries** (53 validation targets) including Nuke, Alamofire, Kingfisher, CryptoSwift, Lottie, BlinkID, GRDB, RxSwift, all Stripe frameworks, Mappedin, Mixpanel, and more. All 53 targets compile successfully.
+The generator produces 0 errors across **42 production libraries** (55 validation targets) including Nuke, Alamofire, Kingfisher, CryptoSwift, Lottie, BlinkID, GRDB, RxSwift, all Stripe frameworks, Mappedin, Mixpanel, Realm (ObjC), Stripe3DS2 (ObjC), and more. All 55 targets compile successfully.
 
 Four libraries have full test apps with runtime validation on iOS Simulator:
 

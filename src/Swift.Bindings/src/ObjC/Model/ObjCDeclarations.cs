@@ -38,6 +38,7 @@ public sealed record ObjCClassDecl
     public required string Name { get; init; }
     public string? SuperclassName { get; init; }
     public List<string> ProtocolNames { get; init; } = [];
+    public List<string> GenericTypeParamNames { get; init; } = [];
     public List<ObjCMethodDecl> Methods { get; init; } = [];
     public List<ObjCPropertyDecl> Properties { get; init; } = [];
     public List<ObjCAvailability> Availability { get; init; } = [];
