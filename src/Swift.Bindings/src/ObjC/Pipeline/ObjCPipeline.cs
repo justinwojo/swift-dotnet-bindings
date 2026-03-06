@@ -30,7 +30,8 @@ public static class ObjCPipeline
         string? packageId = null,
         bool sdkMode = false,
         bool isMixed = false,
-        HashSet<string>? excludeTypeNames = null)
+        HashSet<string>? excludeTypeNames = null,
+        IReadOnlyList<string>? additionalFrameworkSearchPaths = null)
     {
         commandRunner ??= new SystemCommandRunner();
 
@@ -57,7 +58,8 @@ public static class ObjCPipeline
         {
             json = invoker.InvokeClangAstDump(
                 headerResult.HeaderPath, resolution.FrameworkSearchPath,
-                resolution.IsSimulatorSlice, headerResult.ModulemapPath);
+                resolution.IsSimulatorSlice, headerResult.ModulemapPath,
+                additionalFrameworkSearchPaths);
         }
         catch (Exception ex)
         {

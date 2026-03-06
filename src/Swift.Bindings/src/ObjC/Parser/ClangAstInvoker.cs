@@ -28,7 +28,8 @@ public sealed class ClangAstInvoker
     /// Invokes clang to dump the AST of the given header as JSON.
     /// When modulemapPath is provided, -fmodules is enabled (needed for @import strategy).
     /// </summary>
-    public string InvokeClangAstDump(string headerPath, string frameworkSearchPath, bool isSimulator, string? modulemapPath = null)
+    public string InvokeClangAstDump(string headerPath, string frameworkSearchPath, bool isSimulator,
+        string? modulemapPath = null, IReadOnlyList<string>? additionalFrameworkSearchPaths = null)
     {
         var sdkName = isSimulator ? "iphonesimulator" : "iphoneos";
         var (sdkExit, sdkPath, sdkErr) = _commandRunner.Run("xcrun", $"--sdk {sdkName} --show-sdk-path");
@@ -41,6 +42,12 @@ public sealed class ClangAstInvoker
         var args = $"clang -x objective-c -Xclang -ast-dump=json " +
                    $"-isysroot \"{sdkPath}\" " +
                    $"-F \"{frameworkSearchPath}\" ";
+
+        if (additionalFrameworkSearchPaths != null)
+        {
+            foreach (var path in additionalFrameworkSearchPaths)
+                args += $"-F \"{path}\" ";
+        }
 
         if (modulemapPath != null)
             args += $"-fmodules -fmodule-map-file=\"{modulemapPath}\" ";

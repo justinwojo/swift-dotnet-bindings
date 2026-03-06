@@ -114,6 +114,52 @@ public class ObjCTypeMapperTests
         Assert.Equal("IUITableViewDelegate", ObjCTypeMapper.MapType(typeRef));
     }
 
+    [Fact]
+    public void MapType_MultiProtocolId_UsesFirstNonNSObject()
+    {
+        // id<FIRLocalCacheSettings,NSObject> → IFIRLocalCacheSettings (not IFIRLocalCacheSettings,NSObject)
+        var typeRef = new ObjCTypeRef { Name = "id", ProtocolQualification = "FIRLocalCacheSettings,NSObject" };
+        Assert.Equal("IFIRLocalCacheSettings", ObjCTypeMapper.MapType(typeRef));
+    }
+
+    [Fact]
+    public void MapType_MultiProtocolId_WithSpaces()
+    {
+        var typeRef = new ObjCTypeRef { Name = "id", ProtocolQualification = "Proto1, Proto2, NSObject" };
+        Assert.Equal("IProto1", ObjCTypeMapper.MapType(typeRef));
+    }
+
+    [Fact]
+    public void MapType_MultiProtocolId_AllNSObject_ReturnsNSObject()
+    {
+        var typeRef = new ObjCTypeRef { Name = "id", ProtocolQualification = "NSObject" };
+        Assert.Equal("NSObject", ObjCTypeMapper.MapType(typeRef));
+    }
+
+    [Fact]
+    public void MapType_MultiProtocolId_NSFastEnumerationFirst_SkipsToBindable()
+    {
+        // id<NSFastEnumeration, FIRFoo> — NSFastEnumeration has no binding, should use FIRFoo
+        var typeRef = new ObjCTypeRef { Name = "id", ProtocolQualification = "NSFastEnumeration, FIRFoo" };
+        Assert.Equal("IFIRFoo", ObjCTypeMapper.MapType(typeRef));
+    }
+
+    [Fact]
+    public void MapType_MultiProtocolId_NSObjectAndNSFastEnumerationBeforeBindable()
+    {
+        // id<NSObject, NSFastEnumeration, FIRFoo> — both filtered, should use FIRFoo
+        var typeRef = new ObjCTypeRef { Name = "id", ProtocolQualification = "NSObject, NSFastEnumeration, FIRFoo" };
+        Assert.Equal("IFIRFoo", ObjCTypeMapper.MapType(typeRef));
+    }
+
+    [Fact]
+    public void MapType_MultiProtocolId_OnlyUnbindable_ReturnsNSObject()
+    {
+        // id<NSObject, NSFastEnumeration> — nothing bindable left
+        var typeRef = new ObjCTypeRef { Name = "id", ProtocolQualification = "NSObject, NSFastEnumeration" };
+        Assert.Equal("NSObject", ObjCTypeMapper.MapType(typeRef));
+    }
+
     // Block types
 
     [Fact]

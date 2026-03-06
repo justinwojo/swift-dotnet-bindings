@@ -118,13 +118,18 @@ public static class ObjCTypeMapper
         if (typeRef.Name == "instancetype")
             return declaringClassName ?? "NSObject";
 
-        // 3. Protocol-qualified id (id<Proto>)
+        // 3. Protocol-qualified id (id<Proto> or id<Proto1, Proto2>)
         if (typeRef.Name == "id" && typeRef.ProtocolQualification != null)
         {
-            // NSFastEnumeration has no .NET MAUI binding interface
-            if (typeRef.ProtocolQualification == "NSFastEnumeration")
+            // Multi-protocol: id<Proto1, Proto2> — use the first bindable protocol.
+            // Filter out NSObject (implicit in ObjC) and NSFastEnumeration (no .NET binding).
+            var protocols = typeRef.ProtocolQualification.Split(',')
+                .Select(p => p.Trim())
+                .Where(p => p != "NSObject" && p != "NSFastEnumeration")
+                .ToList();
+            if (protocols.Count == 0)
                 return "NSObject";
-            return $"I{typeRef.ProtocolQualification}";
+            return $"I{protocols[0]}";
         }
 
         // 4. Known pointer types

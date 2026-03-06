@@ -735,7 +735,7 @@ namespace BindingsGeneration.Tests
             Directory.CreateDirectory(sliceDir);
             File.WriteAllText(Path.Combine(sliceDir, "libStatic.a"), "");
 
-            var ex = Assert.Throws<InvalidOperationException>(() =>
+            var ex = Assert.Throws<StaticLibraryException>(() =>
                 XCFrameworkResolver.Resolve(
                     fixture.RootPath, fixture.OutputPath,
                     XCFrameworkPlatformTarget.Simulator, NullLogger.Instance));
@@ -758,11 +758,43 @@ namespace BindingsGeneration.Tests
             var runner = new MockCommandRunner();
             runner.SetResponse("file", 0, fileOutput);
 
-            var ex = Assert.Throws<InvalidOperationException>(() =>
+            var ex = Assert.Throws<StaticLibraryException>(() =>
                 XCFrameworkResolver.Resolve(
                     fixture.RootPath, fixture.OutputPath,
                     XCFrameworkPlatformTarget.Simulator, NullLogger.Instance, runner));
             Assert.Contains("static library", ex.Message);
+        }
+
+        [Fact]
+        public void StaticLibraryException_CanBeCaughtSeparately()
+        {
+            // Verify StaticLibraryException is distinct from other InvalidOperationExceptions
+            // so Program.cs can fall back to ObjC resolution.
+            using var fixture = new XCFrameworkFixture();
+            fixture.WriteInfoPlist(XCFrameworkModuleDiscoveryTests.MakeSimplePlist("StaticLib"));
+            var sliceDir = fixture.CreateSlice("ios-arm64-simulator", "StaticLib.framework", "StaticLib.framework/StaticLib");
+            var moduleDir = fixture.CreateSwiftModule(sliceDir, "StaticLib.framework", "StaticLib");
+            fixture.CreateAbiJson(moduleDir, "arm64-apple-ios-simulator");
+
+            var runner = new MockCommandRunner();
+            runner.SetResponse("file", 0, "current ar archive random library");
+
+            bool caughtStatic = false;
+            try
+            {
+                XCFrameworkResolver.Resolve(
+                    fixture.RootPath, fixture.OutputPath,
+                    XCFrameworkPlatformTarget.Simulator, NullLogger.Instance, runner);
+            }
+            catch (StaticLibraryException)
+            {
+                caughtStatic = true;
+            }
+            catch (Exception)
+            {
+                // Should not reach here
+            }
+            Assert.True(caughtStatic, "StaticLibraryException should be catchable distinctly from InvalidOperationException");
         }
 
         [Fact]
@@ -783,6 +815,85 @@ namespace BindingsGeneration.Tests
                     XCFrameworkPlatformTarget.Simulator, NullLogger.Instance, runner));
             Assert.Contains("Failed to verify binary type", ex.Message);
             Assert.Contains("xcode-select", ex.Message);
+        }
+
+        [Fact]
+        public void ResolveSiblingFrameworkSearchPaths_FindsSiblingXCFrameworks()
+        {
+            // Create a parent dir with two sibling xcframeworks
+            var tempDir = Path.Combine(Path.GetTempPath(), $"sibling_test_{Guid.NewGuid():N}");
+            try
+            {
+                Directory.CreateDirectory(tempDir);
+
+                // Main framework
+                var mainXcfw = Path.Combine(tempDir, "Main.xcframework");
+                Directory.CreateDirectory(mainXcfw);
+                WriteSiblingPlist(mainXcfw, "Main");
+
+                // Sibling framework
+                var siblingXcfw = Path.Combine(tempDir, "Sibling.xcframework");
+                Directory.CreateDirectory(siblingXcfw);
+                WriteSiblingPlist(siblingXcfw, "Sibling");
+
+                var paths = XCFrameworkResolver.ResolveSiblingFrameworkSearchPaths(
+                    mainXcfw, XCFrameworkPlatformTarget.Simulator, NullLogger.Instance);
+
+                Assert.Single(paths);
+                Assert.Contains("Sibling.xcframework", paths[0]);
+                Assert.Contains("ios-arm64-simulator", paths[0]);
+            }
+            finally
+            {
+                Directory.Delete(tempDir, true);
+            }
+        }
+
+        [Fact]
+        public void ResolveSiblingFrameworkSearchPaths_ExcludesSelf()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), $"sibling_self_test_{Guid.NewGuid():N}");
+            try
+            {
+                Directory.CreateDirectory(tempDir);
+                var mainXcfw = Path.Combine(tempDir, "Main.xcframework");
+                Directory.CreateDirectory(mainXcfw);
+                WriteSiblingPlist(mainXcfw, "Main");
+
+                var paths = XCFrameworkResolver.ResolveSiblingFrameworkSearchPaths(
+                    mainXcfw, XCFrameworkPlatformTarget.Simulator, NullLogger.Instance);
+
+                Assert.Empty(paths);
+            }
+            finally
+            {
+                Directory.Delete(tempDir, true);
+            }
+        }
+
+        private static void WriteSiblingPlist(string xcfwPath, string name)
+        {
+            var plist = $"""
+                <?xml version="1.0" encoding="UTF-8"?>
+                <plist version="1.0">
+                <dict>
+                    <key>AvailableLibraries</key>
+                    <array>
+                        <dict>
+                            <key>BinaryPath</key><string>{name}.framework/{name}</string>
+                            <key>LibraryIdentifier</key><string>ios-arm64-simulator</string>
+                            <key>LibraryPath</key><string>{name}.framework</string>
+                            <key>SupportedArchitectures</key><array><string>arm64</string></array>
+                            <key>SupportedPlatform</key><string>ios</string>
+                            <key>SupportedPlatformVariant</key><string>simulator</string>
+                        </dict>
+                    </array>
+                </dict>
+                </plist>
+                """;
+            File.WriteAllText(Path.Combine(xcfwPath, "Info.plist"), plist);
+            var sliceDir = Path.Combine(xcfwPath, "ios-arm64-simulator");
+            Directory.CreateDirectory(sliceDir);
         }
     }
 

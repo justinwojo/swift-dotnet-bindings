@@ -17,6 +17,16 @@ namespace BindingsGeneration
     }
 
     /// <summary>
+    /// Thrown when an xcframework contains a static library instead of a dynamic library.
+    /// Static frameworks can still be valid ObjC frameworks — the caller should fall back
+    /// to ObjC resolution.
+    /// </summary>
+    public class StaticLibraryException : InvalidOperationException
+    {
+        public StaticLibraryException(string message) : base(message) { }
+    }
+
+    /// <summary>
     /// Platform target for xcframework slice selection.
     /// </summary>
     public enum XCFrameworkPlatformTarget
@@ -156,8 +166,9 @@ namespace BindingsGeneration
             // 4. Detect static xcframework (LibraryPath without .framework)
             if (!slice.LibraryPath.Contains(".framework"))
             {
-                throw new InvalidOperationException(
-                    "Static xcframeworks (.a archives) are not supported. Provide a dynamic xcframework (.framework bundle with dylib).");
+                throw new StaticLibraryException(
+                    "Static xcframeworks (.a archives) are not supported for Swift binding. " +
+                    "This may be an ObjC framework distributed as a static library.");
             }
 
             // 5. Find dylib and verify it's dynamic
@@ -406,6 +417,47 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Resolves framework search paths for sibling xcframeworks in the same directory.
+        /// This handles the Firebase/Google SDK distribution pattern where all dependency
+        /// xcframeworks are co-located in the same parent directory.
+        /// </summary>
+        public static IReadOnlyList<string> ResolveSiblingFrameworkSearchPaths(
+            string xcframeworkPath,
+            XCFrameworkPlatformTarget platformTarget,
+            ILogger logger)
+        {
+            var paths = new List<string>();
+            var parentDir = Path.GetDirectoryName(Path.GetFullPath(xcframeworkPath));
+            if (parentDir == null) return paths;
+
+            var selfName = Path.GetFileName(xcframeworkPath);
+            foreach (var siblingDir in Directory.GetDirectories(parentDir, "*.xcframework"))
+            {
+                if (Path.GetFileName(siblingDir) == selfName) continue;
+
+                try
+                {
+                    var plistPath = Path.Combine(siblingDir, "Info.plist");
+                    if (!File.Exists(plistPath)) continue;
+                    var slices = ParseInfoPlist(plistPath);
+                    var slice = SelectSlice(slices, platformTarget, logger);
+                    var sliceDir = Path.Combine(siblingDir, slice.LibraryIdentifier);
+                    if (Directory.Exists(sliceDir))
+                        paths.Add(sliceDir);
+                }
+                catch
+                {
+                    // Skip unresolvable siblings silently
+                }
+            }
+
+            if (paths.Count > 0)
+                logger.LogInformation("Auto-detected {Count} sibling framework search path(s).", paths.Count);
+
+            return paths;
+        }
+
+        /// <summary>
         /// Parses the module name from a module.modulemap file.
         /// Looks for "framework module NAME" or "module NAME" declarations.
         /// </summary>
@@ -618,9 +670,9 @@ namespace BindingsGeneration
 
             if (!stdout.Contains("dynamically linked shared library", StringComparison.OrdinalIgnoreCase))
             {
-                throw new InvalidOperationException(
-                    $"Binary at '{binaryPath}' is a static library or object file, not a dynamic library. " +
-                    "Only dynamic xcframeworks are supported. Provide a dynamic xcframework (.framework bundle with dylib).");
+                throw new StaticLibraryException(
+                    $"Binary at '{binaryPath}' is a static library, not a dynamic library. " +
+                    "This may be an ObjC framework distributed as a static library.");
             }
         }
 

@@ -387,9 +387,9 @@ namespace BindingsGeneration
                         IsAutoDetected = true
                     });
                 }
-                catch (SwiftModuleNotFoundException)
+                catch (Exception ex) when (ex is SwiftModuleNotFoundException or StaticLibraryException)
                 {
-                    // Try ObjC-only framework fallback
+                    // Try ObjC-only framework fallback (covers pure ObjC and static library frameworks)
                     var objcResolution = XCFrameworkResolver.ResolveObjCFramework(
                         siblingPath, platformTarget, logger);
                     if (objcResolution == null)

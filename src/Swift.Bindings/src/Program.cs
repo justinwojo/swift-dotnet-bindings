@@ -246,10 +246,13 @@ namespace BindingsGeneration
                             context.ExitCode = 1;
                             return;
                         }
+                        var siblingSearchPaths = XCFrameworkResolver.ResolveSiblingFrameworkSearchPaths(
+                            xcframeworkPath!, platformTarget, logger);
                         var objcResult = ObjCPipeline.Run(
                             objcResolution, xcframeworkPath!, outputDirectory, platformTarget, logger,
                             namespacePattern: namespacePattern, packageId: packageId,
-                            sdkMode: sdkMode, isMixed: false);
+                            sdkMode: sdkMode, isMixed: false,
+                            additionalFrameworkSearchPaths: siblingSearchPaths);
                         context.ExitCode = objcResult.ExitCode;
                         if (objcResult.ErrorMessage != null)
                             logger.LogError("{Message}", objcResult.ErrorMessage);
@@ -270,22 +273,26 @@ namespace BindingsGeneration
                         mixedObjcResolution = XCFrameworkResolver.DetectMixedFrameworkObjC(
                             resolution, platformTarget, logger);
                     }
-                    catch (SwiftModuleNotFoundException)
+                    catch (Exception ex) when (ex is SwiftModuleNotFoundException or StaticLibraryException)
                     {
-                        // Auto-detect ObjC fallback
-                        logger.LogInformation("No Swift module found — attempting ObjC framework detection...");
+                        // Auto-detect ObjC fallback (covers pure ObjC frameworks and static libraries like Firebase)
+                        var reason = ex is StaticLibraryException ? "Static library" : "No Swift module found";
+                        logger.LogInformation("{Reason} — attempting ObjC framework detection...", reason);
                         var objcResolution = XCFrameworkResolver.ResolveObjCFramework(
                             xcframeworkPath!, platformTarget, logger);
                         if (objcResolution == null)
                         {
-                            logger.LogError("Framework has no Swift module and no ObjC module.modulemap.");
+                            logger.LogError("Framework has no ObjC module.modulemap and no Swift module.");
                             context.ExitCode = 1;
                             return;
                         }
+                        var siblingSearchPaths = XCFrameworkResolver.ResolveSiblingFrameworkSearchPaths(
+                            xcframeworkPath!, platformTarget, logger);
                         var objcResult = ObjCPipeline.Run(
                             objcResolution, xcframeworkPath!, outputDirectory, platformTarget, logger,
                             namespacePattern: namespacePattern, packageId: packageId,
-                            sdkMode: sdkMode, isMixed: false);
+                            sdkMode: sdkMode, isMixed: false,
+                            additionalFrameworkSearchPaths: siblingSearchPaths);
                         context.ExitCode = objcResult.ExitCode;
                         if (objcResult.ErrorMessage != null)
                             logger.LogError("{Message}", objcResult.ErrorMessage);
@@ -565,10 +572,13 @@ namespace BindingsGeneration
                 if (hasXcframework && resolution != null && mixedObjcResolution != null)
                 {
                     var swiftTypeNames = CollectSwiftEmittedTypeNames(outputDirectory);
+                    var mixedSiblingPaths = XCFrameworkResolver.ResolveSiblingFrameworkSearchPaths(
+                        xcframeworkPath!, platformTarget, logger);
                     mixedObjcResult = ObjCPipeline.Run(
                         mixedObjcResolution, xcframeworkPath!, outputDirectory, platformTarget, logger,
                         namespacePattern: namespacePattern, packageId: null,
-                        sdkMode: sdkMode, isMixed: true, excludeTypeNames: swiftTypeNames);
+                        sdkMode: sdkMode, isMixed: true, excludeTypeNames: swiftTypeNames,
+                        additionalFrameworkSearchPaths: mixedSiblingPaths);
                     if (mixedObjcResult.ExitCode != 0 && mixedObjcResult.ErrorMessage != null)
                         logger.LogWarning("ObjC pipeline for mixed framework: {Msg}", mixedObjcResult.ErrorMessage);
                 }
@@ -1213,7 +1223,7 @@ namespace BindingsGeneration
                     else
                         deviceSearchPath = primaryDepResolution.FrameworkSearchPath;
                 }
-                catch (SwiftModuleNotFoundException)
+                catch (Exception ex) when (ex is SwiftModuleNotFoundException or StaticLibraryException)
                 {
                     // Attempt ObjC-only framework fallback — resolves search path + validates modulemap
                     var objcResolution = XCFrameworkResolver.ResolveObjCFramework(
