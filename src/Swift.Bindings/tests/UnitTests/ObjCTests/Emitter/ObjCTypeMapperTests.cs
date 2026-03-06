@@ -249,4 +249,25 @@ public class ObjCTypeMapperTests
         var typeRef = new ObjCTypeRef { Name = "NSError", IsPointer = true };
         Assert.False(ObjCTypeMapper.IsNSErrorOutParameter(typeRef));
     }
+
+    [Fact]
+    public void MapType_UnsignedInt_MapsToUint()
+    {
+        var typeRef = new ObjCTypeRef { Name = "unsigned int" };
+        Assert.Equal("uint", ObjCTypeMapper.MapType(typeRef));
+    }
+
+    [Fact]
+    public void MapType_UnsignedShort_MapsToUshort()
+    {
+        var typeRef = new ObjCTypeRef { Name = "unsigned short" };
+        Assert.Equal("ushort", ObjCTypeMapper.MapType(typeRef));
+    }
+
+    [Fact]
+    public void MapType_UnsignedChar_MapsToByte()
+    {
+        var typeRef = new ObjCTypeRef { Name = "unsigned char" };
+        Assert.Equal("byte", ObjCTypeMapper.MapType(typeRef));
+    }
 }

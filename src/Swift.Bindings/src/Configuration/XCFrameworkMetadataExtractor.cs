@@ -125,6 +125,108 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Extracts metadata from an xcframework by searching for the framework binary
+        /// inside the first iOS slice. Used by ObjC pipeline when no dylib path is available.
+        /// </summary>
+        public static XCFrameworkMetadata ExtractFromFrameworkPath(
+            string xcframeworkPath,
+            string moduleName,
+            ILogger logger,
+            ICommandRunner? commandRunner = null)
+        {
+            // Find the framework binary: {xcfw}/{slice}/{Module}.framework/{Module}
+            string? frameworkDir = null;
+            var plistPath = Path.Combine(xcframeworkPath, "Info.plist");
+            if (File.Exists(plistPath))
+            {
+                var slices = XCFrameworkResolver.ParseInfoPlist(plistPath);
+                var iosSlice = slices.FirstOrDefault(s =>
+                    s.SupportedPlatform.Equals("ios", StringComparison.OrdinalIgnoreCase));
+                if (iosSlice != null)
+                {
+                    frameworkDir = Path.Combine(xcframeworkPath, iosSlice.LibraryIdentifier,
+                        $"{moduleName}.framework");
+                    if (!Directory.Exists(frameworkDir))
+                    {
+                        // Try LibraryPath from plist
+                        frameworkDir = Path.Combine(xcframeworkPath, iosSlice.LibraryIdentifier,
+                            iosSlice.LibraryPath);
+                    }
+                }
+            }
+
+            if (frameworkDir != null && Directory.Exists(frameworkDir))
+            {
+                var binaryPath = Path.Combine(frameworkDir, moduleName);
+                if (File.Exists(binaryPath))
+                {
+                    return Extract(binaryPath, xcframeworkPath, moduleName, logger, commandRunner);
+                }
+
+                // Binary may not exist for ObjC-only stubs, try extracting from plist directly
+                var innerPlist = Path.Combine(frameworkDir, "Info.plist");
+                if (File.Exists(innerPlist))
+                {
+                    return ExtractFromInnerPlist(innerPlist, xcframeworkPath, moduleName, logger, commandRunner);
+                }
+            }
+
+            // Fallback defaults
+            var platforms = ReadPlatforms(xcframeworkPath, logger);
+            return new XCFrameworkMetadata
+            {
+                LibraryVersion = null,
+                PackageVersion = "1.0.0",
+                IsVersionPlaceholder = true,
+                MinimumOSVersion = null,
+                EffectiveMinimumOSVersion = "16.0",
+                SdkVersion = null,
+                ModuleName = moduleName,
+                Platforms = platforms
+            };
+        }
+
+        private static XCFrameworkMetadata ExtractFromInnerPlist(
+            string innerPlistPath,
+            string xcframeworkPath,
+            string moduleName,
+            ILogger logger,
+            ICommandRunner? commandRunner)
+        {
+            string? libraryVersion = null;
+            string? minimumOSVersion = null;
+            string? sdkVersion = null;
+
+            var plistData = PlistReader.ReadPlistDict(innerPlistPath, commandRunner, logger);
+            if (plistData != null)
+            {
+                if (plistData.TryGetValue("CFBundleShortVersionString", out var versionObj) && versionObj is string versionStr)
+                    libraryVersion = versionStr;
+                if (plistData.TryGetValue("MinimumOSVersion", out var minOSObj) && minOSObj is string minOSStr)
+                    minimumOSVersion = minOSStr;
+                if (plistData.TryGetValue("DTPlatformVersion", out var sdkObj) && sdkObj is string sdkStr)
+                    sdkVersion = sdkStr;
+            }
+
+            var isPlaceholder = DetectVersionPlaceholder(libraryVersion);
+            var packageVersion = isPlaceholder || string.IsNullOrEmpty(libraryVersion) ? "0.0.0" : libraryVersion;
+            var effectiveMinOS = ClampMinimumOSVersion(minimumOSVersion);
+            var platforms = ReadPlatforms(xcframeworkPath, logger);
+
+            return new XCFrameworkMetadata
+            {
+                LibraryVersion = libraryVersion,
+                PackageVersion = packageVersion,
+                IsVersionPlaceholder = isPlaceholder,
+                MinimumOSVersion = minimumOSVersion,
+                EffectiveMinimumOSVersion = effectiveMinOS,
+                SdkVersion = sdkVersion,
+                ModuleName = moduleName,
+                Platforms = platforms
+            };
+        }
+
+        /// <summary>
         /// Detects whether a version string is a placeholder (Xcode default).
         /// "1.0" and "1.0.0" are treated as placeholders.
         /// </summary>
@@ -168,7 +270,9 @@ namespace BindingsGeneration
             string wrapperModuleName,
             int wrapperSliceCount,
             ILogger logger,
-            IReadOnlyList<FrameworkDependencyInfo>? dependencies = null)
+            IReadOnlyList<FrameworkDependencyInfo>? dependencies = null,
+            string? frameworkType = null,
+            string? objcProjectName = null)
         {
             var propsPath = Path.Combine(outputDirectory, "binding-metadata.props");
 
@@ -182,6 +286,12 @@ namespace BindingsGeneration
                 ? $"\n    <_SwiftBindingDependencies>{string.Join(";", depEntries)}</_SwiftBindingDependencies>"
                 : "";
 
+            var effectiveFrameworkType = frameworkType ?? "Swift";
+            var frameworkTypeProp = $"\n    <_SwiftBindingFrameworkType>{effectiveFrameworkType}</_SwiftBindingFrameworkType>";
+            var objcProjProp = !string.IsNullOrEmpty(objcProjectName)
+                ? $"\n    <_SwiftBindingObjCProjectName>{objcProjectName}</_SwiftBindingObjCProjectName>"
+                : "";
+
             var content = $"""
                 <Project>
                   <PropertyGroup>
@@ -191,7 +301,7 @@ namespace BindingsGeneration
                     <_SwiftBindingIsVersionPlaceholder>{metadata.IsVersionPlaceholder}</_SwiftBindingIsVersionPlaceholder>
                     <_SwiftBindingHasWrapperXCFramework>{hasWrapperXCFramework}</_SwiftBindingHasWrapperXCFramework>
                     <_SwiftBindingWrapperModuleName>{wrapperModuleName}</_SwiftBindingWrapperModuleName>
-                    <_SwiftBindingWrapperSliceCount>{wrapperSliceCount}</_SwiftBindingWrapperSliceCount>{depsProperty}
+                    <_SwiftBindingWrapperSliceCount>{wrapperSliceCount}</_SwiftBindingWrapperSliceCount>{frameworkTypeProp}{objcProjProp}{depsProperty}
                   </PropertyGroup>
                 </Project>
                 """;

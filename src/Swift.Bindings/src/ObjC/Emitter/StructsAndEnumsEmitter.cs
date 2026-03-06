@@ -61,6 +61,9 @@ public static class StructsAndEnumsEmitter
         foreach (var c in enumDecl.Cases)
         {
             var caseName = stripPrefix ? c.Name[enumDecl.Name.Length..] : c.Name;
+            // Prefix with _ if stripping left a digit-leading identifier (invalid C#)
+            if (caseName.Length > 0 && char.IsDigit(caseName[0]))
+                caseName = "_" + caseName;
             var valueStr = c.Value.HasValue ? $" = {c.Value.Value}" : "";
             sb.AppendLine($"        {caseName}{valueStr},");
         }

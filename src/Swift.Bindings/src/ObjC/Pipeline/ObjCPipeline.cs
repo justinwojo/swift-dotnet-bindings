@@ -27,12 +27,15 @@ public static class ObjCPipeline
         ILogger logger,
         ICommandRunner? commandRunner = null,
         string? namespacePattern = null,
-        string? packageId = null)
+        string? packageId = null,
+        bool sdkMode = false,
+        bool isMixed = false,
+        HashSet<string>? excludeTypeNames = null)
     {
         commandRunner ??= new SystemCommandRunner();
 
-        // 1. Derive framework path
-        var frameworkPath = Path.Combine(resolution.FrameworkSearchPath, $"{resolution.ModuleName}.framework");
+        // 1. Derive framework path using the actual directory name (may differ from ObjC module name)
+        var frameworkPath = Path.Combine(resolution.FrameworkSearchPath, $"{resolution.FrameworkDirectoryName}.framework");
         if (!Directory.Exists(frameworkPath))
         {
             return new ObjCPipelineResult(1, null,
@@ -73,25 +76,86 @@ public static class ObjCPipeline
             return new ObjCPipelineResult(1, null, $"AST parsing failed: {ex.Message}");
         }
 
+        // 4b. Apply type-level dedup for mixed frameworks
+        if (excludeTypeNames != null && excludeTypeNames.Count > 0)
+        {
+            module = FilterForMixedFramework(module, excludeTypeNames, logger);
+        }
+
+        // Post-hoc mixed validation: require at least one ObjC class or protocol.
+        // ObjC binding projects (<IsBindingProject>) are designed for class/protocol bindings
+        // with [BaseType]/[Export] attributes. Enums/structs/functions without classes or
+        // protocols are typically C library internals (e.g., Mappedin's geodesic types),
+        // not meaningful ObjC API surface. Constants alone (e.g., version numbers) also
+        // don't qualify. If O4 discovers a real mixed framework with ObjC-only enums but
+        // no classes/protocols, this can be revisited.
+        if (isMixed && module.Classes.Count == 0 && module.Protocols.Count == 0)
+        {
+            logger.LogInformation(
+                "Mixed framework '{Module}': no ObjC classes or protocols found — skipping ObjC emission.",
+                resolution.ModuleName);
+            return new ObjCPipelineResult(0, module, null);
+        }
+
         // 5. Emit bindings
         var namespaceResolver = new NamespacePatternResolver(namespacePattern, resolution.ModuleName);
         var resolvedNamespace = namespaceResolver.ResolveNamespace(resolution.ModuleName);
 
         var apiDefPath = ApiDefinitionEmitter.Emit(module, outputDirectory, resolvedNamespace, logger);
         var structsPath = StructsAndEnumsEmitter.Emit(module, outputDirectory, resolvedNamespace, logger);
-        var projectPath = ObjCBindingProjectEmitter.Emit(
-            new ObjCBindingProjectOptions
-            {
-                OutputDirectory = outputDirectory,
-                ModuleName = resolution.ModuleName,
-                SourceXCFrameworkPath = xcframeworkPath,
-                PackageId = packageId,
-            }, logger);
+
+        // Emit .csproj:
+        // - sdkMode && !isMixed → skip (SDK IS the binding project)
+        // - sdkMode && isMixed → emit (SDK is Swift project, ObjC is separate)
+        // - !sdkMode → always emit
+        string? projectPath = null;
+        if (!sdkMode || isMixed)
+        {
+            projectPath = ObjCBindingProjectEmitter.Emit(
+                new ObjCBindingProjectOptions
+                {
+                    OutputDirectory = outputDirectory,
+                    ModuleName = resolution.ModuleName,
+                    SourceXCFrameworkPath = xcframeworkPath,
+                    PackageId = packageId,
+                }, logger);
+        }
+
+        // Emit metadata props for SDK integration (always, regardless of sdkMode)
+        ObjCMetadataPropsEmitter.Emit(
+            outputDirectory, resolution.ModuleName, xcframeworkPath,
+            isMixed ? "Mixed" : "ObjC", logger);
 
         // 6. Dump summary
         DumpSummary(module, logger);
 
         return new ObjCPipelineResult(0, module, null, apiDefPath, structsPath, projectPath);
+    }
+
+    /// <summary>
+    /// O3 type-level dedup: removes ObjC types whose name matches a Swift-emitted type.
+    /// O4 will replace this with selector-based member-level dedup.
+    /// Known limitation: ObjC-only members on shared types (e.g., category additions) are lost.
+    /// </summary>
+    internal static ObjCModule FilterForMixedFramework(
+        ObjCModule module, HashSet<string> swiftTypeNames, ILogger logger)
+    {
+        var removedClasses = module.Classes.Where(c => swiftTypeNames.Contains(c.Name)).ToList();
+        var removedProtocols = module.Protocols.Where(p => swiftTypeNames.Contains(p.Name)).ToList();
+
+        if (removedClasses.Count > 0 || removedProtocols.Count > 0)
+        {
+            logger.LogInformation(
+                "Mixed dedup: removed {ClassCount} shared class(es) and {ProtoCount} shared protocol(s) from ObjC output.",
+                removedClasses.Count, removedProtocols.Count);
+        }
+
+        return module with
+        {
+            Classes = module.Classes.Where(c => !swiftTypeNames.Contains(c.Name)).ToList(),
+            Protocols = module.Protocols.Where(p => !swiftTypeNames.Contains(p.Name)).ToList(),
+            // Enums, structs, functions, constants, typedefs are never filtered
+        };
     }
 
     private static void DumpSummary(ObjCModule module, ILogger logger)

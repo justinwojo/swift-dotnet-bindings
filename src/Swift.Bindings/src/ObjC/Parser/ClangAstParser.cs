@@ -122,10 +122,12 @@ public static class ClangAstParser
             if (owningClass != null)
             {
                 var idx = classes.IndexOf(owningClass);
+                var taggedMethods = methods.Select(m => m with { IsFromCategory = true }).ToList();
+                var taggedProperties = properties.Select(p => p with { IsFromCategory = true }).ToList();
                 classes[idx] = owningClass with
                 {
-                    Methods = [.. owningClass.Methods, .. methods],
-                    Properties = [.. owningClass.Properties, .. properties]
+                    Methods = [.. owningClass.Methods, .. taggedMethods],
+                    Properties = [.. owningClass.Properties, .. taggedProperties]
                 };
             }
             // If class not found (forward-declared in another framework), skip category

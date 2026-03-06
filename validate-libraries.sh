@@ -324,9 +324,11 @@ process_target() {
         fi
     fi
 
-    # Find .csproj to compile
+    # Find .csproj to compile — prefer .Swift.iOS.csproj for mixed frameworks
     local CSPROJ_FILE=""
-    if ls "$outdir"/*.csproj >/dev/null 2>&1; then
+    if ls "$outdir"/*.Swift.iOS.csproj >/dev/null 2>&1; then
+        CSPROJ_FILE=$(ls "$outdir"/*.Swift.iOS.csproj | head -1)
+    elif ls "$outdir"/*.csproj >/dev/null 2>&1; then
         CSPROJ_FILE=$(ls "$outdir"/*.csproj | grep -v 'Test.csproj\|_dep_test.csproj' | head -1)
     fi
 

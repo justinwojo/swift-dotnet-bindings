@@ -697,4 +697,86 @@ namespace BindingsGeneration.Tests
     }
 
     #endregion
+
+    #region E. ObjC ProjectReference Tests (Mixed Framework)
+
+    public class BindingProjectObjCRefTests
+    {
+        private static readonly ILogger _logger = NullLogger.Instance;
+
+        [Fact]
+        public void Emit_WithObjCProjectFileName_ProjectReferencePresent()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "BlinkID", objcProjectFileName: "BlinkID.ObjC.iOS.csproj");
+                Assert.Contains("<ProjectReference Include=\"BlinkID.ObjC.iOS.csproj\" />", content);
+                Assert.Contains("mixed framework", content.ToLower());
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_WithoutObjCProjectFileName_NoProjectReference()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "Nuke", objcProjectFileName: null);
+                Assert.DoesNotContain("ProjectReference", content);
+                Assert.DoesNotContain("ObjC binding project", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_ObjCProjectReference_HasExistsCondition()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "BlinkID", objcProjectFileName: "BlinkID.ObjC.iOS.csproj");
+                Assert.Contains("Condition=\"Exists('BlinkID.ObjC.iOS.csproj')\"", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        private static string EmitAndRead(string dir, string module, string? objcProjectFileName)
+        {
+            var sourceXcfwPath = Path.Combine(dir, "..", $"{module}.xcframework");
+            Directory.CreateDirectory(sourceXcfwPath);
+
+            BindingProjectEmitter.Emit(new BindingProjectEmitterOptions
+            {
+                OutputDirectory = dir,
+                ModuleName = module,
+                Metadata = CreateMinimalMetadata(module),
+                SourceXCFrameworkPath = sourceXcfwPath,
+                ObjCProjectFileName = objcProjectFileName
+            }, _logger);
+            return File.ReadAllText(Path.Combine(dir, $"{module}.Swift.iOS.csproj"));
+        }
+
+        private static XCFrameworkMetadata CreateMinimalMetadata(string module) => new()
+        {
+            LibraryVersion = "1.0.0",
+            PackageVersion = "1.0.0",
+            IsVersionPlaceholder = false,
+            MinimumOSVersion = "15.0",
+            EffectiveMinimumOSVersion = "15.0",
+            SdkVersion = null,
+            ModuleName = module,
+            Platforms = new List<string>()
+        };
+
+        private static string CreateTempDir()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), $"bpe_objc_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+    }
+
+    #endregion
 }

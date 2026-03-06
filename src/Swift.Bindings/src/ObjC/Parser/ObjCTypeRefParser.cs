@@ -56,6 +56,12 @@ public static class ObjCTypeRefParser
             isPointer = true;
         }
 
+        // 7. Strip C type specifiers (clang qualType includes "enum Foo", "struct Bar")
+        if (s.StartsWith("enum ", StringComparison.Ordinal))
+            s = s[5..];
+        else if (s.StartsWith("struct ", StringComparison.Ordinal))
+            s = s[7..];
+
         return new ObjCTypeRef
         {
             Name = s,

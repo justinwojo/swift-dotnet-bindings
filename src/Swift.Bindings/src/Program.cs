@@ -212,6 +212,7 @@ namespace BindingsGeneration
 
                 // Resolve xcframework mode
                 XCFrameworkResolution? resolution = null;
+                XCFrameworkResolver.ObjCFrameworkResolution? mixedObjcResolution = null;
                 var shouldCompileWrapper = false;
                 var asyncLibraryAutoWired = false;
                 var platformTarget = XCFrameworkPlatformTarget.Simulator;
@@ -247,7 +248,8 @@ namespace BindingsGeneration
                         }
                         var objcResult = ObjCPipeline.Run(
                             objcResolution, xcframeworkPath!, outputDirectory, platformTarget, logger,
-                            namespacePattern: namespacePattern, packageId: packageId);
+                            namespacePattern: namespacePattern, packageId: packageId,
+                            sdkMode: sdkMode, isMixed: false);
                         context.ExitCode = objcResult.ExitCode;
                         if (objcResult.ErrorMessage != null)
                             logger.LogError("{Message}", objcResult.ErrorMessage);
@@ -263,6 +265,10 @@ namespace BindingsGeneration
                         tbdPath = resolution.TbdPath;
                         swiftInterface ??= resolution.SwiftInterfacePath;
                         libraryName ??= resolution.ModuleName;
+
+                        // Mixed framework detection: check for ObjC API alongside Swift
+                        mixedObjcResolution = XCFrameworkResolver.DetectMixedFrameworkObjC(
+                            resolution, platformTarget, logger);
                     }
                     catch (SwiftModuleNotFoundException)
                     {
@@ -278,7 +284,8 @@ namespace BindingsGeneration
                         }
                         var objcResult = ObjCPipeline.Run(
                             objcResolution, xcframeworkPath!, outputDirectory, platformTarget, logger,
-                            namespacePattern: namespacePattern, packageId: packageId);
+                            namespacePattern: namespacePattern, packageId: packageId,
+                            sdkMode: sdkMode, isMixed: false);
                         context.ExitCode = objcResult.ExitCode;
                         if (objcResult.ErrorMessage != null)
                             logger.LogError("{Message}", objcResult.ErrorMessage);
@@ -553,6 +560,19 @@ namespace BindingsGeneration
                     }
                 }
 
+                // Run mixed framework ObjC pipeline (after Swift bindings generated, before project emission)
+                ObjCPipelineResult? mixedObjcResult = null;
+                if (hasXcframework && resolution != null && mixedObjcResolution != null)
+                {
+                    var swiftTypeNames = CollectSwiftEmittedTypeNames(outputDirectory);
+                    mixedObjcResult = ObjCPipeline.Run(
+                        mixedObjcResolution, xcframeworkPath!, outputDirectory, platformTarget, logger,
+                        namespacePattern: namespacePattern, packageId: null,
+                        sdkMode: sdkMode, isMixed: true, excludeTypeNames: swiftTypeNames);
+                    if (mixedObjcResult.ExitCode != 0 && mixedObjcResult.ErrorMessage != null)
+                        logger.LogWarning("ObjC pipeline for mixed framework: {Msg}", mixedObjcResult.ErrorMessage);
+                }
+
                 // Emit binding project files (xcframework mode only)
                 if (hasXcframework && resolution != null)
                 {
@@ -567,12 +587,23 @@ namespace BindingsGeneration
                         var effectivePackageId = packageId ?? $"{resolution.ModuleName}.Swift.iOS";
                         var wrapperModuleName = $"{resolution.ModuleName}SwiftBindings";
 
+                        // Mixed requires at least one ObjC class or protocol.
+                        // Enums/structs/functions without classes are typically C internals.
+                        bool isMixed = mixedObjcResult?.ExitCode == 0
+                            && (mixedObjcResult.Module?.Classes.Count > 0
+                                || mixedObjcResult.Module?.Protocols.Count > 0);
+                        string? objcProjFileName = isMixed
+                            ? Path.GetFileName(mixedObjcResult!.ProjectPath!)
+                            : null;
+
                         // Always emit metadata props (used by SDK and standalone)
                         XCFrameworkMetadataExtractor.EmitMetadataProps(
                             metadata, outputDirectory, hasWrapperXcfw,
                             wrapperModuleName,
                             compilationResult?.SliceCount ?? 0, logger,
-                            resolvedDependencies);
+                            resolvedDependencies,
+                            frameworkType: isMixed ? "Mixed" : "Swift",
+                            objcProjectName: objcProjFileName);
 
                         // Only emit .csproj in non-SDK mode
                         if (!sdkMode)
@@ -587,7 +618,8 @@ namespace BindingsGeneration
                                 SourceXCFrameworkPath = resolution.XCFrameworkPath,
                                 WrapperXCFrameworkPath = hasWrapperXcfw ? wrapperXcfwPath : null,
                                 Dependencies = resolvedDependencies,
-                                ResolvedNamespace = projectResolver.ResolveNamespace(resolution.ModuleName)
+                                ResolvedNamespace = projectResolver.ResolveNamespace(resolution.ModuleName),
+                                ObjCProjectFileName = objcProjFileName
                             }, logger);
                         }
 
@@ -1551,6 +1583,33 @@ namespace BindingsGeneration
 
             var fileName = Path.GetFileNameWithoutExtension(dylibPath);
             return string.IsNullOrWhiteSpace(fileName) ? moduleName : fileName;
+        }
+
+        /// <summary>
+        /// Scans generated C# files for public type declarations to support mixed framework dedup.
+        /// Returns the set of type names emitted by the Swift pipeline.
+        /// </summary>
+        internal static HashSet<string> CollectSwiftEmittedTypeNames(string outputDirectory)
+        {
+            var typeNames = new HashSet<string>(StringComparer.Ordinal);
+            if (!Directory.Exists(outputDirectory))
+                return typeNames;
+
+            // Match: public [unsafe] class|struct|enum|interface NAME
+            var pattern = new System.Text.RegularExpressions.Regex(
+                @"^\s*public\s+(?:unsafe\s+)?(?:partial\s+)?(?:class|struct|enum|interface)\s+(\w+)",
+                System.Text.RegularExpressions.RegexOptions.Multiline);
+
+            foreach (var csFile in Directory.GetFiles(outputDirectory, "*.cs"))
+            {
+                var content = File.ReadAllText(csFile);
+                foreach (System.Text.RegularExpressions.Match match in pattern.Matches(content))
+                {
+                    typeNames.Add(match.Groups[1].Value);
+                }
+            }
+
+            return typeNames;
         }
 
         /// <summary>

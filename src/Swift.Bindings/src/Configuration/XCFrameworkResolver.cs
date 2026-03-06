@@ -276,7 +276,8 @@ namespace BindingsGeneration
         public sealed record ObjCFrameworkResolution(
             string FrameworkSearchPath,
             bool IsSimulatorSlice,
-            string ModuleName);
+            string ModuleName,
+            string FrameworkDirectoryName);
 
         /// <summary>
         /// Resolves an ObjC-only xcframework to its framework search path and module name.
@@ -319,11 +320,87 @@ namespace BindingsGeneration
                     slice.SupportedPlatformVariant, "simulator",
                     StringComparison.OrdinalIgnoreCase);
 
-                return new ObjCFrameworkResolution(sliceDir, isSimulator, moduleName);
+                // Framework directory name from LibraryPath (e.g., "Foo.framework" → "Foo")
+                var fwDirName = Path.GetFileNameWithoutExtension(slice.LibraryPath);
+
+                return new ObjCFrameworkResolution(sliceDir, isSimulator, moduleName, fwDirName);
             }
             catch (Exception ex)
             {
                 logger.LogWarning("Could not resolve ObjC framework: {Message}", ex.Message);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Detects whether a Swift framework also has ObjC API surface (mixed framework).
+        /// Returns an ObjCFrameworkResolution if the framework has a module.modulemap with
+        /// non-Swift headers, or null if it's Swift-only.
+        /// The caller should run the ObjC pipeline and check if meaningful types exist (post-hoc validation).
+        /// </summary>
+        public static ObjCFrameworkResolution? DetectMixedFrameworkObjC(
+            XCFrameworkResolution swiftResolution,
+            XCFrameworkPlatformTarget platformTarget,
+            ILogger logger)
+        {
+            try
+            {
+                var xcframeworkPath = swiftResolution.XCFrameworkPath;
+                var plistPath = Path.Combine(xcframeworkPath, "Info.plist");
+                var slices = ParseInfoPlist(plistPath);
+                var slice = SelectSlice(slices, platformTarget, logger);
+
+                var sliceDir = Path.Combine(xcframeworkPath, slice.LibraryIdentifier);
+                var modulesDir = Path.Combine(sliceDir, slice.LibraryPath, "Modules");
+                var modulemapPath = Path.Combine(modulesDir, "module.modulemap");
+
+                // No modulemap → Swift-only (e.g., Alamofire, Nuke)
+                if (!File.Exists(modulemapPath))
+                    return null;
+
+                // Parse the actual ObjC module name from the modulemap — it may differ
+                // from the Swift module name (e.g., different umbrella module declaration).
+                var objcModuleName = ParseModuleNameFromModulemap(modulemapPath)
+                    ?? swiftResolution.ModuleName;
+
+                // Check Headers/ directory for files beyond {Module}-Swift.h
+                var headersDir = Path.Combine(sliceDir, slice.LibraryPath, "Headers");
+                if (!Directory.Exists(headersDir))
+                    return null;
+
+                // Filter out both Swift-module-name and ObjC-module-name Swift headers
+                var swiftHeaders = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    $"{swiftResolution.ModuleName}-Swift.h",
+                    $"{objcModuleName}-Swift.h"
+                };
+                var headers = Directory.GetFiles(headersDir, "*.h")
+                    .Select(Path.GetFileName)
+                    .Where(h => !swiftHeaders.Contains(h!))
+                    .ToList();
+
+                // If the ONLY headers are Swift-generated → not mixed (Kingfisher/RxSwift pattern)
+                if (headers.Count == 0)
+                {
+                    logger.LogDebug("Framework '{Module}' has modulemap but only Swift header(s) — not mixed.",
+                        objcModuleName);
+                    return null;
+                }
+
+                var isSimulator = string.Equals(
+                    slice.SupportedPlatformVariant, "simulator",
+                    StringComparison.OrdinalIgnoreCase);
+
+                logger.LogInformation(
+                    "Detected potential mixed framework '{Module}': {Count} non-Swift header(s) found.",
+                    objcModuleName, headers.Count);
+
+                var fwDirName = Path.GetFileNameWithoutExtension(slice.LibraryPath);
+                return new ObjCFrameworkResolution(sliceDir, isSimulator, objcModuleName, fwDirName);
+            }
+            catch (Exception ex)
+            {
+                logger.LogDebug("Mixed framework detection failed: {Message}", ex.Message);
                 return null;
             }
         }

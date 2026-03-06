@@ -24,6 +24,10 @@ namespace BindingsGeneration
         /// Resolved C# namespace for the module (used for generated file names).
         /// </summary>
         public string? ResolvedNamespace { get; init; }
+        /// <summary>
+        /// ObjC binding project filename for mixed framework ProjectReference.
+        /// </summary>
+        public string? ObjCProjectFileName { get; init; }
     }
 
     /// <summary>
@@ -106,6 +110,19 @@ namespace BindingsGeneration
                 }
             }
 
+            // ObjC binding project reference for mixed frameworks
+            var objcProjectRef = "";
+            if (!string.IsNullOrEmpty(options.ObjCProjectFileName))
+            {
+                objcProjectRef = $"""
+
+                  <!-- ObjC binding project reference (mixed framework) -->
+                  <ItemGroup Condition="Exists('{options.ObjCProjectFileName}')">
+                    <ProjectReference Include="{options.ObjCProjectFileName}" />
+                  </ItemGroup>
+                """;
+            }
+
             var content = $"""
                 <Project Sdk="Microsoft.NET.Sdk">
                   <PropertyGroup>
@@ -148,7 +165,7 @@ namespace BindingsGeneration
                           PackagePath="buildTransitive/net10.0-ios/" />
                     <None Include="{relativeSourceXcfw}/**" Pack="true"
                           PackagePath="runtimes/ios-arm64/native/{options.ModuleName}.xcframework/" />{wrapperPackItem}
-                  </ItemGroup>
+                  </ItemGroup>{objcProjectRef}
                 </Project>
                 """;
 

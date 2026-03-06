@@ -1,8 +1,8 @@
 # Objective-C Binding Integration
 
-## Status: Session O2 Complete — Parser + Model + Routing + Emission Implemented
+## Status: Session O3 Complete — Mixed Framework + MSBuild SDK Integration
 
-**Date:** 2026-02-14 (original), updated 2026-03-05
+**Date:** 2026-02-14 (original), updated 2026-03-06
 
 ## What's Already Implemented
 
@@ -249,9 +249,15 @@ O1 is complete. Remaining work (O2-O4) estimated below.
 | StructsAndEnums Emitter | ~155 | ✅ O2 — enums (prefix strip, [Flags]), structs, [Field] constants (extern-only), [DllImport] functions |
 | Binding Project Emitter (ObjC variant) | ~60 | ✅ O2 — `<IsBindingProject>` `.csproj`, conditional StructsAndEnums, relative NativeReference |
 | ObjC Tests (O2) | ~1,350 | ✅ O2 — 73 new tests (type mapper, api definition, structs/enums, binding project, integration) |
-| Mixed Framework Support | 100-200 | ⬜ O3 — two-project output, type dedup |
-| MSBuild SDK Integration | 50-100 | ⬜ O3 |
-| **Total new code** | **~2,500-3,500** | **~3,900 complete (O1+O2)** |
+| Mixed Framework Detection | ~60 | ✅ O3 — `DetectMixedFrameworkObjC`, post-hoc validation |
+| Type-Level Dedup | ~30 | ✅ O3 — `FilterForMixedFramework`, `CollectSwiftEmittedTypeNames` |
+| ObjC Metadata Props Emitter | ~50 | ✅ O3 — `binding-metadata.props` for ObjC/mixed |
+| Dual-Pipeline Orchestration | ~50 | ✅ O3 — Program.cs mixed detection + ObjC pipeline invocation |
+| BindingProject ProjectRef | ~15 | ✅ O3 — conditional `<ProjectReference>` for mixed |
+| MSBuild SDK Integration | ~80 | ✅ O3 — `SwiftFrameworkType`, Target 4c, Target 5 split, guards |
+| Category Origin Tracking | ~10 | ✅ O3 — `IsFromCategory` (O4 infrastructure) |
+| ObjC Tests (O3) | ~700 | ✅ O3 — 26 new tests |
+| **Total new code** | **~5,000+** | **~4,900 complete (O1+O2+O3)** |
 
 For context: Swift pipeline is ~35,000+ lines; ObjC-rooted support added ~2,000 lines across model/marshaler/emitter/tests.
 
@@ -285,13 +291,14 @@ Note: The Swift pipeline's `MapSwiftModuleToNetNamespace()` and `AppleObjCFramew
 
 A framework with both Swift and ObjC public API would run both pipelines:
 
-1. **Detection**: XCFramework has both ABI JSON (Swift module) and Headers directory (ObjC)
-2. **Swift pipeline**: Generates `Swift.Module.cs` with P/Invoke bindings
-3. **ObjC pipeline**: Generates `ApiDefinition.cs` + `StructsAndEnums.cs` with binding definitions
-4. **Member-level dedup**: Types appearing in both pipelines are NOT suppressed entirely — ObjC categories can add members not in Swift ABI. The ObjC pipeline skips individual members with Swift ABI equivalents and emits ObjC-only additions.
-5. **Project emission**: Two projects — Swift `.csproj` (regular) + ObjC `.csproj` (`<IsBindingProject>`) with `<ProjectReference>` from Swift to ObjC
+1. **Detection**: After Swift pipeline succeeds, `DetectMixedFrameworkObjC()` checks for modulemap + non-Swift headers
+2. **Swift pipeline**: Generates `Swift.Module.cs` with P/Invoke bindings (as normal)
+3. **ObjC pipeline**: Runs with type-level dedup — removes ObjC classes/protocols already in Swift output
+4. **Post-hoc validation**: If ObjC pipeline finds zero classes + protocols (only constants like version numbers), the framework is NOT treated as mixed
+5. **Type-level dedup (O3)**: Entire ObjC types matching Swift type names are removed. Known limitation: ObjC-only members on shared types are suppressed. O4 will upgrade to selector-based member-level dedup using `IsFromCategory` tracking.
+6. **Project emission**: Two projects — Swift `.csproj` (regular) + ObjC `.csproj` (`<IsBindingProject>`) with `<ProjectReference>` from Swift to ObjC
 
-**Already working (partial mixed support):** Swift libraries that inherit from or reference ObjC types are fully handled today. The ObjC-rooted class support (BX4) bridges the two worlds — Swift classes emit as C# classes inheriting from their .NET MAUI ObjC counterparts. The type database, namespace mapping, and cross-module resolution infrastructure all support this. What's missing is generating bindings for ObjC API that isn't re-exported through the Swift module.
+**Already working:** Swift libraries that inherit from or reference ObjC types are fully handled. The ObjC-rooted class support (BX4) bridges the two worlds — Swift classes emit as C# classes inheriting from their .NET MAUI ObjC counterparts.
 
 ## Pros and Cons
 
@@ -420,53 +427,55 @@ All planned emission components are implemented and tested (73 new ObjC-specific
 5. Non-extern constants (header-only `static const`) are skipped entirely — no exported symbol for `[Field]` to resolve
 6. `StructsAndEnums.cs` returns null (not emitted) when module has no enums, structs, extern constants, or functions
 
-### Session O3: Mixed Frameworks + SDK Integration
+### Session O3: Mixed Frameworks + MSBuild SDK Integration ✅ COMPLETE
 
-**Goal:** Handle libraries that have both Swift and ObjC public API (common pattern: ObjC core with Swift convenience layer), and wire into the MSBuild SDK.
+**Completed:** 2026-03-06
 
-**Mixed framework pipeline:**
-- Detect mixed frameworks: has both ABI JSON (Swift module) and ObjC headers with public API not re-exported through Swift
-- Run both pipelines, emit two projects (Option A):
-  - Swift API -> direct P/Invoke C# code + regular `.csproj` (existing pipeline)
-  - ObjC-only API -> `ApiDefinition.cs` + `StructsAndEnums.cs` + binding `.csproj` (`<IsBindingProject>`)
-  - Swift project has `<ProjectReference>` to ObjC binding project
-- **Type deduplication** (member-level, not type-level): Types that appear in both Swift ABI and ObjC headers must NOT be suppressed entirely — ObjC categories can add members (selectors, protocol refinements) not visible in Swift ABI JSON. Instead, emit the ObjC type but skip individual members that have Swift ABI equivalents. The Swift pipeline already handles ObjC-rooted classes via `ObjCRootedClassProjection`, so the ObjC pipeline defers to Swift for members it already binds and adds ObjC-only members on top.
-- Cross-pipeline type references: ObjC types referenced from Swift code use `ObjCBridgedProjection` (already works). Swift types referenced from ObjC categories may need TypeDatabase cross-entries.
+**What was built:**
 
-**MSBuild SDK integration:**
-- SDK Discover target already finds `*.xcframework` — add framework type classification
-- Route to Swift generator, ObjC generator, or both based on detection
-- Single `dotnet build` and `dotnet pack` for any framework type
-- `<SwiftFrameworkDependency>` items may point to ObjC-only frameworks — handle gracefully
+Mixed framework detection, type-level dedup, ObjC metadata props emission, MSBuild SDK integration for ObjC/Mixed frameworks, dual-pipeline orchestration, and ObjC emitter hardening. 32 new tests, all passing. 52/53 validation targets pass (0 regressions).
 
-**Why two projects for mixed frameworks:**
+**Source files (new):**
+- `src/ObjC/Emitter/ObjCMetadataPropsEmitter.cs` — Emits `binding-metadata.props` for ObjC/mixed frameworks with real metadata extracted from xcframework plist
+- `src/Configuration/XCFrameworkResolver.cs` — Added `DetectMixedFrameworkObjC()` method: checks for modulemap + non-Swift headers
+- `src/Configuration/XCFrameworkMetadataExtractor.cs` — Added `ExtractFromFrameworkPath()` overload, extended `EmitMetadataProps()` with `frameworkType`/`objcProjectName` params, new XML properties `_SwiftBindingFrameworkType`/`_SwiftBindingObjCProjectName`
 
-The core issue is that `<IsBindingProject>true</IsBindingProject>` fundamentally replaces how MSBuild compiles C#. In a normal project, `.cs` files are regular source code compiled by Roslyn. In a binding project, `ApiDefinition.cs` files aren't real C# — they're partial interfaces decorated with `[BaseType]`/`[Export]` attributes that the MAUI registrar processes to generate trampolines, selector dispatch code, and ObjC runtime registration. The registrar injects its own generated code and takes over the compile pipeline.
+**Source files (modified):**
+- `src/ObjC/Model/ObjCDeclarations.cs` — Added `IsFromCategory` flag to `ObjCMethodDecl` and `ObjCPropertyDecl` (O4 infrastructure)
+- `src/ObjC/Parser/ClangAstParser.cs` — Category merge tags methods/properties with `IsFromCategory = true`
+- `src/ObjC/Parser/ObjCTypeRefParser.cs` — Strip `enum `/`struct ` C type specifiers from clang qualType
+- `src/ObjC/Pipeline/ObjCPipeline.cs` — Added `sdkMode`/`isMixed`/`excludeTypeNames` params, `FilterForMixedFramework()` type-level dedup, post-hoc validation (classes/protocols only)
+- `src/ObjC/Emitter/ObjCTypeMapper.cs` — Added `unsigned int`→`uint`, `unsigned short`→`ushort`, `unsigned char`→`byte` mappings
+- `src/ObjC/Emitter/StructsAndEnumsEmitter.cs` — Prefix digit-leading enum case names with `_` after prefix stripping
+- `src/Program.cs` — Mixed detection after Swift resolution, dual-pipeline orchestration, `CollectSwiftEmittedTypeNames()` helper
+- `src/Emitter/BindingProjectEmitter.cs` — `ObjCProjectFileName` option, conditional `<ProjectReference>` emission
 
-This means you can't mix the two models in one project:
-- The Swift pipeline's output is regular C# (`[LibraryImport]` P/Invoke declarations, concrete classes, real method bodies). It needs a normal `CoreCompile`.
-- The ObjC pipeline's output is binding definitions (partial interfaces with no method bodies, attribute-driven). It needs the registrar's specialized compile pipeline.
-- If you set `<IsBindingProject>true`, the registrar takes over and the Swift P/Invoke code won't compile correctly (it's not binding definition syntax). If you leave it false, the `ApiDefinition.cs` won't compile (partial interfaces with no bodies aren't valid C#).
+**MSBuild SDK files:**
+- `Sdk/Sdk.props` — ObjC-only PropertyGroup (`IsBindingProject=true`), `DisableRuntimeMarshallingAttribute` guard
+- `Sdk/Sdk.targets` — `--objc` flag for ObjC-only, Target 4c `_InjectMixedObjCProjectReference`, Target 5 split with `Exclude="ApiDefinition.cs;StructsAndEnums.cs"` (prevents ObjC binding definitions from being compiled into Swift project), Target 6/7a ObjC guards
 
-Two projects is the clean solution — each uses its native build model, and `<ProjectReference>` wires them together. The consumer sees a single NuGet package; the two-project split is an internal build detail.
+**Test files (32 new tests):**
+- `ConfigurationTests/MixedFrameworkDetectionTests.cs` — 5 tests (Swift-only patterns, mixed detection, post-hoc filtering, modulemap module name parsing)
+- `ObjCTests/Pipeline/MixedFrameworkDedupTests.cs` — 6 tests (type-level dedup: kept/dropped/never-filtered/empty/all-filtered)
+- `ObjCTests/Pipeline/SwiftTypeNameCollectorTests.cs` — 6 tests (regex scan of generated C# for type names)
+- `ObjCTests/Emitter/ObjCMetadataPropsEmitterTests.cs` — 4 tests (framework type, module name, wrapper props, mixed type)
+- `ObjCTests/Parser/ClangAstParserTests.cs` — 3 new tests (IsFromCategory tracking for methods, properties, originals untagged)
+- `ObjCTests/Parser/ObjCTypeRefParserTests.cs` — 2 new tests (`enum`/`struct` type specifier stripping)
+- `ObjCTests/Emitter/ObjCTypeMapperTests.cs` — 3 new tests (`unsigned int`/`unsigned short`/`unsigned char` mapping)
+- `ObjCTests/Emitter/StructsAndEnumsEmitterTests.cs` — 1 new test (digit-leading enum case `_` prefix)
+- `EmitterTests/BindingProjectEmitterTests.cs` — 3 new tests (ObjC ProjectReference present/absent/mixed)
 
-**Mixed `.csproj` options:**
-- **Option A (primary)**: Two projects in one output dir — Swift `.csproj` (regular P/Invoke code) + ObjC binding `.csproj` (`<IsBindingProject>`) with a `<ProjectReference>` from Swift to ObjC. Clean separation, each project uses its native build model.
-- **Option B (investigate but don't depend on)**: Single project with `<IsBindingProject>` and both regular + binding C# code. Almost certainly incompatible for the reasons above.
-- **Option C (last resort only)**: Emit ObjC bindings as direct P/Invoke code (skip `<IsBindingProject>` entirely). This is NOT a simple fallback — it means recreating registrar-like behavior (selector dispatch, method family semantics, block ABI handling, metadata mapping). Only pursue if Option A proves unworkable.
+**Key design decisions:**
+1. **Type-level dedup (O3), not member-level**: O3 removes entire ObjC types whose name matches a Swift-emitted type. ObjC-only members on shared types are lost until O4 adds selector-based member-level dedup. `IsFromCategory` tracking added as O4 infrastructure.
+2. **Post-hoc mixed validation**: Run ObjC pipeline, then check if parsed module has classes or protocols. Constants alone (e.g., version numbers) don't make a framework mixed. This correctly handles Swift-only frameworks with non-Swift version headers (Starscream, KeychainAccess, etc.).
+3. **SDK ObjC-only requires `<SwiftFrameworkType>ObjC</SwiftFrameworkType>`**: Auto-detection would need outer/inner-build bootstrap. Deferred.
+4. **sdkMode suppression**: `sdkMode && !isMixed` → skip .csproj (SDK IS the project). `sdkMode && isMixed` → emit .csproj (SDK is Swift project, ObjC is separate).
+5. **`CollectSwiftEmittedTypeNames`**: Regex scan of `*.cs` in output directory for `public [unsafe] [partial] class|struct|enum|interface NAME`. Used for dedup exclude set.
 
-**NuGet packaging contract (Option A):**
-- The **Swift project** owns the NuGet pack metadata (package ID, version, description). It produces the final `.nupkg`.
-- The **ObjC binding project** is a build-time dependency only — it compiles into a DLL that the Swift project references, but does NOT produce its own NuGet package.
-- **Native framework embedding**: The ObjC binding `.csproj` includes the `<NativeReference>` so the framework gets embedded in its output. The Swift project's `<ProjectReference>` transitively includes the native framework in the final pack. Must verify this transitive flow works — if not, the Swift project also needs the `<NativeReference>`.
-- For **ObjC-only** libraries (no Swift project), the ObjC binding `.csproj` IS the pack project and owns all metadata directly.
-
-**Tests:**
-- Unit tests for mixed detection and type deduplication
-- Integration test: a known mixed framework (find or create one in validation set)
-- SDK integration test: `dotnet build` with SDK for ObjC-only, Swift-only, and mixed xcframeworks
-
-**Deliverable:** Mixed frameworks produce two compilable projects (Swift + ObjC binding) with `ProjectReference` wiring. ObjC-only frameworks produce a single binding project. MSBuild SDK works for all three framework types.
+**Known O3 limitations (deferred to O4):**
+- ObjC-only members on shared types (e.g., category additions to Swift-visible classes) are suppressed. `IsFromCategory` infrastructure ready for O4's selector-based dedup.
+- Mixed SDK `ProjectReference` injection uses `BeforeTargets="ResolveProjectReferences"` timing — not yet behaviorally tested beyond static XML assertions.
+- **BRLMPrinterKit duplicate enum definitions**: When the same enum appears in multiple ObjC headers (e.g., public header + internal header both declaring `BRLMPrinterModel`), the parser emits duplicate definitions → 96 CS0101 "already defined" errors. Requires parser-level enum dedup (deduplicate by fully-qualified name before emission). Three emitter bugs discovered during BRLMPrinterKit testing were fixed in O3: digit-leading identifiers after prefix stripping, `unsigned int`/`unsigned short`/`unsigned char` type mappings, and `enum`/`struct` C type specifier stripping from clang qualType.
 
 ### Session O4: Validation + Edge Cases + Polish
 
@@ -477,6 +486,10 @@ Two projects is the clean solution — each uses its native build model, and `<P
 - **Stripe3DS2** (already in validation set, currently skipped as ObjC-only) — moderate size
 - Add 2-3 additional ObjC-only frameworks to validation set (Firebase components, Facebook SDK, or similar)
 - Find or add a mixed Swift+ObjC library to validation set
+
+**Concrete O4 work items from O3 discovery:**
+- **Parser-level enum dedup** (BRLMPrinterKit): Same enum defined in multiple headers → duplicate `EnumDecl` nodes → CS0101 errors. Fix: deduplicate enums by name in `ClangAstParser` before populating `ObjCModule.Enums`. Same issue may apply to structs/constants.
+- **Selector-based member-level dedup** (mixed frameworks): Replace O3's type-level `FilterForMixedFramework()` with member-level dedup using `IsFromCategory` tracking. Retain ObjC-only category members on shared types.
 
 **Edge case handling (as discovered during validation):**
 - Categories across multiple header files
@@ -518,9 +531,9 @@ Two projects is the clean solution — each uses its native build model, and `<P
 
 **Deliverable:** All ObjC validation targets compile. Mixed framework support validated. Documentation complete.
 
-### Estimated Total: 3-5 sessions (2 complete, 1-3 remaining)
+### Estimated Total: 3-5 sessions (3 complete, 1-2 remaining)
 
-Sessions O1 and O2 are complete. The biggest risk is Session O3 (mixed framework `.csproj` model). Option A (two projects + `ProjectReference`) is the primary strategy. Option C (ObjC as direct P/Invoke) is last resort only — it's a major architectural fork, not a simple fallback.
+Sessions O1-O3 are complete. O3 implemented Option A (two projects + `ProjectReference`) with type-level dedup. O4 will upgrade dedup from type-level to selector-based member-level using the `IsFromCategory` infrastructure added in O3.
 
 ---
 

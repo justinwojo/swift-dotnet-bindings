@@ -16,6 +16,7 @@ public sealed record ObjCMethodDecl
     public List<ObjCParameterDecl> Parameters { get; init; } = [];
     public bool IsInstanceMethod { get; init; }
     public bool IsOptional { get; init; }
+    public bool IsFromCategory { get; init; }
     public List<ObjCAvailability> Availability { get; init; } = [];
 }
 
@@ -26,6 +27,7 @@ public sealed record ObjCPropertyDecl
     public bool IsReadonly { get; init; }
     public bool IsClass { get; init; }
     public bool IsOptional { get; init; }
+    public bool IsFromCategory { get; init; }
     public string? GetterSelector { get; init; }
     public string? SetterSelector { get; init; }
     public List<ObjCAvailability> Availability { get; init; } = [];

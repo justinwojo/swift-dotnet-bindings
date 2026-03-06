@@ -28,8 +28,15 @@
     <SwiftAutoDetectDependencies Condition="'$(SwiftAutoDetectDependencies)' == ''">true</SwiftAutoDetectDependencies>
   </PropertyGroup>
 
+  <!-- ObjC-only framework overrides: binding project, no Swift.Runtime, no unsafe -->
+  <PropertyGroup Condition="'$(SwiftFrameworkType)' == 'ObjC'">
+    <IsBindingProject>true</IsBindingProject>
+    <DisableImplicitSwiftRuntimeReference>true</DisableImplicitSwiftRuntimeReference>
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+  </PropertyGroup>
+
   <!-- LibraryImport requires DisableRuntimeMarshalling for Swift interop types -->
-  <ItemGroup>
+  <ItemGroup Condition="'$(SwiftFrameworkType)' != 'ObjC'">
     <AssemblyAttribute Include="System.Runtime.CompilerServices.DisableRuntimeMarshallingAttribute" />
   </ItemGroup>
 

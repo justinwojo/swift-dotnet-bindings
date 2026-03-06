@@ -452,6 +452,31 @@ public class StructsAndEnumsEmitterTests
         }
     }
 
+    [Fact]
+    public void Emit_EnumCaseDigitPrefix_PrependedWithUnderscore()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Printer",
+            Enums =
+            [
+                new()
+                {
+                    Name = "SpeedRate",
+                    Cases =
+                    [
+                        new() { Name = "SpeedRate1ips" },
+                        new() { Name = "SpeedRate2ips" },
+                    ]
+                }
+            ]
+        };
+        var content = EmitAndRead(module, "Printer");
+        Assert.Contains("_1ips", content);
+        Assert.Contains("_2ips", content);
+        Assert.DoesNotContain(" 1ips", content);
+    }
+
     private static string EmitAndRead(ObjCModule module, string ns = "TestLib.Binding")
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"structs_enums_test_{Guid.NewGuid():N}");

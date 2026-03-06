@@ -319,4 +319,132 @@ public class ObjCPipelineIntegrationTests
         Assert.True(module.Protocols.Count >= 1,
             $"Expected at least 1 CoreBluetooth protocol, got {module.Protocols.Count}");
     }
+
+    [Fact]
+    public void Pipeline_SdkMode_ObjCOnly_SkipsCsproj()
+    {
+        if (!HasXcode()) return;
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"objc_sdk_test_{Guid.NewGuid():N}");
+        try
+        {
+            var (xcfwPath, outputDir) = BuildTestFixture(tempDir, "SdkTest");
+            var resolution = XCFrameworkResolver.ResolveObjCFramework(
+                xcfwPath, XCFrameworkPlatformTarget.Simulator, Logger);
+            Assert.NotNull(resolution);
+
+            var result = ObjCPipeline.Run(
+                resolution!, xcfwPath, outputDir, XCFrameworkPlatformTarget.Simulator, Logger,
+                sdkMode: true, isMixed: false);
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Null(result.ProjectPath); // SDK mode ObjC-only skips .csproj
+            Assert.NotNull(result.ApiDefinitionPath);
+            // Should still emit metadata props
+            Assert.True(File.Exists(Path.Combine(outputDir, "binding-metadata.props")));
+        }
+        finally { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true); }
+    }
+
+    [Fact]
+    public void Pipeline_SdkMode_Mixed_EmitsCsproj()
+    {
+        if (!HasXcode()) return;
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"objc_mixed_test_{Guid.NewGuid():N}");
+        try
+        {
+            var (xcfwPath, outputDir) = BuildTestFixture(tempDir, "MixedTest");
+            var resolution = XCFrameworkResolver.ResolveObjCFramework(
+                xcfwPath, XCFrameworkPlatformTarget.Simulator, Logger);
+            Assert.NotNull(resolution);
+
+            var result = ObjCPipeline.Run(
+                resolution!, xcfwPath, outputDir, XCFrameworkPlatformTarget.Simulator, Logger,
+                sdkMode: true, isMixed: true);
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.NotNull(result.ProjectPath); // SDK mode mixed DOES emit .csproj
+        }
+        finally { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true); }
+    }
+
+    [Fact]
+    public void Pipeline_WithExcludeTypes_FiltersDuplicates()
+    {
+        if (!HasXcode()) return;
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"objc_dedup_test_{Guid.NewGuid():N}");
+        try
+        {
+            var (xcfwPath, outputDir) = BuildTestFixture(tempDir, "DedupTest");
+            var resolution = XCFrameworkResolver.ResolveObjCFramework(
+                xcfwPath, XCFrameworkPlatformTarget.Simulator, Logger);
+            Assert.NotNull(resolution);
+
+            // Exclude the class name that exists in the test fixture
+            var excludeTypes = new HashSet<string> { "TLManager" };
+            var result = ObjCPipeline.Run(
+                resolution!, xcfwPath, outputDir, XCFrameworkPlatformTarget.Simulator, Logger,
+                excludeTypeNames: excludeTypes);
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.NotNull(result.Module);
+            // TLManager should have been filtered out
+            Assert.DoesNotContain(result.Module!.Classes, c => c.Name == "TLManager");
+        }
+        finally { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true); }
+    }
+
+    private static (string XcfwPath, string OutputDir) BuildTestFixture(string tempDir, string fwName)
+    {
+        var xcfwPath = Path.Combine(tempDir, $"{fwName}.xcframework");
+        var sliceId = "ios-arm64_x86_64-simulator";
+        var sliceDir = Path.Combine(xcfwPath, sliceId);
+        var fwDir = Path.Combine(sliceDir, $"{fwName}.framework");
+        var headersDir = Path.Combine(fwDir, "Headers");
+        var modulesDir = Path.Combine(fwDir, "Modules");
+
+        Directory.CreateDirectory(headersDir);
+        Directory.CreateDirectory(modulesDir);
+
+        File.WriteAllText(Path.Combine(xcfwPath, "Info.plist"), $"""
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            <plist version="1.0">
+            <dict>
+                <key>AvailableLibraries</key>
+                <array>
+                    <dict>
+                        <key>BinaryPath</key><string>{fwName}.framework/{fwName}</string>
+                        <key>LibraryIdentifier</key><string>{sliceId}</string>
+                        <key>LibraryPath</key><string>{fwName}.framework</string>
+                        <key>SupportedArchitectures</key><array><string>arm64</string><string>x86_64</string></array>
+                        <key>SupportedPlatform</key><string>ios</string>
+                        <key>SupportedPlatformVariant</key><string>simulator</string>
+                    </dict>
+                </array>
+            </dict>
+            </plist>
+            """);
+
+        File.WriteAllText(Path.Combine(modulesDir, "module.modulemap"),
+            $"framework module {fwName} {{\n  umbrella header \"{fwName}.h\"\n  export *\n  module * {{ export * }}\n}}\n");
+
+        File.WriteAllText(Path.Combine(headersDir, $"{fwName}.h"), """
+            #import <Foundation/Foundation.h>
+            NS_ASSUME_NONNULL_BEGIN
+            @interface TLManager : NSObject
+            @property (nonatomic, readonly) BOOL isReady;
+            - (instancetype)initWithName:(NSString *)name;
+            @end
+            NS_ASSUME_NONNULL_END
+            """);
+
+        File.WriteAllText(Path.Combine(sliceDir, $"{fwName}.framework/{fwName}"), "");
+
+        var outputDir = Path.Combine(tempDir, "output");
+        Directory.CreateDirectory(outputDir);
+        return (xcfwPath, outputDir);
+    }
 }

@@ -185,6 +185,8 @@
       <_SwiftGenCmd Condition="'@(SwiftFrameworkDependency)' != ''">$(_SwiftGenCmd) @(SwiftFrameworkDependency->' --framework-dependency "%(Identity)"', '')</_SwiftGenCmd>
       <!-- Pass collected module databases for cross-module type resolution -->
       <_SwiftGenCmd Condition="'@(_SwiftModuleDatabaseFile)' != ''">$(_SwiftGenCmd) @(_SwiftModuleDatabaseFile->' --module-database "%(Identity)"', '')</_SwiftGenCmd>
+      <!-- Force ObjC pipeline for ObjC-only framework type -->
+      <_SwiftGenCmd Condition="'$(SwiftFrameworkType)' == 'ObjC'">$(_SwiftGenCmd) --objc</_SwiftGenCmd>
     </PropertyGroup>
 
     <Exec Condition="'@(SwiftFramework)' != '' AND '$(_SwiftBindingUpToDate)' != 'true'"
@@ -328,14 +330,51 @@ done"
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 4c: Inject mixed framework ObjC ProjectReference               -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <Target Name="_InjectMixedObjCProjectReference"
+          AfterTargets="_ImportSwiftBindingMetadata"
+          BeforeTargets="ResolveProjectReferences">
+
+    <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)binding-metadata.props"
+             Query="/Project/PropertyGroup/_SwiftBindingFrameworkType/text()"
+             Condition="Exists('$(_SwiftBindingIntermediateDir)binding-metadata.props')">
+      <Output TaskParameter="Result" PropertyName="_SwiftBindingFrameworkType" />
+    </XmlPeek>
+
+    <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)binding-metadata.props"
+             Query="/Project/PropertyGroup/_SwiftBindingObjCProjectName/text()"
+             Condition="Exists('$(_SwiftBindingIntermediateDir)binding-metadata.props')">
+      <Output TaskParameter="Result" PropertyName="_SwiftBindingObjCProjectName" />
+    </XmlPeek>
+
+    <ItemGroup Condition="'$(_SwiftBindingFrameworkType)' == 'Mixed'
+                           AND '$(_SwiftBindingObjCProjectName)' != ''
+                           AND Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingObjCProjectName)')">
+      <ProjectReference Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingObjCProjectName)" />
+    </ItemGroup>
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <!-- Target 5: Include generated .cs files in compilation                   -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_IncludeGeneratedSwiftBindings"
           AfterTargets="_ImportSwiftBindingMetadata"
           Condition="Exists('$(_SwiftBindingIntermediateDir)')">
 
-    <ItemGroup>
-      <Compile Include="$(_SwiftBindingIntermediateDir)*.cs" />
+    <!-- Swift/Mixed: include generated C# files, excluding ObjC binding definitions
+         which belong to the separate ObjC binding project (.csproj with IsBindingProject) -->
+    <ItemGroup Condition="'$(SwiftFrameworkType)' != 'ObjC'">
+      <Compile Include="$(_SwiftBindingIntermediateDir)*.cs"
+               Exclude="$(_SwiftBindingIntermediateDir)ApiDefinition.cs;$(_SwiftBindingIntermediateDir)StructsAndEnums.cs" />
+    </ItemGroup>
+
+    <!-- ObjC-only: include as binding items instead of Compile -->
+    <ItemGroup Condition="'$(SwiftFrameworkType)' == 'ObjC'">
+      <ObjcBindingApiDefinition Include="$(_SwiftBindingIntermediateDir)ApiDefinition.cs"
+                                 Condition="Exists('$(_SwiftBindingIntermediateDir)ApiDefinition.cs')" />
+      <ObjcBindingCoreSource Include="$(_SwiftBindingIntermediateDir)StructsAndEnums.cs"
+                              Condition="Exists('$(_SwiftBindingIntermediateDir)StructsAndEnums.cs')" />
     </ItemGroup>
   </Target>
 
@@ -351,7 +390,8 @@ done"
         <Kind>Framework</Kind>
       </NativeReference>
       <NativeReference Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework"
-                       Condition="'$(_SwiftBindingHasWrapperXCFramework)' == 'True'
+                       Condition="'$(SwiftFrameworkType)' != 'ObjC'
+                                  AND '$(_SwiftBindingHasWrapperXCFramework)' == 'True'
                                   AND Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework')">
         <Kind>Framework</Kind>
       </NativeReference>
@@ -383,7 +423,7 @@ done"
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_ValidateSwiftBindingPackSlices"
           BeforeTargets="_ConfigureSwiftBindingPack"
-          Condition="'$(IsPackable)' == 'true' AND '@(SwiftFramework)' != ''">
+          Condition="'$(IsPackable)' == 'true' AND '@(SwiftFramework)' != '' AND '$(SwiftFrameworkType)' != 'ObjC'">
 
     <!-- Guard 1: property check -->
     <Error Condition="'$(SwiftWrapperArchitectures)' != 'all'"

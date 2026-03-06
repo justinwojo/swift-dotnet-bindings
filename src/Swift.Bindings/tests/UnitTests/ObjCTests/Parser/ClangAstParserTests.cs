@@ -389,6 +389,130 @@ public class ClangAstParserTests
     }
 
     [Fact]
+    public void CategoryMerge_MethodsTaggedAsFromCategory()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "Widget",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "init",
+                    "instance": true,
+                    "returnType": { "qualType": "instancetype" },
+                    "inner": []
+                }
+            ]
+        },
+        {
+            "kind": "ObjCCategoryDecl",
+            "name": "Extras",
+            {{MakeLoc()}},
+            "interface": { "id": "0x1", "kind": "ObjCInterfaceDecl", "name": "Widget" },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "extraMethod",
+                    "instance": true,
+                    "returnType": { "qualType": "void" },
+                    "inner": []
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        var cls = module.Classes[0];
+        var catMethod = cls.Methods.First(m => m.Selector == "extraMethod");
+        Assert.True(catMethod.IsFromCategory);
+    }
+
+    [Fact]
+    public void CategoryMerge_OriginalMethodsNotTagged()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "Widget",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "init",
+                    "instance": true,
+                    "returnType": { "qualType": "instancetype" },
+                    "inner": []
+                }
+            ]
+        },
+        {
+            "kind": "ObjCCategoryDecl",
+            "name": "Extras",
+            {{MakeLoc()}},
+            "interface": { "id": "0x1", "kind": "ObjCInterfaceDecl", "name": "Widget" },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "extraMethod",
+                    "instance": true,
+                    "returnType": { "qualType": "void" },
+                    "inner": []
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        var cls = module.Classes[0];
+        var originalMethod = cls.Methods.First(m => m.Selector == "init");
+        Assert.False(originalMethod.IsFromCategory);
+    }
+
+    [Fact]
+    public void CategoryMerge_PropertiesTaggedAsFromCategory()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "Widget",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": [
+                {
+                    "kind": "ObjCPropertyDecl",
+                    "name": "title",
+                    "type": { "qualType": "NSString *" }
+                }
+            ]
+        },
+        {
+            "kind": "ObjCCategoryDecl",
+            "name": "Extras",
+            {{MakeLoc()}},
+            "interface": { "id": "0x1", "kind": "ObjCInterfaceDecl", "name": "Widget" },
+            "inner": [
+                {
+                    "kind": "ObjCPropertyDecl",
+                    "name": "subtitle",
+                    "type": { "qualType": "NSString *" }
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        var cls = module.Classes[0];
+        var catProp = cls.Properties.First(p => p.Name == "subtitle");
+        Assert.True(catProp.IsFromCategory);
+        var origProp = cls.Properties.First(p => p.Name == "title");
+        Assert.False(origProp.IsFromCategory);
+    }
+
+    [Fact]
     public void Parse_EnumDecl_NSEnum_WithNestedConstants()
     {
         var json = WrapInTranslationUnit($$"""

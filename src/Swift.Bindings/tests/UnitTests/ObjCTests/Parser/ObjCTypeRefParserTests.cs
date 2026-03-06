@@ -130,4 +130,20 @@ public class ObjCTypeRefParserTests
         Assert.True(result.IsPointer);
         Assert.Equal(ObjCNullability.Nonnull, result.Nullability);
     }
+
+    [Fact]
+    public void Parse_EnumQualType_StripsEnumKeyword()
+    {
+        var result = ObjCTypeRefParser.Parse("enum BRLMPrinterModel");
+        Assert.Equal("BRLMPrinterModel", result.Name);
+        Assert.False(result.IsPointer);
+    }
+
+    [Fact]
+    public void Parse_StructQualType_StripsStructKeyword()
+    {
+        var result = ObjCTypeRefParser.Parse("struct CGRect");
+        Assert.Equal("CGRect", result.Name);
+        Assert.False(result.IsPointer);
+    }
 }
