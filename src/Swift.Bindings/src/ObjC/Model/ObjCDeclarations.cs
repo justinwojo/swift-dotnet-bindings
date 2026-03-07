@@ -19,6 +19,7 @@ public sealed record ObjCMethodDecl
     public bool IsFromCategory { get; init; }
     public string CategoryName { get; init; } = "";
     public List<ObjCAvailability> Availability { get; init; } = [];
+    public string? SwiftName { get; init; }
 }
 
 public sealed record ObjCPropertyDecl
@@ -33,6 +34,7 @@ public sealed record ObjCPropertyDecl
     public string? GetterSelector { get; init; }
     public string? SetterSelector { get; init; }
     public List<ObjCAvailability> Availability { get; init; } = [];
+    public string? SwiftName { get; init; }
 }
 
 public sealed record ObjCClassDecl
@@ -44,6 +46,7 @@ public sealed record ObjCClassDecl
     public List<ObjCMethodDecl> Methods { get; init; } = [];
     public List<ObjCPropertyDecl> Properties { get; init; } = [];
     public List<ObjCAvailability> Availability { get; init; } = [];
+    public string? SwiftName { get; init; }
 }
 
 public sealed record ObjCProtocolDecl
@@ -68,6 +71,7 @@ public sealed record ObjCEnumDecl
     public ObjCTypeRef? UnderlyingType { get; init; }
     public List<ObjCEnumCaseDecl> Cases { get; init; } = [];
     public List<ObjCAvailability> Availability { get; init; } = [];
+    public string? SwiftName { get; init; }
 }
 
 public sealed record ObjCStructField

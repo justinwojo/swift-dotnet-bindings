@@ -280,6 +280,8 @@ public static class ClangAstParser
 
         ParseContainerChildren(element, methods, properties, availability, isProtocol: false);
 
+        var swiftName = ExtractSwiftName(element);
+
         return new ObjCClassDecl
         {
             Name = name,
@@ -288,7 +290,8 @@ public static class ClangAstParser
             GenericTypeParamNames = genericTypeParamNames,
             Methods = methods,
             Properties = properties,
-            Availability = availability
+            Availability = availability,
+            SwiftName = swiftName
         };
     }
 
@@ -420,13 +423,16 @@ public static class ClangAstParser
             }
         }
 
+        var swiftName = ExtractSwiftName(element);
+
         return new ObjCEnumDecl
         {
             Name = name,
             IsOptions = isOptions,
             UnderlyingType = underlyingType,
             Cases = cases,
-            Availability = availability
+            Availability = availability,
+            SwiftName = swiftName
         };
     }
 
@@ -773,6 +779,8 @@ public static class ClangAstParser
             }
         }
 
+        var swiftName = ExtractSwiftName(element);
+
         return new ObjCMethodDecl
         {
             Selector = name,
@@ -780,7 +788,8 @@ public static class ClangAstParser
             Parameters = parameters,
             IsInstanceMethod = isInstance,
             IsOptional = isOptional,
-            Availability = methodAvailability
+            Availability = methodAvailability,
+            SwiftName = swiftName
         };
     }
 
@@ -842,6 +851,8 @@ public static class ClangAstParser
         else if (control == null)
             isOptional = IsInOptionalSection(element, optionalLines);
 
+        var swiftName = ExtractSwiftName(element);
+
         return new ObjCPropertyDecl
         {
             Name = name,
@@ -851,7 +862,8 @@ public static class ClangAstParser
             IsOptional = isOptional,
             GetterSelector = getter,
             SetterSelector = setter,
-            Availability = propAvailability
+            Availability = propAvailability,
+            SwiftName = swiftName
         };
     }
 
@@ -866,6 +878,23 @@ public static class ClangAstParser
             Name = name,
             Type = ObjCTypeRefParser.Parse(qualType)
         };
+    }
+
+    /// <summary>
+    /// Extracts the NS_SWIFT_NAME value from a declaration's inner nodes.
+    /// Clang represents this as a SwiftNameAttr node with a "name" property.
+    /// </summary>
+    private static string? ExtractSwiftName(JsonElement element)
+    {
+        if (!element.TryGetProperty("inner", out var inner))
+            return null;
+
+        foreach (var child in inner.EnumerateArray())
+        {
+            if (GetOptionalString(child, "kind") == "SwiftNameAttr")
+                return GetOptionalString(child, "name");
+        }
+        return null;
     }
 
     private static ObjCAvailability? ParseAvailability(JsonElement element)

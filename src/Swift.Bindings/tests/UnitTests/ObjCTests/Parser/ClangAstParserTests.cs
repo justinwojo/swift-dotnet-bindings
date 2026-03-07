@@ -2311,4 +2311,126 @@ public class ClangAstParserTests
         // ThirdPartyWidget is NOT from an SDK path → not collected
         Assert.Null(module.AppleSdkTypeNames);
     }
+
+    // --- NS_SWIFT_NAME capture ---
+
+    [Fact]
+    public void Parse_ClassWithSwiftNameAttr_CapturesSwiftName()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "TLMyClass",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": [
+                { "kind": "SwiftNameAttr", "name": "MyClass" }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Single(module.Classes);
+        Assert.Equal("MyClass", module.Classes[0].SwiftName);
+    }
+
+    [Fact]
+    public void Parse_ClassWithoutSwiftNameAttr_HasNullSwiftName()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "TLMyClass",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": []
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Single(module.Classes);
+        Assert.Null(module.Classes[0].SwiftName);
+    }
+
+    [Fact]
+    public void Parse_MethodWithSwiftNameAttr_CapturesSwiftName()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "MyClass",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "performOperationWithData:completion:",
+                    "instance": true,
+                    "returnType": { "qualType": "void" },
+                    "inner": [
+                        { "kind": "SwiftNameAttr", "name": "perform(data:completion:)" }
+                    ]
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Single(module.Classes);
+        Assert.Single(module.Classes[0].Methods);
+        Assert.Equal("perform(data:completion:)", module.Classes[0].Methods[0].SwiftName);
+    }
+
+    [Fact]
+    public void Parse_PropertyWithSwiftNameAttr_CapturesSwiftName()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "MyClass",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": [
+                {
+                    "kind": "ObjCPropertyDecl",
+                    "name": "isEnabled",
+                    "type": { "qualType": "BOOL" },
+                    "inner": [
+                        { "kind": "SwiftNameAttr", "name": "isActive" }
+                    ]
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Single(module.Classes);
+        Assert.Single(module.Classes[0].Properties);
+        Assert.Equal("isActive", module.Classes[0].Properties[0].SwiftName);
+    }
+
+    [Fact]
+    public void Parse_EnumWithSwiftNameAttr_CapturesSwiftName()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "EnumDecl",
+            "name": "TLErrorCode",
+            {{MakeLoc()}},
+            "fixedUnderlyingType": { "qualType": "NSInteger" },
+            "inner": [
+                { "kind": "SwiftNameAttr", "name": "ErrorCode" },
+                {
+                    "kind": "EnumConstantDecl",
+                    "name": "TLErrorCodeUnknown",
+                    "inner": [{ "kind": "ConstantExpr", "value": "0" }]
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Single(module.Enums);
+        Assert.Equal("ErrorCode", module.Enums[0].SwiftName);
+    }
 }
