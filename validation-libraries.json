@@ -673,6 +673,55 @@
         }
       ],
       "tier": 2
+    },
+    {
+      "name": "SDWebImage",
+      "repository": "https://github.com/SDWebImage/SDWebImage.git",
+      "version": "5.21.0",
+      "mode": "source",
+      "minIOS": "15.0",
+      "products": [
+        {
+          "scheme": "SDWebImage",
+          "framework": "SDWebImage"
+        },
+        {
+          "scheme": "SDWebImageMapKit",
+          "framework": "SDWebImageMapKit"
+        }
+      ],
+      "tier": 2
+    },
+    {
+      "name": "CocoaLumberjack",
+      "repository": "https://github.com/CocoaLumberjack/CocoaLumberjack.git",
+      "version": "3.8.5",
+      "mode": "source",
+      "minIOS": "15.0",
+      "products": [
+        {
+          "scheme": "CocoaLumberjack",
+          "framework": "CocoaLumberjack"
+        },
+        {
+          "scheme": "CocoaLumberjackSwift",
+          "framework": "CocoaLumberjackSwift"
+        }
+      ],
+      "tier": 2
+    },
+    {
+      "name": "MBProgressHUD",
+      "repository": "https://github.com/jdg/MBProgressHUD.git",
+      "version": "1.2.0",
+      "mode": "source",
+      "products": [
+        {
+          "scheme": "MBProgressHUD",
+          "framework": "MBProgressHUD"
+        }
+      ],
+      "tier": 2
     }
   ]
 }

@@ -652,4 +652,118 @@ public class ObjCTypeMapperTests
         var typeRef = new ObjCTypeRef { Name = name };
         Assert.Equal(expected, ObjCTypeMapper.MapType(typeRef));
     }
+
+    // --- Fix: void* → IntPtr (not "void") ---
+
+    [Fact]
+    public void MapType_VoidPointer_ReturnsIntPtr()
+    {
+        var typeRef = new ObjCTypeRef { Name = "void", IsPointer = true };
+        Assert.Equal("IntPtr", ObjCTypeMapper.MapType(typeRef));
+    }
+
+    [Fact]
+    public void MapType_VoidNonPointer_ReturnsVoid()
+    {
+        var typeRef = new ObjCTypeRef { Name = "void" };
+        Assert.Equal("void", ObjCTypeMapper.MapType(typeRef));
+    }
+
+    // --- Fix: NSURL* → NSUrl* naming convention ---
+
+    [Theory]
+    [InlineData("NSURLSessionTask", "NSUrlSessionTask")]
+    [InlineData("NSURLSessionConfiguration", "NSUrlSessionConfiguration")]
+    [InlineData("NSURLSessionTaskMetrics", "NSUrlSessionTaskMetrics")]
+    [InlineData("NSURLCredential", "NSUrlCredential")]
+    [InlineData("NSURLSessionDataTask", "NSUrlSessionDataTask")]
+    [InlineData("NSURLCache", "NSUrlCache")]
+    [InlineData("NSHTTPURLResponse", "NSHttpUrlResponse")]
+    [InlineData("NSHTTPCookie", "NSHttpCookie")]
+    public void MapType_NSURLPointerTypes_MapsToNetConvention(string objcType, string expected)
+    {
+        var typeRef = new ObjCTypeRef { Name = objcType, IsPointer = true };
+        Assert.Equal(expected, ObjCTypeMapper.MapType(typeRef));
+    }
+
+    // --- Fix: NSURL prefix fallback for unmapped variants ---
+
+    [Theory]
+    [InlineData("NSURLSessionTaskDelegate", "NSUrlSessionTaskDelegate")]
+    [InlineData("NSURLSessionDataDelegate", "NSUrlSessionDataDelegate")]
+    [InlineData("NSURLSessionWebSocketMessage", "NSUrlSessionWebSocketMessage")]
+    public void MapType_NSURLPrefixFallback_MapsCorrectly(string objcType, string expected)
+    {
+        // These types aren't in PointerTypeMappings but hit the prefix-based fallback
+        var typeRef = new ObjCTypeRef { Name = objcType };
+        Assert.Equal(expected, ObjCTypeMapper.MapType(typeRef));
+    }
+
+    // --- Fix: Unmapped C/OS types ---
+
+    [Theory]
+    [InlineData("dispatch_queue_attr_t", "IntPtr")]
+    [InlineData("os_log_t", "IntPtr")]
+    [InlineData("os_log_type_t", "byte")]
+    [InlineData("dispatch_semaphore_t", "IntPtr")]
+    [InlineData("SecKeyRef", "IntPtr")]
+    [InlineData("SecTrustRef", "IntPtr")]
+    public void MapType_SystemCTypes_MapsCorrectly(string name, string expected)
+    {
+        var typeRef = new ObjCTypeRef { Name = name };
+        Assert.Equal(expected, ObjCTypeMapper.MapType(typeRef));
+    }
+
+    // Protocol name mapping
+
+    [Theory]
+    [InlineData("NSURLSessionTaskDelegate", "NSUrlSessionTaskDelegate")]
+    [InlineData("NSURLSessionDataDelegate", "NSUrlSessionDataDelegate")]
+    [InlineData("NSURLSessionDelegate", "NSUrlSessionDelegate")]
+    [InlineData("NSHTTPCookieStorageDelegate", "NSHttpCookieStorageDelegate")]
+    [InlineData("NSCoding", "NSCoding")]
+    [InlineData("UITableViewDelegate", "UITableViewDelegate")]
+    public void MapProtocolName_AppliesNamingConvention(string input, string expected)
+    {
+        Assert.Equal(expected, ObjCTypeMapper.MapProtocolName(input));
+    }
+
+    [Fact]
+    public void MapType_IdWithNSURLProtocol_MapsProtocolName()
+    {
+        var typeRef = new ObjCTypeRef { Name = "id", IsPointer = true, ProtocolQualification = "NSURLSessionDelegate" };
+        Assert.Equal("INSUrlSessionDelegate", ObjCTypeMapper.MapType(typeRef));
+    }
+
+    [Fact]
+    public void MapType_TypedefAliasToBlockTypedef_ResolvesToAction()
+    {
+        // Simulates: typedef void(^OriginalBlock)(NSString *);
+        //            typedef OriginalBlock AliasBlock;
+        // Parameter qualType: "AliasBlock" → should resolve through typedefMap to OriginalBlock,
+        // then through blockTypedefMap to Action<string>.
+        var blockTypeRef = new ObjCTypeRef
+        {
+            Name = "",
+            IsBlock = true,
+            BlockReturnType = new ObjCTypeRef { Name = "void" },
+            BlockParams = [new ObjCTypeRef { Name = "NSString", IsPointer = true }]
+        };
+
+        // typedefMap: AliasBlock → { Name = "OriginalBlock", IsBlock = false }
+        var typedefMap = new Dictionary<string, ObjCTypeRef>
+        {
+            ["AliasBlock"] = new ObjCTypeRef { Name = "OriginalBlock" }
+        };
+
+        // blockTypedefMap: OriginalBlock → block signature
+        var blockTypedefMap = new Dictionary<string, ObjCTypeRef>
+        {
+            ["OriginalBlock"] = blockTypeRef
+        };
+
+        var paramType = new ObjCTypeRef { Name = "AliasBlock" };
+        var result = ObjCTypeMapper.MapType(paramType, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap);
+        Assert.Equal("Action<string>", result);
+    }
 }

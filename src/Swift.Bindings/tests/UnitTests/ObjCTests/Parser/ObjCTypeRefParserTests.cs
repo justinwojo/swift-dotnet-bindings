@@ -332,4 +332,18 @@ public class ObjCTypeRefParserTests
         Assert.Equal("NSString", result.Name);
         Assert.True(result.IsPointer);
     }
+
+    // --- Fix: OS_ macro prefix stripping ---
+
+    [Theory]
+    [InlineData("OS_OBJECT_RETURNS_RETAINED os_log_t", "os_log_t", false)]
+    [InlineData("OS_NOTHROW os_log_t", "os_log_t", false)]
+    [InlineData("CF_RETURNS_RETAINED CGImageRef", "CGImageRef", false)]
+    [InlineData("CF_RETURNS_NOT_RETAINED NSString *", "NSString", true)]
+    public void Parse_OSAndCFMacroPrefixes_Stripped(string qualType, string expectedName, bool expectedPointer)
+    {
+        var result = ObjCTypeRefParser.Parse(qualType);
+        Assert.Equal(expectedName, result.Name);
+        Assert.Equal(expectedPointer, result.IsPointer);
+    }
 }

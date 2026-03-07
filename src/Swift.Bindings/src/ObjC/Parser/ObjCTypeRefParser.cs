@@ -161,7 +161,7 @@ public static class ObjCTypeRefParser
         return s.Trim();
     }
 
-    private static readonly string[] MacroPrefixes = ["NS_", "API_", "__API_", "__TVOS_", "__IOS_", "__WATCHOS_", "UI_"];
+    private static readonly string[] MacroPrefixes = ["NS_", "API_", "__API_", "__TVOS_", "__IOS_", "__WATCHOS_", "UI_", "OS_", "CF_"];
 
     private static string StripPrefixedMacros(string s)
     {

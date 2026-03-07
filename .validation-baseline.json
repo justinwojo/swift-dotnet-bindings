@@ -1,10 +1,10 @@
 {
-  "timestamp": "2026-03-06T22:53:10Z",
-  "git_sha": "3396e4f",
+  "timestamp": "2026-03-07T01:21:52Z",
+  "git_sha": "0a6bd54",
   "runtime_version": "0.1.0-preview.5",
   "compile_gate": {
-    "total": 55,
-    "passed": 42,
+    "total": 60,
+    "passed": 47,
     "failed": 13,
     "libraries": {
       "Alamofire": {
@@ -12,7 +12,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 52931,
-        "gen_seconds": 3,
+        "gen_seconds": 5,
         "dep_compile": "none"
       },
       "BlinkID": {
@@ -35,8 +35,8 @@
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
-        "lines": 1985,
-        "gen_seconds": 7,
+        "lines": 1986,
+        "gen_seconds": 10,
         "dep_compile": "none"
       },
       "CryptoSwift": {
@@ -44,7 +44,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 24145,
-        "gen_seconds": 2,
+        "gen_seconds": 1,
         "dep_compile": "none"
       },
       "GRDB": {
@@ -52,7 +52,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 90548,
-        "gen_seconds": 7,
+        "gen_seconds": 8,
         "dep_compile": "none"
       },
       "KeychainAccess": {
@@ -60,7 +60,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 4566,
-        "gen_seconds": 6,
+        "gen_seconds": 5,
         "dep_compile": "none"
       },
       "Kingfisher": {
@@ -68,7 +68,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 54536,
-        "gen_seconds": 9,
+        "gen_seconds": 6,
         "dep_compile": "none"
       },
       "Lottie": {
@@ -76,7 +76,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 31663,
-        "gen_seconds": 8,
+        "gen_seconds": 5,
         "dep_compile": "none"
       },
       "Mappedin": {
@@ -92,7 +92,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 4494,
-        "gen_seconds": 5,
+        "gen_seconds": 6,
         "dep_compile": "none"
       },
       "Mixpanel": {
@@ -116,7 +116,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 18613,
-        "gen_seconds": 3,
+        "gen_seconds": 5,
         "dep_compile": "none"
       },
       "SkeletonView": {
@@ -132,7 +132,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 5287,
-        "gen_seconds": 7,
+        "gen_seconds": 8,
         "dep_compile": "none"
       },
       "SnapKit": {
@@ -148,7 +148,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 15400,
-        "gen_seconds": 8,
+        "gen_seconds": 5,
         "dep_compile": "none"
       },
       "Stripe": {
@@ -156,7 +156,7 @@
         "compile": "infra_fail",
         "errors": 0,
         "lines": 612,
-        "gen_seconds": 8,
+        "gen_seconds": 5,
         "dep_compile": "ok"
       },
       "StripeApplePay": {
@@ -180,7 +180,7 @@
         "compile": "infra_fail",
         "errors": 0,
         "lines": 2692,
-        "gen_seconds": 8,
+        "gen_seconds": 5,
         "dep_compile": "ok"
       },
       "StripeConnect": {
@@ -204,7 +204,7 @@
         "compile": "fail",
         "errors": 8,
         "lines": 6032,
-        "gen_seconds": 9,
+        "gen_seconds": 5,
         "dep_compile": "ok"
       },
       "StripeFinancialConnections": {
@@ -220,7 +220,7 @@
         "compile": "infra_fail",
         "errors": 0,
         "lines": 1846,
-        "gen_seconds": 8,
+        "gen_seconds": 6,
         "dep_compile": "ok"
       },
       "StripeIssuing": {
@@ -236,7 +236,7 @@
         "compile": "fail",
         "errors": 40,
         "lines": 76780,
-        "gen_seconds": 4,
+        "gen_seconds": 6,
         "dep_compile": "ok"
       },
       "StripePaymentSheet": {
@@ -244,7 +244,7 @@
         "compile": "fail",
         "errors": 82,
         "lines": 49667,
-        "gen_seconds": 9,
+        "gen_seconds": 6,
         "dep_compile": "ok"
       },
       "StripePaymentsUI": {
@@ -260,23 +260,23 @@
         "compile": "fail",
         "errors": 3,
         "lines": 31910,
-        "gen_seconds": 3,
+        "gen_seconds": 2,
         "dep_compile": "ok"
       },
       "Realm": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
-        "lines": 3251,
-        "gen_seconds": 6,
+        "lines": 3252,
+        "gen_seconds": 7,
         "dep_compile": "none"
       },
       "Stripe3DS2": {
         "generate": "ok",
         "compile": "ok",
         "errors": 0,
-        "lines": 784,
-        "gen_seconds": 12,
+        "lines": 785,
+        "gen_seconds": 5,
         "dep_compile": "none"
       },
       "DeviceKit": {
@@ -292,7 +292,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 4975,
-        "gen_seconds": 3,
+        "gen_seconds": 2,
         "dep_compile": "none"
       },
       "PhoneNumberKit": {
@@ -372,7 +372,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 8205,
-        "gen_seconds": 7,
+        "gen_seconds": 6,
         "dep_compile": "none"
       },
       "FSPagerView": {
@@ -388,7 +388,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 1214,
-        "gen_seconds": 7,
+        "gen_seconds": 6,
         "dep_compile": "none"
       },
       "Quick": {
@@ -412,7 +412,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 2084,
-        "gen_seconds": 2,
+        "gen_seconds": 1,
         "dep_compile": "none"
       },
       "AMPopTip": {
@@ -420,7 +420,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 4457,
-        "gen_seconds": 1,
+        "gen_seconds": 2,
         "dep_compile": "none"
       },
       "XMLCoder": {
@@ -428,7 +428,7 @@
         "compile": "ok",
         "errors": 0,
         "lines": 21751,
-        "gen_seconds": 2,
+        "gen_seconds": 1,
         "dep_compile": "none"
       },
       "AnimatedCollectionViewLayout": {
@@ -444,6 +444,46 @@
         "compile": "ok",
         "errors": 0,
         "lines": 12143,
+        "gen_seconds": 2,
+        "dep_compile": "none"
+      },
+      "SDWebImage": {
+        "generate": "ok",
+        "compile": "ok",
+        "errors": 0,
+        "lines": 2473,
+        "gen_seconds": 4,
+        "dep_compile": "none"
+      },
+      "SDWebImageMapKit": {
+        "generate": "ok",
+        "compile": "ok",
+        "errors": 0,
+        "lines": 19,
+        "gen_seconds": 4,
+        "dep_compile": "none"
+      },
+      "CocoaLumberjack": {
+        "generate": "ok",
+        "compile": "ok",
+        "errors": 0,
+        "lines": 1123,
+        "gen_seconds": 2,
+        "dep_compile": "none"
+      },
+      "CocoaLumberjackSwift": {
+        "generate": "ok",
+        "compile": "ok",
+        "errors": 0,
+        "lines": 1330,
+        "gen_seconds": 3,
+        "dep_compile": "none"
+      },
+      "MBProgressHUD": {
+        "generate": "ok",
+        "compile": "ok",
+        "errors": 0,
+        "lines": 256,
         "gen_seconds": 3,
         "dep_compile": "none"
       }

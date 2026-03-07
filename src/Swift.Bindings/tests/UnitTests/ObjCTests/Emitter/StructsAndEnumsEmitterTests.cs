@@ -767,6 +767,61 @@ public class StructsAndEnumsEmitterTests
         Assert.DoesNotContain("[Static]", output);
     }
 
+    // --- Fix: StructsAndEnums.cs must include using UIKit and CoreAnimation ---
+
+    [Fact]
+    public void Emit_IncludesUsingUIKit()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Enums = [new ObjCEnumDecl { Name = "TLFoo", Cases = [new ObjCEnumCaseDecl { Name = "TLFooBar" }] }]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("using UIKit;", output);
+    }
+
+    [Fact]
+    public void Emit_IncludesUsingCoreAnimation()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Enums = [new ObjCEnumDecl { Name = "TLFoo", Cases = [new ObjCEnumCaseDecl { Name = "TLFooBar" }] }]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("using CoreAnimation;", output);
+    }
+
+    // --- Fix: void* function params emit as IntPtr ---
+
+    [Fact]
+    public void EmitFunction_VoidPointerParam_EmitsIntPtr()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Functions =
+            [
+                new ObjCFunctionDecl
+                {
+                    Name = "TLProcess",
+                    ReturnType = new ObjCTypeRef { Name = "void" },
+                    Parameters =
+                    [
+                        new ObjCParameterDecl { Name = "data", Type = new ObjCTypeRef { Name = "void", IsPointer = true } },
+                        new ObjCParameterDecl { Name = "size", Type = new ObjCTypeRef { Name = "uint32_t" } },
+                    ]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("public static extern void TLProcess(IntPtr data, uint size);", output);
+    }
+
     private static string EmitAndRead(ObjCModule module, string ns = "TestLib.Binding")
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"structs_enums_test_{Guid.NewGuid():N}");
@@ -781,5 +836,164 @@ public class StructsAndEnumsEmitterTests
             if (Directory.Exists(tempDir))
                 Directory.Delete(tempDir, true);
         }
+    }
+
+    [Fact]
+    public void EmitBlockDelegate_SkipsProtocolMethodBlockParams()
+    {
+        // Block typedef used as a parameter in a protocol method should NOT be emitted
+        // because MAUI bgen auto-generates the delegate type from the protocol binding.
+        var blockType = new ObjCTypeRef
+        {
+            Name = "",
+            IsBlock = true,
+            BlockReturnType = SimpleType("void"),
+        };
+        blockType.BlockParams.Add(SimpleType("NSData", isPointer: true));
+
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Typedefs =
+            [
+                new ObjCTypedefDecl { Name = "MyCompletionBlock", UnderlyingType = blockType },
+                new ObjCTypedefDecl { Name = "MyOtherBlock", UnderlyingType = blockType },
+            ],
+            Protocols =
+            [
+                new ObjCProtocolDecl
+                {
+                    Name = "MyProtocol",
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "doSomething:",
+                            ReturnType = SimpleType("void"),
+                            IsInstanceMethod = true,
+                            Parameters = [new ObjCParameterDecl { Name = "completion", Type = SimpleType("MyCompletionBlock") }],
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var content = EmitAndRead(module);
+        // MyCompletionBlock is used in a protocol method — bgen will auto-generate it
+        Assert.DoesNotContain("MyCompletionBlock", content);
+        // MyOtherBlock is NOT used in any protocol method — we should emit it
+        Assert.Contains("MyOtherBlock", content);
+    }
+
+    [Fact]
+    public void EmitBlockDelegate_KeepsProtocolBlockWhenAlsoUsedByFunction()
+    {
+        // If a block typedef is used in both a protocol method AND a C function,
+        // we must keep emitting the delegate — the function signature needs it.
+        var blockType = new ObjCTypeRef
+        {
+            Name = "",
+            IsBlock = true,
+            BlockReturnType = SimpleType("void"),
+        };
+        blockType.BlockParams.Add(SimpleType("NSData", isPointer: true));
+
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Typedefs =
+            [
+                new ObjCTypedefDecl { Name = "SharedBlock", UnderlyingType = blockType },
+            ],
+            Protocols =
+            [
+                new ObjCProtocolDecl
+                {
+                    Name = "MyProtocol",
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "doSomething:",
+                            ReturnType = SimpleType("void"),
+                            IsInstanceMethod = true,
+                            Parameters = [new ObjCParameterDecl { Name = "completion", Type = SimpleType("SharedBlock") }],
+                        }
+                    ]
+                }
+            ],
+            Functions =
+            [
+                new ObjCFunctionDecl
+                {
+                    Name = "RegisterHandler",
+                    ReturnType = SimpleType("void"),
+                    Parameters = [new ObjCParameterDecl { Name = "handler", Type = SimpleType("SharedBlock") }],
+                }
+            ]
+        };
+
+        var content = EmitAndRead(module);
+        // SharedBlock is used by a function — must be emitted even though protocol also uses it
+        Assert.Contains("SharedBlock", content);
+    }
+
+    [Fact]
+    public void EmitBlockDelegate_KeepsProtocolBlockWhenFunctionUsesAlias()
+    {
+        // typedef void (^OriginalBlock)(NSData *);
+        // typedef OriginalBlock AliasBlock;
+        // Protocol uses OriginalBlock, function uses AliasBlock.
+        // EmitFunction resolves AliasBlock → OriginalBlock via typedefMap,
+        // so the delegate must be preserved.
+        var blockType = new ObjCTypeRef
+        {
+            Name = "",
+            IsBlock = true,
+            BlockReturnType = SimpleType("void"),
+        };
+        blockType.BlockParams.Add(SimpleType("NSData", isPointer: true));
+
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Typedefs =
+            [
+                new ObjCTypedefDecl { Name = "OriginalBlock", UnderlyingType = blockType },
+                // AliasBlock is a non-block typedef alias → resolved by typedefMap
+                new ObjCTypedefDecl { Name = "AliasBlock", UnderlyingType = SimpleType("OriginalBlock") },
+            ],
+            Protocols =
+            [
+                new ObjCProtocolDecl
+                {
+                    Name = "MyProtocol",
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "doSomething:",
+                            ReturnType = SimpleType("void"),
+                            IsInstanceMethod = true,
+                            Parameters = [new ObjCParameterDecl { Name = "completion", Type = SimpleType("OriginalBlock") }],
+                        }
+                    ]
+                }
+            ],
+            Functions =
+            [
+                new ObjCFunctionDecl
+                {
+                    Name = "RegisterHandler",
+                    ReturnType = SimpleType("void"),
+                    // Function uses the ALIAS, not the block typedef directly
+                    Parameters = [new ObjCParameterDecl { Name = "handler", Type = SimpleType("AliasBlock") }],
+                }
+            ]
+        };
+
+        var content = EmitAndRead(module);
+        // OriginalBlock must be emitted — function uses AliasBlock which resolves to it
+        Assert.Contains("OriginalBlock", content);
     }
 }

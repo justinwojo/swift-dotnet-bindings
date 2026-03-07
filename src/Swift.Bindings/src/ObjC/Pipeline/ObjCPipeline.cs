@@ -103,6 +103,17 @@ public static class ObjCPipeline
         var namespaceResolver = new NamespacePatternResolver(namespacePattern, resolution.ModuleName);
         var resolvedNamespace = namespaceResolver.ResolveNamespace(resolution.ModuleName);
 
+        // Detect namespace/class name collision: if any class has the same name as the
+        // namespace, the MAUI registrar generates code with ambiguous type references (CS0426).
+        // Fix by appending "Binding" suffix to the namespace.
+        if (module.Classes.Any(c => c.Name == resolvedNamespace))
+        {
+            logger.LogInformation(
+                "Namespace '{Namespace}' collides with class name — using '{Namespace}Binding' to avoid CS0426.",
+                resolvedNamespace, resolvedNamespace);
+            resolvedNamespace = $"{resolvedNamespace}Binding";
+        }
+
         var apiDefPath = ApiDefinitionEmitter.Emit(module, outputDirectory, resolvedNamespace, logger);
         var structsPath = StructsAndEnumsEmitter.Emit(module, outputDirectory, resolvedNamespace, logger);
 

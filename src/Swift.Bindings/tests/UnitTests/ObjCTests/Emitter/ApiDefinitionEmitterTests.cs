@@ -1742,4 +1742,59 @@ public class ApiDefinitionEmitterTests
         var propertyLines = result.Split('\n').Where(l => l.Contains("{ get; }")).ToList();
         Assert.Empty(propertyLines);
     }
+
+    // --- Fix: ApiDefinition.cs includes CoreAnimation using ---
+
+    [Fact]
+    public void Emit_IncludesUsingCoreAnimation()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes = [new ObjCClassDecl { Name = "MyView" }]
+        };
+        var result = EmitAndRead(module);
+        Assert.Contains("using CoreAnimation;", result);
+    }
+
+    [Fact]
+    public void EmitClass_NSURLProtocolNames_MappedToNetConvention()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "MyDownloader",
+                    ProtocolNames = ["NSURLSessionTaskDelegate", "NSURLSessionDataDelegate"]
+                }
+            ]
+        };
+        var result = EmitAndRead(module);
+        Assert.Contains("INSUrlSessionTaskDelegate", result);
+        Assert.Contains("INSUrlSessionDataDelegate", result);
+        Assert.DoesNotContain("INSURLSessionTaskDelegate", result);
+    }
+
+    [Fact]
+    public void EmitProtocol_NSURLInheritedProtocol_MappedToNetConvention()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols =
+            [
+                new ObjCProtocolDecl
+                {
+                    Name = "MyDelegate",
+                    InheritedProtocolNames = ["NSURLSessionDelegate"]
+                }
+            ]
+        };
+        var result = EmitAndRead(module);
+        Assert.Contains("INSUrlSessionDelegate", result);
+        Assert.DoesNotContain("INSURLSessionDelegate", result);
+    }
 }

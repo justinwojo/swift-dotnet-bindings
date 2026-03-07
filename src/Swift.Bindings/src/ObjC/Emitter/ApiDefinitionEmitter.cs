@@ -18,6 +18,7 @@ public static class ApiDefinitionEmitter
         sb.AppendLine("using AuthenticationServices;");
         sb.AppendLine("using AVFoundation;");
         sb.AppendLine("using BackgroundAssets;");
+        sb.AppendLine("using CoreAnimation;");
         sb.AppendLine("using CoreFoundation;");
         sb.AppendLine("using CoreImage;");
         sb.AppendLine("using CoreLocation;");
@@ -64,7 +65,7 @@ public static class ApiDefinitionEmitter
             .Where(n => n != "NSObject" && n != "NSFastEnumeration")
             .ToList();
         var inheritList = filteredInherited.Count > 0
-            ? $" : {string.Join(", ", filteredInherited.Select(n => $"I{n}"))}"
+            ? $" : {string.Join(", ", filteredInherited.Select(n => $"I{ObjCTypeMapper.MapProtocolName(n)}"))}"
             : "";
         sb.AppendLine($"    partial interface I{proto.Name}{inheritList}");
         sb.AppendLine("    {");
@@ -104,7 +105,7 @@ public static class ApiDefinitionEmitter
             .Where(n => n != "NSObject" && n != "NSFastEnumeration")
             .ToList();
         var protocols = filteredProtocols.Count > 0
-            ? $" : {string.Join(", ", filteredProtocols.Select(n => $"I{n}"))}"
+            ? $" : {string.Join(", ", filteredProtocols.Select(n => $"I{ObjCTypeMapper.MapProtocolName(n)}"))}"
             : "";
         sb.AppendLine($"    partial interface {cls.Name}{protocols}");
         sb.AppendLine("    {");
@@ -144,7 +145,7 @@ public static class ApiDefinitionEmitter
             .Where(n => n != "NSObject" && n != "NSFastEnumeration")
             .ToList();
         var protocols = filteredProtocols.Count > 0
-            ? $" : {string.Join(", ", filteredProtocols.Select(n => $"I{n}"))}"
+            ? $" : {string.Join(", ", filteredProtocols.Select(n => $"I{ObjCTypeMapper.MapProtocolName(n)}"))}"
             : "";
 
         var interfaceName = GenerateCategoryInterfaceName(cat.ClassName, cat.CategoryName);

@@ -19,11 +19,28 @@ public static class ObjCTypeMapper
         ["NSObject"] = "NSObject",
         ["CGImageRef"] = "CGImage",
         ["NSURLSession"] = "NSUrlSession",
+        ["NSURLSessionTask"] = "NSUrlSessionTask",
+        ["NSURLSessionDataTask"] = "NSUrlSessionDataTask",
+        ["NSURLSessionDownloadTask"] = "NSUrlSessionDownloadTask",
+        ["NSURLSessionUploadTask"] = "NSUrlSessionUploadTask",
+        ["NSURLSessionStreamTask"] = "NSUrlSessionStreamTask",
+        ["NSURLSessionConfiguration"] = "NSUrlSessionConfiguration",
+        ["NSURLSessionTaskMetrics"] = "NSUrlSessionTaskMetrics",
+        ["NSURLSessionTaskTransactionMetrics"] = "NSUrlSessionTaskTransactionMetrics",
+        ["NSURLSessionWebSocketTask"] = "NSUrlSessionWebSocketTask",
+        ["NSURLCredential"] = "NSUrlCredential",
+        ["NSURLCredentialStorage"] = "NSUrlCredentialStorage",
+        ["NSURLAuthenticationChallenge"] = "NSUrlAuthenticationChallenge",
+        ["NSURLProtectionSpace"] = "NSUrlProtectionSpace",
+        ["NSURLCache"] = "NSUrlCache",
         ["NSUUID"] = "NSUuid",
         ["NSTimeZone"] = "NSTimeZone",
         ["NSURLRequest"] = "NSUrlRequest",
         ["NSURLResponse"] = "NSUrlResponse",
         ["NSURLConnection"] = "NSUrlConnection",
+        ["NSHTTPURLResponse"] = "NSHttpUrlResponse",
+        ["NSHTTPCookie"] = "NSHttpCookie",
+        ["NSHTTPCookieStorage"] = "NSHttpCookieStorage",
         ["BOOL"] = "bool",
     };
 
@@ -52,6 +69,21 @@ public static class ObjCTypeMapper
         ["CGImageSourceRef"] = "IntPtr",
         ["CFAllocatorRef"] = "IntPtr",
         ["CFDictionaryRef"] = "IntPtr",
+        ["dispatch_queue_attr_t"] = "IntPtr",
+        ["dispatch_semaphore_t"] = "IntPtr",
+        ["dispatch_group_t"] = "IntPtr",
+        ["dispatch_source_t"] = "IntPtr",
+        ["os_log_t"] = "IntPtr",
+        ["os_log_type_t"] = "byte",
+        ["os_unfair_lock_t"] = "IntPtr",
+        ["os_unfair_lock"] = "IntPtr",
+        ["SecKeyRef"] = "IntPtr",
+        ["SecCertificateRef"] = "IntPtr",
+        ["SecIdentityRef"] = "IntPtr",
+        ["SecTrustRef"] = "IntPtr",
+        ["SecPolicyRef"] = "IntPtr",
+        ["AudioComponentInstance"] = "IntPtr",
+        ["AudioUnit"] = "IntPtr",
     };
 
     static readonly Dictionary<string, string> PrimitiveTypeMappings = new()
@@ -129,7 +161,7 @@ public static class ObjCTypeMapper
                 .ToList();
             if (protocols.Count == 0)
                 return "NSObject";
-            return $"I{protocols[0]}";
+            return $"I{MapProtocolName(protocols[0])}";
         }
 
         // 4. Known pointer types
@@ -144,7 +176,9 @@ public static class ObjCTypeMapper
         if (typeRef.Name == "Class")
             return "Class";
 
-        // 6. Primitive types
+        // 6. Primitive types (void* → IntPtr, not "void")
+        if (typeRef.Name == "void" && typeRef.IsPointer)
+            return "IntPtr";
         if (PrimitiveTypeMappings.TryGetValue(typeRef.Name, out var primitive))
             return primitive;
 
@@ -176,17 +210,37 @@ public static class ObjCTypeMapper
                     IsBlock = resolved.IsBlock,
                 };
                 withPointer.BlockParams.AddRange(resolved.BlockParams);
-                return MapType(withPointer, declaringClassName, genericTypeParams, typedefMap: null);
+                return MapType(withPointer, declaringClassName, genericTypeParams, typedefMap: null, blockTypedefMap: blockTypedefMap);
             }
-            return MapType(resolved, declaringClassName, genericTypeParams, typedefMap: null);
+            return MapType(resolved, declaringClassName, genericTypeParams, typedefMap: null, blockTypedefMap: blockTypedefMap);
         }
 
         // 10. Block typedef name resolution (e.g., RLMNotificationBlock → Action<string, RLMRealm>)
         if (blockTypedefMap != null && blockTypedefMap.TryGetValue(typeRef.Name, out var blockResolved))
             return MapBlockType(blockResolved, genericTypeParams, typedefMap);
 
-        // 11. Passthrough / fallback
-        return typeRef.Name;
+        // 11. ObjC-to-.NET naming convention fallback (NSURL* → NSUrl*, NSHTTP* → NSHttp*)
+        var name = typeRef.Name;
+        if (name.StartsWith("NSURL", StringComparison.Ordinal) && name.Length > 5)
+            return "NSUrl" + name[5..];
+        if (name.StartsWith("NSHTTP", StringComparison.Ordinal) && name.Length > 6)
+            return "NSHttp" + name[6..];
+
+        // 12. Passthrough / fallback
+        return name;
+    }
+
+    /// <summary>
+    /// Maps an ObjC protocol name to its .NET MAUI binding convention name.
+    /// E.g., NSURLSessionTaskDelegate → NSUrlSessionTaskDelegate.
+    /// </summary>
+    public static string MapProtocolName(string name)
+    {
+        if (name.StartsWith("NSURL", StringComparison.Ordinal) && name.Length > 5)
+            return "NSUrl" + name[5..];
+        if (name.StartsWith("NSHTTP", StringComparison.Ordinal) && name.Length > 6)
+            return "NSHttp" + name[6..];
+        return name;
     }
 
     public static Dictionary<string, ObjCTypeRef> BuildBlockTypedefMap(ObjCModule module) =>
