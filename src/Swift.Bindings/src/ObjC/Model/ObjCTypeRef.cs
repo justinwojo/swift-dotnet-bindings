@@ -16,7 +16,7 @@ public sealed record ObjCTypeRef
     public bool IsPointer { get; init; }
     public bool IsBlock { get; init; }
     public ObjCNullability Nullability { get; init; }
-    public string? ProtocolQualification { get; init; }
+    public List<string> ProtocolQualifications { get; init; } = [];
     public ObjCTypeRef? PointeeType { get; init; }
     public List<ObjCTypeRef> BlockParams { get; init; } = [];
     public ObjCTypeRef? BlockReturnType { get; init; }

@@ -58,7 +58,62 @@ public class ObjCTypeRefParserTests
         var result = ObjCTypeRefParser.Parse("id<NSCoding>");
         Assert.Equal("id", result.Name);
         Assert.True(result.IsPointer);
-        Assert.Equal("NSCoding", result.ProtocolQualification);
+        Assert.Single(result.ProtocolQualifications);
+        Assert.Equal("NSCoding", result.ProtocolQualifications[0]);
+    }
+
+    [Fact]
+    public void Parse_IdWithMultipleProtocols_ReturnsAllProtocols()
+    {
+        var result = ObjCTypeRefParser.Parse("id<NSCoding, NSCopying>");
+        Assert.Equal("id", result.Name);
+        Assert.True(result.IsPointer);
+        Assert.Equal(2, result.ProtocolQualifications.Count);
+        Assert.Equal("NSCoding", result.ProtocolQualifications[0]);
+        Assert.Equal("NSCopying", result.ProtocolQualifications[1]);
+    }
+
+    [Fact]
+    public void Parse_ConcreteTypeWithProtocol_ReturnsProtocolQualification()
+    {
+        var result = ObjCTypeRefParser.Parse("NSObject<NSCopying> *");
+        Assert.Equal("NSObject", result.Name);
+        Assert.True(result.IsPointer);
+        Assert.Single(result.ProtocolQualifications);
+        Assert.Equal("NSCopying", result.ProtocolQualifications[0]);
+        Assert.Empty(result.GenericArgs);
+    }
+
+    [Fact]
+    public void Parse_ConcreteTypeWithMultipleProtocols_ReturnsAllProtocols()
+    {
+        var result = ObjCTypeRefParser.Parse("NSObject<NSCopying, NSSecureCoding> *");
+        Assert.Equal("NSObject", result.Name);
+        Assert.True(result.IsPointer);
+        Assert.Equal(2, result.ProtocolQualifications.Count);
+        Assert.Equal("NSCopying", result.ProtocolQualifications[0]);
+        Assert.Equal("NSSecureCoding", result.ProtocolQualifications[1]);
+        Assert.Empty(result.GenericArgs);
+    }
+
+    [Fact]
+    public void Parse_NSArrayGeneric_ReturnsGenericArgs_NotProtocols()
+    {
+        var result = ObjCTypeRefParser.Parse("NSArray<NSString *> *");
+        Assert.Equal("NSArray", result.Name);
+        Assert.True(result.IsPointer);
+        Assert.Single(result.GenericArgs);
+        Assert.Equal("NSString", result.GenericArgs[0].Name);
+        Assert.Empty(result.ProtocolQualifications);
+    }
+
+    [Fact]
+    public void Parse_NSDictionaryGeneric_ReturnsGenericArgs()
+    {
+        var result = ObjCTypeRefParser.Parse("NSDictionary<NSString *, NSNumber *> *");
+        Assert.Equal("NSDictionary", result.Name);
+        Assert.Equal(2, result.GenericArgs.Count);
+        Assert.Empty(result.ProtocolQualifications);
     }
 
     [Fact]

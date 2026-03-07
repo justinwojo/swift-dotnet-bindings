@@ -181,12 +181,11 @@ public static class ObjCTypeMapper
             return declaringClassName ?? "NSObject";
 
         // 3. Protocol-qualified id (id<Proto> or id<Proto1, Proto2>)
-        if (typeRef.Name == "id" && typeRef.ProtocolQualification != null)
+        if (typeRef.Name == "id" && typeRef.ProtocolQualifications.Count > 0)
         {
             // Multi-protocol: id<Proto1, Proto2> — use the first bindable protocol.
             // Filter out NSObject (implicit in ObjC) and NSFastEnumeration (no .NET binding).
-            var protocols = typeRef.ProtocolQualification.Split(',')
-                .Select(p => p.Trim())
+            var protocols = typeRef.ProtocolQualifications
                 .Where(p => p != "NSObject" && p != "NSFastEnumeration")
                 .ToList();
             if (protocols.Count == 0)
@@ -235,7 +234,7 @@ public static class ObjCTypeMapper
                     Name = resolved.Name,
                     IsPointer = true,
                     Nullability = typeRef.Nullability,
-                    ProtocolQualification = resolved.ProtocolQualification,
+                    ProtocolQualifications = [.. resolved.ProtocolQualifications],
                     BlockReturnType = resolved.BlockReturnType,
                     IsBlock = resolved.IsBlock,
                 };

@@ -110,7 +110,7 @@ public class ObjCTypeMapperTests
     [Fact]
     public void MapType_ProtocolQualifiedId_ReturnsIProtocol()
     {
-        var typeRef = new ObjCTypeRef { Name = "id", ProtocolQualification = "UITableViewDelegate" };
+        var typeRef = new ObjCTypeRef { Name = "id", ProtocolQualifications = ["UITableViewDelegate"] };
         Assert.Equal("IUITableViewDelegate", ObjCTypeMapper.MapType(typeRef));
     }
 
@@ -118,21 +118,21 @@ public class ObjCTypeMapperTests
     public void MapType_MultiProtocolId_UsesFirstNonNSObject()
     {
         // id<FIRLocalCacheSettings,NSObject> → IFIRLocalCacheSettings (not IFIRLocalCacheSettings,NSObject)
-        var typeRef = new ObjCTypeRef { Name = "id", ProtocolQualification = "FIRLocalCacheSettings,NSObject" };
+        var typeRef = new ObjCTypeRef { Name = "id", ProtocolQualifications = ["FIRLocalCacheSettings", "NSObject"] };
         Assert.Equal("IFIRLocalCacheSettings", ObjCTypeMapper.MapType(typeRef));
     }
 
     [Fact]
     public void MapType_MultiProtocolId_WithSpaces()
     {
-        var typeRef = new ObjCTypeRef { Name = "id", ProtocolQualification = "Proto1, Proto2, NSObject" };
+        var typeRef = new ObjCTypeRef { Name = "id", ProtocolQualifications = ["Proto1", "Proto2", "NSObject"] };
         Assert.Equal("IProto1", ObjCTypeMapper.MapType(typeRef));
     }
 
     [Fact]
     public void MapType_MultiProtocolId_AllNSObject_ReturnsNSObject()
     {
-        var typeRef = new ObjCTypeRef { Name = "id", ProtocolQualification = "NSObject" };
+        var typeRef = new ObjCTypeRef { Name = "id", ProtocolQualifications = ["NSObject"] };
         Assert.Equal("NSObject", ObjCTypeMapper.MapType(typeRef));
     }
 
@@ -140,7 +140,7 @@ public class ObjCTypeMapperTests
     public void MapType_MultiProtocolId_NSFastEnumerationFirst_SkipsToBindable()
     {
         // id<NSFastEnumeration, FIRFoo> — NSFastEnumeration has no binding, should use FIRFoo
-        var typeRef = new ObjCTypeRef { Name = "id", ProtocolQualification = "NSFastEnumeration, FIRFoo" };
+        var typeRef = new ObjCTypeRef { Name = "id", ProtocolQualifications = ["NSFastEnumeration", "FIRFoo"] };
         Assert.Equal("IFIRFoo", ObjCTypeMapper.MapType(typeRef));
     }
 
@@ -148,7 +148,7 @@ public class ObjCTypeMapperTests
     public void MapType_MultiProtocolId_NSObjectAndNSFastEnumerationBeforeBindable()
     {
         // id<NSObject, NSFastEnumeration, FIRFoo> — both filtered, should use FIRFoo
-        var typeRef = new ObjCTypeRef { Name = "id", ProtocolQualification = "NSObject, NSFastEnumeration, FIRFoo" };
+        var typeRef = new ObjCTypeRef { Name = "id", ProtocolQualifications = ["NSObject", "NSFastEnumeration", "FIRFoo"] };
         Assert.Equal("IFIRFoo", ObjCTypeMapper.MapType(typeRef));
     }
 
@@ -156,7 +156,15 @@ public class ObjCTypeMapperTests
     public void MapType_MultiProtocolId_OnlyUnbindable_ReturnsNSObject()
     {
         // id<NSObject, NSFastEnumeration> — nothing bindable left
-        var typeRef = new ObjCTypeRef { Name = "id", ProtocolQualification = "NSObject, NSFastEnumeration" };
+        var typeRef = new ObjCTypeRef { Name = "id", ProtocolQualifications = ["NSObject", "NSFastEnumeration"] };
+        Assert.Equal("NSObject", ObjCTypeMapper.MapType(typeRef));
+    }
+
+    [Fact]
+    public void MapType_ConcreteTypeWithProtocolQualification_MapsToConcreteType()
+    {
+        // NSObject<NSCopying> * → NSObject (protocol qualification is metadata, doesn't change C# type)
+        var typeRef = new ObjCTypeRef { Name = "NSObject", IsPointer = true, ProtocolQualifications = ["NSCopying"] };
         Assert.Equal("NSObject", ObjCTypeMapper.MapType(typeRef));
     }
 
@@ -372,7 +380,7 @@ public class ObjCTypeMapperTests
     [Fact]
     public void MapType_NSFastEnumeration_ProtocolQualified_ReturnsNSObject()
     {
-        var typeRef = new ObjCTypeRef { Name = "id", ProtocolQualification = "NSFastEnumeration" };
+        var typeRef = new ObjCTypeRef { Name = "id", ProtocolQualifications = ["NSFastEnumeration"] };
         Assert.Equal("NSObject", ObjCTypeMapper.MapType(typeRef));
     }
 
@@ -731,7 +739,7 @@ public class ObjCTypeMapperTests
     [Fact]
     public void MapType_IdWithNSURLProtocol_MapsProtocolName()
     {
-        var typeRef = new ObjCTypeRef { Name = "id", IsPointer = true, ProtocolQualification = "NSURLSessionDelegate" };
+        var typeRef = new ObjCTypeRef { Name = "id", IsPointer = true, ProtocolQualifications = ["NSURLSessionDelegate"] };
         Assert.Equal("INSUrlSessionDelegate", ObjCTypeMapper.MapType(typeRef));
     }
 

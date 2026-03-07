@@ -378,17 +378,22 @@ public static class ObjCTypeRefParser
         if (closeAngle < 0)
             return false;
 
-        var protocol = s[3..closeAngle].Trim();
+        var protocols = s[3..closeAngle].Split(',').Select(p => p.Trim()).Where(p => p.Length > 0).ToList();
         result = new ObjCTypeRef
         {
             Name = "id",
             IsPointer = true,
             Nullability = nullability,
-            ProtocolQualification = protocol,
+            ProtocolQualifications = protocols,
             RawQualType = raw
         };
         return true;
     }
+
+    // ObjC lightweight generic containers — angle brackets contain type parameters, not protocols.
+    private static readonly HashSet<string> KnownGenericContainers = ["NSArray", "NSDictionary", "NSSet",
+        "NSOrderedSet", "NSEnumerator", "NSMutableArray", "NSMutableDictionary", "NSMutableSet",
+        "NSMutableOrderedSet", "NSCache", "NSMapTable", "NSHashTable", "NSPointerArray"];
 
     private static bool TryParseGeneric(string s, ObjCNullability nullability, string raw, out ObjCTypeRef result)
     {
@@ -418,6 +423,36 @@ public static class ObjCTypeRefParser
             return false;
 
         var argsStr = s[(angleOpen + 1)..angleClose].Trim();
+
+        // Check if pointer after the generic args
+        var remainder = s[(angleClose + 1)..].Trim();
+        var isPointer = remainder.Contains('*');
+
+        // Distinguish protocol qualifications from generic type parameters.
+        // Protocol qualifications: NSObject<NSCopying, NSSecureCoding> *
+        //   — all args are simple identifiers (no *, <, (, spaces)
+        //   — base type is NOT a known generic container
+        // Generic parameters: NSArray<NSString *> *, NSDictionary<NSString *, NSNumber *> *
+        //   — args contain pointer/complex types
+        //   — OR base type IS a known generic container
+        if (!KnownGenericContainers.Contains(baseName))
+        {
+            var argParts = argsStr.Split(',').Select(a => a.Trim()).Where(a => a.Length > 0).ToList();
+            var allSimpleNames = argParts.All(a => a.All(c => char.IsLetterOrDigit(c) || c == '_'));
+            if (allSimpleNames && argParts.Count > 0)
+            {
+                result = new ObjCTypeRef
+                {
+                    Name = baseName,
+                    IsPointer = isPointer,
+                    Nullability = nullability,
+                    ProtocolQualifications = argParts,
+                    RawQualType = raw
+                };
+                return true;
+            }
+        }
+
         var genericArgs = new List<ObjCTypeRef>();
         foreach (var arg in SplitBlockParams(argsStr))
         {
@@ -425,10 +460,6 @@ public static class ObjCTypeRefParser
             if (!string.IsNullOrEmpty(trimmed))
                 genericArgs.Add(Parse(trimmed));
         }
-
-        // Check if pointer after the generic args
-        var remainder = s[(angleClose + 1)..].Trim();
-        var isPointer = remainder.Contains('*');
 
         result = new ObjCTypeRef
         {
