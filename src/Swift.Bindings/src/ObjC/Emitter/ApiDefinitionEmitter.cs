@@ -306,6 +306,9 @@ public static class ApiDefinitionEmitter
             }
         }
 
+        // Emit generic type hints as remarks
+        EmitGenericTypeHints(sb, method.ReturnType, method.Parameters, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap);
+
         var parameters = EmitParameters(method.Parameters, genericTypeParams, typedefMap, blockTypedefMap);
         sb.AppendLine($"        {returnType} {methodName}({parameters});");
         sb.AppendLine();
@@ -359,6 +362,10 @@ public static class ApiDefinitionEmitter
         if (ObjCTypeMapper.IsNullableAttribute(prop.Type))
             sb.AppendLine("        [NullAllowed]");
 
+        var propGenericHint = ObjCTypeMapper.FormatGenericTypeHint(prop.Type, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap);
+        if (propGenericHint != null)
+            sb.AppendLine($"        // {propGenericHint}");
+
         var mappedType = ObjCTypeMapper.MapType(prop.Type, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap);
         if (prop.IsReadonly)
         {
@@ -378,6 +385,28 @@ public static class ApiDefinitionEmitter
 
     static bool EmitAvailabilityAttributes(StringBuilder sb, List<ObjCAvailability> availability, string indent) =>
         ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, availability, indent);
+
+    static void EmitGenericTypeHints(StringBuilder sb, ObjCTypeRef returnType, List<ObjCParameterDecl> parameters, string? declaringClassName, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap, Dictionary<string, ObjCTypeRef>? blockTypedefMap)
+    {
+        var hints = new List<string>();
+
+        var returnHint = ObjCTypeMapper.FormatGenericTypeHint(returnType, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap);
+        if (returnHint != null)
+            hints.Add($"Return: {returnHint}");
+
+        foreach (var param in parameters)
+        {
+            var paramHint = ObjCTypeMapper.FormatGenericTypeHint(param.Type, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap);
+            if (paramHint != null)
+                hints.Add($"Parameter '{param.Name}': {paramHint}");
+        }
+
+        if (hints.Count > 0)
+        {
+            foreach (var hint in hints)
+                sb.AppendLine($"        // {hint}");
+        }
+    }
 
     static string EmitParameters(List<ObjCParameterDecl> parameters, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null)
     {

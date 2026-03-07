@@ -2204,4 +2204,117 @@ public class ApiDefinitionEmitterTests
         var result = EmitAndRead(module);
         Assert.Contains("a &lt; b &amp;&amp; c &gt; d", result);
     }
+
+    [Fact]
+    public void Emit_MethodWithGenericCollectionReturn_EmitsTypeHint()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "DataManager",
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "allItems",
+                            IsInstanceMethod = true,
+                            ReturnType = new ObjCTypeRef
+                            {
+                                Name = "NSArray",
+                                IsPointer = true,
+                                GenericArgs = [new ObjCTypeRef { Name = "NSString", IsPointer = true }]
+                            }
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("// Return: Element type: string", result);
+        Assert.Contains("NSArray AllItems", result);
+    }
+
+    [Fact]
+    public void Emit_MethodWithGenericCollectionParam_EmitsParamHint()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "DataManager",
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "processItems:",
+                            IsInstanceMethod = true,
+                            ReturnType = new ObjCTypeRef { Name = "void" },
+                            Parameters =
+                            [
+                                new ObjCParameterDecl
+                                {
+                                    Name = "items",
+                                    Type = new ObjCTypeRef
+                                    {
+                                        Name = "NSDictionary",
+                                        IsPointer = true,
+                                        GenericArgs =
+                                        [
+                                            new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                                            new ObjCTypeRef { Name = "NSNumber", IsPointer = true }
+                                        ]
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("// Parameter 'items': Key type: string, Value type: NSNumber", result);
+    }
+
+    [Fact]
+    public void Emit_PropertyWithGenericCollection_EmitsTypeHint()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "DataManager",
+                    Properties =
+                    [
+                        new ObjCPropertyDecl
+                        {
+                            Name = "items",
+                            IsReadonly = true,
+                            Type = new ObjCTypeRef
+                            {
+                                Name = "NSArray",
+                                IsPointer = true,
+                                GenericArgs = [new ObjCTypeRef { Name = "NSData", IsPointer = true }]
+                            }
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("// Element type: NSData", result);
+        Assert.Contains("NSArray Items { get; }", result);
+    }
 }

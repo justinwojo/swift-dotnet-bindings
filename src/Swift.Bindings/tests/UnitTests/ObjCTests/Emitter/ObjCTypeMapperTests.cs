@@ -867,4 +867,53 @@ public class ObjCTypeMapperTests
         var result = ObjCTypeMapper.MapType(new ObjCTypeRef { Name = "my_alias_t" }, typedefMap: typedefMap);
         Assert.Equal("uint", result);
     }
+
+    // Generic collection type hints
+
+    [Fact]
+    public void FormatGenericTypeHint_NSArray_ReturnsElementType()
+    {
+        var typeRef = new ObjCTypeRef
+        {
+            Name = "NSArray",
+            IsPointer = true,
+            GenericArgs = [new ObjCTypeRef { Name = "NSString", IsPointer = true }]
+        };
+        Assert.Equal("Element type: string", ObjCTypeMapper.FormatGenericTypeHint(typeRef));
+    }
+
+    [Fact]
+    public void FormatGenericTypeHint_NSDictionary_ReturnsKeyValueTypes()
+    {
+        var typeRef = new ObjCTypeRef
+        {
+            Name = "NSDictionary",
+            IsPointer = true,
+            GenericArgs =
+            [
+                new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                new ObjCTypeRef { Name = "NSNumber", IsPointer = true }
+            ]
+        };
+        Assert.Equal("Key type: string, Value type: NSNumber", ObjCTypeMapper.FormatGenericTypeHint(typeRef));
+    }
+
+    [Fact]
+    public void FormatGenericTypeHint_NSSet_ReturnsElementType()
+    {
+        var typeRef = new ObjCTypeRef
+        {
+            Name = "NSSet",
+            IsPointer = true,
+            GenericArgs = [new ObjCTypeRef { Name = "NSNumber", IsPointer = true }]
+        };
+        Assert.Equal("Element type: NSNumber", ObjCTypeMapper.FormatGenericTypeHint(typeRef));
+    }
+
+    [Fact]
+    public void FormatGenericTypeHint_NoGenericArgs_ReturnsNull()
+    {
+        var typeRef = new ObjCTypeRef { Name = "NSArray", IsPointer = true };
+        Assert.Null(ObjCTypeMapper.FormatGenericTypeHint(typeRef));
+    }
 }

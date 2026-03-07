@@ -305,6 +305,34 @@ public static class ObjCTypeMapper
         return name;
     }
 
+    /// <summary>
+    /// Returns a formatted generic type hint for a type with GenericArgs, or null if none.
+    /// E.g., NSArray&lt;NSString *&gt; → "Element type: string"
+    ///       NSDictionary&lt;NSString *, NSNumber *&gt; → "Key type: string, Value type: NSNumber"
+    /// </summary>
+    public static string? FormatGenericTypeHint(ObjCTypeRef typeRef, string? declaringClassName = null, HashSet<string>? genericTypeParams = null, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null)
+    {
+        if (typeRef.GenericArgs.Count == 0)
+            return null;
+
+        // For generic type parameters (e.g., T in NSArray<T>), preserve the original name
+        // instead of mapping to NSObject, since the hint is for human readability.
+        var mappedArgs = typeRef.GenericArgs
+            .Select(a => genericTypeParams != null && genericTypeParams.Contains(a.Name)
+                ? a.Name
+                : MapType(a, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap))
+            .ToList();
+
+        return typeRef.Name switch
+        {
+            "NSArray" or "NSMutableArray" or "NSSet" or "NSMutableSet" or "NSOrderedSet" or "NSMutableOrderedSet"
+                when mappedArgs.Count == 1 => $"Element type: {mappedArgs[0]}",
+            "NSDictionary" or "NSMutableDictionary"
+                when mappedArgs.Count == 2 => $"Key type: {mappedArgs[0]}, Value type: {mappedArgs[1]}",
+            _ => $"Generic args: {string.Join(", ", mappedArgs)}"
+        };
+    }
+
     public static Dictionary<string, ObjCTypeRef> BuildBlockTypedefMap(ObjCModule module) =>
         module.Typedefs
             .Where(t => t.UnderlyingType.IsBlock)
