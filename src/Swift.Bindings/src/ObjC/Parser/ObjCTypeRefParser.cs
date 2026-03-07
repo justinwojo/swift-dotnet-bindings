@@ -390,11 +390,6 @@ public static class ObjCTypeRefParser
         return true;
     }
 
-    // ObjC lightweight generic containers — angle brackets contain type parameters, not protocols.
-    private static readonly HashSet<string> KnownGenericContainers = ["NSArray", "NSDictionary", "NSSet",
-        "NSOrderedSet", "NSEnumerator", "NSMutableArray", "NSMutableDictionary", "NSMutableSet",
-        "NSMutableOrderedSet", "NSCache", "NSMapTable", "NSHashTable", "NSPointerArray"];
-
     private static bool TryParseGeneric(string s, ObjCNullability nullability, string raw, out ObjCTypeRef result)
     {
         result = null!;
@@ -428,31 +423,12 @@ public static class ObjCTypeRefParser
         var remainder = s[(angleClose + 1)..].Trim();
         var isPointer = remainder.Contains('*');
 
-        // Distinguish protocol qualifications from generic type parameters.
-        // Protocol qualifications: NSObject<NSCopying, NSSecureCoding> *
-        //   — all args are simple identifiers (no *, <, (, spaces)
-        //   — base type is NOT a known generic container
-        // Generic parameters: NSArray<NSString *> *, NSDictionary<NSString *, NSNumber *> *
-        //   — args contain pointer/complex types
-        //   — OR base type IS a known generic container
-        if (!KnownGenericContainers.Contains(baseName))
-        {
-            var argParts = argsStr.Split(',').Select(a => a.Trim()).Where(a => a.Length > 0).ToList();
-            var allSimpleNames = argParts.All(a => a.All(c => char.IsLetterOrDigit(c) || c == '_'));
-            if (allSimpleNames && argParts.Count > 0)
-            {
-                result = new ObjCTypeRef
-                {
-                    Name = baseName,
-                    IsPointer = isPointer,
-                    Nullability = nullability,
-                    ProtocolQualifications = argParts,
-                    RawQualType = raw
-                };
-                return true;
-            }
-        }
-
+        // All angle-bracket content is parsed as generic type arguments.
+        // Protocol qualifications on `id` (e.g., id<NSCopying>) are handled by
+        // TryParseIdProtocol which runs before this method. For concrete types
+        // like NSObject<NSCopying> or RLMResults<ObjectType>, the angle brackets
+        // always represent ObjC lightweight generics — the mapper handles them
+        // appropriately based on the base type.
         var genericArgs = new List<ObjCTypeRef>();
         foreach (var arg in SplitBlockParams(argsStr))
         {

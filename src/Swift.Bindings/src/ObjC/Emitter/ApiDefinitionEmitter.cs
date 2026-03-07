@@ -72,12 +72,12 @@ public static class ApiDefinitionEmitter
 
     static void EmitProtocol(StringBuilder sb, ObjCProtocolDecl proto, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, ILogger logger, ObjCBindingDiagnostics? diagnostics)
     {
-        ObjCDocCommentEmitter.EmitDocComment(sb, proto.DocComment, null, "    ");
         if (EmitAvailabilityAttributes(sb, proto.Availability, "    "))
         {
             diagnostics?.RecordSkip("Protocol", proto.Name, ObjCSkipReason.UnavailableApi, "marked unavailable on iOS");
             return;
         }
+        ObjCDocCommentEmitter.EmitDocComment(sb, proto.DocComment, null, "    ");
 
         sb.AppendLine("    [Protocol]");
         sb.AppendLine("    [BaseType(typeof(NSObject))]");
@@ -111,12 +111,12 @@ public static class ApiDefinitionEmitter
 
     static void EmitClass(StringBuilder sb, ObjCClassDecl cls, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, ILogger logger, ObjCBindingDiagnostics? diagnostics)
     {
-        ObjCDocCommentEmitter.EmitDocComment(sb, cls.DocComment, null, "    ");
         if (EmitAvailabilityAttributes(sb, cls.Availability, "    "))
         {
             diagnostics?.RecordSkip("Class", cls.Name, ObjCSkipReason.UnavailableApi, "marked unavailable on iOS");
             return;
         }
+        ObjCDocCommentEmitter.EmitDocComment(sb, cls.DocComment, null, "    ");
 
         // Disable default constructor if the class declares any parameterless init
         // to avoid bgen generating a duplicate parameterless constructor
@@ -248,12 +248,12 @@ public static class ApiDefinitionEmitter
             }
         }
 
-        ObjCDocCommentEmitter.EmitDocComment(sb, method.DocComment, method.DocParams, "        ");
         if (EmitAvailabilityAttributes(sb, method.Availability, "        "))
         {
             diagnostics?.RecordSkip("Method", method.Selector, ObjCSkipReason.UnavailableApi, "marked unavailable on iOS");
             return null;
         }
+        ObjCDocCommentEmitter.EmitDocComment(sb, method.DocComment, method.DocParams, "        ");
 
         var isConstructor = !isProtocol && (method.Selector == "init" || method.Selector.StartsWith("initWith", StringComparison.Ordinal));
 
@@ -336,12 +336,12 @@ public static class ApiDefinitionEmitter
         if (emittedPropertyNames != null && !emittedPropertyNames.Add(propName))
             return;
 
-        ObjCDocCommentEmitter.EmitDocComment(sb, prop.DocComment, null, "        ");
         if (EmitAvailabilityAttributes(sb, prop.Availability, "        "))
         {
             diagnostics?.RecordSkip("Property", propName, ObjCSkipReason.UnavailableApi, "marked unavailable on iOS");
             return;
         }
+        ObjCDocCommentEmitter.EmitDocComment(sb, prop.DocComment, null, "        ");
 
         if (!prop.IsOptional)
         {

@@ -645,6 +645,60 @@ public class StructsAndEnumsEmitterTests
     }
 
     [Fact]
+    public void EmitEnum_TypedefAliasedBackingType_ResolvesCorrectly()
+    {
+        // When clang reports a typedef alias (e.g., MyEnumBase) as the underlying type,
+        // the emitter should resolve through the typedef map to find the real C type.
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Typedefs =
+            [
+                new ObjCTypedefDecl { Name = "MyEnumBase", UnderlyingType = new ObjCTypeRef { Name = "uint32_t" } }
+            ],
+            Enums =
+            [
+                new ObjCEnumDecl
+                {
+                    Name = "TLResult",
+                    UnderlyingType = new ObjCTypeRef { Name = "MyEnumBase" },
+                    Cases = [new ObjCEnumCaseDecl { Name = "TLResultOk", Value = 0 }]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains(": uint", output);
+        Assert.DoesNotContain("[Native]", output);
+    }
+
+    [Fact]
+    public void EmitEnum_TypedefAliasedNativeWidth_ResolvesWithNative()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Typedefs =
+            [
+                new ObjCTypedefDecl { Name = "PBType", UnderlyingType = new ObjCTypeRef { Name = "NSInteger" } }
+            ],
+            Enums =
+            [
+                new ObjCEnumDecl
+                {
+                    Name = "TLMode",
+                    UnderlyingType = new ObjCTypeRef { Name = "PBType" },
+                    Cases = [new ObjCEnumCaseDecl { Name = "TLModeDefault", Value = 0 }]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains(": long", output);
+        Assert.Contains("[Native]", output);
+    }
+
+    [Fact]
     public void EmitConstant_Nfloat_AsField()
     {
         var module = new ObjCModule

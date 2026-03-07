@@ -235,6 +235,7 @@ public static class ObjCTypeMapper
                     IsPointer = true,
                     Nullability = typeRef.Nullability,
                     ProtocolQualifications = [.. resolved.ProtocolQualifications],
+                    GenericArgs = [.. resolved.GenericArgs],
                     BlockReturnType = resolved.BlockReturnType,
                     IsBlock = resolved.IsBlock,
                 };

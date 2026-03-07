@@ -149,7 +149,7 @@ public static class StructsAndEnumsEmitter
         sb.AppendLine("{");
 
         foreach (var enumDecl in module.Enums)
-            EmitEnum(sb, enumDecl, diagnostics);
+            EmitEnum(sb, enumDecl, typedefMap, diagnostics);
 
         foreach (var structDecl in module.Structs.Where(s => !SystemStructs.Contains(s.Name)))
             EmitStruct(sb, structDecl, typedefMap, knownTypes, logger, diagnostics);
@@ -209,16 +209,16 @@ public static class StructsAndEnumsEmitter
         return new StructsAndEnumsResult(filePath, bgenDelegatesPath);
     }
 
-    static void EmitEnum(StringBuilder sb, ObjCEnumDecl enumDecl, ObjCBindingDiagnostics? diagnostics = null)
+    static void EmitEnum(StringBuilder sb, ObjCEnumDecl enumDecl, Dictionary<string, ObjCTypeRef>? typedefMap = null, ObjCBindingDiagnostics? diagnostics = null)
     {
-        ObjCDocCommentEmitter.EmitDocComment(sb, enumDecl.DocComment, null, "    ");
         if (ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, enumDecl.Availability, "    "))
         {
             diagnostics?.RecordSkip("Enum", enumDecl.Name, ObjCSkipReason.UnavailableApi, "marked unavailable on iOS");
             return;
         }
+        ObjCDocCommentEmitter.EmitDocComment(sb, enumDecl.DocComment, null, "    ");
 
-        var (baseType, isNative) = ResolveEnumBackingType(enumDecl);
+        var (baseType, isNative) = ResolveEnumBackingType(enumDecl, typedefMap);
         if (isNative)
             sb.AppendLine("    [Native]");
         if (enumDecl.IsOptions)
@@ -279,7 +279,7 @@ public static class StructsAndEnumsEmitter
     /// Resolves the C# backing type for an ObjC enum from its UnderlyingType.
     /// Returns the C# type name and whether [Native] should be emitted.
     /// </summary>
-    internal static (string CSharpType, bool IsNative) ResolveEnumBackingType(ObjCEnumDecl enumDecl)
+    internal static (string CSharpType, bool IsNative) ResolveEnumBackingType(ObjCEnumDecl enumDecl, Dictionary<string, ObjCTypeRef>? typedefMap = null)
     {
         var underlyingName = enumDecl.UnderlyingType?.Name;
 
@@ -293,6 +293,18 @@ public static class StructsAndEnumsEmitter
 
             if (FixedWidthEnumTypes.TryGetValue(underlyingName, out var fixedType))
                 return (fixedType, false);
+
+            // Resolve through typedef aliases (e.g., MyEnumBase → uint32_t → uint)
+            if (typedefMap != null && typedefMap.TryGetValue(underlyingName, out var resolved))
+            {
+                var resolvedName = resolved.Name;
+                if (NativeWidthSignedTypes.Contains(resolvedName))
+                    return ("long", true);
+                if (NativeWidthUnsignedTypes.Contains(resolvedName))
+                    return ("ulong", true);
+                if (FixedWidthEnumTypes.TryGetValue(resolvedName, out var resolvedFixed))
+                    return (resolvedFixed, false);
+            }
         }
 
         // Default: native-width signed/unsigned based on IsOptions

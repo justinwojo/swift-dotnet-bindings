@@ -263,6 +263,176 @@ public class ObjCAvailabilityEmitterTests
     }
 
     [Fact]
+    public void ApiDefinitionEmitter_UnavailableClassWithDocComment_NoOrphanedDocs()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "OldClass",
+                    DocComment = "This class is deprecated.",
+                    Availability = [new ObjCAvailability { Platform = "ios", IsUnavailable = true }]
+                },
+                new ObjCClassDecl
+                {
+                    Name = "NewClass",
+                }
+            ]
+        };
+
+        var dir = Path.Combine(Path.GetTempPath(), $"avail_test_{Guid.NewGuid():N}");
+        try
+        {
+            var path = ApiDefinitionEmitter.Emit(module, dir, "TestNamespace", Logger);
+            var content = File.ReadAllText(path);
+            Assert.DoesNotContain("OldClass", content);
+            Assert.DoesNotContain("This class is deprecated.", content);
+            Assert.Contains("NewClass", content);
+        }
+        finally
+        {
+            if (Directory.Exists(dir))
+                Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void ApiDefinitionEmitter_UnavailableMethodWithDocComment_NoOrphanedDocs()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "MyClass",
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "oldMethod",
+                            ReturnType = new ObjCTypeRef { Name = "void" },
+                            IsInstanceMethod = true,
+                            DocComment = "This method is old.",
+                            Availability = [new ObjCAvailability { Platform = "ios", IsUnavailable = true }]
+                        },
+                        new ObjCMethodDecl
+                        {
+                            Selector = "newMethod",
+                            ReturnType = new ObjCTypeRef { Name = "void" },
+                            IsInstanceMethod = true,
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var dir = Path.Combine(Path.GetTempPath(), $"avail_test_{Guid.NewGuid():N}");
+        try
+        {
+            var path = ApiDefinitionEmitter.Emit(module, dir, "TestNamespace", Logger);
+            var content = File.ReadAllText(path);
+            Assert.DoesNotContain("oldMethod", content);
+            Assert.DoesNotContain("This method is old.", content);
+            Assert.Contains("NewMethod", content);
+        }
+        finally
+        {
+            if (Directory.Exists(dir))
+                Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void ApiDefinitionEmitter_UnavailablePropertyWithDocComment_NoOrphanedDocs()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "MyClass",
+                    Properties =
+                    [
+                        new ObjCPropertyDecl
+                        {
+                            Name = "oldProp",
+                            Type = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                            DocComment = "This property is old.",
+                            Availability = [new ObjCAvailability { Platform = "ios", IsUnavailable = true }]
+                        },
+                        new ObjCPropertyDecl
+                        {
+                            Name = "newProp",
+                            Type = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var dir = Path.Combine(Path.GetTempPath(), $"avail_test_{Guid.NewGuid():N}");
+        try
+        {
+            var path = ApiDefinitionEmitter.Emit(module, dir, "TestNamespace", Logger);
+            var content = File.ReadAllText(path);
+            Assert.DoesNotContain("This property is old.", content);
+            Assert.Contains("NewProp", content);
+        }
+        finally
+        {
+            if (Directory.Exists(dir))
+                Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void StructsAndEnumsEmitter_UnavailableEnumWithDocComment_NoOrphanedDocs()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Enums =
+            [
+                new ObjCEnumDecl
+                {
+                    Name = "TLOldEnum",
+                    DocComment = "This enum is old.",
+                    Availability = [new ObjCAvailability { Platform = "ios", IsUnavailable = true }],
+                    Cases = [new ObjCEnumCaseDecl { Name = "TLOldEnumA" }]
+                },
+                new ObjCEnumDecl
+                {
+                    Name = "TLNewEnum",
+                    Cases = [new ObjCEnumCaseDecl { Name = "TLNewEnumA" }]
+                }
+            ]
+        };
+
+        var dir = Path.Combine(Path.GetTempPath(), $"avail_test_{Guid.NewGuid():N}");
+        try
+        {
+            var result = StructsAndEnumsEmitter.Emit(module, dir, "TestLib.Binding", Logger);
+            Assert.NotNull(result);
+            var content = File.ReadAllText(result!.FilePath);
+            Assert.DoesNotContain("This enum is old.", content);
+            Assert.DoesNotContain("TLOldEnum", content);
+            Assert.Contains("TLNewEnum", content);
+        }
+        finally
+        {
+            if (Directory.Exists(dir))
+                Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
     public void StructsAndEnumsEmitter_SkipsUnavailableEnum()
     {
         var module = new ObjCModule
