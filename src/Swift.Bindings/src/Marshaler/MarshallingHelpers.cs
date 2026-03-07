@@ -105,13 +105,11 @@ namespace BindingsGeneration
                 return IsObjCBridged(typeRecord);
             // Fallback: Apple framework ObjC classes (e.g., QuartzCore.CALayer) not in the module
             // database. Must match TypeProjectionFactory's Optional<T> fallback exactly:
-            // IsKnownAppleModule + HasObjCClassPrefix → ObjCBridgedProjection.
-            if (TypeProjectionFactory.IsKnownAppleModule(innerNamed.Module) &&
-                !TypeProjectionFactory.IsNestedType(innerNamed.Name) &&
+            // IsOptionalFallbackModule + HasObjCClassPrefix → ObjCBridgedProjection.
+            if (AppleFrameworkRegistry.IsOptionalFallbackModule(innerNamed.Module) &&
+                !AppleFrameworkRegistry.IsNestedType(innerNamed.Name) &&
                 !TypeDatabaseExtensions.IsKnownAppleValueType(innerNamed) &&
-                !TypeDatabaseExtensions.IsRemappedAppleValueType(innerNamed) &&
-                !TypeDatabaseExtensions.IsRemappedAppleEnum(innerNamed) &&
-                TypeProjectionFactory.HasObjCClassPrefix(innerNamed.Name))
+                AppleFrameworkRegistry.HasObjCClassPrefix(innerNamed.Name))
                 return true;
             return false;
         }
@@ -238,53 +236,25 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Maps Swift module names to their corresponding .NET namespace.
-        /// Most Swift modules map 1:1 to .NET namespaces (e.g., UIKit → UIKit).
-        /// Overrides handle cases where Swift and .NET use different names.
-        /// All emission paths MUST use <see cref="MapSwiftModuleToNetNamespace"/> instead
-        /// of maintaining local copies of this mapping.
-        /// </summary>
-        private static readonly Dictionary<string, string> SwiftModuleToNetNamespace = new(StringComparer.Ordinal)
-        {
-            { "ObjectiveC", "Foundation" },
-            { "QuartzCore", "CoreAnimation" },
-            { "Dispatch", "CoreFoundation" },
-            { "AVFAudio", "AVFoundation" },
-        };
-
-        /// <summary>
         /// Maps a Swift module name to its corresponding .NET namespace.
         /// Returns the original module name if no mapping exists.
+        /// All emission paths MUST use this method instead of maintaining local copies of the mapping.
         /// </summary>
         public static string MapSwiftModuleToNetNamespace(string swiftModule)
-        {
-            if (string.IsNullOrEmpty(swiftModule))
-                return swiftModule;
-            return SwiftModuleToNetNamespace.TryGetValue(swiftModule, out var mapped) ? mapped : swiftModule;
-        }
+            => AppleFrameworkRegistry.MapModuleToNetNamespace(swiftModule);
 
         /// <summary>
         /// Maps a module-qualified Swift type name (e.g., "QuartzCore.CALayer") to its
         /// .NET equivalent (e.g., "CoreAnimation.CALayer"). If the module has no mapping,
         /// the original name is returned unchanged.
         /// </summary>
-        /// <summary>
-        /// Swift type names that differ from their .NET iOS equivalents.
-        /// Swift drops the NS/UI prefix for some Foundation types, but .NET keeps the ObjC names.
-        /// Key: "Module.SwiftTypeName", Value: "NetNamespace.NetTypeName".
-        /// </summary>
-        private static readonly Dictionary<string, string> SwiftToNetTypeRemappings = new(StringComparer.Ordinal)
-        {
-            ["Foundation.Formatter"] = "Foundation.NSFormatter",
-        };
-
         public static string MapQualifiedTypeToNet(string qualifiedSwiftTypeName)
         {
             if (string.IsNullOrEmpty(qualifiedSwiftTypeName))
                 return qualifiedSwiftTypeName;
 
-            // Check explicit remapping first (Swift names that differ from .NET names)
-            if (SwiftToNetTypeRemappings.TryGetValue(qualifiedSwiftTypeName, out var remapped))
+            // Check explicit type remapping first (handles both module remapping AND type name changes)
+            if (AppleFrameworkRegistry.TryGetNetTypeName(qualifiedSwiftTypeName, out var remapped))
                 return remapped;
 
             var dotIndex = qualifiedSwiftTypeName.IndexOf('.');
@@ -303,18 +273,7 @@ namespace BindingsGeneration
         /// Matches module names followed by a dot to avoid false positives.
         /// </summary>
         public static string MapModulesInString(string text)
-        {
-            if (string.IsNullOrEmpty(text))
-                return text;
-
-            foreach (var (swiftModule, netNamespace) in SwiftModuleToNetNamespace)
-            {
-                var swiftPrefix = $"{swiftModule}.";
-                if (text.Contains(swiftPrefix, StringComparison.Ordinal))
-                    text = text.Replace(swiftPrefix, $"{netNamespace}.", StringComparison.Ordinal);
-            }
-            return text;
-        }
+            => AppleFrameworkRegistry.MapModulesInString(text);
 
         /// <summary>
         /// Gets the fully-qualified .NET base type name for an ObjC-rooted class.

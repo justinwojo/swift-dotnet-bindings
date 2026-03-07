@@ -78,14 +78,6 @@ public static class TypeDatabaseExtensions
         if (typeDatabase.IsTypeProcessed(typeName))
             return true;
 
-        // Apple framework value types with non-standard .NET names (e.g., _NSRange → NSRange)
-        if (IsRemappedAppleValueType(typeSpec))
-            return true;
-
-        // Apple framework ObjC enums (NS_ENUM/NS_OPTIONS) with remapped .NET names
-        if (IsRemappedAppleEnum(typeSpec))
-            return true;
-
         // ObjC class types get synthetic ObjCBridged records (DB-first to allow explicit overrides)
         return IsObjCModuleType(typeSpec);
     }
@@ -266,22 +258,6 @@ public static class TypeDatabaseExtensions
         if (typeDatabase.TryGetTypeRecord(typeName, out record))
             return true;
 
-        // Apple framework value types with non-standard .NET names (e.g., _NSRange → NSRange)
-        var remapped = TryCreateRemappedValueTypeRecord(typeName);
-        if (remapped != null)
-        {
-            record = remapped;
-            return true;
-        }
-
-        // Apple framework ObjC enums (NS_ENUM/NS_OPTIONS) with remapped .NET names
-        var enumRecord = TryCreateAppleFrameworkEnumRecord(typeName);
-        if (enumRecord != null)
-        {
-            record = enumRecord;
-            return true;
-        }
-
         // ObjC class types get synthetic ObjCBridged records (DB-first to allow explicit overrides)
         if (IsObjCModuleType(typeSpec))
         {
@@ -361,16 +337,6 @@ public static class TypeDatabaseExtensions
         if (typeDatabase.TryGetTypeRecord(swiftTypeName, out var record))
             return record;
 
-        // Apple framework value types with non-standard .NET names (e.g., _NSRange → NSRange)
-        var remapped = TryCreateRemappedValueTypeRecord(swiftTypeName);
-        if (remapped != null)
-            return remapped;
-
-        // Apple framework ObjC enums (NS_ENUM/NS_OPTIONS) with remapped .NET names
-        var enumRecord = TryCreateAppleFrameworkEnumRecord(swiftTypeName);
-        if (enumRecord != null)
-            return enumRecord;
-
         // ObjC class types not in the database get synthetic ObjCBridged records.
         // Covers ObjectiveC/Foundation root classes and Apple framework module types.
         if (IsObjCClassSwiftType(swiftTypeName))
@@ -389,16 +355,6 @@ public static class TypeDatabaseExtensions
     {
         if (typeDatabase.TryGetTypeRecord(swiftTypeName, out var record))
             return record;
-
-        // Apple framework value types with non-standard .NET names (e.g., _NSRange → NSRange)
-        var remapped = TryCreateRemappedValueTypeRecord(swiftTypeName);
-        if (remapped != null)
-            return remapped;
-
-        // Apple framework ObjC enums (NS_ENUM/NS_OPTIONS) with remapped .NET names
-        var enumRecord = TryCreateAppleFrameworkEnumRecord(swiftTypeName);
-        if (enumRecord != null)
-            return enumRecord;
 
         // ObjC class types not in the database get synthetic ObjCBridged records.
         // Covers ObjectiveC/Foundation root classes and Apple framework module types.
@@ -467,20 +423,6 @@ public static class TypeDatabaseExtensions
 
         // ObjC framework types are handled via synthetic ObjCBridged records, not a fallback
         if (IsObjCModuleType(typeSpec))
-        {
-            fallbackInfo = null;
-            return false;
-        }
-
-        // Apple framework value types with remapped .NET names are handled, not a fallback
-        if (IsRemappedAppleValueType(typeSpec))
-        {
-            fallbackInfo = null;
-            return false;
-        }
-
-        // Apple framework ObjC enums with remapped .NET names are handled, not a fallback
-        if (IsRemappedAppleEnum(typeSpec))
         {
             fallbackInfo = null;
             return false;
@@ -607,511 +549,49 @@ public static class TypeDatabaseExtensions
     /// </summary>
     private const string ObjCModuleName = "ObjectiveC";
 
-    /// <summary>
-    /// Apple framework modules whose types are predominantly Objective-C classes.
-    /// Types from these modules get synthetic ObjCBridged records when not explicitly
-    /// registered in the type database XML, unless excluded by
-    /// <see cref="AppleFrameworkValueTypes"/>. The C# namespace matches the Swift module
-    /// name (e.g., UIKit.UIImage → UIKit.UIImage in C#).
-    /// Modules with many value types (Metal, CoreMotion, CoreGraphics, GameKit, simd, etc.)
-    /// are intentionally excluded — their types must be registered via XML.
-    /// KNOWN GAP: If a newly encountered struct/enum from an included module is not in
-    /// <see cref="AppleFrameworkValueTypes"/>, it will be misclassified as a class. This
-    /// produces a compile-time error in generated code (not a silent runtime bug). The
-    /// long-term fix is ABI-driven classification using the "usr" field from ABI JSON.
-    /// </summary>
-    private static readonly HashSet<string> AppleObjCFrameworkModules = new(StringComparer.Ordinal)
-    {
-        "Foundation",
-        "UIKit", "AppKit", "CoreImage", "CoreData",
-        "WebKit", "SceneKit", "SpriteKit", "ARKit", "RealityKit",
-        "AVFoundation", "Photos", "PhotosUI", "Contacts", "ContactsUI",
-        "EventKit", "EventKitUI", "HealthKit", "HomeKit", "CloudKit",
-        "StoreKit", "PDFKit", "SafariServices",
-        "AuthenticationServices", "CoreBluetooth", "CoreSpotlight",
-        "CoreML", "Vision", "NaturalLanguage", "SoundAnalysis", "Speech",
-        "MultipeerConnectivity", "UserNotifications", "NetworkExtension",
-        "Intents", "IntentsUI",
-        "QuartzCore",
-        "AVFAudio",
-    };
-
-    // Swift module → .NET namespace overrides are centralized in MarshallingHelpers.MapSwiftModuleToNetNamespace().
-
-    /// <summary>
-    /// Known value types (structs/enums) from Apple ObjC framework modules.
-    /// These must NOT be auto-bridged as ObjC classes — they are value types
-    /// that need different marshalling (direct copy, not pointer + ARC).
-    /// Key is "Module.TypeName" (fully qualified).
-    /// </summary>
-    private static readonly HashSet<string> AppleFrameworkValueTypes = new(StringComparer.Ordinal)
-    {
-        // UIKit structs
-        "UIKit.UIEdgeInsets", "UIKit.UIOffset", "UIKit.UIFloatRange",
-        "UIKit.NSDirectionalEdgeInsets",
-        // UIKit nested enums/structs (flattened in .NET: UIView.ContentMode → UIViewContentMode)
-        "UIKit.UIView.ContentMode", "UIKit.UIControl.State", "UIKit.UIControl.Event",
-        "UIKit.UIAccessibilityTraits",
-        // UIKit enums (ObjC enums bridged to Swift — value types, not NSObject subclasses)
-        // Names use the Swift nested form from ABI JSON printedName (e.g., UIActivityIndicatorView.Style)
-        "UIKit.UIBarStyle", "UIKit.UIKeyboardAppearance", "UIKit.UITextField.ViewMode",
-        "UIKit.UIControl.ContentVerticalAlignment", "UIKit.UIActivityIndicatorView.Style",
-        "UIKit.UIBlurEffect.Style", "UIKit.UILayoutPriority",
-        "UIKit.NSTextAlignment",
-        "UIKit.NSWritingDirection",
-        "UIKit.UIKeyboardType",
-        "UIKit.UITextLayoutDirection",
-        "UIKit.UIUserInterfaceLayoutDirection",
-        // AVFoundation structs
-        "AVFoundation.AVAudioFramePosition", "AVFoundation.AVAudioFrameCount",
-        "AVFoundation.AVAudioPacketCount", "AVFoundation.AVAudioChannelCount",
-        "AVFoundation.AVCaptureVideoOrientation",
-        "AVFoundation.AVCaptureSession.Preset",
-        "AVFoundation.AVCaptureDevice.AutoFocusRangeRestriction",
-        "AVFoundation.AVCaptureDevice.DeviceType",
-        "AVFoundation.AVCaptureDevice.FocusMode",
-        // CoreData structs
-        "CoreData.NSFetchRequestResultType",
-        // SceneKit structs
-        "SceneKit.SCNVector3", "SceneKit.SCNVector4", "SceneKit.SCNMatrix4",
-        // MapKit structs (module removed from auto-bridge, but kept here for safety)
-        "MapKit.MKCoordinateRegion", "MapKit.MKCoordinateSpan",
-        "MapKit.MKMapRect", "MapKit.MKMapPoint", "MapKit.MKMapSize",
-        // ARKit structs
-        "ARKit.ARRaycastQuery",
-        // Foundation value types (Swift structs/enums bridged from ObjC — NOT NSObject subclasses)
-        "Foundation.Data", "Foundation.URL", "Foundation.UUID", "Foundation.IndexPath",
-        "Foundation.URLError", "Foundation.URLError.Code",
-        "Foundation.URLComponents", "Foundation.URLQueryItem", "Foundation.URLRequest",
-        "Foundation.DateInterval", "Foundation.Calendar", "Foundation.Locale",
-        "Foundation.TimeZone", "Foundation.Notification", "Foundation.Notification.Name",
-        "Foundation.Measurement", "Foundation.PersonNameComponents",
-        "Foundation.CharacterSet", "Foundation.Decimal", "Foundation.NSRange",
-        "Foundation.Date", "Foundation.DateComponents", "Foundation.IndexSet",
-        "Foundation.Selector", "Foundation.ComparisonResult",
-        // Foundation types with underscore prefix in Swift ABI (C struct names)
-        "Foundation._NSRange",
-        // Foundation types with no .NET equivalent (excluded from ObjC bridging)
-        "Foundation.JSONEncoder",
-        "Foundation.JSONDecoder",
-        "Foundation.NSNotification.Name",
-        "Foundation.objc_AssociationPolicy",
-        "Foundation.XMLParser",              // NSXMLParser — not bound in .NET iOS
-        // Foundation nested enums with remapped .NET names
-        "Foundation.URLSessionWebSocketTask.CloseCode",
-        // Foundation nested ObjC enums (NS_OPTIONS) — value types, not NSObject subclasses
-        "Foundation.JSONSerialization.ReadingOptions",
-        "Foundation.JSONSerialization.WritingOptions",
-        // Foundation stream types (ObjC NSStream / NSStreamEvent bridged to Swift)
-        "Foundation.Stream.Event",
-        // Foundation nested ObjC enum: Operation.QueuePriority → NSOperationQueuePriority
-        "Foundation.Operation.QueuePriority",
-        // Foundation nested ObjC enum: URLCredential.Persistence → NSUrlCredentialPersistence
-        "Foundation.URLCredential.Persistence",
-        // Foundation nested ObjC enums from URLSession delegate protocols
-        "Foundation.URLSession.ResponseDisposition",
-        "Foundation.URLSession.AuthChallengeDisposition",
-        // Foundation nested struct: RunLoop.Mode → NSRunLoopMode
-        "Foundation.RunLoop.Mode",
-        // Foundation ObjC typedef (NSString-based key type — NSFileAttributeKey not bound in .NET iOS)
-        "Foundation.FileAttributeKey",
-        // Foundation nested ObjC NS_OPTIONS: NSData.WritingOptions → NSDataWritingOptions
-        "Foundation.NSData.WritingOptions",
-        // UIKit nested ObjC enums/options (value types, not NSObject subclasses)
-        "UIKit.UIImage.RenderingMode",
-        "UIKit.UIImage.ResizingMode",
-        "UIKit.UIImage.SymbolScale",
-        "UIKit.UIImage.SymbolWeight",
-        "UIKit.UIView.AnimationOptions",
-        "UIKit.UIView.AutoresizingMask",
-        "UIKit.UIView.AnimationCurve",
-        "UIKit.UIRectEdge",
-        "UIKit.UIRectCorner",
-        "UIKit.UIInterfaceOrientation",
-        "UIKit.UIInterfaceOrientationMask",
-        "UIKit.UIUserInterfaceIdiom",
-        "UIKit.UIUserInterfaceStyle",
-        "UIKit.UISemanticContentAttribute",
-        "UIKit.UIControl.ContentHorizontalAlignment",
-        "UIKit.NSLineBreakMode",
-        "UIKit.UITextAutocapitalizationType",
-        "UIKit.UITextAutocorrectionType",
-        "UIKit.UITextSpellCheckingType",
-        "UIKit.UIReturnKeyType",
-        "UIKit.UIDataDetectorTypes",
-        "UIKit.UITableView.Style",
-        "UIKit.UITextField.DidEndEditingReason",
-        "UIKit.UISwipeGestureRecognizer.Direction",
-        "UIKit.UICollectionView.ScrollDirection",
-        "UIKit.UICollectionView.ScrollPosition",
-        "UIKit.UITableViewCell.CellStyle",
-        "UIKit.UITableViewCell.SelectionStyle",
-        "UIKit.UITableViewCell.AccessoryType",
-        "UIKit.UITableViewCell.EditingStyle",
-        "UIKit.UITableView.RowAnimation",
-        "UIKit.UITableView.ScrollPosition",
-        "UIKit.UIScrollView.IndicatorStyle",
-        "UIKit.UIScrollView.KeyboardDismissMode",
-        "UIKit.UIScrollView.ContentInsetAdjustmentBehavior",
-        "UIKit.UIStackView.Alignment",
-        "UIKit.UIStackView.Distribution",
-        "UIKit.UINavigationController.Operation",
-        "UIKit.UINavigationItem.LargeTitleDisplayMode",
-        "UIKit.UIPageViewController.NavigationDirection",
-        "UIKit.UIPageViewController.NavigationOrientation",
-        "UIKit.UIPageViewController.SpineLocation",
-        "UIKit.UIPageViewController.TransitionStyle",
-        "UIKit.UIGestureRecognizer.State",
-        "UIKit.UIModalPresentationStyle",
-        "UIKit.UIModalTransitionStyle",
-        "UIKit.UIStatusBarStyle",
-        "UIKit.UIStatusBarAnimation",
-        "UIKit.UIBarPosition",
-        "UIKit.UITabBarItem.SystemItem",
-        "UIKit.UIBarButtonItem.SystemItem",
-        "UIKit.UIBarButtonItem.Style",
-        "UIKit.UIDatePicker.Mode",
-        "UIKit.UIAlertController.Style",
-        "UIKit.UIAlertAction.Style",
-        // AVFoundation enums (value types)
-        "AVFoundation.AVMediaType",
-        "AVFoundation.AVFileType",
-        "AVFoundation.AVLayerVideoGravity",
-        "AVFoundation.AVCaptureDevice.Position",
-        "AVFoundation.AVCaptureDevice.FlashMode",
-        "AVFoundation.AVCaptureDevice.TorchMode",
-        "AVFoundation.AVPlayer.TimeControlStatus",
-        "AVFoundation.AVPlayer.Status",
-        "AVFoundation.AVPlayerItem.Status",
-        // StoreKit enums (value types)
-        "StoreKit.SKPaymentTransactionState",
-        "StoreKit.SKError.Code",
-        "StoreKit.SKProduct.PeriodUnit",
-        "StoreKit.SKProductDiscount.PaymentMode",
-        // CoreBluetooth enums (value types)
-        "CoreBluetooth.CBManagerState",
-        "CoreBluetooth.CBManagerAuthorization",
-        "CoreBluetooth.CBPeripheralState",
-        "CoreBluetooth.CBCharacteristicProperties",
-        "CoreBluetooth.CBAttributePermissions",
-        "CoreBluetooth.CBCharacteristicWriteType",
-        // Photos ObjC enum (value type)
-        "Photos.PHImageContentMode",
-        // Foundation NS_OPTIONS imported via NSRegularExpression.Options
-        "Foundation.NSRegularExpression.Options",
-        // QuartzCore structs/enums (CoreAnimation namespace in .NET iOS)
-        "QuartzCore.CATransform3D",
-        "QuartzCore.CACornerMask",
-        "QuartzCore.CAEdgeAntialiasingMask",
-        "QuartzCore.CAAutoresizingMask",
-        "QuartzCore.CAContentsFormat",
-        "QuartzCore.CACornerCurve",
-        "QuartzCore.CAGradientLayerType",
-        "QuartzCore.CATextLayerAlignmentMode",
-        "QuartzCore.CATextLayerTruncationMode",
-        "QuartzCore.CAScroll",
-        "QuartzCore.CADynamicRange",
-        "QuartzCore.CAToneMapMode",
-        // UIKit enums whose .NET namespace differs from Swift module (UIKit → Foundation)
-        "UIKit.NSUnderlineStyle",                    // NS_OPTIONS bitmask (underline/strikethrough styles)
-        // UIKit ObjC typedefs (NSString-based) — value types in .NET iOS, not NSObject subclasses
-        "UIKit.UIFont.TextStyle",                    // typedef NSString *UIFontTextStyle → UIKit.UIFontTextStyle enum
-        "UIKit.UIContentSizeCategory",               // typedef NSString *UIContentSizeCategory → UIKit.UIContentSizeCategory enum
-        // UIKit nested ObjC enums
-        "UIKit.NSLayoutConstraint.Relation",         // Nested Swift enum → .NET flattened NSLayoutRelation
-        "UIKit.NSParagraphStyle.LineBreakStrategy",   // Nested Swift enum → .NET flattened NSLineBreakStrategy
-        // Foundation nested ObjC typedefs (not bound as standalone types in .NET iOS)
-        "Foundation.NSAttributedString.Key",         // typedef NSString *NSAttributedStringKey → NSString
-    };
-
-    /// <summary>
-    /// Remapping table for Apple framework value types whose .NET type names
-    /// differ from the flattened Swift name pattern. These types are in
-    /// <see cref="AppleFrameworkValueTypes"/> (excluded from ObjC class bridging)
-    /// and need explicit name remapping to their .NET iOS SDK equivalents.
-    /// Key is the Swift module-qualified name, value is (C# namespace, C# type name).
-    /// </summary>
-    private static readonly Dictionary<string, (string Namespace, string Name)> AppleFrameworkTypeRemappings =
-        new(StringComparer.Ordinal)
-    {
-        // C struct types: underscore prefix removed in .NET iOS SDK
-        ["Foundation._NSRange"] = ("Foundation", "NSRange"),
-        // ObjC NS_OPTIONS enums: Swift nested form → .NET flattened NS-prefix form
-        ["Foundation.JSONSerialization.ReadingOptions"] = ("Foundation", "NSJsonReadingOptions"),
-        ["Foundation.JSONSerialization.WritingOptions"] = ("Foundation", "NSJsonWritingOptions"),
-        // Foundation nested enum: Swift nested form → .NET flattened NS-prefix form
-        ["Foundation.URLSessionWebSocketTask.CloseCode"] = ("Foundation", "NSUrlSessionWebSocketCloseCode"),
-        // Foundation stream event: Swift nested form → .NET flattened NS-prefix form
-        ["Foundation.Stream.Event"] = ("Foundation", "NSStreamEvent"),
-        // Foundation nested ObjC enum: Swift nested form → .NET NS-prefix form
-        ["Foundation.Operation.QueuePriority"] = ("Foundation", "NSOperationQueuePriority"),
-        // Foundation nested ObjC enum: URLCredential.Persistence → NSUrlCredentialPersistence
-        ["Foundation.URLCredential.Persistence"] = ("Foundation", "NSUrlCredentialPersistence"),
-        // Foundation URLSession delegate enums: Swift nested form → .NET NS-prefix form
-        ["Foundation.URLSession.ResponseDisposition"] = ("Foundation", "NSUrlSessionResponseDisposition"),
-        ["Foundation.URLSession.AuthChallengeDisposition"] = ("Foundation", "NSUrlSessionAuthChallengeDisposition"),
-        // Foundation RunLoop.Mode → NSRunLoopMode
-        ["Foundation.RunLoop.Mode"] = ("Foundation", "NSRunLoopMode"),
-        // Foundation FileAttributeKey → NSString (ObjC typedef NSString *NSFileAttributeKey;
-        // NSFileAttributeKey is not bound as a separate type in .NET iOS SDK)
-        ["Foundation.FileAttributeKey"] = ("Foundation", "NSString"),
-        // Foundation NS_OPTIONS: NSRegularExpression.Options → NSRegularExpressionOptions
-        ["Foundation.NSRegularExpression.Options"] = ("Foundation", "NSRegularExpressionOptions"),
-        // Foundation NS_OPTIONS: NSData.WritingOptions → NSDataWritingOptions
-        ["Foundation.NSData.WritingOptions"] = ("Foundation", "NSDataWritingOptions"),
-        // UIKit nested enums: Swift nested form → .NET flattened form
-        ["UIKit.UIImage.RenderingMode"] = ("UIKit", "UIImageRenderingMode"),
-        ["UIKit.UIView.AnimationOptions"] = ("UIKit", "UIViewAnimationOptions"),
-        // Photos enum (already flat in .NET)
-        ["Photos.PHImageContentMode"] = ("Photos", "PHImageContentMode"),
-        // QuartzCore value types: Swift module QuartzCore → .NET namespace CoreAnimation
-        ["QuartzCore.CATransform3D"] = ("CoreAnimation", "CATransform3D"),
-        ["QuartzCore.CACornerMask"] = ("CoreAnimation", "CACornerMask"),
-        ["QuartzCore.CAEdgeAntialiasingMask"] = ("CoreAnimation", "CAEdgeAntialiasingMask"),
-        ["QuartzCore.CAAutoresizingMask"] = ("CoreAnimation", "CAAutoresizingMask"),
-        ["QuartzCore.CAContentsFormat"] = ("CoreAnimation", "CAContentsFormat"),
-        ["QuartzCore.CACornerCurve"] = ("CoreAnimation", "CACornerCurve"),
-        ["QuartzCore.CAGradientLayerType"] = ("CoreAnimation", "CAGradientLayerType"),
-        ["QuartzCore.CATextLayerAlignmentMode"] = ("CoreAnimation", "CATextLayerAlignmentMode"),
-        ["QuartzCore.CATextLayerTruncationMode"] = ("CoreAnimation", "CATextLayerTruncationMode"),
-        ["QuartzCore.CAScroll"] = ("CoreAnimation", "CAScroll"),
-        ["QuartzCore.CADynamicRange"] = ("CoreAnimation", "CADynamicRange"),
-        ["QuartzCore.CAToneMapMode"] = ("CoreAnimation", "CAToneMapMode"),
-        // UIKit enum whose .NET namespace is Foundation (not UIKit)
-        ["UIKit.NSUnderlineStyle"] = ("Foundation", "NSUnderlineStyle"),
-        // UIKit nested enums/typedefs: Swift nested form → .NET flattened name
-        ["UIKit.NSLayoutConstraint.Relation"] = ("UIKit", "NSLayoutRelation"),
-        ["UIKit.NSParagraphStyle.LineBreakStrategy"] = ("UIKit", "NSLineBreakStrategy"),
-        ["UIKit.UIFont.TextStyle"] = ("UIKit", "UIFontTextStyle"),
-    };
-
-    /// <summary>
-    /// Remapping table for Apple framework ObjC enum types (NS_ENUM / NS_OPTIONS).
-    /// These types are in <see cref="AppleFrameworkValueTypes"/> (excluded from ObjC class bridging)
-    /// but have no XML database entry. Without this table, TryGetTypeRecord returns false
-    /// and properties/parameters using these types are silently skipped.
-    /// Key is the Swift module-qualified name, value is (C# namespace, C# type name, raw value type).
-    /// NS_ENUM(NSInteger) → Int64 ("long"), NS_OPTIONS(NSUInteger) → UInt64 ("ulong").
-    /// </summary>
-    private static readonly Dictionary<string, (string Namespace, string Name, string RawValueType)>
-        AppleFrameworkSimpleEnumRemappings = new(StringComparer.Ordinal)
-    {
-        // UIKit nested ObjC enums: NS_ENUM(NSInteger) → Int64
-        ["UIKit.UIView.ContentMode"] = ("UIKit", "UIViewContentMode", "Int64"),
-        ["UIKit.UIBarStyle"] = ("UIKit", "UIBarStyle", "Int64"),
-        ["UIKit.UIKeyboardAppearance"] = ("UIKit", "UIKeyboardAppearance", "Int64"),
-        ["UIKit.UITextField.ViewMode"] = ("UIKit", "UITextFieldViewMode", "Int64"),
-        ["UIKit.UIActivityIndicatorView.Style"] = ("UIKit", "UIActivityIndicatorViewStyle", "Int64"),
-        ["UIKit.UIBlurEffect.Style"] = ("UIKit", "UIBlurEffectStyle", "Int64"),
-        ["UIKit.UITableView.Style"] = ("UIKit", "UITableViewStyle", "Int64"),
-        ["UIKit.UIModalPresentationStyle"] = ("UIKit", "UIModalPresentationStyle", "Int64"),
-        ["UIKit.UIUserInterfaceStyle"] = ("UIKit", "UIUserInterfaceStyle", "Int64"),
-        // UIKit NS_OPTIONS(NSUInteger) → UInt64
-        ["UIKit.UIControl.State"] = ("UIKit", "UIControlState", "UInt64"),
-        ["UIKit.UIControl.Event"] = ("UIKit", "UIControlEvent", "UInt64"),
-        // AVFoundation nested ObjC enums
-        ["AVFoundation.AVCaptureDevice.FocusMode"] = ("AVFoundation", "AVCaptureFocusMode", "Int64"),
-    };
-
-    /// <summary>
-    /// Creates a synthetic TypeRecord for an Apple framework ObjC enum type (NS_ENUM / NS_OPTIONS).
-    /// Returns null if the type is not in the remapping table.
-    /// </summary>
-    internal static TypeRecord? TryCreateAppleFrameworkEnumRecord(SwiftTypeName swiftTypeName)
-    {
-        if (!AppleFrameworkSimpleEnumRemappings.TryGetValue(swiftTypeName.ModuleQualifiedName, out var remap))
-            return null;
-
-        return new TypeRecord
-        {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName(remap.Namespace, remap.Name),
-            SwiftTypeName = swiftTypeName,
-            MetadataAccessor = string.Empty,
-            Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
-            Kind = TypeRecordKind.Enum,
-            RawValueTypeName = remap.RawValueType,
-        };
-    }
-
-    /// <summary>
-    /// Determines whether the specified SwiftTypeName is an Apple framework ObjC enum
-    /// with a remapping entry.
-    /// </summary>
-    internal static bool IsRemappedAppleEnum(SwiftTypeName swiftTypeName)
-    {
-        return AppleFrameworkSimpleEnumRemappings.ContainsKey(swiftTypeName.ModuleQualifiedName);
-    }
-
-    /// <summary>
-    /// Determines whether the specified NamedTypeSpec is an Apple framework ObjC enum
-    /// with a remapping entry.
-    /// </summary>
-    internal static bool IsRemappedAppleEnum(NamedTypeSpec typeSpec)
-    {
-        if (!typeSpec.HasModule())
-            return false;
-        return AppleFrameworkSimpleEnumRemappings.ContainsKey(typeSpec.Name);
-    }
-
-    /// <summary>
-    /// Remapping table for Foundation class types whose Swift names differ from their
-    /// .NET iOS SDK ObjC names. Foundation uses Swift-native names (URLSession, FileManager)
-    /// while .NET iOS uses ObjC NS-prefixed names (NSUrlSession, NSFileManager).
-    /// Key is the Swift module-qualified name, value is (C# namespace, C# type name).
-    /// </summary>
-    private static readonly Dictionary<string, (string Namespace, string Name)> AppleFrameworkClassRemappings =
-        new(StringComparer.Ordinal)
-    {
-        // Foundation: Swift drops NS prefix — common classes
-        ["Foundation.Bundle"] = ("Foundation", "NSBundle"),
-        ["Foundation.NotificationCenter"] = ("Foundation", "NSNotificationCenter"),
-        ["Foundation.UserDefaults"] = ("Foundation", "NSUserDefaults"),
-        ["Foundation.Timer"] = ("Foundation", "NSTimer"),
-        ["Foundation.RunLoop"] = ("Foundation", "NSRunLoop"),
-        ["Foundation.Operation"] = ("Foundation", "NSOperation"),
-        ["Foundation.OperationQueue"] = ("Foundation", "NSOperationQueue"),
-        ["Foundation.BlockOperation"] = ("Foundation", "NSBlockOperation"),
-        ["Foundation.ProcessInfo"] = ("Foundation", "NSProcessInfo"),
-        ["Foundation.Thread"] = ("Foundation", "NSThread"),
-        ["Foundation.FileManager"] = ("Foundation", "NSFileManager"),
-        ["Foundation.FileHandle"] = ("Foundation", "NSFileHandle"),
-        ["Foundation.UndoManager"] = ("Foundation", "NSUndoManager"),
-        ["Foundation.Progress"] = ("Foundation", "NSProgress"),
-        ["Foundation.Scanner"] = ("Foundation", "NSScanner"),
-        ["Foundation.Formatter"] = ("Foundation", "NSFormatter"),
-        ["Foundation.NumberFormatter"] = ("Foundation", "NSNumberFormatter"),
-        ["Foundation.DateFormatter"] = ("Foundation", "NSDateFormatter"),
-        ["Foundation.InputStream"] = ("Foundation", "NSInputStream"),
-        ["Foundation.OutputStream"] = ("Foundation", "NSOutputStream"),
-        ["Foundation.Stream"] = ("Foundation", "NSStream"),
-
-        // Foundation: URL/HTTP/JSON acronym casing (URL→Url, HTTP→Http, JSON→Json)
-        ["Foundation.URLSession"] = ("Foundation", "NSUrlSession"),
-        ["Foundation.URLSessionTask"] = ("Foundation", "NSUrlSessionTask"),
-        ["Foundation.URLSessionDataTask"] = ("Foundation", "NSUrlSessionDataTask"),
-        ["Foundation.URLSessionDownloadTask"] = ("Foundation", "NSUrlSessionDownloadTask"),
-        ["Foundation.URLSessionUploadTask"] = ("Foundation", "NSUrlSessionUploadTask"),
-        ["Foundation.URLSessionStreamTask"] = ("Foundation", "NSUrlSessionStreamTask"),
-        ["Foundation.URLSessionWebSocketTask"] = ("Foundation", "NSUrlSessionWebSocketTask"),
-        ["Foundation.URLSessionConfiguration"] = ("Foundation", "NSUrlSessionConfiguration"),
-        ["Foundation.URLSessionTaskMetrics"] = ("Foundation", "NSUrlSessionTaskMetrics"),
-        ["Foundation.URLSessionTaskTransactionMetrics"] = ("Foundation", "NSUrlSessionTaskTransactionMetrics"),
-        ["Foundation.URLResponse"] = ("Foundation", "NSUrlResponse"),
-        ["Foundation.HTTPURLResponse"] = ("Foundation", "NSHttpUrlResponse"),
-        ["Foundation.CachedURLResponse"] = ("Foundation", "NSCachedUrlResponse"),
-        ["Foundation.URLAuthenticationChallenge"] = ("Foundation", "NSUrlAuthenticationChallenge"),
-        ["Foundation.URLCredential"] = ("Foundation", "NSUrlCredential"),
-        ["Foundation.URLCredentialStorage"] = ("Foundation", "NSUrlCredentialStorage"),
-        ["Foundation.URLProtectionSpace"] = ("Foundation", "NSUrlProtectionSpace"),
-        ["Foundation.URLCache"] = ("Foundation", "NSUrlCache"),
-        ["Foundation.URLProtocol"] = ("Foundation", "NSUrlProtocol"),
-        ["Foundation.URLConnection"] = ("Foundation", "NSUrlConnection"),
-        ["Foundation.URLSessionWebSocketTask.Message"] = ("Foundation", "NSUrlSessionWebSocketMessage"),
-        ["Foundation.HTTPCookie"] = ("Foundation", "NSHttpCookie"),
-        ["Foundation.HTTPCookieStorage"] = ("Foundation", "NSHttpCookieStorage"),
-        ["Foundation.JSONSerialization"] = ("Foundation", "NSJsonSerialization"),
-
-        // Foundation: ObjC names with casing differences in .NET
-        ["Foundation.NSURL"] = ("Foundation", "NSUrl"),
-        ["Foundation.NSUUID"] = ("Foundation", "NSUuid"),
-
-        // AVFoundation: acronym casing
-        ["AVFoundation.AVURLAsset"] = ("AVFoundation", "AVUrlAsset"),
-        ["AVFoundation.AVMIDIPlayer"] = ("AVFoundation", "AVMidiPlayer"),
-
-        // QuartzCore NSString typedefs — not bound as standalone types in .NET iOS,
-        // but they are ObjC class references (NSString), not value types
-        ["QuartzCore.CALayerContentsGravity"] = ("Foundation", "NSString"),
-        ["QuartzCore.CAMediaTimingFunctionName"] = ("Foundation", "NSString"),
-        ["QuartzCore.CATransitionType"] = ("Foundation", "NSString"),
-        ["QuartzCore.CATransitionSubtype"] = ("Foundation", "NSString"),
-
-        // QuartzCore: casing difference — Swift uses lowercase 'f' (CAKeyframeAnimation),
-        // .NET iOS uses capital 'F' (CAKeyFrameAnimation)
-        ["QuartzCore.CAKeyframeAnimation"] = ("CoreAnimation", "CAKeyFrameAnimation"),
-
-        // Foundation typedefs not bound as distinct types in .NET iOS
-        ["Foundation.NSAttributedString.Key"] = ("Foundation", "NSString"),  // typedef NSString *NSAttributedStringKey
-    };
-
-    /// <summary>
-    /// Creates a synthetic TypeRecord for an Apple framework value type whose .NET name
-    /// differs from the flattened Swift name pattern (e.g., Foundation._NSRange → Foundation.NSRange,
-    /// Foundation.JSONSerialization.ReadingOptions → Foundation.NSJsonReadingOptions).
-    /// Returns null if the type is not in the remapping table.
-    /// </summary>
-    private static TypeRecord? TryCreateRemappedValueTypeRecord(SwiftTypeName swiftTypeName)
-    {
-        if (!AppleFrameworkTypeRemappings.TryGetValue(swiftTypeName.ModuleQualifiedName, out var remap))
-            return null;
-
-        return new TypeRecord
-        {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName(remap.Namespace, remap.Name),
-            SwiftTypeName = swiftTypeName,
-            MetadataAccessor = string.Empty,
-            Flags = TypeRecordFlags.Frozen,
-            Kind = TypeRecordKind.Struct,
-        };
-    }
-
-    /// <summary>
-    /// Determines whether the specified type is an Apple framework value type with
-    /// a non-standard .NET name that needs remapping.
-    /// </summary>
-    private static bool IsRemappedAppleValueType(SwiftTypeName swiftTypeName)
-    {
-        return AppleFrameworkTypeRemappings.ContainsKey(swiftTypeName.ModuleQualifiedName);
-    }
-
-    /// <summary>
-    /// Determines whether the specified NamedTypeSpec is an Apple framework value type
-    /// with a non-standard .NET name that needs remapping.
-    /// </summary>
-    internal static bool IsRemappedAppleValueType(NamedTypeSpec typeSpec)
-    {
-        if (!typeSpec.HasModule())
-            return false;
-        return AppleFrameworkTypeRemappings.ContainsKey(typeSpec.Name);
-    }
+    // Swift module → .NET namespace overrides are centralized in AppleFrameworkRegistry.
 
     /// <summary>
     /// Returns true if the type is a known Apple framework value type (struct or enum)
-    /// from the <see cref="AppleFrameworkValueTypes"/> set. This includes types like
-    /// UIKit.NSTextAlignment, UIKit.UIEdgeInsets that should NOT be ObjC-bridged.
+    /// that should NOT be ObjC-bridged.
     /// </summary>
     internal static bool IsKnownAppleValueType(NamedTypeSpec typeSpec)
     {
         if (!typeSpec.HasModule())
             return false;
-        return AppleFrameworkValueTypes.Contains(typeSpec.Name);
+        return AppleFrameworkRegistry.IsKnownValueType(typeSpec.Name);
     }
 
     /// <summary>
     /// Creates a synthetic ObjCBridged TypeRecord for an ObjC class type.
     /// The resulting record triggers the existing ObjCBridged marshalling pipeline
     /// (IntPtr in P/Invoke, Handle extraction in wrappers).
-    /// For ObjectiveC/Foundation root classes, the C# namespace is "Foundation".
-    /// For Apple framework types (UIKit, AppKit, etc.), the C# namespace matches the Swift module.
+    /// Types with explicit name remappings in the registry are resolved first;
+    /// remaining types use module→namespace mapping + nested name flattening.
     /// </summary>
     private static TypeRecord CreateObjCBridgedTypeRecord(SwiftTypeName swiftTypeName)
     {
-        // Check class remapping table first (Foundation Swift names → .NET ObjC names)
-        if (AppleFrameworkClassRemappings.TryGetValue(swiftTypeName.ModuleQualifiedName, out var classRemap))
+        // Check registry for explicit name remapping (Foundation Swift names → .NET ObjC names)
+        if (AppleFrameworkRegistry.TryGetNetTypeName(swiftTypeName.ModuleQualifiedName, out var netName))
         {
-            return new TypeRecord
+            var dotIdx = netName.IndexOf('.');
+            if (dotIdx > 0)
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(classRemap.Namespace, classRemap.Name),
-                SwiftTypeName = swiftTypeName,
-                MetadataAccessor = string.Empty,
-                Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,
-                Kind = TypeRecordKind.Class,
-            };
+                return new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName(
+                        netName.Substring(0, dotIdx), netName.Substring(dotIdx + 1)),
+                    SwiftTypeName = swiftTypeName,
+                    MetadataAccessor = string.Empty,
+                    Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,
+                    Kind = TypeRecordKind.Class,
+                };
+            }
         }
 
         // Resolve C# namespace: use centralized Swift→.NET mapping, then ObjectiveC/Foundation → Foundation,
         // then use Swift module name as-is (e.g., UIKit → UIKit).
-        var mappedModule = MarshallingHelpers.MapSwiftModuleToNetNamespace(swiftTypeName.Module);
+        var mappedModule = AppleFrameworkRegistry.MapModuleToNetNamespace(swiftTypeName.Module);
         string csharpNamespace;
         if (mappedModule != swiftTypeName.Module)
             csharpNamespace = mappedModule;
@@ -1122,16 +602,10 @@ public static class TypeDatabaseExtensions
 
         // For nested ObjC types (e.g., UIKit.UIView.ContentMode), .NET iOS bindings flatten
         // the parent type into the name: UIView + ContentMode = UIViewContentMode.
-        // SwiftTypeName.Name only has the leaf ("ContentMode"), so extract parent components
-        // from the ModuleQualifiedName.
         var csharpName = swiftTypeName.Name;
         var parts = swiftTypeName.ModuleQualifiedName.Split('.');
         if (parts.Length > 2)
         {
-            // parts[0] = module, parts[1..n-1] = parent types, parts[n] = leaf
-            // Concatenate with overlap deduplication: if a parent ends with a substring
-            // that the next part starts with, strip the overlap. Example:
-            //   UITableViewCell + CellStyle → UITableViewCellStyle (not UITableViewCellCellStyle)
             csharpName = parts[1];
             for (int i = 2; i < parts.Length; i++)
             {
@@ -1175,7 +649,7 @@ public static class TypeDatabaseExtensions
     /// Covers two categories:
     /// 1. ObjectiveC/Foundation root classes (NSObject, NSProxy) — known safe subset
     /// 2. Apple framework module types (UIKit.UIImage, AppKit.NSImage) — assumed to be classes
-    ///    unless listed in <see cref="AppleFrameworkValueTypes"/>
+    ///    unless listed in AppleFrameworkRegistry.ValueTypes
     /// TypeSpecParser.cs remaps "ObjectiveC.X" → "Foundation.X", so we check both modules.
     /// </summary>
     internal static bool IsObjCModuleType(NamedTypeSpec typeSpec)
@@ -1185,32 +659,14 @@ public static class TypeDatabaseExtensions
 
         // ObjectiveC/Foundation root classes (conservative: only NSObject, NSProxy)
         if ((typeSpec.Module == ObjCModuleName || typeSpec.Module == "Foundation")
-            && IsKnownObjCRootClass(typeSpec.NameWithoutModule))
+            && AppleFrameworkRegistry.IsKnownObjCRootClass(typeSpec.NameWithoutModule))
             return true;
 
         // Apple framework module types (UIKit, AppKit, etc.) are ObjC classes by default,
         // but exclude known value types (structs/enums) from those modules
-        return AppleObjCFrameworkModules.Contains(typeSpec.Module)
-            && !AppleFrameworkValueTypes.Contains(typeSpec.Name);
+        return AppleFrameworkRegistry.IsAutoBridgeModule(typeSpec.Module)
+            && !AppleFrameworkRegistry.IsKnownValueType(typeSpec.Name);
     }
-
-    /// <summary>
-    /// Apple framework modules that have no .NET iOS binding equivalents.
-    /// Types from these modules are mapped to AnyType so members referencing them
-    /// are suppressed with [UnsupportedSwiftType] annotations.
-    /// </summary>
-    private static readonly HashSet<string> UnsupportedAppleModules = new(StringComparer.Ordinal)
-    {
-        "SwiftUI",
-        "XCTest",
-        "Combine",
-        "_Concurrency",
-        "Observation",
-        "WidgetKit",
-        "AppIntents",
-        "Charts",
-        "TipKit",
-    };
 
     /// <summary>
     /// Determines whether the specified NamedTypeSpec is from an Apple framework module
@@ -1220,7 +676,7 @@ public static class TypeDatabaseExtensions
     {
         if (!typeSpec.HasModule())
             return false;
-        return UnsupportedAppleModules.Contains(typeSpec.Module);
+        return AppleFrameworkRegistry.IsUnsupportedModule(typeSpec.Module);
     }
 
     /// <summary>
@@ -1231,23 +687,12 @@ public static class TypeDatabaseExtensions
     {
         // ObjectiveC/Foundation root classes
         if ((swiftTypeName.Module == ObjCModuleName || swiftTypeName.Module == "Foundation")
-            && IsKnownObjCRootClass(swiftTypeName.Name))
+            && AppleFrameworkRegistry.IsKnownObjCRootClass(swiftTypeName.Name))
             return true;
 
         // Apple framework module types, excluding known value types
-        return AppleObjCFrameworkModules.Contains(swiftTypeName.Module)
-            && !AppleFrameworkValueTypes.Contains(swiftTypeName.ModuleQualifiedName);
-    }
-
-    /// <summary>
-    /// Returns true if the given unqualified type name is a known Objective-C root class.
-    /// The ObjectiveC Swift module only defines NSObject and NSProxy as root classes;
-    /// these get remapped to Foundation.NSObject and Foundation.NSProxy by TypeSpecParser.
-    /// Other ObjectiveC module types (Selector, ObjCBool, NSZone) are value types.
-    /// </summary>
-    private static bool IsKnownObjCRootClass(string name)
-    {
-        return name is "NSObject" or "NSProxy";
+        return AppleFrameworkRegistry.IsAutoBridgeModule(swiftTypeName.Module)
+            && !AppleFrameworkRegistry.IsKnownValueType(swiftTypeName.ModuleQualifiedName);
     }
 
     /// <summary>

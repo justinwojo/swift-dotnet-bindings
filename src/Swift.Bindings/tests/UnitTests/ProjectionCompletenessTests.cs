@@ -169,24 +169,24 @@ public class OptionalAppleFallbackTests
     [Fact]
     public void IsKnownAppleModule_KnownModules_ReturnsTrue()
     {
-        Assert.True(TypeProjectionFactory.IsKnownAppleModule("CoreBluetooth"));
-        Assert.True(TypeProjectionFactory.IsKnownAppleModule("WebKit"));
-        Assert.True(TypeProjectionFactory.IsKnownAppleModule("MapKit"));
-        Assert.True(TypeProjectionFactory.IsKnownAppleModule("StoreKit"));
-        Assert.True(TypeProjectionFactory.IsKnownAppleModule("Metal"));
+        Assert.True(AppleFrameworkRegistry.IsOptionalFallbackModule("CoreBluetooth"));
+        Assert.True(AppleFrameworkRegistry.IsOptionalFallbackModule("WebKit"));
+        Assert.True(AppleFrameworkRegistry.IsOptionalFallbackModule("MapKit"));
+        Assert.True(AppleFrameworkRegistry.IsOptionalFallbackModule("StoreKit"));
+        Assert.True(AppleFrameworkRegistry.IsOptionalFallbackModule("Metal"));
     }
 
     [Fact]
     public void IsKnownAppleModule_UnknownModules_ReturnsFalse()
     {
-        Assert.False(TypeProjectionFactory.IsKnownAppleModule("Nuke"));
-        Assert.False(TypeProjectionFactory.IsKnownAppleModule("Alamofire"));
-        Assert.False(TypeProjectionFactory.IsKnownAppleModule("ThirdParty"));
-        Assert.False(TypeProjectionFactory.IsKnownAppleModule("Swift"));
+        Assert.False(AppleFrameworkRegistry.IsOptionalFallbackModule("Nuke"));
+        Assert.False(AppleFrameworkRegistry.IsOptionalFallbackModule("Alamofire"));
+        Assert.False(AppleFrameworkRegistry.IsOptionalFallbackModule("ThirdParty"));
+        Assert.False(AppleFrameworkRegistry.IsOptionalFallbackModule("Swift"));
         // UIKit and Foundation are now in the set — the IsNestedType guard
         // prevents misprojection of nested types like NSAttributedString.Key.
-        Assert.True(TypeProjectionFactory.IsKnownAppleModule("UIKit"));
-        Assert.True(TypeProjectionFactory.IsKnownAppleModule("Foundation"));
+        Assert.True(AppleFrameworkRegistry.IsOptionalFallbackModule("UIKit"));
+        Assert.True(AppleFrameworkRegistry.IsOptionalFallbackModule("Foundation"));
     }
 
     [Fact]
@@ -261,21 +261,21 @@ public class OptionalAppleFallbackTests
     [Fact]
     public void HasObjCClassPrefix_ObjCClasses_ReturnsTrue()
     {
-        Assert.True(TypeProjectionFactory.HasObjCClassPrefix("CoreBluetooth.CBCentralManager"));
-        Assert.True(TypeProjectionFactory.HasObjCClassPrefix("MapKit.MKMapView"));
-        Assert.True(TypeProjectionFactory.HasObjCClassPrefix("WebKit.WKWebView"));
-        Assert.True(TypeProjectionFactory.HasObjCClassPrefix("UIKit.UIViewController"));
-        Assert.True(TypeProjectionFactory.HasObjCClassPrefix("Vision.VNRequest"));
+        Assert.True(AppleFrameworkRegistry.HasObjCClassPrefix("CoreBluetooth.CBCentralManager"));
+        Assert.True(AppleFrameworkRegistry.HasObjCClassPrefix("MapKit.MKMapView"));
+        Assert.True(AppleFrameworkRegistry.HasObjCClassPrefix("WebKit.WKWebView"));
+        Assert.True(AppleFrameworkRegistry.HasObjCClassPrefix("UIKit.UIViewController"));
+        Assert.True(AppleFrameworkRegistry.HasObjCClassPrefix("Vision.VNRequest"));
     }
 
     [Fact]
     public void HasObjCClassPrefix_SwiftValueTypes_ReturnsFalse()
     {
-        Assert.False(TypeProjectionFactory.HasObjCClassPrefix("StoreKit.Transaction"));
-        Assert.False(TypeProjectionFactory.HasObjCClassPrefix("StoreKit.Product"));
-        Assert.False(TypeProjectionFactory.HasObjCClassPrefix("Vision.RecognizedText"));
-        Assert.False(TypeProjectionFactory.HasObjCClassPrefix("CoreLocation.Coordinate"));
-        Assert.False(TypeProjectionFactory.HasObjCClassPrefix("SomeType")); // no module
+        Assert.False(AppleFrameworkRegistry.HasObjCClassPrefix("StoreKit.Transaction"));
+        Assert.False(AppleFrameworkRegistry.HasObjCClassPrefix("StoreKit.Product"));
+        Assert.False(AppleFrameworkRegistry.HasObjCClassPrefix("Vision.RecognizedText"));
+        Assert.False(AppleFrameworkRegistry.HasObjCClassPrefix("CoreLocation.Coordinate"));
+        Assert.False(AppleFrameworkRegistry.HasObjCClassPrefix("SomeType")); // no module
     }
 
     private static ProjectionContext CreateContext(ITypeDatabase? db = null)

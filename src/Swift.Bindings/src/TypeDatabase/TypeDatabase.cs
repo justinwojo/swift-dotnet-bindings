@@ -261,14 +261,6 @@ namespace BindingsGeneration
                 return true;
             }
 
-            // Apple framework ObjC enums (NS_ENUM/NS_OPTIONS) with remapped .NET names
-            var enumRecord = TypeDatabaseExtensions.TryCreateAppleFrameworkEnumRecord(swiftTypeName);
-            if (enumRecord != null)
-            {
-                record = enumRecord;
-                return true;
-            }
-
             return false;
         }
 
@@ -305,8 +297,7 @@ namespace BindingsGeneration
             if (refVariant != null && IsTypeProcessedInternal(refVariant))
                 return true;
 
-            // Apple framework ObjC enums (NS_ENUM/NS_OPTIONS) with remapped .NET names
-            return TypeDatabaseExtensions.IsRemappedAppleEnum(swiftTypeName);
+            return false;
         }
 
         /// <summary>

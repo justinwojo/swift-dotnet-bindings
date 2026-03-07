@@ -824,13 +824,16 @@ public class Tier2LibraryFixTests
     }
 
     [Fact]
-    public void AppleEnumRemap_AVCaptureDeviceFocusMode_RemapsToAVCaptureFocusMode()
+    public async Task AppleEnumRemap_AVCaptureDeviceFocusMode_RemapsToAVCaptureFocusMode()
     {
         // Swift: AVCaptureDevice.FocusMode → .NET: AVFoundation.AVCaptureFocusMode
-        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("AVFoundation.AVCaptureDevice.FocusMode");
-        var record = TypeDatabaseExtensions.TryCreateAppleFrameworkEnumRecord(swiftTypeName);
+        // Now resolved via AVFoundationDatabase.xml instead of hardcoded dict
+        var typeDatabase = new TypeDatabase();
+        await typeDatabase.LoadModuleDatabaseFromFile(
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Swift", "AVFoundationDatabase.xml"));
 
-        Assert.NotNull(record);
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("AVFoundation.AVCaptureDevice.FocusMode");
+        Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record));
         Assert.Equal("AVCaptureFocusMode", record.CSharpTypeName.Name);
         Assert.Equal("AVFoundation", record.CSharpTypeName.Namespace);
     }

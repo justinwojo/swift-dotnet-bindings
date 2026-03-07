@@ -188,13 +188,11 @@ public class TypeProjectionFactory
                     innerUnresolved.HasModule() &&
                     !innerUnresolved.ContainsGenericParameters &&
                     !IsStdlibContainer(innerUnresolved.Name) &&
-                    !IsPointerType(innerUnresolved.Name) &&
-                    !IsNestedType(innerUnresolved.Name) &&
+                    !AppleFrameworkRegistry.IsPointerType(innerUnresolved.Name) &&
+                    !AppleFrameworkRegistry.IsNestedType(innerUnresolved.Name) &&
                     !TypeDatabaseExtensions.IsKnownAppleValueType(innerUnresolved) &&
-                    !TypeDatabaseExtensions.IsRemappedAppleValueType(innerUnresolved) &&
-                    !TypeDatabaseExtensions.IsRemappedAppleEnum(innerUnresolved) &&
-                    IsKnownAppleModule(innerUnresolved.Module) &&
-                    HasObjCClassPrefix(innerUnresolved.Name))
+                    AppleFrameworkRegistry.IsOptionalFallbackModule(innerUnresolved.Module) &&
+                    AppleFrameworkRegistry.HasObjCClassPrefix(innerUnresolved.Name))
                 {
                     return new OptionalProjection(
                         new ObjCBridgedProjection(innerUnresolved.Name), isExistentialInner);
@@ -245,7 +243,7 @@ public class TypeProjectionFactory
             return new DataProjection();
 
         // Pointer types are always mapped to System.IntPtr
-        if (IsPointerType(name))
+        if (AppleFrameworkRegistry.IsPointerType(name))
             return new BlittableProjection("System.IntPtr");
 
         // User-defined types with generic parameters: return null to fall through to
@@ -432,40 +430,6 @@ public class TypeProjectionFactory
     private static bool IsStdlibContainer(string name) =>
         name is "Swift.Array" or "Swift.Dictionary" or "Swift.Set" or "Swift.Optional" or "Swift.Result";
 
-    /// <summary>
-    /// Determines whether a Swift type name represents a pointer type that should be mapped to System.IntPtr.
-    /// </summary>
-    private static bool IsPointerType(string name) =>
-        name is "Swift.OpaquePointer" or "Swift.UnsafePointer"
-            or "Swift.UnsafeMutablePointer" or "Swift.UnsafeRawPointer"
-            or "Swift.UnsafeMutableRawPointer" or "Builtin.RawPointer";
-
-    /// <summary>
-    /// Known Apple framework modules whose types are guaranteed to be ObjC classes.
-    /// Used by the Optional fallback to safely project unknown Optional&lt;T&gt; inner types
-    /// as ObjCBridgedProjection when T is from one of these modules.
-    /// </summary>
-    private static readonly HashSet<string> KnownAppleModules = new(StringComparer.Ordinal)
-    {
-        "CoreAnimation", "CoreBluetooth", "CoreLocation", "CoreMedia", "CoreML",
-        "CoreMotion", "MapKit", "Metal", "MetalKit", "PassKit", "PhotosUI",
-        "QuartzCore", "SceneKit", "SpriteKit", "StoreKit", "WebKit",
-        "ARKit", "RealityKit", "GameKit", "HealthKit", "HomeKit",
-        "AuthenticationServices", "LocalAuthentication", "NaturalLanguage",
-        "NetworkExtension", "UserNotifications", "Vision", "Intents",
-        "EventKit", "Contacts", "MediaPlayer", "MultipeerConnectivity",
-        "CoreNFC", "CarPlay", "ClassKit", "CloudKit", "CoreData",
-        "CoreImage", "CoreSpotlight", "CoreTelephony", "FileProvider",
-        "MessageUI", "SafariServices", "Social", "WatchConnectivity",
-        "UIKit", "Foundation",
-    };
-
-    /// <summary>
-    /// Returns true if the given module name is a known Apple framework module
-    /// that may contain ObjC classes.
-    /// </summary>
-    internal static bool IsKnownAppleModule(string moduleName)
-        => KnownAppleModules.Contains(moduleName);
 
     /// <summary>
     /// Fallback projection for collection element types that are unresolved Apple ObjC classes.
@@ -479,80 +443,14 @@ public class TypeProjectionFactory
             elemNamed.HasModule() &&
             !elemNamed.ContainsGenericParameters &&
             !IsStdlibContainer(elemNamed.Name) &&
-            !IsPointerType(elemNamed.Name) &&
-            !IsNestedType(elemNamed.Name) &&
-            IsKnownAppleModuleForElements(elemNamed.Module) &&
-            HasObjCClassPrefix(elemNamed.Name))
+            !AppleFrameworkRegistry.IsPointerType(elemNamed.Name) &&
+            !AppleFrameworkRegistry.IsNestedType(elemNamed.Name) &&
+            AppleFrameworkRegistry.IsKnownModuleForElements(elemNamed.Module) &&
+            AppleFrameworkRegistry.HasObjCClassPrefix(elemNamed.Name))
         {
             return new ObjCBridgedProjection(elemNamed.Name);
         }
         return null;
     }
 
-    /// <summary>
-    /// Returns true if the module-qualified name represents a nested type
-    /// (e.g., "Foundation.NSAttributedString.Key" has two dots → nested).
-    /// Nested types like NSAttributedString.Key are structs/enums, not ObjC classes.
-    /// </summary>
-    internal static bool IsNestedType(string moduleQualifiedName)
-    {
-        var firstDot = moduleQualifiedName.IndexOf('.');
-        if (firstDot < 0) return false;
-        return moduleQualifiedName.IndexOf('.', firstDot + 1) >= 0;
-    }
-
-    /// <summary>
-    /// Module check for collection element fallback. Limited to UIKit and Foundation
-    /// which are the primary modules containing ObjC classes used as collection elements
-    /// (e.g., Array&lt;UIImage&gt;). Other Apple modules are excluded because their types
-    /// often have ObjC prefixes but are string typedefs or static classes in C#
-    /// (e.g., PassKit.PKPaymentNetwork is a static class, not an ObjC class).
-    /// </summary>
-    private static bool IsKnownAppleModuleForElements(string moduleName)
-        => moduleName == "UIKit"
-           || moduleName == "Foundation";
-
-    /// <summary>
-    /// Known ObjC class name prefixes used by Apple frameworks.
-    /// ObjC classes follow Cocoa naming conventions: 2-3 uppercase letter prefix
-    /// followed by a capitalized name (e.g., UIView, MKMapView, CBCentralManager).
-    /// Swift value types/enums in the same modules do NOT use these prefixes
-    /// (e.g., StoreKit.Transaction, Vision.VNConfidence is struct-like but
-    /// VNRequest is a class — the prefix check catches the class correctly).
-    /// </summary>
-    private static readonly string[] ObjCPrefixes = new[]
-    {
-        "UI", "NS", "MK", "CL", "CB", "CK", "CN", "EK", "GK", "HK", "HM",
-        "MF", "MC", "MP", "MT", "MTK", "PK", "SC", "SK", "WK", "VN",
-        "AR", "AS", "LA", "NE", "UN", "IN", "CA", "CI", "SF", "SL",
-        "NK", "CP", "FP", "RE",
-    };
-
-    /// <summary>
-    /// Returns true if the type name portion of a module-qualified name (e.g., "UIKit.UIViewController")
-    /// starts with a known ObjC class prefix followed by an uppercase letter. This identifies
-    /// ObjC classes (UIViewController, CBCentralManager) and excludes Swift value
-    /// types (Transaction, Product, Configuration) that live in the same modules.
-    /// </summary>
-    /// <param name="moduleQualifiedName">Module-qualified type name (e.g., "CoreBluetooth.CBCentralManager").</param>
-    internal static bool HasObjCClassPrefix(string moduleQualifiedName)
-    {
-        var dotIndex = moduleQualifiedName.IndexOf('.');
-        if (dotIndex < 0 || dotIndex >= moduleQualifiedName.Length - 1)
-            return false;
-
-        var typeName = moduleQualifiedName.AsSpan(dotIndex + 1);
-
-        foreach (var prefix in ObjCPrefixes)
-        {
-            if (typeName.Length > prefix.Length &&
-                typeName.StartsWith(prefix.AsSpan(), StringComparison.Ordinal) &&
-                char.IsUpper(typeName[prefix.Length]))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
 }

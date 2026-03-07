@@ -70,5 +70,140 @@
         <entity managedNameSpace="Foundation" managedTypeName="NSError" objcBridged="true">
             <typedeclaration kind="class" name="NSError" module="Foundation" mangledName="$sSo7NSErrorC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSNotificationCenter" objcBridged="true">
+            <typedeclaration kind="class" name="NotificationCenter" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSUserDefaults" objcBridged="true">
+            <typedeclaration kind="class" name="UserDefaults" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSTimer" objcBridged="true">
+            <typedeclaration kind="class" name="Timer" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSRunLoop" objcBridged="true">
+            <typedeclaration kind="class" name="RunLoop" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSOperation" objcBridged="true">
+            <typedeclaration kind="class" name="Operation" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSBlockOperation" objcBridged="true">
+            <typedeclaration kind="class" name="BlockOperation" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSProcessInfo" objcBridged="true">
+            <typedeclaration kind="class" name="ProcessInfo" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSThread" objcBridged="true">
+            <typedeclaration kind="class" name="Thread" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSFileManager" objcBridged="true">
+            <typedeclaration kind="class" name="FileManager" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSFileHandle" objcBridged="true">
+            <typedeclaration kind="class" name="FileHandle" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSUndoManager" objcBridged="true">
+            <typedeclaration kind="class" name="UndoManager" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSScanner" objcBridged="true">
+            <typedeclaration kind="class" name="Scanner" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSFormatter" objcBridged="true">
+            <typedeclaration kind="class" name="Formatter" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSNumberFormatter" objcBridged="true">
+            <typedeclaration kind="class" name="NumberFormatter" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSDateFormatter" objcBridged="true">
+            <typedeclaration kind="class" name="DateFormatter" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSOutputStream" objcBridged="true">
+            <typedeclaration kind="class" name="OutputStream" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSStream" objcBridged="true">
+            <typedeclaration kind="class" name="Stream" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSUrlSessionUploadTask" objcBridged="true">
+            <typedeclaration kind="class" name="URLSessionUploadTask" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSUrlSessionStreamTask" objcBridged="true">
+            <typedeclaration kind="class" name="URLSessionStreamTask" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSUrlSessionWebSocketTask" objcBridged="true">
+            <typedeclaration kind="class" name="URLSessionWebSocketTask" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSUrlSessionTaskTransactionMetrics" objcBridged="true">
+            <typedeclaration kind="class" name="URLSessionTaskTransactionMetrics" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSUrlCredential" objcBridged="true">
+            <typedeclaration kind="class" name="URLCredential" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSUrlCredentialStorage" objcBridged="true">
+            <typedeclaration kind="class" name="URLCredentialStorage" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSUrlProtectionSpace" objcBridged="true">
+            <typedeclaration kind="class" name="URLProtectionSpace" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSUrlProtocol" objcBridged="true">
+            <typedeclaration kind="class" name="URLProtocol" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSUrlConnection" objcBridged="true">
+            <typedeclaration kind="class" name="URLConnection" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSHttpCookie" objcBridged="true">
+            <typedeclaration kind="class" name="HTTPCookie" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSHttpCookieStorage" objcBridged="true">
+            <typedeclaration kind="class" name="HTTPCookieStorage" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSJsonSerialization" objcBridged="true">
+            <typedeclaration kind="class" name="JSONSerialization" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSUrlSessionWebSocketMessage" objcBridged="true">
+            <typedeclaration kind="class" name="URLSessionWebSocketTask.Message" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSUrl" objcBridged="true">
+            <typedeclaration kind="class" name="NSURL" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSUuid" objcBridged="true">
+            <typedeclaration kind="class" name="NSUUID" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSRange">
+            <typedeclaration kind="struct" name="_NSRange" module="Foundation" mangledName="" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSJsonReadingOptions">
+            <typedeclaration kind="struct" name="JSONSerialization.ReadingOptions" module="Foundation" mangledName="" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSJsonWritingOptions">
+            <typedeclaration kind="struct" name="JSONSerialization.WritingOptions" module="Foundation" mangledName="" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSStreamEvent">
+            <typedeclaration kind="struct" name="Stream.Event" module="Foundation" mangledName="" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSOperationQueuePriority">
+            <typedeclaration kind="struct" name="Operation.QueuePriority" module="Foundation" mangledName="" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSUrlCredentialPersistence">
+            <typedeclaration kind="struct" name="URLCredential.Persistence" module="Foundation" mangledName="" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSUrlSessionResponseDisposition">
+            <typedeclaration kind="struct" name="URLSession.ResponseDisposition" module="Foundation" mangledName="" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSUrlSessionAuthChallengeDisposition">
+            <typedeclaration kind="struct" name="URLSession.AuthChallengeDisposition" module="Foundation" mangledName="" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSRunLoopMode">
+            <typedeclaration kind="struct" name="RunLoop.Mode" module="Foundation" mangledName="" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSString" objcBridged="true">
+            <typedeclaration kind="class" name="FileAttributeKey" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSRegularExpressionOptions">
+            <typedeclaration kind="struct" name="NSRegularExpression.Options" module="Foundation" mangledName="" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSDataWritingOptions">
+            <typedeclaration kind="struct" name="NSData.WritingOptions" module="Foundation" mangledName="" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSString" objcBridged="true">
+            <typedeclaration kind="class" name="NSAttributedString.Key" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
     </entities>
 </swifttypedatabase>

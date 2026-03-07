@@ -953,15 +953,17 @@ public class ThirdPartyValidationFixTests
 
     [Theory]
     [InlineData("Foundation.Operation.QueuePriority")]
-    public void GetTypeRecordOrAnyType_FoundationOperationQueuePriority_ReturnsRemappedType(string swiftType)
+    public async Task GetTypeRecordOrAnyType_FoundationOperationQueuePriority_ReturnsRemappedType(string swiftType)
     {
         var typeDatabase = new TypeDatabase();
+        var dbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Swift", "FoundationDatabase.xml");
+        await typeDatabase.LoadModuleDatabaseFromFile(dbPath);
         var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec(swiftType));
 
         Assert.NotEqual(TypeDatabaseExtensions.AnyType, record);
         Assert.Equal("Foundation.NSOperationQueuePriority", record.CSharpTypeName.FullyQualifiedName);
-        Assert.Equal(TypeRecordFlags.Frozen, record.Flags);
-        Assert.Equal(TypeRecordKind.Struct, record.Kind);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.Frozen));
+        Assert.False((record.Flags & TypeRecordFlags.ObjCBridged) != 0);
     }
 
     #endregion

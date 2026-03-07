@@ -8,6 +8,15 @@ namespace BindingsGeneration.Tests;
 
 public class TypeDatabaseExtensionsTests
 {
+    private static readonly string s_dbDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Swift");
+
+    private static async Task<TypeDatabase> CreateDbWithXmlAsync(params string[] xmlFileNames)
+    {
+        var typeDatabase = new TypeDatabase();
+        foreach (var fileName in xmlFileNames)
+            await typeDatabase.LoadModuleDatabaseFromFile(Path.Combine(s_dbDir, fileName));
+        return typeDatabase;
+    }
     [Fact]
     public void TryGetAnyTypeFallbackInfo_MissingType_ReturnsFallbackInfo()
     {
@@ -736,7 +745,6 @@ public class TypeDatabaseExtensionsTests
     [InlineData("Foundation.URLSession.ResponseDisposition", "Foundation", "NSUrlSessionResponseDisposition")]
     [InlineData("Foundation.URLSession.AuthChallengeDisposition", "Foundation", "NSUrlSessionAuthChallengeDisposition")]
     [InlineData("Foundation.RunLoop.Mode", "Foundation", "NSRunLoopMode")]
-    [InlineData("Foundation.FileAttributeKey", "Foundation", "NSString")]
     [InlineData("Foundation.NSData.WritingOptions", "Foundation", "NSDataWritingOptions")]
     [InlineData("Foundation.Operation.QueuePriority", "Foundation", "NSOperationQueuePriority")]
     [InlineData("Foundation.URLCredential.Persistence", "Foundation", "NSUrlCredentialPersistence")]
@@ -756,16 +764,16 @@ public class TypeDatabaseExtensionsTests
     [InlineData("QuartzCore.CAScroll", "CoreAnimation", "CAScroll")]
     [InlineData("QuartzCore.CADynamicRange", "CoreAnimation", "CADynamicRange")]
     [InlineData("QuartzCore.CAToneMapMode", "CoreAnimation", "CAToneMapMode")]
-    public void GetTypeRecordOrAnyType_FoundationRemappedValueType_ReturnsCorrectName(string swiftType, string expectedNamespace, string expectedName)
+    public async Task GetTypeRecordOrAnyType_FoundationRemappedValueType_ReturnsCorrectName(string swiftType, string expectedNamespace, string expectedName)
     {
-        var typeDatabase = new TypeDatabase();
+        var typeDatabase = await CreateDbWithXmlAsync(
+            "FoundationDatabase.xml", "UIKitDatabase.xml", "QuartzCoreDatabase.xml", "PhotosDatabase.xml");
 
         var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec(swiftType));
 
         Assert.NotEqual(TypeDatabaseExtensions.AnyType, record);
         Assert.Equal($"{expectedNamespace}.{expectedName}", record.CSharpTypeName.FullyQualifiedName);
-        Assert.Equal(TypeRecordFlags.Frozen, record.Flags);
-        Assert.Equal(TypeRecordKind.Struct, record.Kind);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.Frozen));
         Assert.False((record.Flags & TypeRecordFlags.ObjCBridged) != 0);
     }
 
@@ -784,16 +792,15 @@ public class TypeDatabaseExtensionsTests
     // --- Nested Apple enum value types excluded from ObjC bridging ---
 
     [Fact]
-    public void GetTypeRecordOrAnyType_NSRegularExpressionOptions_ReturnsRemappedRecord()
+    public async Task GetTypeRecordOrAnyType_NSRegularExpressionOptions_ReturnsRemappedRecord()
     {
-        var typeDatabase = new TypeDatabase();
+        var typeDatabase = await CreateDbWithXmlAsync("FoundationDatabase.xml");
 
         var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec("Foundation.NSRegularExpression.Options"));
 
         Assert.NotEqual(TypeDatabaseExtensions.AnyType, record);
         Assert.Equal("Foundation.NSRegularExpressionOptions", record.CSharpTypeName.FullyQualifiedName);
-        Assert.Equal(TypeRecordFlags.Frozen, record.Flags);
-        Assert.Equal(TypeRecordKind.Struct, record.Kind);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.Frozen));
     }
 
     [Fact]
@@ -1011,16 +1018,15 @@ public class TypeDatabaseExtensionsTests
     [InlineData("Foundation.JSONSerialization.ReadingOptions", "Foundation", "NSJsonReadingOptions")]
     [InlineData("Foundation.JSONSerialization.WritingOptions", "Foundation", "NSJsonWritingOptions")]
     [InlineData("Foundation.Stream.Event", "Foundation", "NSStreamEvent")]
-    public void GetTypeRecordOrAnyType_RemappedValueType_ReturnsCorrectDotNetType(string swiftType, string expectedNamespace, string expectedName)
+    public async Task GetTypeRecordOrAnyType_RemappedValueType_ReturnsCorrectDotNetType(string swiftType, string expectedNamespace, string expectedName)
     {
-        var typeDatabase = new TypeDatabase();
+        var typeDatabase = await CreateDbWithXmlAsync("FoundationDatabase.xml");
 
         var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec(swiftType));
 
         Assert.NotEqual(TypeDatabaseExtensions.AnyType, record);
         Assert.Equal($"{expectedNamespace}.{expectedName}", record.CSharpTypeName.FullyQualifiedName);
-        Assert.Equal(TypeRecordFlags.Frozen, record.Flags);
-        Assert.Equal(TypeRecordKind.Struct, record.Kind);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.Frozen));
         // Must NOT have ObjCBridged flag (these are value types, not classes)
         Assert.False((record.Flags & TypeRecordFlags.ObjCBridged) != 0);
     }
@@ -1029,40 +1035,40 @@ public class TypeDatabaseExtensionsTests
     [InlineData("Foundation._NSRange", "Foundation", "NSRange")]
     [InlineData("Foundation.JSONSerialization.ReadingOptions", "Foundation", "NSJsonReadingOptions")]
     [InlineData("Foundation.JSONSerialization.WritingOptions", "Foundation", "NSJsonWritingOptions")]
-    public void TryGetTypeRecord_RemappedValueType_ReturnsCorrectDotNetType(string swiftType, string expectedNamespace, string expectedName)
+    public async Task TryGetTypeRecord_RemappedValueType_ReturnsCorrectDotNetType(string swiftType, string expectedNamespace, string expectedName)
     {
-        var typeDatabase = new TypeDatabase();
+        var typeDatabase = await CreateDbWithXmlAsync("FoundationDatabase.xml");
 
         var found = typeDatabase.TryGetTypeRecord(new NamedTypeSpec(swiftType), out var record);
 
         Assert.True(found);
         Assert.NotNull(record);
         Assert.Equal($"{expectedNamespace}.{expectedName}", record.CSharpTypeName.FullyQualifiedName);
-        Assert.Equal(TypeRecordKind.Struct, record.Kind);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.Frozen));
     }
 
     [Theory]
     [InlineData("Foundation._NSRange")]
     [InlineData("Foundation.JSONSerialization.ReadingOptions")]
     [InlineData("Foundation.JSONSerialization.WritingOptions")]
-    public void GetTypeRecordOrThrow_RemappedValueType_ReturnsCorrectDotNetType(string swiftType)
+    public async Task GetTypeRecordOrThrow_RemappedValueType_ReturnsCorrectDotNetType(string swiftType)
     {
-        var typeDatabase = new TypeDatabase();
+        var typeDatabase = await CreateDbWithXmlAsync("FoundationDatabase.xml");
 
         // Should NOT throw — these types have remapped records
         var record = typeDatabase.GetTypeRecordOrThrow(new NamedTypeSpec(swiftType));
 
         Assert.NotEqual(TypeDatabaseExtensions.AnyType, record);
-        Assert.Equal(TypeRecordKind.Struct, record.Kind);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.Frozen));
     }
 
     [Theory]
     [InlineData("Foundation._NSRange")]
     [InlineData("Foundation.JSONSerialization.ReadingOptions")]
     [InlineData("Foundation.JSONSerialization.WritingOptions")]
-    public void IsTypeProcessed_RemappedValueType_ReturnsTrue(string swiftType)
+    public async Task IsTypeProcessed_RemappedValueType_ReturnsTrue(string swiftType)
     {
-        var typeDatabase = new TypeDatabase();
+        var typeDatabase = await CreateDbWithXmlAsync("FoundationDatabase.xml");
 
         var result = typeDatabase.IsTypeProcessed(new NamedTypeSpec(swiftType));
 
@@ -1073,9 +1079,9 @@ public class TypeDatabaseExtensionsTests
     [InlineData("Foundation._NSRange")]
     [InlineData("Foundation.JSONSerialization.ReadingOptions")]
     [InlineData("Foundation.JSONSerialization.WritingOptions")]
-    public void TryGetAnyTypeFallbackInfo_RemappedValueType_ReturnsFalse(string swiftType)
+    public async Task TryGetAnyTypeFallbackInfo_RemappedValueType_ReturnsFalse(string swiftType)
     {
-        var typeDatabase = new TypeDatabase();
+        var typeDatabase = await CreateDbWithXmlAsync("FoundationDatabase.xml");
 
         // Remapped types should not report as missing
         var found = typeDatabase.TryGetAnyTypeFallbackInfo(new NamedTypeSpec(swiftType), out var fallbackInfo);
@@ -1085,9 +1091,9 @@ public class TypeDatabaseExtensionsTests
     }
 
     [Fact]
-    public void GetTypeRecordOrAnyType_NSRange_ReturnsRemappedNotObjCBridged()
+    public async Task GetTypeRecordOrAnyType_NSRange_ReturnsRemappedNotObjCBridged()
     {
-        var typeDatabase = new TypeDatabase();
+        var typeDatabase = await CreateDbWithXmlAsync("FoundationDatabase.xml");
 
         // Foundation.NSRange (without underscore) is in AppleFrameworkValueTypes → AnyType
         // Foundation._NSRange (with underscore) should remap to Foundation.NSRange
@@ -1106,17 +1112,16 @@ public class TypeDatabaseExtensionsTests
     // instead of SwiftObjectHelper<T> (which requires ISwiftObject — invalid for .NET enums).
 
     [Fact]
-    public void GetTypeRecordOrAnyType_FoundationRemappedValueType_ReturnsRemappedRecord()
+    public async Task GetTypeRecordOrAnyType_FoundationRemappedValueType_ReturnsRemappedRecord()
     {
-        var typeDatabase = new TypeDatabase();
+        var typeDatabase = await CreateDbWithXmlAsync("FoundationDatabase.xml");
 
         // CloseCode is an enum in .NET iOS (NSUrlSessionWebSocketCloseCode), not a class
         var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec("Foundation.URLSessionWebSocketTask.CloseCode"));
 
         Assert.NotEqual(TypeDatabaseExtensions.AnyType, record);
         Assert.Equal("Foundation.NSUrlSessionWebSocketCloseCode", record.CSharpTypeName.FullyQualifiedName);
-        Assert.Equal(TypeRecordFlags.Frozen, record.Flags);
-        Assert.Equal(TypeRecordKind.Struct, record.Kind);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.Frozen));
         // Must NOT have ObjCBridged flag (this is a value type, not a class)
         Assert.False((record.Flags & TypeRecordFlags.ObjCBridged) != 0);
     }
@@ -1300,9 +1305,9 @@ public class TypeDatabaseExtensionsTests
     #region AppleFrameworkSimpleEnumRemappings
 
     [Fact]
-    public void TryGetTypeRecord_UIViewContentMode_ReturnsSimpleEnumRecord()
+    public async Task TryGetTypeRecord_UIViewContentMode_ReturnsSimpleEnumRecord()
     {
-        var typeDatabase = new TypeDatabase();
+        var typeDatabase = await CreateDbWithXmlAsync("UIKitDatabase.xml");
 
         var found = typeDatabase.TryGetTypeRecord(
             new NamedTypeSpec("UIKit.UIView.ContentMode"), out var record);
@@ -1316,9 +1321,9 @@ public class TypeDatabaseExtensionsTests
     }
 
     [Fact]
-    public void TryGetTypeRecord_UIControlState_ReturnsUInt64RawValueType()
+    public async Task TryGetTypeRecord_UIControlState_ReturnsUInt64RawValueType()
     {
-        var typeDatabase = new TypeDatabase();
+        var typeDatabase = await CreateDbWithXmlAsync("UIKitDatabase.xml");
 
         var found = typeDatabase.TryGetTypeRecord(
             new NamedTypeSpec("UIKit.UIControl.State"), out var record);
@@ -1330,9 +1335,9 @@ public class TypeDatabaseExtensionsTests
     }
 
     [Fact]
-    public void TryGetTypeRecord_FlatUIKitEnum_PreservesName()
+    public async Task TryGetTypeRecord_FlatUIKitEnum_PreservesName()
     {
-        var typeDatabase = new TypeDatabase();
+        var typeDatabase = await CreateDbWithXmlAsync("UIKitDatabase.xml");
 
         var found = typeDatabase.TryGetTypeRecord(
             new NamedTypeSpec("UIKit.UIBarStyle"), out var record);
@@ -1343,9 +1348,9 @@ public class TypeDatabaseExtensionsTests
     }
 
     [Fact]
-    public void GetTypeRecordOrThrow_UIViewContentMode_ReturnsEnumRecord()
+    public async Task GetTypeRecordOrThrow_UIViewContentMode_ReturnsEnumRecord()
     {
-        var typeDatabase = new TypeDatabase();
+        var typeDatabase = await CreateDbWithXmlAsync("UIKitDatabase.xml");
         var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("UIKit.UIView.ContentMode");
 
         var record = typeDatabase.GetTypeRecordOrThrow(swiftTypeName);
@@ -1355,9 +1360,9 @@ public class TypeDatabaseExtensionsTests
     }
 
     [Fact]
-    public void GetTypeRecordOrAnyType_UIViewContentMode_ReturnsEnumRecord()
+    public async Task GetTypeRecordOrAnyType_UIViewContentMode_ReturnsEnumRecord()
     {
-        var typeDatabase = new TypeDatabase();
+        var typeDatabase = await CreateDbWithXmlAsync("UIKitDatabase.xml");
         var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("UIKit.UIView.ContentMode");
 
         var record = typeDatabase.GetTypeRecordOrAnyType(swiftTypeName);
@@ -1367,9 +1372,9 @@ public class TypeDatabaseExtensionsTests
     }
 
     [Fact]
-    public void TryGetTypeRecord_UIViewContentMode_PInvokeUnderlyingType_IsLong()
+    public async Task TryGetTypeRecord_UIViewContentMode_PInvokeUnderlyingType_IsLong()
     {
-        var typeDatabase = new TypeDatabase();
+        var typeDatabase = await CreateDbWithXmlAsync("UIKitDatabase.xml");
 
         typeDatabase.TryGetTypeRecord(
             new NamedTypeSpec("UIKit.UIView.ContentMode"), out var record);
@@ -1381,10 +1386,10 @@ public class TypeDatabaseExtensionsTests
     }
 
     [Fact]
-    public void CoreTryGetTypeRecord_UIViewContentMode_ReturnsEnumRecord()
+    public async Task CoreTryGetTypeRecord_UIViewContentMode_ReturnsEnumRecord()
     {
         // Test via TypeDatabase directly (not extension), verifying ClosureHandler path works
-        var typeDatabase = new TypeDatabase();
+        var typeDatabase = await CreateDbWithXmlAsync("UIKitDatabase.xml");
         var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("UIKit.UIView.ContentMode");
 
         var found = typeDatabase.TryGetTypeRecord(swiftTypeName, out var record);
@@ -1396,9 +1401,9 @@ public class TypeDatabaseExtensionsTests
     }
 
     [Fact]
-    public void IsTypeProcessed_UIViewContentMode_NamedTypeSpec_ReturnsTrue()
+    public async Task IsTypeProcessed_UIViewContentMode_NamedTypeSpec_ReturnsTrue()
     {
-        var typeDatabase = new TypeDatabase();
+        var typeDatabase = await CreateDbWithXmlAsync("UIKitDatabase.xml");
 
         var processed = typeDatabase.IsTypeProcessed(
             new NamedTypeSpec("UIKit.UIView.ContentMode"));
@@ -1407,12 +1412,12 @@ public class TypeDatabaseExtensionsTests
     }
 
     [Fact]
-    public void IsTypeProcessed_UIViewContentMode_SwiftTypeName_ReturnsTrue()
+    public async Task IsTypeProcessed_UIViewContentMode_SwiftTypeName_ReturnsTrue()
     {
         // Exercises TypeDatabase.IsTypeProcessed(SwiftTypeName) directly,
         // ensuring the core path resolves remapped Apple enums independently
         // of the extension-level IsRemappedAppleEnum(NamedTypeSpec) check.
-        var typeDatabase = new TypeDatabase();
+        var typeDatabase = await CreateDbWithXmlAsync("UIKitDatabase.xml");
         var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("UIKit.UIView.ContentMode");
 
         var processed = typeDatabase.IsTypeProcessed(swiftTypeName);

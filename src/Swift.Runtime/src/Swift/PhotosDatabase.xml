@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<swifttypedatabase version="1.0" moduleName="Photos" modulePath="/System/Library/Frameworks/Photos.framework/Photos">
+    <entities>
+        <entity managedNameSpace="Photos" managedTypeName="PHImageContentMode">
+            <typedeclaration kind="struct" name="PHImageContentMode" module="Photos" mangledName="" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+    </entities>
+</swifttypedatabase>
