@@ -47,6 +47,8 @@ public static class ClangAstParser
         var astGenericContainers = ScanGenericContainerNames(inner);
         ObjCTypeRefParser.SetAdditionalGenericContainers(
             astGenericContainers.Count > 0 ? astGenericContainers : null);
+        try
+        {
 
         // Track the "current file" — clang omits loc.file when it's the same as
         // the previous declaration, so we must carry it forward.
@@ -228,9 +230,6 @@ public static class ClangAstParser
         // Same category can appear through umbrella + public header.
         var dedupedCategories = MergeCategories(categories);
 
-        // Clear AST-derived generic container context now that parsing is complete.
-        ObjCTypeRefParser.SetAdditionalGenericContainers(null);
-
         return new ObjCModule
         {
             ModuleName = moduleName,
@@ -249,6 +248,12 @@ public static class ClangAstParser
             Categories = dedupedCategories,
             AppleSdkTypeNames = appleSdkTypeNames.Count > 0 ? appleSdkTypeNames : null
         };
+
+        } // try
+        finally
+        {
+            ObjCTypeRefParser.SetAdditionalGenericContainers(null);
+        }
     }
 
     // ──────────────────────────────────────────────
