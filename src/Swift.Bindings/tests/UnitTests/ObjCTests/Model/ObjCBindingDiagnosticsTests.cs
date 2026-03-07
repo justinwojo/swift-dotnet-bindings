@@ -2,8 +2,8 @@
 // Licensed under the MIT License.
 
 using BindingsGeneration.ObjC;
-using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
+using static BindingsGeneration.Tests.ObjCTests.ObjCTestHelpers;
 
 namespace BindingsGeneration.Tests.ObjCTests;
 
@@ -27,7 +27,7 @@ public class ObjCBindingDiagnosticsTests
     {
         var diag = new ObjCBindingDiagnostics();
         // Should not throw
-        diag.LogSummary(NullLogger.Instance);
+        diag.LogSummary(Logger);
         Assert.Empty(diag.SkippedSymbols);
     }
 
@@ -37,7 +37,7 @@ public class ObjCBindingDiagnosticsTests
         var diag = new ObjCBindingDiagnostics();
         diag.RecordSkip("Method", "foo:", ObjCSkipReason.UnresolvableType, "type 'x'");
         diag.RecordSkip("Struct", "Bar", ObjCSkipReason.UnsupportedConstruct, "bitfield");
-        diag.LogSummary(NullLogger.Instance);
+        diag.LogSummary(Logger);
         Assert.Equal(2, diag.SkippedSymbols.Count);
     }
 
@@ -69,7 +69,7 @@ public class ObjCBindingDiagnosticsTests
         var dir = Path.Combine(Path.GetTempPath(), $"diag_test_{Guid.NewGuid():N}");
         try
         {
-            ApiDefinitionEmitter.Emit(module, dir, "TestNamespace", NullLogger.Instance, diag);
+            ApiDefinitionEmitter.Emit(module, dir, "TestNamespace", Logger, diag);
             Assert.Single(diag.SkippedSymbols);
             Assert.Equal("doThingWithFoo:", diag.SkippedSymbols[0].SymbolName);
             Assert.Equal(ObjCSkipReason.UnresolvableType, diag.SkippedSymbols[0].Reason);
@@ -108,7 +108,7 @@ public class ObjCBindingDiagnosticsTests
         var dir = Path.Combine(Path.GetTempPath(), $"diag_test_{Guid.NewGuid():N}");
         try
         {
-            StructsAndEnumsEmitter.Emit(module, dir, "TestNamespace", NullLogger.Instance, diag);
+            StructsAndEnumsEmitter.Emit(module, dir, "TestNamespace", Logger, diag);
             Assert.Single(diag.SkippedSymbols);
             Assert.Equal("MyStruct", diag.SkippedSymbols[0].SymbolName);
             Assert.Equal(ObjCSkipReason.UnresolvableType, diag.SkippedSymbols[0].Reason);

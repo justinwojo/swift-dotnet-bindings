@@ -3,27 +3,13 @@
 
 using BindingsGeneration.ObjC;
 using Xunit;
+using static BindingsGeneration.Tests.ObjCTests.ObjCTestHelpers;
 
 namespace BindingsGeneration.Tests.ObjCTests;
 
 public class ClangAstParserTests
 {
-    private const string HeadersPath = "/Frameworks/TestLib.framework/Headers";
-
-    private static string WrapInTranslationUnit(string innerJson)
-    {
-        return $$"""
-        {
-            "kind": "TranslationUnitDecl",
-            "inner": [{{innerJson}}]
-        }
-        """;
-    }
-
-    private static string MakeLoc(string file = "/Frameworks/TestLib.framework/Headers/TestLib.h")
-    {
-        return $"\"loc\": {{ \"file\": \"{file}\" }}";
-    }
+    private const string HeadersPath = DefaultHeadersPath;
 
     [Fact]
     public void Parse_ObjCInterfaceDecl_CreatesClass()

@@ -2,18 +2,13 @@
 // Licensed under the MIT License.
 
 using BindingsGeneration.ObjC;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
+using static BindingsGeneration.Tests.ObjCTests.ObjCTestHelpers;
 
 namespace BindingsGeneration.Tests.ObjCTests;
 
 public class StructsAndEnumsEmitterTests
 {
-    private static readonly ILogger Logger = NullLogger.Instance;
-
-    private static ObjCTypeRef SimpleType(string name, bool isPointer = false) =>
-        new() { Name = name, IsPointer = isPointer };
 
     [Fact]
     public void EmitEnum_WithPrefixStripping()
@@ -1007,32 +1002,12 @@ public class StructsAndEnumsEmitterTests
         Assert.Contains("public static extern void TLProcess(IntPtr data, uint size);", output);
     }
 
-    private static string EmitAndRead(ObjCModule module, string ns = "TestLib.Binding")
-    {
-        var (content, _) = EmitBothFiles(module, ns);
-        return content;
-    }
+    private static string EmitAndRead(ObjCModule module, string ns = "TestLib.Binding") =>
+        EmitStructsAndEnums(module, ns);
 
     #nullable enable
-    private static (string main, string? bgenDelegates) EmitBothFiles(ObjCModule module, string ns = "TestLib.Binding")
-    {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"structs_enums_test_{Guid.NewGuid():N}");
-        try
-        {
-            var result = StructsAndEnumsEmitter.Emit(module, tempDir, ns, Logger);
-            Assert.NotNull(result);
-            var main = File.ReadAllText(result!.FilePath);
-            var bgen = result.BgenDelegatesFilePath != null
-                ? File.ReadAllText(result.BgenDelegatesFilePath)
-                : null;
-            return (main, bgen);
-        }
-        finally
-        {
-            if (Directory.Exists(tempDir))
-                Directory.Delete(tempDir, true);
-        }
-    }
+    private static (string main, string? bgenDelegates) EmitBothFiles(ObjCModule module, string ns = "TestLib.Binding") =>
+        EmitStructsAndEnumsBoth(module, ns);
 
     [Fact]
     public void EmitBlockDelegate_SkipsProtocolMethodBlockParams()

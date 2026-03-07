@@ -2,14 +2,13 @@
 // Licensed under the MIT License.
 
 using BindingsGeneration.ObjC;
-using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
+using static BindingsGeneration.Tests.ObjCTests.ObjCTestHelpers;
 
 namespace BindingsGeneration.Tests.ObjCTests;
 
 public class ClangAstInvokerTests
 {
-    private static readonly Microsoft.Extensions.Logging.ILogger Logger = NullLogger.Instance;
 
     [Fact]
     public void InvokeClangAstDump_Success_ReturnsJson()

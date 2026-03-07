@@ -2,15 +2,13 @@
 // Licensed under the MIT License.
 
 using BindingsGeneration.ObjC;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
+using static BindingsGeneration.Tests.ObjCTests.ObjCTestHelpers;
 
 namespace BindingsGeneration.Tests.ObjCTests;
 
 public class ObjCMetadataPropsEmitterTests
 {
-    private static readonly ILogger Logger = NullLogger.Instance;
 
     [Fact]
     public void EmitsFrameworkTypeProperty()

@@ -3,14 +3,13 @@
 
 using System.Text;
 using BindingsGeneration.ObjC;
-using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
+using static BindingsGeneration.Tests.ObjCTests.ObjCTestHelpers;
 
 namespace BindingsGeneration.Tests.ObjCTests;
 
 public class ObjCAvailabilityEmitterTests
 {
-    static readonly Microsoft.Extensions.Logging.ILogger Logger = NullLogger.Instance;
 
     [Fact]
     public void EmitAvailability_Introduced_EmitsIntroducedAttribute()

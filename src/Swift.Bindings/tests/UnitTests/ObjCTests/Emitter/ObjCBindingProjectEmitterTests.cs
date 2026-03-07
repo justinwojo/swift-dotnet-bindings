@@ -4,14 +4,13 @@
 #nullable enable
 
 using BindingsGeneration.ObjC;
-using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
+using static BindingsGeneration.Tests.ObjCTests.ObjCTestHelpers;
 
 namespace BindingsGeneration.Tests.ObjCTests;
 
 public class ObjCBindingProjectEmitterTests
 {
-    private static readonly Microsoft.Extensions.Logging.ILogger Logger = NullLogger.Instance;
 
     private static ObjCBindingProjectOptions CreateOptions(string outputDir, string? packageId = null) =>
         new()

@@ -4,15 +4,13 @@
 #nullable enable
 
 using BindingsGeneration.ObjC;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
+using static BindingsGeneration.Tests.ObjCTests.ObjCTestHelpers;
 
 namespace BindingsGeneration.Tests.ObjCTests;
 
 public class MixedFrameworkDedupTests
 {
-    private static readonly ILogger Logger = NullLogger.Instance;
 
     private static ObjCModule CreateTestModule(
         List<ObjCClassDecl>? classes = null,

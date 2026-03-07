@@ -2,31 +2,15 @@
 // Licensed under the MIT License.
 
 using BindingsGeneration.ObjC;
-using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
+using static BindingsGeneration.Tests.ObjCTests.ObjCTestHelpers;
 
 namespace BindingsGeneration.Tests.ObjCTests;
 
 public class ApiDefinitionEmitterTests
 {
-    static readonly Microsoft.Extensions.Logging.ILogger Logger = NullLogger.Instance;
-
-    // Helper to emit and read back the file content
-    static string EmitAndRead(ObjCModule module, string ns = "TestNamespace")
-    {
-        var dir = Path.Combine(Path.GetTempPath(), $"apidefinition_test_{Guid.NewGuid():N}");
-        try
-        {
-            var path = ApiDefinitionEmitter.Emit(module, dir, ns, Logger);
-            Assert.Equal(Path.Combine(dir, "ApiDefinition.cs"), path);
-            return File.ReadAllText(path);
-        }
-        finally
-        {
-            if (Directory.Exists(dir))
-                Directory.Delete(dir, true);
-        }
-    }
+    static string EmitAndRead(ObjCModule module, string ns = "TestNamespace") =>
+        EmitApiDefinition(module, ns);
 
     // --- Simple class emission ---
 

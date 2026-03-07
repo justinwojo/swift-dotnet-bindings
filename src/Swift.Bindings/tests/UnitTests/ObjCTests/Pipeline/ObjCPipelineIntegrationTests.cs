@@ -2,9 +2,8 @@
 // Licensed under the MIT License.
 
 using BindingsGeneration.ObjC;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
+using static BindingsGeneration.Tests.ObjCTests.ObjCTestHelpers;
 
 namespace BindingsGeneration.Tests.ObjCTests;
 
@@ -14,7 +13,6 @@ namespace BindingsGeneration.Tests.ObjCTests;
 /// </summary>
 public class ObjCPipelineIntegrationTests
 {
-    private static readonly ILogger Logger = NullLogger.Instance;
 
     private static bool HasXcode()
     {
