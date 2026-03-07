@@ -48,6 +48,8 @@ public static class ClangAstParser
         // Track the last anonymous RecordDecl (struct with fields but no name)
         // to promote when a typedef follows it.
         List<ObjCStructField>? lastAnonymousStructFields = null;
+        bool lastAnonymousHasUnsafeLayout = false;
+        string? lastAnonymousUnsafeReason = null;
 
         // Pass 1: Parse all top-level declarations
         foreach (var node in inner.EnumerateArray())
@@ -125,9 +127,11 @@ public static class ClangAstParser
                         structs.Add(structDecl);
                     else
                     {
-                        // Anonymous struct — remember its fields for potential typedef promotion
-                        var fields = ParseStructFields(node);
-                        lastAnonymousStructFields = fields.Count > 0 ? fields : null;
+                        // Anonymous struct — remember its fields and layout info for potential typedef promotion
+                        var (anonFields, hasUnsafe, unsafeReason) = ParseStructFieldsWithLayout(node);
+                        lastAnonymousStructFields = anonFields.Count > 0 || hasUnsafe ? anonFields : null;
+                        lastAnonymousHasUnsafeLayout = hasUnsafe;
+                        lastAnonymousUnsafeReason = unsafeReason;
                     }
                     break;
 
@@ -148,9 +152,15 @@ public static class ClangAstParser
                     // A system-header typedef must NOT steal pending fields from a
                     // framework-local anonymous RecordDecl that precedes it.
                     var (typedefDecl, promotedStruct) = ParseTypedefDecl(node,
-                        isFrameworkLocal ? lastAnonymousStructFields : null);
+                        isFrameworkLocal ? lastAnonymousStructFields : null,
+                        isFrameworkLocal ? lastAnonymousHasUnsafeLayout : false,
+                        isFrameworkLocal ? lastAnonymousUnsafeReason : null);
                     if (isFrameworkLocal)
+                    {
                         lastAnonymousStructFields = null; // consumed by framework-local typedef
+                        lastAnonymousHasUnsafeLayout = false;
+                        lastAnonymousUnsafeReason = null;
+                    }
                     if (typedefDecl != null)
                     {
                         if (isFrameworkLocal)
@@ -448,20 +458,36 @@ public static class ClangAstParser
         var name = GetName(element);
         if (name == null) return null;
 
-        var fields = ParseStructFields(element);
-        return new ObjCStructDecl { Name = name, Fields = fields };
+        var (fields, hasUnsafeLayout, unsafeReason) = ParseStructFieldsWithLayout(element);
+        return new ObjCStructDecl { Name = name, Fields = fields, HasUnsafeLayout = hasUnsafeLayout, UnsafeLayoutReason = unsafeReason };
     }
 
     private static List<ObjCStructField> ParseStructFields(JsonElement element)
     {
+        var (fields, _, _) = ParseStructFieldsWithLayout(element);
+        return fields;
+    }
+
+    private static (List<ObjCStructField> fields, bool hasUnsafeLayout, string? unsafeReason) ParseStructFieldsWithLayout(JsonElement element)
+    {
         var fields = new List<ObjCStructField>();
+        var unsafeReasons = new List<string>();
 
         if (element.TryGetProperty("inner", out var inner))
         {
             foreach (var child in inner.EnumerateArray())
             {
-                if (GetOptionalString(child, "kind") == "FieldDecl")
+                var kind = GetOptionalString(child, "kind");
+
+                if (kind == "FieldDecl")
                 {
+                    // Detect bitfield: clang AST emits "isBitfield": true on FieldDecl
+                    if (child.TryGetProperty("isBitfield", out var isBitfield) && isBitfield.GetBoolean())
+                    {
+                        unsafeReasons.Add("contains bitfield");
+                        continue;
+                    }
+
                     var fieldName = GetName(child);
                     var fieldType = GetQualType(child);
                     if (fieldName != null && fieldType != null)
@@ -473,10 +499,19 @@ public static class ClangAstParser
                         });
                     }
                 }
+                else if (kind == "RecordDecl")
+                {
+                    // Anonymous union/struct inside the struct
+                    var memberName = GetName(child);
+                    if (memberName == null)
+                        unsafeReasons.Add("contains anonymous union/struct");
+                }
             }
         }
 
-        return fields;
+        var hasUnsafe = unsafeReasons.Count > 0;
+        var reason = hasUnsafe ? string.Join(", ", unsafeReasons.Distinct()) : null;
+        return (fields, hasUnsafe, reason);
     }
 
     private static ObjCFunctionDecl? ParseFunctionDecl(JsonElement element)
@@ -561,7 +596,7 @@ public static class ClangAstParser
         };
     }
 
-    private static (ObjCTypedefDecl?, ObjCStructDecl?) ParseTypedefDecl(JsonElement element, List<ObjCStructField>? precedingAnonymousFields = null)
+    private static (ObjCTypedefDecl?, ObjCStructDecl?) ParseTypedefDecl(JsonElement element, List<ObjCStructField>? precedingAnonymousFields = null, bool precedingHasUnsafeLayout = false, string? precedingUnsafeReason = null)
     {
         var name = GetName(element);
         if (name == null) return (null, null);
@@ -579,9 +614,9 @@ public static class ClangAstParser
                 // Check for anonymous struct (RecordDecl with fields) inside typedef's inner
                 if (childKind == "RecordDecl")
                 {
-                    var fields = ParseStructFields(child);
-                    if (fields.Count > 0)
-                        promotedStruct = new ObjCStructDecl { Name = name, Fields = fields };
+                    var (fields, hasUnsafe, unsafeReason) = ParseStructFieldsWithLayout(child);
+                    if (fields.Count > 0 || hasUnsafe)
+                        promotedStruct = new ObjCStructDecl { Name = name, Fields = fields, HasUnsafeLayout = hasUnsafe, UnsafeLayoutReason = unsafeReason };
                 }
 
                 if (childKind is "BuiltinType" or "RecordType" or "ElaboratedType"
@@ -597,11 +632,11 @@ public static class ClangAstParser
 
         // Promote anonymous struct from preceding sibling RecordDecl
         // (clang emits anonymous struct as top-level sibling, then typedef referencing it)
-        if (promotedStruct == null && precedingAnonymousFields is { Count: > 0 })
+        if (promotedStruct == null && (precedingAnonymousFields is { Count: > 0 } || precedingHasUnsafeLayout))
         {
             var qualType = GetQualType(element);
             if (qualType != null && qualType.StartsWith("struct ", StringComparison.Ordinal))
-                promotedStruct = new ObjCStructDecl { Name = name, Fields = precedingAnonymousFields };
+                promotedStruct = new ObjCStructDecl { Name = name, Fields = precedingAnonymousFields ?? [], HasUnsafeLayout = precedingHasUnsafeLayout, UnsafeLayoutReason = precedingUnsafeReason };
         }
 
         // Fall back to the type property

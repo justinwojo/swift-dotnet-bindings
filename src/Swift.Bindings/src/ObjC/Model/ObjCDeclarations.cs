@@ -98,6 +98,14 @@ public sealed record ObjCStructDecl
 {
     public required string Name { get; init; }
     public List<ObjCStructField> Fields { get; init; } = [];
+    /// <summary>
+    /// True when the struct contains bitfields, anonymous unions/structs, or other
+    /// layout constructs that cannot be correctly represented in C#.
+    /// Emitters should skip these structs and log a diagnostic.
+    /// </summary>
+    public bool HasUnsafeLayout { get; init; }
+    /// <summary>Describes why the layout is unsafe (for diagnostics).</summary>
+    public string? UnsafeLayoutReason { get; init; }
 }
 
 public sealed record ObjCFunctionDecl

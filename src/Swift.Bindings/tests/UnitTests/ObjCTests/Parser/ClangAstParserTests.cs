@@ -609,6 +609,136 @@ public class ClangAstParserTests
     }
 
     [Fact]
+    public void Parse_RecordDecl_WithBitfield_FlagsUnsafeLayout()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "RecordDecl",
+            "name": "BitfieldStruct",
+            {{MakeLoc()}},
+            "inner": [
+                {
+                    "kind": "FieldDecl",
+                    "name": "flags",
+                    "type": { "qualType": "unsigned int" },
+                    "isBitfield": true
+                },
+                {
+                    "kind": "FieldDecl",
+                    "name": "value",
+                    "type": { "qualType": "int" }
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Single(module.Structs);
+        var s = module.Structs[0];
+        Assert.True(s.HasUnsafeLayout);
+        Assert.Contains("bitfield", s.UnsafeLayoutReason!);
+        // Only non-bitfield fields are captured
+        Assert.Single(s.Fields);
+        Assert.Equal("value", s.Fields[0].Name);
+    }
+
+    [Fact]
+    public void Parse_RecordDecl_WithAnonymousUnion_FlagsUnsafeLayout()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "RecordDecl",
+            "name": "UnionStruct",
+            {{MakeLoc()}},
+            "inner": [
+                {
+                    "kind": "FieldDecl",
+                    "name": "tag",
+                    "type": { "qualType": "int" }
+                },
+                {
+                    "kind": "RecordDecl",
+                    "inner": [
+                        {
+                            "kind": "FieldDecl",
+                            "name": "intVal",
+                            "type": { "qualType": "int" }
+                        }
+                    ]
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Single(module.Structs);
+        var s = module.Structs[0];
+        Assert.True(s.HasUnsafeLayout);
+        Assert.Contains("anonymous", s.UnsafeLayoutReason!);
+    }
+
+    [Fact]
+    public void Parse_TypedefPromotedAnonymousStruct_WithBitfield_FlagsUnsafeLayout()
+    {
+        // Clang emits anonymous struct as sibling, then typedef referencing it
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "RecordDecl",
+            {{MakeLoc()}},
+            "inner": [
+                {
+                    "kind": "FieldDecl",
+                    "name": "flags",
+                    "type": { "qualType": "unsigned int" },
+                    "isBitfield": true
+                }
+            ]
+        },
+        {
+            "kind": "TypedefDecl",
+            "name": "BitfieldAlias",
+            {{MakeLoc()}},
+            "type": { "qualType": "struct (unnamed)" }
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        var promoted = module.Structs.FirstOrDefault(s => s.Name == "BitfieldAlias");
+        Assert.NotNull(promoted);
+        Assert.True(promoted!.HasUnsafeLayout);
+        Assert.Contains("bitfield", promoted.UnsafeLayoutReason!);
+    }
+
+    [Fact]
+    public void Parse_RecordDecl_WithoutUnsafeLayout_NoFlag()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "RecordDecl",
+            "name": "SafeStruct",
+            {{MakeLoc()}},
+            "inner": [
+                {
+                    "kind": "FieldDecl",
+                    "name": "x",
+                    "type": { "qualType": "float" }
+                },
+                {
+                    "kind": "FieldDecl",
+                    "name": "y",
+                    "type": { "qualType": "float" }
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Single(module.Structs);
+        Assert.False(module.Structs[0].HasUnsafeLayout);
+        Assert.Null(module.Structs[0].UnsafeLayoutReason);
+    }
+
+    [Fact]
     public void Parse_FunctionDecl_WithNestedParmVarDecls()
     {
         var json = WrapInTranslationUnit($$"""

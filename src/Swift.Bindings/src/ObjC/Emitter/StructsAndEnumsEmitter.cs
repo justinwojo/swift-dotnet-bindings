@@ -333,6 +333,16 @@ public static class StructsAndEnumsEmitter
 
     static void EmitStruct(StringBuilder sb, ObjCStructDecl structDecl, Dictionary<string, ObjCTypeRef> typedefMap, HashSet<string> knownTypes, ILogger logger, ObjCBindingDiagnostics? diagnostics)
     {
+        // Skip structs with unsafe layouts (bitfields, anonymous unions/structs)
+        if (structDecl.HasUnsafeLayout)
+        {
+            logger.LogDebug("Skipping struct {StructName}: {Reason}",
+                structDecl.Name, structDecl.UnsafeLayoutReason);
+            diagnostics?.RecordSkip("Struct", structDecl.Name, ObjCSkipReason.UnsupportedConstruct,
+                structDecl.UnsafeLayoutReason ?? "unsafe layout");
+            return;
+        }
+
         // Pre-validate: check all field types are resolvable before emitting.
         // Missing a field in SequentialLayout would break the struct's memory layout.
         foreach (var field in structDecl.Fields)

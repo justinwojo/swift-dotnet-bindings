@@ -1468,4 +1468,61 @@ public class StructsAndEnumsEmitterTests
         Assert.Contains("public struct CompactField", output);
         Assert.Contains("public sbyte Size_offset;", output);
     }
+
+    [Fact]
+    public void EmitStruct_WithUnsafeLayout_SkipsEmission()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Structs =
+            [
+                new ObjCStructDecl
+                {
+                    Name = "BitfieldStruct",
+                    HasUnsafeLayout = true,
+                    UnsafeLayoutReason = "contains bitfield",
+                    Fields =
+                    [
+                        new ObjCStructField { Name = "value", Type = SimpleType("int") }
+                    ]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.DoesNotContain("public struct BitfieldStruct", output);
+    }
+
+    [Fact]
+    public void EmitStruct_WithUnsafeLayout_RecordsDiagnostic()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Structs =
+            [
+                new ObjCStructDecl
+                {
+                    Name = "UnionStruct",
+                    HasUnsafeLayout = true,
+                    UnsafeLayoutReason = "contains anonymous union/struct",
+                    Fields = []
+                }
+            ]
+        };
+
+        var diag = new ObjCBindingDiagnostics();
+        var tempDir = Path.Combine(Path.GetTempPath(), $"structs_enums_test_{Guid.NewGuid():N}");
+        try
+        {
+            StructsAndEnumsEmitter.Emit(module, tempDir, "TestLib.Binding", Logger, diag);
+            Assert.Contains(diag.SkippedSymbols, s => s.SymbolName == "UnionStruct" && s.Reason == ObjCSkipReason.UnsupportedConstruct);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
 }
