@@ -22,5 +22,7 @@ public sealed record ObjCTypeRef
     public ObjCTypeRef? BlockReturnType { get; init; }
     public List<ObjCTypeRef> GenericArgs { get; init; } = [];
     public int? FixedArraySize { get; init; }
+    public bool IsFunctionPointer { get; init; }
+    public bool IsAnonymousRecord { get; init; }
     public string RawQualType { get; init; } = "";
 }

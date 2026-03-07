@@ -626,7 +626,7 @@ public class StructsAndEnumsEmitterTests
         {
             var result = StructsAndEnumsEmitter.Emit(module, tempDir, "TestLib.Binding", Logger);
             Assert.NotNull(result);
-            var content = File.ReadAllText(result!);
+            var content = File.ReadAllText(result!.FilePath);
             Assert.Contains("public delegate void CompletionHandler();", content);
         }
         finally
@@ -824,12 +824,23 @@ public class StructsAndEnumsEmitterTests
 
     private static string EmitAndRead(ObjCModule module, string ns = "TestLib.Binding")
     {
+        var (content, _) = EmitBothFiles(module, ns);
+        return content;
+    }
+
+    #nullable enable
+    private static (string main, string? bgenDelegates) EmitBothFiles(ObjCModule module, string ns = "TestLib.Binding")
+    {
         var tempDir = Path.Combine(Path.GetTempPath(), $"structs_enums_test_{Guid.NewGuid():N}");
         try
         {
             var result = StructsAndEnumsEmitter.Emit(module, tempDir, ns, Logger);
             Assert.NotNull(result);
-            return File.ReadAllText(result);
+            var main = File.ReadAllText(result!.FilePath);
+            var bgen = result.BgenDelegatesFilePath != null
+                ? File.ReadAllText(result.BgenDelegatesFilePath)
+                : null;
+            return (main, bgen);
         }
         finally
         {
@@ -995,5 +1006,217 @@ public class StructsAndEnumsEmitterTests
         var content = EmitAndRead(module);
         // OriginalBlock must be emitted — function uses AliasBlock which resolves to it
         Assert.Contains("OriginalBlock", content);
+    }
+
+    [Fact]
+    public void BgenDelegates_NestedBlockTypedefs_EmittedInSeparateFile()
+    {
+        // When a block typedef is used as a parameter of another block typedef
+        // (which is a property type), bgen auto-generates the inner delegate in
+        // SupportDelegates.g.cs. We must emit it in BgenDelegates.cs (for bgen to
+        // resolve during ApiDefinition parsing) but NOT in StructsAndEnums.cs.
+        var innerBlock = new ObjCTypeRef
+        {
+            Name = "Block",
+            IsBlock = true,
+            BlockReturnType = SimpleType("void"),
+            BlockParams = [SimpleType("NSInputStream", isPointer: true)],
+        };
+        var outerBlock = new ObjCTypeRef
+        {
+            Name = "Block",
+            IsBlock = true,
+            BlockReturnType = SimpleType("void"),
+            BlockParams = [SimpleType("InnerHandler")], // references inner typedef by name
+        };
+
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Typedefs =
+            [
+                new ObjCTypedefDecl { Name = "InnerHandler", UnderlyingType = innerBlock },
+                new ObjCTypedefDecl { Name = "OuterHandler", UnderlyingType = outerBlock },
+            ],
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "MyClass",
+                    Properties =
+                    [
+                        new ObjCPropertyDecl
+                        {
+                            Name = "handler",
+                            Type = SimpleType("OuterHandler"), // property type is the outer typedef
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var (main, bgenDelegates) = EmitBothFiles(module);
+
+        // InnerHandler should be in BgenDelegates.cs, not StructsAndEnums.cs
+        Assert.DoesNotContain("InnerHandler", main);
+        Assert.NotNull(bgenDelegates);
+        Assert.Contains("InnerHandler", bgenDelegates);
+
+        // OuterHandler is also bgen-used (direct property type) — also in BgenDelegates.cs
+        Assert.DoesNotContain("OuterHandler", main);
+        Assert.Contains("OuterHandler", bgenDelegates);
+    }
+
+    [Fact]
+    public void BgenDelegates_FunctionUsedDelegate_StaysInStructsAndEnums()
+    {
+        // When a block typedef is used by both a C function and as a nested block param,
+        // it must remain in StructsAndEnums.cs (function signatures reference it).
+        var innerBlock = new ObjCTypeRef
+        {
+            Name = "Block",
+            IsBlock = true,
+            BlockReturnType = SimpleType("void"),
+            BlockParams = [SimpleType("bool")],
+        };
+        var outerBlock = new ObjCTypeRef
+        {
+            Name = "Block",
+            IsBlock = true,
+            BlockReturnType = SimpleType("void"),
+            BlockParams = [SimpleType("CompletionBlock")],
+        };
+
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Typedefs =
+            [
+                new ObjCTypedefDecl { Name = "CompletionBlock", UnderlyingType = innerBlock },
+                new ObjCTypedefDecl { Name = "WrapperBlock", UnderlyingType = outerBlock },
+            ],
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "MyClass",
+                    Properties =
+                    [
+                        new ObjCPropertyDecl
+                        {
+                            Name = "wrapper",
+                            Type = SimpleType("WrapperBlock"),
+                        }
+                    ]
+                }
+            ],
+            Functions =
+            [
+                new ObjCFunctionDecl
+                {
+                    Name = "RunCompletion",
+                    ReturnType = SimpleType("void"),
+                    Parameters = [new ObjCParameterDecl { Name = "cb", Type = SimpleType("CompletionBlock") }],
+                }
+            ]
+        };
+
+        var (main, _) = EmitBothFiles(module);
+
+        // CompletionBlock is used by function → must be in StructsAndEnums.cs
+        Assert.Contains("CompletionBlock", main);
+    }
+
+    [Fact]
+    public void BgenDelegates_NoBgenUsage_NoBgenDelegatesFile()
+    {
+        // When no block typedefs are used in binding members, no BgenDelegates.cs is emitted.
+        var block = new ObjCTypeRef
+        {
+            Name = "Block",
+            IsBlock = true,
+            BlockReturnType = SimpleType("void"),
+        };
+
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Typedefs =
+            [
+                new ObjCTypedefDecl { Name = "SimpleCallback", UnderlyingType = block },
+            ],
+        };
+
+        var (main, bgenDelegates) = EmitBothFiles(module);
+
+        // No bgen usage → delegate emitted in main file, no BgenDelegates.cs
+        Assert.Contains("SimpleCallback", main);
+        Assert.Null(bgenDelegates);
+    }
+
+    [Fact]
+    public void EmitStruct_FunctionPointerField_MappedToIntPtr()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Structs =
+            [
+                new ObjCStructDecl
+                {
+                    Name = "Callbacks",
+                    Fields =
+                    [
+                        new ObjCStructField
+                        {
+                            Name = "handler",
+                            Type = new ObjCTypeRef
+                            {
+                                Name = "FunctionPointer",
+                                IsFunctionPointer = true,
+                                RawQualType = "bool (*)(int, float)",
+                            }
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("public IntPtr Handler;", output);
+    }
+
+    [Fact]
+    public void EmitStruct_SelfReferentialField_MappedToIntPtr()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Structs =
+            [
+                new ObjCStructDecl
+                {
+                    Name = "LinkedNode",
+                    Fields =
+                    [
+                        new ObjCStructField
+                        {
+                            Name = "value",
+                            Type = SimpleType("int"),
+                        },
+                        new ObjCStructField
+                        {
+                            Name = "next",
+                            Type = SimpleType("LinkedNode"),
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        // Self-referential field should be IntPtr to avoid CS0523
+        Assert.Contains("public IntPtr Next;", output);
+        Assert.Contains("public int Value;", output);
     }
 }

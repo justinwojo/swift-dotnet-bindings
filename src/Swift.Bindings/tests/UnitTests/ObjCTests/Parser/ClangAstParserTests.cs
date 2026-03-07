@@ -798,7 +798,7 @@ public class ClangAstParserTests
         }
         """;
 
-        // Declaration with includedFrom (should be included)
+        // Declaration with includedFrom pointing to our framework headers (sub-header case — should be included)
         var includedFromDecl = $$"""
         {
             "kind": "VarDecl",
@@ -819,8 +819,62 @@ public class ClangAstParserTests
         Assert.Single(module.Enums);
         Assert.Equal("MacroEnum", module.Enums[0].Name);
 
-        // Both loc-variant constants included
+        // Both loc-variant constants included (includedFrom points to our headers)
         Assert.Equal(2, module.Constants.Count);
+    }
+
+    [Fact]
+    public void Parse_IncludedFromExternal_DoesNotInheritCurrentFile()
+    {
+        // Regression: a declaration with only loc.includedFrom pointing to an external
+        // framework should NOT inherit currentFile from a previous public declaration.
+        var publicDecl = $$"""
+        {
+            "kind": "VarDecl",
+            "name": "PublicConst",
+            {{MakeLoc()}},
+            "type": { "qualType": "int" }
+        }
+        """;
+
+        // This declaration comes from a dependency header included by an external file.
+        // It should NOT be misclassified as public just because the previous declaration
+        // set currentFile to our framework's header path.
+        var dependencyDecl = """
+        {
+            "kind": "VarDecl",
+            "name": "DependencyConst",
+            "loc": { "includedFrom": { "file": "/usr/include/external/Dep.h" } },
+            "type": { "qualType": "int" }
+        }
+        """;
+
+        var json = WrapInTranslationUnit($"{publicDecl},{dependencyDecl}");
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+
+        Assert.Single(module.Constants);
+        Assert.Equal("PublicConst", module.Constants[0].Name);
+    }
+
+    [Fact]
+    public void Parse_IncludedFromOurHeaders_Accepted()
+    {
+        // A declaration with includedFrom pointing to our framework's headers
+        // is a sub-header declaration and should be included.
+        var subHeaderDecl = $$"""
+        {
+            "kind": "VarDecl",
+            "name": "SubHeaderConst",
+            "loc": { "includedFrom": { "file": "{{HeadersPath}}/TestLib.h" } },
+            "type": { "qualType": "int" }
+        }
+        """;
+
+        var json = WrapInTranslationUnit(subHeaderDecl);
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+
+        Assert.Single(module.Constants);
+        Assert.Equal("SubHeaderConst", module.Constants[0].Name);
     }
 
     [Fact]

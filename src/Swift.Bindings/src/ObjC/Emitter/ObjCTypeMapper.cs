@@ -41,6 +41,8 @@ public static class ObjCTypeMapper
         ["NSHTTPURLResponse"] = "NSHttpUrlResponse",
         ["NSHTTPCookie"] = "NSHttpCookie",
         ["NSHTTPCookieStorage"] = "NSHttpCookieStorage",
+        ["NSCachedURLResponse"] = "NSCachedUrlResponse",
+        ["NSMutableURLRequest"] = "NSMutableUrlRequest",
         ["BOOL"] = "bool",
     };
 
@@ -130,11 +132,36 @@ public static class ObjCTypeMapper
         ["CLLocationDirection"] = "double",
         ["CLLocationSpeed"] = "double",
         ["CLLocationAccuracy"] = "double",
+        ["UIBackgroundTaskIdentifier"] = "nint",
+        ["uint_least8_t"] = "byte",
+        ["int_least8_t"] = "sbyte",
+        ["uint_least16_t"] = "ushort",
+        ["int_least16_t"] = "short",
+        ["uint_least32_t"] = "uint",
+        ["int_least32_t"] = "int",
+        ["uint_least64_t"] = "ulong",
+        ["int_least64_t"] = "long",
+        ["uint_fast8_t"] = "byte",
+        ["int_fast8_t"] = "sbyte",
+        ["uint_fast16_t"] = "ushort",
+        ["int_fast16_t"] = "short",
+        ["uint_fast32_t"] = "uint",
+        ["int_fast32_t"] = "int",
+        ["uint_fast64_t"] = "ulong",
+        ["int_fast64_t"] = "long",
+        ["intptr_t"] = "nint",
+        ["uintptr_t"] = "nuint",
+        ["ptrdiff_t"] = "nint",
+        ["ssize_t"] = "nint",
     };
 
     public static string MapType(ObjCTypeRef typeRef, string? declaringClassName = null, HashSet<string>? genericTypeParams = null, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null)
     {
-        // 0. Fixed-size C array (e.g., uint8_t [4] → "byte[4]", NSString *[4] → "string[4]")
+        // 0a. C function pointers and anonymous records → IntPtr
+        if (typeRef.IsFunctionPointer || typeRef.IsAnonymousRecord)
+            return "IntPtr";
+
+        // 0b. Fixed-size C array (e.g., uint8_t [4] → "byte[4]", NSString *[4] → "string[4]")
         // Must be checked before primitive mapping, which would discard the array size.
         if (typeRef.FixedArraySize is > 0)
         {
@@ -219,14 +246,44 @@ public static class ObjCTypeMapper
         if (blockTypedefMap != null && blockTypedefMap.TryGetValue(typeRef.Name, out var blockResolved))
             return MapBlockType(blockResolved, genericTypeParams, typedefMap);
 
-        // 11. ObjC-to-.NET naming convention fallback (NSURL* → NSUrl*, NSHTTP* → NSHttp*)
+        // 11. ObjC-to-.NET naming convention fallback
+        // .NET MAUI lowercases URL→Url and HTTP→Http in NS-prefixed type names.
+        // Apply anywhere in the name (NSCachedURLResponse → NSCachedUrlResponse).
         var name = typeRef.Name;
-        if (name.StartsWith("NSURL", StringComparison.Ordinal) && name.Length > 5)
-            return "NSUrl" + name[5..];
-        if (name.StartsWith("NSHTTP", StringComparison.Ordinal) && name.Length > 6)
-            return "NSHttp" + name[6..];
+        if (name.StartsWith("NS", StringComparison.Ordinal) &&
+            (name.Contains("URL", StringComparison.Ordinal) || name.Contains("HTTP", StringComparison.Ordinal)))
+        {
+            return name
+                .Replace("HTTP", "Http", StringComparison.Ordinal)
+                .Replace("URL", "Url", StringComparison.Ordinal);
+        }
 
         // 12. Passthrough / fallback
+        return name;
+    }
+
+    /// <summary>
+    /// Maps an ObjC class name to its .NET MAUI binding name.
+    /// Like MapProtocolName but for class names used in BaseType attributes.
+    /// Applies URL→Url and HTTP→Http convention without pointer type semantics
+    /// (NSString stays NSString, not string).
+    /// </summary>
+    public static string MapClassName(string name)
+    {
+        // Check explicit pointer mappings for non-string types
+        // (NSString → string is wrong for BaseType, keep NSString)
+        if (PointerTypeMappings.TryGetValue(name, out var mapped) && mapped != "string" && mapped != "bool")
+            return mapped;
+
+        // Apply URL/HTTP convention
+        if (name.StartsWith("NS", StringComparison.Ordinal) &&
+            (name.Contains("URL", StringComparison.Ordinal) || name.Contains("HTTP", StringComparison.Ordinal)))
+        {
+            return name
+                .Replace("HTTP", "Http", StringComparison.Ordinal)
+                .Replace("URL", "Url", StringComparison.Ordinal);
+        }
+
         return name;
     }
 
@@ -236,10 +293,13 @@ public static class ObjCTypeMapper
     /// </summary>
     public static string MapProtocolName(string name)
     {
-        if (name.StartsWith("NSURL", StringComparison.Ordinal) && name.Length > 5)
-            return "NSUrl" + name[5..];
-        if (name.StartsWith("NSHTTP", StringComparison.Ordinal) && name.Length > 6)
-            return "NSHttp" + name[6..];
+        if (name.StartsWith("NS", StringComparison.Ordinal) &&
+            (name.Contains("URL", StringComparison.Ordinal) || name.Contains("HTTP", StringComparison.Ordinal)))
+        {
+            return name
+                .Replace("HTTP", "Http", StringComparison.Ordinal)
+                .Replace("URL", "Url", StringComparison.Ordinal);
+        }
         return name;
     }
 

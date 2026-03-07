@@ -39,24 +39,34 @@ public sealed class ClangAstInvoker
                 $"Failed to locate iOS SDK ({sdkName}). Ensure Xcode and iOS SDK are installed. stderr: {sdkErr}");
         }
 
-        var args = $"clang -x objective-c -Xclang -ast-dump=json " +
+        var baseArgs = $"clang -x objective-c -Xclang -ast-dump=json " +
                    $"-isysroot \"{sdkPath}\" " +
                    $"-F \"{frameworkSearchPath}\" ";
 
         if (additionalFrameworkSearchPaths != null)
         {
             foreach (var path in additionalFrameworkSearchPaths)
-                args += $"-F \"{path}\" ";
+                baseArgs += $"-F \"{path}\" ";
         }
 
         if (modulemapPath != null)
-            args += $"-fmodules -fmodule-map-file=\"{modulemapPath}\" ";
+            baseArgs += $"-fmodules -fmodule-map-file=\"{modulemapPath}\" ";
 
-        args += $"-fsyntax-only \"{headerPath}\"";
+        var args = baseArgs + $"-fsyntax-only \"{headerPath}\"";
 
         _logger.LogInformation("Invoking clang AST dump: xcrun {Args}", args);
 
         var (exitCode, stdout, stderr) = _commandRunner.Run("xcrun", args, timeoutMs: 120000);
+
+        // Retry with -fmodules if a header uses @import without modules enabled
+        if (exitCode != 0 && modulemapPath == null &&
+            stderr != null && stderr.Contains("use of '@import' when modules are disabled"))
+        {
+            _logger.LogInformation("Retrying with -fmodules (header uses @import)");
+            args = baseArgs + $"-fmodules -fsyntax-only \"{headerPath}\"";
+            (exitCode, stdout, stderr) = _commandRunner.Run("xcrun", args, timeoutMs: 120000);
+        }
+
         if (exitCode != 0)
         {
             throw new InvalidOperationException(

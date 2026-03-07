@@ -42,7 +42,20 @@ public static class ObjCBindingProjectEmitter
                 <ObjcBindingApiDefinition Include="ApiDefinition.cs" />
                 <ObjcBindingCoreSource Include="StructsAndEnums.cs"
                                        Condition="Exists('StructsAndEnums.cs')" />
+                <!-- bgen-only delegate hints: visible to bgen for type resolution,
+                     excluded from C# compilation (bgen auto-generates these in SupportDelegates.g.cs) -->
+                <ObjcBindingCoreSource Include="BgenDelegates.cs"
+                                       Condition="Exists('BgenDelegates.cs')" />
               </ItemGroup>
+
+              <!-- Remove bgen-only delegate hints from C# compilation.
+                   The SDK's ObjCBinding targets add ObjcBindingCoreSource to Compile,
+                   but these delegates conflict with bgen's auto-generated SupportDelegates.g.cs. -->
+              <Target Name="_RemoveBgenDelegatesFromCompile" BeforeTargets="CoreCompile">
+                <ItemGroup>
+                  <Compile Remove="BgenDelegates.cs" />
+                </ItemGroup>
+              </Target>
 
               <!-- NativeReference for local build -->
               <ItemGroup>

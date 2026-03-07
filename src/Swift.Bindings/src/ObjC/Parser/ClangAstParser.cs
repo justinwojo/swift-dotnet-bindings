@@ -873,15 +873,30 @@ public static class ClangAstParser
         }
 
         // 4. loc.includedFrom.file (the file that #imported this header)
-        if (loc.TryGetProperty("includedFrom", out var incFrom) &&
-            TryGetLocFile(incFrom, "file", out f))
+        // includedFrom identifies the INCLUDING file, not the declaration's source.
+        // We use it as a heuristic: if the includer is under our framework headers,
+        // the declaration is likely from a sub-header (e.g. CBCentralManager.h
+        // included by CoreBluetooth.h). This works because clang always emits an
+        // explicit loc.file for the first declaration when entering a new file —
+        // so dependency framework declarations (Foundation, etc.) included by our
+        // sub-headers get their own file field and are resolved by steps 1-3 above.
+        // The includedFrom-only path only fires for subsequent declarations in a
+        // file whose first declaration already established it as part of our framework.
+        bool hasIncludedFrom = loc.TryGetProperty("includedFrom", out var inclFrom);
+        if (resolvedFile == null && hasIncludedFrom)
         {
-            if (IsUnderPath(f, frameworkHeadersPath))
-                return true;
+            if (TryGetLocFile(inclFrom, "file", out f) && IsUnderPath(f, frameworkHeadersPath))
+            {
+                resolvedFile = f;
+            }
+            // If includedFrom points outside our framework, resolvedFile stays null
+            // and we do NOT fall through to currentFile inheritance below.
         }
 
-        // 5. If no file field at all, inherit from previous declaration's file
-        resolvedFile ??= currentFile;
+        // 5. If no file field at all and no includedFrom, inherit from previous declaration.
+        // (Clang omits loc.file when consecutive declarations are in the same file.)
+        if (resolvedFile == null && !hasIncludedFrom)
+            resolvedFile = currentFile;
 
         if (resolvedFile != null && IsUnderPath(resolvedFile, frameworkHeadersPath))
             return true;

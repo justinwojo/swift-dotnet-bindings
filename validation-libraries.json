@@ -722,6 +722,42 @@
         }
       ],
       "tier": 2
+    },
+    {
+      "name": "Firebase",
+      "mode": "manual",
+      "products": [
+        { "framework": "FirebaseABTesting" },
+        { "framework": "FirebaseAnalytics" },
+        { "framework": "FirebaseAppCheck" },
+        { "framework": "FirebaseAppCheckInterop" },
+        { "framework": "FirebaseAuth" },
+        { "framework": "FirebaseAuthInterop" },
+        { "framework": "FirebaseCore" },
+        { "framework": "FirebaseCoreExtension", "knownErrors": 1 },
+        { "framework": "FirebaseCoreInternal" },
+        { "framework": "FirebaseCrashlytics" },
+        { "framework": "FirebaseDatabase" },
+        { "framework": "FirebaseFirestore" },
+        { "framework": "FirebaseFirestoreInternal" },
+        { "framework": "FirebaseFunctions" },
+        { "framework": "FirebaseInAppMessaging" },
+        { "framework": "FirebaseInstallations" },
+        { "framework": "FirebaseMessaging" },
+        { "framework": "FirebaseMessagingInterop" },
+        { "framework": "FirebaseMLModelDownloader" },
+        { "framework": "FirebasePerformance" },
+        { "framework": "FirebaseRemoteConfig" },
+        { "framework": "FirebaseRemoteConfigInterop" },
+        { "framework": "FirebaseSessions", "knownErrors": 27 },
+        { "framework": "FirebaseStorage" },
+        { "framework": "GoogleSignIn", "knownErrors": 1 },
+        { "framework": "GTMAppAuth" },
+        { "framework": "GTMSessionFetcher" },
+        { "framework": "AppAuth" }
+      ],
+      "note": "Firebase iOS SDK + Google SDKs — download xcframeworks from https://github.com/firebase/firebase-ios-sdk/releases and place in .libraries/Firebase/",
+      "tier": 2
     }
   ]
 }

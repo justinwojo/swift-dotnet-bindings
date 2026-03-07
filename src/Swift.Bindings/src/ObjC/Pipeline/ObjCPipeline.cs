@@ -115,7 +115,8 @@ public static class ObjCPipeline
         }
 
         var apiDefPath = ApiDefinitionEmitter.Emit(module, outputDirectory, resolvedNamespace, logger);
-        var structsPath = StructsAndEnumsEmitter.Emit(module, outputDirectory, resolvedNamespace, logger);
+        var structsResult = StructsAndEnumsEmitter.Emit(module, outputDirectory, resolvedNamespace, logger);
+        var structsPath = structsResult?.FilePath;
 
         // Emit .csproj:
         // - sdkMode && !isMixed → skip (SDK IS the binding project)

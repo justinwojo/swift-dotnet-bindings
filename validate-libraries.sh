@@ -222,7 +222,10 @@ while IFS='|' read -r fw lib_name xcfw_path mode known_errors tier; do
 done < <(manifest_expand_targets "$LIBRARIES_DIR")
 
 if [[ ${#TARGETS[@]} -eq 0 ]]; then
-    if [[ -n "$FILTER" ]]; then
+    if [[ ${#MANUAL_TARGETS[@]} -gt 0 ]]; then
+        echo -e "${YELLOW}All matching targets are manual and missing xcframeworks:${NC}"
+        echo -e "${DIM}  ${MANUAL_TARGETS[*]}${NC}"
+    elif [[ -n "$FILTER" ]]; then
         echo -e "${YELLOW}No libraries match filter: $FILTER${NC}"
     else
         echo -e "${RED}No libraries available. Run: scripts/fetch-libraries.sh${NC}"

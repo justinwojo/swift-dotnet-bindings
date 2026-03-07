@@ -1797,4 +1797,77 @@ public class ApiDefinitionEmitterTests
         Assert.Contains("INSUrlSessionDelegate", result);
         Assert.DoesNotContain("INSURLSessionDelegate", result);
     }
+
+    [Fact]
+    public void EmitClass_NSSecureCoding_SkipsInitWithCoder()
+    {
+        // When a class conforms to NSSecureCoding, bgen auto-generates initWithCoder:.
+        // Our explicit emission would cause CS0111 duplicate constructor.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "MyRequest",
+                    ProtocolNames = ["NSCopying", "NSSecureCoding"],
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "initWithCoder:",
+                            ReturnType = new ObjCTypeRef { Name = "instancetype" },
+                            IsInstanceMethod = true,
+                            Parameters = [new ObjCParameterDecl { Name = "coder", Type = new ObjCTypeRef { Name = "NSCoder", IsPointer = true } }]
+                        },
+                        new ObjCMethodDecl
+                        {
+                            Selector = "initWithName:",
+                            ReturnType = new ObjCTypeRef { Name = "instancetype" },
+                            IsInstanceMethod = true,
+                            Parameters = [new ObjCParameterDecl { Name = "name", Type = new ObjCTypeRef { Name = "NSString", IsPointer = true } }]
+                        }
+                    ]
+                }
+            ]
+        };
+        var result = EmitAndRead(module);
+
+        // initWithCoder: should be skipped — bgen handles it via INSSecureCoding
+        Assert.DoesNotContain("initWithCoder:", result);
+        // Other constructors should still be emitted
+        Assert.Contains("initWithName:", result);
+    }
+
+    [Fact]
+    public void EmitClass_NoNSCoding_KeepsInitWithCoder()
+    {
+        // When a class does NOT conform to NSCoding, initWithCoder: should be emitted normally.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "MyCustomClass",
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "initWithCoder:",
+                            ReturnType = new ObjCTypeRef { Name = "instancetype" },
+                            IsInstanceMethod = true,
+                            Parameters = [new ObjCParameterDecl { Name = "coder", Type = new ObjCTypeRef { Name = "NSCoder", IsPointer = true } }]
+                        }
+                    ]
+                }
+            ]
+        };
+        var result = EmitAndRead(module);
+
+        // No NSCoding conformance → initWithCoder: should be kept
+        Assert.Contains("initWithCoder:", result);
+    }
 }

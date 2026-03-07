@@ -11,7 +11,7 @@ Experimental Swift/.NET interop project. Generates C# bindings from compiled Swi
 - `src/Swift.Bindings.Templates/` — `dotnet new swift-binding` project template
 - `src/Swift.Runtime/src/Swift/` — Runtime: SwiftString, SwiftArray, SafeHandle, ARC (NuGet: `Swift.Runtime`)
 - `TestFramework/` — Comprehensive test library + runtime tests (iOS Simulator)
-- `validation-libraries.json` — Library validation manifest (55 targets across 42 libraries)
+- `validation-libraries.json` — Library validation manifest (88 targets across 46 libraries)
 - `scripts/` — `fetch-libraries.sh` (build xcframeworks), `lib.sh` (shared helpers)
 - `src/docs/` — Design docs, status, known issues
 - `docs/` — High-level philosophy (`binding-overview.md`)
@@ -39,9 +39,9 @@ cd TestFramework
 
 # Real-world library validation:
 scripts/fetch-libraries.sh              # Fetch xcframeworks (first time)
-./validate-libraries.sh                 # Compile gate (all tiers, 55 targets, ~35s cached)
+./validate-libraries.sh                 # Compile gate (all tiers, 88 targets, ~35s cached)
 ./validate-libraries.sh --tier 1        # Tier 1 only (34 targets)
-./validate-libraries.sh --tier 2        # Tier 2 only (21 targets)
+./validate-libraries.sh --tier 2        # Tier 2 only (54 targets)
 ./validate-libraries.sh --filter Nuke   # Validate one library
 ```
 
@@ -123,9 +123,9 @@ scripts/fetch-libraries.sh
 ### Validation tiers
 
 - **Tier 1** (34 targets): Established baseline libraries (Alamofire, Nuke, Kingfisher, RxSwift, Stripe, Realm, Stripe3DS2, etc.).
-- **Tier 2** (21 targets): Additional coverage libraries (DeviceKit, ObjectMapper, SVGView, etc.).
-- **Default**: `./validate-libraries.sh` runs all tiers (55 targets, ~35s with cached build). Baseline updates on full unfiltered runs.
-- **Manual** (7 targets within tier 1): Proprietary/ObjC libraries (BlinkIDUX, BRLMPrinterKit, Mappedin, MicroblinkPlatform, SmartCardIO, Realm, Stripe3DS2). Place xcframeworks in `.libraries/<name>/`.
+- **Tier 2** (54 targets): Additional coverage libraries (DeviceKit, ObjectMapper, SVGView, Firebase, etc.).
+- **Default**: `./validate-libraries.sh` runs all tiers (88 targets, ~35s with cached build). Baseline updates on full unfiltered runs.
+- **Manual** (35 targets across tiers): Proprietary/ObjC libraries and Firebase. Place xcframeworks in `.libraries/<name>/`. Firebase: download from GitHub releases.
 
 ### Adding a new library
 

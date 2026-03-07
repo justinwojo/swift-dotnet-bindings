@@ -17,19 +17,44 @@ public static class ObjCTypeRefParser
         s = StripAttributes(s);
         s = StripObjCMacros(s);
 
-        // 1. Strip and record nullability annotations
+        // 1. Detect anonymous union/struct types from clang: "union (unnamed union at ...)"
+        if (s.StartsWith("union (", StringComparison.Ordinal) ||
+            s.StartsWith("struct (", StringComparison.Ordinal))
+        {
+            return new ObjCTypeRef
+            {
+                Name = "AnonymousRecord",
+                IsAnonymousRecord = true,
+                RawQualType = raw
+            };
+        }
+
+        // 2. Strip and record nullability annotations
         var nullability = ObjCNullability.Unspecified;
         s = StripNullability(s, ref nullability);
 
-        // 2. Detect block types: void (^)(NSString *)
+        // 3. Detect C function pointers after nullability stripping.
+        // Matches: void (*)(int), BOOL (* _Nullable)(...), etc.
+        // After stripping, these all normalize to contain "(*)" or "(* )".
+        if (IsFunctionPointer(s))
+        {
+            return new ObjCTypeRef
+            {
+                Name = "FunctionPointer",
+                IsFunctionPointer = true,
+                RawQualType = raw
+            };
+        }
+
+        // 4. Detect block types: void (^)(NSString *)
         if (TryParseBlock(s, nullability, raw, out var blockRef))
             return blockRef;
 
-        // 3. Detect id<Protocol>
+        // 5. Detect id<Protocol>
         if (TryParseIdProtocol(s, nullability, raw, out var idRef))
             return idRef;
 
-        // 4. Detect double pointer: NSError ** or NSError * * (space between stars after nullability stripping)
+        // 6. Detect double pointer: NSError ** or NSError * * (space between stars after nullability stripping)
         if (s.EndsWith("**") || s.EndsWith("* *"))
         {
             var inner = s.TrimEnd(' ', '*').Trim();
@@ -205,6 +230,17 @@ public static class ObjCTypeRefParser
         } while (changed);
 
         return s;
+    }
+
+    /// <summary>
+    /// Detects C function pointers after nullability stripping.
+    /// Matches patterns like "void (*)(int)", "BOOL (* )(int, float)", etc.
+    /// </summary>
+    private static bool IsFunctionPointer(string s)
+    {
+        // Look for "(* " or "(*)" — the signature of a C function pointer after stripping
+        int parenStar = s.IndexOf("(*", StringComparison.Ordinal);
+        return parenStar >= 0;
     }
 
     private static string StripNullability(string s, ref ObjCNullability nullability)

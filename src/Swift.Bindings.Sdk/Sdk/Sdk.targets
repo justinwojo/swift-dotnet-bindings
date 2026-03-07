@@ -375,6 +375,19 @@ done"
                                  Condition="Exists('$(_SwiftBindingIntermediateDir)ApiDefinition.cs')" />
       <ObjcBindingCoreSource Include="$(_SwiftBindingIntermediateDir)StructsAndEnums.cs"
                               Condition="Exists('$(_SwiftBindingIntermediateDir)StructsAndEnums.cs')" />
+      <ObjcBindingCoreSource Include="$(_SwiftBindingIntermediateDir)BgenDelegates.cs"
+                              Condition="Exists('$(_SwiftBindingIntermediateDir)BgenDelegates.cs')" />
+    </ItemGroup>
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Remove BgenDelegates.cs from Compile — it is only for bgen input       -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <Target Name="_RemoveBgenDelegatesFromCompile"
+          BeforeTargets="CoreCompile"
+          Condition="'$(SwiftFrameworkType)' == 'ObjC'">
+    <ItemGroup>
+      <Compile Remove="$(_SwiftBindingIntermediateDir)BgenDelegates.cs" />
     </ItemGroup>
   </Target>
 

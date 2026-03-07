@@ -98,7 +98,7 @@ public static class ApiDefinitionEmitter
         if (hasParameterlessInit)
             sb.AppendLine("    [DisableDefaultCtor]");
 
-        var baseType = cls.SuperclassName ?? "NSObject";
+        var baseType = ObjCTypeMapper.MapClassName(cls.SuperclassName ?? "NSObject");
         sb.AppendLine($"    [BaseType(typeof({baseType}))]");
 
         var filteredProtocols = cls.ProtocolNames
@@ -116,12 +116,18 @@ public static class ApiDefinitionEmitter
             ? new HashSet<string>(cls.GenericTypeParamNames)
             : null;
 
+        // bgen auto-generates initWithCoder: for classes conforming to NSCoding/NSSecureCoding.
+        // Skip our explicit emission to avoid CS0111 duplicate constructor.
+        var conformsToNSCoding = cls.ProtocolNames.Any(p =>
+            p is "NSCoding" or "NSSecureCoding");
+
         // Track emitted signatures to detect duplicates (constructors, methods, properties)
         var emittedConstructorSignatures = new HashSet<string>();
         var emittedMethodSignatures = new HashSet<string>();
         var emittedMemberNames = new HashSet<string>();
 
-        foreach (var method in cls.Methods)
+        foreach (var method in cls.Methods.Where(m =>
+            !(conformsToNSCoding && m.Selector == "initWithCoder:")))
         {
             var emittedName = EmitMethod(sb, method, declaringClassName: cls.Name, isProtocol: false, genericTypeParams: classGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedConstructorSignatures: emittedConstructorSignatures, emittedMethodSignatures: emittedMethodSignatures);
             if (emittedName != null) emittedMemberNames.Add(emittedName);

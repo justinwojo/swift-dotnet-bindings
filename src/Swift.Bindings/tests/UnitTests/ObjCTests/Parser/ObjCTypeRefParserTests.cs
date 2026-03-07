@@ -346,4 +346,17 @@ public class ObjCTypeRefParserTests
         Assert.Equal(expectedName, result.Name);
         Assert.Equal(expectedPointer, result.IsPointer);
     }
+
+    [Theory]
+    [InlineData("void (*)(int, float)")]
+    [InlineData("BOOL (*)(NSError *)")]
+    [InlineData("void (* _Nullable)(int)")]
+    [InlineData("BOOL (* __nullable)(int, float)")]
+    [InlineData("void (*_Nonnull)(void)")]
+    public void Parse_FunctionPointer_AllSpellings_Detected(string qualType)
+    {
+        var result = ObjCTypeRefParser.Parse(qualType);
+        Assert.True(result.IsFunctionPointer, $"Expected function pointer for: {qualType}");
+        Assert.Equal("FunctionPointer", result.Name);
+    }
 }
