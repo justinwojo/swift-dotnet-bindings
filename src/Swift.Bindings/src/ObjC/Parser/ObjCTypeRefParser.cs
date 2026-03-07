@@ -29,9 +29,13 @@ public static class ObjCTypeRefParser
             };
         }
 
-        // 2. Strip and record nullability annotations
+        // 2. Strip and record nullability annotations (depth-aware: preserves inner annotations).
+        //    For block types, defer ALL nullability handling to TryParseBlock for structural extraction.
         var nullability = ObjCNullability.Unspecified;
-        s = StripNullability(s, ref nullability);
+        var isBlockType = s.Contains("(^");
+
+        if (!isBlockType)
+            s = StripNullability(s, ref nullability);
 
         // 3. Detect C function pointers after nullability stripping.
         // Matches: void (*)(int), BOOL (* _Nullable)(...), etc.
@@ -49,6 +53,10 @@ public static class ObjCTypeRefParser
         // 4. Detect block types: void (^)(NSString *)
         if (TryParseBlock(s, nullability, raw, out var blockRef))
             return blockRef;
+
+        // Fallback: if (^ was present but TryParseBlock failed, strip nullability now
+        if (isBlockType)
+            s = StripNullability(s, ref nullability);
 
         // 5. Detect id<Protocol>
         if (TryParseIdProtocol(s, nullability, raw, out var idRef))
@@ -243,26 +251,106 @@ public static class ObjCTypeRefParser
         return parenStar >= 0;
     }
 
-    private static string StripNullability(string s, ref ObjCNullability nullability)
+    private static int FindAtDepthZero(string s, string token)
+    {
+        var depth = 0;
+        for (var i = 0; i <= s.Length - token.Length; i++)
+        {
+            switch (s[i])
+            {
+                case '(' or '<': depth++; break;
+                case ')' or '>': if (depth > 0) depth--; break;
+            }
+            if (depth == 0 && s.AsSpan(i).StartsWith(token))
+                return i;
+        }
+        return -1;
+    }
+
+    private static int FindLastAtDepthZero(string s, string token)
+    {
+        var depth = 0;
+        var last = -1;
+        for (var i = 0; i <= s.Length - token.Length; i++)
+        {
+            switch (s[i])
+            {
+                case '(' or '<': depth++; break;
+                case ')' or '>': if (depth > 0) depth--; break;
+            }
+            if (depth == 0 && s.AsSpan(i).StartsWith(token))
+                last = i;
+        }
+        return last;
+    }
+
+    private static ObjCNullability ExtractNullability(string s)
     {
         if (s.Contains("_Nonnull") || s.Contains("__nonnull"))
+            return ObjCNullability.Nonnull;
+        if (s.Contains("_Nullable_result"))
+            return ObjCNullability.Nullable;
+        if (s.Contains("_Nullable") || s.Contains("__nullable"))
+            return ObjCNullability.Nullable;
+        return ObjCNullability.Unspecified;
+    }
+
+    // Priority-ordered: _Nullable_result before _Nullable (prefix overlap)
+    private static readonly (string Token, ObjCNullability Value)[] NullabilityAnnotations =
+    [
+        ("_Nullable_result", ObjCNullability.Nullable),
+        ("_Nonnull", ObjCNullability.Nonnull),
+        ("__nonnull", ObjCNullability.Nonnull),
+        ("_Nullable", ObjCNullability.Nullable),
+        ("__nullable", ObjCNullability.Nullable),
+    ];
+
+    private static string StripNullability(string s, ref ObjCNullability nullability)
+    {
+        // First pass: capture the outermost (rightmost depth-0) annotation for semantics.
+        // For double pointers like "NSError * _Nonnull * _Nullable", the rightmost annotation
+        // (_Nullable) describes the outer pointer edge, which is the correct top-level nullability.
+        var bestIdx = -1;
+        var bestToken = "";
+        var bestValue = ObjCNullability.Unspecified;
+        foreach (var (token, value) in NullabilityAnnotations)
         {
-            nullability = ObjCNullability.Nonnull;
-            s = s.Replace("_Nonnull", "").Replace("__nonnull", "");
+            var idx = FindLastAtDepthZero(s, token);
+            if (idx > bestIdx)
+            {
+                bestIdx = idx;
+                bestToken = token;
+                bestValue = value;
+            }
         }
-        else if (s.Contains("_Nullable_result"))
+        if (bestIdx >= 0)
         {
-            nullability = ObjCNullability.Nullable;
-            s = s.Replace("_Nullable_result", "");
-        }
-        else if (s.Contains("_Nullable") || s.Contains("__nullable"))
-        {
-            nullability = ObjCNullability.Nullable;
-            s = s.Replace("_Nullable", "").Replace("__nullable", "");
+            nullability = bestValue;
+            s = s[..bestIdx] + s[(bestIdx + bestToken.Length)..];
         }
 
-        // Strip _Null_unspecified (no semantic impact, just noise)
-        s = s.Replace("_Null_unspecified", "");
+        // Second pass: strip ALL remaining depth-0 annotations (cleanup for double pointers).
+        // Double pointers like "NSError * _Nullable * _Nullable" have both annotations at depth 0
+        // (no brackets). The first pass captures the outer semantics; this pass removes the rest
+        // so structural patterns (EndsWith("**"), EndsWith("* *")) can match.
+        // Inner annotations (inside <> or ()) remain untouched since they're at depth > 0.
+        foreach (var (token, _) in NullabilityAnnotations)
+        {
+            while (true)
+            {
+                var idx = FindAtDepthZero(s, token);
+                if (idx < 0) break;
+                s = s[..idx] + s[(idx + token.Length)..];
+            }
+        }
+
+        // Strip _Null_unspecified at depth 0 (no semantic impact)
+        while (true)
+        {
+            var idx = FindAtDepthZero(s, "_Null_unspecified");
+            if (idx < 0) break;
+            s = s[..idx] + s[(idx + "_Null_unspecified".Length)..];
+        }
 
         // Collapse multiple spaces
         while (s.Contains("  "))
@@ -284,6 +372,12 @@ public static class ObjCTypeRefParser
         var caretClose = FindMatchingParen(s, caretIdx);
         if (caretClose < 0)
             return false;
+
+        // Extract block-level nullability from caret group: (^ _Nullable)
+        var caretContent = s[(caretIdx + 2)..caretClose].Trim();
+        var blockNullability = ExtractNullability(caretContent);
+        if (blockNullability == ObjCNullability.Unspecified)
+            blockNullability = nullability;
 
         // Params section starts at '(' immediately after caret group close
         if (caretClose + 1 >= s.Length || s[caretClose + 1] != '(')
@@ -316,7 +410,7 @@ public static class ObjCTypeRefParser
         {
             Name = "Block",
             IsBlock = true,
-            Nullability = nullability,
+            Nullability = blockNullability,
             BlockReturnType = Parse(returnTypeStr),
             BlockParams = blockParams,
             RawQualType = raw

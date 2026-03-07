@@ -868,6 +868,22 @@ public class ObjCTypeMapperTests
         Assert.Equal("uint", result);
     }
 
+    // --- Block nullability → IsNullableAttribute (end-to-end from parser) ---
+
+    [Fact]
+    public void IsNullableAttribute_NullableBlock_ReturnsTrue()
+    {
+        var result = ObjCTypeRefParser.Parse("void (^ _Nullable)(NSString *)");
+        Assert.True(ObjCTypeMapper.IsNullableAttribute(result));
+    }
+
+    [Fact]
+    public void IsNullableAttribute_NonnullBlock_ReturnsFalse()
+    {
+        var result = ObjCTypeRefParser.Parse("void (^ _Nonnull)(NSString *)");
+        Assert.False(ObjCTypeMapper.IsNullableAttribute(result));
+    }
+
     // Generic collection type hints
 
     [Fact]
@@ -915,5 +931,18 @@ public class ObjCTypeMapperTests
     {
         var typeRef = new ObjCTypeRef { Name = "NSArray", IsPointer = true };
         Assert.Null(ObjCTypeMapper.FormatGenericTypeHint(typeRef));
+    }
+
+    [Fact]
+    public void FormatGenericTypeHint_WithNullability_IncludesAnnotation()
+    {
+        var typeRef = new ObjCTypeRef
+        {
+            Name = "NSArray",
+            IsPointer = true,
+            Nullability = ObjCNullability.Nonnull,
+            GenericArgs = [new ObjCTypeRef { Name = "NSString", IsPointer = true, Nullability = ObjCNullability.Nullable }]
+        };
+        Assert.Equal("Element type: string (nullable)", ObjCTypeMapper.FormatGenericTypeHint(typeRef));
     }
 }

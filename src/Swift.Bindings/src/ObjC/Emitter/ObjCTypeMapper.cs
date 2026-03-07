@@ -319,9 +319,17 @@ public static class ObjCTypeMapper
         // For generic type parameters (e.g., T in NSArray<T>), preserve the original name
         // instead of mapping to NSObject, since the hint is for human readability.
         var mappedArgs = typeRef.GenericArgs
-            .Select(a => genericTypeParams != null && genericTypeParams.Contains(a.Name)
-                ? a.Name
-                : MapType(a, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap))
+            .Select(a =>
+            {
+                var mapped = genericTypeParams != null && genericTypeParams.Contains(a.Name)
+                    ? a.Name
+                    : MapType(a, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap);
+                if (a.Nullability == ObjCNullability.Nullable)
+                    mapped += " (nullable)";
+                else if (a.Nullability == ObjCNullability.Nonnull)
+                    mapped += " (nonnull)";
+                return mapped;
+            })
             .ToList();
 
         return typeRef.Name switch

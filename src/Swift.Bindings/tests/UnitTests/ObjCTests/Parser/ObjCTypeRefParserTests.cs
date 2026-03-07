@@ -207,6 +207,17 @@ public class ObjCTypeRefParserTests
     }
 
     [Fact]
+    public void Parse_MixedDoublePointer_OuterNullabilityWins()
+    {
+        // NSError * _Nonnull * _Nullable — rightmost depth-0 annotation (_Nullable) is outer pointer
+        var result = ObjCTypeRefParser.Parse("NSError * _Nonnull * _Nullable");
+        Assert.Equal("NSError", result.Name);
+        Assert.True(result.IsPointer);
+        Assert.NotNull(result.PointeeType);
+        Assert.Equal(ObjCNullability.Nullable, result.Nullability);
+    }
+
+    [Fact]
     public void Parse_GenericArrayType_ReturnsGenericArgs()
     {
         var result = ObjCTypeRefParser.Parse("NSArray<NSString *> *");
@@ -448,5 +459,126 @@ public class ObjCTypeRefParserTests
         var result = ObjCTypeRefParser.Parse(qualType);
         Assert.True(result.IsFunctionPointer, $"Expected function pointer for: {qualType}");
         Assert.Equal("FunctionPointer", result.Name);
+    }
+
+    // --- 7a: Block nested nullability ---
+
+    [Fact]
+    public void Parse_Block_NonnullBlock_NullableParam()
+    {
+        var result = ObjCTypeRefParser.Parse("void (^ _Nonnull)(NSString * _Nullable)");
+        Assert.True(result.IsBlock);
+        Assert.Equal(ObjCNullability.Nonnull, result.Nullability);
+        Assert.Equal(ObjCNullability.Unspecified, result.BlockReturnType!.Nullability);
+        Assert.Single(result.BlockParams);
+        Assert.Equal(ObjCNullability.Nullable, result.BlockParams[0].Nullability);
+    }
+
+    [Fact]
+    public void Parse_Block_NullableBlock_NonnullParam()
+    {
+        var result = ObjCTypeRefParser.Parse("void (^ _Nullable)(NSString * _Nonnull)");
+        Assert.True(result.IsBlock);
+        Assert.Equal(ObjCNullability.Nullable, result.Nullability);
+        Assert.Single(result.BlockParams);
+        Assert.Equal(ObjCNullability.Nonnull, result.BlockParams[0].Nullability);
+    }
+
+    [Fact]
+    public void Parse_Block_SameAnnotation_BothNullable()
+    {
+        var result = ObjCTypeRefParser.Parse("void (^ _Nullable)(NSString * _Nullable)");
+        Assert.True(result.IsBlock);
+        Assert.Equal(ObjCNullability.Nullable, result.Nullability);
+        Assert.Single(result.BlockParams);
+        Assert.Equal(ObjCNullability.Nullable, result.BlockParams[0].Nullability);
+    }
+
+    [Fact]
+    public void Parse_Block_NullableReturnType()
+    {
+        var result = ObjCTypeRefParser.Parse("NSString * _Nullable (^ _Nonnull)(void)");
+        Assert.True(result.IsBlock);
+        Assert.Equal(ObjCNullability.Nonnull, result.Nullability);
+        Assert.Equal(ObjCNullability.Nullable, result.BlockReturnType!.Nullability);
+        Assert.Empty(result.BlockParams);
+    }
+
+    [Fact]
+    public void Parse_Block_MultiParam_MixedNullability()
+    {
+        var result = ObjCTypeRefParser.Parse("void (^ _Nonnull)(NSString * _Nullable, NSNumber * _Nonnull)");
+        Assert.True(result.IsBlock);
+        Assert.Equal(ObjCNullability.Nonnull, result.Nullability);
+        Assert.Equal(2, result.BlockParams.Count);
+        Assert.Equal(ObjCNullability.Nullable, result.BlockParams[0].Nullability);
+        Assert.Equal(ObjCNullability.Nonnull, result.BlockParams[1].Nullability);
+    }
+
+    [Fact]
+    public void Parse_NestedBlock_WithNullability()
+    {
+        var result = ObjCTypeRefParser.Parse("void (^ _Nullable)(void (^ _Nonnull)(NSString * _Nullable))");
+        Assert.True(result.IsBlock);
+        Assert.Equal(ObjCNullability.Nullable, result.Nullability);
+        Assert.Single(result.BlockParams);
+        var inner = result.BlockParams[0];
+        Assert.True(inner.IsBlock);
+        Assert.Equal(ObjCNullability.Nonnull, inner.Nullability);
+        Assert.Single(inner.BlockParams);
+        Assert.Equal(ObjCNullability.Nullable, inner.BlockParams[0].Nullability);
+    }
+
+    [Fact]
+    public void Parse_Block_NoAnnotations_AllUnspecified()
+    {
+        var result = ObjCTypeRefParser.Parse("void (^)(NSString *)");
+        Assert.True(result.IsBlock);
+        Assert.Equal(ObjCNullability.Unspecified, result.Nullability);
+        Assert.Equal(ObjCNullability.Unspecified, result.BlockReturnType!.Nullability);
+        Assert.Single(result.BlockParams);
+        Assert.Equal(ObjCNullability.Unspecified, result.BlockParams[0].Nullability);
+    }
+
+    // --- 7b: Generic arg nested nullability ---
+
+    [Fact]
+    public void Parse_Generic_NonnullOuter_NullableArg()
+    {
+        var result = ObjCTypeRefParser.Parse("NSArray<NSString * _Nullable> * _Nonnull");
+        Assert.Equal("NSArray", result.Name);
+        Assert.Equal(ObjCNullability.Nonnull, result.Nullability);
+        Assert.Single(result.GenericArgs);
+        Assert.Equal(ObjCNullability.Nullable, result.GenericArgs[0].Nullability);
+    }
+
+    [Fact]
+    public void Parse_Generic_NullableOuter_NonnullArg()
+    {
+        var result = ObjCTypeRefParser.Parse("NSArray<NSString * _Nonnull> * _Nullable");
+        Assert.Equal("NSArray", result.Name);
+        Assert.Equal(ObjCNullability.Nullable, result.Nullability);
+        Assert.Single(result.GenericArgs);
+        Assert.Equal(ObjCNullability.Nonnull, result.GenericArgs[0].Nullability);
+    }
+
+    [Fact]
+    public void Parse_Generic_SameAnnotation_BothNullable()
+    {
+        var result = ObjCTypeRefParser.Parse("NSArray<NSString * _Nullable> * _Nullable");
+        Assert.Equal("NSArray", result.Name);
+        Assert.Equal(ObjCNullability.Nullable, result.Nullability);
+        Assert.Single(result.GenericArgs);
+        Assert.Equal(ObjCNullability.Nullable, result.GenericArgs[0].Nullability);
+    }
+
+    [Fact]
+    public void Parse_Generic_NSDictionary_MixedKeyValueNullability()
+    {
+        var result = ObjCTypeRefParser.Parse("NSDictionary<NSString * _Nonnull, NSNumber * _Nullable> *");
+        Assert.Equal("NSDictionary", result.Name);
+        Assert.Equal(2, result.GenericArgs.Count);
+        Assert.Equal(ObjCNullability.Nonnull, result.GenericArgs[0].Nullability);
+        Assert.Equal(ObjCNullability.Nullable, result.GenericArgs[1].Nullability);
     }
 }
