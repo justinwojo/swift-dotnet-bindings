@@ -106,6 +106,9 @@ public static class ObjCTypeMapper
         ["unsigned char"] = "byte",
         ["short"] = "short",
         ["char"] = "byte",
+        ["signed char"] = "sbyte",
+        ["unsigned char"] = "byte",
+        ["int8_t"] = "sbyte",
         ["long long"] = "long",
         ["unsigned long long"] = "ulong",
         ["uint8_t"] = "byte",
@@ -310,10 +313,15 @@ public static class ObjCTypeMapper
 
     public static Dictionary<string, ObjCTypeRef> BuildResolvedTypedefMap(ObjCModule module)
     {
+        // Use ResolutionTypedefs (all headers) when available for broader typedef resolution.
+        // This resolves external C types (e.g., nanopb pb_type_t → uint_least8_t → byte)
+        // that are defined in included headers outside the framework's own Headers directory.
+        var sourceTypedefs = module.ResolutionTypedefs ?? module.Typedefs;
+
         var raw = new Dictionary<string, ObjCTypeRef>();
         var structNames = new HashSet<string>(module.Structs.Select(s => s.Name));
 
-        foreach (var t in module.Typedefs)
+        foreach (var t in sourceTypedefs)
         {
             // Skip block typedefs (emitted as delegates) and struct typedefs (emitted as structs)
             if (t.UnderlyingType.IsBlock || structNames.Contains(t.Name))
@@ -332,6 +340,94 @@ public static class ObjCTypeMapper
             resolved[name] = current;
         }
         return resolved;
+    }
+
+    /// <summary>
+    /// Returns the set of all C# type names that MapType can produce via its built-in mappings
+    /// (primitives, pointer types, CoreFoundation refs). Used by emitters to detect unresolvable
+    /// passthrough types that would cause compile errors.
+    /// </summary>
+    public static HashSet<string> BuildKnownMappedTypes()
+    {
+        var known = new HashSet<string>();
+        foreach (var v in PrimitiveTypeMappings.Values) known.Add(v);
+        foreach (var v in PointerTypeMappings.Values) known.Add(v);
+        foreach (var v in CoreFoundationRefMappings.Values) known.Add(v);
+        // Types that MapType returns directly (not via dictionaries)
+        known.Add("NSObject");
+        known.Add("Selector");
+        known.Add("Class");
+        known.Add("NativeHandle");
+        return known;
+    }
+
+    /// <summary>
+    /// Checks whether a mapped type name will be resolvable in StructsAndEnums.cs.
+    /// Uses CamelCase heuristic: ObjC/Apple types start uppercase, C-internal types are snake_case.
+    /// </summary>
+    public static bool IsTypeResolvable(string mappedType, HashSet<string> knownTypes)
+    {
+        if (IsKnownMappedOrPatternType(mappedType, knownTypes)) return true;
+        // ObjC/Apple framework types use CamelCase (e.g., CGBitmapInfo, UIColor, NSCoder).
+        // C-internal types use snake_case (e.g., pb_wire_type_t, pb_size_t).
+        // Accept uppercase-starting types — they're available via Apple framework using directives.
+        if (mappedType.Length > 0 && char.IsUpper(mappedType[0])) return true;
+        return false;
+    }
+
+    /// <summary>
+    /// Checks whether a mapped type name will be resolvable in ApiDefinition.cs.
+    /// Source-aware: uses Apple SDK type names collected during parsing to distinguish
+    /// Apple framework types (available via .NET iOS bindings) from third-party types (not available).
+    /// When appleSdkTypeNames is null (e.g., -fmodules mode where SDK types aren't expanded),
+    /// falls back to the same uppercase CamelCase heuristic as StructsAndEnums.
+    /// </summary>
+    public static bool IsApiDefinitionTypeResolvable(string mappedType, HashSet<string> knownTypes, HashSet<string>? appleSdkTypeNames)
+    {
+        if (IsKnownMappedOrPatternType(mappedType, knownTypes)) return true;
+        // Check Apple SDK types: classes and protocols declared in Apple SDK headers
+        if (appleSdkTypeNames != null && appleSdkTypeNames.Count > 0)
+        {
+            if (ContainsAppleSdkType(appleSdkTypeNames, mappedType)) return true;
+            // Protocol interfaces have I prefix (e.g., ICTTelephonyNetworkInfoDelegate → CTTelephonyNetworkInfoDelegate)
+            if (mappedType.Length > 1 && mappedType[0] == 'I' && char.IsUpper(mappedType[1])
+                && ContainsAppleSdkType(appleSdkTypeNames, mappedType[1..])) return true;
+            return false;
+        }
+        // Fallback: accept uppercase-starting types (ObjC CamelCase convention).
+        // Used when SDK types aren't available (e.g., -fmodules AST, synthetic test modules).
+        if (mappedType.Length > 0 && char.IsUpper(mappedType[0])) return true;
+        return false;
+    }
+
+    /// <summary>
+    /// Checks if a mapped C# type name exists in the Apple SDK type names set.
+    /// Handles the URL→Url, HTTP→Http rename convention: the SDK set stores raw ObjC names
+    /// (e.g., NSURLSessionDelegate) but the mapped name uses .NET convention (NSUrlSessionDelegate).
+    /// </summary>
+    private static bool ContainsAppleSdkType(HashSet<string> appleSdkTypeNames, string mappedName)
+    {
+        if (appleSdkTypeNames.Contains(mappedName)) return true;
+        // Reverse the .NET naming convention to recover the original ObjC name
+        if (mappedName.Contains("Url", StringComparison.Ordinal) || mappedName.Contains("Http", StringComparison.Ordinal))
+        {
+            var objcName = mappedName
+                .Replace("Http", "HTTP", StringComparison.Ordinal)
+                .Replace("Url", "URL", StringComparison.Ordinal);
+            if (appleSdkTypeNames.Contains(objcName)) return true;
+        }
+        return false;
+    }
+
+    private static bool IsKnownMappedOrPatternType(string mappedType, HashSet<string> knownTypes)
+    {
+        if (knownTypes.Contains(mappedType)) return true;
+        // Action/Func delegate types (from block mappings)
+        if (mappedType.StartsWith("Action", StringComparison.Ordinal) ||
+            mappedType.StartsWith("Func<", StringComparison.Ordinal)) return true;
+        // Array types (from fixed-size C arrays, e.g., "byte[]")
+        if (mappedType.EndsWith("]", StringComparison.Ordinal)) return true;
+        return false;
     }
 
     public static bool IsNullableAttribute(ObjCTypeRef typeRef) =>

@@ -214,7 +214,7 @@ namespace BindingsGeneration.StressTests
         [Fact]
         public static void TestSwiftType26()
         {
-            long result = SM.Type4Extensions.SwiftFunc0(51, 53, 38.12, 86, 91.96, 20, 82, 73, 38, 56);
+            long result = SM.Type4.SwiftFunc0(51, 53, 38.12, 86, 91.96, 20, 82, 73, 38, 56);
             Assert.Equal(4414091805691157982, result);
         }
 
@@ -305,7 +305,7 @@ namespace BindingsGeneration.StressTests
         [Fact]
         public static void TestSwiftType39()
         {
-            long result = SM.Type7.Type7Sub2.Type7Sub2Sub3.Type7Sub2Sub3Sub4.Type7Sub2Sub3Sub4Sub5.Type7Sub2Sub3Sub4Sub5Sub6Extensions.SwiftFunc0(66, 37, 26, 66, 10, 34, 3.57, 94, 84);
+            long result = SM.Type7.Type7Sub2.Type7Sub2Sub3.Type7Sub2Sub3Sub4.Type7Sub2Sub3Sub4Sub5.Type7Sub2Sub3Sub4Sub5Sub6.SwiftFunc0(66, 37, 26, 66, 10, 34, 3.57, 94, 84);
             Assert.Equal(8161332097230727509, result);
         }
 
@@ -501,7 +501,7 @@ namespace BindingsGeneration.StressTests
         [Fact]
         public static void TestSwiftType67()
         {
-            long result = SM.Type13.Type13Sub2.Type13Sub2Sub3.Type13Sub2Sub3Sub4.Type13Sub2Sub3Sub4Sub5.Type13Sub2Sub3Sub4Sub5Sub6.Type13Sub2Sub3Sub4Sub5Sub6Sub7Extensions.SwiftFunc0(56, 68, 67.66);
+            long result = SM.Type13.Type13Sub2.Type13Sub2Sub3.Type13Sub2Sub3Sub4.Type13Sub2Sub3Sub4Sub5.Type13Sub2Sub3Sub4Sub5Sub6.Type13Sub2Sub3Sub4Sub5Sub6Sub7.SwiftFunc0(56, 68, 67.66);
             Assert.Equal(-1832824433293148886, result);
         }
 
@@ -529,7 +529,7 @@ namespace BindingsGeneration.StressTests
         [Fact]
         public static void TestSwiftType71()
         {
-            long result = SM.Type15.Type15Sub2.Type15Sub2Sub3Extensions.SwiftFunc0(27, 16, 78.80, 78, 20, 25, 0.02, 78, 80);
+            long result = SM.Type15.Type15Sub2.Type15Sub2Sub3.SwiftFunc0(27, 16, 78.80, 78, 20, 25, 0.02, 78, 80);
             Assert.Equal(6209167671701393392, result);
         }
 
@@ -543,7 +543,7 @@ namespace BindingsGeneration.StressTests
         [Fact]
         public static void TestSwiftType73()
         {
-            long result = SM.Type16.Type16Sub2Extensions.SwiftFunc0(41.36, 29.18, 79, 61.72, 98.56, 29, 1, 31);
+            long result = SM.Type16.Type16Sub2.SwiftFunc0(41.36, 29.18, 79, 61.72, 98.56, 29, 1, 31);
             Assert.Equal(-2590768908127775473, result);
         }
 
@@ -634,7 +634,7 @@ namespace BindingsGeneration.StressTests
         [Fact]
         public static void TestSwiftType86()
         {
-            long result = SM.Type19.Type19Sub2.Type19Sub2Sub3.Type19Sub2Sub3Sub4.Type19Sub2Sub3Sub4Sub5.Type19Sub2Sub3Sub4Sub5Sub6.Type19Sub2Sub3Sub4Sub5Sub6Sub7Extensions.SwiftFunc0(27, 48.79, 63, 71.75, 39, 50, 29, 70.13);
+            long result = SM.Type19.Type19Sub2.Type19Sub2Sub3.Type19Sub2Sub3Sub4.Type19Sub2Sub3Sub4Sub5.Type19Sub2Sub3Sub4Sub5Sub6.Type19Sub2Sub3Sub4Sub5Sub6Sub7.SwiftFunc0(27, 48.79, 63, 71.75, 39, 50, 29, 70.13);
             Assert.Equal(8088375796594482986, result);
         }
 
@@ -669,7 +669,7 @@ namespace BindingsGeneration.StressTests
         [Fact]
         public static void TestSwiftType91()
         {
-            long result = SM.Type20.Type20Sub2.Type20Sub2Sub3.Type20Sub2Sub3Sub4.Type20Sub2Sub3Sub4Sub5Extensions.SwiftFunc0(50);
+            long result = SM.Type20.Type20Sub2.Type20Sub2Sub3.Type20Sub2Sub3Sub4.Type20Sub2Sub3Sub4Sub5.SwiftFunc0(50);
             Assert.Equal(577292016191472559, result);
         }
 
@@ -690,7 +690,7 @@ namespace BindingsGeneration.StressTests
         [Fact]
         public static void TestSwiftType94()
         {
-            long result = SM.Type21.Type21Sub2.Type21Sub2Sub3Extensions.SwiftFunc0(33, 85, 69, 8.53, 99);
+            long result = SM.Type21.Type21Sub2.Type21Sub2Sub3.SwiftFunc0(33, 85, 69, 8.53, 99);
             Assert.Equal(762831339959854365, result);
         }
 
@@ -711,7 +711,7 @@ namespace BindingsGeneration.StressTests
         [Fact]
         public static void TestSwiftType97()
         {
-            long result = SM.Type22.Type22Sub2.Type22Sub2Sub3Extensions.SwiftFunc0(78, 99);
+            long result = SM.Type22.Type22Sub2.Type22Sub2Sub3.SwiftFunc0(78, 99);
             Assert.Equal(3825727416281544568, result);
         }
 
@@ -823,7 +823,7 @@ namespace BindingsGeneration.StressTests
         [Fact]
         public static void TestSwiftType113()
         {
-            long result = SM.Type25.Type25Sub2.Type25Sub2Sub3.Type25Sub2Sub3Sub4.Type25Sub2Sub3Sub4Sub5.Type25Sub2Sub3Sub4Sub5Sub6.Type25Sub2Sub3Sub4Sub5Sub6Sub7.Type25Sub2Sub3Sub4Sub5Sub6Sub7Sub8Extensions.SwiftFunc0(18.14, 78, 48);
+            long result = SM.Type25.Type25Sub2.Type25Sub2Sub3.Type25Sub2Sub3Sub4.Type25Sub2Sub3Sub4Sub5.Type25Sub2Sub3Sub4Sub5Sub6.Type25Sub2Sub3Sub4Sub5Sub6Sub7.Type25Sub2Sub3Sub4Sub5Sub6Sub7Sub8.SwiftFunc0(18.14, 78, 48);
             Assert.Equal(7596813894285301944, result);
         }
 
@@ -900,7 +900,7 @@ namespace BindingsGeneration.StressTests
         [Fact]
         public static void TestSwiftType124()
         {
-            long result = SM.Type28.Type28Sub2.Type28Sub2Sub3.Type28Sub2Sub3Sub4.Type28Sub2Sub3Sub4Sub5Extensions.SwiftFunc0(77.98, 64, 76, 30, 28, 72, 33, 22, 64, 83);
+            long result = SM.Type28.Type28Sub2.Type28Sub2Sub3.Type28Sub2Sub3Sub4.Type28Sub2Sub3Sub4Sub5.SwiftFunc0(77.98, 64, 76, 30, 28, 72, 33, 22, 64, 83);
             Assert.Equal(7933515710817159940, result);
         }
 
@@ -949,7 +949,7 @@ namespace BindingsGeneration.StressTests
         [Fact]
         public static void TestSwiftType131()
         {
-            long result = SM.Type30.Type30Sub2.Type30Sub2Sub3Extensions.SwiftFunc0(40, 26, 6, 79, 97, 23, 94, 41);
+            long result = SM.Type30.Type30Sub2.Type30Sub2Sub3.SwiftFunc0(40, 26, 6, 79, 97, 23, 94, 41);
             Assert.Equal(8899105243716276813, result);
         }
 
@@ -1047,7 +1047,7 @@ namespace BindingsGeneration.StressTests
         [Fact]
         public static void TestSwiftType145()
         {
-            long result = SM.Type33.Type33Sub2.Type33Sub2Sub3.Type33Sub2Sub3Sub4Extensions.SwiftFunc0(75, 22, 33, 24, 81, 58, 43.18, 20);
+            long result = SM.Type33.Type33Sub2.Type33Sub2Sub3.Type33Sub2Sub3Sub4.SwiftFunc0(75, 22, 33, 24, 81, 58, 43.18, 20);
             Assert.Equal(-5226086631818805671, result);
         }
 
@@ -1516,7 +1516,7 @@ namespace BindingsGeneration.StressTests
         [Fact]
         public static void TestSwiftType212()
         {
-            long result = SM.Type47.Type47Sub2.Type47Sub2Sub3Extensions.SwiftFunc0(62, 98);
+            long result = SM.Type47.Type47Sub2.Type47Sub2Sub3.SwiftFunc0(62, 98);
             Assert.Equal(-9093135547841380823, result);
         }
 
@@ -1558,7 +1558,7 @@ namespace BindingsGeneration.StressTests
         [Fact]
         public static void TestSwiftType218()
         {
-            long result = SM.Type48.Type48Sub2.Type48Sub2Sub3.Type48Sub2Sub3Sub4.Type48Sub2Sub3Sub4Sub5.Type48Sub2Sub3Sub4Sub5Sub6Extensions.SwiftFunc0(12, 63.75);
+            long result = SM.Type48.Type48Sub2.Type48Sub2Sub3.Type48Sub2Sub3Sub4.Type48Sub2Sub3Sub4Sub5.Type48Sub2Sub3Sub4Sub5Sub6.SwiftFunc0(12, 63.75);
             Assert.Equal(3389738121929217758, result);
         }
 
@@ -1684,7 +1684,7 @@ namespace BindingsGeneration.StressTests
         [Fact]
         public static void TestSwiftType236()
         {
-            long result = SM.Type52.Type52Sub2.Type52Sub2Sub3.Type52Sub2Sub3Sub4Extensions.SwiftFunc0(35, 91, 13.36, 35, 26.72);
+            long result = SM.Type52.Type52Sub2.Type52Sub2Sub3.Type52Sub2Sub3Sub4.SwiftFunc0(35, 91, 13.36, 35, 26.72);
             Assert.Equal(6610413077972723642, result);
         }
 
@@ -1698,7 +1698,7 @@ namespace BindingsGeneration.StressTests
         [Fact]
         public static void TestSwiftType238()
         {
-            long result = SM.Type53.Type53Sub2Extensions.SwiftFunc0(63, 9.78, 11, 0, 44, 28, 93, 89, 74, 55);
+            long result = SM.Type53.Type53Sub2.SwiftFunc0(63, 9.78, 11, 0, 44, 28, 93, 89, 74, 55);
             Assert.Equal(5694387538268430038, result);
         }
 
@@ -1726,7 +1726,7 @@ namespace BindingsGeneration.StressTests
         [Fact]
         public static void TestSwiftType242()
         {
-            long result = SM.Type54.Type54Sub2.Type54Sub2Sub3.Type54Sub2Sub3Sub4Extensions.SwiftFunc0(29, 26, 25);
+            long result = SM.Type54.Type54Sub2.Type54Sub2Sub3.Type54Sub2Sub3Sub4.SwiftFunc0(29, 26, 25);
             Assert.Equal(8994000051989817089, result);
         }
 
@@ -1803,7 +1803,7 @@ namespace BindingsGeneration.StressTests
         [Fact]
         public static void TestSwiftType253()
         {
-            long result = SM.Type55.Type55Sub2.Type55Sub2Sub3.Type55Sub2Sub3Sub4.Type55Sub2Sub3Sub4Sub5.Type55Sub2Sub3Sub4Sub5Sub6.Type55Sub2Sub3Sub4Sub5Sub6Sub7.Type55Sub2Sub3Sub4Sub5Sub6Sub7Sub8.Type55Sub2Sub3Sub4Sub5Sub6Sub7Sub8Sub9.Type55Sub2Sub3Sub4Sub5Sub6Sub7Sub8Sub9Sub10.Type55Sub2Sub3Sub4Sub5Sub6Sub7Sub8Sub9Sub10Sub11Extensions.SwiftFunc0(56);
+            long result = SM.Type55.Type55Sub2.Type55Sub2Sub3.Type55Sub2Sub3Sub4.Type55Sub2Sub3Sub4Sub5.Type55Sub2Sub3Sub4Sub5Sub6.Type55Sub2Sub3Sub4Sub5Sub6Sub7.Type55Sub2Sub3Sub4Sub5Sub6Sub7Sub8.Type55Sub2Sub3Sub4Sub5Sub6Sub7Sub8Sub9.Type55Sub2Sub3Sub4Sub5Sub6Sub7Sub8Sub9Sub10.Type55Sub2Sub3Sub4Sub5Sub6Sub7Sub8Sub9Sub10Sub11.SwiftFunc0(56);
             Assert.Equal(-5696561042698540867, result);
         }
 
@@ -1943,7 +1943,7 @@ namespace BindingsGeneration.StressTests
         [Fact]
         public static void TestSwiftType273()
         {
-            long result = SM.Type59.Type59Sub2.Type59Sub2Sub3.Type59Sub2Sub3Sub4.Type59Sub2Sub3Sub4Sub5.Type59Sub2Sub3Sub4Sub5Sub6.Type59Sub2Sub3Sub4Sub5Sub6Sub7.Type59Sub2Sub3Sub4Sub5Sub6Sub7Sub8.Type59Sub2Sub3Sub4Sub5Sub6Sub7Sub8Sub9Extensions.SwiftFunc0(79, 72, 69, 84.00, 43.48, 29);
+            long result = SM.Type59.Type59Sub2.Type59Sub2Sub3.Type59Sub2Sub3Sub4.Type59Sub2Sub3Sub4Sub5.Type59Sub2Sub3Sub4Sub5Sub6.Type59Sub2Sub3Sub4Sub5Sub6Sub7.Type59Sub2Sub3Sub4Sub5Sub6Sub7Sub8.Type59Sub2Sub3Sub4Sub5Sub6Sub7Sub8Sub9.SwiftFunc0(79, 72, 69, 84.00, 43.48, 29);
             Assert.Equal(5264772612232238808, result);
         }
 
@@ -2013,7 +2013,7 @@ namespace BindingsGeneration.StressTests
         [Fact]
         public static void TestSwiftType283()
         {
-            long result = SM.Type60.Type60Sub2.Type60Sub2Sub3.Type60Sub2Sub3Sub4.Type60Sub2Sub3Sub4Sub5.Type60Sub2Sub3Sub4Sub5Sub6.Type60Sub2Sub3Sub4Sub5Sub6Sub7.Type60Sub2Sub3Sub4Sub5Sub6Sub7Sub8.Type60Sub2Sub3Sub4Sub5Sub6Sub7Sub8Sub9.Type60Sub2Sub3Sub4Sub5Sub6Sub7Sub8Sub9Sub10Extensions.SwiftFunc0(60, 56, 27, 84, 83, 23);
+            long result = SM.Type60.Type60Sub2.Type60Sub2Sub3.Type60Sub2Sub3Sub4.Type60Sub2Sub3Sub4Sub5.Type60Sub2Sub3Sub4Sub5Sub6.Type60Sub2Sub3Sub4Sub5Sub6Sub7.Type60Sub2Sub3Sub4Sub5Sub6Sub7Sub8.Type60Sub2Sub3Sub4Sub5Sub6Sub7Sub8Sub9.Type60Sub2Sub3Sub4Sub5Sub6Sub7Sub8Sub9Sub10.SwiftFunc0(60, 56, 27, 84, 83, 23);
             Assert.Equal(7930192212614880088, result);
         }
 
@@ -2027,7 +2027,7 @@ namespace BindingsGeneration.StressTests
         [Fact]
         public static void TestSwiftType285()
         {
-            long result = SM.Type61.Type61Sub2Extensions.SwiftFunc0(32, 38, 37, 31, 48);
+            long result = SM.Type61.Type61Sub2.SwiftFunc0(32, 38, 37, 31, 48);
             Assert.Equal(-1160194257063564797, result);
         }
 
@@ -2083,7 +2083,7 @@ namespace BindingsGeneration.StressTests
         [Fact]
         public static void TestSwiftType293()
         {
-            long result = SM.Type62.Type62Sub2.Type62Sub2Sub3.Type62Sub2Sub3Sub4.Type62Sub2Sub3Sub4Sub5.Type62Sub2Sub3Sub4Sub5Sub6.Type62Sub2Sub3Sub4Sub5Sub6Sub7.Type62Sub2Sub3Sub4Sub5Sub6Sub7Sub8Extensions.SwiftFunc0(35, 53, 16, 98.23);
+            long result = SM.Type62.Type62Sub2.Type62Sub2Sub3.Type62Sub2Sub3Sub4.Type62Sub2Sub3Sub4Sub5.Type62Sub2Sub3Sub4Sub5Sub6.Type62Sub2Sub3Sub4Sub5Sub6Sub7.Type62Sub2Sub3Sub4Sub5Sub6Sub7Sub8.SwiftFunc0(35, 53, 16, 98.23);
             Assert.Equal(-6693787192806373363, result);
         }
 
@@ -2335,7 +2335,7 @@ namespace BindingsGeneration.StressTests
         [Fact]
         public static void TestSwiftType329()
         {
-            long result = SM.Type68.Type68Sub2.Type68Sub2Sub3.Type68Sub2Sub3Sub4Extensions.SwiftFunc0(15, 97, 28, 78, 22, 74, 52, 72, 27.99, 96);
+            long result = SM.Type68.Type68Sub2.Type68Sub2Sub3.Type68Sub2Sub3Sub4.SwiftFunc0(15, 97, 28, 78, 22, 74, 52, 72, 27.99, 96);
             Assert.Equal(-4858187451163638360, result);
         }
 
@@ -2727,7 +2727,7 @@ namespace BindingsGeneration.StressTests
         [Fact]
         public static void TestSwiftType385()
         {
-            long result = SM.Type84Extensions.SwiftFunc0(73);
+            long result = SM.Type84.SwiftFunc0(73);
             Assert.Equal(4635659444355057900, result);
         }
 
@@ -2755,7 +2755,7 @@ namespace BindingsGeneration.StressTests
         [Fact]
         public static void TestSwiftType389()
         {
-            long result = SM.Type85.Type85Sub2.Type85Sub2Sub3.Type85Sub2Sub3Sub4Extensions.SwiftFunc0(83, 44, 40.86, 79, 60, 20, 40, 30, 59.43, 70);
+            long result = SM.Type85.Type85Sub2.Type85Sub2Sub3.Type85Sub2Sub3Sub4.SwiftFunc0(83, 44, 40.86, 79, 60, 20, 40, 30, 59.43, 70);
             Assert.Equal(2766821019775738384, result);
         }
 
@@ -2902,7 +2902,7 @@ namespace BindingsGeneration.StressTests
         [Fact]
         public static void TestSwiftType410()
         {
-            long result = SM.Type90.Type90Sub2.Type90Sub2Sub3.Type90Sub2Sub3Sub4.Type90Sub2Sub3Sub4Sub5Extensions.SwiftFunc0(100, 11, 55, 24.50, 58);
+            long result = SM.Type90.Type90Sub2.Type90Sub2Sub3.Type90Sub2Sub3Sub4.Type90Sub2Sub3Sub4Sub5.SwiftFunc0(100, 11, 55, 24.50, 58);
             Assert.Equal(-5018197425982911939, result);
         }
 
@@ -3161,7 +3161,7 @@ namespace BindingsGeneration.StressTests
         [Fact]
         public static void TestSwiftType447()
         {
-            long result = SM.Type98.Type98Sub2Extensions.SwiftFunc0(70, 83, 12, 72.32, 51, 40, 56);
+            long result = SM.Type98.Type98Sub2.SwiftFunc0(70, 83, 12, 72.32, 51, 40, 56);
             Assert.Equal(-4277300291582903233, result);
         }
 
@@ -3203,7 +3203,7 @@ namespace BindingsGeneration.StressTests
         [Fact]
         public static void TestSwiftType453()
         {
-            long result = SM.Type99.Type99Sub2.Type99Sub2Sub3.Type99Sub2Sub3Sub4.Type99Sub2Sub3Sub4Sub5.Type99Sub2Sub3Sub4Sub5Sub6Extensions.SwiftFunc0(89, 12, 37, 7, 8, 54, 62);
+            long result = SM.Type99.Type99Sub2.Type99Sub2Sub3.Type99Sub2Sub3Sub4.Type99Sub2Sub3Sub4Sub5.Type99Sub2Sub3Sub4Sub5Sub6.SwiftFunc0(89, 12, 37, 7, 8, 54, 62);
             Assert.Equal(-4745752112673179602, result);
         }
 

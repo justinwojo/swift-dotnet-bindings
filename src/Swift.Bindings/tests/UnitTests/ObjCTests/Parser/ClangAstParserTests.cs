@@ -2003,4 +2003,312 @@ public class ClangAstParserTests
         Assert.Contains(module.Categories[0].Methods, m => m.Selector == "methodA");
         Assert.Contains(module.Categories[0].Methods, m => m.Selector == "methodB");
     }
+
+    // ──────────────────────────────────────────────
+    // ResolutionTypedefs — non-framework typedefs for resolution
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public void Parse_TypedefFromSystemHeader_InResolutionTypedefsOnly()
+    {
+        // A typedef from a non-framework header should be in ResolutionTypedefs
+        // but NOT in Typedefs (which are framework-local only).
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "TypedefDecl",
+            "name": "system_alias_t",
+            "loc": { "file": "/usr/include/sys/types.h" },
+            "inner": [
+                {
+                    "kind": "BuiltinType",
+                    "type": { "qualType": "unsigned int" }
+                }
+            ]
+        },
+        {
+            "kind": "TypedefDecl",
+            "name": "MyLocalAlias",
+            {{MakeLoc()}},
+            "inner": [
+                {
+                    "kind": "BuiltinType",
+                    "type": { "qualType": "int" }
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+
+        // Framework-local typedef should be in both lists
+        Assert.Single(module.Typedefs);
+        Assert.Equal("MyLocalAlias", module.Typedefs[0].Name);
+
+        // ResolutionTypedefs should contain both framework-local and system typedefs
+        Assert.NotNull(module.ResolutionTypedefs);
+        Assert.Equal(2, module.ResolutionTypedefs.Count);
+        Assert.Contains(module.ResolutionTypedefs, t => t.Name == "system_alias_t");
+        Assert.Contains(module.ResolutionTypedefs, t => t.Name == "MyLocalAlias");
+
+        // Framework-local typedef should come AFTER system typedef (last-write-wins precedence)
+        var sysIdx = module.ResolutionTypedefs.FindIndex(t => t.Name == "system_alias_t");
+        var localIdx = module.ResolutionTypedefs.FindIndex(t => t.Name == "MyLocalAlias");
+        Assert.True(localIdx > sysIdx, "Framework-local typedefs must come after system typedefs for last-write-wins precedence");
+    }
+
+    [Fact]
+    public void Parse_SystemTypedefDoesNotStealAnonymousStructFields()
+    {
+        // Scenario: framework-local anonymous RecordDecl, then a system-header TypedefDecl
+        // intervenes, then the framework-local TypedefDecl that should promote the struct.
+        // The system typedef must NOT consume lastAnonymousStructFields.
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "RecordDecl",
+            {{MakeLoc()}},
+            "inner": [
+                {
+                    "kind": "FieldDecl",
+                    "name": "x",
+                    "type": { "qualType": "int" }
+                },
+                {
+                    "kind": "FieldDecl",
+                    "name": "y",
+                    "type": { "qualType": "int" }
+                }
+            ]
+        },
+        {
+            "kind": "TypedefDecl",
+            "name": "unrelated_system_type",
+            "loc": { "file": "/usr/include/sys/types.h" },
+            "inner": [
+                {
+                    "kind": "BuiltinType",
+                    "type": { "qualType": "unsigned long" }
+                }
+            ]
+        },
+        {
+            "kind": "TypedefDecl",
+            "name": "MyPoint",
+            {{MakeLoc()}},
+            "type": { "qualType": "struct MyPoint" },
+            "inner": [
+                {
+                    "kind": "ElaboratedType",
+                    "type": { "qualType": "struct (unnamed)" },
+                    "inner": [
+                        {
+                            "kind": "RecordType",
+                            "type": { "qualType": "struct (unnamed)" }
+                        }
+                    ]
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+
+        // The anonymous struct should be promoted via the framework-local typedef
+        Assert.Single(module.Structs);
+        Assert.Equal("MyPoint", module.Structs[0].Name);
+        Assert.Equal(2, module.Structs[0].Fields.Count);
+        Assert.Contains(module.Structs[0].Fields, f => f.Name == "x");
+        Assert.Contains(module.Structs[0].Fields, f => f.Name == "y");
+    }
+
+    [Fact]
+    public void Parse_FrameworkTypedefTakesPrecedenceOverSystemTypedef()
+    {
+        // When both system and framework headers define the same typedef name,
+        // the framework-local definition should take precedence in resolution.
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "TypedefDecl",
+            "name": "MyAlias",
+            "loc": { "file": "/usr/include/sys/types.h" },
+            "inner": [
+                {
+                    "kind": "BuiltinType",
+                    "type": { "qualType": "unsigned int" }
+                }
+            ]
+        },
+        {
+            "kind": "TypedefDecl",
+            "name": "MyAlias",
+            {{MakeLoc()}},
+            "inner": [
+                {
+                    "kind": "BuiltinType",
+                    "type": { "qualType": "int" }
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+
+        // ResolutionTypedefs: system first, framework-local second
+        Assert.NotNull(module.ResolutionTypedefs);
+        Assert.Equal(2, module.ResolutionTypedefs.Count);
+        // The framework-local one (int) should be last, so it wins in dict assignment
+        Assert.Equal("int", module.ResolutionTypedefs[1].UnderlyingType.Name);
+
+        // BuildResolvedTypedefMap should resolve to the framework-local definition
+        var typedefMap = ObjCTypeMapper.BuildResolvedTypedefMap(module);
+        var result = ObjCTypeMapper.MapType(
+            new ObjCTypeRef { Name = "MyAlias" }, typedefMap: typedefMap);
+        Assert.Equal("int", result);
+    }
+
+    [Fact]
+    public void Parse_SdkHeaderIncludedByFrameworkHeader_NotFrameworkLocal()
+    {
+        // When a framework header #imports an SDK header, the SDK declarations have
+        // includedFrom pointing to the framework header. But they should NOT be classified
+        // as framework-local because currentFile was set to the SDK path by the first
+        // declaration from that header.
+        var sdkFirstDecl = """
+        {
+            "kind": "ObjCProtocolDecl",
+            "name": "SdkDelegate",
+            "loc": { "file": "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk/System/Library/Frameworks/SomeSDK.framework/Headers/SomeSDK.h" },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "didFinish",
+                    "returnType": { "qualType": "void" },
+                    "instance": true
+                }
+            ]
+        }
+        """;
+
+        // Second declaration from same SDK header — no loc.file, only includedFrom
+        // pointing to our framework's header (the includer). Should NOT be framework-local.
+        var sdkSecondDecl = $$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "SdkManager",
+            "loc": { "includedFrom": { "file": "{{HeadersPath}}/TestLib.h" } },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "start",
+                    "returnType": { "qualType": "void" },
+                    "instance": true
+                }
+            ]
+        }
+        """;
+
+        var json = WrapInTranslationUnit($"{sdkFirstDecl},{sdkSecondDecl}");
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+
+        // Neither SDK declaration should be parsed as framework-local
+        Assert.Empty(module.Classes);
+        Assert.Empty(module.Protocols);
+    }
+
+    [Fact]
+    public void Parse_AppleSdkTypeNames_CollectsFromSdkHeaders()
+    {
+        // ObjC classes and protocols from Apple SDK headers should be collected
+        // into AppleSdkTypeNames for ApiDefinition type resolvability.
+        var sdkClass = """
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "UIViewController",
+            "loc": { "file": "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk/System/Library/Frameworks/UIKit.framework/Headers/UIViewController.h" },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "viewDidLoad",
+                    "returnType": { "qualType": "void" },
+                    "instance": true
+                }
+            ]
+        }
+        """;
+
+        var sdkProtocol = """
+        {
+            "kind": "ObjCProtocolDecl",
+            "name": "UITableViewDelegate",
+            "loc": { "file": "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk/System/Library/Frameworks/UIKit.framework/Headers/UITableView.h" },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "didSelectRow",
+                    "returnType": { "qualType": "void" },
+                    "instance": true
+                }
+            ]
+        }
+        """;
+
+        // Framework-local class that's NOT from SDK
+        var localClass = $$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "MyWidget",
+            {{MakeLoc()}},
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "doStuff",
+                    "returnType": { "qualType": "void" },
+                    "instance": true
+                }
+            ]
+        }
+        """;
+
+        var json = WrapInTranslationUnit($"{sdkClass},{sdkProtocol},{localClass}");
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+
+        // SDK types NOT in framework classes/protocols (they're not framework-local)
+        Assert.Single(module.Classes);
+        Assert.Equal("MyWidget", module.Classes[0].Name);
+        Assert.Empty(module.Protocols);
+
+        // But they ARE in AppleSdkTypeNames
+        Assert.NotNull(module.AppleSdkTypeNames);
+        Assert.Contains("UIViewController", module.AppleSdkTypeNames);
+        Assert.Contains("UITableViewDelegate", module.AppleSdkTypeNames);
+        // Framework-local types are NOT in AppleSdkTypeNames
+        Assert.DoesNotContain("MyWidget", module.AppleSdkTypeNames);
+    }
+
+    [Fact]
+    public void Parse_AppleSdkTypeNames_NotCollectedFromNonSdkPaths()
+    {
+        // ObjC types from non-SDK, non-framework paths should NOT be collected.
+        var thirdPartyDecl = """
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "ThirdPartyWidget",
+            "loc": { "file": "/Users/dev/libs/ThirdParty.framework/Headers/ThirdParty.h" },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "show",
+                    "returnType": { "qualType": "void" },
+                    "instance": true
+                }
+            ]
+        }
+        """;
+
+        var json = WrapInTranslationUnit(thirdPartyDecl);
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+
+        Assert.Empty(module.Classes);
+        // ThirdPartyWidget is NOT from an SDK path → not collected
+        Assert.Null(module.AppleSdkTypeNames);
+    }
 }

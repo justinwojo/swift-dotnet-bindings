@@ -766,4 +766,97 @@ public class ObjCTypeMapperTests
         var result = ObjCTypeMapper.MapType(paramType, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap);
         Assert.Equal("Action<string>", result);
     }
+
+    // ──────────────────────────────────────────────
+    // Signed char / int8_t primitive mapping
+    // ──────────────────────────────────────────────
+
+    [Theory]
+    [InlineData("signed char", "sbyte")]
+    [InlineData("int8_t", "sbyte")]
+    public void MapType_SignedCharAndInt8t_MapToSbyte(string cType, string expected)
+    {
+        var typeRef = new ObjCTypeRef { Name = cType };
+        var result = ObjCTypeMapper.MapType(typeRef);
+        Assert.Equal(expected, result);
+    }
+
+    // ──────────────────────────────────────────────
+    // IsTypeResolvable — ObjC vs C type heuristic
+    // ──────────────────────────────────────────────
+
+    [Theory]
+    [InlineData("CGBitmapInfo", true)]     // Apple framework type (CoreGraphics)
+    [InlineData("UIColor", true)]          // Apple framework type (UIKit)
+    [InlineData("NSCoder", true)]          // Apple framework type (Foundation)
+    [InlineData("SDImagePixelFormat", true)] // Module-defined ObjC struct (CamelCase)
+    [InlineData("int", true)]              // Known primitive (in knownTypes)
+    [InlineData("Action<string>", true)]   // Delegate pattern
+    [InlineData("byte[]", true)]           // Array pattern
+    [InlineData("pb_wire_type_t", false)]  // C-internal type (snake_case)
+    [InlineData("pb_type_t", false)]       // C-internal type (snake_case)
+    [InlineData("some_struct", false)]     // C-internal type (snake_case)
+    public void IsTypeResolvable_DistinguishesObjCFromCTypes(string mappedType, bool expected)
+    {
+        var knownTypes = ObjCTypeMapper.BuildKnownMappedTypes();
+        Assert.Equal(expected, ObjCTypeMapper.IsTypeResolvable(mappedType, knownTypes));
+    }
+
+    // ──────────────────────────────────────────────
+    // IsApiDefinitionTypeResolvable — source-aware + URL/HTTP rename
+    // ──────────────────────────────────────────────
+
+    [Theory]
+    [InlineData("NSHttpUrlResponse", true)]       // Mapped from NSHTTPURLResponse (in SDK set)
+    [InlineData("NSUrlSession", true)]            // Mapped from NSURLSession (in SDK set)
+    [InlineData("INSUrlSessionDelegate", true)]   // I-prefix protocol: strip I → NSUrlSessionDelegate → reverse → NSURLSessionDelegate
+    [InlineData("UIColor", true)]                 // Direct match (in SDK set as-is)
+    [InlineData("ThirdPartyType", false)]         // Not in SDK set or known types
+    [InlineData("pb_wire_type_t", false)]         // C-internal type
+    public void IsApiDefinitionTypeResolvable_WithSdkNames_HandlesUrlHttpRename(string mappedType, bool expected)
+    {
+        var knownTypes = ObjCTypeMapper.BuildKnownMappedTypes();
+        var sdkNames = new HashSet<string> { "NSHTTPURLResponse", "NSURLSession", "NSURLSessionDelegate", "UIColor" };
+        Assert.Equal(expected, ObjCTypeMapper.IsApiDefinitionTypeResolvable(mappedType, knownTypes, sdkNames));
+    }
+
+    [Theory]
+    [InlineData("UIColor", true)]          // Uppercase → fallback accepts
+    [InlineData("AnyObjCType", true)]      // Uppercase → fallback accepts
+    [InlineData("pb_wire_type_t", false)]  // Lowercase → fallback rejects
+    public void IsApiDefinitionTypeResolvable_NullSdkNames_FallsBackToHeuristic(string mappedType, bool expected)
+    {
+        var knownTypes = ObjCTypeMapper.BuildKnownMappedTypes();
+        Assert.Equal(expected, ObjCTypeMapper.IsApiDefinitionTypeResolvable(mappedType, knownTypes, null));
+    }
+
+    // ──────────────────────────────────────────────
+    // ResolutionTypedefs — non-framework typedef resolution
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public void BuildResolvedTypedefMap_UsesResolutionTypedefs()
+    {
+        // Simulates a typedef from a system header (not framework-local) that should
+        // be available for resolution but not emitted.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Typedefs = [], // No framework-local typedefs
+            ResolutionTypedefs =
+            [
+                new ObjCTypedefDecl
+                {
+                    Name = "my_alias_t",
+                    UnderlyingType = new ObjCTypeRef { Name = "uint32_t" }
+                }
+            ]
+        };
+
+        var typedefMap = ObjCTypeMapper.BuildResolvedTypedefMap(module);
+        Assert.True(typedefMap.ContainsKey("my_alias_t"));
+        // Should resolve through to uint (uint32_t → uint)
+        var result = ObjCTypeMapper.MapType(new ObjCTypeRef { Name = "my_alias_t" }, typedefMap: typedefMap);
+        Assert.Equal("uint", result);
+    }
 }

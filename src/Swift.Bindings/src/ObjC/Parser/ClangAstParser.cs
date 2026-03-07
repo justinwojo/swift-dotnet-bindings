@@ -25,7 +25,9 @@ public static class ClangAstParser
         var functions = new List<ObjCFunctionDecl>();
         var constants = new List<ObjCConstantDecl>();
         var typedefs = new List<ObjCTypedefDecl>();
+        var systemTypedefs = new List<ObjCTypedefDecl>();
         var categories = new List<ObjCCategoryDecl>();
+        var appleSdkTypeNames = new HashSet<string>();
 
         // Normalize headers path for comparison
         frameworkHeadersPath = frameworkHeadersPath.TrimEnd('/');
@@ -57,9 +59,33 @@ public static class ClangAstParser
             if (kind == null)
                 continue;
 
-            // Update current file tracking and filter by framework headers path
-            if (!IsPublicDeclaration(node, frameworkHeadersPath, ref currentFile))
-                continue;
+            // Update current file tracking and filter by framework headers path.
+            // IsPublicDeclaration always updates currentFile tracking (side-effect),
+            // even when returning false, so file tracking stays accurate.
+            var isFrameworkLocal = IsPublicDeclaration(node, frameworkHeadersPath, ref currentFile, out var nodeResolvedFile);
+
+
+            // Non-framework-local declarations: parse TypedefDecl for typedef resolution,
+            // and collect class/protocol names from Apple SDK headers for ApiDefinition
+            // type resolvability (these types are available via .NET iOS framework bindings).
+            if (!isFrameworkLocal)
+            {
+                if (kind == "TypedefDecl")
+                {
+                    // Fall through to switch below
+                }
+                else if ((kind is "ObjCInterfaceDecl" or "ObjCProtocolDecl") && IsAppleSdkPath(nodeResolvedFile))
+                {
+                    var name = GetName(node);
+                    if (name != null)
+                        appleSdkTypeNames.Add(name);
+                    continue;
+                }
+                else
+                {
+                    continue;
+                }
+            }
 
             switch (kind)
             {
@@ -118,11 +144,21 @@ public static class ClangAstParser
                     break;
 
                 case "TypedefDecl":
-                    var (typedefDecl, promotedStruct) = ParseTypedefDecl(node, lastAnonymousStructFields);
-                    lastAnonymousStructFields = null; // consumed
+                    // Only framework-local typedefs can consume anonymous struct fields.
+                    // A system-header typedef must NOT steal pending fields from a
+                    // framework-local anonymous RecordDecl that precedes it.
+                    var (typedefDecl, promotedStruct) = ParseTypedefDecl(node,
+                        isFrameworkLocal ? lastAnonymousStructFields : null);
+                    if (isFrameworkLocal)
+                        lastAnonymousStructFields = null; // consumed by framework-local typedef
                     if (typedefDecl != null)
-                        typedefs.Add(typedefDecl);
-                    if (promotedStruct != null)
+                    {
+                        if (isFrameworkLocal)
+                            typedefs.Add(typedefDecl);
+                        else
+                            systemTypedefs.Add(typedefDecl);
+                    }
+                    if (promotedStruct != null && isFrameworkLocal)
                         structs.Add(promotedStruct);
                     break;
             }
@@ -186,7 +222,12 @@ public static class ClangAstParser
             Functions = functions,
             Constants = constants,
             Typedefs = typedefs,
-            Categories = dedupedCategories
+            // System typedefs first, framework-local second — BuildResolvedTypedefMap uses
+            // last-write-wins dict assignment, so framework-local definitions take precedence
+            // when a system header defines the same alias name.
+            ResolutionTypedefs = [.. systemTypedefs, .. typedefs],
+            Categories = dedupedCategories,
+            AppleSdkTypeNames = appleSdkTypeNames.Count > 0 ? appleSdkTypeNames : null
         };
     }
 
@@ -838,7 +879,11 @@ public static class ClangAstParser
     /// file hasn't changed from the previous declaration.
     /// </summary>
     internal static bool IsPublicDeclaration(JsonElement decl, string frameworkHeadersPath, ref string? currentFile)
+        => IsPublicDeclaration(decl, frameworkHeadersPath, ref currentFile, out _);
+
+    internal static bool IsPublicDeclaration(JsonElement decl, string frameworkHeadersPath, ref string? currentFile, out string? resolvedFilePath)
     {
+        resolvedFilePath = null;
         if (!decl.TryGetProperty("loc", out var loc))
             return false;
 
@@ -874,18 +919,18 @@ public static class ClangAstParser
 
         // 4. loc.includedFrom.file (the file that #imported this header)
         // includedFrom identifies the INCLUDING file, not the declaration's source.
-        // We use it as a heuristic: if the includer is under our framework headers,
-        // the declaration is likely from a sub-header (e.g. CBCentralManager.h
-        // included by CoreBluetooth.h). This works because clang always emits an
-        // explicit loc.file for the first declaration when entering a new file —
-        // so dependency framework declarations (Foundation, etc.) included by our
-        // sub-headers get their own file field and are resolved by steps 1-3 above.
-        // The includedFrom-only path only fires for subsequent declarations in a
-        // file whose first declaration already established it as part of our framework.
+        // We use it as a heuristic: if BOTH the includer AND the current file chain
+        // point to framework headers, the declaration is from a sub-header (e.g.,
+        // CBCentralManager.h included by CoreBluetooth.h). We additionally require
+        // currentFile to be framework-local (or null) to avoid false positives when
+        // a framework header #imports an SDK header — the SDK declarations get
+        // includedFrom pointing to the framework header but currentFile points to
+        // the SDK header (set by the first declaration in that file via step 1).
         bool hasIncludedFrom = loc.TryGetProperty("includedFrom", out var inclFrom);
         if (resolvedFile == null && hasIncludedFrom)
         {
-            if (TryGetLocFile(inclFrom, "file", out f) && IsUnderPath(f, frameworkHeadersPath))
+            if (TryGetLocFile(inclFrom, "file", out f) && IsUnderPath(f, frameworkHeadersPath)
+                && (currentFile == null || IsUnderPath(currentFile, frameworkHeadersPath)))
             {
                 resolvedFile = f;
             }
@@ -897,6 +942,8 @@ public static class ClangAstParser
         // (Clang omits loc.file when consecutive declarations are in the same file.)
         if (resolvedFile == null && !hasIncludedFrom)
             resolvedFile = currentFile;
+
+        resolvedFilePath = resolvedFile ?? currentFile;
 
         if (resolvedFile != null && IsUnderPath(resolvedFile, frameworkHeadersPath))
             return true;
@@ -918,6 +965,18 @@ public static class ClangAstParser
     private static bool IsUnderPath(string filePath, string basePath)
     {
         return filePath.StartsWith(basePath, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Checks whether a header path is from an Apple SDK (Xcode SDKs, system includes).
+    /// Types declared in Apple SDK headers are available in .NET iOS via framework bindings.
+    /// </summary>
+    internal static bool IsAppleSdkPath(string? filePath)
+    {
+        if (string.IsNullOrEmpty(filePath)) return false;
+        return filePath.Contains("/SDKs/", StringComparison.Ordinal)
+            || filePath.Contains("/usr/include/", StringComparison.Ordinal)
+            || filePath.Contains("/Platforms/", StringComparison.Ordinal);
     }
 
     internal static bool IsForwardDeclaration(JsonElement element)

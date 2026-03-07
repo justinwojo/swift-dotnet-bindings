@@ -1870,4 +1870,277 @@ public class ApiDefinitionEmitterTests
         // No NSCoding conformance → initWithCoder: should be kept
         Assert.Contains("initWithCoder:", result);
     }
+
+    // --- Source-aware ApiDefinition type filtering ---
+
+    [Fact]
+    public void Emit_ApiDefinitionFiltering_SkipsMethodWithUnresolvableParamType()
+    {
+        // When AppleSdkTypeNames is populated, methods with types NOT in the known set
+        // or Apple SDK should be skipped.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            AppleSdkTypeNames = new HashSet<string> { "UIColor" },
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "MyClass",
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "doGood:",
+                            ReturnType = new ObjCTypeRef { Name = "void" },
+                            IsInstanceMethod = true,
+                            Parameters = [new ObjCParameterDecl { Name = "color", Type = new ObjCTypeRef { Name = "UIColor", IsPointer = true } }]
+                        },
+                        new ObjCMethodDecl
+                        {
+                            Selector = "doBad:",
+                            ReturnType = new ObjCTypeRef { Name = "void" },
+                            IsInstanceMethod = true,
+                            Parameters = [new ObjCParameterDecl { Name = "info", Type = new ObjCTypeRef { Name = "ThirdPartyType", IsPointer = true } }]
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("DoGood", result);
+        Assert.DoesNotContain("DoBad", result);
+    }
+
+    [Fact]
+    public void Emit_ApiDefinitionFiltering_SkipsMethodWithUnresolvableReturnType()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            AppleSdkTypeNames = new HashSet<string> { "NSData" },
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "MyClass",
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "fetchData",
+                            ReturnType = new ObjCTypeRef { Name = "ExternalResult", IsPointer = true },
+                            IsInstanceMethod = true,
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.DoesNotContain("FetchData", result);
+    }
+
+    [Fact]
+    public void Emit_ApiDefinitionFiltering_SkipsPropertyWithUnresolvableType()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            AppleSdkTypeNames = new HashSet<string> { "UIView" },
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "MyClass",
+                    Properties =
+                    [
+                        new ObjCPropertyDecl { Name = "goodView", Type = new ObjCTypeRef { Name = "UIView", IsPointer = true } },
+                        new ObjCPropertyDecl { Name = "badThing", Type = new ObjCTypeRef { Name = "ThirdPartyWidget", IsPointer = true } }
+                    ]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("GoodView", result);
+        Assert.DoesNotContain("BadThing", result);
+    }
+
+    [Fact]
+    public void Emit_ApiDefinitionFiltering_AcceptsProtocolInterfacePrefix()
+    {
+        // Protocol interface types have I prefix (e.g., ICTTelephonyNetworkInfoDelegate)
+        // Should resolve via Apple SDK if the base name (without I) is in the set.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            AppleSdkTypeNames = new HashSet<string> { "SomeDelegate" },
+            Protocols =
+            [
+                new ObjCProtocolDecl
+                {
+                    Name = "MyProtocol",
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "getDelegate",
+                            ReturnType = new ObjCTypeRef { Name = "ISomeDelegate" },
+                            IsInstanceMethod = true,
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("GetDelegate", result);
+    }
+
+    [Fact]
+    public void Emit_ApiDefinitionFiltering_FallbackHeuristicWhenAppleSdkTypesNull()
+    {
+        // When AppleSdkTypeNames is null (no Clang context, e.g. -fmodules AST),
+        // falls back to uppercase CamelCase heuristic — uppercase types pass, C-types are filtered.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            AppleSdkTypeNames = null,
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "MyClass",
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "doStuff:",
+                            ReturnType = new ObjCTypeRef { Name = "void" },
+                            IsInstanceMethod = true,
+                            Parameters = [new ObjCParameterDecl { Name = "thing", Type = new ObjCTypeRef { Name = "AnyUnknownType", IsPointer = true } }]
+                        },
+                        new ObjCMethodDecl
+                        {
+                            Selector = "doBad:",
+                            ReturnType = new ObjCTypeRef { Name = "void" },
+                            IsInstanceMethod = true,
+                            Parameters = [new ObjCParameterDecl { Name = "x", Type = new ObjCTypeRef { Name = "some_c_type_t" } }]
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+        // Uppercase ObjC-style types pass the fallback heuristic
+        Assert.Contains("DoStuff", result);
+        // Lowercase C-style types are still filtered
+        Assert.DoesNotContain("DoBad", result);
+    }
+
+    [Fact]
+    public void Emit_ApiDefinitionFiltering_AcceptsModuleDefinedTypes()
+    {
+        // Types defined in the module itself (classes, enums, structs, protocols) should always pass.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            AppleSdkTypeNames = new HashSet<string>(), // Empty — no Apple types
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "Config",
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "getStatus",
+                            ReturnType = new ObjCTypeRef { Name = "MyStatus" },
+                            IsInstanceMethod = true,
+                        }
+                    ]
+                }
+            ],
+            Enums = [new ObjCEnumDecl { Name = "MyStatus", UnderlyingType = new ObjCTypeRef { Name = "NSInteger" } }]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("GetStatus", result);
+    }
+
+    [Fact]
+    public void Emit_ApiDefinitionFiltering_AcceptsRenamedUrlHttpAppleTypes()
+    {
+        // Apple SDK types with URL/HTTP naming are stored as raw ObjC names
+        // (NSURLSessionDelegate) but MapType produces .NET convention names
+        // (NSUrlSessionDelegate). The filter must reverse-normalize to match.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            AppleSdkTypeNames = new HashSet<string> { "NSURLSessionDelegate", "NSHTTPURLResponse" },
+            Protocols =
+            [
+                new ObjCProtocolDecl
+                {
+                    Name = "MyDelegate",
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "getResponse",
+                            ReturnType = new ObjCTypeRef { Name = "NSHTTPURLResponse", IsPointer = true },
+                            IsInstanceMethod = true,
+                        },
+                        new ObjCMethodDecl
+                        {
+                            Selector = "getDelegate",
+                            ReturnType = new ObjCTypeRef { Name = "INSUrlSessionDelegate" },
+                            IsInstanceMethod = true,
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+        // NSHTTPURLResponse → NSHttpUrlResponse via MapType, must match SDK name
+        Assert.Contains("GetResponse", result);
+        // INSUrlSessionDelegate (I-prefixed protocol) → strip I → NSUrlSessionDelegate → reverse to NSURLSessionDelegate
+        Assert.Contains("GetDelegate", result);
+    }
+
+    [Fact]
+    public void Emit_ApiDefinitionFiltering_SkippedPropertyDoesNotReserveName()
+    {
+        // A property skipped by the resolvability filter must NOT reserve its
+        // emitted name, so a later valid property with the same PascalCase name
+        // can still be emitted.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            AppleSdkTypeNames = new HashSet<string> { "UIColor" },
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "MyClass",
+                    Properties =
+                    [
+                        // First property: unresolvable type → skipped
+                        new ObjCPropertyDecl { Name = "color", Type = new ObjCTypeRef { Name = "ThirdPartyColor", IsPointer = true } },
+                        // Second property: same PascalCase name "Color" but resolvable type → should emit
+                        new ObjCPropertyDecl { Name = "color", Type = new ObjCTypeRef { Name = "UIColor", IsPointer = true } }
+                    ]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("Color", result);
+        Assert.Contains("UIColor", result);
+    }
 }

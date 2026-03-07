@@ -1219,4 +1219,93 @@ public class StructsAndEnumsEmitterTests
         Assert.Contains("public IntPtr Next;", output);
         Assert.Contains("public int Value;", output);
     }
+
+    // ──────────────────────────────────────────────
+    // Function filtering — unresolvable C-type params
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public void EmitFunction_SkipsUnresolvableCTypeParam()
+    {
+        // Function with a snake_case C-internal type parameter should be skipped
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Functions =
+            [
+                new ObjCFunctionDecl
+                {
+                    Name = "pb_encode_tag",
+                    ReturnType = SimpleType("bool"),
+                    Parameters = [new ObjCParameterDecl { Name = "wire_type", Type = SimpleType("pb_wire_type_t") }]
+                },
+                new ObjCFunctionDecl
+                {
+                    Name = "good_function",
+                    ReturnType = SimpleType("int"),
+                    Parameters = [new ObjCParameterDecl { Name = "value", Type = SimpleType("int") }]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        // Function with unresolvable C type should be skipped
+        Assert.DoesNotContain("pb_encode_tag", output);
+        // Function with known types should be emitted
+        Assert.Contains("good_function", output);
+    }
+
+    [Fact]
+    public void EmitStruct_WithAppleFrameworkFieldType_Emits()
+    {
+        // Struct with an Apple framework type field (CamelCase) should NOT be skipped
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Structs =
+            [
+                new ObjCStructDecl
+                {
+                    Name = "PixelFormat",
+                    Fields =
+                    [
+                        new ObjCStructField { Name = "bitmapInfo", Type = SimpleType("CGBitmapInfo") },
+                        new ObjCStructField { Name = "alignment", Type = SimpleType("size_t") }
+                    ]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        // Struct should be emitted — CGBitmapInfo is an Apple framework type (uppercase)
+        Assert.Contains("public struct PixelFormat", output);
+        Assert.Contains("public CGBitmapInfo BitmapInfo;", output);
+        Assert.Contains("public nuint Alignment;", output);
+    }
+
+    [Fact]
+    public void EmitStruct_SignedCharField_MapsToSbyte()
+    {
+        // Struct with signed char field should emit correctly with sbyte mapping
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Structs =
+            [
+                new ObjCStructDecl
+                {
+                    Name = "CompactField",
+                    Fields =
+                    [
+                        new ObjCStructField { Name = "size_offset", Type = SimpleType("signed char") },
+                        new ObjCStructField { Name = "tag", Type = SimpleType("int") }
+                    ]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("public struct CompactField", output);
+        Assert.Contains("public sbyte Size_offset;", output);
+    }
 }
