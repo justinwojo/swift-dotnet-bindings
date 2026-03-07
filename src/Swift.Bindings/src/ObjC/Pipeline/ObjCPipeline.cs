@@ -114,8 +114,9 @@ public static class ObjCPipeline
             resolvedNamespace = $"{resolvedNamespace}Binding";
         }
 
-        var apiDefPath = ApiDefinitionEmitter.Emit(module, outputDirectory, resolvedNamespace, logger);
-        var structsResult = StructsAndEnumsEmitter.Emit(module, outputDirectory, resolvedNamespace, logger);
+        var diagnostics = new ObjCBindingDiagnostics();
+        var apiDefPath = ApiDefinitionEmitter.Emit(module, outputDirectory, resolvedNamespace, logger, diagnostics);
+        var structsResult = StructsAndEnumsEmitter.Emit(module, outputDirectory, resolvedNamespace, logger, diagnostics);
         var structsPath = structsResult?.FilePath;
 
         // Emit .csproj:
@@ -142,6 +143,7 @@ public static class ObjCPipeline
 
         // 6. Dump summary
         DumpSummary(module, logger);
+        diagnostics.LogSummary(logger);
 
         return new ObjCPipelineResult(0, module, null, apiDefPath, structsPath, projectPath);
     }

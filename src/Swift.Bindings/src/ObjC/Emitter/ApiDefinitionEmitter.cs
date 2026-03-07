@@ -8,7 +8,7 @@ namespace BindingsGeneration.ObjC;
 
 public static class ApiDefinitionEmitter
 {
-    public static string Emit(ObjCModule module, string outputDir, string resolvedNamespace, ILogger logger)
+    public static string Emit(ObjCModule module, string outputDir, string resolvedNamespace, ILogger logger, ObjCBindingDiagnostics? diagnostics = null)
     {
         var typedefMap = ObjCTypeMapper.BuildResolvedTypedefMap(module);
         var blockTypedefMap = ObjCTypeMapper.BuildBlockTypedefMap(module);
@@ -52,13 +52,13 @@ public static class ApiDefinitionEmitter
         sb.AppendLine("{");
 
         foreach (var proto in module.Protocols)
-            EmitProtocol(sb, proto, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, logger);
+            EmitProtocol(sb, proto, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, logger, diagnostics);
 
         foreach (var cls in module.Classes)
-            EmitClass(sb, cls, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, logger);
+            EmitClass(sb, cls, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, logger, diagnostics);
 
         foreach (var cat in module.Categories)
-            EmitCategory(sb, cat, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, logger);
+            EmitCategory(sb, cat, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, logger, diagnostics);
 
         sb.AppendLine("}");
 
@@ -70,7 +70,7 @@ public static class ApiDefinitionEmitter
         return filePath;
     }
 
-    static void EmitProtocol(StringBuilder sb, ObjCProtocolDecl proto, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, ILogger logger)
+    static void EmitProtocol(StringBuilder sb, ObjCProtocolDecl proto, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, ILogger logger, ObjCBindingDiagnostics? diagnostics)
     {
         EmitAvailabilityAttributes(sb, proto.Availability, "    ");
 
@@ -93,18 +93,18 @@ public static class ApiDefinitionEmitter
         var emittedMemberNames = new HashSet<string>();
         foreach (var method in proto.Methods)
         {
-            var emittedName = EmitMethod(sb, method, declaringClassName: null, isProtocol: true, genericTypeParams: null, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMethodSignatures: emittedMethodSignatures, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, logger: logger);
+            var emittedName = EmitMethod(sb, method, declaringClassName: null, isProtocol: true, genericTypeParams: null, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMethodSignatures: emittedMethodSignatures, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, logger: logger, diagnostics: diagnostics);
             if (emittedName != null) emittedMemberNames.Add(emittedName);
         }
 
         foreach (var prop in proto.Properties)
-            EmitProperty(sb, prop, declaringClassName: null, genericTypeParams: null, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedPropertyNames: emittedMemberNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, logger: logger);
+            EmitProperty(sb, prop, declaringClassName: null, genericTypeParams: null, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedPropertyNames: emittedMemberNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, logger: logger, diagnostics: diagnostics);
 
         sb.AppendLine("    }");
         sb.AppendLine();
     }
 
-    static void EmitClass(StringBuilder sb, ObjCClassDecl cls, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, ILogger logger)
+    static void EmitClass(StringBuilder sb, ObjCClassDecl cls, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, ILogger logger, ObjCBindingDiagnostics? diagnostics)
     {
         EmitAvailabilityAttributes(sb, cls.Availability, "    ");
 
@@ -147,18 +147,18 @@ public static class ApiDefinitionEmitter
         foreach (var method in cls.Methods.Where(m =>
             !(conformsToNSCoding && m.Selector == "initWithCoder:")))
         {
-            var emittedName = EmitMethod(sb, method, declaringClassName: cls.Name, isProtocol: false, genericTypeParams: classGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedConstructorSignatures: emittedConstructorSignatures, emittedMethodSignatures: emittedMethodSignatures, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, logger: logger);
+            var emittedName = EmitMethod(sb, method, declaringClassName: cls.Name, isProtocol: false, genericTypeParams: classGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedConstructorSignatures: emittedConstructorSignatures, emittedMethodSignatures: emittedMethodSignatures, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, logger: logger, diagnostics: diagnostics);
             if (emittedName != null) emittedMemberNames.Add(emittedName);
         }
 
         foreach (var prop in cls.Properties)
-            EmitProperty(sb, prop, declaringClassName: cls.Name, genericTypeParams: classGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedPropertyNames: emittedMemberNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, logger: logger);
+            EmitProperty(sb, prop, declaringClassName: cls.Name, genericTypeParams: classGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedPropertyNames: emittedMemberNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, logger: logger, diagnostics: diagnostics);
 
         sb.AppendLine("    }");
         sb.AppendLine();
     }
 
-    static void EmitCategory(StringBuilder sb, ObjCCategoryDecl cat, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, ILogger logger)
+    static void EmitCategory(StringBuilder sb, ObjCCategoryDecl cat, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, ILogger logger, ObjCBindingDiagnostics? diagnostics)
     {
         EmitAvailabilityAttributes(sb, cat.Availability, "    ");
 
@@ -188,12 +188,12 @@ public static class ApiDefinitionEmitter
         {
             if (method.Selector == "init" || method.Selector.StartsWith("initWith", StringComparison.Ordinal))
                 continue;
-            var emittedName = EmitMethod(sb, method, declaringClassName: cat.ClassName, isProtocol: false, genericTypeParams: categoryGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMethodSignatures: emittedMethodSignatures, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, logger: logger);
+            var emittedName = EmitMethod(sb, method, declaringClassName: cat.ClassName, isProtocol: false, genericTypeParams: categoryGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMethodSignatures: emittedMethodSignatures, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, logger: logger, diagnostics: diagnostics);
             if (emittedName != null) emittedMemberNames.Add(emittedName);
         }
 
         foreach (var prop in cat.Properties)
-            EmitProperty(sb, prop, declaringClassName: cat.ClassName, genericTypeParams: categoryGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedPropertyNames: emittedMemberNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, logger: logger);
+            EmitProperty(sb, prop, declaringClassName: cat.ClassName, genericTypeParams: categoryGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedPropertyNames: emittedMemberNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, logger: logger, diagnostics: diagnostics);
 
         sb.AppendLine("    }");
         sb.AppendLine();
@@ -210,7 +210,7 @@ public static class ApiDefinitionEmitter
     /// Emits a method and returns the final emitted C# method name (after any dedup renaming),
     /// or null for constructors. Callers use this to track method-property name collisions.
     /// </summary>
-    static string? EmitMethod(StringBuilder sb, ObjCMethodDecl method, string? declaringClassName, bool isProtocol, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null, HashSet<string>? emittedConstructorSignatures = null, HashSet<string>? emittedMethodSignatures = null, HashSet<string>? knownTypes = null, HashSet<string>? appleSdkTypes = null, ILogger? logger = null)
+    static string? EmitMethod(StringBuilder sb, ObjCMethodDecl method, string? declaringClassName, bool isProtocol, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null, HashSet<string>? emittedConstructorSignatures = null, HashSet<string>? emittedMethodSignatures = null, HashSet<string>? knownTypes = null, HashSet<string>? appleSdkTypes = null, ILogger? logger = null, ObjCBindingDiagnostics? diagnostics = null)
     {
         // Pre-check: skip methods with types not resolvable in ApiDefinition context.
         if (knownTypes != null)
@@ -219,6 +219,7 @@ public static class ApiDefinitionEmitter
             if (!ObjCTypeMapper.IsApiDefinitionTypeResolvable(checkReturn, knownTypes, appleSdkTypes))
             {
                 logger?.LogDebug("Skipping method {Selector}: unresolvable return type '{TypeName}'", method.Selector, checkReturn);
+                diagnostics?.RecordSkip("Method", method.Selector, ObjCSkipReason.UnresolvableType, $"unresolvable return type '{checkReturn}'");
                 return null;
             }
             foreach (var param in method.Parameters)
@@ -227,6 +228,7 @@ public static class ApiDefinitionEmitter
                 if (!ObjCTypeMapper.IsApiDefinitionTypeResolvable(checkParam, knownTypes, appleSdkTypes))
                 {
                     logger?.LogDebug("Skipping method {Selector}: unresolvable param type '{TypeName}'", method.Selector, checkParam);
+                    diagnostics?.RecordSkip("Method", method.Selector, ObjCSkipReason.UnresolvableType, $"unresolvable param type '{checkParam}'");
                     return null;
                 }
             }
@@ -292,7 +294,7 @@ public static class ApiDefinitionEmitter
         return isConstructor ? null : methodName;
     }
 
-    static void EmitProperty(StringBuilder sb, ObjCPropertyDecl prop, string? declaringClassName, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null, HashSet<string>? emittedPropertyNames = null, HashSet<string>? knownTypes = null, HashSet<string>? appleSdkTypes = null, ILogger? logger = null)
+    static void EmitProperty(StringBuilder sb, ObjCPropertyDecl prop, string? declaringClassName, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null, HashSet<string>? emittedPropertyNames = null, HashSet<string>? knownTypes = null, HashSet<string>? appleSdkTypes = null, ILogger? logger = null, ObjCBindingDiagnostics? diagnostics = null)
     {
         var propName = ToPascalCase(prop.Name);
 
@@ -304,6 +306,7 @@ public static class ApiDefinitionEmitter
             if (!ObjCTypeMapper.IsApiDefinitionTypeResolvable(checkType, knownTypes, appleSdkTypes))
             {
                 logger?.LogDebug("Skipping property {PropName}: unresolvable type '{TypeName}'", propName, checkType);
+                diagnostics?.RecordSkip("Property", propName, ObjCSkipReason.UnresolvableType, $"unresolvable type '{checkType}'");
                 return;
             }
         }
