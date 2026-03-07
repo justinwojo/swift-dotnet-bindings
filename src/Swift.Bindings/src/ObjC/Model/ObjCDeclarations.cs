@@ -20,6 +20,7 @@ public sealed record ObjCMethodDecl
     public string CategoryName { get; init; } = "";
     public List<ObjCAvailability> Availability { get; init; } = [];
     public string? SwiftName { get; init; }
+    public bool IsRefinedForSwift { get; init; }
 }
 
 public sealed record ObjCPropertyDecl
@@ -35,6 +36,7 @@ public sealed record ObjCPropertyDecl
     public string? SetterSelector { get; init; }
     public List<ObjCAvailability> Availability { get; init; } = [];
     public string? SwiftName { get; init; }
+    public bool IsRefinedForSwift { get; init; }
 }
 
 public sealed record ObjCClassDecl

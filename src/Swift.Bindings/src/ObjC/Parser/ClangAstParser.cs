@@ -780,6 +780,7 @@ public static class ClangAstParser
         }
 
         var swiftName = ExtractSwiftName(element);
+        var isRefined = HasSwiftPrivateAttr(element);
 
         return new ObjCMethodDecl
         {
@@ -789,7 +790,8 @@ public static class ClangAstParser
             IsInstanceMethod = isInstance,
             IsOptional = isOptional,
             Availability = methodAvailability,
-            SwiftName = swiftName
+            SwiftName = swiftName,
+            IsRefinedForSwift = isRefined
         };
     }
 
@@ -852,6 +854,7 @@ public static class ClangAstParser
             isOptional = IsInOptionalSection(element, optionalLines);
 
         var swiftName = ExtractSwiftName(element);
+        var isRefined = HasSwiftPrivateAttr(element);
 
         return new ObjCPropertyDecl
         {
@@ -863,7 +866,8 @@ public static class ClangAstParser
             GetterSelector = getter,
             SetterSelector = setter,
             Availability = propAvailability,
-            SwiftName = swiftName
+            SwiftName = swiftName,
+            IsRefinedForSwift = isRefined
         };
     }
 
@@ -895,6 +899,23 @@ public static class ClangAstParser
                 return GetOptionalString(child, "name");
         }
         return null;
+    }
+
+    /// <summary>
+    /// Checks if a declaration has the NS_REFINED_FOR_SWIFT attribute.
+    /// Clang represents this as a SwiftPrivateAttr inner node.
+    /// </summary>
+    private static bool HasSwiftPrivateAttr(JsonElement element)
+    {
+        if (!element.TryGetProperty("inner", out var inner))
+            return false;
+
+        foreach (var child in inner.EnumerateArray())
+        {
+            if (GetOptionalString(child, "kind") == "SwiftPrivateAttr")
+                return true;
+        }
+        return false;
     }
 
     private static ObjCAvailability? ParseAvailability(JsonElement element)

@@ -2433,4 +2433,142 @@ public class ClangAstParserTests
         Assert.Single(module.Enums);
         Assert.Equal("ErrorCode", module.Enums[0].SwiftName);
     }
+
+    // --- NS_REFINED_FOR_SWIFT capture ---
+
+    [Fact]
+    public void Parse_MethodWithSwiftPrivateAttr_SetsIsRefinedForSwift()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "MyClass",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "internalMethod",
+                    "instance": true,
+                    "returnType": { "qualType": "void" },
+                    "inner": [
+                        { "kind": "SwiftPrivateAttr" }
+                    ]
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Single(module.Classes[0].Methods);
+        Assert.True(module.Classes[0].Methods[0].IsRefinedForSwift);
+    }
+
+    [Fact]
+    public void Parse_MethodWithoutSwiftPrivateAttr_IsNotRefined()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "MyClass",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "publicMethod",
+                    "instance": true,
+                    "returnType": { "qualType": "void" },
+                    "inner": []
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Single(module.Classes[0].Methods);
+        Assert.False(module.Classes[0].Methods[0].IsRefinedForSwift);
+    }
+
+    [Fact]
+    public void Parse_PropertyWithSwiftPrivateAttr_SetsIsRefinedForSwift()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "MyClass",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": [
+                {
+                    "kind": "ObjCPropertyDecl",
+                    "name": "internalProp",
+                    "type": { "qualType": "NSString *" },
+                    "inner": [
+                        { "kind": "SwiftPrivateAttr" }
+                    ]
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Single(module.Classes[0].Properties);
+        Assert.True(module.Classes[0].Properties[0].IsRefinedForSwift);
+    }
+
+    [Fact]
+    public void Parse_PropertyWithoutSwiftPrivateAttr_IsNotRefined()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "MyClass",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": [
+                {
+                    "kind": "ObjCPropertyDecl",
+                    "name": "publicProp",
+                    "type": { "qualType": "NSString *" },
+                    "inner": []
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Single(module.Classes[0].Properties);
+        Assert.False(module.Classes[0].Properties[0].IsRefinedForSwift);
+    }
+
+    [Fact]
+    public void Parse_MethodWithBothSwiftNameAndSwiftPrivate_CapturesBoth()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "MyClass",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "rawMethod",
+                    "instance": true,
+                    "returnType": { "qualType": "void" },
+                    "inner": [
+                        { "kind": "SwiftNameAttr", "name": "refinedMethod()" },
+                        { "kind": "SwiftPrivateAttr" }
+                    ]
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        var method = module.Classes[0].Methods[0];
+        Assert.Equal("refinedMethod()", method.SwiftName);
+        Assert.True(method.IsRefinedForSwift);
+    }
 }
