@@ -464,6 +464,191 @@ public class StructsAndEnumsEmitterTests
         Assert.Contains("public enum TLEmpty : long", output);
     }
 
+    // --- Enum backing type tests ---
+
+    [Theory]
+    [InlineData("NSInteger", "long")]
+    [InlineData("NSUInteger", "ulong")]
+    [InlineData("CFIndex", "long")]
+    [InlineData("unsigned long", "ulong")]
+    [InlineData("long", "long")]
+    public void EmitEnum_NativeWidthTypes_EmitNativeAttribute(string underlyingType, string expectedBase)
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Enums =
+            [
+                new ObjCEnumDecl
+                {
+                    Name = "TLNative",
+                    UnderlyingType = new ObjCTypeRef { Name = underlyingType },
+                    Cases = [new ObjCEnumCaseDecl { Name = "TLNativeA", Value = 0 }]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains($": {expectedBase}", output);
+        Assert.Contains("[Native]", output);
+    }
+
+    [Theory]
+    [InlineData("uint8_t", "byte")]
+    [InlineData("unsigned char", "byte")]
+    [InlineData("int8_t", "sbyte")]
+    [InlineData("signed char", "sbyte")]
+    [InlineData("int16_t", "short")]
+    [InlineData("short", "short")]
+    [InlineData("uint16_t", "ushort")]
+    [InlineData("unsigned short", "ushort")]
+    [InlineData("int32_t", "int")]
+    [InlineData("int", "int")]
+    [InlineData("uint32_t", "uint")]
+    [InlineData("unsigned int", "uint")]
+    [InlineData("int64_t", "long")]
+    [InlineData("long long", "long")]
+    [InlineData("uint64_t", "ulong")]
+    [InlineData("unsigned long long", "ulong")]
+    public void EmitEnum_FixedWidthTypes_NoNativeAttribute(string underlyingType, string expectedBase)
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Enums =
+            [
+                new ObjCEnumDecl
+                {
+                    Name = "TLFixed",
+                    UnderlyingType = new ObjCTypeRef { Name = underlyingType },
+                    Cases = [new ObjCEnumCaseDecl { Name = "TLFixedA", Value = 0 }]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains($": {expectedBase}", output);
+        Assert.DoesNotContain("[Native]", output);
+    }
+
+    [Fact]
+    public void EmitEnum_FlagsWithFixedWidth_OrthogonalConcerns()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Enums =
+            [
+                new ObjCEnumDecl
+                {
+                    Name = "TLMask",
+                    IsOptions = true,
+                    UnderlyingType = new ObjCTypeRef { Name = "uint32_t" },
+                    Cases =
+                    [
+                        new ObjCEnumCaseDecl { Name = "TLMaskNone", Value = 0 },
+                        new ObjCEnumCaseDecl { Name = "TLMaskBold", Value = 1 },
+                    ]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("[Flags]", output);
+        Assert.Contains(": uint", output);
+        Assert.DoesNotContain("[Native]", output);
+    }
+
+    [Fact]
+    public void EmitEnum_NoUnderlyingType_DefaultsToLongWithNative()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Enums =
+            [
+                new ObjCEnumDecl
+                {
+                    Name = "TLDefault",
+                    Cases = [new ObjCEnumCaseDecl { Name = "TLDefaultA" }]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains(": long", output);
+        Assert.Contains("[Native]", output);
+    }
+
+    [Fact]
+    public void EmitEnum_UnknownUnderlyingType_FallsBackToLongWithNative()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Enums =
+            [
+                new ObjCEnumDecl
+                {
+                    Name = "TLUnknown",
+                    UnderlyingType = new ObjCTypeRef { Name = "some_custom_type_t" },
+                    Cases = [new ObjCEnumCaseDecl { Name = "TLUnknownA" }]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains(": long", output);
+        Assert.Contains("[Native]", output);
+    }
+
+    [Fact]
+    public void EmitEnum_UnknownUnderlyingType_Flags_FallsBackToUlongWithNative()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Enums =
+            [
+                new ObjCEnumDecl
+                {
+                    Name = "TLUnknownOpts",
+                    IsOptions = true,
+                    UnderlyingType = new ObjCTypeRef { Name = "some_custom_type_t" },
+                    Cases = [new ObjCEnumCaseDecl { Name = "TLUnknownOptsNone", Value = 0 }]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains(": ulong", output);
+        Assert.Contains("[Native]", output);
+        Assert.Contains("[Flags]", output);
+    }
+
+    [Fact]
+    public void EmitEnum_FlagsNoUnderlyingType_DefaultsToUlongWithNative()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Enums =
+            [
+                new ObjCEnumDecl
+                {
+                    Name = "TLOpts",
+                    IsOptions = true,
+                    Cases = [new ObjCEnumCaseDecl { Name = "TLOptsNone", Value = 0 }]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains(": ulong", output);
+        Assert.Contains("[Flags]", output);
+        Assert.Contains("[Native]", output);
+    }
+
     [Fact]
     public void EmitConstant_Nfloat_AsField()
     {
