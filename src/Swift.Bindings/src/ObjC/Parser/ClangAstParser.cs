@@ -281,6 +281,7 @@ public static class ClangAstParser
         ParseContainerChildren(element, methods, properties, availability, isProtocol: false);
 
         var swiftName = ExtractSwiftName(element);
+        var (docComment, _) = ExtractDocComment(element);
 
         return new ObjCClassDecl
         {
@@ -291,7 +292,8 @@ public static class ClangAstParser
             Methods = methods,
             Properties = properties,
             Availability = availability,
-            SwiftName = swiftName
+            SwiftName = swiftName,
+            DocComment = docComment
         };
     }
 
@@ -317,13 +319,16 @@ public static class ClangAstParser
 
         ParseContainerChildren(element, methods, properties, availability, isProtocol: true);
 
+        var (docComment, _) = ExtractDocComment(element);
+
         return new ObjCProtocolDecl
         {
             Name = name,
             InheritedProtocolNames = inherited,
             Methods = methods,
             Properties = properties,
-            Availability = availability
+            Availability = availability,
+            DocComment = docComment
         };
     }
 
@@ -424,6 +429,7 @@ public static class ClangAstParser
         }
 
         var swiftName = ExtractSwiftName(element);
+        var (docComment, _) = ExtractDocComment(element);
 
         return new ObjCEnumDecl
         {
@@ -432,7 +438,8 @@ public static class ClangAstParser
             UnderlyingType = underlyingType,
             Cases = cases,
             Availability = availability,
-            SwiftName = swiftName
+            SwiftName = swiftName,
+            DocComment = docComment
         };
     }
 
@@ -781,6 +788,7 @@ public static class ClangAstParser
 
         var swiftName = ExtractSwiftName(element);
         var isRefined = HasSwiftPrivateAttr(element);
+        var (docComment, docParams) = ExtractDocComment(element);
 
         return new ObjCMethodDecl
         {
@@ -791,7 +799,9 @@ public static class ClangAstParser
             IsOptional = isOptional,
             Availability = methodAvailability,
             SwiftName = swiftName,
-            IsRefinedForSwift = isRefined
+            IsRefinedForSwift = isRefined,
+            DocComment = docComment,
+            DocParams = docParams
         };
     }
 
@@ -855,6 +865,7 @@ public static class ClangAstParser
 
         var swiftName = ExtractSwiftName(element);
         var isRefined = HasSwiftPrivateAttr(element);
+        var (docComment, _) = ExtractDocComment(element);
 
         return new ObjCPropertyDecl
         {
@@ -867,7 +878,8 @@ public static class ClangAstParser
             SetterSelector = setter,
             Availability = propAvailability,
             SwiftName = swiftName,
-            IsRefinedForSwift = isRefined
+            IsRefinedForSwift = isRefined,
+            DocComment = docComment
         };
     }
 
@@ -882,6 +894,96 @@ public static class ClangAstParser
             Name = name,
             Type = ObjCTypeRefParser.Parse(qualType)
         };
+    }
+
+    /// <summary>
+    /// Extracts doc comments from a FullComment node in a declaration's inner nodes.
+    /// Clang includes FullComment > ParagraphComment > TextComment for description text,
+    /// and ParamCommandComment > ParagraphComment > TextComment for @param docs.
+    /// </summary>
+    private static (string? summary, List<ObjCDocParam> docParams) ExtractDocComment(JsonElement element)
+    {
+        if (!element.TryGetProperty("inner", out var inner))
+            return (null, []);
+
+        foreach (var child in inner.EnumerateArray())
+        {
+            if (GetOptionalString(child, "kind") != "FullComment")
+                continue;
+            if (!child.TryGetProperty("inner", out var commentInner))
+                continue;
+
+            var summaryParts = new List<string>();
+            var docParams = new List<ObjCDocParam>();
+
+            foreach (var commentChild in commentInner.EnumerateArray())
+            {
+                var kind = GetOptionalString(commentChild, "kind");
+                switch (kind)
+                {
+                    case "ParagraphComment":
+                        var text = ExtractParagraphText(commentChild);
+                        if (!string.IsNullOrWhiteSpace(text))
+                            summaryParts.Add(text.Trim());
+                        break;
+
+                    case "BlockCommandComment":
+                        // @return / @brief etc — treat as summary text
+                        if (commentChild.TryGetProperty("inner", out var blockInner))
+                        {
+                            foreach (var blockChild in blockInner.EnumerateArray())
+                            {
+                                if (GetOptionalString(blockChild, "kind") == "ParagraphComment")
+                                {
+                                    var blockText = ExtractParagraphText(blockChild);
+                                    if (!string.IsNullOrWhiteSpace(blockText))
+                                        summaryParts.Add(blockText.Trim());
+                                }
+                            }
+                        }
+                        break;
+
+                    case "ParamCommandComment":
+                        var paramName = GetOptionalString(commentChild, "param");
+                        if (paramName != null && commentChild.TryGetProperty("inner", out var paramInner))
+                        {
+                            foreach (var paramChild in paramInner.EnumerateArray())
+                            {
+                                if (GetOptionalString(paramChild, "kind") == "ParagraphComment")
+                                {
+                                    var paramText = ExtractParagraphText(paramChild);
+                                    if (!string.IsNullOrWhiteSpace(paramText))
+                                        docParams.Add(new ObjCDocParam { Name = paramName, Description = paramText.Trim() });
+                                }
+                            }
+                        }
+                        break;
+                }
+            }
+
+            var summary = summaryParts.Count > 0 ? string.Join(" ", summaryParts) : null;
+            return (summary, docParams);
+        }
+
+        return (null, []);
+    }
+
+    private static string ExtractParagraphText(JsonElement paragraph)
+    {
+        if (!paragraph.TryGetProperty("inner", out var inner))
+            return "";
+
+        var parts = new List<string>();
+        foreach (var child in inner.EnumerateArray())
+        {
+            if (GetOptionalString(child, "kind") == "TextComment")
+            {
+                var text = GetOptionalString(child, "text");
+                if (text != null)
+                    parts.Add(text);
+            }
+        }
+        return string.Join("", parts);
     }
 
     /// <summary>

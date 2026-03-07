@@ -2542,6 +2542,131 @@ public class ClangAstParserTests
         Assert.False(module.Classes[0].Properties[0].IsRefinedForSwift);
     }
 
+    // --- Doc comment capture ---
+
+    [Fact]
+    public void Parse_ClassWithFullComment_CapturesDocComment()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "DocumentedClass",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": [
+                {
+                    "kind": "FullComment",
+                    "inner": [
+                        {
+                            "kind": "ParagraphComment",
+                            "inner": [
+                                { "kind": "TextComment", "text": " A well-documented class." }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Single(module.Classes);
+        Assert.Equal("A well-documented class.", module.Classes[0].DocComment);
+    }
+
+    [Fact]
+    public void Parse_MethodWithParamComments_CapturesDocParams()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "MyClass",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "doThingWithName:age:",
+                    "instance": true,
+                    "returnType": { "qualType": "void" },
+                    "inner": [
+                        {
+                            "kind": "ParmVarDecl",
+                            "name": "name",
+                            "type": { "qualType": "NSString *" }
+                        },
+                        {
+                            "kind": "ParmVarDecl",
+                            "name": "age",
+                            "type": { "qualType": "NSInteger" }
+                        },
+                        {
+                            "kind": "FullComment",
+                            "inner": [
+                                {
+                                    "kind": "ParagraphComment",
+                                    "inner": [
+                                        { "kind": "TextComment", "text": " Does a thing." }
+                                    ]
+                                },
+                                {
+                                    "kind": "ParamCommandComment",
+                                    "param": "name",
+                                    "inner": [
+                                        {
+                                            "kind": "ParagraphComment",
+                                            "inner": [
+                                                { "kind": "TextComment", "text": " The name to use." }
+                                            ]
+                                        }
+                                    ]
+                                },
+                                {
+                                    "kind": "ParamCommandComment",
+                                    "param": "age",
+                                    "inner": [
+                                        {
+                                            "kind": "ParagraphComment",
+                                            "inner": [
+                                                { "kind": "TextComment", "text": " The person's age." }
+                                            ]
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        var method = module.Classes[0].Methods[0];
+        Assert.Equal("Does a thing.", method.DocComment);
+        Assert.Equal(2, method.DocParams.Count);
+        Assert.Equal("name", method.DocParams[0].Name);
+        Assert.Equal("The name to use.", method.DocParams[0].Description);
+        Assert.Equal("age", method.DocParams[1].Name);
+    }
+
+    [Fact]
+    public void Parse_ClassWithoutComment_HasNullDocComment()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "PlainClass",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": []
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Null(module.Classes[0].DocComment);
+    }
+
     [Fact]
     public void Parse_MethodWithBothSwiftNameAndSwiftPrivate_CapturesBoth()
     {

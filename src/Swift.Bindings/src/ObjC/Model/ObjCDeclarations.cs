@@ -3,6 +3,12 @@
 
 namespace BindingsGeneration.ObjC;
 
+public sealed record ObjCDocParam
+{
+    public required string Name { get; init; }
+    public required string Description { get; init; }
+}
+
 public sealed record ObjCParameterDecl
 {
     public required string Name { get; init; }
@@ -21,6 +27,8 @@ public sealed record ObjCMethodDecl
     public List<ObjCAvailability> Availability { get; init; } = [];
     public string? SwiftName { get; init; }
     public bool IsRefinedForSwift { get; init; }
+    public string? DocComment { get; init; }
+    public List<ObjCDocParam> DocParams { get; init; } = [];
 }
 
 public sealed record ObjCPropertyDecl
@@ -37,6 +45,7 @@ public sealed record ObjCPropertyDecl
     public List<ObjCAvailability> Availability { get; init; } = [];
     public string? SwiftName { get; init; }
     public bool IsRefinedForSwift { get; init; }
+    public string? DocComment { get; init; }
 }
 
 public sealed record ObjCClassDecl
@@ -49,6 +58,7 @@ public sealed record ObjCClassDecl
     public List<ObjCPropertyDecl> Properties { get; init; } = [];
     public List<ObjCAvailability> Availability { get; init; } = [];
     public string? SwiftName { get; init; }
+    public string? DocComment { get; init; }
 }
 
 public sealed record ObjCProtocolDecl
@@ -58,6 +68,7 @@ public sealed record ObjCProtocolDecl
     public List<ObjCMethodDecl> Methods { get; init; } = [];
     public List<ObjCPropertyDecl> Properties { get; init; } = [];
     public List<ObjCAvailability> Availability { get; init; } = [];
+    public string? DocComment { get; init; }
 }
 
 public sealed record ObjCEnumCaseDecl
@@ -74,6 +85,7 @@ public sealed record ObjCEnumDecl
     public List<ObjCEnumCaseDecl> Cases { get; init; } = [];
     public List<ObjCAvailability> Availability { get; init; } = [];
     public string? SwiftName { get; init; }
+    public string? DocComment { get; init; }
 }
 
 public sealed record ObjCStructField

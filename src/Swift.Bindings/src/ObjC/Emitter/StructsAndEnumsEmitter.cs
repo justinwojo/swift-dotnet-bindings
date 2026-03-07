@@ -211,6 +211,7 @@ public static class StructsAndEnumsEmitter
 
     static void EmitEnum(StringBuilder sb, ObjCEnumDecl enumDecl, ObjCBindingDiagnostics? diagnostics = null)
     {
+        ObjCDocCommentEmitter.EmitDocComment(sb, enumDecl.DocComment, null, "    ");
         if (ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, enumDecl.Availability, "    "))
         {
             diagnostics?.RecordSkip("Enum", enumDecl.Name, ObjCSkipReason.UnavailableApi, "marked unavailable on iOS");

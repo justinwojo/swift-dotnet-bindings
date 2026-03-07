@@ -2143,4 +2143,81 @@ public class ApiDefinitionEmitterTests
         Assert.Contains("Color", result);
         Assert.Contains("UIColor", result);
     }
+
+    // --- Doc comment emission ---
+
+    [Fact]
+    public void Emit_ClassWithDocComment_EmitsXmlSummary()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "DocumentedClass",
+                    DocComment = "A class that does things."
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("/// <summary>", result);
+        Assert.Contains("/// A class that does things.", result);
+        Assert.Contains("/// </summary>", result);
+    }
+
+    [Fact]
+    public void Emit_MethodWithDocCommentAndParams_EmitsXmlDocWithParams()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "MyClass",
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "doThingWithName:",
+                            ReturnType = new ObjCTypeRef { Name = "void" },
+                            IsInstanceMethod = true,
+                            Parameters = [new ObjCParameterDecl { Name = "name", Type = new ObjCTypeRef { Name = "NSString", IsPointer = true } }],
+                            DocComment = "Does a thing.",
+                            DocParams = [new ObjCDocParam { Name = "name", Description = "The name to use." }]
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("/// <summary>", result);
+        Assert.Contains("/// Does a thing.", result);
+        Assert.Contains("/// <param name=\"name\">The name to use.</param>", result);
+    }
+
+    [Fact]
+    public void Emit_DocCommentWithXmlCharacters_EscapesProperly()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "MyClass",
+                    DocComment = "Returns true if a < b && c > d."
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("a &lt; b &amp;&amp; c &gt; d", result);
+    }
 }
