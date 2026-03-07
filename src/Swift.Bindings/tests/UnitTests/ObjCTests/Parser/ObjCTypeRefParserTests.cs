@@ -74,41 +74,61 @@ public class ObjCTypeRefParserTests
     }
 
     [Fact]
-    public void Parse_ConcreteTypeWithProtocol_ReturnsGenericArgs()
+    public void Parse_ConcreteTypeWithProtocol_ReturnsProtocolQualification()
     {
-        // NSObject<NSCopying> * — protocol qualifications on concrete types are parsed
-        // as GenericArgs (only id<Proto> uses ProtocolQualifications via TryParseIdProtocol)
         var result = ObjCTypeRefParser.Parse("NSObject<NSCopying> *");
         Assert.Equal("NSObject", result.Name);
         Assert.True(result.IsPointer);
-        Assert.Single(result.GenericArgs);
-        Assert.Equal("NSCopying", result.GenericArgs[0].Name);
-        Assert.Empty(result.ProtocolQualifications);
+        Assert.Single(result.ProtocolQualifications);
+        Assert.Equal("NSCopying", result.ProtocolQualifications[0]);
+        Assert.Empty(result.GenericArgs);
     }
 
     [Fact]
-    public void Parse_ConcreteTypeWithMultipleProtocols_ReturnsGenericArgs()
+    public void Parse_ConcreteTypeWithMultipleProtocols_ReturnsAllProtocols()
     {
         var result = ObjCTypeRefParser.Parse("NSObject<NSCopying, NSSecureCoding> *");
         Assert.Equal("NSObject", result.Name);
         Assert.True(result.IsPointer);
-        Assert.Equal(2, result.GenericArgs.Count);
-        Assert.Equal("NSCopying", result.GenericArgs[0].Name);
-        Assert.Equal("NSSecureCoding", result.GenericArgs[1].Name);
-        Assert.Empty(result.ProtocolQualifications);
+        Assert.Equal(2, result.ProtocolQualifications.Count);
+        Assert.Equal("NSCopying", result.ProtocolQualifications[0]);
+        Assert.Equal("NSSecureCoding", result.ProtocolQualifications[1]);
+        Assert.Empty(result.GenericArgs);
     }
 
     [Fact]
-    public void Parse_CustomGenericType_ReturnsGenericArgs_NotProtocolQualifications()
+    public void Parse_CustomGenericContainer_WithContext_ReturnsGenericArgs()
     {
-        // RLMResults<RLMObjectType> * — custom lightweight generics must not be
-        // misparsed as protocol qualifications
+        // When ClangAstParser discovers RLMResults has ObjCTypeParamDecl children,
+        // it registers it as an additional generic container. The parser then treats
+        // angle-bracket args as GenericArgs instead of ProtocolQualifications.
+        ObjCTypeRefParser.SetAdditionalGenericContainers(new HashSet<string> { "RLMResults", "RLMArray" });
+        try
+        {
+            var result = ObjCTypeRefParser.Parse("RLMResults<RLMObjectType> *");
+            Assert.Equal("RLMResults", result.Name);
+            Assert.True(result.IsPointer);
+            Assert.Single(result.GenericArgs);
+            Assert.Equal("RLMObjectType", result.GenericArgs[0].Name);
+            Assert.Empty(result.ProtocolQualifications);
+        }
+        finally
+        {
+            ObjCTypeRefParser.SetAdditionalGenericContainers(null);
+        }
+    }
+
+    [Fact]
+    public void Parse_CustomGenericContainer_WithoutContext_FallsBackToProtocolQualifications()
+    {
+        // Without AST context, the parser conservatively treats simple-name args
+        // as protocol qualifications. ClangAstParser provides context to fix this.
         var result = ObjCTypeRefParser.Parse("RLMResults<RLMObjectType> *");
         Assert.Equal("RLMResults", result.Name);
         Assert.True(result.IsPointer);
-        Assert.Single(result.GenericArgs);
-        Assert.Equal("RLMObjectType", result.GenericArgs[0].Name);
-        Assert.Empty(result.ProtocolQualifications);
+        Assert.Single(result.ProtocolQualifications);
+        Assert.Equal("RLMObjectType", result.ProtocolQualifications[0]);
+        Assert.Empty(result.GenericArgs);
     }
 
     [Fact]

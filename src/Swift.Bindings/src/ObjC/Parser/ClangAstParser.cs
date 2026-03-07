@@ -41,6 +41,13 @@ public static class ClangAstParser
             };
         }
 
+        // Pre-scan: collect ObjC class names that declare lightweight generic type parameters.
+        // These are used by ObjCTypeRefParser to distinguish generic containers (RLMResults<ObjectType>)
+        // from protocol-qualified types (NSObject<NSCopying>) when both use simple identifier args.
+        var astGenericContainers = ScanGenericContainerNames(inner);
+        ObjCTypeRefParser.SetAdditionalGenericContainers(
+            astGenericContainers.Count > 0 ? astGenericContainers : null);
+
         // Track the "current file" — clang omits loc.file when it's the same as
         // the previous declaration, so we must carry it forward.
         string? currentFile = null;
@@ -220,6 +227,9 @@ public static class ClangAstParser
         // Pass 4: Deduplicate categories by (ClassName, CategoryName).
         // Same category can appear through umbrella + public header.
         var dedupedCategories = MergeCategories(categories);
+
+        // Clear AST-derived generic container context now that parsing is complete.
+        ObjCTypeRefParser.SetAdditionalGenericContainers(null);
 
         return new ObjCModule
         {
@@ -1197,6 +1207,35 @@ public static class ClangAstParser
     // ──────────────────────────────────────────────
     // Helpers
     // ──────────────────────────────────────────────
+
+    /// <summary>
+    /// Quick pre-scan of the AST to find ObjC class names that declare lightweight generic
+    /// type parameters (ObjCTypeParamDecl). These names supplement the static
+    /// KnownGenericContainers set so the type ref parser can distinguish custom generic
+    /// containers (RLMResults&lt;ObjectType&gt;) from protocol-qualified types (NSObject&lt;NSCopying&gt;).
+    /// </summary>
+    private static HashSet<string> ScanGenericContainerNames(JsonElement inner)
+    {
+        var result = new HashSet<string>();
+        foreach (var node in inner.EnumerateArray())
+        {
+            if (GetOptionalString(node, "kind") != "ObjCInterfaceDecl")
+                continue;
+            if (!node.TryGetProperty("inner", out var children))
+                continue;
+            foreach (var child in children.EnumerateArray())
+            {
+                if (GetOptionalString(child, "kind") == "ObjCTypeParamDecl")
+                {
+                    var className = GetName(node);
+                    if (className != null)
+                        result.Add(className);
+                    break; // One type param is enough to know it's generic
+                }
+            }
+        }
+        return result;
+    }
 
     private static string? GetName(JsonElement element)
     {

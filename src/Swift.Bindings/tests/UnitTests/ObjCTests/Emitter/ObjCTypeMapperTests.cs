@@ -163,8 +163,8 @@ public class ObjCTypeMapperTests
     [Fact]
     public void MapType_ConcreteTypeWithProtocolQualification_MapsToConcreteType()
     {
-        // NSObject<NSCopying> * → NSObject (angle-bracket args are GenericArgs, mapper ignores them for concrete types)
-        var typeRef = new ObjCTypeRef { Name = "NSObject", IsPointer = true, GenericArgs = [new ObjCTypeRef { Name = "NSCopying" }] };
+        // NSObject<NSCopying> * → NSObject (protocol qualification is metadata, doesn't change C# type)
+        var typeRef = new ObjCTypeRef { Name = "NSObject", IsPointer = true, ProtocolQualifications = ["NSCopying"] };
         Assert.Equal("NSObject", ObjCTypeMapper.MapType(typeRef));
     }
 
