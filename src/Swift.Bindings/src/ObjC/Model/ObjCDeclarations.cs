@@ -95,6 +95,7 @@ public sealed record ObjCConstantDecl
     public required string Name { get; init; }
     public required ObjCTypeRef Type { get; init; }
     public bool IsExtern { get; init; }
+    public List<ObjCAvailability> Availability { get; init; } = [];
 }
 
 public sealed record ObjCTypedefDecl

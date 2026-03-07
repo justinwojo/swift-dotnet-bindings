@@ -525,11 +525,26 @@ public static class ClangAstParser
             isExtern = sc.GetString() == "extern";
         }
 
+        var availability = new List<ObjCAvailability>();
+        if (element.TryGetProperty("inner", out var inner))
+        {
+            foreach (var child in inner.EnumerateArray())
+            {
+                if (GetOptionalString(child, "kind") == "AvailabilityAttr")
+                {
+                    var avail = ParseAvailability(child);
+                    if (avail != null)
+                        availability.Add(avail);
+                }
+            }
+        }
+
         return new ObjCConstantDecl
         {
             Name = name,
             Type = ObjCTypeRefParser.Parse(qualType),
-            IsExtern = isExtern
+            IsExtern = isExtern,
+            Availability = availability
         };
     }
 

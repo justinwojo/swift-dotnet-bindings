@@ -72,7 +72,11 @@ public static class ApiDefinitionEmitter
 
     static void EmitProtocol(StringBuilder sb, ObjCProtocolDecl proto, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, ILogger logger, ObjCBindingDiagnostics? diagnostics)
     {
-        EmitAvailabilityAttributes(sb, proto.Availability, "    ");
+        if (EmitAvailabilityAttributes(sb, proto.Availability, "    "))
+        {
+            diagnostics?.RecordSkip("Protocol", proto.Name, ObjCSkipReason.UnavailableApi, "marked unavailable on iOS");
+            return;
+        }
 
         sb.AppendLine("    [Protocol]");
         sb.AppendLine("    [BaseType(typeof(NSObject))]");
@@ -106,7 +110,11 @@ public static class ApiDefinitionEmitter
 
     static void EmitClass(StringBuilder sb, ObjCClassDecl cls, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, ILogger logger, ObjCBindingDiagnostics? diagnostics)
     {
-        EmitAvailabilityAttributes(sb, cls.Availability, "    ");
+        if (EmitAvailabilityAttributes(sb, cls.Availability, "    "))
+        {
+            diagnostics?.RecordSkip("Class", cls.Name, ObjCSkipReason.UnavailableApi, "marked unavailable on iOS");
+            return;
+        }
 
         // Disable default constructor if the class declares any parameterless init
         // to avoid bgen generating a duplicate parameterless constructor
@@ -160,7 +168,11 @@ public static class ApiDefinitionEmitter
 
     static void EmitCategory(StringBuilder sb, ObjCCategoryDecl cat, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, ILogger logger, ObjCBindingDiagnostics? diagnostics)
     {
-        EmitAvailabilityAttributes(sb, cat.Availability, "    ");
+        if (EmitAvailabilityAttributes(sb, cat.Availability, "    "))
+        {
+            diagnostics?.RecordSkip("Category", $"{cat.ClassName}.{cat.CategoryName}", ObjCSkipReason.UnavailableApi, "marked unavailable on iOS");
+            return;
+        }
 
         sb.AppendLine("    [Category]");
         sb.AppendLine($"    [BaseType(typeof({cat.ClassName}))]");
@@ -234,7 +246,11 @@ public static class ApiDefinitionEmitter
             }
         }
 
-        EmitAvailabilityAttributes(sb, method.Availability, "        ");
+        if (EmitAvailabilityAttributes(sb, method.Availability, "        "))
+        {
+            diagnostics?.RecordSkip("Method", method.Selector, ObjCSkipReason.UnavailableApi, "marked unavailable on iOS");
+            return null;
+        }
 
         var isConstructor = !isProtocol && (method.Selector == "init" || method.Selector.StartsWith("initWith", StringComparison.Ordinal));
 
@@ -314,7 +330,11 @@ public static class ApiDefinitionEmitter
         if (emittedPropertyNames != null && !emittedPropertyNames.Add(propName))
             return;
 
-        EmitAvailabilityAttributes(sb, prop.Availability, "        ");
+        if (EmitAvailabilityAttributes(sb, prop.Availability, "        "))
+        {
+            diagnostics?.RecordSkip("Property", propName, ObjCSkipReason.UnavailableApi, "marked unavailable on iOS");
+            return;
+        }
 
         if (!prop.IsOptional)
         {
@@ -352,26 +372,8 @@ public static class ApiDefinitionEmitter
         sb.AppendLine();
     }
 
-    static void EmitAvailabilityAttributes(StringBuilder sb, List<ObjCAvailability> availability, string indent)
-    {
-        foreach (var avail in availability)
-        {
-            if (avail.Platform != "ios")
-                continue;
-
-            if (avail.IntroducedVersion != null)
-            {
-                var (major, minor) = ParseVersion(avail.IntroducedVersion);
-                sb.AppendLine($"{indent}[Introduced(PlatformName.iOS, {major}, {minor})]");
-            }
-
-            if (avail.DeprecatedVersion != null)
-            {
-                var (major, minor) = ParseVersion(avail.DeprecatedVersion);
-                sb.AppendLine($"{indent}[Deprecated(PlatformName.iOS, {major}, {minor})]");
-            }
-        }
-    }
+    static bool EmitAvailabilityAttributes(StringBuilder sb, List<ObjCAvailability> availability, string indent) =>
+        ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, availability, indent);
 
     static string EmitParameters(List<ObjCParameterDecl> parameters, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null)
     {
@@ -426,14 +428,6 @@ public static class ApiDefinitionEmitter
         // Use ALL selector parts, PascalCase each: "setObject:forKey:" → "SetObjectForKey"
         var parts = selector.Split(':', StringSplitOptions.RemoveEmptyEntries);
         return string.Concat(parts.Select(ToPascalCase));
-    }
-
-    static (int major, int minor) ParseVersion(string version)
-    {
-        var parts = version.Split('.');
-        var major = int.Parse(parts[0]);
-        var minor = parts.Length > 1 ? int.Parse(parts[1]) : 0;
-        return (major, minor);
     }
 
     static string ToPascalCase(string name)

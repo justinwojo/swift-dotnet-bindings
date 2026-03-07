@@ -149,7 +149,7 @@ public static class StructsAndEnumsEmitter
         sb.AppendLine("{");
 
         foreach (var enumDecl in module.Enums)
-            EmitEnum(sb, enumDecl);
+            EmitEnum(sb, enumDecl, diagnostics);
 
         foreach (var structDecl in module.Structs.Where(s => !SystemStructs.Contains(s.Name)))
             EmitStruct(sb, structDecl, typedefMap, knownTypes, logger, diagnostics);
@@ -209,8 +209,14 @@ public static class StructsAndEnumsEmitter
         return new StructsAndEnumsResult(filePath, bgenDelegatesPath);
     }
 
-    static void EmitEnum(StringBuilder sb, ObjCEnumDecl enumDecl)
+    static void EmitEnum(StringBuilder sb, ObjCEnumDecl enumDecl, ObjCBindingDiagnostics? diagnostics = null)
     {
+        if (ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, enumDecl.Availability, "    "))
+        {
+            diagnostics?.RecordSkip("Enum", enumDecl.Name, ObjCSkipReason.UnavailableApi, "marked unavailable on iOS");
+            return;
+        }
+
         var (baseType, isNative) = ResolveEnumBackingType(enumDecl);
         if (isNative)
             sb.AppendLine("    [Native]");
@@ -380,7 +386,7 @@ public static class StructsAndEnumsEmitter
         sb.AppendLine("    {");
 
         foreach (var constant in module.Constants.Where(c => c.IsExtern))
-            EmitConstant(sb, constant, typedefMap);
+            EmitConstant(sb, constant, typedefMap, diagnostics);
 
         foreach (var function in module.Functions)
             EmitFunction(sb, function, typedefMap, moduleLocalTypes, knownTypes, logger, diagnostics);
@@ -389,8 +395,14 @@ public static class StructsAndEnumsEmitter
         sb.AppendLine();
     }
 
-    static void EmitConstant(StringBuilder sb, ObjCConstantDecl constant, Dictionary<string, ObjCTypeRef> typedefMap)
+    static void EmitConstant(StringBuilder sb, ObjCConstantDecl constant, Dictionary<string, ObjCTypeRef> typedefMap, ObjCBindingDiagnostics? diagnostics)
     {
+        if (ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, constant.Availability, "        "))
+        {
+            diagnostics?.RecordSkip("Constant", constant.Name, ObjCSkipReason.UnavailableApi, "marked unavailable on iOS");
+            return;
+        }
+
         var pascalName = ToPascalCase(constant.Name);
 
         // NSString* constants use NSString as the [Field] property type (MAUI convention),
@@ -413,6 +425,12 @@ public static class StructsAndEnumsEmitter
 
     static void EmitFunction(StringBuilder sb, ObjCFunctionDecl function, Dictionary<string, ObjCTypeRef> typedefMap, HashSet<string> moduleLocalTypes, HashSet<string> knownTypes, ILogger logger, ObjCBindingDiagnostics? diagnostics)
     {
+        if (ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, function.Availability, "        "))
+        {
+            diagnostics?.RecordSkip("Function", function.Name, ObjCSkipReason.UnavailableApi, "marked unavailable on iOS");
+            return;
+        }
+
         var returnType = ObjCTypeMapper.MapType(function.ReturnType, typedefMap: typedefMap);
         var paramTypes = function.Parameters.Select(p => ObjCTypeMapper.MapType(p.Type, typedefMap: typedefMap)).ToList();
 
