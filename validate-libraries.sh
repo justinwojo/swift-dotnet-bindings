@@ -191,6 +191,17 @@ if ! $QUICK && [[ ! -d "$LIBRARIES_DIR" ]]; then
     exit 1
 fi
 
+# --- Compute which frameworks have declared dependencies ---
+
+HAS_DEPS_SET="|$(python3 -c "
+import json
+libs = json.load(open('$MANIFEST'))['libraries']
+for lib in libs:
+    for prod in lib['products']:
+        if prod.get('dependencies'):
+            print(prod['framework'])
+" 2>/dev/null | tr '\n' '|')"
+
 # --- Expand manifest to validation targets ---
 
 TARGETS=()
@@ -203,18 +214,20 @@ while IFS='|' read -r fw lib_name xcfw_path mode known_errors tier; do
     if ! matches_tier "$tier"; then
         continue
     fi
+    has_deps=0
+    [[ "$HAS_DEPS_SET" == *"|${fw}|"* ]] && has_deps=1
     if $QUICK; then
         # In --quick mode, don't require xcframeworks — we use cached /tmp output
-        TARGETS+=("$fw|$lib_name|$xcfw_path|$mode|$known_errors")
+        TARGETS+=("$fw|$lib_name|$xcfw_path|$mode|$known_errors|$has_deps")
     elif [[ "$mode" == "manual" ]]; then
         if [[ -d "$xcfw_path" ]]; then
-            TARGETS+=("$fw|$lib_name|$xcfw_path|$mode|$known_errors")
+            TARGETS+=("$fw|$lib_name|$xcfw_path|$mode|$known_errors|$has_deps")
         else
             MANUAL_TARGETS+=("$fw")
         fi
     else
         if [[ -d "$xcfw_path" ]]; then
-            TARGETS+=("$fw|$lib_name|$xcfw_path|$mode|$known_errors")
+            TARGETS+=("$fw|$lib_name|$xcfw_path|$mode|$known_errors|$has_deps")
         else
             echo -e "  ${YELLOW}$fw: xcframework not found — skipping${NC}"
         fi
@@ -291,7 +304,7 @@ fi
 
 process_target() {
     local entry="$1"
-    IFS='|' read -r name lib_name xcfw_path mode known_errors <<< "$entry"
+    IFS='|' read -r name lib_name xcfw_path mode known_errors has_deps <<< "$entry"
     local outdir="$OUTPUT_BASE/$name"
     local output_file="$RESULTS_DIR/$name.output"
     local GEN_VERBOSE=""
@@ -327,6 +340,30 @@ process_target() {
         fi
     fi
 
+    # Count lines (before potential dep_only skip)
+    local CS_FILE LINES
+    CS_FILE=$(ls "$outdir"/*.cs 2>/dev/null | grep -v '\.Wrappers\.cs' | grep -v '\.SwiftUIBridge\.cs' | head -1)
+    LINES=0
+    [[ -n "$CS_FILE" ]] && LINES=$(wc -l < "$CS_FILE" | tr -d ' ')
+    set_result "$name" lines "$LINES"
+
+    # Skip standalone compile for libraries with dependencies — compiled in dep gate
+    if [[ "$has_deps" == "1" ]]; then
+        local GEN_SECS
+        GEN_SECS=$(get_result "$name" seconds 0)
+        set_result "$name" compile "dep_only"
+        set_result "$name" errors 0
+        {
+            if [[ -n "$GEN_VERBOSE" ]]; then
+                echo "$GEN_VERBOSE" | while IFS= read -r line; do
+                    echo -e "    ${DIM}$line${NC}"
+                done
+            fi
+            echo -e "  ${CYAN}$name: deferred to dep gate${NC} ${DIM}(${LINES} lines, ${GEN_SECS}s)${NC}"
+        } > "$output_file"
+        return
+    fi
+
     # Find .csproj to compile — prefer .Swift.iOS.csproj for mixed frameworks
     local CSPROJ_FILE=""
     if ls "$outdir"/*.Swift.iOS.csproj >/dev/null 2>&1; then
@@ -354,13 +391,6 @@ process_target() {
     if grep -q 'PackageReference.*Swift\.Runtime' "$CSPROJ_FILE" 2>/dev/null; then
         sed -i '' 's|<PackageReference Include="Swift.Runtime"[^/]*/>|<Reference Include="Swift.Runtime"><HintPath>'"$RUNTIME_DLL"'</HintPath></Reference>|' "$CSPROJ_FILE"
     fi
-
-    # Count lines
-    local CS_FILE LINES
-    CS_FILE=$(ls "$outdir"/*.cs 2>/dev/null | grep -v '\.Wrappers\.cs' | grep -v '\.SwiftUIBridge\.cs' | head -1)
-    LINES=0
-    [[ -n "$CS_FILE" ]] && LINES=$(wc -l < "$CS_FILE" | tr -d ' ')
-    set_result "$name" lines "$LINES"
 
     # Restore if no assets file (fallback csproj needs this)
     if [[ ! -f "$outdir/obj/project.assets.json" ]]; then
@@ -432,14 +462,12 @@ process_target() {
 
 # --- Sort targets longest-first for optimal scheduling ---
 # Start slow targets first so fast targets fill in around them.
-# Uses baseline gen_seconds when available, falls back to 0 (fast).
+# Uses baseline lines (stable proxy for gen time) when available, falls back to 0.
 # DISPLAY_TARGETS preserves manifest order for output.
 
 DISPLAY_TARGETS=("${TARGETS[@]}")
 
 if [[ -f "$BASELINE_FILE" ]] && (( MAX_JOBS > 1 )); then
-    # Sort targets by baseline gen_seconds (longest first) in a single python3 call.
-    # Avoids declare -A which requires bash 4+ (macOS ships bash 3.2).
     SORT_TMPFILE=$(mktemp)
     printf '%s\n' "${TARGETS[@]}" > "$SORT_TMPFILE"
 
@@ -453,7 +481,7 @@ with open('$BASELINE_FILE') as f:
 libs = bl.get('compile_gate', {}).get('libraries', {})
 with open('$SORT_TMPFILE') as f:
     entries = [line.rstrip('\n') for line in f if line.strip()]
-entries.sort(key=lambda e: libs.get(e.split('|')[0], {}).get('gen_seconds', 0), reverse=True)
+entries.sort(key=lambda e: libs.get(e.split('|')[0], {}).get('lines', 0), reverse=True)
 for entry in entries:
     print(entry)
 " 2>/dev/null)
@@ -485,6 +513,7 @@ echo -e "${DIM}Completed in $((SECONDS - PHASE3_START))s${NC}"
 COMPILE_PASSED=0
 COMPILE_FAILED=0
 COMPILE_NO_OUTPUT=0
+COMPILE_DEFERRED=0
 
 for entry in "${DISPLAY_TARGETS[@]}"; do
     IFS='|' read -r name _ <<< "$entry"
@@ -493,18 +522,22 @@ for entry in "${DISPLAY_TARGETS[@]}"; do
     case "$comp_status" in
         ok|known_errors) COMPILE_PASSED=$((COMPILE_PASSED + 1)) ;;
         fail|regressed|infra_fail) COMPILE_FAILED=$((COMPILE_FAILED + 1)) ;;
+        dep_only) COMPILE_DEFERRED=$((COMPILE_DEFERRED + 1)) ;;
         *) COMPILE_NO_OUTPUT=$((COMPILE_NO_OUTPUT + 1)) ;;
     esac
 done
 
 echo ""
-TOTAL=$((COMPILE_PASSED + COMPILE_FAILED + COMPILE_NO_OUTPUT))
+COMPILE_TESTED=$((COMPILE_PASSED + COMPILE_FAILED + COMPILE_NO_OUTPUT))
+TOTAL=$((COMPILE_TESTED + COMPILE_DEFERRED))
+DEFERRED_NOTE=""
+(( COMPILE_DEFERRED > 0 )) && DEFERRED_NOTE=" ${DIM}($COMPILE_DEFERRED deferred to dep gate)${NC}"
 if [[ $COMPILE_FAILED -eq 0 && $COMPILE_NO_OUTPUT -eq 0 ]]; then
-    echo -e "${GREEN}Compile gate: $COMPILE_PASSED/$TOTAL passed${NC}"
+    echo -e "${GREEN}Compile gate: $COMPILE_PASSED/$COMPILE_TESTED passed${NC}${DEFERRED_NOTE}"
 elif [[ $COMPILE_FAILED -eq 0 ]]; then
-    echo -e "${GREEN}Compile gate: $COMPILE_PASSED/$TOTAL passed${NC} ${DIM}($COMPILE_NO_OUTPUT no output)${NC}"
+    echo -e "${GREEN}Compile gate: $COMPILE_PASSED/$COMPILE_TESTED passed${NC} ${DIM}($COMPILE_NO_OUTPUT no output)${NC}${DEFERRED_NOTE}"
 else
-    echo -e "${RED}Compile gate: $COMPILE_PASSED/$TOTAL passed, $COMPILE_FAILED failed${NC}${COMPILE_NO_OUTPUT:+ ${DIM}($COMPILE_NO_OUTPUT no output)${NC}}"
+    echo -e "${RED}Compile gate: $COMPILE_PASSED/$COMPILE_TESTED passed, $COMPILE_FAILED failed${NC}${COMPILE_NO_OUTPUT:+ ${DIM}($COMPILE_NO_OUTPUT no output)${NC}}${DEFERRED_NOTE}"
 fi
 # --- Phase 3.5: Dependency Gate (Cascading) ---
 
@@ -720,46 +753,26 @@ fi
 # Build compile gate JSON for current run
 COMPILE_JSON=""
 for entry in "${DISPLAY_TARGETS[@]}"; do
-    IFS='|' read -r name lib_name xcfw_path mode known_errors <<< "$entry"
-    gen=$(get_result "$name" gen "unknown")
+    IFS='|' read -r name lib_name xcfw_path mode known_errors has_deps <<< "$entry"
     comp=$(get_result "$name" compile "unknown")
     errs=$(get_result "$name" errors 0)
     lines=$(get_result "$name" lines 0)
-    secs=$(get_result "$name" seconds 0)
     dep_comp=$(get_result "$name" dep_compile "none")
     if [[ -n "$COMPILE_JSON" ]]; then COMPILE_JSON+=","; fi
-    COMPILE_JSON+="\"$name\":{\"generate\":\"$gen\",\"compile\":\"$comp\",\"errors\":$errs,\"lines\":$lines,\"gen_seconds\":$secs,\"dep_compile\":\"$dep_comp\"}"
+    COMPILE_JSON+="\"$name\":{\"compile\":\"$comp\",\"errors\":$errs,\"lines\":$lines,\"dep_compile\":\"$dep_comp\"}"
 done
 
 # Only write baseline on full (unfiltered) runs to prevent partial corruption
 if $IS_FULL_RUN; then
     python3 -c "
-import json, sys
-from datetime import datetime, timezone
+import json
 
-baseline = {
-    'timestamp': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
-    'git_sha': '$GIT_SHA',
-    'runtime_version': '$RUNTIME_VERSION'
-}
+baseline = {'git_sha': '$GIT_SHA'}
 
 compile_json = '''${COMPILE_JSON:-}'''
 if compile_json:
     libs = json.loads('{' + compile_json + '}')
-    passed = sum(1 for v in libs.values() if v['compile'] in ('ok', 'known_errors'))
-    failed = sum(1 for v in libs.values() if v['compile'] in ('fail', 'regressed', 'infra_fail'))
-    baseline['compile_gate'] = {
-        'total': len(libs),
-        'passed': passed,
-        'failed': failed,
-        'libraries': libs
-    }
-
-baseline['dependency_gate'] = {
-    'total': $DEP_TOTAL,
-    'passed': $DEP_PASSED,
-    'failed': $DEP_FAILED
-}
+    baseline['compile_gate'] = {'libraries': libs}
 
 with open('$BASELINE_FILE', 'w') as f:
     json.dump(baseline, f, indent=2)
@@ -785,19 +798,13 @@ if [[ -n "$PREV_BASELINE" ]]; then
     else
         python3 -c "
 import json
-from datetime import datetime, timezone
-baseline = {
-    'timestamp': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
-    'git_sha': '$GIT_SHA',
-    'runtime_version': '$RUNTIME_VERSION'
-}
+baseline = {'git_sha': '$GIT_SHA'}
 compile_json = '''${COMPILE_JSON:-}'''
 if compile_json:
     libs = json.loads('{' + compile_json + '}')
-    baseline['compile_gate'] = {'total': len(libs), 'libraries': libs}
-import json as j
+    baseline['compile_gate'] = {'libraries': libs}
 with open('$CURR_TMPFILE', 'w') as f:
-    j.dump(baseline, f)
+    json.dump(baseline, f)
 " 2>/dev/null
     fi
 
@@ -915,11 +922,11 @@ else
 fi
 
 if [[ ${COMPILE_FAILED:-0} -eq 0 && ${COMPILE_NO_OUTPUT:-0} -eq 0 ]]; then
-    echo -e "  Compile: ${GREEN}${COMPILE_PASSED:-0}/$TOTAL passed${NC}"
+    echo -e "  Compile: ${GREEN}${COMPILE_PASSED:-0}/$COMPILE_TESTED passed${NC}${DEFERRED_NOTE}"
 elif [[ ${COMPILE_FAILED:-0} -eq 0 ]]; then
-    echo -e "  Compile: ${GREEN}${COMPILE_PASSED:-0}/$TOTAL passed${NC}, ${DIM}${COMPILE_NO_OUTPUT} no output${NC}"
+    echo -e "  Compile: ${GREEN}${COMPILE_PASSED:-0}/$COMPILE_TESTED passed${NC}, ${DIM}${COMPILE_NO_OUTPUT} no output${NC}${DEFERRED_NOTE}"
 else
-    echo -e "  Compile: ${RED}${COMPILE_PASSED:-0}/$TOTAL passed, $COMPILE_FAILED failed${NC}${COMPILE_NO_OUTPUT:+, ${DIM}${COMPILE_NO_OUTPUT} no output${NC}}"
+    echo -e "  Compile: ${RED}${COMPILE_PASSED:-0}/$COMPILE_TESTED passed, $COMPILE_FAILED failed${NC}${COMPILE_NO_OUTPUT:+, ${DIM}${COMPILE_NO_OUTPUT} no output${NC}}${DEFERRED_NOTE}"
 fi
 if [[ ${DEP_TOTAL:-0} -gt 0 ]]; then
     if [[ ${DEP_TESTED:-0} -eq 0 ]]; then
