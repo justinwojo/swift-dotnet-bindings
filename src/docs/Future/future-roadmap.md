@@ -106,19 +106,9 @@ Script that extracts public API surface from generated `.cs`, compares against a
 
 These are substantial new capabilities or cross-cutting changes. Each requires a planning session before starting.
 
-### 8. ObjC Binding Integration (`objc-binding-integration.md`)
+### ~~8. ObjC Binding Integration~~ — COMPLETE
 
-**Priority**: P4 | **Effort**: Large (2-3 weeks) | **Blocked on**: Nothing
-
-Replace the abandoned Objective Sharpie by adding ObjC binding generation to the same CLI/SDK. Uses `clang -ast-dump=json` (no native dependencies, always version-matched with Xcode). ~1,500-2,000 lines of new code.
-
-**Why here (and not higher)**: The design is thorough and the shared infrastructure is compelling — xcframework resolution, dependency handling, NuGet packaging, and the MSBuild SDK all reuse directly. However:
-- ObjC is declining; most new libraries are Swift-only
-- The ObjC registrar runtime already exists in .NET MAUI — this adds a front-end, not a stack
-- Edge cases (categories, class extensions, `__attribute__`, lightweight generics) could balloon scope
-- It's a new pipeline with fundamentally different output (binding definitions vs direct P/Invoke)
-
-**When to prioritize higher**: If users specifically request ObjC support, or if mixed ObjC/Swift frameworks become a common pain point. The Stripe family (some modules are ObjC-only) is one concrete motivator.
+ObjC binding pipeline is fully implemented and validated against 34 ObjC framework targets (Realm, Stripe3DS2, BRLMPrinterKit, SDWebImage, CocoaLumberjack, MBProgressHUD, 28 Firebase/Google modules). Auto-detected from xcframework structure. Outperforms Objective Sharpie in compilation success, documentation, enum handling, protocol patterns, and project scaffolding. See `Completed/objc-binding-comparison.md` and `Completed/objc-improvement-plan.md` for details.
 
 ### ~~9. Mono JIT Remaining Work~~ — ARCHIVED
 
@@ -140,7 +130,7 @@ These are architectural investments that pay off over years, not sessions.
 
 Three-phase architecture: type pre-processing (graph traversal + marshalling label assignment), type processing (handler-based member representation), emission from structured representations.
 
-**Why last**: The current emitter works. It generates correct code for 25+ libraries with 0 errors. The proposal is well-designed and would make future feature development faster, but:
+**Why last**: The current emitter works. It generates correct code for 46 libraries (88 targets) with 0 errors. The proposal is well-designed and would make future feature development faster, but:
 - It touches everything — high regression risk
 - The ROI only materializes if there's a sustained stream of new feature work requiring emitter changes
 - The handler-based design already exists in pieces (MethodHandler decomposition from Phase 50)
@@ -173,10 +163,7 @@ Repo goes public
   |       +---> Package naming decision
   |       +---> Multi-framework pack-all.sh
   |
-  +---> ObjC integration (#8)
-          |
-          +---> Class inheritance hierarchy (roadmap P4)
-          +---> Mixed ObjC/Swift framework support
+  +---> ObjC integration (#8) — COMPLETE
 ```
 
 ---
@@ -192,7 +179,7 @@ Repo goes public
 | 5 | SwiftUI Bridge corpus | `swiftui-bridge-v2-plan.md` | P3 | Medium | No |
 | 6 | Performance benchmarks | `interop-performance-validation-plan.md` | P3 | Medium | No |
 | 7 | API snapshot tooling | `api-snapshot-tooling.md` | P3 | Medium | No |
-| 8 | ObjC binding integration | `objc-binding-integration.md` | P4 | Large | No |
+| ~~8~~ | ~~ObjC binding integration~~ | ~~`objc-binding-integration.md`~~ | — | — | Complete (March 2026) |
 | ~~9~~ | ~~Mono JIT remaining work~~ | ~~`mono-jit-future-work.md`~~ | — | — | Archived (March 2026) |
 | ~~10~~ | ~~Unsupported existentials~~ | ~~`unsupported-existential-analysis.md`~~ | — | — | Archived (March 2026) |
 | 11 | Emitter redesign | `emitter-redesign-proposal.md` | P4 | Very Large | No (but risky) |
@@ -207,6 +194,6 @@ Repo goes public
 
 **NativeAOT is the exit strategy for Mono JIT issues.** Rather than investing heavily in incremental Mono workarounds (#9), the strategic bet is that NativeAOT simulator support will land and render most of that work unnecessary. The upstream issue (#2) accelerates this.
 
-**Multi-platform (#4) and ObjC integration (#8) are the two capability expansions that change the project's scope.** Multi-platform turns it from "iOS bindings" to "Apple platform bindings." ObjC integration turns it from "Swift bindings" to "Apple framework bindings." Both are significant, but multi-platform has a clearer ROI (same pipeline, more platforms) while ObjC is a new pipeline for a declining ecosystem.
+**Multi-platform (#4) is the remaining capability expansion that changes the project's scope.** It turns the project from "iOS bindings" to "Apple platform bindings." ObjC integration (#8) is now complete — the project already handles both Swift and ObjC frameworks, validated against 88 targets.
 
-**The emitter redesign (#11) is the right long-term direction but wrong near-term investment.** The current architecture works for 25+ libraries. The redesign pays off when sustained feature development outpaces what the current architecture can support cleanly. Migrate incrementally as features demand it, rather than rewriting speculatively.
+**The emitter redesign (#11) is the right long-term direction but wrong near-term investment.** The current architecture works for 46 libraries (88 targets). The redesign pays off when sustained feature development outpaces what the current architecture can support cleanly. Migrate incrementally as features demand it, rather than rewriting speculatively.

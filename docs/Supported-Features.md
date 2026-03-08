@@ -120,9 +120,44 @@ var result = Result.Success(42);
 - **Raw representable** — `RawValue` property + `FromRawValue()` factory
 - **Associated values** — factory methods with parameters
 
+## Objective-C Frameworks
+
+The generator auto-detects pure ObjC frameworks and runs the ObjC pipeline, emitting standard `ApiDefinition.cs` + `StructsAndEnums.cs` binding definitions. No flags needed — drop any xcframework and the correct pipeline runs.
+
+### ObjC Binding Features
+
+| Feature | Notes |
+|---------|-------|
+| **Doc comments** | Rich `<summary>` and `<param>` XML tags from ObjC header documentation |
+| **Enum handling** | Type prefix stripping, explicit values, correct backing types (`int`, `long`, `ulong`) with `[Native]` |
+| **[Protocol, Model]** | Delegate protocols emit `[Model]` with `WeakDelegate`/`Wrap` pattern |
+| **@optional / @required** | `[Abstract]` only on `@required` members |
+| **ArgumentSemantic** | `Copy`, `Assign`, `Weak`, `Strong` preserved from ObjC property attributes |
+| **[Bind] custom getters** | `isXxx` getter selectors emitted as `[Bind("isXxx")]` |
+| **Typed arrays** | `NSArray<NSString *>` → `string[]`, `NSDictionary<K,V>` type hints preserved |
+| **Pointer/out-params** | `_Bool *` → `out bool`, `CGPoint *` → `out CGPoint` |
+| **Variadic methods** | `[Internal]` + `IsVariadic = true` for ObjC `...` methods |
+| **Foreign-type categories** | `[Category]` extension methods on platform types (`NSNull`, `UIButton`, etc.) |
+| **Platform availability** | `[iOS(x,y)]`, `[Deprecated]`, `[Obsoleted]` from ObjC annotations |
+| **[DesignatedInitializer]** | Detected from `NS_DESIGNATED_INITIALIZER` |
+| **[DisableDefaultCtor]** | Detected from `NS_UNAVAILABLE` and `__attribute__((unavailable))` |
+| **Struct layout safety** | Bitfields and anonymous unions detected and skipped with diagnostics |
+| **NS_SWIFT_NAME** | Captured as metadata (not auto-applied — avoids Swift/C# naming divergence) |
+| **NS_REFINED_FOR_SWIFT** | Captured as metadata |
+| **Diagnostic report** | Skipped symbols documented with structured reasons |
+
+### ObjC Known Limitations
+
+| Limitation | Reason |
+|-----------|--------|
+| Category protocol conformance stripped | MAUI bgen compiles `[Category]` as static classes — can't implement interfaces |
+| Category instance properties skipped | Static extension classes can't have instance members |
+| Category init methods skipped | MAUI `[Category]` can't have constructors |
+| Variadic C functions skipped | `va_list` incompatible with P/Invoke |
+
 ## Real-World Coverage
 
-The generator produces 0 errors across **42 production libraries** (55 validation targets) including Nuke, Alamofire, Kingfisher, CryptoSwift, Lottie, BlinkID, GRDB, RxSwift, all Stripe frameworks, Mappedin, Mixpanel, Realm (ObjC), Stripe3DS2 (ObjC), and more. All 55 targets compile successfully.
+The generator produces 0 errors across **46 production libraries** (88 framework targets — 53 Swift, 34 ObjC, 1 mixed) including Nuke, Alamofire, Kingfisher, CryptoSwift, Lottie, BlinkID, GRDB, RxSwift, all Stripe frameworks, Mappedin, Mixpanel, Realm (ObjC), Stripe3DS2 (ObjC), the full Firebase/Google SDK family (28 ObjC targets), SDWebImage, CocoaLumberjack, MBProgressHUD, and more. All 88 targets compile successfully.
 
 Four libraries have full test apps with runtime validation on iOS Simulator:
 

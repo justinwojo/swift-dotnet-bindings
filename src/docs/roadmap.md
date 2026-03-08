@@ -9,12 +9,12 @@
 
 | Metric | Value |
 |--------|-------|
-| Unit tests | 5,427 passing (0 failures, 1 skipped) |
+| Unit tests | 6,400+ passing |
 | Integration tests | 700 passing (11 skipped, pre-existing) |
 | Runtime library tests | 247 passing (0 failures, 1 skipped) |
 | Analyzer tests | 9 passing |
 | TestFramework must-pass | 94/94, golden files: 1 |
-| Library validation | **53/53 passing** (32 tier-1 + 21 tier-2) |
+| Library validation | **88/88 passing** (53 Swift, 34 ObjC, 1 mixed) |
 | SwiftUI bridged views | 20 |
 
 **Completed roadmaps** (all archived to `Completed/`):

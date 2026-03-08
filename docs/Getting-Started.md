@@ -7,11 +7,12 @@
   ```bash
   dotnet workload install ios
   ```
-- A compiled Swift framework (`.xcframework`) you want to bind — it must be:
-  - A **dynamic** framework (not a static `.a` archive)
-  - Built with **`BUILD_LIBRARY_FOR_DISTRIBUTION=YES`** (library evolution enabled)
+- A compiled framework (`.xcframework`) you want to bind — either Swift or Objective-C:
+  - Must be a **dynamic** framework (not a static `.a` archive)
+  - **Swift frameworks** must be built with **`BUILD_LIBRARY_FOR_DISTRIBUTION=YES`** (library evolution enabled). This flag tells the Swift compiler to emit stable ABI metadata (`.swiftinterface` files) that the generator needs. Without it, the generator will produce empty output or crash. Most well-maintained open-source libraries and vendor SDKs already build with this flag. See [Troubleshooting](Troubleshooting#generator-crash-or-emptyincomplete-output) if your xcframework wasn't built this way.
+  - **ObjC frameworks** have no additional requirements — the generator uses `clang -ast-dump=json` to parse public headers directly.
 
-  This flag tells the Swift compiler to emit stable ABI metadata (`.swiftinterface` files) that the generator needs to extract type information. Without it, the generator will produce empty output or crash. Most well-maintained open-source libraries and vendor SDKs already build with this flag. See [Troubleshooting](Troubleshooting#generator-crash-or-emptyincomplete-output) if your xcframework wasn't built this way.
+  The framework type is auto-detected. No flags needed — drop any xcframework and the correct pipeline runs.
 
 ## Install the tooling
 
@@ -143,15 +144,27 @@ dotnet run --project src/Swift.Bindings/src -- \
 
 ### What gets generated
 
+**Swift frameworks:**
+
 | File | Purpose |
 |------|---------|
-| `{Module}.cs` | C# bindings |
+| `{Module}.cs` | C# bindings (P/Invoke declarations, type wrappers) |
 | `{Module}.swift` | Swift wrapper functions (async, protocol dispatch, etc.) |
 | `{Module}SwiftBindings.xcframework/` | Compiled Swift wrapper (xcframework mode) |
 | `{Module}.SwiftUIBridge.cs` + `.swift` | SwiftUI bridge (when views are detected) |
 | `binding-report.json` | Coverage report — what was bound and what was skipped |
 | `{Module}.Swift.iOS.csproj` + `.targets` | Ready-to-build project and NuGet consumer targets (xcframework mode) |
 | `binding-metadata.json` + `.props` | Extracted framework metadata |
+
+**ObjC frameworks** (auto-detected — no flags needed):
+
+| File | Purpose |
+|------|---------|
+| `ApiDefinition.cs` | Binding interface definitions (`[BaseType]`, `[Export]`, `[Protocol]`) |
+| `StructsAndEnums.cs` | Enums, structs, constants, C functions |
+| `BgenDelegates.cs` | Block-based callback delegate definitions |
+| `{Module}.ObjC.iOS.csproj` | Ready-to-build binding project (`<IsBindingProject>true`) |
+| `binding-metadata.props` | Extracted framework metadata |
 
 See [Customization](Customization.md) for the full set of CLI options.
 

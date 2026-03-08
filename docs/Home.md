@@ -2,7 +2,7 @@
 
 **Automatically generate C# bindings from compiled Swift libraries.**
 
-Swift Bindings reads the ABI metadata from a compiled Swift framework (`.xcframework`) and generates idiomatic C# that calls directly into the Swift dylib via P/Invoke. No Objective-C bridging headers, no manual proxy code, no Objective Sharpie.
+Swift Bindings reads a compiled framework (`.xcframework`) and generates idiomatic C# bindings. For Swift libraries, it produces direct P/Invoke code from ABI metadata. For Objective-C libraries, it produces standard `ApiDefinition.cs` + `StructsAndEnums.cs` binding definitions from clang AST parsing. No Objective Sharpie, no manual proxy code.
 
 ```
 Swift framework (.xcframework)  →  SwiftBindings tool  →  C# bindings + NuGet package
@@ -48,7 +48,7 @@ The generator covers the full breadth of Swift's type system:
 
 ## Validated Against Real Libraries
 
-The compile gate passes for all 55 targets across 42 libraries — including Alamofire, Nuke, Kingfisher, Lottie, CryptoSwift, all Stripe frameworks, GRDB, RxSwift, BlinkID, Realm, Stripe3DS2, and more. Zero generator errors. See [Supported Features](Supported-Features.md) for details.
+The compile gate passes for all 88 targets across 46 libraries (53 Swift, 34 ObjC, 1 mixed) — including Alamofire, Nuke, Kingfisher, Lottie, CryptoSwift, all Stripe frameworks, GRDB, RxSwift, BlinkID, Realm (ObjC), Stripe3DS2 (ObjC), the full Firebase/Google SDK family (28 ObjC targets), SDWebImage, CocoaLumberjack, and more. See [Supported Features](Supported-Features.md) for details.
 
 This project is a fork of Microsoft's [`dotnet/runtimelab` (feature/swift-bindings branch)](https://github.com/dotnet/runtimelab/tree/feature/swift-bindings), substantially extended with protocols, generics, closures, async, SwiftUI bridging, and more. See [Architecture](Architecture.md) for the full history.
 

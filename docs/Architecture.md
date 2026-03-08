@@ -131,6 +131,56 @@ The `SwiftWrapperCompiler` takes the generated `.swift` files and compiles them 
 
 The wrapper xcframework is bundled alongside the source xcframework in the NuGet package.
 
+## ObjC Pipeline
+
+When the generator detects an xcframework with ObjC headers but no Swift module, it runs the ObjC pipeline instead. This produces standard .NET iOS binding definitions (`ApiDefinition.cs` + `StructsAndEnums.cs`) rather than direct P/Invoke code.
+
+```
+ObjC Framework (.xcframework)
+         │
+         ├── Headers/*.h (public ObjC headers)
+         └── module.modulemap
+         │
+         ▼
+┌─────────────────────────────────────┐
+│         ObjC Pipeline               │
+├─────────────────────────────────────┤
+│  1. ClangAstInvoker                 │
+│     Runs clang -ast-dump=json on    │
+│     the umbrella header             │
+│                                     │
+│  2. ClangAstParser                  │
+│     Parses clang AST JSON →         │
+│     ObjCModule (classes, protocols, │
+│     enums, categories, functions)   │
+│                                     │
+│  3. ApiDefinitionEmitter            │
+│     Emits ApiDefinition.cs with     │
+│     [BaseType], [Export], [Protocol] │
+│                                     │
+│  4. StructsAndEnumsEmitter          │
+│     Emits StructsAndEnums.cs with   │
+│     enums, structs, [Field], funcs  │
+│                                     │
+│  5. ObjCBindingProjectEmitter       │
+│     Emits .csproj with              │
+│     <IsBindingProject>true          │
+└─────────────────────────────────────┘
+         │
+         ▼
+┌─────────────────────────────────────┐
+│         Generated Output            │
+├─────────────────────────────────────┤
+│  ApiDefinition.cs   (binding defs)  │
+│  StructsAndEnums.cs (types + consts)│
+│  BgenDelegates.cs   (block types)   │
+│  {Module}.ObjC.iOS.csproj           │
+│  binding-metadata.props             │
+└─────────────────────────────────────┘
+```
+
+The ObjC pipeline uses Xcode's built-in `clang` — no external dependencies. The clang AST JSON provides full type information including doc comments, availability attributes, nullability annotations, and protocol conformances. Mixed frameworks (both Swift module and ObjC headers) run both pipelines with a type-level dedup pass to prevent duplicate definitions.
+
 ## Memory Management
 
 Swift uses automatic reference counting (ARC). The generated bindings integrate with this via `SafeHandle`:
@@ -159,14 +209,15 @@ src/
 │   ├── TypeDatabase/            Type mapping + resolution
 │   ├── Marshaler/               Boundary crossing decisions
 │   ├── Emitter/                 C# + Swift code generation
-│   └── Model/                   Internal type model
+│   ├── Model/                   Internal type model
+│   └── ObjC/                    ObjC pipeline (clang AST → binding defs)
 ├── Swift.Runtime/src/           Runtime library
 │   └── Swift/                   SwiftString, SwiftArray, ARC, SafeHandle
 ├── Swift.Bindings.Sdk/          MSBuild SDK package
 └── Swift.Bindings.Templates/    dotnet new template
 
 TestFramework/                   Comprehensive test library + runtime tests
-validation-libraries.json        Library validation manifest (42 libraries, 55 targets)
+validation-libraries.json        Library validation manifest (46 libraries, 88 targets)
 scripts/                         Fetch + build infrastructure
 ```
 

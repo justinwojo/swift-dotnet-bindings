@@ -63,9 +63,11 @@ The generator only supports **dynamic** xcframeworks (containing `.dylib` or `.f
 
 ### "No Swift module found"
 
-The xcframework doesn't contain a `.swiftmodule` directory. It may be an Objective-C-only framework.
+The xcframework doesn't contain a `.swiftmodule` directory. This typically means it's a pure Objective-C framework.
 
-**Fix:** This tool only binds Swift libraries. For ObjC frameworks, use the existing .NET iOS binding tools.
+**What happens:** The generator auto-detects ObjC frameworks and runs the ObjC pipeline instead, producing standard `ApiDefinition.cs` + `StructsAndEnums.cs` binding definitions with a ready-to-build `.csproj`. No flags needed — just point the generator at the xcframework and it picks the right pipeline.
+
+If you're seeing this as an error rather than an informational message, it may indicate the xcframework is malformed or uses an unsupported structure. File an issue with the xcframework layout.
 
 ### Generator crash or empty/incomplete output
 

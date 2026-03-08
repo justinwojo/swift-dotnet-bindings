@@ -1,6 +1,6 @@
 # Known Limitations
 
-This is preview-quality software. The generator has been validated against 42 real-world libraries (Swift and ObjC) and achieves 88–99% member coverage. The sections below document what doesn't work yet and why.
+This is preview-quality software. The generator has been validated against 46 real-world libraries (88 framework targets — 53 Swift, 34 Objective-C, 1 mixed) and achieves 88–99% member coverage. The sections below document what doesn't work yet and why.
 
 ## Platform Requirements
 
@@ -133,7 +133,7 @@ These are explicitly out of scope to maintain focus:
 |----------|-----------|
 | **C# → Swift bindings** | Reverse direction (calling C# from Swift) is a separate problem |
 | **Windows/Linux support** | Apple platforms only — these are Apple-specific frameworks |
-| **Objective-C bridging** | Existing tools (Objective Sharpie, Slim Bindings) handle ObjC |
+| **Objective-C improvements** | ObjC pipeline handles pure ObjC frameworks; remaining gaps (category protocol conformance, category instance properties) are MAUI bgen platform limitations |
 | **Deep SwiftUI state management** | `@State`/`@Binding`/`@Environment` semantics don't map to C#; the auto-generated bridge covers View instantiation |
 
 ---

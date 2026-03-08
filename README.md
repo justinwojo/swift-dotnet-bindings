@@ -39,7 +39,7 @@ Swift Bindings approach:
 
 This project is a fork of Microsoft's [`dotnet/runtimelab` (feature/swift-bindings branch)](https://github.com/dotnet/runtimelab/tree/feature/swift-bindings) — an experimental effort that established the foundational architecture (ABI JSON parsing, Swift symbol demangling, type database, code emitter) but was never intended as a shipping product. Development went inactive with support limited to basic classes, structs, and simple method signatures.
 
-This fork extends the generator substantially — adding protocols, generics, closures, async, SwiftUI bridging, protocol extensions, existential containers, and much more. The generator produces zero compilation errors across 42 real-world libraries (55 framework targets), with select libraries validated end-to-end on a .NET for iOS app.
+This fork extends the generator substantially — adding protocols, generics, closures, async, SwiftUI bridging, protocol extensions, existential containers, and much more. The generator produces zero compilation errors across 46 real-world libraries (88 framework targets — 53 Swift, 34 ObjC, 1 mixed), with select libraries validated end-to-end on a .NET for iOS app.
 
 ---
 
@@ -65,7 +65,7 @@ See the [full type conversion table](docs/Supported-Features.md#type-conversions
 
 ### Real-World Validation
 
-The generator produces **zero compilation errors** across **42 libraries (55 framework targets)** spanning image loading, payments, animation, networking, document scanning, analytics, and more:
+The generator produces **zero compilation errors** across **46 libraries (88 framework targets — 53 Swift, 34 Objective-C, 1 mixed)** spanning image loading, payments, animation, networking, document scanning, analytics, and more:
 
 | Category | Libraries |
 |----------|-----------|
@@ -80,6 +80,8 @@ The generator produces **zero compilation errors** across **42 libraries (55 fra
 | **Document Scanning** | BlinkID, MicroblinkPlatform |
 | **Device & Utilities** | DeviceKit, PhoneNumberKit, SwiftyBeaver, Swinject, Quick, DifferenceKit |
 | **Hardware & Mapping** | SmartCardIO, BRLMPrinterKit, Mappedin |
+| **ObjC Frameworks** | Realm, Stripe3DS2, SDWebImage, CocoaLumberjack, MBProgressHUD |
+| **Firebase & Google** | 28 ObjC framework targets — Analytics, Auth, Crashlytics, Firestore, Messaging, and more |
 
 Select libraries (Nuke, BlinkID, Lottie, CryptoSwift) have been functionally validated in test apps running on iOS Simulator.
 
@@ -221,20 +223,36 @@ For full details, see [Known Limitations](docs/Known-Limitations.md).
 
 ## Project Status
 
-Swift Bindings is under active development. The core generator, MSBuild SDK, and NuGet packaging are all functional — validated across 42 libraries (55 framework targets) with zero compilation errors, and tested with **5,100+ unit tests**, **700+ integration tests**, and **240+ end-to-end runtime tests** on iOS Simulator.
+Swift Bindings is under active development. The core generator, MSBuild SDK, and NuGet packaging are all functional — validated across 46 libraries (88 framework targets — 53 Swift, 34 ObjC, 1 mixed) with zero compilation errors, and tested with **6,400+ unit tests**, **700+ integration tests**, and **240+ end-to-end runtime tests** on iOS Simulator.
 
 ### Objective-C Support
 
-The generator also handles **pure Objective-C frameworks**. When pointed at an xcframework with ObjC headers but no Swift module, the ObjC pipeline automatically:
+The generator also handles **pure Objective-C frameworks** — no Objective Sharpie needed. When pointed at an xcframework with ObjC headers but no Swift module, the ObjC pipeline automatically:
 
 1. Runs `clang -ast-dump=json` to parse all public headers (no native dependencies — uses Xcode's built-in clang)
 2. Emits standard `ApiDefinition.cs` + `StructsAndEnums.cs` binding definitions
 3. Generates a ready-to-build `.csproj` with `<IsBindingProject>true</IsBindingProject>`
 4. Produces a NuGet package that works with .NET MAUI's existing ObjC registrar
 
-**Mixed frameworks** (Swift + ObjC) are also supported: the Swift pipeline handles the Swift module, the ObjC pipeline handles ObjC-only types, and a type-level dedup pass prevents duplicate definitions. Member-level dedup for shared-type categories is planned for a future session.
+**Mixed frameworks** (Swift + ObjC) are also supported: the Swift pipeline handles the Swift module, the ObjC pipeline handles ObjC-only types, and a type-level dedup pass prevents duplicate definitions.
 
 The framework type is auto-detected — no flags needed. Drop any xcframework and the correct pipeline runs.
+
+**ObjC pipeline capabilities** (compared to Objective Sharpie):
+
+- **Ready-to-compile output** — zero `[Verify]` attributes, complete `.csproj` scaffolding (Sharpie requires manual review of 100+ items per library)
+- **Rich doc comments** — structured XML `<summary>` and `<param>` tags from ObjC headers (Sharpie preserves only raw `// @interface` comments)
+- **Idiomatic C# enums** — type prefix stripping, explicit values, correct backing types with `[Native]`
+- **Protocol patterns** — `[Protocol, Model]` with `WeakDelegate`/`Wrap` for delegate protocols, correct `@optional` vs `@required` distinction
+- **Property semantics** — `ArgumentSemantic.Copy`/`.Assign`/`.Weak`/`.Strong`, `[Bind("isXxx")]` for custom getters
+- **Availability attributes** — `[iOS(x,y)]`, `[Deprecated]`, `[Obsoleted]` from ObjC annotations
+- **Foreign-type categories** — `[Category]` extension methods on platform types (e.g., `NSNull`, `UIButton`)
+- **Safe variadic handling** — `[Internal]` + `IsVariadic = true` prevents runtime crashes on `...` methods
+- **Pointer/out-param mapping** — `_Bool *` → `out bool`, `CGPoint *` → `out CGPoint`
+- **Typed arrays** — `NSArray<NSString *>` → `string[]` when element type is known
+- **Designated initializer detection** — `[DesignatedInitializer]` from `NS_DESIGNATED_INITIALIZER`
+
+Validated against **34 ObjC framework targets** including Realm, Stripe3DS2, BRLMPrinterKit, SDWebImage, CocoaLumberjack, MBProgressHUD, and the full Firebase/Google SDK family (28 targets).
 
 ---
 
