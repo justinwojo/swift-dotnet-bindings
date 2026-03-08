@@ -1,8 +1,14 @@
 # Swift .NET Bindings
 
-**Automatically generate C# bindings from compiled Swift libraries. No proxy layers. No Objective-C bridging headers. No manual wrapper code. No Objective Sharpie tooling.**
+### Swift Bindings
+**Automatically generate C# bindings from compiled Swift libraries. No proxy layers. No Objective-C bridging headers. No manual wrapper code.**
 
 Swift Bindings reads the ABI metadata from a compiled Swift framework and produces idiomatic C# that calls directly into the Swift dylib via P/Invoke. The generated bindings handle memory management (ARC), async methods, closures, generics, protocols, and more — so you can consume Swift libraries from .NET the same way you'd consume a NuGet package.
+
+### Objective-C Bindings
+**A full replacement for Objective Sharpie. Ready-to-compile output with zero `[Verify]` attributes.**
+
+Point the same tool at an Objective-C framework and it parses headers via clang, emits standard `ApiDefinition.cs` + `StructsAndEnums.cs` binding definitions, and generates a ready-to-build `.csproj` — no manual cleanup required. Drop any xcframework and the correct pipeline runs automatically.
 
 ### Support This Project
 
@@ -21,18 +27,22 @@ Apple is moving away from Objective-C. Every year, more frameworks ship as Swift
 
 Without Swift interop, **.NET on iOS becomes progressively less accessible each year.**
 
-Today's options — Objective Sharpie and Native Library Interop (Slim Bindings) — require translating between Swift and C#, method by method, type by type. They don't scale, don't support Swift-only APIs, and the tooling hasn't kept pace with modern Xcode.
+And for the Objective-C frameworks that remain, the de facto binding tool — Objective Sharpie — hasn't been updated for modern Xcode and produces output requiring extensive manual cleanup (`[Verify]` attributes on every binding).
 
 Swift Bindings automates the entire process:
 
 ```
-Traditional approach:
+Traditional approach (Swift):
   Swift API → manual Swift proxy → @objc headers → Objective Sharpie → C# binding
   (significant work, fragile, limited to ObjC-compatible types)
 
-Swift Bindings approach:
-  Swift framework (.xcframework) → SwiftBindings tool → C# binding
-  (automated, supports Swift-native types, minutes not days)
+Traditional approach (Objective-C):
+  ObjC framework → Objective Sharpie → C# binding
+  (numerous [Verify] attributes to review, manual .csproj scaffolding)
+
+Swift Bindings approach (both):
+  Any xcframework → SwiftBindings tool → C# binding
+  (automated, ready to compile)
 ```
 
 ### Where This Project Comes From
@@ -63,25 +73,33 @@ The generator handles the full breadth of Swift's type system:
 
 See the [full type conversion table](docs/Supported-Features.md#type-conversions) and [complete feature reference](docs/Supported-Features.md).
 
+### Objective-C Support
+
+The generator is also a **full replacement for Objective Sharpie** for pure Objective-C frameworks. Point it at any xcframework with ObjC headers:
+
+- Parses all public headers via `clang -ast-dump=json` (uses Xcode's built-in clang)
+- Emits standard `ApiDefinition.cs` + `StructsAndEnums.cs` binding definitions
+- Generates a ready-to-build `.csproj` — produces a NuGet package compatible with .NET MAUI
+- **Zero `[Verify]` attributes** — output compiles without manual review (Sharpie typically requires extensive cleanup per library)
+
+Supports protocol patterns (`[Protocol, Model]`, `WeakDelegate`/`Wrap`), idiomatic C# enums with prefix stripping, availability attributes, foreign-type categories, designated initializer detection, pointer/out-param mapping, and rich XML doc comments.
+
+**Mixed frameworks** (Swift + ObjC) are also supported with automatic type-level dedup. Framework type is auto-detected — no flags needed, same `dotnet build` workflow.
+
+Validated against **34 ObjC framework targets** including Realm, Stripe3DS2, SDWebImage, CocoaLumberjack, MBProgressHUD, and the full Firebase/Google SDK family (28 targets).
+
 ### Real-World Validation
 
 The generator produces **zero compilation errors** across **46 libraries (88 framework targets — 53 Swift, 34 Objective-C, 1 mixed)** spanning image loading, payments, animation, networking, document scanning, analytics, and more:
 
 | Category | Libraries |
 |----------|-----------|
-| **Image & Animation** | Nuke, Lottie, SwiftyGif, FSPagerView, AnimatedCollectionViewLayout |
-| **Networking** | Alamofire, Starscream, Reachability |
-| **Reactive** | RxSwift |
-| **Payments** | Stripe (14 frameworks — StripeCore, StripePaymentSheet, StripePayments, and more) |
-| **UI Components** | SnapKit, SkeletonView, NVActivityIndicatorView, Parchment, AMPopTip, TinyConstraints, SVGView, SwipeCellKit, BonMot |
-| **Data & Storage** | GRDB, KeychainAccess, KeychainSwift, Valet, ObjectMapper, XMLCoder |
-| **Cryptography** | CryptoSwift |
-| **Analytics** | Mixpanel |
-| **Document Scanning** | BlinkID, MicroblinkPlatform |
-| **Device & Utilities** | DeviceKit, PhoneNumberKit, SwiftyBeaver, Swinject, Quick, DifferenceKit |
-| **Hardware & Mapping** | SmartCardIO, BRLMPrinterKit, Mappedin |
-| **ObjC Frameworks** | Realm, Stripe3DS2, SDWebImage, CocoaLumberjack, MBProgressHUD |
-| **Firebase & Google** | 28 ObjC framework targets — Analytics, Auth, Crashlytics, Firestore, Messaging, and more |
+| **Image & Animation** | Nuke, Lottie, SwiftyGif, FSPagerView |
+| **Networking & Data** | Alamofire, Starscream, GRDB, KeychainAccess, ObjectMapper |
+| **Payments** | Stripe (14 frameworks) |
+| **UI Components** | SnapKit, SkeletonView, Parchment, SVGView, BonMot |
+| **Utilities** | CryptoSwift, DeviceKit, PhoneNumberKit, Swinject, RxSwift |
+| **ObjC Frameworks** | Realm, SDWebImage, CocoaLumberjack, MBProgressHUD, Firebase (28 targets) |
 
 Select libraries (Nuke, BlinkID, Lottie, CryptoSwift) have been functionally validated in test apps running on iOS Simulator.
 
@@ -224,35 +242,6 @@ For full details, see [Known Limitations](docs/Known-Limitations.md).
 ## Project Status
 
 Swift Bindings is under active development. The core generator, MSBuild SDK, and NuGet packaging are all functional — validated across 46 libraries (88 framework targets — 53 Swift, 34 ObjC, 1 mixed) with zero compilation errors, and tested with **6,400+ unit tests**, **700+ integration tests**, and **240+ end-to-end runtime tests** on iOS Simulator.
-
-### Objective-C Support
-
-The generator also handles **pure Objective-C frameworks** — no Objective Sharpie needed. When pointed at an xcframework with ObjC headers but no Swift module, the ObjC pipeline automatically:
-
-1. Runs `clang -ast-dump=json` to parse all public headers (no native dependencies — uses Xcode's built-in clang)
-2. Emits standard `ApiDefinition.cs` + `StructsAndEnums.cs` binding definitions
-3. Generates a ready-to-build `.csproj` with `<IsBindingProject>true</IsBindingProject>`
-4. Produces a NuGet package that works with .NET MAUI's existing ObjC registrar
-
-**Mixed frameworks** (Swift + ObjC) are also supported: the Swift pipeline handles the Swift module, the ObjC pipeline handles ObjC-only types, and a type-level dedup pass prevents duplicate definitions.
-
-The framework type is auto-detected — no flags needed. Drop any xcframework and the correct pipeline runs.
-
-**ObjC pipeline capabilities** (compared to Objective Sharpie):
-
-- **Ready-to-compile output** — zero `[Verify]` attributes, complete `.csproj` scaffolding (Sharpie requires manual review of 100+ items per library)
-- **Rich doc comments** — structured XML `<summary>` and `<param>` tags from ObjC headers (Sharpie preserves only raw `// @interface` comments)
-- **Idiomatic C# enums** — type prefix stripping, explicit values, correct backing types with `[Native]`
-- **Protocol patterns** — `[Protocol, Model]` with `WeakDelegate`/`Wrap` for delegate protocols, correct `@optional` vs `@required` distinction
-- **Property semantics** — `ArgumentSemantic.Copy`/`.Assign`/`.Weak`/`.Strong`, `[Bind("isXxx")]` for custom getters
-- **Availability attributes** — `[iOS(x,y)]`, `[Deprecated]`, `[Obsoleted]` from ObjC annotations
-- **Foreign-type categories** — `[Category]` extension methods on platform types (e.g., `NSNull`, `UIButton`)
-- **Safe variadic handling** — `[Internal]` + `IsVariadic = true` prevents runtime crashes on `...` methods
-- **Pointer/out-param mapping** — `_Bool *` → `out bool`, `CGPoint *` → `out CGPoint`
-- **Typed arrays** — `NSArray<NSString *>` → `string[]` when element type is known
-- **Designated initializer detection** — `[DesignatedInitializer]` from `NS_DESIGNATED_INITIALIZER`
-
-Validated against **34 ObjC framework targets** including Realm, Stripe3DS2, BRLMPrinterKit, SDWebImage, CocoaLumberjack, MBProgressHUD, and the full Firebase/Google SDK family (28 targets).
 
 ---
 

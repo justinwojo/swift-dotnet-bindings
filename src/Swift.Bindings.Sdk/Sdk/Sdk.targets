@@ -322,11 +322,10 @@ done"
     </ItemGroup>
 
     <!-- Emit SWIFTBIND080 warnings for unresolved dependencies -->
-    <!-- WARN fields are percent-encoded (|→%7C, ;→%3B, %→%25) so Split('|') is safe.
-         Uri.UnescapeDataString decodes for user-facing text. -->
+    <!-- WARN fields are pipe-delimited: WARN|module|packageId|version|xcframeworkPath -->
     <Warning Condition="'$(_SwiftBindingDependencies)' != '' AND $([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').StartsWith('WARN|'))"
              Code="SWIFTBIND080"
-             Text="Cross-module dependency detected but no sibling binding project found. To resolve, add one of:%0A%0A  For local source builds:%0A    &lt;ProjectReference Include=&quot;../$([System.Uri]::UnescapeDataString($([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[2])))/$([System.Uri]::UnescapeDataString($([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[2]))).csproj&quot; /&gt;%0A%0A  For NuGet package consumption:%0A    &lt;SwiftFrameworkDependency Include=&quot;$([System.Uri]::UnescapeDataString($([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[4])))&quot;%0A                              PackageId=&quot;$([System.Uri]::UnescapeDataString($([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[2])))&quot; PackageVersion=&quot;$([System.Uri]::UnescapeDataString($([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[3])))&quot; /&gt;" />
+             Text="Cross-module dependency detected but no sibling binding project found. To resolve, add one of:%0A%0A  For local source builds:%0A    &lt;ProjectReference Include=&quot;../$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[2])/$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[2]).csproj&quot; /&gt;%0A%0A  For NuGet package consumption:%0A    &lt;SwiftFrameworkDependency Include=&quot;$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[4])&quot;%0A                              PackageId=&quot;$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[2])&quot; PackageVersion=&quot;$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[3])&quot; /&gt;" />
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
