@@ -25,6 +25,10 @@ echo "=== Running Runtime Tests ==="
 dotnet test src/Swift.Runtime/tests --no-build -c Debug -- RunConfiguration.DotNetHostPath="$DOTNET_PATH"
 
 echo ""
+echo "=== Running Analyzer Tests ==="
+dotnet test src/Swift.Analyzers.Tests --no-build -c Debug -- RunConfiguration.DotNetHostPath="$DOTNET_PATH"
+
+echo ""
 echo "=== Running TestFramework Regression Suite ==="
 if [ "$(uname)" != "Darwin" ]; then
     echo "Skipping TestFramework (requires macOS with Xcode)."
