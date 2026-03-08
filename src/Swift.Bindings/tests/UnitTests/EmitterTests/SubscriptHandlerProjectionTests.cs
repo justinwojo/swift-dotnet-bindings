@@ -6,10 +6,10 @@ using Xunit;
 namespace BindingsGeneration.Tests;
 
 /// <summary>
-/// Tests for SetProjection support in SubscriptHandler accessor conversion methods.
-/// Verifies projection parity with PropertyHandler's Set handling.
+/// Tests for SetProjection and DictionaryProjection support in SubscriptHandler accessor
+/// conversion methods. Verifies projection parity with PropertyHandler.
 /// </summary>
-public class SubscriptHandlerSetProjectionTests
+public class SubscriptHandlerProjectionTests
 {
     #region Getter Conversion Tests
 
@@ -115,6 +115,54 @@ public class SubscriptHandlerSetProjectionTests
 
         Assert.Equal(propConv, subConv);
         Assert.Equal(propDisp, subDisp);
+    }
+
+    #endregion
+
+    #region Dictionary Getter AsProjected Overload Tests
+
+    [Fact]
+    public void GetDictAccessorGetterConversion_ValueOnly_Uses1ArgAsProjected()
+    {
+        // When only value needs conversion, should use 1-arg AsProjected(v => ...)
+        var key = new BlittableProjection("nint");
+        var value = new StringProjection();
+        var dict = new DictionaryProjection(key, value, isParameter: false);
+
+        var (conversion, _) = SubscriptHandler.GetDictAccessorGetterConversion(dict, "result");
+
+        Assert.NotNull(conversion);
+        // 1-arg overload: AsProjected(v => conversion)
+        Assert.Contains(".AsProjected(v =>", conversion!);
+        // Must NOT have key selector — would match 3-arg overload which doesn't exist as 2-arg
+        Assert.DoesNotContain("k =>", conversion!);
+    }
+
+    [Fact]
+    public void GetDictAccessorGetterConversion_KeyAndValue_Uses3ArgAsProjected()
+    {
+        // When key needs conversion, should use 3-arg AsProjected(k => conv, k => reverse, v => conv)
+        var key = new StringProjection();
+        var value = new StringProjection();
+        var dict = new DictionaryProjection(key, value, isParameter: false);
+
+        var (conversion, _) = SubscriptHandler.GetDictAccessorGetterConversion(dict, "result");
+
+        Assert.NotNull(conversion);
+        // 3-arg overload includes reverse key conversion
+        Assert.Contains(".AsProjected(k =>", conversion!);
+    }
+
+    [Fact]
+    public void GetDictAccessorGetterConversion_NoConversion_ReturnsNull()
+    {
+        var key = new BlittableProjection("nint");
+        var value = new BlittableProjection("nint");
+        var dict = new DictionaryProjection(key, value, isParameter: false);
+
+        var (conversion, _) = SubscriptHandler.GetDictAccessorGetterConversion(dict, "result");
+
+        Assert.Null(conversion);
     }
 
     #endregion

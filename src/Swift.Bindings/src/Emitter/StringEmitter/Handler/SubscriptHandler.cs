@@ -485,14 +485,29 @@ namespace BindingsGeneration
             return (null, false);
         }
 
-        private static (string? conversion, bool requiresDisposal) GetDictAccessorGetterConversion(
+        internal static (string? conversion, bool requiresDisposal) GetDictAccessorGetterConversion(
             DictionaryProjection dict, string resultExpr)
         {
             var keyConv = dict.KeyProjection.GetReturnElementConversion("k");
-            var valueConv = dict.ValueProjection.GetReturnElementConversion("v");
-            if (keyConv != null || valueConv != null)
-                return ($"{resultExpr}.AsProjected(k => {keyConv ?? "k"}, v => {valueConv ?? "v"})", false);
-            return (null, false);
+            var valConv = dict.ValueProjection.GetReturnElementConversion("v");
+            if (keyConv == null && valConv == null)
+                return (null, false);
+
+            // SwiftDictionary has two AsProjected overloads:
+            // 1-arg (value-only): AsProjected(v => conversion)
+            // 3-arg (key+reverse+value): AsProjected(k => conv, k => reverse, v => conv)
+            string asProjected;
+            if (keyConv != null)
+            {
+                var reverseKeyConv = dict.KeyProjection.GetParameterElementConversion("k") ?? "k";
+                var valSelector = valConv != null ? $"v => {valConv}" : "v => v";
+                asProjected = $"{resultExpr}.AsProjected(k => {keyConv}, k => {reverseKeyConv}, {valSelector})";
+            }
+            else
+            {
+                asProjected = $"{resultExpr}.AsProjected(v => {valConv})";
+            }
+            return (asProjected, false);
         }
 
         internal static (string? conversion, bool requiresDisposal) GetSetAccessorGetterConversion(
