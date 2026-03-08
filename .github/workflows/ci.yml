@@ -29,9 +29,6 @@ jobs:
       - name: Install workloads
         run: dotnet workload restore
 
-      - name: Install cmake
-        run: brew install cmake
-
       - name: Cache NuGet packages
         uses: actions/cache@v4
         with:

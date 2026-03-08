@@ -6,7 +6,6 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
-    <PreTestCommand>cd "$(MSBuildThisFileDirectory)bin/$(Configuration)/$(TargetFramework)" &amp;&amp; cmake $(MSBuildThisFileDirectory) &gt; cmake_output.log 2&gt;&amp;1 &amp;&amp; make &gt;&gt; cmake_output.log 2&gt;&amp;1</PreTestCommand>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <MSBuildTreatWarningsAsErrors>true</MSBuildTreatWarningsAsErrors>
     <IsAotCompatible>true</IsAotCompatible>
@@ -23,26 +22,4 @@
       <ReferenceSourceTarget></ReferenceSourceTarget>
     </ProjectReference>
   </ItemGroup>
-
-  <Target Name="CompileNativeLibs" AfterTargets="ResolveReferences"
-          Condition="Exists('$(MSBuildThisFileDirectory)../../../../dotnet.sh')">
-    <!-- Generate Swift libraries and projection tooling bindings (requires legacy dotnet.sh) -->
-    <Exec Command="$(PreTestCommand)" />
-
-    <!-- Parse cmake output log for warnings and report them -->
-    <ReadLinesFromFile File="$(OutputPath)/cmake_output.log">
-      <Output TaskParameter="Lines" ItemName="CMakeOutputLines" />
-    </ReadLinesFromFile>
-
-    <ItemGroup>
-      <CMakeWarnings Include="@(CMakeOutputLines)" Condition="$([System.Text.RegularExpressions.Regex]::Match('%(Identity)','.*CMake Warning.*').Success)" />
-    </ItemGroup>
-
-    <Warning Text="%(CMakeWarnings.Identity)  (see: $(OutputPath)/cmake_output.log)" Condition="'%(Identity)' != ''"/>
-
-    <!-- Compile generated bindings with tests -->
-    <ItemGroup>
-      <Compile Include="$(OutputPath)/**/*.cs" />
-    </ItemGroup>
-  </Target>
 </Project>
