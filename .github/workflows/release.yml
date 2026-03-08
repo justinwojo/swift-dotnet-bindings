@@ -115,46 +115,6 @@ jobs:
           fi
           echo "All must-pass features passing."
 
-      - name: Upload testframework artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: testframework-artifacts
-          include-hidden-files: true
-          path: |
-            TestFramework/.build/SwiftBindingsTestLib.xcframework/
-            TestFramework/output/
-            TestFramework/SwiftBridge/
-          retention-days: 1
-
-  runtime-tests:
-    name: Runtime Tests
-    runs-on: macos-26
-    needs: testframework
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 10.0.x
-
-      - name: Install workloads
-        run: dotnet workload restore
-
-      - name: Cache NuGet packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.nuget/packages
-          key: nuget-${{ hashFiles('**/*.csproj') }}
-          restore-keys: nuget-
-
-      - name: Download testframework artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: testframework-artifacts
-          path: TestFramework/
-
       - name: Run runtime tests
         run: >
           cd TestFramework &&
@@ -165,7 +125,7 @@ jobs:
   release:
     name: Release
     runs-on: macos-26
-    needs: [build-and-test, testframework, runtime-tests]
+    needs: [build-and-test, testframework]
     environment: nuget-publish
     steps:
       - name: Checkout

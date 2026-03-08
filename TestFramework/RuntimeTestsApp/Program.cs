@@ -402,21 +402,7 @@ public class MainViewController : UIViewController
     {
         try
         {
-            // Call the Swift concurrency initialization function
-            // This is defined in the AsyncMethods.swift file
-            var initMethod = typeof(SwiftBindingsTestLib).GetMethod("InitializeConcurrency",
-                BindingFlags.Public | BindingFlags.Static);
-
-            if (initMethod == null)
-            {
-                // Try P/Invoke directly
-                InitializeConcurrencyPInvoke();
-            }
-            else
-            {
-                initMethod.Invoke(null, null);
-            }
-
+            SwiftBindingsTestLib.Functions.InitializeConcurrency();
             TestLogger.Info("Swift concurrency initialized");
         }
         catch (Exception ex)
@@ -424,9 +410,6 @@ public class MainViewController : UIViewController
             TestLogger.Warning($"Failed to initialize Swift concurrency: {ex.Message}");
         }
     }
-
-    [DllImport("SwiftBindingsTestLib", EntryPoint = "SwiftBindingsTestLib_InitializeConcurrency")]
-    private static extern void InitializeConcurrencyPInvoke();
 }
 
 #endregion

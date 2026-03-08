@@ -115,58 +115,10 @@ jobs:
           fi
           echo "All must-pass features passing."
 
-      - name: Upload testframework artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: testframework-artifacts
-          include-hidden-files: true
-          path: |
-            TestFramework/.build/SwiftBindingsTestLib.xcframework/
-            TestFramework/output/
-            TestFramework/SwiftBridge/
-          retention-days: 1
-
-  runtime-tests:
-    name: Runtime Tests
-    runs-on: macos-26
-    needs: testframework
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 10.0.x
-
-      - name: Install workloads
-        run: dotnet workload restore
-
-      - name: Cache NuGet packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.nuget/packages
-          key: nuget-${{ hashFiles('**/*.csproj') }}
-          restore-keys: nuget-
-
-      - name: Download testframework artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: testframework-artifacts
-          path: TestFramework/
-
       - name: Run runtime tests
         run: >
           cd TestFramework &&
           ./run-runtime-tests.sh --tier 2 --timeout 90 --safe-only --skip-regen
-
-      - name: Upload runtime test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: runtime-test-results
-          path: TestFramework/RuntimeTestsApp/bin/
-          retention-days: 7
 
   package-smoke:
     name: Package Smoke Test
