@@ -9,6 +9,10 @@ namespace Swift.Runtime;
 
 /// <summary>
 /// Arc is a class containing p/invokes for Swift Automatic Reference Counting and memory management.
+/// Retain, read, and query P/Invokes use [SuppressGCTransition] because they are leaf calls
+/// (atomic increment or flag read) that never call back into managed code.
+/// Release P/Invokes do NOT use [SuppressGCTransition] because swift_release can trigger
+/// deinit on final release, and deinit code may invoke managed callbacks via closures/@_cdecl.
 /// </summary>
 public static class Arc
 {
@@ -17,6 +21,7 @@ public static class Arc
     /// </summary>
     /// <param name="p">Pointer to an unmanaged Swift object, must be non-null.</param>
     [DllImport(KnownLibraries.SwiftCore, CallingConvention = CallingConvention.Cdecl)]
+    [SuppressGCTransition]
     static extern void swift_retain(IntPtr p);
 
     /// <summary>
@@ -39,6 +44,7 @@ public static class Arc
     /// <param name="p">A non-null pointer to an unmanaged Swift object</param>
     /// <returns>True if and only if the pointer in the process of being deallocated.</returns>
     [DllImport(KnownLibraries.SwiftCore, CallingConvention = CallingConvention.Cdecl)]
+    [SuppressGCTransition]
     [return: MarshalAs(UnmanagedType.I1)]
     static extern bool swift_isDeallocating(IntPtr p);
 
@@ -86,6 +92,7 @@ public static class Arc
     /// </summary>
     /// <param name="p">Pointer to an unmanaged Swift object, must be non-null.</param>
     [DllImport(KnownLibraries.SwiftCore, CallingConvention = CallingConvention.Cdecl)]
+    [SuppressGCTransition]
     static extern void swift_unownedRetain(IntPtr p);
 
     /// <summary>
@@ -129,6 +136,7 @@ public static class Arc
     /// <param name="p">Pointer to an unmanaged Swift object, must be non-null.</param>
     /// <returns>The retain count</returns>
     [DllImport(KnownLibraries.SwiftCore, CallingConvention = CallingConvention.Cdecl)]
+    [SuppressGCTransition]
     static extern nint swift_retainCount(IntPtr p);
 
     /// <summary>
@@ -150,6 +158,7 @@ public static class Arc
     /// <param name="p">Pointer to an unmanaged Swift object, must be non-null.</param>
     /// <returns>The unowned retain count</returns>
     [DllImport(KnownLibraries.SwiftCore, CallingConvention = CallingConvention.Cdecl)]
+    [SuppressGCTransition]
     static extern nint swift_unownedRetainCount(IntPtr p);
 
     /// <summary>

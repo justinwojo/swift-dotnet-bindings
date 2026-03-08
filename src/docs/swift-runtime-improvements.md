@@ -37,15 +37,15 @@ Applies to `SwiftArray`, `SwiftDictionary`, and `SwiftSet`.
 
 **Effort**: low-medium | **Impact**: high (performance)
 
-### Session 3: AOT/Trimming Annotations + SuppressGCTransition
+### ~~Session 3: SuppressGCTransition on ARC P/Invokes~~ DONE (March 8, 2026)
 
-Combine two related cleanup tasks in one pass:
+- `[SuppressGCTransition]` on 5 safe leaf Arc P/Invokes (`swift_retain`, `swift_isDeallocating`, `swift_retainCount`, `swift_unownedRetain`, `swift_unownedRetainCount`)
+- Release operations (`swift_release`, `swift_unownedRelease`) intentionally excluded — deinit can trigger managed callbacks via closures/@_cdecl
+- 15 new tests verifying attribute presence and absence via reflection
 
-1. **Finish AOT/trimming annotations** — Complete `[RequiresDynamicCode]` and `[RequiresUnreferencedCode]` across the library. Tuple marshalling already has them; extend to all reflection-dependent paths. Unblocks NativeAOT users.
+**Effort**: low | **Impact**: medium-high (perf on hot ARC paths)
 
-2. **Selective `[SuppressGCTransition]` on safe leaf P/Invokes** — Apply only to proven-safe calls that do no managed callbacks and no allocation: `swift_retain`, `swift_release`, `swift_retainCount`, `swift_unownedRetain`, `swift_unownedRelease`, `swift_isDeallocating`. Free performance win on hot ARC paths.
-
-**Effort**: low-medium | **Impact**: high (AOT) + medium-high (perf)
+AOT/trimming annotations deferred — NativeAOT on iOS is not yet a supported configuration. Revisit when upstream support lands.
 
 ## Phase 2 — Incremental Polish (Do When Relevant)
 

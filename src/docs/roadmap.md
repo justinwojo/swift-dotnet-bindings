@@ -11,7 +11,7 @@
 |--------|-------|
 | Unit tests | 6,507+ passing |
 | Integration tests | 700 passing (11 skipped, pre-existing) |
-| Runtime library tests | 247 passing (0 failures, 1 skipped) |
+| Runtime library tests | 262 passing (0 failures, 1 skipped) |
 | Analyzer tests | 12 passing |
 | TestFramework must-pass | 94/94, golden files: 1 |
 | Library validation | **88/88 passing** (53 Swift, 34 ObjC, 1 mixed) |
@@ -56,10 +56,10 @@ Items that add value but don't block a public release.
 | Complex enums in closures | Various | Medium | Structural emitter change |
 | AnyError -> Exception error handling | Ergonomics | Medium | `SwiftException : Exception` wrapping `AnyError` |
 | Cross-module protocol conformances | Polymorphic use through cross-module interfaces | Medium | Thread conformance declarations across module boundaries |
-| ExistentialContainer cleanup from public APIs | Noise reduction | Medium | Map containers to protocol interfaces |
+| ~~ExistentialContainer cleanup from public APIs~~ | ~~Noise reduction~~ | ~~Medium~~ | **Done** — all proxy classes already `[EditorBrowsable(Never)]`; containers only in P/Invoke (private) and method bodies |
 | Architectural generic closures (~45 methods) | RxSwift subscribe/flatMap, Alamofire interceptors | Large | Deferred from foundation roadmap P3.5 |
 | String enum raw values | GRDB ResultCode, CryptoSwift error codes | Blocked | No data source in compiled xcframeworks |
-| `Array<ObjCClass>` properties | StripeIdentity testing APIs | Small | Extend collection projection for ObjC-bridged element types |
+| ~~`Array<ObjCClass>` properties~~ | ~~StripeIdentity testing APIs~~ | ~~Small~~ | **Done** (CQ-5) — `TryProjectObjCElement` fallback for UIKit/Foundation elements |
 | `ConfigurationValue` property name collision | Nuke readability | Small | Alternative disambiguation strategy |
 | SwiftUI type public construction | Consumer ergonomics | Small | `SwiftUI.Color(red, green, blue)` like `SwiftColor`; current stubs are opaque pass-through handles |
 
@@ -83,7 +83,7 @@ See `swift-runtime-improvements.md` for details.
 | Item | Effort | Notes |
 |------|--------|-------|
 | Bulk retain/release helpers | Low-medium | Perf win for large collections |
-| AOT/trimming annotations + SuppressGCTransition | Low-medium | Unblocks NativeAOT users, free perf on ARC paths |
+| ~~SuppressGCTransition on ARC P/Invokes~~ | ~~Low~~ | **Done** — 5 safe leaf P/Invokes (retain/read ops); release excluded due to deinit callbacks |
 
 ---
 
