@@ -1,11 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <PackageId>Swift.Bindings.Templates</PackageId>
-    <PackageVersion>0.1.0-preview.1</PackageVersion>
+    <PackageVersion>0.0.0-dev</PackageVersion>
     <Description>dotnet new templates for Swift binding projects. Creates a project configured with the Swift.Bindings.Sdk MSBuild SDK.</Description>
     <Authors>Justin Wojciechowski</Authors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>swift;dotnet;bindings;template;ios</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageType>Template</PackageType>
     <TargetFramework>netstandard2.0</TargetFramework>
 
@@ -20,5 +21,6 @@
 
   <ItemGroup>
     <Content Include="content/**/*" Exclude="content/**/bin/**;content/**/obj/**" />
+    <None Include="../../README.md" Pack="true" PackagePath="" />
   </ItemGroup>
 </Project>

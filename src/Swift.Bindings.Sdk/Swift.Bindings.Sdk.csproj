@@ -6,6 +6,7 @@
     <Authors>Justin Wojciechowski</Authors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>swift;dotnet;bindings;interop;ios;msbuild-sdk</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageType>MSBuildSdk</PackageType>
     <TargetFramework>netstandard2.0</TargetFramework>
 
@@ -27,5 +28,6 @@
   <!-- Pack the published generator into tools/ -->
   <ItemGroup>
     <None Include="tools/**/*" Pack="true" PackagePath="tools/" />
+    <None Include="../../README.md" Pack="true" PackagePath="" />
   </ItemGroup>
 </Project>
