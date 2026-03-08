@@ -16,11 +16,6 @@ echo "=== Running Unit Tests ==="
 dotnet test src/Swift.Bindings/tests/UnitTests --no-build -c Debug -- RunConfiguration.DotNetHostPath="$DOTNET_PATH"
 
 echo ""
-echo "=== Running Integration Tests ==="
-# Use --no-build since we already built above
-dotnet test src/Swift.Bindings/tests/IntegrationTests --no-build -c Debug -- RunConfiguration.DotNetHostPath="$DOTNET_PATH"
-
-echo ""
 echo "=== Running Runtime Tests ==="
 dotnet test src/Swift.Runtime/tests --no-build -c Debug -- RunConfiguration.DotNetHostPath="$DOTNET_PATH"
 

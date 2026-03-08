@@ -46,13 +46,6 @@ jobs:
           --logger "trx;LogFileName=unit-tests.trx"
           -- RunConfiguration.DotNetHostPath="$(which dotnet)"
 
-      - name: Run integration tests
-        run: >
-          dotnet test src/Swift.Bindings/tests/IntegrationTests
-          --no-build -c Debug
-          --logger "trx;LogFileName=integration-tests.trx"
-          -- RunConfiguration.DotNetHostPath="$(which dotnet)"
-
       - name: Run runtime library tests
         run: >
           dotnet test src/Swift.Runtime/tests

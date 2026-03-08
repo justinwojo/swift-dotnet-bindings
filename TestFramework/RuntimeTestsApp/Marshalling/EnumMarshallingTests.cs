@@ -16,23 +16,23 @@ public class EnumMarshallingTests : TestBase
 {
     public EnumMarshallingTests(TestResults results) : base(results) { }
 
-    #region Direction Enum (Class-based — non-frozen Swift enum)
+    #region Direction Enum (Simple C# enum — @frozen Swift enum)
 
     [TestTier(TestTier.Tier1)]
     public void TestDirectionCaseConstruction()
     {
-        // Direction is a class-based enum (non-frozen) — verify case tags
-        AssertEqual(Direction.CaseTag.North, Direction.North.Tag, "North tag");
-        AssertEqual(Direction.CaseTag.South, Direction.South.Tag, "South tag");
-        AssertEqual(Direction.CaseTag.East, Direction.East.Tag, "East tag");
-        AssertEqual(Direction.CaseTag.West, Direction.West.Tag, "West tag");
+        // Direction is a simple C# enum (frozen, no raw value)
+        AssertEqual(Direction.North, (Direction)0, "North is 0");
+        AssertEqual(Direction.South, (Direction)1, "South is 1");
+        AssertEqual(Direction.East, (Direction)2, "East is 2");
+        AssertEqual(Direction.West, (Direction)3, "West is 3");
         TestLogger.Info("Direction case construction passed");
     }
 
     [TestTier(TestTier.Tier1)]
     public void TestDirectionMethodCall()
     {
-        // Test calling a method on an enum value
+        // Test calling a method on an enum value (extension method)
         var east = Direction.East;
         AssertTrue(TestLibFunctions.IsHorizontal(east), "East is horizontal");
 
@@ -45,14 +45,14 @@ public class EnumMarshallingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestDirectionOpposite()
     {
-        // Test Direction.Opposite() method
+        // Test Direction.Opposite() extension method
         var north = Direction.North;
         var opposite = north.Opposite();
-        AssertEqual(Direction.CaseTag.South, opposite.Tag, "Opposite of North is South");
+        AssertEqual(Direction.South, opposite, "Opposite of North is South");
 
         var east = Direction.East;
         opposite = east.Opposite();
-        AssertEqual(Direction.CaseTag.West, opposite.Tag, "Opposite of East is West");
+        AssertEqual(Direction.West, opposite, "Opposite of East is West");
 
         TestLogger.Info("Direction Opposite tests passed");
     }

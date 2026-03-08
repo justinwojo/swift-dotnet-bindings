@@ -321,9 +321,11 @@ public class BasicProtocolDispatchTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestTaskStatusRawValue()
     {
+        // TaskStatus is a simple C# enum (Int32 raw value)
         var status = SwiftTaskStatus.Running;
-        AssertEqual(SwiftTaskStatus.CaseTag.Running, status.Tag, "SwiftTaskStatus.Running tag");
-        TestLogger.Info($"SwiftTaskStatus.Running.Tag = {status.Tag}");
+        AssertEqual(SwiftTaskStatus.Running, status, "SwiftTaskStatus.Running");
+        AssertTrue((int)SwiftTaskStatus.Running != (int)SwiftTaskStatus.Pending, "Running != Pending");
+        TestLogger.Info($"SwiftTaskStatus.Running = {(int)status}");
     }
 
     #endregion

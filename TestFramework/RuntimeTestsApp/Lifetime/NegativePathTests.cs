@@ -20,15 +20,15 @@ public class NegativePathTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestDirectionInvalidFromRawValue()
     {
-        // Direction is a class-based enum — verify valid cases have expected tags
-        AssertEqual(Direction.CaseTag.North, Direction.North.Tag, "Direction.North is valid");
-        AssertEqual(Direction.CaseTag.South, Direction.South.Tag, "Direction.South is valid");
+        // Direction is a simple C# enum — verify cases have expected int values
+        AssertEqual(Direction.North, (Direction)0, "Direction.North is 0");
+        AssertEqual(Direction.South, (Direction)1, "Direction.South is 1");
 
-        // All four cases should have distinct tags
-        var tags = new[] { Direction.North.Tag, Direction.South.Tag, Direction.East.Tag, Direction.West.Tag };
-        for (int i = 0; i < tags.Length; i++)
-            for (int j = i + 1; j < tags.Length; j++)
-                AssertTrue(tags[i] != tags[j], $"Direction tags {i} and {j} are distinct");
+        // All four cases should have distinct values
+        var values = new[] { (int)Direction.North, (int)Direction.South, (int)Direction.East, (int)Direction.West };
+        for (int i = 0; i < values.Length; i++)
+            for (int j = i + 1; j < values.Length; j++)
+                AssertTrue(values[i] != values[j], $"Direction values {i} and {j} are distinct");
 
         TestLogger.Info("Direction valid case construction verified");
     }
@@ -36,10 +36,10 @@ public class NegativePathTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestColorInvalidRawValue()
     {
-        // Color is a class-based enum — verify all cases produce valid tags
+        // Color is a simple C# enum — verify cases have distinct int values
         var red = Color.Red;
         var green = Color.Green;
-        AssertTrue(red.Tag != green.Tag, "Red and Green have different tags");
+        AssertTrue(red != green, "Red and Green are different");
 
         TestLogger.Info("Color enum case tags are distinct");
     }

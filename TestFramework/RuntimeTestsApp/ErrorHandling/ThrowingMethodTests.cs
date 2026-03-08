@@ -195,14 +195,19 @@ public class BasicThrowingTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestMathErrorCases()
     {
+        // MathError is a simple C# enum (Error protocol enum projected as int enum)
         var divByZero = MathError.DivisionByZero;
-        AssertEqual(MathError.CaseTag.DivisionByZero, divByZero.Tag, "DivisionByZero tag");
+        AssertEqual(MathError.DivisionByZero, divByZero, "DivisionByZero");
 
         var overflow = MathError.Overflow;
-        AssertEqual(MathError.CaseTag.Overflow, overflow.Tag, "Overflow tag");
+        AssertEqual(MathError.Overflow, overflow, "Overflow");
 
         var negInput = MathError.NegativeInput;
-        AssertEqual(MathError.CaseTag.NegativeInput, negInput.Tag, "NegativeInput tag");
+        AssertEqual(MathError.NegativeInput, negInput, "NegativeInput");
+
+        // All cases should have distinct int values
+        AssertTrue((int)MathError.DivisionByZero != (int)MathError.Overflow, "DivisionByZero != Overflow");
+        AssertTrue((int)MathError.Overflow != (int)MathError.NegativeInput, "Overflow != NegativeInput");
 
         TestLogger.Info("MathError case construction passed");
     }
