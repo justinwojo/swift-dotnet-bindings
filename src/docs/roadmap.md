@@ -9,10 +9,10 @@
 
 | Metric | Value |
 |--------|-------|
-| Unit tests | 6,400+ passing |
+| Unit tests | 6,496+ passing |
 | Integration tests | 700 passing (11 skipped, pre-existing) |
 | Runtime library tests | 247 passing (0 failures, 1 skipped) |
-| Analyzer tests | 9 passing |
+| Analyzer tests | 12 passing |
 | TestFramework must-pass | 94/94, golden files: 1 |
 | Library validation | **88/88 passing** (53 Swift, 34 ObjC, 1 mixed) |
 | SwiftUI bridged views | 20 |
@@ -99,7 +99,7 @@ Detailed plans in `Future/`. Consolidated priority in `Future/future-roadmap.md`
 | **Performance benchmarks** | Medium | `Future/interop-performance-validation-plan.md` |
 | **API snapshot tooling** (detect API surface drift) | Medium | `Future/api-snapshot-tooling.md` |
 | **Emitter architecture redesign** | Very large | `Completed/emitter-redesign-proposal.md` |
-| **Witness dispatch emission dedup** | Small | `Future/witness-dispatch-emission-dedup.md` |
+| ~~**Witness dispatch emission dedup**~~ | ~~Small~~ | ~~`Future/witness-dispatch-emission-dedup.md`~~ — **Done** (items 1-4 complete) |
 
 ---
 
