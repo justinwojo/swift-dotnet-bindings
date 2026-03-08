@@ -11,6 +11,7 @@ namespace RuntimeTestsApp.Marshalling;
 /// Tests for SwiftArray marshalling: create, index, iterate, empty, round-trip, class arrays.
 /// Array parameters accept IEnumerable&lt;T&gt;, returns are IReadOnlyList&lt;T&gt;.
 /// </summary>
+[CrashRisk("Mono JIT assertion on SwiftArray P/Invoke via CallConvSwift")]
 public class ArrayMarshallingTests : TestBase
 {
     public ArrayMarshallingTests(TestResults results) : base(results) { }
