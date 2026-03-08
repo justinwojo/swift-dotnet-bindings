@@ -9,7 +9,7 @@
 
 | Metric | Value |
 |--------|-------|
-| Unit tests | 6,496+ passing |
+| Unit tests | 6,507+ passing |
 | Integration tests | 700 passing (11 skipped, pre-existing) |
 | Runtime library tests | 247 passing (0 failures, 1 skipped) |
 | Analyzer tests | 12 passing |
