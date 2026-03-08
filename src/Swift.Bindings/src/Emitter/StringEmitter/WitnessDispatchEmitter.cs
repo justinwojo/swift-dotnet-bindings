@@ -1080,6 +1080,36 @@ public class WitnessDispatchEmitter
             : "Any";
     }
 
+    /// <summary>
+    /// Emits a Swift property getter accessor + free function pair using the heap allocation pattern.
+    /// The accessor loads the existential, reads the property, allocates memory, initializes it,
+    /// and returns an UnsafeMutableRawPointer. The free function deinitializes and deallocates.
+    /// Used by blittable and collection property getters (identical structure, different Swift type).
+    /// <paramref name="swiftTypeName"/> must be a valid Swift type for both
+    /// <c>UnsafeMutablePointer&lt;T&gt;</c> and <c>assumingMemoryBound(to: T.self)</c>.
+    /// </summary>
+    private static void EmitHeapAllocatedPropertyGetter(SwiftWriter writer, string accessorSymbol, string freeSymbol,
+        string moduleQualifiedName, string propertyName, string swiftTypeName)
+    {
+        writer.WriteLines($$"""
+            @_silgen_name("{{accessorSymbol}}")
+            public func {{accessorSymbol}}(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
+                let existential = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
+                let result = existential.{{propertyName}}
+                let ptr = UnsafeMutablePointer<{{swiftTypeName}}>.allocate(capacity: 1)
+                ptr.initialize(to: result)
+                return UnsafeMutableRawPointer(ptr)
+            }
+
+            @_silgen_name("{{freeSymbol}}")
+            public func {{freeSymbol}}(_ ptr: UnsafeMutableRawPointer) {
+                ptr.assumingMemoryBound(to: {{swiftTypeName}}.self).deinitialize(count: 1)
+                ptr.deallocate()
+            }
+
+            """);
+    }
+
     private void EmitPropertyGetterAccessor(SwiftWriter writer, PropertyDecl property, ProtocolDecl protocolDecl, string moduleQualifiedName)
     {
         var protocolName = protocolDecl.Name;
@@ -1121,24 +1151,7 @@ public class WitnessDispatchEmitter
             // Blittable getter: direct pointer allocation
             var csharpReturnType = GetCSharpTypeName(property.SwiftTypeSpec);
             var swiftReturnType = GetSwiftPrimitiveType(csharpReturnType);
-
-            writer.WriteLines($$"""
-                @_silgen_name("{{accessorSymbol}}")
-                public func {{accessorSymbol}}(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
-                    let existential = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
-                    let result = existential.{{property.Name}}
-                    let ptr = UnsafeMutablePointer<{{swiftReturnType}}>.allocate(capacity: 1)
-                    ptr.initialize(to: result)
-                    return UnsafeMutableRawPointer(ptr)
-                }
-
-                @_silgen_name("{{freeSymbol}}")
-                public func {{freeSymbol}}(_ ptr: UnsafeMutableRawPointer) {
-                    ptr.assumingMemoryBound(to: {{swiftReturnType}}.self).deinitialize(count: 1)
-                    ptr.deallocate()
-                }
-
-                """);
+            EmitHeapAllocatedPropertyGetter(writer, accessorSymbol, freeSymbol, moduleQualifiedName, property.Name, swiftReturnType);
         }
     }
 
@@ -1831,24 +1844,7 @@ public class WitnessDispatchEmitter
 
         var accessorSymbol = GetAccessorSymbol(protocolName, "get", property.Name, 0);
         var freeSymbol = GetFreeSymbol(protocolName, "get", property.Name, 0);
-
-        writer.WriteLines($$"""
-            @_silgen_name("{{accessorSymbol}}")
-            public func {{accessorSymbol}}(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
-                let existential = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
-                let result = existential.{{property.Name}}
-                let ptr = UnsafeMutablePointer<{{swiftCollectionType}}>.allocate(capacity: 1)
-                ptr.initialize(to: result)
-                return UnsafeMutableRawPointer(ptr)
-            }
-
-            @_silgen_name("{{freeSymbol}}")
-            public func {{freeSymbol}}(_ ptr: UnsafeMutableRawPointer) {
-                ptr.assumingMemoryBound(to: {{swiftCollectionType}}.self).deinitialize(count: 1)
-                ptr.deallocate()
-            }
-
-            """);
+        EmitHeapAllocatedPropertyGetter(writer, accessorSymbol, freeSymbol, moduleQualifiedName, property.Name, swiftCollectionType);
     }
 
     /// <summary>

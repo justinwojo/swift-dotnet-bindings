@@ -169,6 +169,37 @@ public partial class ProtocolProxyEmitter
     }
 
     /// <summary>
+    /// Emits an accessor + free P/Invoke declaration pair for heap-pointer-returning property getters.
+    /// Both blittable/string and collection property getters use identical P/Invoke shapes
+    /// (accessor: IntPtr containerPtr → IntPtr, free: IntPtr ptr → void).
+    /// </summary>
+    private static void EmitHeapPointerGetterPInvokePair(CSharpWriter writer, string accessorSymbol, string freeSymbol, string wrapperLibPath)
+    {
+        writer.WriteLine();
+        PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+        {
+            LibraryPath = wrapperLibPath,
+            EntryPoint = accessorSymbol,
+            MethodName = accessorSymbol,
+            ReturnType = "IntPtr",
+            ParametersString = "IntPtr containerPtr",
+            CallingConvention = PInvokeCallingConvention.Cdecl,
+            Visibility = PInvokeVisibility.Public
+        });
+        writer.WriteLine();
+        PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+        {
+            LibraryPath = wrapperLibPath,
+            EntryPoint = freeSymbol,
+            MethodName = freeSymbol,
+            ReturnType = "void",
+            ParametersString = "IntPtr ptr",
+            CallingConvention = PInvokeCallingConvention.Cdecl,
+            Visibility = PInvokeVisibility.Public
+        });
+    }
+
+    /// <summary>
     /// Emits P/Invoke declarations for witness dispatch accessor and free functions.
     /// </summary>
     private void EmitWitnessDispatchPInvokes(CSharpWriter writer, ProtocolDecl protocolDecl, WitnessDispatchEmitter dispatchEmitter, string wrapperLibPath)
@@ -203,29 +234,7 @@ public partial class ProtocolProxyEmitter
                     continue;
 
                 var freeSymbol = WitnessDispatchEmitter.GetFreeSymbol(protocolName, "get", property.Name, 0);
-
-                writer.WriteLine();
-                PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
-                {
-                    LibraryPath = wrapperLibPath,
-                    EntryPoint = accessorSymbol,
-                    MethodName = accessorSymbol,
-                    ReturnType = "IntPtr",
-                    ParametersString = "IntPtr containerPtr",
-                    CallingConvention = PInvokeCallingConvention.Cdecl,
-                    Visibility = PInvokeVisibility.Public
-                });
-                writer.WriteLine();
-                PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
-                {
-                    LibraryPath = wrapperLibPath,
-                    EntryPoint = freeSymbol,
-                    MethodName = freeSymbol,
-                    ReturnType = "void",
-                    ParametersString = "IntPtr ptr",
-                    CallingConvention = PInvokeCallingConvention.Cdecl,
-                    Visibility = PInvokeVisibility.Public
-                });
+                EmitHeapPointerGetterPInvokePair(writer, accessorSymbol, freeSymbol, wrapperLibPath);
             }
             else if (hasGetter && dispatchEmitter.IsPropertyClassReturn(property))
             {
@@ -267,35 +276,13 @@ public partial class ProtocolProxyEmitter
             }
             else if (hasGetter && dispatchEmitter.IsPropertyCollectionReturn(property))
             {
-                // BoundGenericReturn getter: returns IntPtr + free function (same shape as ExistentialReturn)
+                // BoundGenericReturn getter: same P/Invoke shape as ExistentialReturn
                 var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolName, "get", property.Name, 0);
                 if (!emittedPInvokes.Add(accessorSymbol))
                     continue;
 
                 var freeSymbol = WitnessDispatchEmitter.GetFreeSymbol(protocolName, "get", property.Name, 0);
-
-                writer.WriteLine();
-                PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
-                {
-                    LibraryPath = wrapperLibPath,
-                    EntryPoint = accessorSymbol,
-                    MethodName = accessorSymbol,
-                    ReturnType = "IntPtr",
-                    ParametersString = "IntPtr containerPtr",
-                    CallingConvention = PInvokeCallingConvention.Cdecl,
-                    Visibility = PInvokeVisibility.Public
-                });
-                writer.WriteLine();
-                PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
-                {
-                    LibraryPath = wrapperLibPath,
-                    EntryPoint = freeSymbol,
-                    MethodName = freeSymbol,
-                    ReturnType = "void",
-                    ParametersString = "IntPtr ptr",
-                    CallingConvention = PInvokeCallingConvention.Cdecl,
-                    Visibility = PInvokeVisibility.Public
-                });
+                EmitHeapPointerGetterPInvokePair(writer, accessorSymbol, freeSymbol, wrapperLibPath);
             }
         }
 
