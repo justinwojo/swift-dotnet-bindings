@@ -5,6 +5,7 @@ using RuntimeTestsApp.Infrastructure;
 using Swift;
 using Swift.Runtime;
 using SwiftBindingsTestLib;
+using SwiftBindingsTestLib.SwiftInterop;
 
 namespace RuntimeTestsApp.Lifetime;
 

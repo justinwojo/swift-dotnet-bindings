@@ -3,6 +3,7 @@
 
 using RuntimeTestsApp.Infrastructure;
 using SwiftBindingsTestLib;
+using SwiftBindingsTestLib.SwiftInterop;
 
 namespace RuntimeTestsApp.Protocols;
 
