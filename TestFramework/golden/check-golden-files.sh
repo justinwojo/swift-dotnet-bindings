@@ -4,10 +4,10 @@
 
 set -e
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 PROJ="src/Swift.Bindings/src/Swift.Bindings.csproj"
-GOLDEN_DIR="golden"
+GOLDEN_DIR="TestFramework/golden"
 FAILURES=0
 
 # Build the generator once
@@ -63,7 +63,7 @@ generate_and_check "SwiftBindingsTestLib" "TestFramework/.build/SwiftBindingsTes
 
 echo ""
 if [ $FAILURES -gt 0 ]; then
-    echo "FAILED: $FAILURES golden file(s) differ. Run golden/update-golden-files.sh to update."
+    echo "FAILED: $FAILURES golden file(s) differ. Run TestFramework/golden/update-golden-files.sh to update."
     exit 1
 else
     echo "All golden files match."

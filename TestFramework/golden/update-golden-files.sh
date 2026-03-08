@@ -5,10 +5,10 @@
 
 set -e
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 PROJ="src/Swift.Bindings/src/Swift.Bindings.csproj"
-GOLDEN_DIR="golden"
+GOLDEN_DIR="TestFramework/golden"
 FAILURES=0
 
 # Build the generator once

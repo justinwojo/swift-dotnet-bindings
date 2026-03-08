@@ -193,7 +193,7 @@ Use `<SwiftFrameworkDependency>` when your library imports another Swift framewo
 - Use logical/semantic cohesion for refactoring, not arbitrary LOC limits.
 - Double-check memory management operations target the correct pointer/object.
 - Do NOT commit unless the user explicitly asks.
-- `run-tests.sh` is fine to run per sub-task. `validate-libraries.sh`, `build-and-test.sh`, and `golden/check-golden-files.sh` should only run at the end of all sub-tasks or when absolutely needed mid-session.
+- `run-tests.sh` is fine to run per sub-task. `validate-libraries.sh`, `build-and-test.sh`, and `TestFramework/golden/check-golden-files.sh` should only run at the end of all sub-tasks or when absolutely needed mid-session.
 - NEVER use `git stash` — linter hooks detect reverted files and stash pop discards changes silently.
 
 ## Known Runtime Issues
