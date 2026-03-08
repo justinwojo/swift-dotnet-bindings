@@ -2,7 +2,10 @@
 // Licensed under the MIT License.
 
 using System.CodeDom.Compiler;
+using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
+
+[assembly: InternalsVisibleTo("Swift.Bindings.Unit.Tests")]
 
 namespace BindingsGeneration
 {
@@ -430,6 +433,7 @@ namespace BindingsGeneration
                 OptionalProjection opt => GetOptionalAccessorGetterConversion(opt, resultExpr),
                 ArrayProjection arr => GetArrayAccessorGetterConversion(arr, resultExpr),
                 DictionaryProjection dict => GetDictAccessorGetterConversion(dict, resultExpr),
+                SetProjection set => GetSetAccessorGetterConversion(set, resultExpr),
                 _ => (null, false)
             };
         }
@@ -444,6 +448,7 @@ namespace BindingsGeneration
                 DataProjection => ($"((Swift.Data?){resultExpr})?.ToByteArray()", true),
                 ArrayProjection arr => GetOptionalContainerGetterConversion(arr, resultExpr),
                 DictionaryProjection dict => GetOptionalContainerGetterConversion(dict, resultExpr),
+                SetProjection set => GetOptionalContainerGetterConversion(set, resultExpr),
                 NativeRemappedProjection nrp => ($"(({nrp.SwiftWrapperType}?){resultExpr})?.{nrp.ToConversionMethod}()", true),
                 ClosureProjection => (null, false),
                 // Existentials, classes, non-frozen structs: accessor already returns
@@ -461,6 +466,7 @@ namespace BindingsGeneration
                 ArrayProjection arr => arr.ElementProjection.GetReturnElementConversion("e") != null,
                 DictionaryProjection dict => dict.KeyProjection.GetReturnElementConversion("k") != null
                     || dict.ValueProjection.GetReturnElementConversion("v") != null,
+                SetProjection set => set.ElementProjection.GetReturnElementConversion("e") != null,
                 _ => false
             };
             var idiomaticType = innerContainer.PublicType;
@@ -489,6 +495,15 @@ namespace BindingsGeneration
             return (null, false);
         }
 
+        internal static (string? conversion, bool requiresDisposal) GetSetAccessorGetterConversion(
+            SetProjection set, string resultExpr)
+        {
+            var elemConv = set.ElementProjection.GetReturnElementConversion("e");
+            if (elemConv != null)
+                return ($"{resultExpr}.Select(e => {elemConv}).ToHashSet()", true);
+            return (null, false);
+        }
+
         private static (string? conversion, bool requiresDisposal) GetAccessorSetterConversion(
             ITypeProjection projection, string valueExpr)
         {
@@ -503,6 +518,7 @@ namespace BindingsGeneration
                     nrp.RequiresDisposal),
                 ArrayProjection arr => GetArrayAccessorSetterConversion(arr, valueExpr),
                 DictionaryProjection dict => GetDictAccessorSetterConversion(dict, valueExpr),
+                SetProjection set => GetSetAccessorSetterConversion(set, valueExpr),
                 OptionalProjection opt => GetOptionalAccessorSetterConversion(opt, valueExpr),
                 _ => (null, false)
             };
@@ -540,6 +556,18 @@ namespace BindingsGeneration
             return ($"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({valueExpr})", true);
         }
 
+        internal static (string? conversion, bool requiresDisposal) GetSetAccessorSetterConversion(
+            SetProjection set, string valueExpr)
+        {
+            var rawElem = set.ElementProjection.MarshalFromSwiftType;
+            var elemConv = set.ElementProjection is ClassProjection or NonFrozenStructProjection or ObjCRootedClassProjection
+                ? null
+                : set.ElementProjection.GetParameterElementConversion("e");
+            if (elemConv != null)
+                return ($"SwiftSet<{rawElem}>.FromEnumerable({valueExpr}.Select(e => {elemConv}))", true);
+            return ($"SwiftSet<{rawElem}>.FromEnumerable({valueExpr})", true);
+        }
+
         private static (string? conversion, bool requiresDisposal) GetOptionalAccessorSetterConversion(
             OptionalProjection opt, string valueExpr)
         {
@@ -559,6 +587,11 @@ namespace BindingsGeneration
             {
                 var (dictConv, _) = GetDictAccessorSetterConversion(dict, $"{valueExpr}Val");
                 return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({dictConv}) : SwiftOptional<{optType}>.NewNone())", true);
+            }
+            if (inner is SetProjection set)
+            {
+                var (setConv, _) = GetSetAccessorSetterConversion(set, $"{valueExpr}Val");
+                return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({setConv}) : SwiftOptional<{optType}>.NewNone())", true);
             }
 
             if (inner is ClassProjection or NonFrozenStructProjection or ObjCRootedClassProjection or ExistentialProjection)
