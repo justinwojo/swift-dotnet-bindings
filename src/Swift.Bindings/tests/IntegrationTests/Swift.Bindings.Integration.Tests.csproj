@@ -24,8 +24,9 @@
     </ProjectReference>
   </ItemGroup>
 
-  <Target Name="CompileNativeLibs" AfterTargets="ResolveReferences">
-    <!-- Generate Swift libraries and projection tooling bindings -->
+  <Target Name="CompileNativeLibs" AfterTargets="ResolveReferences"
+          Condition="Exists('$(MSBuildThisFileDirectory)../../../../dotnet.sh')">
+    <!-- Generate Swift libraries and projection tooling bindings (requires legacy dotnet.sh) -->
     <Exec Command="$(PreTestCommand)" />
 
     <!-- Parse cmake output log for warnings and report them -->

@@ -59,36 +59,36 @@ public class EnumMarshallingTests : TestBase
 
     #endregion
 
-    #region Color Enum (Class-based — non-frozen Swift enum)
+    #region Color Enum (Simple C# enum — @frozen Swift enum with Int32 raw value)
 
     [TestTier(TestTier.Tier1)]
     public void TestColorCaseConstruction()
     {
-        // Color is a class-based enum (non-frozen) — verify case tags
-        AssertEqual(Color.CaseTag.Red, Color.Red.Tag, "Red tag");
-        AssertEqual(Color.CaseTag.Green, Color.Green.Tag, "Green tag");
-        AssertEqual(Color.CaseTag.Blue, Color.Blue.Tag, "Blue tag");
-        AssertEqual(Color.CaseTag.Alpha, Color.Alpha.Tag, "Alpha tag");
+        // Color is a simple C# enum (frozen + Int32 raw value)
+        AssertEqual(Color.Red, (Color)0, "Red is 0");
+        AssertEqual(Color.Green, (Color)1, "Green is 1");
+        AssertEqual(Color.Blue, (Color)2, "Blue is 2");
+        AssertEqual(Color.Alpha, (Color)3, "Alpha is 3");
         TestLogger.Info("Color case construction passed");
     }
 
     [TestTier(TestTier.Tier2)]
     public void TestColorIntRawValue()
     {
-        // Color is class-based — verify tags are distinct
-        var tags = new[] { Color.Red.Tag, Color.Green.Tag, Color.Blue.Tag, Color.Alpha.Tag };
-        for (int i = 0; i < tags.Length; i++)
-            for (int j = i + 1; j < tags.Length; j++)
-                AssertTrue(tags[i] != tags[j], $"Color tags {i} and {j} are distinct");
+        // Verify raw int values are correct and distinct
+        AssertEqual(0, (int)Color.Red, "Red raw value");
+        AssertEqual(1, (int)Color.Green, "Green raw value");
+        AssertEqual(2, (int)Color.Blue, "Blue raw value");
+        AssertEqual(3, (int)Color.Alpha, "Alpha raw value");
         TestLogger.Info("Color int raw value tests passed");
     }
 
     [TestTier(TestTier.Tier2)]
     public void TestColorFromTagRoundTrip()
     {
-        // Verify that each case factory returns the expected tag
-        AssertEqual(Color.CaseTag.Red, Color.Red.Tag, "Red round-trip");
-        AssertEqual(Color.CaseTag.Blue, Color.Blue.Tag, "Blue round-trip");
+        // Verify round-trip through int cast
+        AssertEqual(Color.Red, (Color)(int)Color.Red, "Red round-trip");
+        AssertEqual(Color.Blue, (Color)(int)Color.Blue, "Blue round-trip");
 
         TestLogger.Info("Color FromRawValue tests passed");
     }
