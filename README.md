@@ -1,12 +1,14 @@
-# Swift .NET Bindings
+# Swift + ObjC .NET Bindings
+
+A single tool that generates .NET bindings from Swift, Objective-C, or mixed Apple frameworks.
 
 ### Swift Bindings
 **Automatically generate C# bindings from compiled Swift libraries. No proxy layers. No Objective-C bridging headers. No manual wrapper code.**
 
-Swift Bindings reads the ABI metadata from a compiled Swift framework and produces idiomatic C# that calls directly into the Swift dylib via P/Invoke. The generated bindings handle memory management (ARC), async methods, closures, generics, protocols, and more — so you can consume Swift libraries from .NET the same way you'd consume a NuGet package.
+Swift Bindings reads the ABI metadata from a compiled Swift framework and produces idiomatic C# that calls directly into the Swift dylib via P/Invoke. The generated bindings handle memory management (ARC), async methods, closures, generics, protocols, and more, so you can consume Swift libraries from .NET the same way you'd consume a NuGet package.
 
 ### Objective-C Bindings
-**A full replacement for Objective Sharpie. Ready-to-compile output with zero `[Verify]` attributes.**
+**A full replacement for Objective Sharpie. Ready-to-compile output with no `[Verify]` cleanup required.**
 
 Point the same tool at an Objective-C framework and it parses headers via clang, emits standard `ApiDefinition.cs` + `StructsAndEnums.cs` binding definitions, and generates a ready-to-build `.csproj` — no manual cleanup required. Drop any xcframework and the correct pipeline runs automatically.
 
@@ -49,7 +51,7 @@ Swift Bindings approach (both):
 
 This project is a fork of Microsoft's [`dotnet/runtimelab` (feature/swift-bindings branch)](https://github.com/dotnet/runtimelab/tree/feature/swift-bindings) — an experimental effort that established the foundational architecture (ABI JSON parsing, Swift symbol demangling, type database, code emitter) but was never intended as a shipping product. Development went inactive with support limited to basic classes, structs, and simple method signatures.
 
-This fork extends the generator substantially — adding protocols, generics, closures, async, SwiftUI bridging, protocol extensions, existential containers, and much more. The generator produces zero compilation errors across 46 real-world libraries (88 framework targets — 53 Swift, 34 ObjC, 1 mixed), with select libraries validated end-to-end on a .NET for iOS app.
+This fork extends the generator substantially — adding protocols, generics, closures, async, SwiftUI bridging, protocol extensions, existential containers, and much more. Validated against 46 real-world libraries (88 framework targets — 53 Swift, 34 ObjC, 1 mixed), with select libraries tested end-to-end on a .NET for iOS app.
 
 ---
 
@@ -80,7 +82,7 @@ The generator is also a **full replacement for Objective Sharpie** for pure Obje
 - Parses all public headers via `clang -ast-dump=json` (uses Xcode's built-in clang)
 - Emits standard `ApiDefinition.cs` + `StructsAndEnums.cs` binding definitions
 - Generates a ready-to-build `.csproj` — produces a NuGet package compatible with .NET MAUI
-- **Zero `[Verify]` attributes** — output compiles without manual review (Sharpie typically requires extensive cleanup per library)
+- **No `[Verify]` attributes** — output compiles without manual review (Sharpie typically requires dozens per library)
 
 Supports protocol patterns (`[Protocol, Model]`, `WeakDelegate`/`Wrap`), idiomatic C# enums with prefix stripping, availability attributes, foreign-type categories, designated initializer detection, pointer/out-param mapping, and rich XML doc comments.
 
@@ -90,7 +92,7 @@ Validated against **34 ObjC framework targets** including Realm, Stripe3DS2, SDW
 
 ### Real-World Validation
 
-The generator produces **zero compilation errors** across **46 libraries (88 framework targets — 53 Swift, 34 Objective-C, 1 mixed)** spanning image loading, payments, animation, networking, document scanning, analytics, and more:
+Validated against **46 libraries (88 framework targets — 53 Swift, 34 Objective-C, 1 mixed)** spanning image loading, payments, animation, networking, document scanning, analytics, and more:
 
 | Category | Libraries |
 |----------|-----------|
@@ -241,7 +243,7 @@ For full details, see [Known Limitations](docs/Known-Limitations.md).
 
 ## Project Status
 
-Swift Bindings is under active development. The core generator, MSBuild SDK, and NuGet packaging are all functional — validated across 46 libraries (88 framework targets — 53 Swift, 34 ObjC, 1 mixed) with zero compilation errors, and tested with **6,400+ unit tests**, **700+ integration tests**, and **240+ end-to-end runtime tests** on iOS Simulator.
+Swift Bindings is under active development. The core generator, MSBuild SDK, and NuGet packaging are all functional — validated against 46 libraries (88 framework targets — 53 Swift, 34 ObjC, 1 mixed) and tested with **6,400+ unit tests**, **700+ integration tests**, and **240+ end-to-end runtime tests** on iOS Simulator.
 
 ---
 
