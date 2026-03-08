@@ -3277,4 +3277,81 @@ public class ClangAstParserTests
         Assert.Equal(ObjCMemorySemantic.Copy, prop.MemorySemantic);
         Assert.Equal("title", prop.GetterSelector);
     }
+
+    // --- DesignatedInitializer detection ---
+
+    [Fact]
+    public void Parse_MethodDecl_WithDesignatedInitializerAttr_SetsFlag()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "MyClass",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "initWithName:age:",
+                    {{MakeLoc()}},
+                    "returnType": { "qualType": "instancetype" },
+                    "instance": true,
+                    "inner": [
+                        {
+                            "kind": "ParmVarDecl",
+                            "name": "name",
+                            "type": { "qualType": "NSString *" }
+                        },
+                        {
+                            "kind": "ParmVarDecl",
+                            "name": "age",
+                            "type": { "qualType": "int" }
+                        },
+                        {
+                            "kind": "ObjCDesignatedInitializerAttr"
+                        }
+                    ]
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        var method = module.Classes[0].Methods[0];
+        Assert.True(method.IsDesignatedInitializer);
+        Assert.Equal("initWithName:age:", method.Selector);
+    }
+
+    [Fact]
+    public void Parse_MethodDecl_WithoutDesignatedInitializerAttr_FlagIsFalse()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "MyClass",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "initWithFrame:",
+                    {{MakeLoc()}},
+                    "returnType": { "qualType": "instancetype" },
+                    "instance": true,
+                    "inner": [
+                        {
+                            "kind": "ParmVarDecl",
+                            "name": "frame",
+                            "type": { "qualType": "CGRect" }
+                        }
+                    ]
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        var method = module.Classes[0].Methods[0];
+        Assert.False(method.IsDesignatedInitializer);
+    }
 }

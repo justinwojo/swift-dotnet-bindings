@@ -56,6 +56,7 @@ public static class ApiDefinitionEmitter
         sb.AppendLine("using CoreMedia;");
         sb.AppendLine("using Foundation;");
         sb.AppendLine("using ImageIO;");
+        sb.AppendLine("using MapKit;");
         sb.AppendLine("using Metal;");
         sb.AppendLine("using ObjCRuntime;");
         sb.AppendLine("using CoreGraphics;");
@@ -141,7 +142,7 @@ public static class ApiDefinitionEmitter
         var emittedMemberNames = new HashSet<string>();
         foreach (var method in proto.Methods)
         {
-            var emittedName = EmitMethod(sb, method, declaringClassName: null, isProtocol: true, genericTypeParams: null, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMethodSignatures: emittedMethodSignatures, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, enumNames: enumNames, logger: logger, diagnostics: diagnostics);
+            var emittedName = EmitMethod(sb, method, declaringClassName: null, isProtocol: true, genericTypeParams: null, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMethodSignatures: emittedMethodSignatures, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, enumNames: enumNames, isDelegateProtocol: proto.IsDelegateProtocol, logger: logger, diagnostics: diagnostics);
             if (emittedName != null) emittedMemberNames.Add(emittedName);
         }
 
@@ -236,18 +237,32 @@ public static class ApiDefinitionEmitter
             return;
         }
 
+        // MAUI bgen compiles [Category] interfaces into static extension classes.
+        // Constraints: static classes cannot implement interfaces (CS0714) and
+        // cannot have instance properties (CS0708). Only instance methods and
+        // class (static) properties are valid members.
+        // Filter out init methods — MAUI category interfaces cannot declare constructors.
+        var emittableMethods = cat.Methods
+            .Where(m => m.Selector != "init" && !m.Selector.StartsWith("initWith", StringComparison.Ordinal))
+            .ToList();
+        var emittableClassProperties = cat.Properties.Where(p => p.IsClass).ToList();
+
+        // Skip category entirely if it has no emittable content
+        if (emittableMethods.Count == 0 && emittableClassProperties.Count == 0)
+        {
+            diagnostics?.RecordSkip("Category", $"{cat.ClassName}.{cat.CategoryName}", ObjCSkipReason.EmptyCategory,
+                cat.ProtocolNames.Count > 0
+                    ? $"protocol-only category ({string.Join(", ", cat.ProtocolNames)}) — static classes cannot implement interfaces"
+                    : "no emittable members (instance properties not supported in static extension classes)");
+            return;
+        }
+
         sb.AppendLine("    [Category]");
         sb.AppendLine($"    [BaseType(typeof({cat.ClassName}))]");
 
-        var filteredProtocols = cat.ProtocolNames
-            .Where(n => n != "NSObject" && n != "NSFastEnumeration")
-            .ToList();
-        var protocols = filteredProtocols.Count > 0
-            ? $" : {string.Join(", ", filteredProtocols.Select(n => $"I{ObjCTypeMapper.MapProtocolName(n)}"))}"
-            : "";
-
+        // Strip protocol conformance — static classes cannot implement interfaces (CS0714)
         var interfaceName = GenerateCategoryInterfaceName(cat.ClassName, cat.CategoryName);
-        sb.AppendLine($"    partial interface {interfaceName}{protocols}");
+        sb.AppendLine($"    partial interface {interfaceName}");
         sb.AppendLine("    {");
 
         var categoryGenericParams = cat.GenericTypeParamNames.Count > 0
@@ -257,16 +272,15 @@ public static class ApiDefinitionEmitter
         var emittedMethodSignatures = new HashSet<string>();
         var emittedMemberNames = new HashSet<string>();
 
-        // Filter out init methods — MAUI category interfaces cannot declare constructors
-        foreach (var method in cat.Methods)
+        foreach (var method in emittableMethods)
         {
-            if (method.Selector == "init" || method.Selector.StartsWith("initWith", StringComparison.Ordinal))
-                continue;
             var emittedName = EmitMethod(sb, method, declaringClassName: cat.ClassName, isProtocol: false, genericTypeParams: categoryGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMethodSignatures: emittedMethodSignatures, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, enumNames: enumNames, logger: logger, diagnostics: diagnostics);
             if (emittedName != null) emittedMemberNames.Add(emittedName);
         }
 
-        foreach (var prop in cat.Properties)
+        // Skip instance properties — static classes cannot have instance members (CS0708).
+        // Only emit [Static] properties (class methods/properties).
+        foreach (var prop in cat.Properties.Where(p => p.IsClass))
             EmitProperty(sb, prop, declaringClassName: cat.ClassName, genericTypeParams: categoryGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedPropertyNames: emittedMemberNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, logger: logger, diagnostics: diagnostics);
 
         sb.AppendLine("    }");
@@ -284,7 +298,7 @@ public static class ApiDefinitionEmitter
     /// Emits a method and returns the final emitted C# method name (after any dedup renaming),
     /// or null for constructors. Callers use this to track method-property name collisions.
     /// </summary>
-    static string? EmitMethod(StringBuilder sb, ObjCMethodDecl method, string? declaringClassName, bool isProtocol, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null, HashSet<string>? emittedConstructorSignatures = null, HashSet<string>? emittedMethodSignatures = null, HashSet<string>? knownTypes = null, HashSet<string>? appleSdkTypes = null, HashSet<string>? enumNames = null, ILogger? logger = null, ObjCBindingDiagnostics? diagnostics = null)
+    static string? EmitMethod(StringBuilder sb, ObjCMethodDecl method, string? declaringClassName, bool isProtocol, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null, HashSet<string>? emittedConstructorSignatures = null, HashSet<string>? emittedMethodSignatures = null, HashSet<string>? knownTypes = null, HashSet<string>? appleSdkTypes = null, HashSet<string>? enumNames = null, bool isDelegateProtocol = false, ILogger? logger = null, ObjCBindingDiagnostics? diagnostics = null)
     {
         // Pre-check: skip methods with types not resolvable in ApiDefinition context.
         if (knownTypes != null)
@@ -335,6 +349,9 @@ public static class ApiDefinitionEmitter
         if (!method.IsInstanceMethod && !isConstructor)
             sb.AppendLine("        [Static]");
 
+        if (isConstructor && method.IsDesignatedInitializer)
+            sb.AppendLine("        [DesignatedInitializer]");
+
         if (method.IsVariadic)
             sb.AppendLine($"        [Export(\"{method.Selector}\", IsVariadic = true)]");
         else
@@ -349,7 +366,7 @@ public static class ApiDefinitionEmitter
 
         var methodName = isConstructor
             ? "Constructor"
-            : SelectorToMethodName(method.Selector);
+            : isDelegateProtocol ? SelectorToDelegateMethodName(method.Selector) : SelectorToMethodName(method.Selector);
 
         // Duplicate method signature detection: rename with full selector parts if collision
         if (!isConstructor && emittedMethodSignatures != null)
@@ -661,6 +678,25 @@ public static class ApiDefinitionEmitter
         // Use ALL selector parts, PascalCase each: "setObject:forKey:" → "SetObjectForKey"
         var parts = selector.Split(':', StringSplitOptions.RemoveEmptyEntries);
         return string.Concat(parts.Select(ToPascalCase));
+    }
+
+    /// <summary>
+    /// For delegate protocol methods with multi-part selectors, concatenate all selector
+    /// parts after the first (Xamarin convention). The first part is typically the delegate
+    /// owner instance name (e.g., "messaging", "tableView", "URLSession"), while subsequent
+    /// parts describe the action and context. Examples:
+    ///   "messaging:didReceiveRegistrationToken:" → "DidReceiveRegistrationToken"
+    ///   "URLSession:task:didCompleteWithError:"  → "TaskDidCompleteWithError"
+    ///   "tableView:commitEditingStyle:forRowAtIndexPath:" → "CommitEditingStyleForRowAtIndexPath"
+    ///   "didReceiveNotification:"                → "DidReceiveNotification"
+    /// For single-part selectors, falls back to normal SelectorToMethodName behavior.
+    /// </summary>
+    internal static string SelectorToDelegateMethodName(string selector)
+    {
+        var parts = selector.Split(':', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length >= 2)
+            return string.Concat(parts.Skip(1).Select(ToPascalCase));
+        return ToPascalCase(parts[0]);
     }
 
     static string ToPascalCase(string name)

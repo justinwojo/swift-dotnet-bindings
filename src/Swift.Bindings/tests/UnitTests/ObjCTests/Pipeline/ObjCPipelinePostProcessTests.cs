@@ -556,4 +556,143 @@ public class ObjCPipelinePostProcessTests
         Assert.Single(result.Protocols);
         Assert.Equal("MyDelegate", result.Protocols[0].Name);
     }
+
+    // ──────────────────────────────────────────────
+    // Foreign-type category filtering (Fix #10)
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public void FilterToForeignCategories_OwnTypeCategoriesRemoved()
+    {
+        // Categories on module's own classes should be removed (already merged by parser)
+        var module = new ObjCModule
+        {
+            ModuleName = "Realm",
+            Classes =
+            [
+                new ObjCClassDecl { Name = "RLMArray" },
+                new ObjCClassDecl { Name = "RLMResults" }
+            ],
+            Categories =
+            [
+                new ObjCCategoryDecl { CategoryName = "Swift", ClassName = "RLMArray" },
+                new ObjCCategoryDecl { CategoryName = "Sorting", ClassName = "RLMResults" }
+            ]
+        };
+
+        var result = ObjCPipeline.FilterToForeignCategories(module, Logger);
+
+        Assert.Empty(result.Categories);
+    }
+
+    [Fact]
+    public void FilterToForeignCategories_ForeignTypeCategoriesPreserved()
+    {
+        // Categories on platform types (not in module.Classes) should be preserved
+        var module = new ObjCModule
+        {
+            ModuleName = "Realm",
+            Classes =
+            [
+                new ObjCClassDecl { Name = "RLMArray" }
+            ],
+            Categories =
+            [
+                new ObjCCategoryDecl { CategoryName = "RLMValue", ClassName = "NSNull", ProtocolNames = ["RLMValue"] },
+                new ObjCCategoryDecl { CategoryName = "", ClassName = "NSNumber", ProtocolNames = ["RLMInt", "RLMBool"] },
+                new ObjCCategoryDecl { CategoryName = "Swift", ClassName = "RLMArray" } // own-type — removed
+            ]
+        };
+
+        var result = ObjCPipeline.FilterToForeignCategories(module, Logger);
+
+        Assert.Equal(2, result.Categories.Count);
+        Assert.Equal("NSNull", result.Categories[0].ClassName);
+        Assert.Equal("NSNumber", result.Categories[1].ClassName);
+    }
+
+    [Fact]
+    public void FilterToForeignCategories_NoCategoriesReturnsEmpty()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes = [new ObjCClassDecl { Name = "MyClass" }],
+            Categories = []
+        };
+
+        var result = ObjCPipeline.FilterToForeignCategories(module, Logger);
+
+        Assert.Empty(result.Categories);
+    }
+
+    [Fact]
+    public void FilterToForeignCategories_AllForeignPreservesAll()
+    {
+        // When no classes match any category base class, all categories are preserved
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes = [new ObjCClassDecl { Name = "MyClass" }],
+            Categories =
+            [
+                new ObjCCategoryDecl { CategoryName = "RLMValue", ClassName = "NSNull" },
+                new ObjCCategoryDecl { CategoryName = "RLMValue", ClassName = "NSString" },
+                new ObjCCategoryDecl { CategoryName = "RLMValue", ClassName = "NSData" }
+            ]
+        };
+
+        var result = ObjCPipeline.FilterToForeignCategories(module, Logger);
+
+        Assert.Equal(3, result.Categories.Count);
+    }
+
+    [Fact]
+    public void FilterToForeignCategories_SdkStubClassTreatedAsForeign_WhenStubRemovedFirst()
+    {
+        // Simulates the correct pipeline ordering: FilterPlatformTypeStubs runs BEFORE
+        // FilterToForeignCategories. When clang expands SDK types like UIButton into stub
+        // classes, those stubs are removed first, so categories on UIButton become foreign.
+        var module = new ObjCModule
+        {
+            ModuleName = "SDWebImage",
+            AppleSdkTypeNames = new HashSet<string> { "UIButton", "UIImage" },
+            Classes =
+            [
+                new ObjCClassDecl { Name = "UIButton" },  // SDK stub — will be removed
+                new ObjCClassDecl { Name = "UIImage" },   // SDK stub — will be removed
+                new ObjCClassDecl { Name = "SDWebImageManager" } // Real class — kept
+            ],
+            Categories =
+            [
+                new ObjCCategoryDecl
+                {
+                    CategoryName = "WebCache",
+                    ClassName = "UIButton",
+                    Methods = [new ObjCMethodDecl
+                    {
+                        Selector = "sd_setImageWithURL:",
+                        ReturnType = new ObjCTypeRef { Name = "void" },
+                        IsInstanceMethod = true,
+                        Parameters = [new ObjCParameterDecl { Name = "url", Type = new ObjCTypeRef { Name = "NSURL", IsPointer = true } }]
+                    }]
+                },
+                new ObjCCategoryDecl
+                {
+                    CategoryName = "Extras",
+                    ClassName = "SDWebImageManager", // own-type — will be removed
+                }
+            ]
+        };
+
+        // Step 1: FilterPlatformTypeStubs removes UIButton and UIImage
+        var afterStubFilter = ObjCPipeline.FilterPlatformTypeStubs(module, Logger);
+        Assert.Single(afterStubFilter.Classes); // Only SDWebImageManager remains
+        Assert.Equal("SDWebImageManager", afterStubFilter.Classes[0].Name);
+
+        // Step 2: FilterToForeignCategories now sees UIButton as foreign (not in Classes)
+        var afterCatFilter = ObjCPipeline.FilterToForeignCategories(afterStubFilter, Logger);
+        Assert.Single(afterCatFilter.Categories); // UIButton category preserved
+        Assert.Equal("UIButton", afterCatFilter.Categories[0].ClassName);
+    }
 }

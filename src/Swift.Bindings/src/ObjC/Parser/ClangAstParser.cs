@@ -828,6 +828,7 @@ public static class ClangAstParser
 
         var parameters = new List<ObjCParameterDecl>();
         var methodAvailability = new List<ObjCAvailability>();
+        var isDesignatedInitializer = false;
 
         if (element.TryGetProperty("inner", out var inner))
         {
@@ -847,6 +848,10 @@ public static class ClangAstParser
                         if (avail != null)
                             methodAvailability.Add(avail);
                         break;
+
+                    case "ObjCDesignatedInitializerAttr":
+                        isDesignatedInitializer = true;
+                        break;
                 }
             }
         }
@@ -863,6 +868,7 @@ public static class ClangAstParser
             IsInstanceMethod = isInstance,
             IsOptional = isOptional,
             IsVariadic = isVariadic,
+            IsDesignatedInitializer = isDesignatedInitializer,
             Availability = methodAvailability,
             SwiftName = swiftName,
             IsRefinedForSwift = isRefined,

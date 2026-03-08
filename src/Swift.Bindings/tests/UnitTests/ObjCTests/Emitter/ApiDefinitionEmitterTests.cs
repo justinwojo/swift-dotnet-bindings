@@ -1337,8 +1337,11 @@ public class ApiDefinitionEmitterTests
     }
 
     [Fact]
-    public void Emit_Category_Properties_EmittedCorrectly()
+    public void Emit_Category_InstancePropertyOnly_SkippedAsEmpty()
     {
+        // Categories with only instance properties and no methods are skipped entirely.
+        // MAUI bgen generates [Category] interfaces as static classes, which cannot
+        // have instance members (CS0708).
         var module = new ObjCModule
         {
             ModuleName = "Test",
@@ -1359,9 +1362,45 @@ public class ApiDefinitionEmitterTests
         };
 
         var result = EmitAndRead(module);
+        Assert.DoesNotContain("[Category]", result);
+        Assert.DoesNotContain("Widget_Info", result);
+    }
+
+    [Fact]
+    public void Emit_Category_ClassPropertyEmitted()
+    {
+        // [Static] properties (class-level) ARE emitted in categories since
+        // they are valid members of static classes.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Categories =
+            [
+                new ObjCCategoryDecl
+                {
+                    CategoryName = "Info",
+                    ClassName = "Widget",
+                    Properties = [new ObjCPropertyDecl
+                    {
+                        Name = "version",
+                        Type = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                        IsReadonly = true,
+                        IsClass = true // class property → valid in static class
+                    }],
+                    Methods = [new ObjCMethodDecl
+                    {
+                        Selector = "doSomething",
+                        ReturnType = new ObjCTypeRef { Name = "void" },
+                        IsInstanceMethod = true
+                    }]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
         Assert.Contains("[Category]", result);
         Assert.Contains("partial interface Widget_Info", result);
-        Assert.Contains("[Export(\"version\")]", result);
+        Assert.Contains("[Static]", result);
         Assert.Contains("string Version { get; }", result);
     }
 
@@ -1461,8 +1500,10 @@ public class ApiDefinitionEmitterTests
     }
 
     [Fact]
-    public void Emit_Category_WithProtocolConformance_EmitsInheritance()
+    public void Emit_Category_WithProtocolConformance_StripsProtocols()
     {
+        // MAUI bgen generates [Category] interfaces as static classes, which
+        // cannot implement interfaces (CS0714). Protocol conformance is stripped.
         var module = new ObjCModule
         {
             ModuleName = "Test",
@@ -1484,7 +1525,13 @@ public class ApiDefinitionEmitterTests
         };
 
         var result = EmitAndRead(module);
-        Assert.Contains("partial interface Widget_Coding : INSCoding, INSSecureCoding", result);
+        Assert.Contains("[Category]", result);
+        Assert.Contains("partial interface Widget_Coding", result);
+        // Protocol conformance stripped (CS0714)
+        Assert.DoesNotContain("INSCoding", result);
+        Assert.DoesNotContain("INSSecureCoding", result);
+        // Method is still emitted
+        Assert.Contains("[Export(\"encode\")]", result);
     }
 
     [Fact]
@@ -3134,6 +3181,296 @@ public class ApiDefinitionEmitterTests
         Assert.Contains("WKNavigationDelegate NavigationDelegate { get; set; }", result);
         Assert.Contains("[NullAllowed, Export(\"navigationDelegate\", ArgumentSemantic.Weak)]", result);
         Assert.Contains("NSObject WeakNavigationDelegate {", result);
+    }
+
+    // --- [DesignatedInitializer] emission ---
+
+    [Fact]
+    public void Emit_DesignatedInitializer_EmitsAttribute()
+    {
+        var module = ObjCModuleBuilder.Create()
+            .WithClass(new ObjCClassDecl
+            {
+                Name = "MyWidget",
+                Methods =
+                [
+                    new ObjCMethodDecl
+                    {
+                        Selector = "initWithName:value:",
+                        ReturnType = SimpleType("instancetype"),
+                        IsInstanceMethod = true,
+                        IsDesignatedInitializer = true,
+                        Parameters =
+                        [
+                            new ObjCParameterDecl { Name = "name", Type = SimpleType("NSString", isPointer: true) },
+                            new ObjCParameterDecl { Name = "value", Type = SimpleType("int") }
+                        ]
+                    }
+                ]
+            })
+            .Build();
+
+        var result = EmitAndRead(module);
+        Assert.Contains("[DesignatedInitializer]", result);
+        Assert.Contains("[Export(\"initWithName:value:\")]", result);
+        Assert.Contains("NativeHandle Constructor(", result);
+    }
+
+    [Fact]
+    public void Emit_NonDesignatedInitializer_NoAttribute()
+    {
+        var module = ObjCModuleBuilder.Create()
+            .WithClass(new ObjCClassDecl
+            {
+                Name = "MyWidget",
+                Methods =
+                [
+                    new ObjCMethodDecl
+                    {
+                        Selector = "initWithFrame:",
+                        ReturnType = SimpleType("instancetype"),
+                        IsInstanceMethod = true,
+                        IsDesignatedInitializer = false,
+                        Parameters =
+                        [
+                            new ObjCParameterDecl { Name = "frame", Type = SimpleType("CGRect") }
+                        ]
+                    }
+                ]
+            })
+            .Build();
+
+        var result = EmitAndRead(module);
+        Assert.DoesNotContain("[DesignatedInitializer]", result);
+        Assert.Contains("[Export(\"initWithFrame:\")]", result);
+    }
+
+    [Fact]
+    public void Emit_DesignatedInitializer_NotEmittedOnNonConstructorMethod()
+    {
+        var module = ObjCModuleBuilder.Create()
+            .WithClass(new ObjCClassDecl
+            {
+                Name = "MyWidget",
+                Methods =
+                [
+                    new ObjCMethodDecl
+                    {
+                        Selector = "doSomething",
+                        ReturnType = SimpleType("void"),
+                        IsInstanceMethod = true,
+                        IsDesignatedInitializer = true, // Should be ignored for non-init methods
+                    }
+                ]
+            })
+            .Build();
+
+        var result = EmitAndRead(module);
+        Assert.DoesNotContain("[DesignatedInitializer]", result);
+    }
+
+    // --- Delegate method naming ---
+
+    [Theory]
+    // Two-part: first part is delegate owner, second is action
+    [InlineData("messaging:didReceiveRegistrationToken:", "DidReceiveRegistrationToken")]
+    [InlineData("tableView:cellForRowAtIndexPath:", "CellForRowAtIndexPath")]
+    [InlineData("didReceiveNotification:", "DidReceiveNotification")]
+    [InlineData("viewDidLoad", "ViewDidLoad")]
+    // Three-part: concatenate all parts after the first (owner)
+    [InlineData("URLSession:task:didCompleteWithError:", "TaskDidCompleteWithError")]
+    [InlineData("URLSession:downloadTask:didFinishDownloadingToURL:", "DownloadTaskDidFinishDownloadingToURL")]
+    [InlineData("tableView:commitEditingStyle:forRowAtIndexPath:", "CommitEditingStyleForRowAtIndexPath")]
+    public void SelectorToDelegateMethodName_ConvertsCorrectly(string selector, string expected)
+    {
+        Assert.Equal(expected, ApiDefinitionEmitter.SelectorToDelegateMethodName(selector));
+    }
+
+    [Fact]
+    public void Emit_DelegateProtocolMethod_UsesLastSelectorPart()
+    {
+        var module = ObjCModuleBuilder.Create()
+            .WithProtocol(new ObjCProtocolDecl
+            {
+                Name = "FIRMessagingDelegate",
+                IsDelegateProtocol = true,
+                Methods =
+                [
+                    new ObjCMethodDecl
+                    {
+                        Selector = "messaging:didReceiveRegistrationToken:",
+                        ReturnType = SimpleType("void"),
+                        IsInstanceMethod = true,
+                        Parameters =
+                        [
+                            new ObjCParameterDecl { Name = "messaging", Type = SimpleType("FIRMessaging", isPointer: true) },
+                            new ObjCParameterDecl { Name = "fcmToken", Type = SimpleType("NSString", isPointer: true) }
+                        ]
+                    }
+                ]
+            })
+            .Build();
+
+        var result = EmitAndRead(module);
+        // Delegate protocol method should use last selector part (action verb)
+        Assert.Contains("void DidReceiveRegistrationToken(", result);
+        Assert.DoesNotContain("void Messaging(", result);
+    }
+
+    [Fact]
+    public void Emit_NonDelegateProtocolMethod_UsesFirstSelectorPart()
+    {
+        var module = ObjCModuleBuilder.Create()
+            .WithProtocol(new ObjCProtocolDecl
+            {
+                Name = "SomeProtocol",
+                IsDelegateProtocol = false,
+                Methods =
+                [
+                    new ObjCMethodDecl
+                    {
+                        Selector = "messaging:didReceiveRegistrationToken:",
+                        ReturnType = SimpleType("void"),
+                        IsInstanceMethod = true,
+                        Parameters =
+                        [
+                            new ObjCParameterDecl { Name = "messaging", Type = SimpleType("FIRMessaging", isPointer: true) },
+                            new ObjCParameterDecl { Name = "fcmToken", Type = SimpleType("NSString", isPointer: true) }
+                        ]
+                    }
+                ]
+            })
+            .Build();
+
+        var result = EmitAndRead(module);
+        // Non-delegate protocol should use first selector part
+        Assert.Contains("void Messaging(", result);
+    }
+
+    // --- Foreign-type category emission ---
+
+    [Fact]
+    public void Emit_ForeignTypeCategory_ProtocolOnlySkipped()
+    {
+        // Protocol-only categories are skipped: bgen generates static classes
+        // which cannot implement interfaces (CS0714)
+        var module = ObjCModuleBuilder.Create()
+            .WithCategory(new ObjCCategoryDecl
+            {
+                CategoryName = "RLMValue",
+                ClassName = "NSNull",
+                ProtocolNames = ["RLMValue"],
+            })
+            .Build();
+
+        var result = EmitAndRead(module);
+        Assert.DoesNotContain("[Category]", result);
+        Assert.DoesNotContain("NSNull_RLMValue", result);
+    }
+
+    [Fact]
+    public void Emit_ForeignTypeCategoryWithMethods_EmitsMethodsStripsProtocols()
+    {
+        // Categories with methods are emitted, but protocol conformance is stripped
+        // because bgen generates static classes which can't implement interfaces
+        var module = ObjCModuleBuilder.Create()
+            .WithCategory(new ObjCCategoryDecl
+            {
+                CategoryName = "Swift",
+                ClassName = "NSNumber",
+                ProtocolNames = ["RLMInt", "RLMBool"],
+                Methods =
+                [
+                    new ObjCMethodDecl
+                    {
+                        Selector = "rlm_intValue",
+                        ReturnType = SimpleType("int"),
+                        IsInstanceMethod = true,
+                    }
+                ]
+            })
+            .Build();
+
+        var result = EmitAndRead(module);
+        Assert.Contains("[Category]", result);
+        Assert.Contains("[BaseType(typeof(NSNumber))]", result);
+        // Protocol conformance stripped (CS0714: static classes can't implement interfaces)
+        Assert.Contains("partial interface NSNumber_Swift", result);
+        Assert.DoesNotContain("IRLMInt", result);
+        Assert.DoesNotContain("IRLMBool", result);
+        Assert.Contains("[Export(\"rlm_intValue\")]", result);
+        Assert.Contains("int Rlm_intValue()", result);
+    }
+
+    [Fact]
+    public void Emit_ForeignTypeCategoryWithProperties_SkipsInstanceProperties()
+    {
+        // Instance properties are skipped: bgen generates static classes
+        // which cannot have instance members (CS0708)
+        var module = ObjCModuleBuilder.Create()
+            .WithCategory(new ObjCCategoryDecl
+            {
+                CategoryName = "WebCache",
+                ClassName = "UIButton",
+                Methods =
+                [
+                    new ObjCMethodDecl
+                    {
+                        Selector = "sd_setImageWithURL:",
+                        ReturnType = SimpleType("void"),
+                        IsInstanceMethod = true,
+                        Parameters = [new ObjCParameterDecl { Name = "url", Type = SimpleType("NSUrl", isPointer: true) }]
+                    }
+                ],
+                Properties =
+                [
+                    new ObjCPropertyDecl
+                    {
+                        Name = "sd_currentImageURL",
+                        Type = SimpleType("NSUrl", isPointer: true),
+                        IsReadonly = true,
+                        IsClass = false, // instance property — should be skipped
+                    }
+                ]
+            })
+            .Build();
+
+        var result = EmitAndRead(module);
+        Assert.Contains("[Category]", result);
+        // Method emitted as extension method
+        Assert.Contains("Sd_setImageWithURL(", result);
+        // Instance property skipped (CS0708)
+        Assert.DoesNotContain("Sd_currentImageURL", result);
+    }
+
+    [Fact]
+    public void Emit_Category_ClassPropertyOnly_NotSkippedAsEmpty()
+    {
+        // A category with only class (static) properties and no methods should
+        // still be emitted — class properties are valid in static extension classes.
+        var module = ObjCModuleBuilder.Create()
+            .WithCategory(new ObjCCategoryDecl
+            {
+                CategoryName = "Defaults",
+                ClassName = "NSNumber",
+                Properties =
+                [
+                    new ObjCPropertyDecl
+                    {
+                        Name = "defaultValue",
+                        Type = SimpleType("NSNumber", isPointer: true),
+                        IsReadonly = true,
+                        IsClass = true, // class property → valid in static class
+                    }
+                ]
+            })
+            .Build();
+
+        var result = EmitAndRead(module);
+        Assert.Contains("[Category]", result);
+        Assert.Contains("partial interface NSNumber_Defaults", result);
+        Assert.Contains("[Static]", result);
+        Assert.Contains("NSNumber DefaultValue { get; }", result);
     }
 
 }

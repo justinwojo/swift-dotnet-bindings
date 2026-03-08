@@ -38,6 +38,7 @@ public sealed record ObjCMethodDecl
     public bool IsInstanceMethod { get; init; }
     public bool IsOptional { get; init; }
     public bool IsVariadic { get; init; }
+    public bool IsDesignatedInitializer { get; init; }
     public bool IsFromCategory { get; init; }
     public string CategoryName { get; init; } = "";
     public List<ObjCAvailability> Availability { get; init; } = [];

@@ -83,12 +83,6 @@ public static class ObjCPipeline
         {
             module = FilterForMixedFramework(module, excludeTypeNames, logger);
         }
-        else
-        {
-            // Pure ObjC: clear categories — members are already merged inline into classes.
-            // Mixed: FilterForMixedFramework already set Categories to shared-class categories only.
-            module = module with { Categories = [] };
-        }
 
         // Post-hoc mixed validation: require at least one ObjC class, protocol, or category.
         if (isMixed && module.Classes.Count == 0 && module.Protocols.Count == 0 && module.Categories.Count == 0)
@@ -102,7 +96,17 @@ public static class ObjCPipeline
         // 4c. Filter out platform type stubs (types already in the Apple SDK)
         module = FilterPlatformTypeStubs(module, logger);
 
-        // 4d. Detect delegate/data-source protocols and mark them with IsDelegateProtocol
+        // 4d. For pure ObjC frameworks, filter categories to keep only foreign-type categories.
+        // Own-type categories were already merged into their parent classes by the parser.
+        // This MUST run after FilterPlatformTypeStubs (4c) so that SDK stub classes
+        // (e.g., UIButton, MKAnnotationView) have been removed from module.Classes —
+        // otherwise categories on those types would be misclassified as own-type and dropped.
+        if (excludeTypeNames == null || excludeTypeNames.Count == 0)
+        {
+            module = FilterToForeignCategories(module, logger);
+        }
+
+        // 4e. Detect delegate/data-source protocols and mark them with IsDelegateProtocol
         module = DetectDelegateProtocols(module, logger);
 
         // 5. Emit bindings
@@ -152,6 +156,29 @@ public static class ObjCPipeline
         diagnostics.LogSummary(logger);
 
         return new ObjCPipelineResult(0, module, null, apiDefPath, structsPath, projectPath);
+    }
+
+    /// <summary>
+    /// Filters categories to keep only foreign-type categories (base class not defined in this module).
+    /// Own-type categories were already merged into their parent classes by the parser.
+    /// Foreign-type categories (e.g., NSNull+RLMValue declaring NSNull conforms to RLMValue)
+    /// must be preserved and emitted as [Category] binding interfaces.
+    /// </summary>
+    internal static ObjCModule FilterToForeignCategories(ObjCModule module, ILogger logger)
+    {
+        var moduleClassNames = new HashSet<string>(module.Classes.Select(c => c.Name));
+        var foreignCategories = module.Categories
+            .Where(c => !moduleClassNames.Contains(c.ClassName))
+            .ToList();
+
+        if (foreignCategories.Count > 0)
+        {
+            logger.LogInformation(
+                "Preserved {Count} foreign-type category interface(s) for [Category] emission.",
+                foreignCategories.Count);
+        }
+
+        return module with { Categories = foreignCategories };
     }
 
     /// <summary>
