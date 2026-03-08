@@ -1072,6 +1072,56 @@ public class ObjCTypeMapperTests
     }
 
     [Fact]
+    public void MapType_NSArrayWithBlockElement_FallsBackToNSArray()
+    {
+        // NSArray<block_type> — closures don't implement INativeObject
+        var typeRef = new ObjCTypeRef
+        {
+            Name = "NSArray",
+            IsPointer = true,
+            GenericArgs = [new ObjCTypeRef
+            {
+                Name = "Block",
+                IsBlock = true,
+                BlockReturnType = new ObjCTypeRef { Name = "CGImage", IsPointer = true },
+                BlockParams = []
+            }]
+        };
+        Assert.Equal("NSArray", ObjCTypeMapper.MapType(typeRef));
+    }
+
+    [Fact]
+    public void MapType_NSArrayWithNestedNSArray_FallsBackToNSArray()
+    {
+        // NSArray<NSArray<T>> — nested arrays don't implement INativeObject
+        var typeRef = new ObjCTypeRef
+        {
+            Name = "NSArray",
+            IsPointer = true,
+            GenericArgs = [new ObjCTypeRef
+            {
+                Name = "NSArray",
+                IsPointer = true,
+                GenericArgs = [new ObjCTypeRef { Name = "RLMGeospatialPoint", IsPointer = true }]
+            }]
+        };
+        Assert.Equal("NSArray", ObjCTypeMapper.MapType(typeRef));
+    }
+
+    [Fact]
+    public void MapType_NSArrayWithActionPrefixedType_ReturnsTypedArray()
+    {
+        // ObjC types like ActionCodeSettings start with "Action" but are valid INativeObject types
+        var typeRef = new ObjCTypeRef
+        {
+            Name = "NSArray",
+            IsPointer = true,
+            GenericArgs = [new ObjCTypeRef { Name = "ActionCodeSettings", IsPointer = true }]
+        };
+        Assert.Equal("ActionCodeSettings[]", ObjCTypeMapper.MapType(typeRef));
+    }
+
+    [Fact]
     public void MapType_NSArrayWithoutGenericArgs_StillReturnsNSArray()
     {
         // Plain NSArray (no generic args) should still map to NSArray as before

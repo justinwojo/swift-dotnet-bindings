@@ -622,6 +622,14 @@ public static class ObjCTypeMapper
             if (genericTypeParams != null && genericTypeParams.Contains(elemArg.Name))
                 return null;
             var mappedElem = MapType(elemArg, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap);
+            // Closures (Action/Func<>) and nested arrays (T[][]) don't implement INativeObject,
+            // which is required by bgen's NSArray.FromNSObjects<T>() / CFArray.ArrayFromHandle<T>().
+            // Fall back to untyped NSArray for these element types.
+            if (mappedElem == "Action" ||
+                mappedElem.StartsWith("Action<", StringComparison.Ordinal) ||
+                mappedElem.StartsWith("Func<", StringComparison.Ordinal) ||
+                mappedElem.EndsWith("[]", StringComparison.Ordinal))
+                return null;
             return $"{mappedElem}[]";
         }
 
