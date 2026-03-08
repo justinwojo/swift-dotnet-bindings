@@ -166,4 +166,169 @@ public class SubscriptHandlerProjectionTests
     }
 
     #endregion
+
+    #region Top-Level Dispatch Tests
+
+    [Fact]
+    public void GetAccessorGetterConversion_SetProjection_DispatchesToSetHelper()
+    {
+        var elem = new StringProjection();
+        var set = new SetProjection(elem, isParameter: false);
+
+        var (conversion, _) = SubscriptHandler.GetAccessorGetterConversion(set, "result");
+
+        Assert.NotNull(conversion);
+        Assert.Contains(".Select(", conversion!);
+        Assert.Contains(".ToHashSet()", conversion!);
+    }
+
+    [Fact]
+    public void GetAccessorSetterConversion_SetProjection_DispatchesToSetHelper()
+    {
+        var elem = new StringProjection();
+        var set = new SetProjection(elem, isParameter: true);
+
+        var (conversion, _) = SubscriptHandler.GetAccessorSetterConversion(set, "value");
+
+        Assert.NotNull(conversion);
+        Assert.Contains("SwiftSet<", conversion!);
+        Assert.Contains(".FromEnumerable(", conversion!);
+    }
+
+    #endregion
+
+    #region Optional ObjC Getter Tests
+
+    [Fact]
+    public void GetOptionalAccessorGetterConversion_ObjCBridged_ReturnsPointerBridge()
+    {
+        var inner = new ObjCBridgedProjection("UIKit.UIImage");
+        var opt = new OptionalProjection(inner);
+
+        var (conversion, requiresDisposal) = SubscriptHandler.GetOptionalAccessorGetterConversion(opt, "result");
+
+        Assert.NotNull(conversion);
+        Assert.Contains("IntPtr.Zero", conversion!);
+        Assert.Contains("GetNSObject", conversion!);
+        Assert.False(requiresDisposal);
+    }
+
+    [Fact]
+    public void GetOptionalAccessorGetterConversion_ObjCBridged_MatchesPropertyHandler()
+    {
+        var inner = new ObjCBridgedProjection("UIKit.UIImage");
+        var opt = new OptionalProjection(inner);
+
+        var (subConv, subDisp) = SubscriptHandler.GetOptionalAccessorGetterConversion(opt, "result");
+        var (propConv, propDisp) = PropertyHandler.GetOptionalAccessorGetterConversion(opt, "result");
+
+        Assert.Equal(propConv, subConv);
+        Assert.Equal(propDisp, subDisp);
+    }
+
+    #endregion
+
+    #region Optional Setter Parity Tests
+
+    [Fact]
+    public void GetOptionalAccessorSetterConversion_ObjCBridged_ReturnsHandleOrZero()
+    {
+        var inner = new ObjCBridgedProjection("UIKit.UIImage");
+        var opt = new OptionalProjection(inner);
+
+        var (conversion, requiresDisposal) = SubscriptHandler.GetOptionalAccessorSetterConversion(opt, "value");
+
+        Assert.NotNull(conversion);
+        Assert.Contains(".Handle", conversion!);
+        Assert.Contains("IntPtr.Zero", conversion!);
+        Assert.DoesNotContain("SwiftOptional", conversion!);
+        Assert.False(requiresDisposal);
+    }
+
+    [Fact]
+    public void GetOptionalAccessorSetterConversion_ObjCBridged_MatchesPropertyHandler()
+    {
+        var inner = new ObjCBridgedProjection("UIKit.UIImage");
+        var opt = new OptionalProjection(inner);
+
+        var (subConv, subDisp) = SubscriptHandler.GetOptionalAccessorSetterConversion(opt, "value");
+        var (propConv, propDisp) = PropertyHandler.GetOptionalAccessorSetterConversion(opt, "value");
+
+        Assert.Equal(propConv, subConv);
+        Assert.Equal(propDisp, subDisp);
+    }
+
+    [Fact]
+    public void GetOptionalAccessorSetterConversion_ClassInner_UsesSwiftOptionalWrapper()
+    {
+        var inner = new ClassProjection("TestModule.MyClass");
+        var opt = new OptionalProjection(inner);
+
+        var (conversion, requiresDisposal) = SubscriptHandler.GetOptionalAccessorSetterConversion(opt, "value");
+
+        Assert.NotNull(conversion);
+        Assert.Contains("SwiftOptional", conversion!);
+        Assert.Contains("NewSome", conversion!);
+        Assert.Contains("NewNone", conversion!);
+        Assert.True(requiresDisposal);
+    }
+
+    [Fact]
+    public void GetOptionalAccessorSetterConversion_ClassInner_MatchesPropertyHandler()
+    {
+        var inner = new ClassProjection("TestModule.MyClass");
+        var opt = new OptionalProjection(inner);
+
+        var (subConv, subDisp) = SubscriptHandler.GetOptionalAccessorSetterConversion(opt, "value");
+        var (propConv, propDisp) = PropertyHandler.GetOptionalAccessorSetterConversion(opt, "value");
+
+        Assert.Equal(propConv, subConv);
+        Assert.Equal(propDisp, subDisp);
+    }
+
+    [Fact]
+    public void GetOptionalAccessorSetterConversion_ObjCRooted_MatchesPropertyHandler()
+    {
+        var inner = new ObjCRootedClassProjection("UIKit.UIView");
+        var opt = new OptionalProjection(inner);
+
+        var (subConv, subDisp) = SubscriptHandler.GetOptionalAccessorSetterConversion(opt, "value");
+        var (propConv, propDisp) = PropertyHandler.GetOptionalAccessorSetterConversion(opt, "value");
+
+        Assert.Equal(propConv, subConv);
+        Assert.Equal(propDisp, subDisp);
+    }
+
+    #endregion
+
+    #region Optional<Set<T>> Tests
+
+    [Fact]
+    public void GetOptionalAccessorGetterConversion_OptionalSet_ReturnsDiscriminantCheck()
+    {
+        var elem = new StringProjection();
+        var set = new SetProjection(elem, isParameter: false);
+        var opt = new OptionalProjection(set);
+
+        var (conversion, _) = SubscriptHandler.GetOptionalAccessorGetterConversion(opt, "result");
+
+        Assert.NotNull(conversion);
+        Assert.Contains("SwiftOptionalCases.None", conversion!);
+    }
+
+    [Fact]
+    public void GetOptionalAccessorSetterConversion_OptionalSet_WrapsWithSwiftOptional()
+    {
+        var elem = new StringProjection();
+        var set = new SetProjection(elem, isParameter: true);
+        var opt = new OptionalProjection(set);
+
+        var (conversion, _) = SubscriptHandler.GetOptionalAccessorSetterConversion(opt, "value");
+
+        Assert.NotNull(conversion);
+        Assert.Contains("SwiftOptional", conversion!);
+        Assert.Contains("SwiftSet", conversion!);
+    }
+
+    #endregion
 }

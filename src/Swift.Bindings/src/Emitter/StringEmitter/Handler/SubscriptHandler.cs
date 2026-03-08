@@ -82,12 +82,12 @@ namespace BindingsGeneration
                         break;
                     }
                     // Skip subscripts with index parameters that have projections requiring
-                    // complex conversion (dictionary, existential, array, optional). Only
+                    // complex conversion (dictionary, existential, array, set, optional). Only
                     // StringProjection and NativeRemappedProjection have simple conversions
                     // handled by BuildIndexParamConversions.
                     var paramProj = s_projectionFactory.Project(param.SwiftTypeSpec,
                         new ProjectionContext { TypeDatabase = typeDatabase, IsParameter = true });
-                    if (paramProj is DictionaryProjection or ExistentialProjection or ArrayProjection or OptionalProjection)
+                    if (paramProj is DictionaryProjection or ExistentialProjection or ArrayProjection or OptionalProjection or SetProjection)
                     {
                         hasComplexIndexParam = true;
                         break;
@@ -422,7 +422,7 @@ namespace BindingsGeneration
 
         // Getter/setter conversion helpers — same logic as PropertyHandler
 
-        private static (string? conversion, bool requiresDisposal) GetAccessorGetterConversion(
+        internal static (string? conversion, bool requiresDisposal) GetAccessorGetterConversion(
             ITypeProjection projection, string resultExpr)
         {
             return projection switch
@@ -438,7 +438,7 @@ namespace BindingsGeneration
             };
         }
 
-        private static (string? conversion, bool requiresDisposal) GetOptionalAccessorGetterConversion(
+        internal static (string? conversion, bool requiresDisposal) GetOptionalAccessorGetterConversion(
             OptionalProjection opt, string resultExpr)
         {
             var inner = opt.InnerProjection;
@@ -451,6 +451,9 @@ namespace BindingsGeneration
                 SetProjection set => GetOptionalContainerGetterConversion(set, resultExpr),
                 NativeRemappedProjection nrp => ($"(({nrp.SwiftWrapperType}?){resultExpr})?.{nrp.ToConversionMethod}()", true),
                 ClosureProjection => (null, false),
+                // Optional<ObjC>: nullable pointer ABI (nil = IntPtr.Zero)
+                ObjCBridgedProjection objc =>
+                    ($"({resultExpr} == IntPtr.Zero ? null : {MarshallingHelpers.FormatObjCBridgeCall(objc.PublicType, resultExpr)})", false),
                 // Existentials, classes, non-frozen structs: accessor already returns
                 // the projected type — no conversion or disposal needed.
                 ExistentialProjection or ClassProjection or NonFrozenStructProjection or ObjCRootedClassProjection => (null, false),
@@ -519,7 +522,7 @@ namespace BindingsGeneration
             return (null, false);
         }
 
-        private static (string? conversion, bool requiresDisposal) GetAccessorSetterConversion(
+        internal static (string? conversion, bool requiresDisposal) GetAccessorSetterConversion(
             ITypeProjection projection, string valueExpr)
         {
             return projection switch
@@ -583,7 +586,7 @@ namespace BindingsGeneration
             return ($"SwiftSet<{rawElem}>.FromEnumerable({valueExpr})", true);
         }
 
-        private static (string? conversion, bool requiresDisposal) GetOptionalAccessorSetterConversion(
+        internal static (string? conversion, bool requiresDisposal) GetOptionalAccessorSetterConversion(
             OptionalProjection opt, string valueExpr)
         {
             var inner = opt.InnerProjection;
@@ -609,13 +612,30 @@ namespace BindingsGeneration
                 return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({setConv}) : SwiftOptional<{optType}>.NewNone())", true);
             }
 
-            if (inner is ClassProjection or NonFrozenStructProjection or ObjCRootedClassProjection or ExistentialProjection)
+            // Existential inner — passthrough. Optional existentials use nullable interface ABI,
+            // not SwiftOptional wrapping of the existential container.
+            if (inner is ExistentialProjection)
                 return (null, false);
 
+            // Class/NonFrozenStruct inner — accessor methods take the public type directly,
+            // not DangerousGetHandle() (IntPtr). Pass the value as-is; P/Invoke marshalling extracts the handle.
+            if (inner is ClassProjection or NonFrozenStructProjection)
+                return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({valueExpr}Val) : SwiftOptional<{optType}>.NewNone())", true);
+
+            // ObjC bridged inner — nullable pointer ABI, no SwiftOptional wrapper needed
+            if (inner is ObjCBridgedProjection)
+                return ($"({valueExpr} is {{}} {valueExpr}Val ? {valueExpr}Val.Handle : IntPtr.Zero)", false);
+
+            // ObjC-rooted inner — accessor methods take SwiftOptional<T>, pass as-is
+            if (inner is ObjCRootedClassProjection)
+                return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({valueExpr}Val) : SwiftOptional<{optType}>.NewNone())", true);
+
+            // Element conversion (String, NativeRemapped, etc.)
             var innerConv = inner.GetParameterElementConversion($"{valueExpr}Val");
             if (innerConv != null)
                 return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({innerConv}) : SwiftOptional<{optType}>.NewNone())", true);
 
+            // Simple inner type (blittable, enum)
             return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({valueExpr}Val) : SwiftOptional<{optType}>.NewNone())", true);
         }
     }
