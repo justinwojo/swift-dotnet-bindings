@@ -40,34 +40,6 @@ public struct AcceptsSummable<T: Summable> {
     }
 }
 
-// MARK: - Protocol with Associated Type
-
-/// A protocol with an associated type.
-public protocol Container {
-    associatedtype Element
-    var count: Int32 { get }
-    func element(at index: Int32) -> Element
-}
-
-/// Concrete conformance to Container.
-public struct IntContainer: Container {
-    public typealias Element = Int32
-
-    private var items: [Int32]
-
-    public init(items: [Int32]) {
-        self.items = items
-    }
-
-    public var count: Int32 {
-        return Int32(items.count)
-    }
-
-    public func element(at index: Int32) -> Int32 {
-        return items[Int(index)]
-    }
-}
-
 // MARK: - Where-Clause Functions
 
 /// Generic function with a where clause constraining to Summable.

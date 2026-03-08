@@ -214,6 +214,10 @@ FEATURE_MAP = {
         "name": "generic_constraints",
         "features": ["where_clause"]
     },
+    "Generics/AssociatedTypes.swift": {
+        "name": "associated_types",
+        "features": ["protocol_with_associated_type"]
+    },
     "Generics/Existentials.swift": {
         "name": "existentials",
         "features": ["any_protocol_existential"]
