@@ -142,6 +142,28 @@ public class WitnessDispatchEmitter
 
         bool anyEmitted = false;
 
+        // Emit the "// Witness dispatch accessors for {protocolName}" header once
+        void EnsureHeader()
+        {
+            if (!anyEmitted)
+            {
+                writer.WriteLine($"// Witness dispatch accessors for {protocolName}");
+                anyEmitted = true;
+            }
+        }
+
+        void EmitUtf8SliceIfNeeded()
+        {
+            if (NeedsUtf8Slice(protocolDecl))
+                Utf8SliceEmitter.EmitIfNeeded(writer, _emissionContext);
+        }
+
+        void EmitErrorHelperIfNeeded()
+        {
+            ErrorDescriptionEmitter.EmitIfNeeded(writer, _moduleName, _emissionContext);
+            Utf8SliceEmitter.EmitFreeIfNeeded(writer, _moduleName, _emissionContext);
+        }
+
         // Property getters (skip static properties - not part of witness table)
         var emittedPropertyNames = new HashSet<string>();
         foreach (var property in protocolDecl.Properties)
@@ -158,42 +180,23 @@ public class WitnessDispatchEmitter
                 bool isBlittableOrString = IsTypeBlittable(property.SwiftTypeSpec) || IsStringType(property.SwiftTypeSpec);
                 if (isBlittableOrString)
                 {
-                    if (!anyEmitted)
-                    {
-                        writer.WriteLine($"// Witness dispatch accessors for {protocolName}");
-                        anyEmitted = true;
-                    }
-                    if (NeedsUtf8Slice(protocolDecl))
-                    {
-                        Utf8SliceEmitter.EmitIfNeeded(writer, _emissionContext);
-                    }
+                    EnsureHeader();
+                    EmitUtf8SliceIfNeeded();
                     EmitPropertyGetterAccessor(writer, property, protocolDecl, moduleQualifiedName);
                 }
                 else if (IsPropertyClassReturn(property))
                 {
-                    if (!anyEmitted)
-                    {
-                        writer.WriteLine($"// Witness dispatch accessors for {protocolName}");
-                        anyEmitted = true;
-                    }
+                    EnsureHeader();
                     EmitClassReturnPropertyGetterAccessor(writer, property, protocolDecl, moduleQualifiedName);
                 }
                 else if (IsPropertyStructReturn(property))
                 {
-                    if (!anyEmitted)
-                    {
-                        writer.WriteLine($"// Witness dispatch accessors for {protocolName}");
-                        anyEmitted = true;
-                    }
+                    EnsureHeader();
                     EmitStructReturnPropertyGetterAccessor(writer, property, protocolDecl, moduleQualifiedName);
                 }
                 else if (IsPropertyCollectionReturn(property))
                 {
-                    if (!anyEmitted)
-                    {
-                        writer.WriteLine($"// Witness dispatch accessors for {protocolName}");
-                        anyEmitted = true;
-                    }
+                    EnsureHeader();
                     EmitCollectionReturnPropertyGetterAccessor(writer, property, protocolDecl, moduleQualifiedName);
                 }
             }
@@ -211,15 +214,8 @@ public class WitnessDispatchEmitter
             bool isSetterBlittableOrString = IsTypeBlittable(property.SwiftTypeSpec) || IsStringType(property.SwiftTypeSpec);
             if (hasSetter && isSetterBlittableOrString)
             {
-                if (!anyEmitted)
-                {
-                    writer.WriteLine($"// Witness dispatch accessors for {protocolName}");
-                    anyEmitted = true;
-                }
-                if (NeedsUtf8Slice(protocolDecl))
-                {
-                    Utf8SliceEmitter.EmitIfNeeded(writer, _emissionContext);
-                }
+                EnsureHeader();
+                EmitUtf8SliceIfNeeded();
                 EmitPropertySetterAccessor(writer, property, protocolDecl, moduleQualifiedName);
             }
         }
@@ -240,102 +236,47 @@ public class WitnessDispatchEmitter
             var kind = ClassifyMethodDispatch(method);
             if (kind == MethodDispatchKind.BlittableOrString)
             {
-                if (!anyEmitted)
-                {
-                    writer.WriteLine($"// Witness dispatch accessors for {protocolName}");
-                    anyEmitted = true;
-                }
-                if (NeedsUtf8Slice(protocolDecl))
-                {
-                    Utf8SliceEmitter.EmitIfNeeded(writer, _emissionContext);
-                }
+                EnsureHeader();
+                EmitUtf8SliceIfNeeded();
                 EmitMethodAccessor(writer, method, protocolDecl, moduleQualifiedName, idx);
             }
             else if (kind == MethodDispatchKind.ThrowingBlittableOrString)
             {
-                if (!anyEmitted)
-                {
-                    writer.WriteLine($"// Witness dispatch accessors for {protocolName}");
-                    anyEmitted = true;
-                }
-                if (NeedsUtf8Slice(protocolDecl))
-                {
-                    Utf8SliceEmitter.EmitIfNeeded(writer, _emissionContext);
-                }
-                ErrorDescriptionEmitter.EmitIfNeeded(writer, _moduleName, _emissionContext);
-                Utf8SliceEmitter.EmitFreeIfNeeded(writer, _moduleName, _emissionContext);
+                EnsureHeader();
+                EmitUtf8SliceIfNeeded();
+                EmitErrorHelperIfNeeded();
                 EmitThrowingMethodAccessor(writer, method, protocolDecl, moduleQualifiedName, idx);
             }
             else if (kind == MethodDispatchKind.ExistentialReturn)
             {
-                if (!anyEmitted)
-                {
-                    writer.WriteLine($"// Witness dispatch accessors for {protocolName}");
-                    anyEmitted = true;
-                }
-                if (NeedsUtf8Slice(protocolDecl))
-                {
-                    Utf8SliceEmitter.EmitIfNeeded(writer, _emissionContext);
-                }
+                EnsureHeader();
+                EmitUtf8SliceIfNeeded();
                 if (method.Throws)
-                {
-                    ErrorDescriptionEmitter.EmitIfNeeded(writer, _moduleName, _emissionContext);
-                    Utf8SliceEmitter.EmitFreeIfNeeded(writer, _moduleName, _emissionContext);
-                }
+                    EmitErrorHelperIfNeeded();
                 EmitExistentialMethodAccessor(writer, method, protocolDecl, moduleQualifiedName, idx);
             }
             else if (kind == MethodDispatchKind.ClassReturn)
             {
-                if (!anyEmitted)
-                {
-                    writer.WriteLine($"// Witness dispatch accessors for {protocolName}");
-                    anyEmitted = true;
-                }
-                if (NeedsUtf8Slice(protocolDecl))
-                {
-                    Utf8SliceEmitter.EmitIfNeeded(writer, _emissionContext);
-                }
+                EnsureHeader();
+                EmitUtf8SliceIfNeeded();
                 if (method.Throws)
-                {
-                    ErrorDescriptionEmitter.EmitIfNeeded(writer, _moduleName, _emissionContext);
-                    Utf8SliceEmitter.EmitFreeIfNeeded(writer, _moduleName, _emissionContext);
-                }
+                    EmitErrorHelperIfNeeded();
                 EmitClassReturnMethodAccessor(writer, method, protocolDecl, moduleQualifiedName, idx);
             }
             else if (kind == MethodDispatchKind.StructReturn)
             {
-                if (!anyEmitted)
-                {
-                    writer.WriteLine($"// Witness dispatch accessors for {protocolName}");
-                    anyEmitted = true;
-                }
-                if (NeedsUtf8Slice(protocolDecl))
-                {
-                    Utf8SliceEmitter.EmitIfNeeded(writer, _emissionContext);
-                }
+                EnsureHeader();
+                EmitUtf8SliceIfNeeded();
                 if (method.Throws)
-                {
-                    ErrorDescriptionEmitter.EmitIfNeeded(writer, _moduleName, _emissionContext);
-                    Utf8SliceEmitter.EmitFreeIfNeeded(writer, _moduleName, _emissionContext);
-                }
+                    EmitErrorHelperIfNeeded();
                 EmitStructReturnMethodAccessor(writer, method, protocolDecl, moduleQualifiedName, idx);
             }
             else if (kind == MethodDispatchKind.BoundGenericReturn)
             {
-                if (!anyEmitted)
-                {
-                    writer.WriteLine($"// Witness dispatch accessors for {protocolName}");
-                    anyEmitted = true;
-                }
-                if (NeedsUtf8Slice(protocolDecl))
-                {
-                    Utf8SliceEmitter.EmitIfNeeded(writer, _emissionContext);
-                }
+                EnsureHeader();
+                EmitUtf8SliceIfNeeded();
                 if (method.Throws)
-                {
-                    ErrorDescriptionEmitter.EmitIfNeeded(writer, _moduleName, _emissionContext);
-                    Utf8SliceEmitter.EmitFreeIfNeeded(writer, _moduleName, _emissionContext);
-                }
+                    EmitErrorHelperIfNeeded();
                 EmitCollectionReturnMethodAccessor(writer, method, protocolDecl, moduleQualifiedName, idx);
             }
         }
@@ -1539,18 +1480,22 @@ public class WitnessDispatchEmitter
         return string.Join(" & ", protocols.Select(p => p.Name));
     }
 
-    private void EmitExistentialMethodAccessor(SwiftWriter writer, MethodDecl method, ProtocolDecl protocolDecl, string moduleQualifiedName, int index)
+    /// <summary>
+    /// Emits a witness dispatch accessor for methods returning heap-allocated pointer results.
+    /// Shared by ExistentialReturn (any Protocol) and BoundGenericReturn (Array, Dictionary, Set).
+    /// Pattern: allocate typed pointer → initialize → return UnsafeMutableRawPointer.
+    /// Handles throwing (do/catch + errorOut) and optional return (if let unwrap).
+    /// Also emits a typed free function for deinitialize + deallocate.
+    /// </summary>
+    /// <param name="swiftTypeName">The Swift type for allocation, e.g., "any SmartCardIO.Card" or "[String]".</param>
+    /// <param name="isOptionalReturn">True for Optional&lt;any Protocol&gt; return types (existential only).</param>
+    private void EmitHeapAllocatedSwiftAccessor(
+        SwiftWriter writer, MethodDecl method, ProtocolDecl protocolDecl,
+        string moduleQualifiedName, int index,
+        string swiftTypeName,
+        bool isOptionalReturn = false)
     {
         var protocolName = protocolDecl.Name;
-        var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
-        var swiftExistentialType = GetSwiftExistentialTypeName(returnType!);
-        if (swiftExistentialType == null)
-            return; // Should not happen — IsExistentialDispatchable already validated
-
-        // Detect optional existential return
-        var existentialHandler = new ExistentialHandler(_typeDatabase);
-        bool isOptionalReturn = existentialHandler.IsOptionalExistential(returnType!);
-
         var accessorSymbol = GetAccessorSymbol(protocolName, "method", method.Name, index);
         var freeSymbol = GetFreeSymbol(protocolName, "method", method.Name, index);
 
@@ -1601,8 +1546,8 @@ public class WitnessDispatchEmitter
             // Note: throwing + optional is gated out in ClassifyMethodDispatch
             writer.WriteLine("do {");
             writer.Indent++;
-            writer.WriteLine($"let result: any {swiftExistentialType} = {tryPrefix}existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
-            writer.WriteLine($"let ptr = UnsafeMutablePointer<any {swiftExistentialType}>.allocate(capacity: 1)");
+            writer.WriteLine($"let result: {swiftTypeName} = {tryPrefix}existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
+            writer.WriteLine($"let ptr = UnsafeMutablePointer<{swiftTypeName}>.allocate(capacity: 1)");
             writer.WriteLine("ptr.initialize(to: result)");
             writer.WriteLine("return UnsafeMutableRawPointer(ptr)");
             writer.Indent--;
@@ -1616,10 +1561,10 @@ public class WitnessDispatchEmitter
         else if (isOptionalReturn)
         {
             // Optional existential pattern: if let unwrap, nil = .none
-            writer.WriteLine($"let result: (any {swiftExistentialType})? = existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
+            writer.WriteLine($"let result: ({swiftTypeName})? = existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
             writer.WriteLine("if let unwrapped = result {");
             writer.Indent++;
-            writer.WriteLine($"let ptr = UnsafeMutablePointer<any {swiftExistentialType}>.allocate(capacity: 1)");
+            writer.WriteLine($"let ptr = UnsafeMutablePointer<{swiftTypeName}>.allocate(capacity: 1)");
             writer.WriteLine("ptr.initialize(to: unwrapped)");
             writer.WriteLine("return UnsafeMutableRawPointer(ptr)");
             writer.Indent--;
@@ -1629,8 +1574,8 @@ public class WitnessDispatchEmitter
         else
         {
             // Non-throwing, non-optional pattern: direct allocation
-            writer.WriteLine($"let result: any {swiftExistentialType} = existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
-            writer.WriteLine($"let ptr = UnsafeMutablePointer<any {swiftExistentialType}>.allocate(capacity: 1)");
+            writer.WriteLine($"let result: {swiftTypeName} = existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
+            writer.WriteLine($"let ptr = UnsafeMutablePointer<{swiftTypeName}>.allocate(capacity: 1)");
             writer.WriteLine("ptr.initialize(to: result)");
             writer.WriteLine("return UnsafeMutableRawPointer(ptr)");
         }
@@ -1641,14 +1586,33 @@ public class WitnessDispatchEmitter
 
         // Emit free function — typed deinitialize for ARC-safe cleanup
         // For optional: only called when result is non-nil
+        // For "any" types: need parentheses in .self expression: (any Protocol).self
+        var freeTypeSelf = swiftTypeName.StartsWith("any ", StringComparison.Ordinal)
+            ? $"({swiftTypeName}).self"
+            : $"{swiftTypeName}.self";
+
         writer.WriteLines($$"""
             @_silgen_name("{{freeSymbol}}")
             public func {{freeSymbol}}(_ ptr: UnsafeMutableRawPointer) {
-                ptr.assumingMemoryBound(to: (any {{swiftExistentialType}}).self).deinitialize(count: 1)
+                ptr.assumingMemoryBound(to: {{freeTypeSelf}}).deinitialize(count: 1)
                 ptr.deallocate()
             }
 
             """);
+    }
+
+    private void EmitExistentialMethodAccessor(SwiftWriter writer, MethodDecl method, ProtocolDecl protocolDecl, string moduleQualifiedName, int index)
+    {
+        var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+        var swiftExistentialType = GetSwiftExistentialTypeName(returnType!);
+        if (swiftExistentialType == null)
+            return; // Should not happen — IsExistentialDispatchable already validated
+
+        var existentialHandler = new ExistentialHandler(_typeDatabase);
+        bool isOptionalReturn = existentialHandler.IsOptionalExistential(returnType!);
+
+        EmitHeapAllocatedSwiftAccessor(writer, method, protocolDecl, moduleQualifiedName, index,
+            $"any {swiftExistentialType}", isOptionalReturn);
     }
 
     /// <summary>
@@ -1895,95 +1859,13 @@ public class WitnessDispatchEmitter
     /// </summary>
     private void EmitCollectionReturnMethodAccessor(SwiftWriter writer, MethodDecl method, ProtocolDecl protocolDecl, string moduleQualifiedName, int index)
     {
-        var protocolName = protocolDecl.Name;
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var swiftCollectionType = GetSwiftCollectionTypeString(returnType!);
         if (swiftCollectionType == null)
             return;
 
-        var accessorSymbol = GetAccessorSymbol(protocolName, "method", method.Name, index);
-        var freeSymbol = GetFreeSymbol(protocolName, "method", method.Name, index);
-
-        // Build Swift parameter list: containerPtr + one UnsafeRawPointer per param
-        // + errorOut if throwing
-        var swiftParams = new List<string> { "_ containerPtr: UnsafeRawPointer" };
-        for (int i = 0; i < method.CSSignature.Count - 1; i++)
-        {
-            swiftParams.Add($"_ arg{i}Ptr: UnsafeRawPointer");
-        }
-        if (method.Throws)
-        {
-            swiftParams.Add("_ errorOut: UnsafeMutablePointer<UnsafeRawPointer?>");
-        }
-        var swiftParamsString = string.Join(", ", swiftParams);
-
-        // Return type: UnsafeMutableRawPointer (nullable if throwing — nil means error)
-        var swiftReturnDecl = method.Throws
-            ? " -> UnsafeMutableRawPointer?"
-            : " -> UnsafeMutableRawPointer";
-
-        writer.WriteLine($"@_silgen_name(\"{accessorSymbol}\")");
-        writer.WriteLine($"public func {accessorSymbol}({swiftParamsString}){swiftReturnDecl} {{");
-        writer.Indent++;
-
-        // Load existential from container
-        writer.WriteLine($"let existential = containerPtr.load(as: (any {moduleQualifiedName}).self)");
-
-        // Unmarshal parameters
-        var callArgs = new List<string>();
-        int argIdx = 0;
-        foreach (var param in method.CSSignature.Skip(1))
-        {
-            EmitParameterUnmarshal(writer, param, argIdx);
-            callArgs.Add($"arg{argIdx}");
-            argIdx++;
-        }
-
-        // Build labeled args
-        var labeledArgs = BuildLabeledArgs(method, callArgs);
-        var callArgsString = string.Join(", ", labeledArgs);
-
-        var tryPrefix = method.Throws ? "try " : "";
-
-        if (method.Throws)
-        {
-            // Throwing pattern: do/catch with error out-parameter
-            writer.WriteLine("do {");
-            writer.Indent++;
-            writer.WriteLine($"let result: {swiftCollectionType} = {tryPrefix}existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
-            writer.WriteLine($"let ptr = UnsafeMutablePointer<{swiftCollectionType}>.allocate(capacity: 1)");
-            writer.WriteLine("ptr.initialize(to: result)");
-            writer.WriteLine("return UnsafeMutableRawPointer(ptr)");
-            writer.Indent--;
-            writer.WriteLine("} catch {");
-            writer.Indent++;
-            writer.WriteLine("errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()");
-            writer.WriteLine("return nil");
-            writer.Indent--;
-            writer.WriteLine("}");
-        }
-        else
-        {
-            // Non-throwing pattern: direct allocation
-            writer.WriteLine($"let result: {swiftCollectionType} = existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
-            writer.WriteLine($"let ptr = UnsafeMutablePointer<{swiftCollectionType}>.allocate(capacity: 1)");
-            writer.WriteLine("ptr.initialize(to: result)");
-            writer.WriteLine("return UnsafeMutableRawPointer(ptr)");
-        }
-
-        writer.Indent--;
-        writer.WriteLine("}");
-        writer.WriteLine();
-
-        // Emit free function — typed deinitialize for memory-safe cleanup
-        writer.WriteLines($$"""
-            @_silgen_name("{{freeSymbol}}")
-            public func {{freeSymbol}}(_ ptr: UnsafeMutableRawPointer) {
-                ptr.assumingMemoryBound(to: {{swiftCollectionType}}.self).deinitialize(count: 1)
-                ptr.deallocate()
-            }
-
-            """);
+        EmitHeapAllocatedSwiftAccessor(writer, method, protocolDecl, moduleQualifiedName, index,
+            swiftCollectionType);
     }
 
     /// <summary>

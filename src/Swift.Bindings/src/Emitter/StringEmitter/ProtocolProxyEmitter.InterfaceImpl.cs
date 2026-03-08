@@ -892,31 +892,20 @@ public partial class ProtocolProxyEmitter
     }
 
     /// <summary>
-    /// Emits the C# dispatch body for methods that return protocol existentials.
-    /// Uses typed pointer allocation on the Swift side, Unsafe.Read on the C# side to
-    /// recover the ExistentialContainer, and constructs a proxy class instance.
-    /// Throwing methods use error out-parameter pattern matching GenericClosureBridgeEmitter.
+    /// Emits the common C# dispatch body for methods that return heap-allocated pointer results
+    /// (ExistentialReturn and BoundGenericReturn). Both use the same pattern:
+    /// _csharpImpl delegation → fixed container → pin handles → marshal params → P/Invoke → error check → result.
     /// </summary>
-    private void EmitExistentialReturnMethodBody(
-        CSharpWriter writer, MethodDecl method, ProtocolDecl protocolDecl,
+    private void EmitHeapPointerMethodBody(
+        CSharpWriter writer, MethodDecl method,
         WitnessDispatchEmitter dispatchEmitter,
-        int methodIndex, string methodName, string argsString,
+        string methodName, string argsString,
         List<string> argNames, List<TypeSpec?> paramSwiftTypeSpecs,
-        TypeSpec returnType, string returnTypeName)
+        string accessorSymbol, string freeSymbol,
+        string resultExpression,
+        string? resultPreamble = null,
+        bool isOptionalReturn = false)
     {
-        var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolDecl.Name, "method", method.Name, methodIndex);
-        var freeSymbol = WitnessDispatchEmitter.GetFreeSymbol(protocolDecl.Name, "method", method.Name, methodIndex);
-
-        // Resolve the existential container type and proxy class name
-        var existentialHandler = new ExistentialHandler(_typeDatabase) { CurrentModuleName = _moduleName };
-        bool isOptionalExistential = existentialHandler.IsOptionalExistential(returnType);
-        var protocolList = isOptionalExistential
-            ? existentialHandler.UnwrapOptionalExistential(returnType)
-            : existentialHandler.ToProtocolListTypeSpec(returnType);
-        var containerType = existentialHandler.GetCSharpExistentialType(protocolList!);
-        existentialHandler.TryGetFilteredProxyClassName(protocolList!, out var proxyClassName);
-        proxyClassName = existentialHandler.QualifyProxyClassName(proxyClassName, protocolList!);
-
         writer.WriteLines($$"""
             if (_csharpImpl != null)
                 return _csharpImpl.{{methodName}}({{argsString}});
@@ -957,59 +946,93 @@ public partial class ProtocolProxyEmitter
                 IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
                 if (resultPtr == IntPtr.Zero)
                 {
-                    string _errorMessage;
-                    var _descPtr = NativeMethods.SBW_GetErrorDescription(errorOut);
+                """);
+            writer.Indent++;
+            EmitSwiftErrorHandling(writer);
+            writer.Indent--;
+            if (resultPreamble != null)
+            {
+                writer.WriteLines($$"""
+                    }
                     try
                     {
-                        _errorMessage = _descPtr != IntPtr.Zero
-                            ? global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
-                            : "Unknown Swift error";
+                        {{resultPreamble}}
+                        return {{resultExpression}};
                     }
-                    finally
+                    finally { NativeMethods.{{freeSymbol}}(resultPtr); }
+                    """);
+            }
+            else
+            {
+                writer.WriteLines($$"""
+                    }
+                    try
                     {
-                        if (_descPtr != IntPtr.Zero) NativeMethods.SBW_Free(_descPtr);
-                        NativeMethods.SBW_ReleaseError(errorOut);
+                        return {{resultExpression}};
                     }
-                    throw new Swift.Runtime.SwiftException(_errorMessage);
-                }
-                try
-                {
-                    var container = Unsafe.Read<{{containerType}}>((void*)resultPtr);
-                    return new {{proxyClassName}}(container);
-                }
-                finally { NativeMethods.{{freeSymbol}}(resultPtr); }
-                """);
+                    finally { NativeMethods.{{freeSymbol}}(resultPtr); }
+                    """);
+            }
         }
-        else if (isOptionalExistential)
+        else if (isOptionalReturn)
         {
             var pInvokeArgsString = string.Join(", ", pInvokeArgs);
 
             // Optional existential pattern: IntPtr.Zero → return null
-            writer.WriteLines($$"""
-                IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
-                if (resultPtr == IntPtr.Zero) return null;
-                try
-                {
-                    var container = Unsafe.Read<{{containerType}}>((void*)resultPtr);
-                    return new {{proxyClassName}}(container);
-                }
-                finally { NativeMethods.{{freeSymbol}}(resultPtr); }
-                """);
+            if (resultPreamble != null)
+            {
+                writer.WriteLines($$"""
+                    IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
+                    if (resultPtr == IntPtr.Zero) return null;
+                    try
+                    {
+                        {{resultPreamble}}
+                        return {{resultExpression}};
+                    }
+                    finally { NativeMethods.{{freeSymbol}}(resultPtr); }
+                    """);
+            }
+            else
+            {
+                writer.WriteLines($$"""
+                    IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
+                    if (resultPtr == IntPtr.Zero) return null;
+                    try
+                    {
+                        return {{resultExpression}};
+                    }
+                    finally { NativeMethods.{{freeSymbol}}(resultPtr); }
+                    """);
+            }
         }
         else
         {
             var pInvokeArgsString = string.Join(", ", pInvokeArgs);
 
             // Non-throwing, non-optional pattern: direct allocation
-            writer.WriteLines($$"""
-                IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
-                try
-                {
-                    var container = Unsafe.Read<{{containerType}}>((void*)resultPtr);
-                    return new {{proxyClassName}}(container);
-                }
-                finally { NativeMethods.{{freeSymbol}}(resultPtr); }
-                """);
+            if (resultPreamble != null)
+            {
+                writer.WriteLines($$"""
+                    IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
+                    try
+                    {
+                        {{resultPreamble}}
+                        return {{resultExpression}};
+                    }
+                    finally { NativeMethods.{{freeSymbol}}(resultPtr); }
+                    """);
+            }
+            else
+            {
+                writer.WriteLines($$"""
+                    IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
+                    try
+                    {
+                        return {{resultExpression}};
+                    }
+                    finally { NativeMethods.{{freeSymbol}}(resultPtr); }
+                    """);
+            }
         }
 
         if (needsOuterTry)
@@ -1026,6 +1049,39 @@ public partial class ProtocolProxyEmitter
 
         writer.Indent--;
         writer.WriteLine("}");
+    }
+
+    /// <summary>
+    /// Emits the C# dispatch body for methods that return protocol existentials.
+    /// Uses typed pointer allocation on the Swift side, Unsafe.Read on the C# side to
+    /// recover the ExistentialContainer, and constructs a proxy class instance.
+    /// Throwing methods use error out-parameter pattern matching GenericClosureBridgeEmitter.
+    /// </summary>
+    private void EmitExistentialReturnMethodBody(
+        CSharpWriter writer, MethodDecl method, ProtocolDecl protocolDecl,
+        WitnessDispatchEmitter dispatchEmitter,
+        int methodIndex, string methodName, string argsString,
+        List<string> argNames, List<TypeSpec?> paramSwiftTypeSpecs,
+        TypeSpec returnType, string returnTypeName)
+    {
+        var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolDecl.Name, "method", method.Name, methodIndex);
+        var freeSymbol = WitnessDispatchEmitter.GetFreeSymbol(protocolDecl.Name, "method", method.Name, methodIndex);
+
+        // Resolve the existential container type and proxy class name
+        var existentialHandler = new ExistentialHandler(_typeDatabase) { CurrentModuleName = _moduleName };
+        bool isOptionalExistential = existentialHandler.IsOptionalExistential(returnType);
+        var protocolList = isOptionalExistential
+            ? existentialHandler.UnwrapOptionalExistential(returnType)
+            : existentialHandler.ToProtocolListTypeSpec(returnType);
+        var containerType = existentialHandler.GetCSharpExistentialType(protocolList!);
+        existentialHandler.TryGetFilteredProxyClassName(protocolList!, out var proxyClassName);
+        proxyClassName = existentialHandler.QualifyProxyClassName(proxyClassName, protocolList!);
+
+        var resultPreamble = $"var container = Unsafe.Read<{containerType}>((void*)resultPtr);";
+        var resultExpression = $"new {proxyClassName}(container)";
+        EmitHeapPointerMethodBody(writer, method, dispatchEmitter,
+            methodName, argsString, argNames, paramSwiftTypeSpecs,
+            accessorSymbol, freeSymbol, resultExpression, resultPreamble, isOptionalReturn: isOptionalExistential);
     }
 
     /// <summary>
@@ -1085,20 +1141,11 @@ public partial class ProtocolProxyEmitter
                     IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
                     if (resultPtr == IntPtr.Zero)
                     {
-                        string _errorMessage;
-                        var _descPtr = NativeMethods.SBW_GetErrorDescription(errorOut);
-                        try
-                        {
-                            _errorMessage = _descPtr != IntPtr.Zero
-                                ? global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
-                                : "Unknown Swift error";
-                        }
-                        finally
-                        {
-                            if (_descPtr != IntPtr.Zero) NativeMethods.SBW_Free(_descPtr);
-                            NativeMethods.SBW_ReleaseError(errorOut);
-                        }
-                        throw new Swift.Runtime.SwiftException(_errorMessage);
+                    """);
+                writer.Indent++;
+                EmitSwiftErrorHandling(writer);
+                writer.Indent--;
+                writer.WriteLines($$"""
                     }
                     try
                     {
@@ -1123,20 +1170,11 @@ public partial class ProtocolProxyEmitter
                     IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
                     if (resultPtr == IntPtr.Zero)
                     {
-                        string _errorMessage;
-                        var _descPtr = NativeMethods.SBW_GetErrorDescription(errorOut);
-                        try
-                        {
-                            _errorMessage = _descPtr != IntPtr.Zero
-                                ? global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
-                                : "Unknown Swift error";
-                        }
-                        finally
-                        {
-                            if (_descPtr != IntPtr.Zero) NativeMethods.SBW_Free(_descPtr);
-                            NativeMethods.SBW_ReleaseError(errorOut);
-                        }
-                        throw new Swift.Runtime.SwiftException(_errorMessage);
+                    """);
+                writer.Indent++;
+                EmitSwiftErrorHandling(writer);
+                writer.Indent--;
+                writer.WriteLines($$"""
                     }
                     try { return MarshalFromSwift<{{marshalReturnType}}>(resultPtr); }
                     finally
@@ -1201,20 +1239,11 @@ public partial class ProtocolProxyEmitter
                 NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
                 if (errorOut != IntPtr.Zero)
                 {
-                    string _errorMessage;
-                    var _descPtr = NativeMethods.SBW_GetErrorDescription(errorOut);
-                    try
-                    {
-                        _errorMessage = _descPtr != IntPtr.Zero
-                            ? global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
-                            : "Unknown Swift error";
-                    }
-                    finally
-                    {
-                        if (_descPtr != IntPtr.Zero) NativeMethods.SBW_Free(_descPtr);
-                        NativeMethods.SBW_ReleaseError(errorOut);
-                    }
-                    throw new Swift.Runtime.SwiftException(_errorMessage);
+                """);
+            writer.Indent++;
+            EmitSwiftErrorHandling(writer);
+            writer.Indent--;
+            writer.WriteLines("""
                 }
                 """);
 
@@ -1290,20 +1319,11 @@ public partial class ProtocolProxyEmitter
                 IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
                 if (resultPtr == IntPtr.Zero)
                 {
-                    string _errorMessage;
-                    var _descPtr = NativeMethods.SBW_GetErrorDescription(errorOut);
-                    try
-                    {
-                        _errorMessage = _descPtr != IntPtr.Zero
-                            ? global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
-                            : "Unknown Swift error";
-                    }
-                    finally
-                    {
-                        if (_descPtr != IntPtr.Zero) NativeMethods.SBW_Free(_descPtr);
-                        NativeMethods.SBW_ReleaseError(errorOut);
-                    }
-                    throw new Swift.Runtime.SwiftException(_errorMessage);
+                """);
+            writer.Indent++;
+            EmitSwiftErrorHandling(writer);
+            writer.Indent--;
+            writer.WriteLines($$"""
                 }
                 unsafe
                 {
@@ -1427,20 +1447,11 @@ public partial class ProtocolProxyEmitter
                         NativeMethods.{{accessorSymbol}}({{throwingPInvokeArgsString}});
                         if (errorOut != IntPtr.Zero)
                         {
-                            string _errorMessage;
-                            var _descPtr = NativeMethods.SBW_GetErrorDescription(errorOut);
-                            try
-                            {
-                                _errorMessage = _descPtr != IntPtr.Zero
-                                    ? global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
-                                    : "Unknown Swift error";
-                            }
-                            finally
-                            {
-                                if (_descPtr != IntPtr.Zero) NativeMethods.SBW_Free(_descPtr);
-                                NativeMethods.SBW_ReleaseError(errorOut);
-                            }
-                            throw new Swift.Runtime.SwiftException(_errorMessage);
+                """);
+            writer.Indent += 3;
+            EmitSwiftErrorHandling(writer);
+            writer.Indent -= 3;
+            writer.WriteLines($$"""
                         }
                         return ({{returnTypeName}})Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{{returnTypeName}}>(buffer);
                     }
@@ -1629,99 +1640,35 @@ public partial class ProtocolProxyEmitter
         var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolDecl.Name, "method", method.Name, methodIndex);
         var freeSymbol = WitnessDispatchEmitter.GetFreeSymbol(protocolDecl.Name, "method", method.Name, methodIndex);
 
-        var marshalExpr = GetCollectionMarshalExpression(returnType, "resultPtr");
+        var resultExpression = GetCollectionMarshalExpression(returnType, "resultPtr");
+        EmitHeapPointerMethodBody(writer, method, dispatchEmitter,
+            methodName, argsString, argNames, paramSwiftTypeSpecs,
+            accessorSymbol, freeSymbol, resultExpression);
+    }
 
-        writer.WriteLines($$"""
-            if (_csharpImpl != null)
-                return _csharpImpl.{{methodName}}({{argsString}});
-            fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
+    /// <summary>
+    /// Emits the standard Swift error handling block that converts an error pointer
+    /// to a SwiftException. Used by all throwing witness dispatch paths.
+    /// Caller must set writer.Indent to the correct level (typically inside an if-error block).
+    /// </summary>
+    private static void EmitSwiftErrorHandling(CSharpWriter writer)
+    {
+        writer.WriteLines("""
+            string _errorMessage;
+            var _descPtr = NativeMethods.SBW_GetErrorDescription(errorOut);
+            try
             {
+                _errorMessage = _descPtr != IntPtr.Zero
+                    ? global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
+                    : "Unknown Swift error";
+            }
+            finally
+            {
+                if (_descPtr != IntPtr.Zero) NativeMethods.SBW_Free(_descPtr);
+                NativeMethods.SBW_ReleaseError(errorOut);
+            }
+            throw new Swift.Runtime.SwiftException(_errorMessage);
             """);
-        writer.Indent++;
-
-        // Declare pin handles before try for exception-safe cleanup
-        var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs);
-        bool needsOuterTry = pinHandles.Count > 0;
-
-        if (needsOuterTry)
-        {
-            writer.WriteLine("try");
-            writer.WriteLine("{");
-            writer.Indent++;
-        }
-
-        // Marshal each parameter
-        EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, dispatchEmitter);
-
-        // Build P/Invoke call args
-        var pInvokeArgs = new List<string> { "(IntPtr)containerPtr" };
-        for (int i = 0; i < argNames.Count; i++)
-        {
-            pInvokeArgs.Add($"(IntPtr)(&arg{i}Slice)");
-        }
-
-        if (method.Throws)
-        {
-            pInvokeArgs.Add("(IntPtr)(&errorOut)");
-            var pInvokeArgsString = string.Join(", ", pInvokeArgs);
-
-            // Throwing pattern: error out-parameter, null result means error
-            writer.WriteLines($$"""
-                IntPtr errorOut = IntPtr.Zero;
-                IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
-                if (resultPtr == IntPtr.Zero)
-                {
-                    string _errorMessage;
-                    var _descPtr = NativeMethods.SBW_GetErrorDescription(errorOut);
-                    try
-                    {
-                        _errorMessage = _descPtr != IntPtr.Zero
-                            ? global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
-                            : "Unknown Swift error";
-                    }
-                    finally
-                    {
-                        if (_descPtr != IntPtr.Zero) NativeMethods.SBW_Free(_descPtr);
-                        NativeMethods.SBW_ReleaseError(errorOut);
-                    }
-                    throw new Swift.Runtime.SwiftException(_errorMessage);
-                }
-                try
-                {
-                    return {{marshalExpr}};
-                }
-                finally { NativeMethods.{{freeSymbol}}(resultPtr); }
-                """);
-        }
-        else
-        {
-            var pInvokeArgsString = string.Join(", ", pInvokeArgs);
-
-            // Non-throwing pattern: direct allocation
-            writer.WriteLines($$"""
-                IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
-                try
-                {
-                    return {{marshalExpr}};
-                }
-                finally { NativeMethods.{{freeSymbol}}(resultPtr); }
-                """);
-        }
-
-        if (needsOuterTry)
-        {
-            writer.Indent--;
-            writer.WriteLine("}");
-            writer.WriteLine("finally");
-            writer.WriteLine("{");
-            writer.Indent++;
-            EmitPinHandleCleanup(writer, pinHandles);
-            writer.Indent--;
-            writer.WriteLine("}");
-        }
-
-        writer.Indent--;
-        writer.WriteLine("}");
     }
 
     /// <summary>
