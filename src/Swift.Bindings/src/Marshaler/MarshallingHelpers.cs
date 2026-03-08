@@ -26,64 +26,42 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Determines whether the specified type spec represents Swift.String.
+        /// Checks whether a type spec is a <see cref="NamedTypeSpec"/> with a module
+        /// and matches the given <paramref name="expectedName"/>.
         /// </summary>
-        public static bool IsSwiftString(TypeSpec? typeSpec)
+        private static bool MatchesSwiftTypeName(TypeSpec? typeSpec, SwiftTypeName expectedName)
         {
             if (typeSpec is not NamedTypeSpec namedTypeSpec)
                 return false;
             if (!namedTypeSpec.HasModule())
                 return false;
-            return SwiftTypeName.FromTypeSpec(namedTypeSpec).Equals(SwiftStringTypeName);
+            return SwiftTypeName.FromTypeSpec(namedTypeSpec).Equals(expectedName);
         }
+
+        /// <summary>
+        /// Determines whether the specified type spec represents Swift.String.
+        /// </summary>
+        public static bool IsSwiftString(TypeSpec? typeSpec) => MatchesSwiftTypeName(typeSpec, SwiftStringTypeName);
 
         /// <summary>
         /// Determines whether the specified type spec represents Swift.Array.
         /// </summary>
-        public static bool IsSwiftArray(TypeSpec? typeSpec)
-        {
-            if (typeSpec is not NamedTypeSpec namedTypeSpec)
-                return false;
-            if (!namedTypeSpec.HasModule())
-                return false;
-            return SwiftTypeName.FromTypeSpec(namedTypeSpec).Equals(SwiftArrayTypeName);
-        }
+        public static bool IsSwiftArray(TypeSpec? typeSpec) => MatchesSwiftTypeName(typeSpec, SwiftArrayTypeName);
 
         /// <summary>
         /// Determines whether the specified type spec represents Swift.Dictionary.
         /// </summary>
-        public static bool IsSwiftDictionary(TypeSpec? typeSpec)
-        {
-            if (typeSpec is not NamedTypeSpec namedTypeSpec)
-                return false;
-            if (!namedTypeSpec.HasModule())
-                return false;
-            return SwiftTypeName.FromTypeSpec(namedTypeSpec).Equals(SwiftDictionaryTypeName);
-        }
+        public static bool IsSwiftDictionary(TypeSpec? typeSpec) => MatchesSwiftTypeName(typeSpec, SwiftDictionaryTypeName);
 
         /// <summary>
         /// Determines whether the specified type spec represents Swift.Set.
         /// </summary>
-        public static bool IsSwiftSet(TypeSpec? typeSpec)
-        {
-            if (typeSpec is not NamedTypeSpec namedTypeSpec)
-                return false;
-            if (!namedTypeSpec.HasModule())
-                return false;
-            return SwiftTypeName.FromTypeSpec(namedTypeSpec).Equals(SwiftSetTypeName);
-        }
+        public static bool IsSwiftSet(TypeSpec? typeSpec) => MatchesSwiftTypeName(typeSpec, SwiftSetTypeName);
 
         /// <summary>
         /// Determines whether the specified type spec represents Swift.Optional.
         /// </summary>
-        public static bool IsSwiftOptional(TypeSpec? typeSpec)
-        {
-            if (typeSpec is not NamedTypeSpec namedTypeSpec)
-                return false;
-            if (!namedTypeSpec.HasModule())
-                return false;
-            return SwiftTypeName.FromTypeSpec(namedTypeSpec).Equals(SwiftOptionalTypeName);
-        }
+        public static bool IsSwiftOptional(TypeSpec? typeSpec) => MatchesSwiftTypeName(typeSpec, SwiftOptionalTypeName);
 
         /// <summary>
         /// Determines whether the specified type spec represents Swift.Optional wrapping
