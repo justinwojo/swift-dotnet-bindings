@@ -31,6 +31,19 @@ public static class ApiDefinitionEmitter
         }
         var appleSdkTypes = module.AppleSdkTypeNames;
 
+        // Build set of delegate protocol names for WeakDelegate/Wrap pattern emission
+        var delegateProtocolNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var proto in module.Protocols)
+        {
+            if (proto.IsDelegateProtocol)
+                delegateProtocolNames.Add(proto.Name);
+        }
+
+        // Build set of enum names for out-param detection (enum pointer → out T)
+        var enumNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var e in module.Enums)
+            enumNames.Add(e.Name);
+
         var sb = new StringBuilder();
         sb.AppendLine("using System;");
         sb.AppendLine("using AuthenticationServices;");
@@ -47,30 +60,48 @@ public static class ApiDefinitionEmitter
         sb.AppendLine("using ObjCRuntime;");
         sb.AppendLine("using CoreGraphics;");
         sb.AppendLine("using UIKit;");
+        sb.AppendLine("using UserNotifications;");
+        sb.AppendLine("using WebKit;");
         sb.AppendLine();
         sb.AppendLine($"namespace {resolvedNamespace}");
         sb.AppendLine("{");
 
         foreach (var proto in module.Protocols)
-            EmitProtocol(sb, proto, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, logger, diagnostics);
+            EmitProtocol(sb, proto, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, enumNames, logger, diagnostics);
 
         foreach (var cls in module.Classes)
-            EmitClass(sb, cls, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, logger, diagnostics);
+            EmitClass(sb, cls, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, delegateProtocolNames, enumNames, logger, diagnostics);
 
         foreach (var cat in module.Categories)
-            EmitCategory(sb, cat, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, logger, diagnostics);
+            EmitCategory(sb, cat, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, enumNames, logger, diagnostics);
 
         sb.AppendLine("}");
 
+        // Post-process: for [Model] delegate protocols, the type mapper emits I-prefixed references
+        // (e.g., IFIRMessagingDelegate) but [Protocol, Model] interfaces use bare names.
+        // bgen generates both IFoo (interface) and Foo (class), so references should use the bare
+        // name (class type) for [Model] protocols to match the Xamarin convention.
+        var result = sb.ToString();
+        foreach (var dpName in delegateProtocolNames)
+        {
+            var mappedName = ObjCTypeMapper.MapProtocolName(dpName);
+            // Replace I-prefixed references with bare name in type positions
+            // Use word boundary to avoid replacing substrings (e.g., IFoo in IFooBar)
+            result = System.Text.RegularExpressions.Regex.Replace(
+                result,
+                $@"\bI{System.Text.RegularExpressions.Regex.Escape(mappedName)}\b",
+                mappedName);
+        }
+
         Directory.CreateDirectory(outputDir);
         var filePath = Path.Combine(outputDir, "ApiDefinition.cs");
-        File.WriteAllText(filePath, sb.ToString());
+        File.WriteAllText(filePath, result);
 
         logger.LogInformation("Wrote {FilePath}", filePath);
         return filePath;
     }
 
-    static void EmitProtocol(StringBuilder sb, ObjCProtocolDecl proto, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, ILogger logger, ObjCBindingDiagnostics? diagnostics)
+    static void EmitProtocol(StringBuilder sb, ObjCProtocolDecl proto, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, HashSet<string>? enumNames, ILogger logger, ObjCBindingDiagnostics? diagnostics)
     {
         if (EmitAvailabilityAttributes(sb, proto.Availability, "    "))
         {
@@ -79,7 +110,16 @@ public static class ApiDefinitionEmitter
         }
         ObjCDocCommentEmitter.EmitDocComment(sb, proto.DocComment, null, "    ");
 
-        sb.AppendLine("    [Protocol]");
+        // Delegate/data-source protocols get [Model] attribute.
+        // With [Model], the Xamarin convention uses the bare protocol name (not I-prefixed).
+        if (proto.IsDelegateProtocol)
+        {
+            sb.AppendLine("    [Protocol, Model]");
+        }
+        else
+        {
+            sb.AppendLine("    [Protocol]");
+        }
         sb.AppendLine("    [BaseType(typeof(NSObject))]");
 
         // Filter out implicit protocols from inheritance — NSObject is implicit in .NET MAUI bindings,
@@ -90,7 +130,10 @@ public static class ApiDefinitionEmitter
         var inheritList = filteredInherited.Count > 0
             ? $" : {string.Join(", ", filteredInherited.Select(n => $"I{ObjCTypeMapper.MapProtocolName(n)}"))}"
             : "";
-        sb.AppendLine($"    partial interface I{proto.Name}{inheritList}");
+
+        // [Model] protocols use bare name (Xamarin convention); non-[Model] use I prefix
+        var interfaceName = proto.IsDelegateProtocol ? proto.Name : $"I{proto.Name}";
+        sb.AppendLine($"    partial interface {interfaceName}{inheritList}");
         sb.AppendLine("    {");
 
         // Protocols don't declare ObjC lightweight generics — only pass the common fallback set
@@ -98,7 +141,7 @@ public static class ApiDefinitionEmitter
         var emittedMemberNames = new HashSet<string>();
         foreach (var method in proto.Methods)
         {
-            var emittedName = EmitMethod(sb, method, declaringClassName: null, isProtocol: true, genericTypeParams: null, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMethodSignatures: emittedMethodSignatures, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, logger: logger, diagnostics: diagnostics);
+            var emittedName = EmitMethod(sb, method, declaringClassName: null, isProtocol: true, genericTypeParams: null, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMethodSignatures: emittedMethodSignatures, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, enumNames: enumNames, logger: logger, diagnostics: diagnostics);
             if (emittedName != null) emittedMemberNames.Add(emittedName);
         }
 
@@ -109,7 +152,7 @@ public static class ApiDefinitionEmitter
         sb.AppendLine();
     }
 
-    static void EmitClass(StringBuilder sb, ObjCClassDecl cls, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, ILogger logger, ObjCBindingDiagnostics? diagnostics)
+    static void EmitClass(StringBuilder sb, ObjCClassDecl cls, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, HashSet<string>? delegateProtocolNames, HashSet<string>? enumNames, ILogger logger, ObjCBindingDiagnostics? diagnostics)
     {
         if (EmitAvailabilityAttributes(sb, cls.Availability, "    "))
         {
@@ -119,11 +162,16 @@ public static class ApiDefinitionEmitter
         ObjCDocCommentEmitter.EmitDocComment(sb, cls.DocComment, null, "    ");
 
         // Disable default constructor if the class declares any parameterless init
-        // to avoid bgen generating a duplicate parameterless constructor
-        var hasParameterlessInit = cls.Methods.Any(m =>
-            (m.Selector == "init" || m.Selector.StartsWith("initWith", StringComparison.Ordinal))
+        // to avoid bgen generating a duplicate parameterless constructor.
+        // When DisableDefaultCtor is set, we also suppress the explicit init constructor
+        // to avoid contradicting attributes (Fix #6).
+        var hasExplicitParameterlessInit = cls.Methods.Any(m =>
+            m.Selector == "init" && m.Parameters.Count == 0);
+        var hasParameterlessInitWith = cls.Methods.Any(m =>
+            m.Selector.StartsWith("initWith", StringComparison.Ordinal)
             && m.Parameters.Count == 0);
-        if (hasParameterlessInit)
+        var disableDefaultCtor = hasExplicitParameterlessInit || hasParameterlessInitWith;
+        if (disableDefaultCtor)
             sb.AppendLine("    [DisableDefaultCtor]");
 
         var baseType = ObjCTypeMapper.MapClassName(cls.SuperclassName ?? "NSObject");
@@ -155,20 +203,32 @@ public static class ApiDefinitionEmitter
         var emittedMemberNames = new HashSet<string>();
 
         foreach (var method in cls.Methods.Where(m =>
-            !(conformsToNSCoding && m.Selector == "initWithCoder:")))
+            !(conformsToNSCoding && m.Selector == "initWithCoder:")
+            // Suppress explicit parameterless init when DisableDefaultCtor is emitted (Fix #6)
+            && !(disableDefaultCtor && m.Selector == "init" && m.Parameters.Count == 0)))
         {
-            var emittedName = EmitMethod(sb, method, declaringClassName: cls.Name, isProtocol: false, genericTypeParams: classGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedConstructorSignatures: emittedConstructorSignatures, emittedMethodSignatures: emittedMethodSignatures, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, logger: logger, diagnostics: diagnostics);
+            var emittedName = EmitMethod(sb, method, declaringClassName: cls.Name, isProtocol: false, genericTypeParams: classGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedConstructorSignatures: emittedConstructorSignatures, emittedMethodSignatures: emittedMethodSignatures, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, enumNames: enumNames, logger: logger, diagnostics: diagnostics);
             if (emittedName != null) emittedMemberNames.Add(emittedName);
         }
 
+        // Emit properties, with WeakDelegate/Wrap pattern for delegate properties (Fix #8)
         foreach (var prop in cls.Properties)
-            EmitProperty(sb, prop, declaringClassName: cls.Name, genericTypeParams: classGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedPropertyNames: emittedMemberNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, logger: logger, diagnostics: diagnostics);
+        {
+            if (IsDelegateProperty(prop, delegateProtocolNames))
+            {
+                EmitWeakDelegatePattern(sb, prop, delegateProtocolNames, emittedMemberNames);
+            }
+            else
+            {
+                EmitProperty(sb, prop, declaringClassName: cls.Name, genericTypeParams: classGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedPropertyNames: emittedMemberNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, logger: logger, diagnostics: diagnostics);
+            }
+        }
 
         sb.AppendLine("    }");
         sb.AppendLine();
     }
 
-    static void EmitCategory(StringBuilder sb, ObjCCategoryDecl cat, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, ILogger logger, ObjCBindingDiagnostics? diagnostics)
+    static void EmitCategory(StringBuilder sb, ObjCCategoryDecl cat, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, HashSet<string>? enumNames, ILogger logger, ObjCBindingDiagnostics? diagnostics)
     {
         if (EmitAvailabilityAttributes(sb, cat.Availability, "    "))
         {
@@ -202,7 +262,7 @@ public static class ApiDefinitionEmitter
         {
             if (method.Selector == "init" || method.Selector.StartsWith("initWith", StringComparison.Ordinal))
                 continue;
-            var emittedName = EmitMethod(sb, method, declaringClassName: cat.ClassName, isProtocol: false, genericTypeParams: categoryGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMethodSignatures: emittedMethodSignatures, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, logger: logger, diagnostics: diagnostics);
+            var emittedName = EmitMethod(sb, method, declaringClassName: cat.ClassName, isProtocol: false, genericTypeParams: categoryGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMethodSignatures: emittedMethodSignatures, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, enumNames: enumNames, logger: logger, diagnostics: diagnostics);
             if (emittedName != null) emittedMemberNames.Add(emittedName);
         }
 
@@ -224,7 +284,7 @@ public static class ApiDefinitionEmitter
     /// Emits a method and returns the final emitted C# method name (after any dedup renaming),
     /// or null for constructors. Callers use this to track method-property name collisions.
     /// </summary>
-    static string? EmitMethod(StringBuilder sb, ObjCMethodDecl method, string? declaringClassName, bool isProtocol, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null, HashSet<string>? emittedConstructorSignatures = null, HashSet<string>? emittedMethodSignatures = null, HashSet<string>? knownTypes = null, HashSet<string>? appleSdkTypes = null, ILogger? logger = null, ObjCBindingDiagnostics? diagnostics = null)
+    static string? EmitMethod(StringBuilder sb, ObjCMethodDecl method, string? declaringClassName, bool isProtocol, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null, HashSet<string>? emittedConstructorSignatures = null, HashSet<string>? emittedMethodSignatures = null, HashSet<string>? knownTypes = null, HashSet<string>? appleSdkTypes = null, HashSet<string>? enumNames = null, ILogger? logger = null, ObjCBindingDiagnostics? diagnostics = null)
     {
         // Pre-check: skip methods with types not resolvable in ApiDefinition context.
         if (knownTypes != null)
@@ -269,10 +329,16 @@ public static class ApiDefinitionEmitter
         if (isProtocol && !method.IsOptional)
             sb.AppendLine("        [Abstract]");
 
+        if (method.IsVariadic)
+            sb.AppendLine("        [Internal]");
+
         if (!method.IsInstanceMethod && !isConstructor)
             sb.AppendLine("        [Static]");
 
-        sb.AppendLine($"        [Export(\"{method.Selector}\")]");
+        if (method.IsVariadic)
+            sb.AppendLine($"        [Export(\"{method.Selector}\", IsVariadic = true)]");
+        else
+            sb.AppendLine($"        [Export(\"{method.Selector}\")]");
 
         var returnType = isConstructor
             ? "NativeHandle"
@@ -289,6 +355,10 @@ public static class ApiDefinitionEmitter
         if (!isConstructor && emittedMethodSignatures != null)
         {
             var paramSignature = string.Join(",", method.Parameters.Select(p => ObjCTypeMapper.MapType(p.Type, genericTypeParams: genericTypeParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap)));
+            // Include the variadic IntPtr param in the signature to detect collisions
+            // with explicit args: variants (e.g., objectsWhere: + objectsWhere:args:)
+            if (method.IsVariadic)
+                paramSignature = paramSignature.Length > 0 ? $"{paramSignature},IntPtr" : "IntPtr";
             var methodSig = $"{methodName}({paramSignature})";
             if (!emittedMethodSignatures.Add(methodSig))
             {
@@ -309,7 +379,14 @@ public static class ApiDefinitionEmitter
         // Emit generic type hints as remarks
         EmitGenericTypeHints(sb, method.ReturnType, method.Parameters, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap);
 
-        var parameters = EmitParameters(method.Parameters, genericTypeParams, typedefMap, blockTypedefMap);
+        var parameters = EmitParameters(method.Parameters, genericTypeParams, typedefMap, blockTypedefMap, enumNames);
+        if (method.IsVariadic)
+        {
+            // Variadic methods get an IntPtr varArgs parameter for the variable arguments
+            if (parameters.Length > 0)
+                parameters += ", ";
+            parameters += "IntPtr varArgs";
+        }
         sb.AppendLine($"        {returnType} {methodName}({parameters});");
         sb.AppendLine();
 
@@ -357,7 +434,8 @@ public static class ApiDefinitionEmitter
             sb.AppendLine("        [Static]");
 
         var getterSelector = prop.GetterSelector ?? prop.Name;
-        sb.AppendLine($"        [Export(\"{getterSelector}\")]");
+        var argSemantic = FormatArgumentSemantic(prop.MemorySemantic);
+        sb.AppendLine($"        [Export(\"{getterSelector}\"{argSemantic})]");
 
         if (ObjCTypeMapper.IsNullableAttribute(prop.Type))
             sb.AppendLine("        [NullAllowed]");
@@ -367,15 +445,130 @@ public static class ApiDefinitionEmitter
             sb.AppendLine($"        // {propGenericHint}");
 
         var mappedType = ObjCTypeMapper.MapType(prop.Type, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap);
+
+        // Emit [Bind] when getter selector differs from property name (e.g., isAutoInitEnabled vs autoInitEnabled)
+        var hasCustomGetter = prop.GetterSelector != null && prop.GetterSelector != prop.Name;
+
         if (prop.IsReadonly)
         {
-            sb.AppendLine($"        {mappedType} {ToPascalCase(prop.Name)} {{ get; }}");
+            if (hasCustomGetter)
+            {
+                sb.AppendLine($"        {mappedType} {ToPascalCase(prop.Name)} {{");
+                sb.AppendLine($"            [Bind(\"{prop.GetterSelector}\")] get;");
+                sb.AppendLine($"        }}");
+            }
+            else
+            {
+                sb.AppendLine($"        {mappedType} {ToPascalCase(prop.Name)} {{ get; }}");
+            }
         }
         else
         {
             // Emit setter with custom selector if present
             var setterSelector = prop.SetterSelector ?? $"set{ToPascalCase(prop.Name)}:";
             sb.AppendLine($"        {mappedType} {ToPascalCase(prop.Name)} {{");
+            if (hasCustomGetter)
+                sb.AppendLine($"            [Bind(\"{prop.GetterSelector}\")] get;");
+            else
+                sb.AppendLine($"            get;");
+            sb.AppendLine($"            [Export(\"{setterSelector}\")] set;");
+            sb.AppendLine($"        }}");
+        }
+        sb.AppendLine();
+    }
+
+    /// <summary>
+    /// Checks whether a property references a delegate protocol type and should use
+    /// the WeakDelegate/Wrap pattern instead of normal property emission.
+    /// </summary>
+    static bool IsDelegateProperty(ObjCPropertyDecl prop, HashSet<string>? delegateProtocolNames)
+    {
+        if (delegateProtocolNames == null || delegateProtocolNames.Count == 0)
+            return false;
+
+        // Check protocol-qualified id (e.g., id<WKNavigationDelegate>)
+        if (prop.Type.ProtocolQualifications.Count > 0
+            && prop.Type.ProtocolQualifications.Any(p => delegateProtocolNames.Contains(p)))
+            return true;
+
+        // Check direct protocol name (e.g., WKNavigationDelegate *)
+        if (prop.Type.IsPointer && delegateProtocolNames.Contains(prop.Type.Name))
+            return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// Resolves the protocol type name from a delegate property's type reference.
+    /// </summary>
+    static string? ResolveDelegateProtocolName(ObjCPropertyDecl prop, HashSet<string>? delegateProtocolNames)
+    {
+        if (delegateProtocolNames == null) return null;
+
+        if (prop.Type.ProtocolQualifications.Count > 0)
+        {
+            var match = prop.Type.ProtocolQualifications.FirstOrDefault(p => delegateProtocolNames.Contains(p));
+            if (match != null) return match;
+        }
+
+        if (prop.Type.IsPointer && delegateProtocolNames.Contains(prop.Type.Name))
+            return prop.Type.Name;
+
+        return null;
+    }
+
+    /// <summary>
+    /// Emits the Xamarin WeakDelegate/Wrap two-property pattern for delegate/dataSource properties.
+    /// Preserves the original property's availability, doc comments, static, readonly shape,
+    /// and argument semantics.
+    /// </summary>
+    static void EmitWeakDelegatePattern(StringBuilder sb, ObjCPropertyDecl prop, HashSet<string>? delegateProtocolNames, HashSet<string>? emittedPropertyNames)
+    {
+        var protocolName = ResolveDelegateProtocolName(prop, delegateProtocolNames);
+        if (protocolName == null) return;
+
+        // Skip unavailable properties (same check as EmitProperty)
+        if (EmitAvailabilityAttributes(sb, prop.Availability, "        "))
+            return;
+
+        var propName = ToPascalCase(prop.Name);
+        var weakPropName = $"Weak{propName}";
+        var selector = prop.GetterSelector ?? prop.Name;
+
+        // Track both property names
+        emittedPropertyNames?.Add(propName);
+        emittedPropertyNames?.Add(weakPropName);
+
+        // Preserve doc comment from original property
+        ObjCDocCommentEmitter.EmitDocComment(sb, prop.DocComment, null, "        ");
+
+        // 1. Strong-typed property with [Wrap]
+        if (prop.IsClass)
+            sb.AppendLine("        [Static]");
+        sb.AppendLine($"        [Wrap(\"{weakPropName}\")]");
+        sb.AppendLine("        [NullAllowed]");
+        if (prop.IsReadonly)
+            sb.AppendLine($"        {protocolName} {propName} {{ get; }}");
+        else
+            sb.AppendLine($"        {protocolName} {propName} {{ get; set; }}");
+        sb.AppendLine();
+
+        // 2. Weak NSObject property with [Export]
+        // Use the original property's ArgumentSemantic if set, otherwise default to Weak
+        var argSemantic = prop.MemorySemantic != ObjCMemorySemantic.None
+            ? FormatArgumentSemantic(prop.MemorySemantic)
+            : ", ArgumentSemantic.Weak";
+        if (prop.IsClass)
+            sb.AppendLine("        [Static]");
+        sb.AppendLine($"        [NullAllowed, Export(\"{selector}\"{argSemantic})]");
+        if (prop.IsReadonly)
+        {
+            sb.AppendLine($"        NSObject {weakPropName} {{ get; }}");
+        }
+        else
+        {
+            var setterSelector = prop.SetterSelector ?? $"set{ToPascalCase(prop.Name)}:";
+            sb.AppendLine($"        NSObject {weakPropName} {{");
             sb.AppendLine($"            get;");
             sb.AppendLine($"            [Export(\"{setterSelector}\")] set;");
             sb.AppendLine($"        }}");
@@ -408,7 +601,7 @@ public static class ApiDefinitionEmitter
         }
     }
 
-    static string EmitParameters(List<ObjCParameterDecl> parameters, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null)
+    static string EmitParameters(List<ObjCParameterDecl> parameters, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null, HashSet<string>? enumNames = null)
     {
         var parts = new List<string>();
         foreach (var param in parameters)
@@ -416,6 +609,13 @@ public static class ApiDefinitionEmitter
             if (ObjCTypeMapper.IsNSErrorOutParameter(param.Type))
             {
                 parts.Add("[NullAllowed] out NSError error");
+            }
+            else if (ObjCTypeMapper.IsValueTypePointerParameter(param.Type, typedefMap, enumNames))
+            {
+                // Value-type pointer parameters become `out T` (e.g., _Bool * → out bool, CGPoint * → out CGPoint)
+                var pointeeType = ObjCTypeMapper.MapValueTypePointerParameterType(param.Type, typedefMap);
+                var safeName = EscapeCSharpKeyword(param.Name);
+                parts.Add($"out {pointeeType} {safeName}");
             }
             else
             {
@@ -469,4 +669,18 @@ public static class ApiDefinitionEmitter
             return name;
         return char.ToUpperInvariant(name[0]) + name[1..];
     }
+
+    /// <summary>
+    /// Formats the ArgumentSemantic suffix for [Export] attributes on properties.
+    /// Returns empty string when no semantic is specified, otherwise ", ArgumentSemantic.X".
+    /// Retain maps to Strong (they are equivalent in ARC).
+    /// </summary>
+    internal static string FormatArgumentSemantic(ObjCMemorySemantic semantic) => semantic switch
+    {
+        ObjCMemorySemantic.Copy => ", ArgumentSemantic.Copy",
+        ObjCMemorySemantic.Assign or ObjCMemorySemantic.UnsafeUnretained => ", ArgumentSemantic.Assign",
+        ObjCMemorySemantic.Weak => ", ArgumentSemantic.Weak",
+        ObjCMemorySemantic.Strong or ObjCMemorySemantic.Retain => ", ArgumentSemantic.Retain",
+        _ => ""
+    };
 }

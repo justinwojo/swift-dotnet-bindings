@@ -945,4 +945,157 @@ public class ObjCTypeMapperTests
         };
         Assert.Equal("Element type: string (nullable)", ObjCTypeMapper.FormatGenericTypeHint(typeRef));
     }
+
+    // --- Typed generic collection mapping (NSArray<T> → T[], NSDictionary<K,V> → NSDictionary<K,V>) ---
+
+    [Fact]
+    public void MapType_NSArrayWithStringGenericArg_ReturnsStringArray()
+    {
+        var typeRef = new ObjCTypeRef
+        {
+            Name = "NSArray",
+            IsPointer = true,
+            GenericArgs = [new ObjCTypeRef { Name = "NSString", IsPointer = true }]
+        };
+        Assert.Equal("string[]", ObjCTypeMapper.MapType(typeRef));
+    }
+
+    [Fact]
+    public void MapType_NSArrayWithCustomTypeGenericArg_ReturnsTypedArray()
+    {
+        var typeRef = new ObjCTypeRef
+        {
+            Name = "NSArray",
+            IsPointer = true,
+            GenericArgs = [new ObjCTypeRef { Name = "BRLMLog", IsPointer = true }]
+        };
+        Assert.Equal("BRLMLog[]", ObjCTypeMapper.MapType(typeRef));
+    }
+
+    [Fact]
+    public void MapType_NSArrayWithURLGenericArg_ReturnsNSUrlArray()
+    {
+        var typeRef = new ObjCTypeRef
+        {
+            Name = "NSArray",
+            IsPointer = true,
+            GenericArgs = [new ObjCTypeRef { Name = "NSURL", IsPointer = true }]
+        };
+        Assert.Equal("NSUrl[]", ObjCTypeMapper.MapType(typeRef));
+    }
+
+    [Fact]
+    public void MapType_NSArrayWithGenericTypeParam_FallsBackToNSArray()
+    {
+        // When element is a generic type parameter (e.g., ObjectType), fall through to plain NSArray
+        var typeRef = new ObjCTypeRef
+        {
+            Name = "NSArray",
+            IsPointer = true,
+            GenericArgs = [new ObjCTypeRef { Name = "ObjectType" }]
+        };
+        var genericParams = new HashSet<string> { "ObjectType" };
+        Assert.Equal("NSArray", ObjCTypeMapper.MapType(typeRef, genericTypeParams: genericParams));
+    }
+
+    [Fact]
+    public void MapType_NSMutableArrayWithGenericArg_ReturnsTypedArray()
+    {
+        var typeRef = new ObjCTypeRef
+        {
+            Name = "NSMutableArray",
+            IsPointer = true,
+            GenericArgs = [new ObjCTypeRef { Name = "NSData", IsPointer = true }]
+        };
+        Assert.Equal("NSData[]", ObjCTypeMapper.MapType(typeRef));
+    }
+
+    [Fact]
+    public void MapType_NSDictionaryWithGenericArgs_ReturnsTypedDictionary()
+    {
+        var typeRef = new ObjCTypeRef
+        {
+            Name = "NSDictionary",
+            IsPointer = true,
+            GenericArgs =
+            [
+                new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                new ObjCTypeRef { Name = "NSNumber", IsPointer = true }
+            ]
+        };
+        Assert.Equal("NSDictionary<NSString, NSNumber>", ObjCTypeMapper.MapType(typeRef));
+    }
+
+    [Fact]
+    public void MapType_NSDictionaryWithGenericParam_FallsBackToNSDictionary()
+    {
+        var typeRef = new ObjCTypeRef
+        {
+            Name = "NSDictionary",
+            IsPointer = true,
+            GenericArgs =
+            [
+                new ObjCTypeRef { Name = "KeyType" },
+                new ObjCTypeRef { Name = "ValueType" }
+            ]
+        };
+        var genericParams = new HashSet<string> { "KeyType", "ValueType" };
+        Assert.Equal("NSDictionary", ObjCTypeMapper.MapType(typeRef, genericTypeParams: genericParams));
+    }
+
+    [Fact]
+    public void MapType_NSMutableDictionaryWithGenericArgs_ReturnsTypedDictionary()
+    {
+        var typeRef = new ObjCTypeRef
+        {
+            Name = "NSMutableDictionary",
+            IsPointer = true,
+            GenericArgs =
+            [
+                new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                new ObjCTypeRef { Name = "NSURL", IsPointer = true }
+            ]
+        };
+        Assert.Equal("NSDictionary<NSString, NSUrl>", ObjCTypeMapper.MapType(typeRef));
+    }
+
+    [Fact]
+    public void MapType_NSSetWithGenericArg_ReturnsTypedNSSet()
+    {
+        var typeRef = new ObjCTypeRef
+        {
+            Name = "NSSet",
+            IsPointer = true,
+            GenericArgs = [new ObjCTypeRef { Name = "NSString", IsPointer = true }]
+        };
+        Assert.Equal("NSSet<NSString>", ObjCTypeMapper.MapType(typeRef));
+    }
+
+    [Fact]
+    public void MapType_NSArrayWithoutGenericArgs_StillReturnsNSArray()
+    {
+        // Plain NSArray (no generic args) should still map to NSArray as before
+        var typeRef = new ObjCTypeRef { Name = "NSArray", IsPointer = true };
+        Assert.Equal("NSArray", ObjCTypeMapper.MapType(typeRef));
+    }
+
+    [Fact]
+    public void MapType_NSDictionaryWithoutGenericArgs_StillReturnsNSDictionary()
+    {
+        var typeRef = new ObjCTypeRef { Name = "NSDictionary", IsPointer = true };
+        Assert.Equal("NSDictionary", ObjCTypeMapper.MapType(typeRef));
+    }
+
+    // --- IsKnownMappedOrPatternType for new generic patterns ---
+
+    [Theory]
+    [InlineData("string[]", true)]
+    [InlineData("NSUrl[]", true)]
+    [InlineData("NSDictionary<string, NSNumber>", true)]
+    [InlineData("NSSet<string>", true)]
+    public void IsApiDefinitionTypeResolvable_TypedGenericPatterns_AreResolvable(string mappedType, bool expected)
+    {
+        var knownTypes = ObjCTypeMapper.BuildKnownMappedTypes();
+        Assert.Equal(expected, ObjCTypeMapper.IsApiDefinitionTypeResolvable(mappedType, knownTypes, null));
+    }
 }

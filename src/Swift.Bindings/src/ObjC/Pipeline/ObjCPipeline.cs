@@ -99,6 +99,12 @@ public static class ObjCPipeline
             return new ObjCPipelineResult(0, module, null);
         }
 
+        // 4c. Filter out platform type stubs (types already in the Apple SDK)
+        module = FilterPlatformTypeStubs(module, logger);
+
+        // 4d. Detect delegate/data-source protocols and mark them with IsDelegateProtocol
+        module = DetectDelegateProtocols(module, logger);
+
         // 5. Emit bindings
         var namespaceResolver = new NamespacePatternResolver(namespacePattern, resolution.ModuleName);
         var resolvedNamespace = namespaceResolver.ResolveNamespace(resolution.ModuleName);
@@ -185,6 +191,178 @@ public static class ObjCPipeline
             Categories = sharedClassCategories,
             // Enums, structs, functions, constants, typedefs are never filtered
         };
+    }
+
+    /// <summary>
+    /// Filters out classes and protocols that are Apple SDK platform types.
+    /// These types are already provided by the .NET iOS bindings and emitting stub
+    /// interfaces for them causes conflicts (CS0101, CS0111).
+    /// </summary>
+    internal static ObjCModule FilterPlatformTypeStubs(ObjCModule module, ILogger logger)
+    {
+        var appleSdkTypes = module.AppleSdkTypeNames;
+        if (appleSdkTypes == null || appleSdkTypes.Count == 0)
+            return module;
+
+        var filteredClasses = new List<ObjCClassDecl>();
+        var removedClassCount = 0;
+        foreach (var cls in module.Classes)
+        {
+            if (appleSdkTypes.Contains(cls.Name))
+            {
+                removedClassCount++;
+                logger.LogDebug("Filtering platform type stub class: {Name}", cls.Name);
+            }
+            else
+            {
+                filteredClasses.Add(cls);
+            }
+        }
+
+        var filteredProtocols = new List<ObjCProtocolDecl>();
+        var removedProtoCount = 0;
+        foreach (var proto in module.Protocols)
+        {
+            if (appleSdkTypes.Contains(proto.Name))
+            {
+                removedProtoCount++;
+                logger.LogDebug("Filtering platform type stub protocol: {Name}", proto.Name);
+            }
+            else
+            {
+                filteredProtocols.Add(proto);
+            }
+        }
+
+        if (removedClassCount > 0 || removedProtoCount > 0)
+        {
+            logger.LogInformation(
+                "Filtered {ClassCount} platform type stub class(es) and {ProtoCount} protocol(s) already in Apple SDK.",
+                removedClassCount, removedProtoCount);
+        }
+
+        return module with
+        {
+            Classes = filteredClasses,
+            Protocols = filteredProtocols,
+        };
+    }
+
+    /// <summary>
+    /// Detects delegate/data-source protocols using two heuristics:
+    /// (a) Name ends with "Delegate" or "DataSource".
+    /// (b) Protocol is used as the type of a delegate/data-source property on any class.
+    ///     Matches property names like "delegate", "dataSource", "navigationDelegate",
+    ///     "downloadDelegate", "UIDelegate", etc. — any property whose protocol-qualified
+    ///     type references a *Delegate or *DataSource protocol.
+    /// Sets IsDelegateProtocol = true on matching protocols.
+    /// </summary>
+    internal static ObjCModule DetectDelegateProtocols(ObjCModule module, ILogger logger)
+    {
+        // Collect protocol names referenced by delegate/dataSource properties on classes
+        var usageBasedDelegateProtocols = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var cls in module.Classes)
+        {
+            foreach (var prop in cls.Properties)
+            {
+                if (IsDelegateProperty(prop))
+                {
+                    // The property type may be a protocol-qualified id or a concrete protocol name
+                    foreach (var protocolName in ExtractProtocolNamesFromType(prop.Type))
+                        usageBasedDelegateProtocols.Add(protocolName);
+                }
+            }
+        }
+
+        var anyChanged = false;
+        var updatedProtocols = new List<ObjCProtocolDecl>(module.Protocols.Count);
+        foreach (var proto in module.Protocols)
+        {
+            var isDelegate = proto.Name.EndsWith("Delegate", StringComparison.Ordinal)
+                          || proto.Name.EndsWith("DataSource", StringComparison.Ordinal)
+                          || usageBasedDelegateProtocols.Contains(proto.Name);
+
+            if (isDelegate && !proto.IsDelegateProtocol)
+            {
+                updatedProtocols.Add(proto with { IsDelegateProtocol = true });
+                anyChanged = true;
+                logger.LogDebug("Detected delegate protocol: {Name}", proto.Name);
+            }
+            else
+            {
+                updatedProtocols.Add(proto);
+            }
+        }
+
+        return anyChanged ? module with { Protocols = updatedProtocols } : module;
+    }
+
+    /// <summary>
+    /// Returns true if this property is a delegate or data-source property.
+    /// Matches: (a) property named "delegate" or "dataSource" (exact), or
+    /// (b) any property whose protocol-qualified type references a protocol
+    /// whose name ends with "Delegate" or "DataSource" (e.g., WKNavigationDelegate).
+    /// </summary>
+    internal static bool IsDelegateProperty(ObjCPropertyDecl prop)
+    {
+        // Exact match: covers the standard ObjC delegate/dataSource pattern
+        if (prop.Name is "delegate" or "dataSource")
+            return true;
+
+        // Check if the property's type is protocol-qualified and the protocol
+        // name ends with Delegate or DataSource (e.g., id<WKNavigationDelegate>)
+        foreach (var protoName in prop.Type.ProtocolQualifications)
+        {
+            if (protoName.EndsWith("Delegate", StringComparison.Ordinal)
+                || protoName.EndsWith("DataSource", StringComparison.Ordinal))
+                return true;
+        }
+
+        // Check direct pointer type name (non-protocol-qualified)
+        if (prop.Type.IsPointer && !string.IsNullOrEmpty(prop.Type.Name)
+            && prop.Type.Name != "id" && prop.Type.Name != "NSObject")
+        {
+            if (prop.Type.Name.EndsWith("Delegate", StringComparison.Ordinal)
+                || prop.Type.Name.EndsWith("DataSource", StringComparison.Ordinal))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Common marker protocols that should be skipped when extracting delegate protocol names.
+    /// These are conformance markers, not the actual delegate protocol.
+    /// </summary>
+    private static readonly HashSet<string> MarkerProtocols = new(StringComparer.Ordinal)
+    {
+        "NSObject", "NSObjectProtocol", "NSCopying", "NSMutableCopying",
+        "NSCoding", "NSSecureCoding", "NSFastEnumeration",
+    };
+
+    /// <summary>
+    /// Extracts delegate/data-source protocol names from a property type reference.
+    /// For multi-protocol qualifications (e.g., id&lt;NSObject, MyObserver&gt;), returns all
+    /// non-marker protocols so the caller can record each one for usage-based detection.
+    /// </summary>
+    private static IEnumerable<string> ExtractProtocolNamesFromType(ObjCTypeRef typeRef)
+    {
+        // Protocol-qualified id: id<SomeDelegate> or id<NSObject, SomeDelegate>
+        if (typeRef.ProtocolQualifications.Count > 0)
+        {
+            var nonMarker = typeRef.ProtocolQualifications
+                .Where(p => !MarkerProtocols.Contains(p))
+                .ToList();
+            // Return all non-marker protocols; if all are markers, return them all as fallback
+            return nonMarker.Count > 0 ? nonMarker : typeRef.ProtocolQualifications;
+        }
+
+        // Direct protocol name (pointer to protocol type)
+        if (typeRef.IsPointer && !string.IsNullOrEmpty(typeRef.Name)
+            && typeRef.Name != "id" && typeRef.Name != "NSObject")
+            return [typeRef.Name];
+
+        return [];
     }
 
     private static void DumpSummary(ObjCModule module, ILogger logger)

@@ -3,6 +3,21 @@
 
 namespace BindingsGeneration.ObjC;
 
+/// <summary>
+/// ObjC property memory management semantics.
+/// Maps to ArgumentSemantic in .NET MAUI bindings.
+/// </summary>
+public enum ObjCMemorySemantic
+{
+    None,
+    Assign,
+    Copy,
+    Retain,
+    Strong,
+    Weak,
+    UnsafeUnretained
+}
+
 public sealed record ObjCDocParam
 {
     public required string Name { get; init; }
@@ -22,6 +37,7 @@ public sealed record ObjCMethodDecl
     public List<ObjCParameterDecl> Parameters { get; init; } = [];
     public bool IsInstanceMethod { get; init; }
     public bool IsOptional { get; init; }
+    public bool IsVariadic { get; init; }
     public bool IsFromCategory { get; init; }
     public string CategoryName { get; init; } = "";
     public List<ObjCAvailability> Availability { get; init; } = [];
@@ -42,6 +58,7 @@ public sealed record ObjCPropertyDecl
     public string CategoryName { get; init; } = "";
     public string? GetterSelector { get; init; }
     public string? SetterSelector { get; init; }
+    public ObjCMemorySemantic MemorySemantic { get; init; }
     public List<ObjCAvailability> Availability { get; init; } = [];
     public string? SwiftName { get; init; }
     public bool IsRefinedForSwift { get; init; }
@@ -69,6 +86,12 @@ public sealed record ObjCProtocolDecl
     public List<ObjCPropertyDecl> Properties { get; init; } = [];
     public List<ObjCAvailability> Availability { get; init; } = [];
     public string? DocComment { get; init; }
+    /// <summary>
+    /// True when this protocol is a delegate or data-source protocol.
+    /// Detected by name (*Delegate, *DataSource) or by being the type of a
+    /// delegate/dataSource property on a class. Used by the emitter to add [Model].
+    /// </summary>
+    public bool IsDelegateProtocol { get; init; }
 }
 
 public sealed record ObjCEnumCaseDecl
@@ -113,6 +136,7 @@ public sealed record ObjCFunctionDecl
     public required string Name { get; init; }
     public required ObjCTypeRef ReturnType { get; init; }
     public List<ObjCParameterDecl> Parameters { get; init; } = [];
+    public bool IsVariadic { get; init; }
     public List<ObjCAvailability> Availability { get; init; } = [];
 }
 

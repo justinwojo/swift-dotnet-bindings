@@ -62,8 +62,10 @@ public class ApiDefinitionEmitterTests
     // --- Constructor ---
 
     [Fact]
-    public void Emit_InitSelector_EmitsConstructor()
+    public void Emit_InitSelector_SuppressedByDisableDefaultCtor()
     {
+        // Fix #6: When DisableDefaultCtor is emitted (because init is declared),
+        // the explicit [Export("init")] Constructor() is suppressed to avoid contradiction.
         var module = new ObjCModule
         {
             ModuleName = "Test",
@@ -80,8 +82,9 @@ public class ApiDefinitionEmitterTests
         };
 
         var result = EmitAndRead(module);
-        Assert.Contains("[Export(\"init\")]", result);
-        Assert.Contains("NativeHandle Constructor();", result);
+        Assert.Contains("[DisableDefaultCtor]", result);
+        Assert.DoesNotContain("[Export(\"init\")]", result);
+        Assert.DoesNotContain("Constructor()", result);
     }
 
     [Fact]
@@ -2235,8 +2238,8 @@ public class ApiDefinitionEmitterTests
         };
 
         var result = EmitAndRead(module);
-        Assert.Contains("// Return: Element type: string", result);
-        Assert.Contains("NSArray AllItems", result);
+        // With typed array mapping, NSArray<NSString *> → string[] (no type hint comment needed)
+        Assert.Contains("string[] AllItems", result);
     }
 
     [Fact]
@@ -2314,7 +2317,823 @@ public class ApiDefinitionEmitterTests
         };
 
         var result = EmitAndRead(module);
-        Assert.Contains("// Element type: NSData", result);
-        Assert.Contains("NSArray Items { get; }", result);
+        // With typed array mapping, NSArray<NSData *> → NSData[] (no type hint comment needed)
+        Assert.Contains("NSData[] Items { get; }", result);
     }
+
+    // --- Fix #9a: ArgumentSemantic on property [Export] attribute ---
+
+    [Theory]
+    [InlineData(ObjCMemorySemantic.Copy, "ArgumentSemantic.Copy")]
+    [InlineData(ObjCMemorySemantic.Assign, "ArgumentSemantic.Assign")]
+    [InlineData(ObjCMemorySemantic.Weak, "ArgumentSemantic.Weak")]
+    [InlineData(ObjCMemorySemantic.Strong, "ArgumentSemantic.Retain")]
+    [InlineData(ObjCMemorySemantic.Retain, "ArgumentSemantic.Retain")]
+    [InlineData(ObjCMemorySemantic.UnsafeUnretained, "ArgumentSemantic.Assign")]
+    public void Emit_Property_WithMemorySemantic_EmitsArgumentSemantic(ObjCMemorySemantic semantic, string expectedSuffix)
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes = [new ObjCClassDecl
+            {
+                Name = "MyClass",
+                Properties = [new ObjCPropertyDecl
+                {
+                    Name = "data",
+                    Type = new ObjCTypeRef { Name = "NSData", IsPointer = true },
+                    IsReadonly = true,
+                    MemorySemantic = semantic,
+                }]
+            }]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains($"[Export(\"data\", {expectedSuffix})]", result);
+    }
+
+    [Fact]
+    public void Emit_Property_NoMemorySemantic_NoArgumentSemantic()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes = [new ObjCClassDecl
+            {
+                Name = "MyClass",
+                Properties = [new ObjCPropertyDecl
+                {
+                    Name = "data",
+                    Type = new ObjCTypeRef { Name = "NSData", IsPointer = true },
+                    IsReadonly = true,
+                    MemorySemantic = ObjCMemorySemantic.None,
+                }]
+            }]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("[Export(\"data\")]", result);
+        Assert.DoesNotContain("ArgumentSemantic", result);
+    }
+
+    [Fact]
+    public void Emit_CopyProperty_ReadWrite_HasArgumentSemanticOnGetter()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes = [new ObjCClassDecl
+            {
+                Name = "MyClass",
+                Properties = [new ObjCPropertyDecl
+                {
+                    Name = "APNSToken",
+                    Type = new ObjCTypeRef { Name = "NSData", IsPointer = true },
+                    IsReadonly = false,
+                    MemorySemantic = ObjCMemorySemantic.Copy,
+                }]
+            }]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("[Export(\"APNSToken\", ArgumentSemantic.Copy)]", result);
+        Assert.Contains("NSData APNSToken", result);
+    }
+
+    [Fact]
+    public void Emit_WeakDelegateProperty_HasArgumentSemanticWeak()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes = [new ObjCClassDecl
+            {
+                Name = "MyClass",
+                Properties = [new ObjCPropertyDecl
+                {
+                    Name = "delegate",
+                    Type = new ObjCTypeRef { Name = "NSObject", IsPointer = true, Nullability = ObjCNullability.Nullable },
+                    IsReadonly = false,
+                    MemorySemantic = ObjCMemorySemantic.Weak,
+                }]
+            }]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("[Export(\"delegate\", ArgumentSemantic.Weak)]", result);
+        Assert.Contains("[NullAllowed]", result);
+    }
+
+    // --- Fix #9b: [Bind] for custom getter selectors ---
+
+    [Fact]
+    public void Emit_Property_CustomGetter_EmitsBindAttribute()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes = [new ObjCClassDecl
+            {
+                Name = "MyClass",
+                Properties = [new ObjCPropertyDecl
+                {
+                    Name = "autoInitEnabled",
+                    Type = new ObjCTypeRef { Name = "BOOL" },
+                    IsReadonly = true,
+                    GetterSelector = "isAutoInitEnabled",
+                }]
+            }]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("[Export(\"isAutoInitEnabled\")]", result);
+        Assert.Contains("[Bind(\"isAutoInitEnabled\")] get;", result);
+    }
+
+    [Fact]
+    public void Emit_Property_CustomGetter_ReadWrite_EmitsBindOnGet()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes = [new ObjCClassDecl
+            {
+                Name = "MyClass",
+                Properties = [new ObjCPropertyDecl
+                {
+                    Name = "hidden",
+                    Type = new ObjCTypeRef { Name = "BOOL" },
+                    IsReadonly = false,
+                    GetterSelector = "isHidden",
+                    SetterSelector = "setHidden:",
+                }]
+            }]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("[Bind(\"isHidden\")] get;", result);
+        Assert.Contains("[Export(\"setHidden:\")] set;", result);
+    }
+
+    [Fact]
+    public void Emit_Property_MatchingGetter_NoBindAttribute()
+    {
+        // When getter selector matches property name, no [Bind] needed
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes = [new ObjCClassDecl
+            {
+                Name = "MyClass",
+                Properties = [new ObjCPropertyDecl
+                {
+                    Name = "count",
+                    Type = new ObjCTypeRef { Name = "NSInteger" },
+                    IsReadonly = true,
+                    GetterSelector = "count",
+                }]
+            }]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.DoesNotContain("[Bind(", result);
+        Assert.Contains("nint Count { get; }", result);
+    }
+
+    [Fact]
+    public void Emit_Property_NullGetter_NoBindAttribute()
+    {
+        // When no getter selector is set (null), no [Bind] needed
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes = [new ObjCClassDecl
+            {
+                Name = "MyClass",
+                Properties = [new ObjCPropertyDecl
+                {
+                    Name = "title",
+                    Type = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                    IsReadonly = true,
+                }]
+            }]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.DoesNotContain("[Bind(", result);
+    }
+
+    // --- Fix #10: Typed arrays/generics ---
+
+    [Fact]
+    public void Emit_Property_NSArrayOfConcreteType_EmitsTypedArray()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes = [new ObjCClassDecl
+            {
+                Name = "Logger",
+                Properties = [new ObjCPropertyDecl
+                {
+                    Name = "allLogs",
+                    Type = new ObjCTypeRef
+                    {
+                        Name = "NSArray",
+                        IsPointer = true,
+                        GenericArgs = [new ObjCTypeRef { Name = "BRLMLog", IsPointer = true }]
+                    },
+                    IsReadonly = true,
+                }]
+            }]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("BRLMLog[] AllLogs { get; }", result);
+    }
+
+    [Fact]
+    public void Emit_Method_NSArrayParam_EmitsTypedArrayParam()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes = [new ObjCClassDecl
+            {
+                Name = "Printer",
+                Methods = [new ObjCMethodDecl
+                {
+                    Selector = "printURLs:settings:",
+                    IsInstanceMethod = true,
+                    ReturnType = new ObjCTypeRef { Name = "void" },
+                    Parameters =
+                    [
+                        new ObjCParameterDecl
+                        {
+                            Name = "urls",
+                            Type = new ObjCTypeRef
+                            {
+                                Name = "NSArray",
+                                IsPointer = true,
+                                GenericArgs = [new ObjCTypeRef { Name = "NSURL", IsPointer = true }]
+                            }
+                        },
+                        new ObjCParameterDecl
+                        {
+                            Name = "settings",
+                            Type = new ObjCTypeRef { Name = "NSObject", IsPointer = true }
+                        }
+                    ]
+                }]
+            }]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("NSUrl[] urls", result);
+    }
+
+    [Fact]
+    public void Emit_Method_NSDictionaryParam_EmitsTypedDictionary()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes = [new ObjCClassDecl
+            {
+                Name = "Config",
+                Methods = [new ObjCMethodDecl
+                {
+                    Selector = "applyConfig:",
+                    IsInstanceMethod = true,
+                    ReturnType = new ObjCTypeRef { Name = "void" },
+                    Parameters =
+                    [
+                        new ObjCParameterDecl
+                        {
+                            Name = "config",
+                            Type = new ObjCTypeRef
+                            {
+                                Name = "NSDictionary",
+                                IsPointer = true,
+                                GenericArgs =
+                                [
+                                    new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                                    new ObjCTypeRef { Name = "NSNumber", IsPointer = true }
+                                ]
+                            }
+                        }
+                    ]
+                }]
+            }]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("NSDictionary<NSString, NSNumber> config", result);
+    }
+
+    // --- Fix #13: Platform availability attribute emission ---
+
+    [Fact]
+    public void Emit_ClassWithIntroduced_EmitsIntroducedAttribute()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes = [new ObjCClassDecl
+            {
+                Name = "MBMicroblinkApp",
+                Availability = [new ObjCAvailability { Platform = "ios", IntroducedVersion = "13.0" }]
+            }]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("[Introduced(PlatformName.iOS, 13, 0)]", result);
+        Assert.Contains("[BaseType(typeof(NSObject))]", result);
+        Assert.Contains("partial interface MBMicroblinkApp", result);
+    }
+
+    [Fact]
+    public void Emit_ProtocolWithIntroduced_EmitsIntroducedAttribute()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols = [new ObjCProtocolDecl
+            {
+                Name = "MyDelegate",
+                Availability = [new ObjCAvailability { Platform = "ios", IntroducedVersion = "15.0" }]
+            }]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("[Introduced(PlatformName.iOS, 15, 0)]", result);
+        Assert.Contains("partial interface IMyDelegate", result);
+    }
+
+    [Fact]
+    public void Emit_MethodWithDeprecated_EmitsDeprecatedAttribute()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes = [new ObjCClassDecl
+            {
+                Name = "MyClass",
+                Methods = [new ObjCMethodDecl
+                {
+                    Selector = "oldMethod",
+                    IsInstanceMethod = true,
+                    ReturnType = new ObjCTypeRef { Name = "void" },
+                    Availability = [new ObjCAvailability
+                    {
+                        Platform = "ios",
+                        IntroducedVersion = "10.0",
+                        DeprecatedVersion = "16.0",
+                        Message = "Use newMethod instead"
+                    }]
+                }]
+            }]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("[Introduced(PlatformName.iOS, 10, 0)]", result);
+        Assert.Contains("[Deprecated(PlatformName.iOS, 16, 0, message: \"Use newMethod instead\")]", result);
+        Assert.Contains("OldMethod", result);
+    }
+
+    [Fact]
+    public void Emit_PropertyWithIntroduced_EmitsIntroducedAttribute()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes = [new ObjCClassDecl
+            {
+                Name = "MyClass",
+                Properties = [new ObjCPropertyDecl
+                {
+                    Name = "newProp",
+                    Type = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                    IsReadonly = true,
+                    Availability = [new ObjCAvailability { Platform = "ios", IntroducedVersion = "14.0" }]
+                }]
+            }]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("[Introduced(PlatformName.iOS, 14, 0)]", result);
+        Assert.Contains("string NewProp { get; }", result);
+    }
+
+    // ──────────────────────────────────────────────
+    // Fix #4: Optional vs required member classification
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public void Emit_ProtocolOptionalProperty_NoAbstractAttribute()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols = [new ObjCProtocolDecl
+            {
+                Name = "MyProto",
+                Properties = [new ObjCPropertyDecl
+                {
+                    Name = "optionalTitle",
+                    Type = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                    IsReadonly = true,
+                    IsOptional = true,
+                    GetterSelector = "optionalTitle"
+                }]
+            }]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.DoesNotContain("[Abstract]", result);
+        Assert.Contains("string OptionalTitle { get; }", result);
+    }
+
+    [Fact]
+    public void Emit_ProtocolMixedOptionalAndRequired_CorrectAbstractPlacement()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols = [new ObjCProtocolDecl
+            {
+                Name = "MyProto",
+                Methods =
+                [
+                    new ObjCMethodDecl
+                    {
+                        Selector = "requiredMethod",
+                        ReturnType = new ObjCTypeRef { Name = "void" },
+                        IsInstanceMethod = true,
+                        IsOptional = false
+                    },
+                    new ObjCMethodDecl
+                    {
+                        Selector = "optionalMethod",
+                        ReturnType = new ObjCTypeRef { Name = "void" },
+                        IsInstanceMethod = true,
+                        IsOptional = true
+                    }
+                ],
+                Properties =
+                [
+                    new ObjCPropertyDecl
+                    {
+                        Name = "requiredProp",
+                        Type = new ObjCTypeRef { Name = "NSInteger" },
+                        IsReadonly = true,
+                        IsOptional = false
+                    },
+                    new ObjCPropertyDecl
+                    {
+                        Name = "optionalProp",
+                        Type = new ObjCTypeRef { Name = "NSInteger" },
+                        IsReadonly = true,
+                        IsOptional = true
+                    }
+                ]
+            }]
+        };
+
+        var result = EmitAndRead(module);
+        var lines = result.Split('\n');
+
+        // For each member, check whether [Abstract] appears immediately before [Export]
+        // Required method: [Abstract] should precede [Export("requiredMethod")]
+        var requiredMethodExportLine = Array.FindIndex(lines, l => l.Contains("[Export(\"requiredMethod\")]"));
+        Assert.True(requiredMethodExportLine > 0);
+        Assert.Contains("[Abstract]", lines[requiredMethodExportLine - 1]);
+
+        // Optional method: NO [Abstract] before [Export("optionalMethod")]
+        var optionalMethodExportLine = Array.FindIndex(lines, l => l.Contains("[Export(\"optionalMethod\")]"));
+        Assert.True(optionalMethodExportLine > 0);
+        Assert.DoesNotContain("[Abstract]", lines[optionalMethodExportLine - 1]);
+
+        // Required property: [Abstract] should precede [Export("requiredProp")]
+        var requiredPropExportLine = Array.FindIndex(lines, l => l.Contains("[Export(\"requiredProp\")]"));
+        Assert.True(requiredPropExportLine > 0);
+        Assert.Contains("[Abstract]", lines[requiredPropExportLine - 1]);
+
+        // Optional property: NO [Abstract] before [Export("optionalProp")]
+        var optionalPropExportLine = Array.FindIndex(lines, l => l.Contains("[Export(\"optionalProp\")]"));
+        Assert.True(optionalPropExportLine > 0);
+        Assert.DoesNotContain("[Abstract]", lines[optionalPropExportLine - 1]);
+    }
+
+    // ──────────────────────────────────────────────
+    // Fix #6: DisableDefaultCtor + explicit init contradiction
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public void Emit_DisableDefaultCtor_SuppressesExplicitInitConstructor()
+    {
+        // When [DisableDefaultCtor] is emitted, the explicit [Export("init")] Constructor()
+        // should be suppressed to avoid contradiction.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes = [new ObjCClassDecl
+            {
+                Name = "MyClass",
+                Methods =
+                [
+                    new ObjCMethodDecl
+                    {
+                        Selector = "init",
+                        ReturnType = new ObjCTypeRef { Name = "instancetype" },
+                        IsInstanceMethod = true
+                    },
+                    new ObjCMethodDecl
+                    {
+                        Selector = "doSomething",
+                        ReturnType = new ObjCTypeRef { Name = "void" },
+                        IsInstanceMethod = true
+                    }
+                ]
+            }]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("[DisableDefaultCtor]", result);
+        // Should NOT have [Export("init")] Constructor() — contradicts DisableDefaultCtor
+        Assert.DoesNotContain("[Export(\"init\")]", result);
+        Assert.DoesNotContain("Constructor()", result);
+        // Other methods should still be emitted
+        Assert.Contains("[Export(\"doSomething\")]", result);
+    }
+
+    [Fact]
+    public void Emit_DisableDefaultCtor_KeepsParameterizedConstructors()
+    {
+        // DisableDefaultCtor should NOT suppress parameterized constructors
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes = [new ObjCClassDecl
+            {
+                Name = "MyClass",
+                Methods =
+                [
+                    new ObjCMethodDecl
+                    {
+                        Selector = "init",
+                        ReturnType = new ObjCTypeRef { Name = "instancetype" },
+                        IsInstanceMethod = true
+                    },
+                    new ObjCMethodDecl
+                    {
+                        Selector = "initWithName:",
+                        ReturnType = new ObjCTypeRef { Name = "instancetype" },
+                        IsInstanceMethod = true,
+                        Parameters = [new ObjCParameterDecl
+                        {
+                            Name = "name",
+                            Type = new ObjCTypeRef { Name = "NSString", IsPointer = true }
+                        }]
+                    }
+                ]
+            }]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("[DisableDefaultCtor]", result);
+        // Parameterized init should still be emitted
+        Assert.Contains("[Export(\"initWithName:\")]", result);
+        Assert.Contains("NativeHandle Constructor(string name);", result);
+        // Parameterless init suppressed
+        Assert.DoesNotContain("[Export(\"init\")]", result);
+    }
+
+    // ──────────────────────────────────────────────
+    // Fix #7: [Model] on delegate protocols
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public void Emit_DelegateProtocol_HasModelAttribute()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols = [new ObjCProtocolDecl
+            {
+                Name = "MyViewDelegate",
+                IsDelegateProtocol = true,
+                Methods = [new ObjCMethodDecl
+                {
+                    Selector = "viewDidLoad",
+                    ReturnType = new ObjCTypeRef { Name = "void" },
+                    IsInstanceMethod = true,
+                    IsOptional = true
+                }]
+            }]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("[Protocol, Model]", result);
+        Assert.Contains("[BaseType(typeof(NSObject))]", result);
+        // [Model] protocols use bare name (no I prefix) per Xamarin convention
+        Assert.Contains("partial interface MyViewDelegate", result);
+        Assert.DoesNotContain("IMyViewDelegate", result);
+    }
+
+    [Fact]
+    public void Emit_DataSourceProtocol_HasModelAttribute()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols = [new ObjCProtocolDecl
+            {
+                Name = "MyTableDataSource",
+                IsDelegateProtocol = true,
+                Methods = [new ObjCMethodDecl
+                {
+                    Selector = "numberOfRows",
+                    ReturnType = new ObjCTypeRef { Name = "NSInteger" },
+                    IsInstanceMethod = true,
+                    IsOptional = false
+                }]
+            }]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("[Protocol, Model]", result);
+        Assert.Contains("partial interface MyTableDataSource", result);
+    }
+
+    [Fact]
+    public void Emit_NonDelegateProtocol_NoModelAttribute()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols = [new ObjCProtocolDecl
+            {
+                Name = "Configurable",
+                IsDelegateProtocol = false
+            }]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("[Protocol]", result);
+        Assert.DoesNotContain("[Model]", result);
+        Assert.Contains("partial interface IConfigurable", result);
+    }
+
+    // ──────────────────────────────────────────────
+    // Fix #8: WeakDelegate/Wrap pattern
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public void Emit_DelegateProperty_EmitsWeakDelegateWrapPattern()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols = [new ObjCProtocolDecl
+            {
+                Name = "MyViewDelegate",
+                IsDelegateProtocol = true
+            }],
+            Classes = [new ObjCClassDecl
+            {
+                Name = "MyView",
+                Properties = [new ObjCPropertyDecl
+                {
+                    Name = "delegate",
+                    Type = new ObjCTypeRef
+                    {
+                        Name = "id",
+                        IsPointer = true,
+                        ProtocolQualifications = ["MyViewDelegate"]
+                    },
+                    IsReadonly = false,
+                    GetterSelector = "delegate"
+                }]
+            }]
+        };
+
+        var result = EmitAndRead(module);
+
+        // Strong-typed property with [Wrap]
+        Assert.Contains("[Wrap(\"WeakDelegate\")]", result);
+        Assert.Contains("[NullAllowed]", result);
+        Assert.Contains("MyViewDelegate Delegate { get; set; }", result);
+
+        // Weak NSObject property with [Export] — readwrite uses setter export
+        Assert.Contains("[NullAllowed, Export(\"delegate\", ArgumentSemantic.Weak)]", result);
+        Assert.Contains("NSObject WeakDelegate {", result);
+        Assert.Contains("[Export(\"setDelegate:\")] set;", result);
+    }
+
+    [Fact]
+    public void Emit_DataSourceProperty_EmitsWeakDelegateWrapPattern()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols = [new ObjCProtocolDecl
+            {
+                Name = "TableDataSource",
+                IsDelegateProtocol = true
+            }],
+            Classes = [new ObjCClassDecl
+            {
+                Name = "MyTable",
+                Properties = [new ObjCPropertyDecl
+                {
+                    Name = "dataSource",
+                    Type = new ObjCTypeRef
+                    {
+                        Name = "id",
+                        IsPointer = true,
+                        ProtocolQualifications = ["TableDataSource"]
+                    },
+                    IsReadonly = false,
+                    GetterSelector = "dataSource"
+                }]
+            }]
+        };
+
+        var result = EmitAndRead(module);
+
+        Assert.Contains("[Wrap(\"WeakDataSource\")]", result);
+        Assert.Contains("TableDataSource DataSource { get; set; }", result);
+        Assert.Contains("[NullAllowed, Export(\"dataSource\", ArgumentSemantic.Weak)]", result);
+        Assert.Contains("NSObject WeakDataSource {", result);
+        Assert.Contains("[Export(\"setDataSource:\")] set;", result);
+    }
+
+    [Fact]
+    public void Emit_NonDelegateProperty_NoWeakDelegatePattern()
+    {
+        // A property named "delegate" but whose type is NOT a delegate protocol
+        // should be emitted normally.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes = [new ObjCClassDecl
+            {
+                Name = "MyClass",
+                Properties = [new ObjCPropertyDecl
+                {
+                    Name = "delegate",
+                    Type = new ObjCTypeRef { Name = "NSObject", IsPointer = true },
+                    IsReadonly = false,
+                    GetterSelector = "delegate"
+                }]
+            }]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.DoesNotContain("WeakDelegate", result);
+        Assert.DoesNotContain("[Wrap(", result);
+        Assert.Contains("[Export(\"delegate\")]", result);
+    }
+
+    [Fact]
+    public void Emit_NavigationDelegateProperty_EmitsWeakDelegateWrapPattern()
+    {
+        // A property named "navigationDelegate" with a delegate protocol type
+        // should also use the WeakDelegate/Wrap pattern, not just "delegate"/"dataSource".
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols = [new ObjCProtocolDecl
+            {
+                Name = "WKNavigationDelegate",
+                IsDelegateProtocol = true
+            }],
+            Classes = [new ObjCClassDecl
+            {
+                Name = "WKWebView",
+                Properties = [new ObjCPropertyDecl
+                {
+                    Name = "navigationDelegate",
+                    Type = new ObjCTypeRef
+                    {
+                        Name = "id",
+                        IsPointer = true,
+                        ProtocolQualifications = ["WKNavigationDelegate"]
+                    },
+                    IsReadonly = false,
+                    GetterSelector = "navigationDelegate"
+                }]
+            }]
+        };
+
+        var result = EmitAndRead(module);
+
+        // Should emit the WeakDelegate/Wrap pattern
+        Assert.Contains("[Wrap(\"WeakNavigationDelegate\")]", result);
+        Assert.Contains("WKNavigationDelegate NavigationDelegate { get; set; }", result);
+        Assert.Contains("[NullAllowed, Export(\"navigationDelegate\", ArgumentSemantic.Weak)]", result);
+        Assert.Contains("NSObject WeakNavigationDelegate {", result);
+    }
+
 }

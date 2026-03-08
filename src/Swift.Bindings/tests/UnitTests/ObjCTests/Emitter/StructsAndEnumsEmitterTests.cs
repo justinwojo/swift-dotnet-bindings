@@ -1579,4 +1579,313 @@ public class StructsAndEnumsEmitterTests
                 Directory.Delete(tempDir, true);
         }
     }
+
+    // ──────────────────────────────────────────────
+    // Non-sequential enum value emission tests
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public void EmitEnum_NonSequentialValues_EmitsExplicitValues()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Enums =
+            [
+                new ObjCEnumDecl
+                {
+                    Name = "STDSErrorCode",
+                    UnderlyingType = SimpleType("NSInteger"),
+                    Cases =
+                    [
+                        new ObjCEnumCaseDecl { Name = "STDSErrorCodeAssertionFailed", Value = 204 },
+                        new ObjCEnumCaseDecl { Name = "STDSErrorCodeUnrecognizedID", Value = 203 },
+                    ]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("AssertionFailed = 204,", output);
+        Assert.Contains("UnrecognizedID = 203,", output);
+    }
+
+    [Fact]
+    public void EmitEnum_HighStartValue_EmitsExplicitValues()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Enums =
+            [
+                new ObjCEnumDecl
+                {
+                    Name = "HighEnum",
+                    UnderlyingType = SimpleType("NSInteger"),
+                    Cases =
+                    [
+                        new ObjCEnumCaseDecl { Name = "HighEnumBase", Value = 20000 },
+                        new ObjCEnumCaseDecl { Name = "HighEnumNext", Value = 20001 },
+                        new ObjCEnumCaseDecl { Name = "HighEnumGap", Value = 20100 },
+                    ]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("Base = 20000,", output);
+        Assert.Contains("Next = 20001,", output);
+        Assert.Contains("Gap = 20100,", output);
+    }
+
+    [Fact]
+    public void EmitEnum_WithGaps_EmitsAllExplicitValues()
+    {
+        // HTTP-like status codes with gaps
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Enums =
+            [
+                new ObjCEnumDecl
+                {
+                    Name = "HTTPStatus",
+                    UnderlyingType = SimpleType("NSInteger"),
+                    Cases =
+                    [
+                        new ObjCEnumCaseDecl { Name = "HTTPStatusOK", Value = 200 },
+                        new ObjCEnumCaseDecl { Name = "HTTPStatusCreated", Value = 201 },
+                        new ObjCEnumCaseDecl { Name = "HTTPStatusNoContent", Value = 204 },
+                        new ObjCEnumCaseDecl { Name = "HTTPStatusFound", Value = 302 },
+                        new ObjCEnumCaseDecl { Name = "HTTPStatusNotFound", Value = 404 },
+                    ]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("OK = 200,", output);
+        Assert.Contains("Created = 201,", output);
+        Assert.Contains("NoContent = 204,", output);
+        Assert.Contains("Found = 302,", output);
+        Assert.Contains("NotFound = 404,", output);
+    }
+
+    [Fact]
+    public void EmitEnum_NegativeValues_EmitsExplicitValues()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Enums =
+            [
+                new ObjCEnumDecl
+                {
+                    Name = "SignedEnum",
+                    UnderlyingType = SimpleType("NSInteger"),
+                    Cases =
+                    [
+                        new ObjCEnumCaseDecl { Name = "SignedEnumError", Value = -1 },
+                        new ObjCEnumCaseDecl { Name = "SignedEnumNone", Value = 0 },
+                        new ObjCEnumCaseDecl { Name = "SignedEnumOK", Value = 1 },
+                    ]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("Error = -1,", output);
+        Assert.Contains("None = 0,", output);
+        Assert.Contains("OK = 1,", output);
+    }
+
+    [Fact]
+    public void EmitEnum_NoExplicitValues_OmitsValueAssignment()
+    {
+        // When values are null (not extracted), emit without assignment
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Enums =
+            [
+                new ObjCEnumDecl
+                {
+                    Name = "SimpleEnum",
+                    UnderlyingType = SimpleType("NSInteger"),
+                    Cases =
+                    [
+                        new ObjCEnumCaseDecl { Name = "SimpleEnumA" },
+                        new ObjCEnumCaseDecl { Name = "SimpleEnumB" },
+                    ]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        // Should emit without value assignments
+        Assert.Contains("A,", output);
+        Assert.Contains("B,", output);
+        Assert.DoesNotContain("= ", output.Substring(output.IndexOf("public enum")));
+    }
+
+    // ──────────────────────────────────────────────
+    // Typedef'd NSString constant [Field] emission
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public void EmitConstant_TypedefNSString_EmitsFieldProperty()
+    {
+        // e.g., typedef NSString *RLMNotification; extern RLMNotification const RLMRealmDidChange;
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Typedefs =
+            [
+                new ObjCTypedefDecl
+                {
+                    Name = "RLMNotification",
+                    UnderlyingType = SimpleType("NSString", isPointer: true)
+                }
+            ],
+            Constants =
+            [
+                new ObjCConstantDecl
+                {
+                    Name = "RLMRealmDidChange",
+                    Type = SimpleType("RLMNotification"),
+                    IsExtern = true
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("[Field(\"RLMRealmDidChange\", \"__Internal\")]", output);
+        Assert.Contains("public static NSString RLMRealmDidChange { get; }", output);
+        Assert.DoesNotContain("TODO", output);
+    }
+
+    [Fact]
+    public void EmitConstant_TypedefNSStringPointerUsage_EmitsFieldProperty()
+    {
+        // typedef NSString RLMNotification; usage: RLMNotification *
+        // (typedef drops pointer, usage adds it)
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Typedefs =
+            [
+                new ObjCTypedefDecl
+                {
+                    Name = "TLNotification",
+                    UnderlyingType = SimpleType("NSString")
+                }
+            ],
+            Constants =
+            [
+                new ObjCConstantDecl
+                {
+                    Name = "TLDidComplete",
+                    Type = SimpleType("TLNotification", isPointer: true),
+                    IsExtern = true
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("[Field(\"TLDidComplete\", \"__Internal\")]", output);
+        Assert.Contains("public static NSString TLDidComplete { get; }", output);
+        Assert.DoesNotContain("TODO", output);
+    }
+
+    [Fact]
+    public void EmitConstant_ChainedTypedefNSString_EmitsFieldProperty()
+    {
+        // typedef NSString *BaseNotification; typedef BaseNotification DerivedNotification;
+        // Chain: DerivedNotification → BaseNotification → NSString*
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Typedefs =
+            [
+                new ObjCTypedefDecl
+                {
+                    Name = "BaseNotification",
+                    UnderlyingType = SimpleType("NSString", isPointer: true)
+                },
+                new ObjCTypedefDecl
+                {
+                    Name = "DerivedNotification",
+                    UnderlyingType = SimpleType("BaseNotification")
+                }
+            ],
+            Constants =
+            [
+                new ObjCConstantDecl
+                {
+                    Name = "TLSomeEvent",
+                    Type = SimpleType("DerivedNotification"),
+                    IsExtern = true
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        // The typedef chain resolves DerivedNotification → NSString*
+        Assert.Contains("[Field(\"TLSomeEvent\", \"__Internal\")]", output);
+        Assert.Contains("public static NSString TLSomeEvent { get; }", output);
+        Assert.DoesNotContain("TODO", output);
+    }
+
+    [Fact]
+    public void EmitConstant_DirectNSString_StillWorks()
+    {
+        // Verify that the existing direct NSString* path still works after the typedef fix
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Constants =
+            [
+                new ObjCConstantDecl
+                {
+                    Name = "TLDirectString",
+                    Type = SimpleType("NSString", isPointer: true),
+                    IsExtern = true
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("[Field(\"TLDirectString\", \"__Internal\")]", output);
+        Assert.Contains("public static NSString TLDirectString { get; }", output);
+    }
+
+    [Fact]
+    public void EmitConstant_NonNSStringTypedef_StillEmitsTodo()
+    {
+        // Typedef to a non-NSString type should still emit TODO
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Typedefs =
+            [
+                new ObjCTypedefDecl
+                {
+                    Name = "CustomType",
+                    UnderlyingType = SimpleType("SomeStruct")
+                }
+            ],
+            Constants =
+            [
+                new ObjCConstantDecl
+                {
+                    Name = "TLCustomConst",
+                    Type = SimpleType("CustomType"),
+                    IsExtern = true
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("TODO", output);
+    }
 }

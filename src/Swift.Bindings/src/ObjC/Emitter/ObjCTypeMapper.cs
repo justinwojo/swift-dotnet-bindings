@@ -193,6 +193,14 @@ public static class ObjCTypeMapper
             return $"I{MapProtocolName(protocols[0])}";
         }
 
+        // 3b. Typed generic collections: NSArray<T> → T[], NSDictionary<K,V> → NSDictionary<K,V>
+        if (typeRef.GenericArgs.Count > 0)
+        {
+            var mappedGeneric = MapGenericCollectionType(typeRef, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap);
+            if (mappedGeneric != null)
+                return mappedGeneric;
+        }
+
         // 4. Known pointer types
         if (typeRef.IsPointer && PointerTypeMappings.TryGetValue(typeRef.Name, out var mapped))
             return mapped;
@@ -461,8 +469,11 @@ public static class ObjCTypeMapper
         // Action/Func delegate types (from block mappings)
         if (mappedType.StartsWith("Action", StringComparison.Ordinal) ||
             mappedType.StartsWith("Func<", StringComparison.Ordinal)) return true;
-        // Array types (from fixed-size C arrays, e.g., "byte[]")
+        // Array types (from fixed-size C arrays and typed NSArray<T>, e.g., "byte[]", "NSUrl[]")
         if (mappedType.EndsWith("]", StringComparison.Ordinal)) return true;
+        // Typed generic collections: NSDictionary<K,V>, NSSet<T>
+        if (mappedType.StartsWith("NSDictionary<", StringComparison.Ordinal) ||
+            mappedType.StartsWith("NSSet<", StringComparison.Ordinal)) return true;
         return false;
     }
 
@@ -473,6 +484,103 @@ public static class ObjCTypeMapper
         typeRef.Name == "NSError"
         && typeRef.IsPointer
         && typeRef.PointeeType is { Name: "NSError", IsPointer: true };
+
+    /// <summary>
+    /// Detects whether a parameter type is a pointer to a value type (primitive, struct, enum),
+    /// which should be emitted as an <c>out</c> parameter in C# bindings.
+    /// Examples: <c>BOOL *</c> → <c>out bool</c>, <c>CGPoint *</c> → <c>out CGPoint</c>.
+    /// ObjC object pointers (e.g., <c>NSObject *</c>) return false — they are references, not out-params.
+    /// Double pointers (e.g., <c>NSError **</c>) also return false — they have their own handling.
+    /// </summary>
+    public static bool IsValueTypePointerParameter(ObjCTypeRef typeRef) =>
+        IsValueTypePointerParameter(typeRef, typedefMap: null, enumNames: null);
+
+    /// <summary>
+    /// Overload that resolves through typedefs and recognizes enum types as value types.
+    /// <paramref name="typedefMap"/> resolves typedef'd names (e.g., MyErrorCode → NSInteger).
+    /// <paramref name="enumNames"/> is the set of enum type names defined in the module.
+    /// </summary>
+    public static bool IsValueTypePointerParameter(ObjCTypeRef typeRef, Dictionary<string, ObjCTypeRef>? typedefMap, HashSet<string>? enumNames)
+    {
+        // Must be a pointer type
+        if (!typeRef.IsPointer) return false;
+        // Double pointers are not value-type out params (e.g., NSError **)
+        if (typeRef.PointeeType != null) return false;
+        // Blocks, function pointers, anonymous records are not value type pointers
+        if (typeRef.IsBlock || typeRef.IsFunctionPointer || typeRef.IsAnonymousRecord) return false;
+        // id<Protocol> pointers are object types
+        if (typeRef.ProtocolQualifications.Count > 0) return false;
+        // Generic containers (NSArray<T> *) are object types
+        if (typeRef.GenericArgs.Count > 0) return false;
+
+        var name = typeRef.Name;
+
+        // Resolve through typedefs: e.g., typedef NSInteger MyErrorCode; MyErrorCode * → out nint
+        if (typedefMap != null && typedefMap.TryGetValue(name, out var resolved))
+        {
+            var underlying = resolved;
+            var visited = new HashSet<string> { name };
+            while (typedefMap.TryGetValue(underlying.Name, out var deeper) && visited.Add(underlying.Name))
+                underlying = deeper;
+            name = underlying.Name;
+        }
+
+        // void * → IntPtr, not an out param
+        if (name == "void") return false;
+        // id, Class, SEL — object/meta types, not value type pointers
+        if (name is "id" or "Class" or "SEL" or "instancetype") return false;
+        // CoreFoundation Ref types (dispatch_queue_t, CGImageRef, etc.) — opaque pointers
+        if (CoreFoundationRefMappings.ContainsKey(name)) return false;
+
+        // If it maps to a primitive, it's a value type pointer (e.g., BOOL *, int *, CGFloat *)
+        if (PrimitiveTypeMappings.ContainsKey(name)) return true;
+
+        // ObjC object types: known pointer type mappings (NSString *, NSObject *, etc.)
+        if (PointerTypeMappings.ContainsKey(name)) return false;
+
+        // Struct types from Apple frameworks (CG*, CL*, MK*, CM*, etc.)
+        if (IsKnownAppleValueType(name)) return true;
+
+        // Enum types are value types — pointer to enum is an out-param
+        // Check both the resolved name (for typedef aliases) and the original name
+        if (enumNames != null && (enumNames.Contains(name) || enumNames.Contains(typeRef.Name))) return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// Maps a value-type pointer parameter to its C# <c>out</c> type.
+    /// E.g., <c>_Bool *</c> → <c>bool</c>, <c>CGPoint *</c> → <c>CGPoint</c>.
+    /// Call only after <see cref="IsValueTypePointerParameter"/> returns true.
+    /// </summary>
+    public static string MapValueTypePointerParameterType(ObjCTypeRef typeRef, Dictionary<string, ObjCTypeRef>? typedefMap = null)
+    {
+        // Map the pointee (non-pointer version of the type)
+        var pointee = new ObjCTypeRef { Name = typeRef.Name };
+        return MapType(pointee, typedefMap: typedefMap);
+    }
+
+    // Apple framework struct/value types commonly used as pointer parameters.
+    // These are C structs bridged to .NET value types.
+    private static readonly HashSet<string> KnownAppleValueTypes =
+    [
+        "CGPoint", "CGSize", "CGRect", "CGVector", "CGAffineTransform",
+        "UIEdgeInsets", "NSDirectionalEdgeInsets",
+        "UIOffset", "UIFloatRange",
+        "CLLocationCoordinate2D",
+        "MKCoordinateSpan", "MKCoordinateRegion", "MKMapPoint", "MKMapSize", "MKMapRect",
+        "CMTime", "CMTimeRange", "CMTimeMapping", "CMVideoDimensions",
+        "CATransform3D",
+        "NSRange",
+        "SCNVector3", "SCNVector4", "SCNMatrix4",
+        "simd_float2", "simd_float3", "simd_float4",
+        "simd_float4x4", "simd_float3x3",
+        "MTLOrigin", "MTLSize", "MTLRegion",
+        "AVAudio3DPoint", "AVAudio3DVector", "AVAudio3DAngularOrientation",
+    ];
+
+    private static bool IsKnownAppleValueType(string name) =>
+        KnownAppleValueTypes.Contains(name);
 
     static string MapBlockType(ObjCTypeRef typeRef, HashSet<string>? genericTypeParams = null, Dictionary<string, ObjCTypeRef>? typedefMap = null)
     {
@@ -494,5 +602,105 @@ public static class ObjCTypeMapper
 
         var allTypes = paramTypes.Append(returnType);
         return $"Func<{string.Join(", ", allTypes)}>";
+    }
+
+    /// <summary>
+    /// Maps ObjC generic collection types to their C# equivalents:
+    /// - NSArray&lt;T&gt; / NSMutableArray&lt;T&gt; → T[] (when T is a concrete type, not a generic param)
+    /// - NSDictionary&lt;K,V&gt; / NSMutableDictionary&lt;K,V&gt; → NSDictionary&lt;K,V&gt; (preserves generic args)
+    /// - NSSet&lt;T&gt; / NSMutableSet&lt;T&gt; / NSOrderedSet&lt;T&gt; → NSSet&lt;T&gt; (preserves generic args)
+    /// Returns null if the type doesn't qualify for generic mapping (e.g., generic param element type).
+    /// </summary>
+    private static string? MapGenericCollectionType(ObjCTypeRef typeRef, string? declaringClassName, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap, Dictionary<string, ObjCTypeRef>? blockTypedefMap)
+    {
+        // NSArray<T> / NSMutableArray<T> with a single concrete element type → T[]
+        if (typeRef.Name is "NSArray" or "NSMutableArray" && typeRef.GenericArgs.Count == 1)
+        {
+            var elemArg = typeRef.GenericArgs[0];
+            // If element is a generic type parameter (e.g., ObjectType from class decl), fall through to NSObject[]
+            // which isn't useful — return null to let normal mapping handle it as plain NSArray.
+            if (genericTypeParams != null && genericTypeParams.Contains(elemArg.Name))
+                return null;
+            var mappedElem = MapType(elemArg, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap);
+            return $"{mappedElem}[]";
+        }
+
+        // NSDictionary<K,V> / NSMutableDictionary<K,V> → NSDictionary<K,V>
+        // Note: NSDictionary<TKey, TValue> requires INativeObject — can't use mapped types like string.
+        // Only emit typed generics when both args are known NS/ObjC object types.
+        if (typeRef.Name is "NSDictionary" or "NSMutableDictionary" && typeRef.GenericArgs.Count == 2)
+        {
+            var keyArg = typeRef.GenericArgs[0];
+            var valArg = typeRef.GenericArgs[1];
+            if (genericTypeParams != null &&
+                (genericTypeParams.Contains(keyArg.Name) || genericTypeParams.Contains(valArg.Name)))
+                return null;
+            var mappedKey = MapNativeObjectGenericArg(keyArg, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap);
+            var mappedVal = MapNativeObjectGenericArg(valArg, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap);
+            if (mappedKey == null || mappedVal == null)
+                return null; // Fall back to plain NSDictionary
+            return $"NSDictionary<{mappedKey}, {mappedVal}>";
+        }
+
+        // NSSet<T> / NSMutableSet<T> / NSOrderedSet<T> / NSMutableOrderedSet<T> → NSSet<T>
+        // Same INativeObject constraint as NSDictionary.
+        if (typeRef.Name is "NSSet" or "NSMutableSet" or "NSOrderedSet" or "NSMutableOrderedSet"
+            && typeRef.GenericArgs.Count == 1)
+        {
+            var elemArg = typeRef.GenericArgs[0];
+            if (genericTypeParams != null && genericTypeParams.Contains(elemArg.Name))
+                return null;
+            var mappedElem = MapNativeObjectGenericArg(elemArg, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap);
+            if (mappedElem == null)
+                return null; // Fall back to plain NSSet
+            return $"NSSet<{mappedElem}>";
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Maps an ObjC generic arg for NSDictionary/NSSet, ensuring the result implements INativeObject.
+    /// Returns null if the type can't be used as a generic arg (e.g., typedefs to NSString, primitives).
+    /// Unlike <see cref="MapType"/>, this does NOT convert NSString→string or other INativeObject-incompatible mappings.
+    /// </summary>
+    private static string? MapNativeObjectGenericArg(ObjCTypeRef typeRef, string? declaringClassName, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap, Dictionary<string, ObjCTypeRef>? blockTypedefMap)
+    {
+        var name = typeRef.Name;
+
+        // Resolve typedefs — if it's a typedef for NSString (e.g., SDWebImageContextOption),
+        // use NSString instead of the typedef name (which won't exist as a C# type).
+        if (typedefMap != null && typedefMap.TryGetValue(name, out var resolved))
+        {
+            // Follow the typedef chain to the underlying type
+            var underlying = resolved;
+            var visited = new HashSet<string> { name };
+            while (typedefMap.TryGetValue(underlying.Name, out var deeper) && visited.Add(underlying.Name))
+                underlying = deeper;
+            name = underlying.Name;
+        }
+
+        // Known NS object types that implement INativeObject
+        if (PointerTypeMappings.TryGetValue(name, out var mapped))
+        {
+            // string doesn't implement INativeObject — keep NSString
+            if (mapped == "string")
+                return "NSString";
+            return mapped;
+        }
+
+        // If it's "id" (any object), use NSObject
+        if (name == "id")
+            return "NSObject";
+
+        // Primitive types (int, bool, etc.) can't be used as NSDictionary generic args
+        if (PrimitiveTypeMappings.ContainsKey(name))
+            return null;
+
+        // Unknown pointer types: module-local ObjC classes (e.g., GIDClaim) are emitted as
+        // partial interfaces by bgen, which don't implement INativeObject at compile time.
+        // Only use known Apple SDK types as generic args; for everything else, fall back to
+        // the untyped container.
+        return null;
     }
 }

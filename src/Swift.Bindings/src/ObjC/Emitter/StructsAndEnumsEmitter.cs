@@ -39,7 +39,8 @@ public static class StructsAndEnumsEmitter
         // Build set of known type names for unresolvable type detection.
         // Includes C# primitives, MAUI framework types, and all module-defined types.
         var knownTypes = ObjCTypeMapper.BuildKnownMappedTypes();
-        foreach (var e in module.Enums) knownTypes.Add(e.Name);
+        var enumNames = new HashSet<string>();
+        foreach (var e in module.Enums) { knownTypes.Add(e.Name); enumNames.Add(e.Name); }
         foreach (var s in module.Structs.Where(s => !SystemStructs.Contains(s.Name))) knownTypes.Add(s.Name);
 
         // Build set of module-local type names (classes + protocol interfaces)
@@ -167,7 +168,7 @@ public static class StructsAndEnumsEmitter
         }
 
         if (module.Constants.Any(c => c.IsExtern) || module.Functions.Count > 0)
-            EmitConstantsClass(sb, module, typedefMap, moduleLocalTypes, functionKnownTypes, logger, diagnostics);
+            EmitConstantsClass(sb, module, typedefMap, moduleLocalTypes, functionKnownTypes, enumNames, logger, diagnostics);
 
         sb.AppendLine("}");
 
@@ -334,13 +335,45 @@ public static class StructsAndEnumsEmitter
         }
 
         // Skip delegates that reference module-local types (defined in ApiDefinition.cs)
-        // to avoid CS0059 accessibility errors — these are internal partial interfaces
-        if (allMappedTypes.Any(t => moduleLocalTypes.Contains(t)))
+        // to avoid CS0059 accessibility errors — these are internal partial interfaces.
+        // Also check array element types (e.g., RLMPropertyChange[] → RLMPropertyChange)
+        // and generic args (e.g., NSDictionary<NSString, IRLMBSON> → IRLMBSON).
+        if (allMappedTypes.Any(t => IsModuleLocalType(t, moduleLocalTypes)))
             return;
 
         var parameters = string.Join(", ", paramParts);
         sb.AppendLine($"    public delegate {returnType} {typedef.Name}({parameters});");
         sb.AppendLine();
+    }
+
+    /// <summary>
+    /// Checks if a mapped C# type references a module-local type, including through arrays and generics.
+    /// E.g., "RLMPropertyChange[]" → checks "RLMPropertyChange", "NSDictionary&lt;NSString, IRLMBSON&gt;" → checks "IRLMBSON".
+    /// </summary>
+    static bool IsModuleLocalType(string mappedType, HashSet<string> moduleLocalTypes)
+    {
+        if (moduleLocalTypes.Contains(mappedType))
+            return true;
+        // Strip array suffix: "Foo[]" → "Foo"
+        if (mappedType.EndsWith("[]", StringComparison.Ordinal))
+        {
+            var baseType = mappedType[..^2];
+            if (moduleLocalTypes.Contains(baseType))
+                return true;
+        }
+        // Check generic args: "NSDictionary<K, V>" → check K, V
+        var genericStart = mappedType.IndexOf('<');
+        if (genericStart >= 0 && mappedType.EndsWith('>'))
+        {
+            var args = mappedType[(genericStart + 1)..^1].Split(',');
+            foreach (var arg in args)
+            {
+                var trimmed = arg.Trim();
+                if (moduleLocalTypes.Contains(trimmed))
+                    return true;
+            }
+        }
+        return false;
     }
 
     static void EmitStruct(StringBuilder sb, ObjCStructDecl structDecl, Dictionary<string, ObjCTypeRef> typedefMap, HashSet<string> knownTypes, ILogger logger, ObjCBindingDiagnostics? diagnostics)
@@ -403,7 +436,7 @@ public static class StructsAndEnumsEmitter
         sb.AppendLine();
     }
 
-    static void EmitConstantsClass(StringBuilder sb, ObjCModule module, Dictionary<string, ObjCTypeRef> typedefMap, HashSet<string> moduleLocalTypes, HashSet<string> knownTypes, ILogger logger, ObjCBindingDiagnostics? diagnostics)
+    static void EmitConstantsClass(StringBuilder sb, ObjCModule module, Dictionary<string, ObjCTypeRef> typedefMap, HashSet<string> moduleLocalTypes, HashSet<string> knownTypes, HashSet<string> enumNames, ILogger logger, ObjCBindingDiagnostics? diagnostics)
     {
         sb.AppendLine($"    public static class {module.ModuleName}Constants");
         sb.AppendLine("    {");
@@ -412,7 +445,7 @@ public static class StructsAndEnumsEmitter
             EmitConstant(sb, constant, typedefMap, diagnostics);
 
         foreach (var function in module.Functions)
-            EmitFunction(sb, function, typedefMap, moduleLocalTypes, knownTypes, logger, diagnostics);
+            EmitFunction(sb, function, typedefMap, moduleLocalTypes, knownTypes, enumNames, logger, diagnostics);
 
         sb.AppendLine("    }");
         sb.AppendLine();
@@ -430,7 +463,8 @@ public static class StructsAndEnumsEmitter
 
         // NSString* constants use NSString as the [Field] property type (MAUI convention),
         // not the mapped "string" type that ObjCTypeMapper returns.
-        var isNSString = constant.Type is { Name: "NSString", IsPointer: true };
+        // Also resolve typedef'd NSString types (e.g., RLMNotification → NSString*).
+        var isNSString = IsNSStringType(constant.Type, typedefMap);
         var fieldType = isNSString ? "NSString" : ObjCTypeMapper.MapType(constant.Type, typedefMap: typedefMap);
 
         if (FieldSupportedTypes.Contains(fieldType))
@@ -446,11 +480,43 @@ public static class StructsAndEnumsEmitter
         }
     }
 
-    static void EmitFunction(StringBuilder sb, ObjCFunctionDecl function, Dictionary<string, ObjCTypeRef> typedefMap, HashSet<string> moduleLocalTypes, HashSet<string> knownTypes, ILogger logger, ObjCBindingDiagnostics? diagnostics)
+    /// <summary>
+    /// Checks if a type is NSString* directly or through typedef chain resolution.
+    /// e.g., RLMNotification (typedef for NSString*) → true.
+    /// </summary>
+    static bool IsNSStringType(ObjCTypeRef type, Dictionary<string, ObjCTypeRef> typedefMap)
+    {
+        // Direct NSString* check
+        if (type is { Name: "NSString", IsPointer: true })
+            return true;
+
+        // Resolve through typedef chain: the constant's type name may be a typedef
+        // for NSString* (e.g., typedef NSString *RLMNotification).
+        // The typedefMap resolves chains, so we just need a single lookup.
+        if (typedefMap.TryGetValue(type.Name, out var resolved))
+        {
+            if (resolved is { Name: "NSString", IsPointer: true })
+                return true;
+            // Also handle when the typedef drops the pointer but the usage adds it
+            if (resolved.Name == "NSString" && type.IsPointer)
+                return true;
+        }
+
+        return false;
+    }
+
+    static void EmitFunction(StringBuilder sb, ObjCFunctionDecl function, Dictionary<string, ObjCTypeRef> typedefMap, HashSet<string> moduleLocalTypes, HashSet<string> knownTypes, HashSet<string> enumNames, ILogger logger, ObjCBindingDiagnostics? diagnostics)
     {
         if (ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, function.Availability, "        "))
         {
             diagnostics?.RecordSkip("Function", function.Name, ObjCSkipReason.UnavailableApi, "marked unavailable on iOS");
+            return;
+        }
+
+        // Skip variadic C functions — they require va_list which can't be safely P/Invoked
+        if (function.IsVariadic)
+        {
+            diagnostics?.RecordSkip("Function", function.Name, ObjCSkipReason.VariadicFunction, "variadic C functions cannot be safely P/Invoked");
             return;
         }
 
@@ -479,6 +545,11 @@ public static class StructsAndEnumsEmitter
         var parameters = string.Join(", ", function.Parameters.Select((p, i) =>
         {
             var paramName = string.IsNullOrEmpty(p.Name) ? $"arg{i}" : SanitizeIdentifier(p.Name);
+            if (ObjCTypeMapper.IsValueTypePointerParameter(p.Type, typedefMap, enumNames))
+            {
+                var pointeeType = ObjCTypeMapper.MapValueTypePointerParameterType(p.Type, typedefMap);
+                return $"out {pointeeType} {paramName}";
+            }
             return $"{paramTypes[i]} {paramName}";
         }));
 

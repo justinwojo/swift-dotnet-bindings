@@ -537,6 +537,13 @@ public static class ClangAstParser
         var returnType = GetQualType(element);
         if (returnType == null) return null;
 
+        // Detect variadic functions: clang AST emits "variadic": true on FunctionDecl
+        var isVariadic = false;
+        if (element.TryGetProperty("variadic", out var variadicProp) && variadicProp.GetBoolean())
+        {
+            isVariadic = true;
+        }
+
         var parameters = new List<ObjCParameterDecl>();
         var availability = new List<ObjCAvailability>();
 
@@ -570,6 +577,7 @@ public static class ClangAstParser
             Name = name,
             ReturnType = ObjCTypeRefParser.Parse(funcReturnType),
             Parameters = parameters,
+            IsVariadic = isVariadic,
             Availability = availability
         };
     }
@@ -809,6 +817,13 @@ public static class ClangAstParser
             isInstance = instanceProp.GetBoolean();
         }
 
+        // Detect variadic methods: clang AST emits "variadic": true on ObjCMethodDecl
+        var isVariadic = false;
+        if (element.TryGetProperty("variadic", out var variadicProp) && variadicProp.GetBoolean())
+        {
+            isVariadic = true;
+        }
+
         var returnQualType = GetReturnType(element) ?? "void";
 
         var parameters = new List<ObjCParameterDecl>();
@@ -847,6 +862,7 @@ public static class ClangAstParser
             Parameters = parameters,
             IsInstanceMethod = isInstance,
             IsOptional = isOptional,
+            IsVariadic = isVariadic,
             Availability = methodAvailability,
             SwiftName = swiftName,
             IsRefinedForSwift = isRefined,
@@ -890,6 +906,21 @@ public static class ClangAstParser
                 : setterProp.GetString();
         }
 
+        // Extract ObjC property memory management attribute (copy, assign, weak, strong, retain, unsafe_unretained)
+        var memorySemantic = ObjCMemorySemantic.None;
+        if (element.TryGetProperty("copy", out var copyProp) && copyProp.GetBoolean())
+            memorySemantic = ObjCMemorySemantic.Copy;
+        else if (element.TryGetProperty("weak", out var weakProp) && weakProp.GetBoolean())
+            memorySemantic = ObjCMemorySemantic.Weak;
+        else if (element.TryGetProperty("strong", out var strongProp) && strongProp.GetBoolean())
+            memorySemantic = ObjCMemorySemantic.Strong;
+        else if (element.TryGetProperty("retain", out var retainProp) && retainProp.GetBoolean())
+            memorySemantic = ObjCMemorySemantic.Retain;
+        else if (element.TryGetProperty("assign", out var assignProp) && assignProp.GetBoolean())
+            memorySemantic = ObjCMemorySemantic.Assign;
+        else if (element.TryGetProperty("unsafe_unretained", out var unsafeProp) && unsafeProp.GetBoolean())
+            memorySemantic = ObjCMemorySemantic.UnsafeUnretained;
+
         var propAvailability = new List<ObjCAvailability>();
         if (element.TryGetProperty("inner", out var inner))
         {
@@ -926,6 +957,7 @@ public static class ClangAstParser
             IsOptional = isOptional,
             GetterSelector = getter,
             SetterSelector = setter,
+            MemorySemantic = memorySemantic,
             Availability = propAvailability,
             SwiftName = swiftName,
             IsRefinedForSwift = isRefined,
@@ -1448,13 +1480,13 @@ public static class ClangAstParser
         {
             var kind = GetOptionalString(child, "kind");
 
-            // ConstantExpr wraps the value
+            // ConstantExpr wraps the value — always has the evaluated result
             if (kind == "ConstantExpr")
             {
                 if (child.TryGetProperty("value", out var valProp))
                 {
                     var valStr = valProp.GetString();
-                    if (valStr != null && long.TryParse(valStr, out var val))
+                    if (valStr != null && TryParseIntegerValue(valStr, out var val))
                         return val;
                 }
                 // Recurse into ConstantExpr's inner
@@ -1462,16 +1494,72 @@ public static class ClangAstParser
                     return TryExtractEnumValue(ceInner);
             }
 
+            // IntegerLiteral is the leaf node containing the actual value
             if (kind == "IntegerLiteral")
             {
                 if (child.TryGetProperty("value", out var valProp))
                 {
                     var valStr = valProp.GetString();
-                    if (valStr != null && long.TryParse(valStr, out var val))
+                    if (valStr != null && TryParseIntegerValue(valStr, out var val))
                         return val;
+                }
+            }
+
+            // ImplicitCastExpr / ExplicitCastExpr / ParenExpr — transparent wrappers,
+            // recurse into their inner children to find the actual value node
+            if (kind is "ImplicitCastExpr" or "ExplicitCastExpr" or "ParenExpr"
+                or "CStyleCastExpr")
+            {
+                if (child.TryGetProperty("inner", out var wrapperInner))
+                {
+                    var result = TryExtractEnumValue(wrapperInner);
+                    if (result.HasValue)
+                        return result;
                 }
             }
         }
         return null;
+    }
+
+    /// <summary>
+    /// Parses an integer value string that may be decimal, hex (0x/0X prefix),
+    /// octal (0 prefix), or negative.
+    /// </summary>
+    private static bool TryParseIntegerValue(string value, out long result)
+    {
+        result = 0;
+        if (string.IsNullOrEmpty(value))
+            return false;
+
+        // Handle negative values
+        var isNegative = false;
+        var toParse = value;
+        if (toParse.StartsWith('-'))
+        {
+            isNegative = true;
+            toParse = toParse[1..];
+        }
+
+        bool parsed;
+        if (toParse.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+        {
+            // Hex literal — parse as ulong first to handle high-bit values
+            // (e.g., 0xFFFFFFFF80000000) that exceed long.MaxValue, then
+            // use unchecked cast to preserve the bit pattern in a long.
+            parsed = ulong.TryParse(toParse[2..], System.Globalization.NumberStyles.HexNumber,
+                System.Globalization.CultureInfo.InvariantCulture, out var ulongResult);
+            if (parsed)
+                result = unchecked((long)ulongResult);
+        }
+        else
+        {
+            // Decimal (or octal — clang typically evaluates these to decimal in the value field)
+            parsed = long.TryParse(toParse, out result);
+        }
+
+        if (parsed && isNegative)
+            result = -result;
+
+        return parsed;
     }
 }

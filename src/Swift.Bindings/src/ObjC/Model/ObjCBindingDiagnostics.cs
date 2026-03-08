@@ -12,6 +12,7 @@ public enum ObjCSkipReason
     UnsupportedConstruct,
     AccessibilityConflict,
     DuplicateSignature,
+    VariadicFunction,
 }
 
 public sealed record ObjCSkippedSymbol(

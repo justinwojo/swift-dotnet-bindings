@@ -2812,4 +2812,469 @@ public class ClangAstParserTests
         Assert.Equal("refinedMethod()", method.SwiftName);
         Assert.True(method.IsRefinedForSwift);
     }
+
+    // ──────────────────────────────────────────────
+    // Enum value extraction tests
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public void Parse_EnumDecl_NonSequentialValues_ExtractsAllValues()
+    {
+        // Simulates an enum like STDSErrorCode where values are non-sequential (204, 203)
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "EnumDecl",
+            "name": "ErrorCode",
+            {{MakeLoc()}},
+            "fixedUnderlyingType": { "qualType": "NSInteger" },
+            "inner": [
+                {
+                    "kind": "EnumConstantDecl",
+                    "name": "ErrorCodeAssertionFailed",
+                    "inner": [
+                        {
+                            "kind": "ConstantExpr",
+                            "value": "204",
+                            "inner": [
+                                { "kind": "IntegerLiteral", "value": "204" }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "kind": "EnumConstantDecl",
+                    "name": "ErrorCodeUnrecognizedID",
+                    "inner": [
+                        {
+                            "kind": "ConstantExpr",
+                            "value": "203",
+                            "inner": [
+                                { "kind": "IntegerLiteral", "value": "203" }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Single(module.Enums);
+        var e = module.Enums[0];
+        Assert.Equal(2, e.Cases.Count);
+        Assert.Equal(204L, e.Cases[0].Value);
+        Assert.Equal(203L, e.Cases[1].Value);
+    }
+
+    [Fact]
+    public void Parse_EnumDecl_HighValues_ExtractsCorrectly()
+    {
+        // Enum values starting at 20000
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "EnumDecl",
+            "name": "HighEnum",
+            {{MakeLoc()}},
+            "fixedUnderlyingType": { "qualType": "NSInteger" },
+            "inner": [
+                {
+                    "kind": "EnumConstantDecl",
+                    "name": "HighEnumBase",
+                    "inner": [
+                        { "kind": "ConstantExpr", "value": "20000" }
+                    ]
+                },
+                {
+                    "kind": "EnumConstantDecl",
+                    "name": "HighEnumNext",
+                    "inner": [
+                        { "kind": "ConstantExpr", "value": "20001" }
+                    ]
+                },
+                {
+                    "kind": "EnumConstantDecl",
+                    "name": "HighEnumGap",
+                    "inner": [
+                        { "kind": "ConstantExpr", "value": "20100" }
+                    ]
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        var e = module.Enums[0];
+        Assert.Equal(3, e.Cases.Count);
+        Assert.Equal(20000L, e.Cases[0].Value);
+        Assert.Equal(20001L, e.Cases[1].Value);
+        Assert.Equal(20100L, e.Cases[2].Value);
+    }
+
+    [Fact]
+    public void Parse_EnumDecl_WithImplicitCastExpr_ExtractsValue()
+    {
+        // Some clang versions wrap ConstantExpr inside ImplicitCastExpr
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "EnumDecl",
+            "name": "CastEnum",
+            {{MakeLoc()}},
+            "fixedUnderlyingType": { "qualType": "NSInteger" },
+            "inner": [
+                {
+                    "kind": "EnumConstantDecl",
+                    "name": "CastEnumValue",
+                    "inner": [
+                        {
+                            "kind": "ImplicitCastExpr",
+                            "inner": [
+                                {
+                                    "kind": "ConstantExpr",
+                                    "value": "42",
+                                    "inner": [
+                                        { "kind": "IntegerLiteral", "value": "42" }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        var e = module.Enums[0];
+        Assert.Single(e.Cases);
+        Assert.Equal(42L, e.Cases[0].Value);
+    }
+
+    [Fact]
+    public void Parse_EnumDecl_WithParenExpr_ExtractsValue()
+    {
+        // ParenExpr wrapping — e.g., from macro expansion: #define MY_VALUE (100)
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "EnumDecl",
+            "name": "ParenEnum",
+            {{MakeLoc()}},
+            "fixedUnderlyingType": { "qualType": "int" },
+            "inner": [
+                {
+                    "kind": "EnumConstantDecl",
+                    "name": "ParenEnumValue",
+                    "inner": [
+                        {
+                            "kind": "ConstantExpr",
+                            "value": "100",
+                            "inner": [
+                                {
+                                    "kind": "ParenExpr",
+                                    "inner": [
+                                        { "kind": "IntegerLiteral", "value": "100" }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        var e = module.Enums[0];
+        Assert.Single(e.Cases);
+        Assert.Equal(100L, e.Cases[0].Value);
+    }
+
+    [Fact]
+    public void Parse_EnumDecl_WithGaps_ExtractsAllValues()
+    {
+        // HTTP-like status codes with gaps: 200, 201, 204, 302, 404
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "EnumDecl",
+            "name": "HTTPStatus",
+            {{MakeLoc()}},
+            "fixedUnderlyingType": { "qualType": "NSInteger" },
+            "inner": [
+                {
+                    "kind": "EnumConstantDecl",
+                    "name": "HTTPStatusOK",
+                    "inner": [{ "kind": "ConstantExpr", "value": "200" }]
+                },
+                {
+                    "kind": "EnumConstantDecl",
+                    "name": "HTTPStatusCreated",
+                    "inner": [{ "kind": "ConstantExpr", "value": "201" }]
+                },
+                {
+                    "kind": "EnumConstantDecl",
+                    "name": "HTTPStatusNoContent",
+                    "inner": [{ "kind": "ConstantExpr", "value": "204" }]
+                },
+                {
+                    "kind": "EnumConstantDecl",
+                    "name": "HTTPStatusFound",
+                    "inner": [{ "kind": "ConstantExpr", "value": "302" }]
+                },
+                {
+                    "kind": "EnumConstantDecl",
+                    "name": "HTTPStatusNotFound",
+                    "inner": [{ "kind": "ConstantExpr", "value": "404" }]
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        var e = module.Enums[0];
+        Assert.Equal(5, e.Cases.Count);
+        Assert.Equal(200L, e.Cases[0].Value);
+        Assert.Equal(201L, e.Cases[1].Value);
+        Assert.Equal(204L, e.Cases[2].Value);
+        Assert.Equal(302L, e.Cases[3].Value);
+        Assert.Equal(404L, e.Cases[4].Value);
+    }
+
+    [Fact]
+    public void Parse_EnumDecl_NegativeValues_Extracted()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "EnumDecl",
+            "name": "SignedEnum",
+            {{MakeLoc()}},
+            "fixedUnderlyingType": { "qualType": "NSInteger" },
+            "inner": [
+                {
+                    "kind": "EnumConstantDecl",
+                    "name": "SignedEnumError",
+                    "inner": [{ "kind": "ConstantExpr", "value": "-1" }]
+                },
+                {
+                    "kind": "EnumConstantDecl",
+                    "name": "SignedEnumNone",
+                    "inner": [{ "kind": "ConstantExpr", "value": "0" }]
+                },
+                {
+                    "kind": "EnumConstantDecl",
+                    "name": "SignedEnumOK",
+                    "inner": [{ "kind": "ConstantExpr", "value": "1" }]
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        var e = module.Enums[0];
+        Assert.Equal(3, e.Cases.Count);
+        Assert.Equal(-1L, e.Cases[0].Value);
+        Assert.Equal(0L, e.Cases[1].Value);
+        Assert.Equal(1L, e.Cases[2].Value);
+    }
+
+    [Fact]
+    public void Parse_EnumDecl_CStyleCastExpr_ExtractsValue()
+    {
+        // C-style casts: (int)42
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "EnumDecl",
+            "name": "CastStyleEnum",
+            {{MakeLoc()}},
+            "fixedUnderlyingType": { "qualType": "int" },
+            "inner": [
+                {
+                    "kind": "EnumConstantDecl",
+                    "name": "CastStyleEnumValue",
+                    "inner": [
+                        {
+                            "kind": "ConstantExpr",
+                            "value": "99",
+                            "inner": [
+                                {
+                                    "kind": "CStyleCastExpr",
+                                    "inner": [
+                                        { "kind": "IntegerLiteral", "value": "99" }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        var e = module.Enums[0];
+        Assert.Single(e.Cases);
+        Assert.Equal(99L, e.Cases[0].Value);
+    }
+
+    [Fact]
+    public void Parse_EnumDecl_HighBitHexValue_PreservesBitPattern()
+    {
+        // High-bit hex value (exceeds long.MaxValue) — e.g., 0xFFFFFFFF80000000
+        // Should preserve the bit pattern via unchecked cast to long.
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "EnumDecl",
+            "name": "HighBitEnum",
+            {{MakeLoc()}},
+            "fixedUnderlyingType": { "qualType": "unsigned long long" },
+            "inner": [
+                {
+                    "kind": "EnumConstantDecl",
+                    "name": "HighBitEnumAll",
+                    "inner": [
+                        {
+                            "kind": "ConstantExpr",
+                            "value": "0xFFFFFFFFFFFFFFFF"
+                        }
+                    ]
+                },
+                {
+                    "kind": "EnumConstantDecl",
+                    "name": "HighBitEnumHigh",
+                    "inner": [
+                        {
+                            "kind": "ConstantExpr",
+                            "value": "0x8000000000000000"
+                        }
+                    ]
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        var e = module.Enums[0];
+        Assert.Equal(2, e.Cases.Count);
+        // 0xFFFFFFFFFFFFFFFF as long is -1
+        Assert.Equal(-1L, e.Cases[0].Value);
+        // 0x8000000000000000 as long is long.MinValue
+        Assert.Equal(long.MinValue, e.Cases[1].Value);
+    }
+
+    [Fact]
+    public void Parse_EnumDecl_HexValue_NormalRange_StillWorks()
+    {
+        // Normal hex values (within long range) should still parse correctly
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "EnumDecl",
+            "name": "NormalHexEnum",
+            {{MakeLoc()}},
+            "fixedUnderlyingType": { "qualType": "unsigned int" },
+            "inner": [
+                {
+                    "kind": "EnumConstantDecl",
+                    "name": "NormalHexEnumA",
+                    "inner": [
+                        { "kind": "ConstantExpr", "value": "0xFF" }
+                    ]
+                },
+                {
+                    "kind": "EnumConstantDecl",
+                    "name": "NormalHexEnumB",
+                    "inner": [
+                        { "kind": "ConstantExpr", "value": "0x1A" }
+                    ]
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        var e = module.Enums[0];
+        Assert.Equal(255L, e.Cases[0].Value);
+        Assert.Equal(26L, e.Cases[1].Value);
+    }
+
+    // --- Fix #9a: Property memory semantic extraction ---
+
+    [Theory]
+    [InlineData("copy", ObjCMemorySemantic.Copy)]
+    [InlineData("weak", ObjCMemorySemantic.Weak)]
+    [InlineData("strong", ObjCMemorySemantic.Strong)]
+    [InlineData("retain", ObjCMemorySemantic.Retain)]
+    [InlineData("assign", ObjCMemorySemantic.Assign)]
+    [InlineData("unsafe_unretained", ObjCMemorySemantic.UnsafeUnretained)]
+    public void Parse_PropertyDecl_MemorySemantic_Extracted(string jsonAttr, ObjCMemorySemantic expected)
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "MyClass",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": [
+                {
+                    "kind": "ObjCPropertyDecl",
+                    "name": "data",
+                    "type": { "qualType": "NSData *" },
+                    "{{jsonAttr}}": true
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Single(module.Classes[0].Properties);
+        Assert.Equal(expected, module.Classes[0].Properties[0].MemorySemantic);
+    }
+
+    [Fact]
+    public void Parse_PropertyDecl_NoMemorySemantic_DefaultsToNone()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "MyClass",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": [
+                {
+                    "kind": "ObjCPropertyDecl",
+                    "name": "count",
+                    "type": { "qualType": "NSInteger" },
+                    "readonly": true
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Equal(ObjCMemorySemantic.None, module.Classes[0].Properties[0].MemorySemantic);
+    }
+
+    [Fact]
+    public void Parse_PropertyDecl_CopyWithCustomGetter_BothExtracted()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "MyClass",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": [
+                {
+                    "kind": "ObjCPropertyDecl",
+                    "name": "title",
+                    "type": { "qualType": "NSString *" },
+                    "copy": true,
+                    "getter": "title"
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        var prop = module.Classes[0].Properties[0];
+        Assert.Equal(ObjCMemorySemantic.Copy, prop.MemorySemantic);
+        Assert.Equal("title", prop.GetterSelector);
+    }
 }
