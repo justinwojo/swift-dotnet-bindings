@@ -100,7 +100,10 @@ namespace BindingsGeneration
             // Optional<Self> which must be checked for None before extracting the value.
             if (env.MethodDecl.IsConstructor && env.MethodDecl.IsFailable) return true;
 
-            if (env.MethodDecl.IsConstructor && !(env.ParentDecl is StructDecl structDecl && structDecl.IsFrozen)) return true;
+            // Non-frozen struct constructors use indirect result (struct too large for registers).
+            // Class constructors return a pointer directly in a register — NOT via indirect result.
+            // Enum constructors fall through to the type-based checks below.
+            if (env.MethodDecl.IsConstructor && env.ParentDecl is StructDecl structDecl && !structDecl.IsFrozen) return true;
 
             var returnType = env.MethodDecl.CSSignature.First();
 

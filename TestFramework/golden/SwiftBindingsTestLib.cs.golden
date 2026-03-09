@@ -17,6 +17,13 @@ using SwiftBindingsTestLib.SwiftInterop;
 
 namespace SwiftBindingsTestLib
 {
+    [StructLayout(LayoutKind.Sequential)]
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    internal struct Utf8Slice
+    {
+        public IntPtr Ptr;
+        public nint Len;
+    }
     public partial class Functions
     {
         
@@ -829,7 +836,7 @@ namespace SwiftBindingsTestLib
                 
                 var result = PInvoke_colorForIndex_ED8E6968(index);
                 
-                return (SwiftBindingsTestLib.Color)SwiftMarshal.MarshalFromSwift<SwiftBindingsTestLib.Color>(result);
+                return (SwiftBindingsTestLib.Color)result;
             }
             
             finally
@@ -840,7 +847,7 @@ namespace SwiftBindingsTestLib
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib13colorForIndexyAA5ColorOs5Int32VF")]
-        private static partial IntPtr PInvoke_colorForIndex_ED8E6968( int index);
+        private static partial int PInvoke_colorForIndex_ED8E6968( int index);
         
         
         /// <summary>
@@ -1282,7 +1289,7 @@ namespace SwiftBindingsTestLib
         /// <summary>
         /// Validates a string is non-empty and under a max length.
         /// </summary>
-        public static string Validate( string input,  int maxLength)
+        public static string Validate( string input,  int maxLength = 100)
         {
             unsafe
             {
@@ -1327,51 +1334,6 @@ namespace SwiftBindingsTestLib
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib8validate_9maxLengthS2S_s5Int32VtKF")]
         private static partial Swift.SwiftString.Buffer PInvoke_validate_399F3294( Swift.SwiftString.Buffer input,  int maxLength, out SwiftError swiftError);
-        public static string Validate( string input)
-        {
-            unsafe
-            {
-                try
-                {
-                    
-                    using var inputSwift = new SwiftString(input);
-                    using var inputDisposable = inputSwift.PayloadBuffer;
-                    
-                    var result = PInvoke_validate_CD232289(inputDisposable.Buffer, out var swiftError);
-                    
-                    if (swiftError.Value != null)
-                    {
-                        string _errorMessage;
-                        var _errorPtr = (IntPtr)swiftError.Value;
-                        var _descPtr = SBW_GetErrorDescription(_errorPtr);
-                        try
-                        {
-                            _errorMessage = _descPtr != IntPtr.Zero
-                                ? System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
-                                : "Unknown Swift error";
-                        }
-                        finally
-                        {
-                            if (_descPtr != IntPtr.Zero) SBW_Free(_descPtr);
-                            SBW_ReleaseError(_errorPtr);
-                        }
-                        throw new SwiftRuntimeException(_errorMessage);
-                    }
-                    
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                    return swiftResult.ToString();
-                }
-                
-                finally
-                {
-                }
-                
-            }
-        }
-        
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "DBW_Global_validate_399F3294_1")]
-        private static partial Swift.SwiftString.Buffer PInvoke_validate_CD232289( Swift.SwiftString.Buffer input, out SwiftError swiftError);
         
         
         /// <summary>
@@ -2446,7 +2408,7 @@ namespace SwiftBindingsTestLib
         /// <summary>
         /// Function with a default parameter.
         /// </summary>
-        public static string Greet( string name,  string greeting)
+        public static string Greet( string name,  string greeting = "Hello")
         {
             try
             {
@@ -2473,37 +2435,12 @@ namespace SwiftBindingsTestLib
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib5greet4name8greetingS2S_SStF")]
         private static partial Swift.SwiftString.Buffer PInvoke_greet_9565AC13( Swift.SwiftString.Buffer name,  Swift.SwiftString.Buffer greeting);
-        public static string Greet( string name)
-        {
-            try
-            {
-                
-                using var nameSwift = new SwiftString(name);
-                using var nameDisposable = nameSwift.PayloadBuffer;
-                
-                var result = PInvoke_greet_B3376FD6(nameDisposable.Buffer);
-                
-                unsafe {
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                    return swiftResult.ToString();
-                }
-            }
-            
-            finally
-            {
-            }
-            
-        }
-        
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "DBW_Global_greet_9565AC13_1")]
-        private static partial Swift.SwiftString.Buffer PInvoke_greet_B3376FD6( Swift.SwiftString.Buffer name);
         
         
         /// <summary>
         /// Function with multiple default parameters.
         /// </summary>
-        public static string Search( string query,  int limit,  int offset)
+        public static string Search( string query,  int limit = 10,  int offset = 0)
         {
             try
             {
@@ -2528,62 +2465,12 @@ namespace SwiftBindingsTestLib
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib6search5query5limit6offsetS2S_s5Int32VAGtF")]
         private static partial Swift.SwiftString.Buffer PInvoke_search_47BEAA63( Swift.SwiftString.Buffer query,  int limit,  int offset);
-        public static string Search( string query)
-        {
-            try
-            {
-                
-                using var querySwift = new SwiftString(query);
-                using var queryDisposable = querySwift.PayloadBuffer;
-                
-                var result = PInvoke_search_70BEA3CC(queryDisposable.Buffer);
-                
-                unsafe {
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                    return swiftResult.ToString();
-                }
-            }
-            
-            finally
-            {
-            }
-            
-        }
-        
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "DBW_Global_search_47BEAA63_2")]
-        private static partial Swift.SwiftString.Buffer PInvoke_search_70BEA3CC( Swift.SwiftString.Buffer query);
-        public static string Search( string query,  int limit)
-        {
-            try
-            {
-                
-                using var querySwift = new SwiftString(query);
-                using var queryDisposable = querySwift.PayloadBuffer;
-                
-                var result = PInvoke_search_73BEA885(queryDisposable.Buffer, limit);
-                
-                unsafe {
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                    return swiftResult.ToString();
-                }
-            }
-            
-            finally
-            {
-            }
-            
-        }
-        
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "DBW_Global_search_47BEAA63_1")]
-        private static partial Swift.SwiftString.Buffer PInvoke_search_73BEA885( Swift.SwiftString.Buffer query,  int limit);
         
         
         /// <summary>
         /// Function with mixed required and default parameters.
         /// </summary>
-        public static string Configure( string host,  int port,  bool secure)
+        public static string Configure( string host,  int port = 8080,  bool secure = true)
         {
             try
             {
@@ -2608,56 +2495,6 @@ namespace SwiftBindingsTestLib
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib9configure4host4port6secureS2S_s5Int32VSbtF")]
         private static partial Swift.SwiftString.Buffer PInvoke_configure_FB90C0EB( Swift.SwiftString.Buffer host,  int port, [MarshalAs(UnmanagedType.U1)]  bool secure);
-        public static string Configure( string host)
-        {
-            try
-            {
-                
-                using var hostSwift = new SwiftString(host);
-                using var hostDisposable = hostSwift.PayloadBuffer;
-                
-                var result = PInvoke_configure_98FF6D46(hostDisposable.Buffer);
-                
-                unsafe {
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                    return swiftResult.ToString();
-                }
-            }
-            
-            finally
-            {
-            }
-            
-        }
-        
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "DBW_Global_configure_FB90C0EB_2")]
-        private static partial Swift.SwiftString.Buffer PInvoke_configure_98FF6D46( Swift.SwiftString.Buffer host);
-        public static string Configure( string host,  int port)
-        {
-            try
-            {
-                
-                using var hostSwift = new SwiftString(host);
-                using var hostDisposable = hostSwift.PayloadBuffer;
-                
-                var result = PInvoke_configure_97FF6BB3(hostDisposable.Buffer, port);
-                
-                unsafe {
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                    return swiftResult.ToString();
-                }
-            }
-            
-            finally
-            {
-            }
-            
-        }
-        
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "DBW_Global_configure_FB90C0EB_1")]
-        private static partial Swift.SwiftString.Buffer PInvoke_configure_97FF6BB3( Swift.SwiftString.Buffer host,  int port);
         
         
         /// <summary>
@@ -4509,7 +4346,7 @@ namespace SwiftBindingsTestLib
                     
                     // Write back modified inout generic parameter
                     handler = SwiftMarshal.MarshalFromSwift<T0>(handlerPayload);
-                    return (SwiftBindingsTestLib.TaskStatus)SwiftMarshal.MarshalFromSwift<SwiftBindingsTestLib.TaskStatus>(result);
+                    return (SwiftBindingsTestLib.TaskStatus)result;
                 }
                 
                 finally
@@ -4522,7 +4359,7 @@ namespace SwiftBindingsTestLib
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib13advanceStatusyAA04TaskF0OxzAA0F7HandlerRzlF")]
-        private static partial IntPtr PInvoke_advanceStatus_A3FCACFA(ref IntPtr handlerPayload,  TypeMetadata T0Metadata,  ProtocolWitnessTable T0StatusHandlerPWT);
+        private static partial int PInvoke_advanceStatus_A3FCACFA(ref IntPtr handlerPayload,  TypeMetadata T0Metadata,  ProtocolWitnessTable T0StatusHandlerPWT);
         
         
         [global::Swift.UnsupportedSwiftType("Existential type fallback", "any SwiftBindingsTestLib.Named")]
@@ -4931,16 +4768,18 @@ namespace SwiftBindingsTestLib
                 IntPtr valuePayload = IntPtr.Zero;
                 try
                 {
-                    _payload = new SwiftSafeHandle<SpikeBox<TElement>>((IntPtr)NativeMemory.Alloc(_payloadSize));
-                    var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
-                    
                     Span<byte> valuePayloadSpan = stackalloc byte[(int)TElementMetadata.Size];
                     valuePayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(valuePayloadSpan));
                     SwiftMarshal.MarshalToSwift(value, ref valuePayloadSpan);
                     
                     
-                    SpikeBox_PInvoke.PInvoke_init_270DD1A7(swiftIndirectResult, valuePayload, TElementMetadata, SwiftObjectHelper<TElement>.GetTypeMetadata());
+                    var result = SpikeBox_PInvoke.PInvoke_init_270DD1A7(valuePayload, TElementMetadata, SwiftObjectHelper<TElement>.GetTypeMetadata());
                     
+                    unsafe {
+                        IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(IntPtr));
+                        *(IntPtr*)bufferPtr = result;
+                        _payload = new SwiftSafeHandle<SpikeBox<TElement>>(bufferPtr);
+                    }
                 }
                 
                 finally
@@ -4967,7 +4806,7 @@ namespace SwiftBindingsTestLib
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib8SpikeBoxCyACyxGxcfC")]
-        internal static partial void PInvoke_init_270DD1A7( SwiftIndirectResult swiftIndirectResult,  IntPtr valuePayload,  TypeMetadata TElementMetadata, TypeMetadata telementMetadata);
+        internal static partial IntPtr PInvoke_init_270DD1A7( IntPtr valuePayload,  TypeMetadata TElementMetadata, TypeMetadata telementMetadata);
         
     }
     
@@ -4984,7 +4823,7 @@ namespace SwiftBindingsTestLib
     /// <summary>
     /// Conforming frozen struct for Summable.
     /// </summary>
-    public unsafe partial struct SummableInt32 : ISwiftObject, IDisposable, ISummable
+    public unsafe partial struct SummableInt32 : ISwiftObject, IDisposable
     {
         
                 // For frozen structs, we need to emit fields that match the Swift struct's memory layout exactly.
@@ -5130,7 +4969,7 @@ namespace SwiftBindingsTestLib
     /// This type wraps a Swift struct and must be disposed explicitly.
     /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
     /// </remarks>
-    public partial class AcceptsSummable<T> : ISwiftObject, IDisposable where T : ISwiftObject, ISummable
+    public partial class AcceptsSummable<T> : ISwiftObject, IDisposable where T : ISwiftObject
     {
         private T Item_Get()
         {
@@ -5350,7 +5189,6 @@ namespace SwiftBindingsTestLib
     public interface IContainer<TElement>
     {
         int Count { get; }
-        TElement Element(int index);
     }
     
     
@@ -6741,16 +6579,18 @@ namespace SwiftBindingsTestLib
                 IntPtr valuePayload = IntPtr.Zero;
                 try
                 {
-                    _payload = new SwiftSafeHandle<GenericClass<T>>((IntPtr)NativeMemory.Alloc(_payloadSize));
-                    var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
-                    
                     Span<byte> valuePayloadSpan = stackalloc byte[(int)TMetadata.Size];
                     valuePayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(valuePayloadSpan));
                     SwiftMarshal.MarshalToSwift(value, ref valuePayloadSpan);
                     
                     
-                    GenericClass_PInvoke.PInvoke_init_65EEDA24(swiftIndirectResult, valuePayload, TMetadata, SwiftObjectHelper<T>.GetTypeMetadata());
+                    var result = GenericClass_PInvoke.PInvoke_init_65EEDA24(valuePayload, TMetadata, SwiftObjectHelper<T>.GetTypeMetadata());
                     
+                    unsafe {
+                        IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(IntPtr));
+                        *(IntPtr*)bufferPtr = result;
+                        _payload = new SwiftSafeHandle<GenericClass<T>>(bufferPtr);
+                    }
                 }
                 
                 finally
@@ -6854,7 +6694,7 @@ namespace SwiftBindingsTestLib
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib12GenericClassC5valueACyxGx_tcfC")]
-        internal static partial void PInvoke_init_65EEDA24( SwiftIndirectResult swiftIndirectResult,  IntPtr valuePayload,  TypeMetadata TMetadata, TypeMetadata tMetadata);
+        internal static partial IntPtr PInvoke_init_65EEDA24( IntPtr valuePayload,  TypeMetadata TMetadata, TypeMetadata tMetadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib12GenericClassC3getxyFTj")]
@@ -7328,255 +7168,12 @@ namespace SwiftBindingsTestLib
     /// <summary>
     /// Enum with Int32 raw value.
     /// </summary>
-    /// <remarks>
-    /// This type wraps a Swift enum and must be disposed explicitly.
-    /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
-    /// </remarks>
-    public partial class Color : ISwiftObject, IDisposable
+    public enum Color : int
     {
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        static nuint _payloadSize = SwiftObjectHelper<Color>.GetTypeMetadata().Size;
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        SwiftSafeHandle<Color> _payload = SwiftSafeHandle<Color>.Zero;
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        public SwiftSafeHandle<Color> Payload => _payload;
-        IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
-        #pragma warning disable CS0649
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        internal bool _isCachedSingleton;
-        #pragma warning restore CS0649
-        
-        /// <summary>Releases the underlying Swift object. Safe to call multiple times.</summary>
-        public void Dispose()
-        {
-            if (_isCachedSingleton) return;
-            _payload.Dispose();
-            GC.SuppressFinalize(this);
-        }
-        ~Color()
-        {
-            if (!_isCachedSingleton)
-                Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
-        }
-        
-        /// <summary>
-        /// Creates a Color from its raw value.
-        /// Returns null if the raw value doesn't correspond to a valid case.
-        /// </summary>
-        public static Color? FromRawValue(int rawValue)
-        {
-            IntPtr resultPtr = PInvoke_InitWithRawValue(rawValue);
-            if (resultPtr == IntPtr.Zero)
-            {
-                return null;
-            }
-            var result = new Color();
-            result._payload = new SwiftSafeHandle<Color>(resultPtr);
-            return result;
-        }
-        
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib5ColorO8rawValueACSgs5Int32V_tcfC")]
-        private static partial IntPtr PInvoke_InitWithRawValue(int rawValue);
-        
-        private static readonly Lazy<Color> _lazy_red = new(() =>
-        {
-            var result = FromRawValue(0)
-                ?? throw new InvalidOperationException("Failed to create Color.Red from raw value 0");
-            result._isCachedSingleton = true;
-            return result;
-        });
-        /// <summary>
-        /// Gets the 'red' case of Color.
-        /// </summary>
-        /// <remarks>Cached singleton instance — does not require disposal.</remarks>
-        public static Color Red => _lazy_red.Value;
-        
-        private static readonly Lazy<Color> _lazy_green = new(() =>
-        {
-            var result = FromRawValue(1)
-                ?? throw new InvalidOperationException("Failed to create Color.Green from raw value 1");
-            result._isCachedSingleton = true;
-            return result;
-        });
-        /// <summary>
-        /// Gets the 'green' case of Color.
-        /// </summary>
-        /// <remarks>Cached singleton instance — does not require disposal.</remarks>
-        public static Color Green => _lazy_green.Value;
-        
-        private static readonly Lazy<Color> _lazy_blue = new(() =>
-        {
-            var result = FromRawValue(2)
-                ?? throw new InvalidOperationException("Failed to create Color.Blue from raw value 2");
-            result._isCachedSingleton = true;
-            return result;
-        });
-        /// <summary>
-        /// Gets the 'blue' case of Color.
-        /// </summary>
-        /// <remarks>Cached singleton instance — does not require disposal.</remarks>
-        public static Color Blue => _lazy_blue.Value;
-        
-        private static readonly Lazy<Color> _lazy_alpha = new(() =>
-        {
-            var result = FromRawValue(3)
-                ?? throw new InvalidOperationException("Failed to create Color.Alpha from raw value 3");
-            result._isCachedSingleton = true;
-            return result;
-        });
-        /// <summary>
-        /// Gets the 'alpha' case of Color.
-        /// </summary>
-        /// <remarks>Cached singleton instance — does not require disposal.</remarks>
-        public static Color Alpha => _lazy_alpha.Value;
-        
-        /// <summary>
-        /// Enum representing the possible cases of Color.
-        /// Tag values follow Swift's ordering: payload cases first, then no-payload cases.
-        /// </summary>
-        public enum CaseTag : uint
-        {
-            Red = 0,
-            Green = 1,
-            Blue = 2,
-            Alpha = 3,
-        }
-        
-        /// <summary>
-        /// Gets the current case of this enum instance.
-        /// </summary>
-        public CaseTag Tag
-        {
-            get
-            {
-                unsafe
-                {
-                    bool success = false;
-                    _payload.DangerousAddRef(ref success);
-                    try
-                    {
-                        var metadata = SwiftObjectHelper<Color>.GetTypeMetadata();
-                        byte* payload = (byte*)_payload.DangerousGetHandle();
-                        return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
-                    }
-                    finally
-                    {
-                        if (success)
-                            _payload.DangerousRelease();
-                    }
-                }
-            }
-        }
-        
-        
-        private int RawValue_Get()
-        {
-            unsafe
-            {
-                var success = false;
-                _payload.DangerousAddRef(ref success);
-                try
-                {
-                    var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
-                    
-                    
-                    
-                    var result = PInvoke_rawValue_Get_1F3169E9(self);
-                    
-                    return result;
-                }
-                
-                finally
-                {
-                    if (success)
-                       _payload.DangerousRelease();
-                }
-                
-            }
-        }
-        
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib5ColorO8rawValues5Int32Vvg")]
-        private static partial int PInvoke_rawValue_Get_1F3169E9( SwiftSelf self);
-        
-        /// <summary>
-        /// The corresponding value of the raw type.
-        /// </summary>
-        public int RawValue
-        {
-            get => RawValue_Get();
-        }
-        
-        static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
-        
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib5ColorOMa")]
-        internal static partial TypeMetadata PInvoke_getMetadata();
-        
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
-        {
-            return new Color(handle);
-        }
-        
-        Color()
-        {
-        }
-        
-        Color(SwiftHandle handle)
-        {
-            _payload = new SwiftSafeHandle<Color>(handle);
-        }
-        
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
-        {
-            var metadata = SwiftObjectHelper<Color>.GetTypeMetadata();
-            if ((int)metadata.Size > swiftDestSpan.Length)
-            {
-                throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
-            }
-            fixed (void* swiftDest = swiftDestSpan)
-            {
-                // Ensure that the instance is valid before making copy
-                bool success = false;
-                _payload.DangerousAddRef(ref success);
-                try
-                {
-                    metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
-                    return (int)metadata.Size;
-                }
-                finally
-                {
-                    if (success)
-                        _payload.DangerousRelease();
-                }
-            }
-        }
-        
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        private static Dictionary<Type, string> _protocolConformanceSymbols;
-        static Color()
-        {
-            _protocolConformanceSymbols = new Dictionary<Type, string>
-            {
-                {typeof(IEquatable<Color>), "$s20SwiftBindingsTestLib5ColorOSQAAMc"},
-        {typeof(ISwiftHashable), "$s20SwiftBindingsTestLib5ColorOSHAAMc"}
-            };
-        }
-        
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
-            where TProtocol : class
-        {
-            if (!_protocolConformanceSymbols.TryGetValue(typeof(TProtocol), out var symbolName))
-            {
-                throw new SwiftRuntimeException($"Attempted to retrieve protocol conformance descriptor for type Color and protocol {typeof(TProtocol).Name}, but no conformance was found.");
-            }
-            return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
-        }
-        
+        Red = 0,
+        Green = 1,
+        Blue = 2,
+        Alpha = 3,
     }
     
     
@@ -7614,12 +7211,6 @@ namespace SwiftBindingsTestLib
                 Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
         }
         
-        [global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Sequential)]
-        private struct Utf8Slice
-        {
-            public IntPtr Ptr;
-            public nint Len;
-        }
         /// <summary>
         /// Creates a StatusCode from its raw value.
         /// Returns null if the raw value doesn't correspond to a valid case.
@@ -7884,413 +7475,59 @@ namespace SwiftBindingsTestLib
     /// <summary>
     /// Frozen enum exercising all BX2 simple enum extension features: CustomStringConvertible.description, CaseIterable, instance property, static method, static property.
     /// </summary>
-    /// <remarks>
-    /// This type wraps a Swift enum and must be disposed explicitly.
-    /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
-    /// </remarks>
-    public partial class Priority : ISwiftObject, IDisposable
+    public enum Priority : int
     {
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        static nuint _payloadSize = SwiftObjectHelper<Priority>.GetTypeMetadata().Size;
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        SwiftSafeHandle<Priority> _payload = SwiftSafeHandle<Priority>.Zero;
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        public SwiftSafeHandle<Priority> Payload => _payload;
-        IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
-        #pragma warning disable CS0649
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        internal bool _isCachedSingleton;
-        #pragma warning restore CS0649
-        
-        /// <summary>Releases the underlying Swift object. Safe to call multiple times.</summary>
-        public void Dispose()
+        Low = 0,
+        Medium = 1,
+        High = 2,
+        Critical = 3,
+    }
+    
+    public static partial class PriorityExtensions
+    {
+        public static unsafe string GetDescription(this Priority self)
         {
-            if (_isCachedSingleton) return;
-            _payload.Dispose();
-            GC.SuppressFinalize(this);
-        }
-        ~Priority()
-        {
-            if (!_isCachedSingleton)
-                Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
-        }
-        
-        /// <summary>
-        /// Creates a Priority from its raw value.
-        /// Returns null if the raw value doesn't correspond to a valid case.
-        /// </summary>
-        public static Priority? FromRawValue(int rawValue)
-        {
-            IntPtr resultPtr = PInvoke_InitWithRawValue(rawValue);
-            if (resultPtr == IntPtr.Zero)
-            {
-                return null;
-            }
-            var result = new Priority();
-            result._payload = new SwiftSafeHandle<Priority>(resultPtr);
-            return result;
-        }
-        
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib8PriorityO8rawValueACSgs5Int32V_tcfC")]
-        private static partial IntPtr PInvoke_InitWithRawValue(int rawValue);
-        
-        private static readonly Lazy<Priority> _lazy_low = new(() =>
-        {
-            var result = FromRawValue(0)
-                ?? throw new InvalidOperationException("Failed to create Priority.Low from raw value 0");
-            result._isCachedSingleton = true;
-            return result;
-        });
-        /// <summary>
-        /// Gets the 'low' case of Priority.
-        /// </summary>
-        /// <remarks>Cached singleton instance — does not require disposal.</remarks>
-        public static Priority Low => _lazy_low.Value;
-        
-        private static readonly Lazy<Priority> _lazy_medium = new(() =>
-        {
-            var result = FromRawValue(1)
-                ?? throw new InvalidOperationException("Failed to create Priority.Medium from raw value 1");
-            result._isCachedSingleton = true;
-            return result;
-        });
-        /// <summary>
-        /// Gets the 'medium' case of Priority.
-        /// </summary>
-        /// <remarks>Cached singleton instance — does not require disposal.</remarks>
-        public static Priority Medium => _lazy_medium.Value;
-        
-        private static readonly Lazy<Priority> _lazy_high = new(() =>
-        {
-            var result = FromRawValue(2)
-                ?? throw new InvalidOperationException("Failed to create Priority.High from raw value 2");
-            result._isCachedSingleton = true;
-            return result;
-        });
-        /// <summary>
-        /// Gets the 'high' case of Priority.
-        /// </summary>
-        /// <remarks>Cached singleton instance — does not require disposal.</remarks>
-        public static Priority High => _lazy_high.Value;
-        
-        private static readonly Lazy<Priority> _lazy_critical = new(() =>
-        {
-            var result = FromRawValue(3)
-                ?? throw new InvalidOperationException("Failed to create Priority.Critical from raw value 3");
-            result._isCachedSingleton = true;
-            return result;
-        });
-        /// <summary>
-        /// Gets the 'critical' case of Priority.
-        /// </summary>
-        /// <remarks>Cached singleton instance — does not require disposal.</remarks>
-        public static Priority Critical => _lazy_critical.Value;
-        
-        /// <summary>
-        /// Enum representing the possible cases of Priority.
-        /// Tag values follow Swift's ordering: payload cases first, then no-payload cases.
-        /// </summary>
-        public enum CaseTag : uint
-        {
-            Low = 0,
-            Medium = 1,
-            High = 2,
-            Critical = 3,
-        }
-        
-        /// <summary>
-        /// Gets the current case of this enum instance.
-        /// </summary>
-        public CaseTag Tag
-        {
-            get
-            {
-                unsafe
-                {
-                    bool success = false;
-                    _payload.DangerousAddRef(ref success);
-                    try
-                    {
-                        var metadata = SwiftObjectHelper<Priority>.GetTypeMetadata();
-                        byte* payload = (byte*)_payload.DangerousGetHandle();
-                        return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
-                    }
-                    finally
-                    {
-                        if (success)
-                            _payload.DangerousRelease();
-                    }
-                }
-            }
-        }
-        
-        
-        private Swift.SwiftString Description_Get()
-        {
-            unsafe
-            {
-                var success = false;
-                _payload.DangerousAddRef(ref success);
-                try
-                {
-                    var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
-                    
-                    
-                    
-                    var result = PInvoke_description_Get_B27903CC(self);
-                    
-                    unsafe {
-    return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
-}
-                }
-                
-                finally
-                {
-                    if (success)
-                       _payload.DangerousRelease();
-                }
-                
-            }
-        }
-        
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib8PriorityO11descriptionSSvg")]
-        private static partial Swift.SwiftString.Buffer PInvoke_description_Get_B27903CC( SwiftSelf self);
-        
-        /// <summary>
-        /// A textual representation of this instance.
-        /// </summary>
-        public string Description
-        {
-            get { using var __ret = Description_Get(); return __ret.ToString(); }
-        }
-        
-        private int NumericValue_Get()
-        {
-            unsafe
-            {
-                var success = false;
-                _payload.DangerousAddRef(ref success);
-                try
-                {
-                    var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
-                    
-                    
-                    
-                    var result = PInvoke_numericValue_Get_8E450DCD(self);
-                    
-                    return result;
-                }
-                
-                finally
-                {
-                    if (success)
-                       _payload.DangerousRelease();
-                }
-                
-            }
-        }
-        
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib8PriorityO12numericValues5Int32Vvg")]
-        private static partial int PInvoke_numericValue_Get_8E450DCD( SwiftSelf self);
-        
-        public int NumericValue
-        {
-            get => NumericValue_Get();
-        }
-        
-        private static int MaxValue_Get()
-        {
+            IntPtr resultPtr = PInvoke_GetDescription((int)self);
             try
             {
-                
-                
-                var result = PInvoke_maxValue_Get_F036889F();
-                
-                return result;
+                var slice = *(Utf8Slice*)resultPtr;
+                return slice.Len > 0
+                    ? global::System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)
+                    : string.Empty;
             }
-            
-            finally
-            {
-            }
-            
+            finally { PInvoke_SBW_Free(resultPtr); }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib8PriorityO8maxValues5Int32VvgZ")]
-        private static partial int PInvoke_maxValue_Get_F036889F();
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Priority_get_description_B27903CC")]
+        private static partial IntPtr PInvoke_GetDescription(int tag);
         
-        public static int MaxValue
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
+        private static partial void PInvoke_SBW_Free(IntPtr ptr);
+        
+        public static int GetNumericValue(this Priority self)
         {
-            get => MaxValue_Get();
+            return PInvoke_GetNumericValue((int)self);
         }
         
-        private static Swift.SwiftArray<SwiftBindingsTestLib.Priority> AllCases_Get()
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Priority_get_numericValue_8E450DCD")]
+        private static partial int PInvoke_GetNumericValue(int tag);
+        
+        public static Priority DefaultPriority()
         {
-            unsafe
-            {
-                try
-                {
-                    
-                    
-                    var result = PInvoke_allCases_Get_696C31D0();
-                    
-                    unsafe {
-                        return SwiftMarshal.MarshalFromSwift<SwiftArray<SwiftBindingsTestLib.Priority>>(new IntPtr(&result));
-                    }
-                }
-                
-                finally
-                {
-                }
-                
-            }
+            return (Priority)PInvoke_DefaultPriority();
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib8PriorityO8allCasesSayACGvgZ")]
-        private static partial IntPtr PInvoke_allCases_Get_696C31D0();
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Priority_defaultPriority_68189629")]
+        private static partial int PInvoke_DefaultPriority();
         
-        /// <summary>
-        /// A collection of all values of this type.
-        /// </summary>
-        public static IReadOnlyList<SwiftBindingsTestLib.Priority> AllCases
-        {
-            get => AllCases_Get();
-        }
+        public static int MaxValue => PInvoke_GetMaxValue();
         
-        private int RawValue_Get()
-        {
-            unsafe
-            {
-                var success = false;
-                _payload.DangerousAddRef(ref success);
-                try
-                {
-                    var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
-                    
-                    
-                    
-                    var result = PInvoke_rawValue_Get_F6DD49B7(self);
-                    
-                    return result;
-                }
-                
-                finally
-                {
-                    if (success)
-                       _payload.DangerousRelease();
-                }
-                
-            }
-        }
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Priority_get_maxValue_F036889F")]
+        private static partial int PInvoke_GetMaxValue();
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib8PriorityO8rawValues5Int32Vvg")]
-        private static partial int PInvoke_rawValue_Get_F6DD49B7( SwiftSelf self);
-        
-        /// <summary>
-        /// The corresponding value of the raw type.
-        /// </summary>
-        public int RawValue
-        {
-            get => RawValue_Get();
-        }
-        
-        static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
-        
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib8PriorityOMa")]
-        internal static partial TypeMetadata PInvoke_getMetadata();
-        
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
-        {
-            return new Priority(handle);
-        }
-        
-        Priority()
-        {
-        }
-        
-        Priority(SwiftHandle handle)
-        {
-            _payload = new SwiftSafeHandle<Priority>(handle);
-        }
-        
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
-        {
-            var metadata = SwiftObjectHelper<Priority>.GetTypeMetadata();
-            if ((int)metadata.Size > swiftDestSpan.Length)
-            {
-                throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
-            }
-            fixed (void* swiftDest = swiftDestSpan)
-            {
-                // Ensure that the instance is valid before making copy
-                bool success = false;
-                _payload.DangerousAddRef(ref success);
-                try
-                {
-                    metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
-                    return (int)metadata.Size;
-                }
-                finally
-                {
-                    if (success)
-                        _payload.DangerousRelease();
-                }
-            }
-        }
-        
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        private static Dictionary<Type, string> _protocolConformanceSymbols;
-        static Priority()
-        {
-            _protocolConformanceSymbols = new Dictionary<Type, string>
-            {
-                {typeof(IEquatable<Priority>), "$s20SwiftBindingsTestLib8PriorityOSQAAMc"},
-        {typeof(ISwiftHashable), "$s20SwiftBindingsTestLib8PriorityOSHAAMc"}
-            };
-        }
-        
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
-            where TProtocol : class
-        {
-            if (!_protocolConformanceSymbols.TryGetValue(typeof(TProtocol), out var symbolName))
-            {
-                throw new SwiftRuntimeException($"Attempted to retrieve protocol conformance descriptor for type Priority and protocol {typeof(TProtocol).Name}, but no conformance was found.");
-            }
-            return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
-        }
-        
-        public override string ToString() => Description;
-        
-        public static SwiftBindingsTestLib.Priority GetDefaultPriority()
-        {
-            try
-            {
-                
-                
-                var result = PInvoke_defaultPriority_68189629();
-                
-                return (SwiftBindingsTestLib.Priority)SwiftMarshal.MarshalFromSwift<SwiftBindingsTestLib.Priority>(result);
-            }
-            
-            finally
-            {
-            }
-            
-        }
-        
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib8PriorityO07defaultE0ACyFZ")]
-        private static partial IntPtr PInvoke_defaultPriority_68189629();
-        
+        /// <summary>Returns all cases of the enum.</summary>
+        public static System.Collections.Generic.IReadOnlyList<Priority> AllCases { get; } =
+            System.Array.AsReadOnly(Enum.GetValues<Priority>());
         
     }
     
@@ -9284,17 +8521,19 @@ namespace SwiftBindingsTestLib
         {
             unsafe
             {
-                _payload = new SwiftSafeHandle<EnumPropertyHolder>((IntPtr)NativeMemory.Alloc(_payloadSize));
-                var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+                var result = PInvoke_init_923546C9(shape.Payload.DangerousGetHandle());
                 
-                PInvoke_init_923546C9(swiftIndirectResult, shape.Payload.DangerousGetHandle());
-                
+                unsafe {
+                    IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(IntPtr));
+                    *(IntPtr*)bufferPtr = result;
+                    _payload = new SwiftSafeHandle<EnumPropertyHolder>(bufferPtr);
+                }
             }
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib18EnumPropertyHolderC5shapeAcA5ShapeO_tcfC")]
-        private static partial void PInvoke_init_923546C9( SwiftIndirectResult swiftIndirectResult,  IntPtr shape);
+        private static partial IntPtr PInvoke_init_923546C9( IntPtr shape);
         
         
         public virtual SwiftBindingsTestLib.Shape GetShape()
@@ -9574,21 +8813,23 @@ namespace SwiftBindingsTestLib
         {
             unsafe
             {
-                _payload = new SwiftSafeHandle<Animal>((IntPtr)NativeMemory.Alloc(_payloadSize));
-                var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
-                
                 using var nameSwift = new SwiftString(name);
                 using var nameDisposable = nameSwift.PayloadBuffer;
                 using var soundSwift = new SwiftString(sound);
                 using var soundDisposable = soundSwift.PayloadBuffer;
-                PInvoke_init_E497DD71(swiftIndirectResult, nameDisposable.Buffer, soundDisposable.Buffer);
+                var result = PInvoke_init_E497DD71(nameDisposable.Buffer, soundDisposable.Buffer);
                 
+                unsafe {
+                    IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(IntPtr));
+                    *(IntPtr*)bufferPtr = result;
+                    _payload = new SwiftSafeHandle<Animal>(bufferPtr);
+                }
             }
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib6AnimalC4name5soundACSS_SStcfC")]
-        private static partial void PInvoke_init_E497DD71( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer name,  Swift.SwiftString.Buffer sound);
+        private static partial IntPtr PInvoke_init_E497DD71( Swift.SwiftString.Buffer name,  Swift.SwiftString.Buffer sound);
         
         
         [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
@@ -9818,21 +9059,23 @@ namespace SwiftBindingsTestLib
         {
             unsafe
             {
-                _payload = new SwiftSafeHandle<Animal>((IntPtr)NativeMemory.Alloc(_payloadSize));
-                var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
-                
                 using var nameSwift = new SwiftString(name);
                 using var nameDisposable = nameSwift.PayloadBuffer;
                 using var breedSwift = new SwiftString(breed);
                 using var breedDisposable = breedSwift.PayloadBuffer;
-                PInvoke_init_87F7C61F(swiftIndirectResult, nameDisposable.Buffer, breedDisposable.Buffer);
+                var result = PInvoke_init_87F7C61F(nameDisposable.Buffer, breedDisposable.Buffer);
                 
+                unsafe {
+                    IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(IntPtr));
+                    *(IntPtr*)bufferPtr = result;
+                    _payload = new SwiftSafeHandle<Animal>(bufferPtr);
+                }
             }
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib3DogC4name5breedACSS_SStcfC")]
-        private static partial void PInvoke_init_87F7C61F( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer name,  Swift.SwiftString.Buffer breed);
+        private static partial IntPtr PInvoke_init_87F7C61F( Swift.SwiftString.Buffer name,  Swift.SwiftString.Buffer breed);
         
         
         [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true). P/Invoke entry point not exported by the library. This method will throw EntryPointNotFoundException at runtime.", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
@@ -10073,36 +9316,23 @@ namespace SwiftBindingsTestLib
             return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
         }
         
-        public FinalCounter( int count)
+        public FinalCounter( int count = 0)
         {
             unsafe
             {
-                _payload = new SwiftSafeHandle<FinalCounter>((IntPtr)NativeMemory.Alloc(_payloadSize));
-                var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+                var result = PInvoke_init_8546CFB1(count);
                 
-                PInvoke_init_8546CFB1(swiftIndirectResult, count);
-                
+                unsafe {
+                    IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(IntPtr));
+                    *(IntPtr*)bufferPtr = result;
+                    _payload = new SwiftSafeHandle<FinalCounter>(bufferPtr);
+                }
             }
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib12FinalCounterC5countACs5Int32V_tcfC")]
-        private static partial void PInvoke_init_8546CFB1( SwiftIndirectResult swiftIndirectResult,  int count);
-        public FinalCounter()
-        {
-            unsafe
-            {
-                _payload = new SwiftSafeHandle<FinalCounter>((IntPtr)NativeMemory.Alloc(_payloadSize));
-                var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
-                
-                PInvoke_init_723BEC8C(swiftIndirectResult);
-                
-            }
-        }
-        
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "DBW_FinalCounter_init_8546CFB1_1")]
-        private static partial void PInvoke_init_723BEC8C( SwiftIndirectResult swiftIndirectResult);
+        private static partial IntPtr PInvoke_init_8546CFB1( int count);
         
         
         /// <summary>
@@ -10537,19 +9767,21 @@ namespace SwiftBindingsTestLib
         {
             unsafe
             {
-                _payload = new SwiftSafeHandle<ClassWithProperties>((IntPtr)NativeMemory.Alloc(_payloadSize));
-                var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
-                
                 using var storedStringSwift = new SwiftString(storedString);
                 using var storedStringDisposable = storedStringSwift.PayloadBuffer;
-                PInvoke_init_ACD70D05(swiftIndirectResult, storedInt, storedStringDisposable.Buffer);
+                var result = PInvoke_init_ACD70D05(storedInt, storedStringDisposable.Buffer);
                 
+                unsafe {
+                    IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(IntPtr));
+                    *(IntPtr*)bufferPtr = result;
+                    _payload = new SwiftSafeHandle<ClassWithProperties>(bufferPtr);
+                }
             }
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib19ClassWithPropertiesC9storedInt0H6StringACs5Int32V_SStcfC")]
-        private static partial void PInvoke_init_ACD70D05( SwiftIndirectResult swiftIndirectResult,  int storedInt,  Swift.SwiftString.Buffer storedString);
+        private static partial IntPtr PInvoke_init_ACD70D05( int storedInt,  Swift.SwiftString.Buffer storedString);
         
         
         /// <summary>
@@ -12941,19 +12173,21 @@ public partial class FetchResult : ISwiftObject, IDisposable
     {
         unsafe
         {
-            _payload = new SwiftSafeHandle<FetchResult>((IntPtr)NativeMemory.Alloc(_payloadSize));
-            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
-            
             using var dataSwift = new SwiftString(data);
             using var dataDisposable = dataSwift.PayloadBuffer;
-            PInvoke_init_B5C3121F(swiftIndirectResult, dataDisposable.Buffer);
+            var result = PInvoke_init_B5C3121F(dataDisposable.Buffer);
             
+            unsafe {
+                IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(IntPtr));
+                *(IntPtr*)bufferPtr = result;
+                _payload = new SwiftSafeHandle<FetchResult>(bufferPtr);
+            }
         }
     }
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11FetchResultC4dataACSS_tcfC")]
-    private static partial void PInvoke_init_B5C3121F( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer data);
+    private static partial IntPtr PInvoke_init_B5C3121F( Swift.SwiftString.Buffer data);
     
     
 }
@@ -13057,17 +12291,19 @@ public partial class ResultClosureTest : ISwiftObject, IDisposable
     {
         unsafe
         {
-            _payload = new SwiftSafeHandle<ResultClosureTest>((IntPtr)NativeMemory.Alloc(_payloadSize));
-            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+            var result = PInvoke_init_0C773E6B();
             
-            PInvoke_init_0C773E6B(swiftIndirectResult);
-            
+            unsafe {
+                IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(IntPtr));
+                *(IntPtr*)bufferPtr = result;
+                _payload = new SwiftSafeHandle<ResultClosureTest>(bufferPtr);
+            }
         }
     }
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib013ResultClosureC0CACycfC")]
-    private static partial void PInvoke_init_0C773E6B( SwiftIndirectResult swiftIndirectResult);
+    private static partial IntPtr PInvoke_init_0C773E6B();
     
     
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(System.Runtime.CompilerServices.CallConvCdecl) })]
@@ -13709,21 +12945,23 @@ public partial class ValueAnimal : Animal, ISwiftObject, IHasValue
     {
         unsafe
         {
-            _payload = new SwiftSafeHandle<Animal>((IntPtr)NativeMemory.Alloc(_payloadSize));
-            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
-            
             using var nameSwift = new SwiftString(name);
             using var nameDisposable = nameSwift.PayloadBuffer;
             using var soundSwift = new SwiftString(sound);
             using var soundDisposable = soundSwift.PayloadBuffer;
-            PInvoke_init_522829E0(swiftIndirectResult, nameDisposable.Buffer, soundDisposable.Buffer, value);
+            var result = PInvoke_init_522829E0(nameDisposable.Buffer, soundDisposable.Buffer, value);
             
+            unsafe {
+                IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(IntPtr));
+                *(IntPtr*)bufferPtr = result;
+                _payload = new SwiftSafeHandle<Animal>(bufferPtr);
+            }
         }
     }
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11ValueAnimalC4name5sound5valueACSS_SSs5Int32VtcfC")]
-    private static partial void PInvoke_init_522829E0( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer name,  Swift.SwiftString.Buffer sound,  int value);
+    private static partial IntPtr PInvoke_init_522829E0( Swift.SwiftString.Buffer name,  Swift.SwiftString.Buffer sound,  int value);
     
     
     public virtual int GetValue()
@@ -14382,9 +13620,6 @@ public partial class EventHandler : ISwiftObject, IDisposable
             GCHandle onCompleteHandle = default;
             try
             {
-                _payload = new SwiftSafeHandle<EventHandler>((IntPtr)NativeMemory.Alloc(_payloadSize));
-                var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
-                
                 SwiftClosureData onCompleteClosure;
                 if (onComplete != null)
                 {
@@ -14397,8 +13632,13 @@ public partial class EventHandler : ISwiftObject, IDisposable
                 }
                 using var labelSwift = new SwiftString(label);
                 using var labelDisposable = labelSwift.PayloadBuffer;
-                PInvoke_init_5D66AB7B(swiftIndirectResult, labelDisposable.Buffer, onCompleteClosure);
+                var result = PInvoke_init_5D66AB7B(labelDisposable.Buffer, onCompleteClosure);
                 
+                unsafe {
+                    IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(IntPtr));
+                    *(IntPtr*)bufferPtr = result;
+                    _payload = new SwiftSafeHandle<EventHandler>(bufferPtr);
+                }
             }
             
             finally
@@ -14411,7 +13651,7 @@ public partial class EventHandler : ISwiftObject, IDisposable
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib12EventHandlerC5label10onCompleteACSS_Sbs5Int32VcSgtcfC")]
-    private static partial void PInvoke_init_5D66AB7B( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer label,  SwiftClosureData onComplete);
+    private static partial IntPtr PInvoke_init_5D66AB7B( Swift.SwiftString.Buffer label,  SwiftClosureData onComplete);
     
     
     /// <summary>
@@ -16449,7 +15689,7 @@ public partial class TypedThrowingParser : ISwiftObject, IDisposable
                     }
                 }
                 handle.Free();
-                return Task.FromCanceled<int>(cancellationToken);
+                return global::System.Threading.Tasks.Task.FromCanceled<int>(cancellationToken);
             }
             if (cancellationToken.CanBeCanceled)
             {
@@ -17489,7 +16729,7 @@ public partial class AsyncConfig : ISwiftObject, IDisposable
     }
     
     
-    public AsyncConfig( string name,  ulong delay)
+    public AsyncConfig( string name,  ulong delay = 1000000)
     {
         unsafe
         {
@@ -17506,23 +16746,6 @@ public partial class AsyncConfig : ISwiftObject, IDisposable
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11AsyncConfigV4name5delayACSS_s6UInt64VtcfC")]
     private static partial void PInvoke_init_F373A2C9( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer name,  ulong delay);
-    public AsyncConfig( string name)
-    {
-        unsafe
-        {
-            _payload = new SwiftSafeHandle<AsyncConfig>((IntPtr)NativeMemory.Alloc(_payloadSize));
-            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
-            
-            using var nameSwift = new SwiftString(name);
-            using var nameDisposable = nameSwift.PayloadBuffer;
-            PInvoke_init_0240D697(swiftIndirectResult, nameDisposable.Buffer);
-            
-        }
-    }
-    
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "DBW_AsyncConfig_init_F373A2C9_1")]
-    private static partial void PInvoke_init_0240D697( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer name);
     
     
 }
@@ -17666,19 +16889,21 @@ public partial class AsyncDataSource : ISwiftObject, IDisposable
     {
         unsafe
         {
-            _payload = new SwiftSafeHandle<AsyncDataSource>((IntPtr)NativeMemory.Alloc(_payloadSize));
-            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
-            
             using var identifierSwift = new SwiftString(identifier);
             using var identifierDisposable = identifierSwift.PayloadBuffer;
-            PInvoke_init_A69BBFA9(swiftIndirectResult, identifierDisposable.Buffer);
+            var result = PInvoke_init_A69BBFA9(identifierDisposable.Buffer);
             
+            unsafe {
+                IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(IntPtr));
+                *(IntPtr*)bufferPtr = result;
+                _payload = new SwiftSafeHandle<AsyncDataSource>(bufferPtr);
+            }
         }
     }
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib15AsyncDataSourceC10identifierACSS_tcfC")]
-    private static partial void PInvoke_init_A69BBFA9( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer identifier);
+    private static partial IntPtr PInvoke_init_A69BBFA9( Swift.SwiftString.Buffer identifier);
     
     
 }
@@ -17981,7 +17206,7 @@ public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
                     }
                 }
                 handle.Free();
-                return Task.FromCanceled<int>(cancellationToken);
+                return global::System.Threading.Tasks.Task.FromCanceled<int>(cancellationToken);
             }
             if (cancellationToken.CanBeCanceled)
             {
@@ -18154,7 +17379,7 @@ public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
                     }
                 }
                 handle.Free();
-                return Task.FromCanceled(cancellationToken);
+                return global::System.Threading.Tasks.Task.FromCanceled(cancellationToken);
             }
             if (cancellationToken.CanBeCanceled)
             {
@@ -18337,7 +17562,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     }
                 }
                 handle.Free();
-                return Task.FromCanceled<string>(cancellationToken);
+                return global::System.Threading.Tasks.Task.FromCanceled<string>(cancellationToken);
             }
             if (cancellationToken.CanBeCanceled)
             {
@@ -19161,42 +18386,27 @@ public partial class AsyncTask : ISwiftObject, IDisposable
         return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
     }
     
-    public AsyncTask( string taskId,  string status)
+    public AsyncTask( string taskId,  string status = "created")
     {
         unsafe
         {
-            _payload = new SwiftSafeHandle<AsyncTask>((IntPtr)NativeMemory.Alloc(_payloadSize));
-            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
-            
             using var taskIdSwift = new SwiftString(taskId);
             using var taskIdDisposable = taskIdSwift.PayloadBuffer;
             using var statusSwift = new SwiftString(status);
             using var statusDisposable = statusSwift.PayloadBuffer;
-            PInvoke_init_85AB1904(swiftIndirectResult, taskIdDisposable.Buffer, statusDisposable.Buffer);
+            var result = PInvoke_init_85AB1904(taskIdDisposable.Buffer, statusDisposable.Buffer);
             
+            unsafe {
+                IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(IntPtr));
+                *(IntPtr*)bufferPtr = result;
+                _payload = new SwiftSafeHandle<AsyncTask>(bufferPtr);
+            }
         }
     }
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib9AsyncTaskC6taskId6statusACSS_SStcfC")]
-    private static partial void PInvoke_init_85AB1904( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer taskId,  Swift.SwiftString.Buffer status);
-    public AsyncTask( string taskId)
-    {
-        unsafe
-        {
-            _payload = new SwiftSafeHandle<AsyncTask>((IntPtr)NativeMemory.Alloc(_payloadSize));
-            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
-            
-            using var taskIdSwift = new SwiftString(taskId);
-            using var taskIdDisposable = taskIdSwift.PayloadBuffer;
-            PInvoke_init_1D27DC74(swiftIndirectResult, taskIdDisposable.Buffer);
-            
-        }
-    }
-    
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "DBW_AsyncTask_init_85AB1904_1")]
-    private static partial void PInvoke_init_1D27DC74( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer taskId);
+    private static partial IntPtr PInvoke_init_85AB1904( Swift.SwiftString.Buffer taskId,  Swift.SwiftString.Buffer status);
     
     
     [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
@@ -19532,7 +18742,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     }
                 }
                 handle.Free();
-                return Task.FromCanceled<string>(cancellationToken);
+                return global::System.Threading.Tasks.Task.FromCanceled<string>(cancellationToken);
             }
             if (cancellationToken.CanBeCanceled)
             {
@@ -19713,7 +18923,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     }
                 }
                 handle.Free();
-                return Task.FromCanceled<string>(cancellationToken);
+                return global::System.Threading.Tasks.Task.FromCanceled<string>(cancellationToken);
             }
             if (cancellationToken.CanBeCanceled)
             {
@@ -19894,7 +19104,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     }
                 }
                 handle.Free();
-                return Task.FromCanceled<string>(cancellationToken);
+                return global::System.Threading.Tasks.Task.FromCanceled<string>(cancellationToken);
             }
             if (cancellationToken.CanBeCanceled)
             {
@@ -20075,7 +19285,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     }
                 }
                 handle.Free();
-                return Task.FromCanceled<string>(cancellationToken);
+                return global::System.Threading.Tasks.Task.FromCanceled<string>(cancellationToken);
             }
             if (cancellationToken.CanBeCanceled)
             {
@@ -20256,7 +19466,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     }
                 }
                 handle.Free();
-                return Task.FromCanceled<string>(cancellationToken);
+                return global::System.Threading.Tasks.Task.FromCanceled<string>(cancellationToken);
             }
             if (cancellationToken.CanBeCanceled)
             {
@@ -20654,7 +19864,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     }
                 }
                 handle.Free();
-                return Task.FromCanceled<IReadOnlyList<string>>(cancellationToken);
+                return global::System.Threading.Tasks.Task.FromCanceled<IReadOnlyList<string>>(cancellationToken);
             }
             if (cancellationToken.CanBeCanceled)
             {
@@ -20897,7 +20107,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     }
                 }
                 handle.Free();
-                return Task.FromCanceled<IReadOnlyList<string>>(cancellationToken);
+                return global::System.Threading.Tasks.Task.FromCanceled<IReadOnlyList<string>>(cancellationToken);
             }
             if (cancellationToken.CanBeCanceled)
             {
@@ -21140,7 +20350,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     }
                 }
                 handle.Free();
-                return Task.FromCanceled<IReadOnlyList<string>>(cancellationToken);
+                return global::System.Threading.Tasks.Task.FromCanceled<IReadOnlyList<string>>(cancellationToken);
             }
             if (cancellationToken.CanBeCanceled)
             {
@@ -21383,7 +20593,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     }
                 }
                 handle.Free();
-                return Task.FromCanceled<IReadOnlyList<string>>(cancellationToken);
+                return global::System.Threading.Tasks.Task.FromCanceled<IReadOnlyList<string>>(cancellationToken);
             }
             if (cancellationToken.CanBeCanceled)
             {
@@ -21557,7 +20767,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     }
                 }
                 handle.Free();
-                return Task.FromCanceled<IReadOnlyList<int>>(cancellationToken);
+                return global::System.Threading.Tasks.Task.FromCanceled<IReadOnlyList<int>>(cancellationToken);
             }
             if (cancellationToken.CanBeCanceled)
             {
@@ -21800,7 +21010,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     }
                 }
                 handle.Free();
-                return Task.FromCanceled<IReadOnlyList<string>>(cancellationToken);
+                return global::System.Threading.Tasks.Task.FromCanceled<IReadOnlyList<string>>(cancellationToken);
             }
             if (cancellationToken.CanBeCanceled)
             {
@@ -22128,7 +21338,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                     }
                 }
                 handle.Free();
-                return Task.FromCanceled<SwiftBindingsTestLib.AsyncResult>(cancellationToken);
+                return global::System.Threading.Tasks.Task.FromCanceled<SwiftBindingsTestLib.AsyncResult>(cancellationToken);
             }
             if (cancellationToken.CanBeCanceled)
             {
@@ -22301,7 +21511,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                     }
                 }
                 handle.Free();
-                return Task.FromCanceled<SwiftBindingsTestLib.AsyncStatus>(cancellationToken);
+                return global::System.Threading.Tasks.Task.FromCanceled<SwiftBindingsTestLib.AsyncStatus>(cancellationToken);
             }
             if (cancellationToken.CanBeCanceled)
             {
@@ -22474,7 +21684,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                     }
                 }
                 handle.Free();
-                return Task.FromCanceled<SwiftBindingsTestLib.AsyncStatus>(cancellationToken);
+                return global::System.Threading.Tasks.Task.FromCanceled<SwiftBindingsTestLib.AsyncStatus>(cancellationToken);
             }
             if (cancellationToken.CanBeCanceled)
             {
@@ -22651,7 +21861,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                     }
                 }
                 handle.Free();
-                return Task.FromCanceled<SwiftBindingsTestLib.AsyncTask>(cancellationToken);
+                return global::System.Threading.Tasks.Task.FromCanceled<SwiftBindingsTestLib.AsyncTask>(cancellationToken);
             }
             if (cancellationToken.CanBeCanceled)
             {
@@ -22824,7 +22034,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                     }
                 }
                 handle.Free();
-                return Task.FromCanceled<SwiftBindingsTestLib.AsyncResult?>(cancellationToken);
+                return global::System.Threading.Tasks.Task.FromCanceled<SwiftBindingsTestLib.AsyncResult?>(cancellationToken);
             }
             if (cancellationToken.CanBeCanceled)
             {
@@ -22997,7 +22207,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                     }
                 }
                 handle.Free();
-                return Task.FromCanceled<SwiftBindingsTestLib.AsyncResult?>(cancellationToken);
+                return global::System.Threading.Tasks.Task.FromCanceled<SwiftBindingsTestLib.AsyncResult?>(cancellationToken);
             }
             if (cancellationToken.CanBeCanceled)
             {
@@ -23170,7 +22380,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                     }
                 }
                 handle.Free();
-                return Task.FromCanceled<SwiftBindingsTestLib.AsyncResult>(cancellationToken);
+                return global::System.Threading.Tasks.Task.FromCanceled<SwiftBindingsTestLib.AsyncResult>(cancellationToken);
             }
             if (cancellationToken.CanBeCanceled)
             {
@@ -23345,7 +22555,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGe
                     }
                 }
                 handle.Free();
-                return Task.FromCanceled<SwiftBindingsTestLib.AsyncTask>(cancellationToken);
+                return global::System.Threading.Tasks.Task.FromCanceled<SwiftBindingsTestLib.AsyncTask>(cancellationToken);
             }
             if (cancellationToken.CanBeCanceled)
             {
@@ -23660,19 +22870,21 @@ public partial class MainActorViewModel : ISwiftObject, IDisposable
     {
         unsafe
         {
-            _payload = new SwiftSafeHandle<MainActorViewModel>((IntPtr)NativeMemory.Alloc(_payloadSize));
-            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
-            
             using var titleSwift = new SwiftString(title);
             using var titleDisposable = titleSwift.PayloadBuffer;
-            PInvoke_init_F0955738(swiftIndirectResult, titleDisposable.Buffer);
+            var result = PInvoke_init_F0955738(titleDisposable.Buffer);
             
+            unsafe {
+                IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(IntPtr));
+                *(IntPtr*)bufferPtr = result;
+                _payload = new SwiftSafeHandle<MainActorViewModel>(bufferPtr);
+            }
         }
     }
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib18MainActorViewModelC5titleACSS_tcfC")]
-    private static partial void PInvoke_init_F0955738( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer title);
+    private static partial IntPtr PInvoke_init_F0955738( Swift.SwiftString.Buffer title);
     
     
     /// <summary>
@@ -23858,7 +23070,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_r
                     }
                 }
                 handle.Free();
-                return Task.FromCanceled<string>(cancellationToken);
+                return global::System.Threading.Tasks.Task.FromCanceled<string>(cancellationToken);
             }
             if (cancellationToken.CanBeCanceled)
             {
@@ -24438,7 +23650,7 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
                     }
                 }
                 handle.Free();
-                return Task.FromCanceled(cancellationToken);
+                return global::System.Threading.Tasks.Task.FromCanceled(cancellationToken);
             }
             if (cancellationToken.CanBeCanceled)
             {
@@ -24611,7 +23823,7 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
                     }
                 }
                 handle.Free();
-                return Task.FromCanceled<int>(cancellationToken);
+                return global::System.Threading.Tasks.Task.FromCanceled<int>(cancellationToken);
             }
             if (cancellationToken.CanBeCanceled)
             {
@@ -24794,7 +24006,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     }
                 }
                 handle.Free();
-                return Task.FromCanceled<string>(cancellationToken);
+                return global::System.Threading.Tasks.Task.FromCanceled<string>(cancellationToken);
             }
             if (cancellationToken.CanBeCanceled)
             {
@@ -24967,7 +24179,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     }
                 }
                 handle.Free();
-                return Task.FromCanceled(cancellationToken);
+                return global::System.Threading.Tasks.Task.FromCanceled(cancellationToken);
             }
             if (cancellationToken.CanBeCanceled)
             {
@@ -25138,7 +24350,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     }
                 }
                 handle.Free();
-                return Task.FromCanceled<int>(cancellationToken);
+                return global::System.Threading.Tasks.Task.FromCanceled<int>(cancellationToken);
             }
             if (cancellationToken.CanBeCanceled)
             {
@@ -25309,7 +24521,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_a
                     }
                 }
                 handle.Free();
-                return Task.FromCanceled<int>(cancellationToken);
+                return global::System.Threading.Tasks.Task.FromCanceled<int>(cancellationToken);
             }
             if (cancellationToken.CanBeCanceled)
             {
@@ -25492,34 +24704,38 @@ public partial class Counter : ISwiftObject, IDisposable
     {
         unsafe
         {
-            _payload = new SwiftSafeHandle<Counter>((IntPtr)NativeMemory.Alloc(_payloadSize));
-            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+            var result = PInvoke_init_3A7E806D();
             
-            PInvoke_init_3A7E806D(swiftIndirectResult);
-            
+            unsafe {
+                IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(IntPtr));
+                *(IntPtr*)bufferPtr = result;
+                _payload = new SwiftSafeHandle<Counter>(bufferPtr);
+            }
         }
     }
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib7CounterCACycfC")]
-    private static partial void PInvoke_init_3A7E806D( SwiftIndirectResult swiftIndirectResult);
+    private static partial IntPtr PInvoke_init_3A7E806D();
     
     
     public Counter( int initialCount)
     {
         unsafe
         {
-            _payload = new SwiftSafeHandle<Counter>((IntPtr)NativeMemory.Alloc(_payloadSize));
-            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+            var result = PInvoke_init_05A6C433(initialCount);
             
-            PInvoke_init_05A6C433(swiftIndirectResult, initialCount);
-            
+            unsafe {
+                IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(IntPtr));
+                *(IntPtr*)bufferPtr = result;
+                _payload = new SwiftSafeHandle<Counter>(bufferPtr);
+            }
         }
     }
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib7CounterC12initialCountACs5Int32V_tcfC")]
-    private static partial void PInvoke_init_05A6C433( SwiftIndirectResult swiftIndirectResult,  int initialCount);
+    private static partial IntPtr PInvoke_init_05A6C433( int initialCount);
     
     
     /// <summary>
@@ -25799,17 +25015,19 @@ public partial class AsyncProcessor : ISwiftObject, IDisposable
     {
         unsafe
         {
-            _payload = new SwiftSafeHandle<AsyncProcessor>((IntPtr)NativeMemory.Alloc(_payloadSize));
-            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+            var result = PInvoke_init_67FDB5EF();
             
-            PInvoke_init_67FDB5EF(swiftIndirectResult);
-            
+            unsafe {
+                IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(IntPtr));
+                *(IntPtr*)bufferPtr = result;
+                _payload = new SwiftSafeHandle<AsyncProcessor>(bufferPtr);
+            }
         }
     }
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib14AsyncProcessorCACycfC")]
-    private static partial void PInvoke_init_67FDB5EF( SwiftIndirectResult swiftIndirectResult);
+    private static partial IntPtr PInvoke_init_67FDB5EF();
     
     
     [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_CancelTask_SwiftBindingsTestLib")]
@@ -25961,7 +25179,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_p
                     }
                 }
                 handle.Free();
-                return Task.FromCanceled<string>(cancellationToken);
+                return global::System.Threading.Tasks.Task.FromCanceled<string>(cancellationToken);
             }
             if (cancellationToken.CanBeCanceled)
             {
@@ -26172,7 +25390,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_p
                     }
                 }
                 handle.Free();
-                return Task.FromCanceled<int>(cancellationToken);
+                return global::System.Threading.Tasks.Task.FromCanceled<int>(cancellationToken);
             }
             if (cancellationToken.CanBeCanceled)
             {
@@ -26457,19 +25675,21 @@ public partial class SharedState : ISwiftObject, IDisposable
     {
         unsafe
         {
-            _payload = new SwiftSafeHandle<SharedState>((IntPtr)NativeMemory.Alloc(_payloadSize));
-            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
-            
             using var labelSwift = new SwiftString(label);
             using var labelDisposable = labelSwift.PayloadBuffer;
-            PInvoke_init_8A645EAD(swiftIndirectResult, labelDisposable.Buffer);
+            var result = PInvoke_init_8A645EAD(labelDisposable.Buffer);
             
+            unsafe {
+                IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(IntPtr));
+                *(IntPtr*)bufferPtr = result;
+                _payload = new SwiftSafeHandle<SharedState>(bufferPtr);
+            }
         }
     }
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11SharedStateC5labelACSS_tcfC")]
-    private static partial void PInvoke_init_8A645EAD( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer label);
+    private static partial IntPtr PInvoke_init_8A645EAD( Swift.SwiftString.Buffer label);
     
     
     /// <summary>
@@ -26996,19 +26216,21 @@ public partial class SendableConfig : ISwiftObject, IDisposable
     {
         unsafe
         {
-            _payload = new SwiftSafeHandle<SendableConfig>((IntPtr)NativeMemory.Alloc(_payloadSize));
-            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
-            
             using var nameSwift = new SwiftString(name);
             using var nameDisposable = nameSwift.PayloadBuffer;
-            PInvoke_init_139AE5F5(swiftIndirectResult, nameDisposable.Buffer, maxRetries);
+            var result = PInvoke_init_139AE5F5(nameDisposable.Buffer, maxRetries);
             
+            unsafe {
+                IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(IntPtr));
+                *(IntPtr*)bufferPtr = result;
+                _payload = new SwiftSafeHandle<SendableConfig>(bufferPtr);
+            }
         }
     }
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib14SendableConfigC4name10maxRetriesACSS_s5Int32VtcfC")]
-    private static partial void PInvoke_init_139AE5F5( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer name,  int maxRetries);
+    private static partial IntPtr PInvoke_init_139AE5F5( Swift.SwiftString.Buffer name,  int maxRetries);
     
     
     [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
@@ -27293,12 +26515,6 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
                 Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
         }
         
-        [global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Sequential)]
-        private struct Utf8Slice
-        {
-            public IntPtr Ptr;
-            public nint Len;
-        }
         /// <summary>
         /// Creates a HttpMethod from its raw value.
         /// Returns null if the raw value doesn't correspond to a valid case.
@@ -27608,12 +26824,6 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
                 Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
         }
         
-        [global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Sequential)]
-        private struct Utf8Slice
-        {
-            public IntPtr Ptr;
-            public nint Len;
-        }
         /// <summary>
         /// Creates a ContentType from its raw value.
         /// Returns null if the raw value doesn't correspond to a valid case.
@@ -28101,12 +27311,6 @@ public partial class OrderContainer : ISwiftObject, IDisposable
                 Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
         }
         
-        [global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Sequential)]
-        private struct Utf8Slice
-        {
-            public IntPtr Ptr;
-            public nint Len;
-        }
         /// <summary>
         /// Creates a Status from its raw value.
         /// Returns null if the raw value doesn't correspond to a valid case.
@@ -28608,12 +27812,6 @@ public partial class PaymentContainer : ISwiftObject, IDisposable
                 Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
         }
         
-        [global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Sequential)]
-        private struct Utf8Slice
-        {
-            public IntPtr Ptr;
-            public nint Len;
-        }
         /// <summary>
         /// Creates a Status from its raw value.
         /// Returns null if the raw value doesn't correspond to a valid case.
@@ -28945,12 +28143,6 @@ public partial class LogLevel : ISwiftObject, IDisposable
             Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
-    [global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Sequential)]
-    private struct Utf8Slice
-    {
-        public IntPtr Ptr;
-        public nint Len;
-    }
     /// <summary>
     /// Creates a LogLevel from its raw value.
     /// Returns null if the raw value doesn't correspond to a valid case.
@@ -29260,12 +28452,6 @@ public partial class Greeting : ISwiftObject, IDisposable
             Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
-    [global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Sequential)]
-    private struct Utf8Slice
-    {
-        public IntPtr Ptr;
-        public nint Len;
-    }
     /// <summary>
     /// Creates a Greeting from its raw value.
     /// Returns null if the raw value doesn't correspond to a valid case.
@@ -29575,12 +28761,6 @@ public partial class EdgeCaseStrings : ISwiftObject, IDisposable
             Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
-    [global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Sequential)]
-    private struct Utf8Slice
-    {
-        public IntPtr Ptr;
-        public nint Len;
-    }
     /// <summary>
     /// Creates a EdgeCaseStrings from its raw value.
     /// Returns null if the raw value doesn't correspond to a valid case.
@@ -29904,12 +29084,6 @@ public partial class CaseSensitiveEnum : ISwiftObject, IDisposable
             Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
-    [global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Sequential)]
-    private struct Utf8Slice
-    {
-        public IntPtr Ptr;
-        public nint Len;
-    }
     /// <summary>
     /// Creates a CaseSensitiveEnum from its raw value.
     /// Returns null if the raw value doesn't correspond to a valid case.
@@ -30939,19 +30113,21 @@ public partial class MutableClass : ISwiftObject, IDisposable
     {
         unsafe
         {
-            _payload = new SwiftSafeHandle<MutableClass>((IntPtr)NativeMemory.Alloc(_payloadSize));
-            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
-            
             using var titleSwift = new SwiftString(title);
             using var titleDisposable = titleSwift.PayloadBuffer;
-            PInvoke_init_E5EA6507(swiftIndirectResult, counter, titleDisposable.Buffer);
+            var result = PInvoke_init_E5EA6507(counter, titleDisposable.Buffer);
             
+            unsafe {
+                IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(IntPtr));
+                *(IntPtr*)bufferPtr = result;
+                _payload = new SwiftSafeHandle<MutableClass>(bufferPtr);
+            }
         }
     }
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib12MutableClassC7counter5titleACs5Int32V_SStcfC")]
-    private static partial void PInvoke_init_E5EA6507( SwiftIndirectResult swiftIndirectResult,  int counter,  Swift.SwiftString.Buffer title);
+    private static partial IntPtr PInvoke_init_E5EA6507( int counter,  Swift.SwiftString.Buffer title);
     
     
 }
@@ -34095,17 +33271,19 @@ public partial class SliceProcessor : ISwiftObject, IDisposable
     {
         unsafe
         {
-            _payload = new SwiftSafeHandle<SliceProcessor>((IntPtr)NativeMemory.Alloc(_payloadSize));
-            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+            var result = PInvoke_init_10298458(offset);
             
-            PInvoke_init_10298458(swiftIndirectResult, offset);
-            
+            unsafe {
+                IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(IntPtr));
+                *(IntPtr*)bufferPtr = result;
+                _payload = new SwiftSafeHandle<SliceProcessor>(bufferPtr);
+            }
         }
     }
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib14SliceProcessorC6offsetACs5Int32V_tcfC")]
-    private static partial void PInvoke_init_10298458( SwiftIndirectResult swiftIndirectResult,  int offset);
+    private static partial IntPtr PInvoke_init_10298458( int offset);
     
     
     public virtual int ProcessSlice( IEnumerable<int> data)
@@ -35480,255 +34658,12 @@ public unsafe partial struct MultiConformingValue : ISwiftObject, IDisposable, I
 /// <summary>
 /// Status enum for protocol testing.
 /// </summary>
-/// <remarks>
-/// This type wraps a Swift enum and must be disposed explicitly.
-/// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
-/// </remarks>
-public partial class TaskStatus : ISwiftObject, IDisposable
+public enum TaskStatus : int
 {
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    static nuint _payloadSize = SwiftObjectHelper<TaskStatus>.GetTypeMetadata().Size;
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    SwiftSafeHandle<TaskStatus> _payload = SwiftSafeHandle<TaskStatus>.Zero;
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    public SwiftSafeHandle<TaskStatus> Payload => _payload;
-    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
-    #pragma warning disable CS0649
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    internal bool _isCachedSingleton;
-    #pragma warning restore CS0649
-    
-    /// <summary>Releases the underlying Swift object. Safe to call multiple times.</summary>
-    public void Dispose()
-    {
-        if (_isCachedSingleton) return;
-        _payload.Dispose();
-        GC.SuppressFinalize(this);
-    }
-    ~TaskStatus()
-    {
-        if (!_isCachedSingleton)
-            Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
-    }
-    
-    /// <summary>
-    /// Creates a TaskStatus from its raw value.
-    /// Returns null if the raw value doesn't correspond to a valid case.
-    /// </summary>
-    public static TaskStatus? FromRawValue(int rawValue)
-    {
-        IntPtr resultPtr = PInvoke_InitWithRawValue(rawValue);
-        if (resultPtr == IntPtr.Zero)
-        {
-            return null;
-        }
-        var result = new TaskStatus();
-        result._payload = new SwiftSafeHandle<TaskStatus>(resultPtr);
-        return result;
-    }
-    
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10TaskStatusO8rawValueACSgs5Int32V_tcfC")]
-    private static partial IntPtr PInvoke_InitWithRawValue(int rawValue);
-    
-    private static readonly Lazy<TaskStatus> _lazy_pending = new(() =>
-    {
-        var result = FromRawValue(0)
-            ?? throw new InvalidOperationException("Failed to create TaskStatus.Pending from raw value 0");
-        result._isCachedSingleton = true;
-        return result;
-    });
-    /// <summary>
-    /// Gets the 'pending' case of TaskStatus.
-    /// </summary>
-    /// <remarks>Cached singleton instance — does not require disposal.</remarks>
-    public static TaskStatus Pending => _lazy_pending.Value;
-    
-    private static readonly Lazy<TaskStatus> _lazy_running = new(() =>
-    {
-        var result = FromRawValue(1)
-            ?? throw new InvalidOperationException("Failed to create TaskStatus.Running from raw value 1");
-        result._isCachedSingleton = true;
-        return result;
-    });
-    /// <summary>
-    /// Gets the 'running' case of TaskStatus.
-    /// </summary>
-    /// <remarks>Cached singleton instance — does not require disposal.</remarks>
-    public static TaskStatus Running => _lazy_running.Value;
-    
-    private static readonly Lazy<TaskStatus> _lazy_completed = new(() =>
-    {
-        var result = FromRawValue(2)
-            ?? throw new InvalidOperationException("Failed to create TaskStatus.Completed from raw value 2");
-        result._isCachedSingleton = true;
-        return result;
-    });
-    /// <summary>
-    /// Gets the 'completed' case of TaskStatus.
-    /// </summary>
-    /// <remarks>Cached singleton instance — does not require disposal.</remarks>
-    public static TaskStatus Completed => _lazy_completed.Value;
-    
-    private static readonly Lazy<TaskStatus> _lazy_failed = new(() =>
-    {
-        var result = FromRawValue(3)
-            ?? throw new InvalidOperationException("Failed to create TaskStatus.Failed from raw value 3");
-        result._isCachedSingleton = true;
-        return result;
-    });
-    /// <summary>
-    /// Gets the 'failed' case of TaskStatus.
-    /// </summary>
-    /// <remarks>Cached singleton instance — does not require disposal.</remarks>
-    public static TaskStatus Failed => _lazy_failed.Value;
-    
-    /// <summary>
-    /// Enum representing the possible cases of TaskStatus.
-    /// Tag values follow Swift's ordering: payload cases first, then no-payload cases.
-    /// </summary>
-    public enum CaseTag : uint
-    {
-        Pending = 0,
-        Running = 1,
-        Completed = 2,
-        Failed = 3,
-    }
-    
-    /// <summary>
-    /// Gets the current case of this enum instance.
-    /// </summary>
-    public CaseTag Tag
-    {
-        get
-        {
-            unsafe
-            {
-                bool success = false;
-                _payload.DangerousAddRef(ref success);
-                try
-                {
-                    var metadata = SwiftObjectHelper<TaskStatus>.GetTypeMetadata();
-                    byte* payload = (byte*)_payload.DangerousGetHandle();
-                    return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
-                }
-                finally
-                {
-                    if (success)
-                        _payload.DangerousRelease();
-                }
-            }
-        }
-    }
-    
-    
-    private int RawValue_Get()
-    {
-        unsafe
-        {
-            var success = false;
-            _payload.DangerousAddRef(ref success);
-            try
-            {
-                var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
-                
-                
-                
-                var result = PInvoke_rawValue_Get_E79CBDE5(self);
-                
-                return result;
-            }
-            
-            finally
-            {
-                if (success)
-                   _payload.DangerousRelease();
-            }
-            
-        }
-    }
-    
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10TaskStatusO8rawValues5Int32Vvg")]
-    private static partial int PInvoke_rawValue_Get_E79CBDE5( SwiftSelf self);
-    
-    /// <summary>
-    /// The corresponding value of the raw type.
-    /// </summary>
-    public int RawValue
-    {
-        get => RawValue_Get();
-    }
-    
-    static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
-    
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10TaskStatusOMa")]
-    internal static partial TypeMetadata PInvoke_getMetadata();
-    
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
-    {
-        return new TaskStatus(handle);
-    }
-    
-    TaskStatus()
-    {
-    }
-    
-    TaskStatus(SwiftHandle handle)
-    {
-        _payload = new SwiftSafeHandle<TaskStatus>(handle);
-    }
-    
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
-    {
-        var metadata = SwiftObjectHelper<TaskStatus>.GetTypeMetadata();
-        if ((int)metadata.Size > swiftDestSpan.Length)
-        {
-            throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
-        }
-        fixed (void* swiftDest = swiftDestSpan)
-        {
-            // Ensure that the instance is valid before making copy
-            bool success = false;
-            _payload.DangerousAddRef(ref success);
-            try
-            {
-                metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
-                return (int)metadata.Size;
-            }
-            finally
-            {
-                if (success)
-                    _payload.DangerousRelease();
-            }
-        }
-    }
-    
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    private static Dictionary<Type, string> _protocolConformanceSymbols;
-    static TaskStatus()
-    {
-        _protocolConformanceSymbols = new Dictionary<Type, string>
-        {
-            {typeof(IEquatable<TaskStatus>), "$s20SwiftBindingsTestLib10TaskStatusOSQAAMc"},
-    {typeof(ISwiftHashable), "$s20SwiftBindingsTestLib10TaskStatusOSHAAMc"}
-        };
-    }
-    
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
-        where TProtocol : class
-    {
-        if (!_protocolConformanceSymbols.TryGetValue(typeof(TProtocol), out var symbolName))
-        {
-            throw new SwiftRuntimeException($"Attempted to retrieve protocol conformance descriptor for type TaskStatus and protocol {typeof(TProtocol).Name}, but no conformance was found.");
-        }
-        return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
-    }
-    
+    Pending = 0,
+    Running = 1,
+    Completed = 2,
+    Failed = 3,
 }
 
 
@@ -35766,12 +34701,6 @@ public partial class TaskPriority : ISwiftObject, IDisposable
             Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
-    [global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Sequential)]
-    private struct Utf8Slice
-    {
-        public IntPtr Ptr;
-        public nint Len;
-    }
     /// <summary>
     /// Creates a TaskPriority from its raw value.
     /// Returns null if the raw value doesn't correspond to a valid case.
@@ -36895,7 +35824,7 @@ public partial class SimpleTask : ISwiftObject, IDisposable
                 
                 var result = PInvoke_status_Get_919A50A0(self);
                 
-                return (SwiftBindingsTestLib.TaskStatus)SwiftMarshal.MarshalFromSwift<SwiftBindingsTestLib.TaskStatus>(result);
+                return (SwiftBindingsTestLib.TaskStatus)result;
             }
             
             finally
@@ -36909,7 +35838,7 @@ public partial class SimpleTask : ISwiftObject, IDisposable
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10SimpleTaskV6statusAA0F6StatusOvg")]
-    private static partial IntPtr PInvoke_status_Get_919A50A0( SwiftSelf self);
+    private static partial int PInvoke_status_Get_919A50A0( SwiftSelf self);
     
     public SwiftBindingsTestLib.TaskStatus StatusProperty
     {
@@ -37049,14 +35978,14 @@ public partial class SimpleTask : ISwiftObject, IDisposable
             
             using var taskNameSwift = new SwiftString(taskName);
             using var taskNameDisposable = taskNameSwift.PayloadBuffer;
-            PInvoke_init_C8043FE1(swiftIndirectResult, taskNameDisposable.Buffer, status.Payload.DangerousGetHandle(), priority.Payload.DangerousGetHandle());
+            PInvoke_init_C8043FE1(swiftIndirectResult, taskNameDisposable.Buffer, (int)status, priority.Payload.DangerousGetHandle());
             
         }
     }
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10SimpleTaskV8taskName6status8priorityACSS_AA0F6StatusOAA0F8PriorityOtcfC")]
-    private static partial void PInvoke_init_C8043FE1( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer taskName,  IntPtr status,  IntPtr priority);
+    private static partial void PInvoke_init_C8043FE1( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer taskName,  int status,  IntPtr priority);
     
     
 }
@@ -37383,36 +36312,21 @@ public partial class SimpleStatusHandler : ISwiftObject, IDisposable, IStatusHan
     }
     
     
-    public SimpleStatusHandler( SwiftBindingsTestLib.TaskStatus initialStatus)
+    public SimpleStatusHandler( SwiftBindingsTestLib.TaskStatus initialStatus = SwiftBindingsTestLib.TaskStatus.Pending)
     {
         unsafe
         {
             _payload = new SwiftSafeHandle<SimpleStatusHandler>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_E2985DF5(swiftIndirectResult, initialStatus.Payload.DangerousGetHandle());
+            PInvoke_init_E2985DF5(swiftIndirectResult, (int)initialStatus);
             
         }
     }
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib19SimpleStatusHandlerV07initialF0AcA04TaskF0O_tcfC")]
-    private static partial void PInvoke_init_E2985DF5( SwiftIndirectResult swiftIndirectResult,  IntPtr initialStatus);
-    public SimpleStatusHandler()
-    {
-        unsafe
-        {
-            _payload = new SwiftSafeHandle<SimpleStatusHandler>((IntPtr)NativeMemory.Alloc(_payloadSize));
-            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
-            
-            PInvoke_init_9248100D(swiftIndirectResult);
-            
-        }
-    }
-    
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "DBW_SimpleStatusHandler_init_E2985DF5_1")]
-    private static partial void PInvoke_init_9248100D( SwiftIndirectResult swiftIndirectResult);
+    private static partial void PInvoke_init_E2985DF5( SwiftIndirectResult swiftIndirectResult,  int initialStatus);
     
     
     /// <summary>
@@ -37430,7 +36344,7 @@ public partial class SimpleStatusHandler : ISwiftObject, IDisposable, IStatusHan
                 
                 
                 
-                PInvoke_handleStatus_7ECA307A(status.Payload.DangerousGetHandle(), self);
+                PInvoke_handleStatus_7ECA307A((int)status, self);
                 
                 return;
             }
@@ -37446,7 +36360,7 @@ public partial class SimpleStatusHandler : ISwiftObject, IDisposable, IStatusHan
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib19SimpleStatusHandlerV06handleF0yyAA04TaskF0OF")]
-    private static partial void PInvoke_handleStatus_7ECA307A( IntPtr status,  SwiftSelf self);
+    private static partial void PInvoke_handleStatus_7ECA307A( int status,  SwiftSelf self);
     
     
     /// <summary>
@@ -37466,7 +36380,7 @@ public partial class SimpleStatusHandler : ISwiftObject, IDisposable, IStatusHan
                 
                 var result = PInvoke_getCurrentStatus_EC698059(self);
                 
-                return (SwiftBindingsTestLib.TaskStatus)SwiftMarshal.MarshalFromSwift<SwiftBindingsTestLib.TaskStatus>(result);
+                return (SwiftBindingsTestLib.TaskStatus)result;
             }
             
             finally
@@ -37480,7 +36394,7 @@ public partial class SimpleStatusHandler : ISwiftObject, IDisposable, IStatusHan
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib19SimpleStatusHandlerV010getCurrentF0AA04TaskF0OyF")]
-    private static partial IntPtr PInvoke_getCurrentStatus_EC698059( SwiftSelf self);
+    private static partial int PInvoke_getCurrentStatus_EC698059( SwiftSelf self);
     
     
     /// <summary>
@@ -37498,9 +36412,9 @@ public partial class SimpleStatusHandler : ISwiftObject, IDisposable, IStatusHan
                 
                 
                 
-                var result = PInvoke_transitionStatus_8A5239D7(from.Payload.DangerousGetHandle(), self);
+                var result = PInvoke_transitionStatus_8A5239D7((int)from, self);
                 
-                return (SwiftBindingsTestLib.TaskStatus)SwiftMarshal.MarshalFromSwift<SwiftBindingsTestLib.TaskStatus>(result);
+                return (SwiftBindingsTestLib.TaskStatus)result;
             }
             
             finally
@@ -37514,7 +36428,7 @@ public partial class SimpleStatusHandler : ISwiftObject, IDisposable, IStatusHan
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib19SimpleStatusHandlerV010transitionF04fromAA04TaskF0OAG_tF")]
-    private static partial IntPtr PInvoke_transitionStatus_8A5239D7( IntPtr from,  SwiftSelf self);
+    private static partial int PInvoke_transitionStatus_8A5239D7( int from,  SwiftSelf self);
     
     
 }
@@ -37769,241 +36683,11 @@ public interface IExistentialParamDelegate
 /// <summary>
 /// Simple enum for BoundEnum parameter testing.
 /// </summary>
-/// <remarks>
-/// This type wraps a Swift enum and must be disposed explicitly.
-/// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
-/// </remarks>
-public partial class AlertStyle : ISwiftObject, IDisposable
+public enum AlertStyle : int
 {
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    static nuint _payloadSize = SwiftObjectHelper<AlertStyle>.GetTypeMetadata().Size;
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    SwiftSafeHandle<AlertStyle> _payload = SwiftSafeHandle<AlertStyle>.Zero;
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    public SwiftSafeHandle<AlertStyle> Payload => _payload;
-    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
-    #pragma warning disable CS0649
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    internal bool _isCachedSingleton;
-    #pragma warning restore CS0649
-    
-    /// <summary>Releases the underlying Swift object. Safe to call multiple times.</summary>
-    public void Dispose()
-    {
-        if (_isCachedSingleton) return;
-        _payload.Dispose();
-        GC.SuppressFinalize(this);
-    }
-    ~AlertStyle()
-    {
-        if (!_isCachedSingleton)
-            Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
-    }
-    
-    /// <summary>
-    /// Creates a AlertStyle from its raw value.
-    /// Returns null if the raw value doesn't correspond to a valid case.
-    /// </summary>
-    public static AlertStyle? FromRawValue(int rawValue)
-    {
-        IntPtr resultPtr = PInvoke_InitWithRawValue(rawValue);
-        if (resultPtr == IntPtr.Zero)
-        {
-            return null;
-        }
-        var result = new AlertStyle();
-        result._payload = new SwiftSafeHandle<AlertStyle>(resultPtr);
-        return result;
-    }
-    
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10AlertStyleO8rawValueACSgs5Int32V_tcfC")]
-    private static partial IntPtr PInvoke_InitWithRawValue(int rawValue);
-    
-    private static readonly Lazy<AlertStyle> _lazy_info = new(() =>
-    {
-        var result = FromRawValue(0)
-            ?? throw new InvalidOperationException("Failed to create AlertStyle.Info from raw value 0");
-        result._isCachedSingleton = true;
-        return result;
-    });
-    /// <summary>
-    /// Gets the 'info' case of AlertStyle.
-    /// </summary>
-    /// <remarks>Cached singleton instance — does not require disposal.</remarks>
-    public static AlertStyle Info => _lazy_info.Value;
-    
-    private static readonly Lazy<AlertStyle> _lazy_warning = new(() =>
-    {
-        var result = FromRawValue(1)
-            ?? throw new InvalidOperationException("Failed to create AlertStyle.Warning from raw value 1");
-        result._isCachedSingleton = true;
-        return result;
-    });
-    /// <summary>
-    /// Gets the 'warning' case of AlertStyle.
-    /// </summary>
-    /// <remarks>Cached singleton instance — does not require disposal.</remarks>
-    public static AlertStyle Warning => _lazy_warning.Value;
-    
-    private static readonly Lazy<AlertStyle> _lazy_error = new(() =>
-    {
-        var result = FromRawValue(2)
-            ?? throw new InvalidOperationException("Failed to create AlertStyle.Error from raw value 2");
-        result._isCachedSingleton = true;
-        return result;
-    });
-    /// <summary>
-    /// Gets the 'error' case of AlertStyle.
-    /// </summary>
-    /// <remarks>Cached singleton instance — does not require disposal.</remarks>
-    public static AlertStyle Error => _lazy_error.Value;
-    
-    /// <summary>
-    /// Enum representing the possible cases of AlertStyle.
-    /// Tag values follow Swift's ordering: payload cases first, then no-payload cases.
-    /// </summary>
-    public enum CaseTag : uint
-    {
-        Info = 0,
-        Warning = 1,
-        Error = 2,
-    }
-    
-    /// <summary>
-    /// Gets the current case of this enum instance.
-    /// </summary>
-    public CaseTag Tag
-    {
-        get
-        {
-            unsafe
-            {
-                bool success = false;
-                _payload.DangerousAddRef(ref success);
-                try
-                {
-                    var metadata = SwiftObjectHelper<AlertStyle>.GetTypeMetadata();
-                    byte* payload = (byte*)_payload.DangerousGetHandle();
-                    return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
-                }
-                finally
-                {
-                    if (success)
-                        _payload.DangerousRelease();
-                }
-            }
-        }
-    }
-    
-    
-    private int RawValue_Get()
-    {
-        unsafe
-        {
-            var success = false;
-            _payload.DangerousAddRef(ref success);
-            try
-            {
-                var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
-                
-                
-                
-                var result = PInvoke_rawValue_Get_D5361B11(self);
-                
-                return result;
-            }
-            
-            finally
-            {
-                if (success)
-                   _payload.DangerousRelease();
-            }
-            
-        }
-    }
-    
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10AlertStyleO8rawValues5Int32Vvg")]
-    private static partial int PInvoke_rawValue_Get_D5361B11( SwiftSelf self);
-    
-    /// <summary>
-    /// The corresponding value of the raw type.
-    /// </summary>
-    public int RawValue
-    {
-        get => RawValue_Get();
-    }
-    
-    static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
-    
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10AlertStyleOMa")]
-    internal static partial TypeMetadata PInvoke_getMetadata();
-    
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
-    {
-        return new AlertStyle(handle);
-    }
-    
-    AlertStyle()
-    {
-    }
-    
-    AlertStyle(SwiftHandle handle)
-    {
-        _payload = new SwiftSafeHandle<AlertStyle>(handle);
-    }
-    
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
-    {
-        var metadata = SwiftObjectHelper<AlertStyle>.GetTypeMetadata();
-        if ((int)metadata.Size > swiftDestSpan.Length)
-        {
-            throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
-        }
-        fixed (void* swiftDest = swiftDestSpan)
-        {
-            // Ensure that the instance is valid before making copy
-            bool success = false;
-            _payload.DangerousAddRef(ref success);
-            try
-            {
-                metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
-                return (int)metadata.Size;
-            }
-            finally
-            {
-                if (success)
-                    _payload.DangerousRelease();
-            }
-        }
-    }
-    
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    private static Dictionary<Type, string> _protocolConformanceSymbols;
-    static AlertStyle()
-    {
-        _protocolConformanceSymbols = new Dictionary<Type, string>
-        {
-            {typeof(IEquatable<AlertStyle>), "$s20SwiftBindingsTestLib10AlertStyleOSQAAMc"},
-    {typeof(ISwiftHashable), "$s20SwiftBindingsTestLib10AlertStyleOSHAAMc"}
-        };
-    }
-    
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
-        where TProtocol : class
-    {
-        if (!_protocolConformanceSymbols.TryGetValue(typeof(TProtocol), out var symbolName))
-        {
-            throw new SwiftRuntimeException($"Attempted to retrieve protocol conformance descriptor for type AlertStyle and protocol {typeof(TProtocol).Name}, but no conformance was found.");
-        }
-        return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
-    }
-    
+    Info = 0,
+    Warning = 1,
+    Error = 2,
 }
 
 
@@ -38222,17 +36906,19 @@ public partial class SimpleModel : ISwiftObject, IDisposable
     {
         unsafe
         {
-            _payload = new SwiftSafeHandle<SimpleModel>((IntPtr)NativeMemory.Alloc(_payloadSize));
-            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+            var result = PInvoke_init_A3186675(value);
             
-            PInvoke_init_A3186675(swiftIndirectResult, value);
-            
+            unsafe {
+                IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(IntPtr));
+                *(IntPtr*)bufferPtr = result;
+                _payload = new SwiftSafeHandle<SimpleModel>(bufferPtr);
+            }
         }
     }
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11SimpleModelC5valueACs5Int32V_tcfC")]
-    private static partial void PInvoke_init_A3186675( SwiftIndirectResult swiftIndirectResult,  int value);
+    private static partial IntPtr PInvoke_init_A3186675( int value);
     
     
     public virtual int GetValue()
@@ -38543,7 +37229,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                     }
                 }
                 handle.Free();
-                return Task.FromCanceled<SwiftBindingsTestLib.AsyncService>(cancellationToken);
+                return global::System.Threading.Tasks.Task.FromCanceled<SwiftBindingsTestLib.AsyncService>(cancellationToken);
             }
             if (cancellationToken.CanBeCanceled)
             {
@@ -38798,17 +37484,19 @@ public partial class Processor : ISwiftObject, IDisposable
     {
         unsafe
         {
-            _payload = new SwiftSafeHandle<Processor>((IntPtr)NativeMemory.Alloc(_payloadSize));
-            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+            var result = PInvoke_init_0C547260(service.Payload, mode);
             
-            PInvoke_init_0C547260(swiftIndirectResult, service.Payload, mode);
-            
+            unsafe {
+                IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(IntPtr));
+                *(IntPtr*)bufferPtr = result;
+                _payload = new SwiftSafeHandle<Processor>(bufferPtr);
+            }
         }
     }
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib9ProcessorC7service4modeAcA12AsyncServiceC_s5Int32VtcfC")]
-    private static partial void PInvoke_init_0C547260( SwiftIndirectResult swiftIndirectResult,  SafeHandle service,  int mode);
+    private static partial IntPtr PInvoke_init_0C547260( SafeHandle service,  int mode);
     
     
     public virtual int GetMode()
@@ -38868,7 +37556,7 @@ public unsafe class AgeableAndNameableProxy : IAgeableAndNameable, ISwiftObject,
         _swiftContainer = container;
     }
     
-    public Swift.Runtime.ExistentialContainer2 GetExistentialContainer() => _swiftContainer;
+    Swift.Runtime.ExistentialContainer2 ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer2>.GetExistentialContainer() => _swiftContainer;
     
     IntPtr ISwiftObject.SwiftHandle => _swiftContainer.Payload0;
     public static TypeMetadata GetTypeMetadata()
@@ -38922,7 +37610,7 @@ public unsafe class DescribableAndTestIdentifiableProxy : IDescribableAndTestIde
         _swiftContainer = container;
     }
     
-    public Swift.Runtime.ExistentialContainer2 GetExistentialContainer() => _swiftContainer;
+    Swift.Runtime.ExistentialContainer2 ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer2>.GetExistentialContainer() => _swiftContainer;
     
     IntPtr ISwiftObject.SwiftHandle => _swiftContainer.Payload0;
     public static TypeMetadata GetTypeMetadata()
@@ -39098,7 +37786,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
         /// (non-blittable non-String types, throwing, async) throw <see cref="NotSupportedException"/>.
         /// </remarks>
         /// <param name="container">The Swift existential container.</param>
-        internal SummableProxy(ExistentialContainer1 container)
+        public SummableProxy(ExistentialContainer1 container)
         {
             _swiftContainer = container;
             _csharpImpl = null;
@@ -39146,10 +37834,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             // This function is generated by EveryProtocolEmitter.EmitWitnessTableGetter()
             return NativeMethods.GetWitnessTable();
         }
-        /// <summary>
-        /// Gets the existential container that can be passed to Swift code.
-        /// </summary>
-        public ExistentialContainer1 GetExistentialContainer()
+        ExistentialContainer1 ISwiftExistentialConvertible<ExistentialContainer1>.GetExistentialContainer()
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
             return _swiftContainer;
@@ -39209,12 +37894,6 @@ namespace SwiftBindingsTestLib.SwiftInterop
         }
         #endregion
         #region Marshalling Helpers
-        [StructLayout(LayoutKind.Sequential)]
-        private struct Utf8Slice
-        {
-            public IntPtr Ptr;
-            public nint Len;
-        }
         private static IntPtr MarshalToSwiftBuffer<T>(T value)
         {
             // Use direct memory operations for all types
@@ -39362,7 +38041,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
         /// (non-blittable non-String types, throwing, async) throw <see cref="NotSupportedException"/>.
         /// </remarks>
         /// <param name="container">The Swift existential container.</param>
-        internal DescribableProxy(ExistentialContainer1 container)
+        public DescribableProxy(ExistentialContainer1 container)
         {
             _swiftContainer = container;
             _csharpImpl = null;
@@ -39441,10 +38120,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             // This function is generated by EveryProtocolEmitter.EmitWitnessTableGetter()
             return NativeMethods.GetWitnessTable();
         }
-        /// <summary>
-        /// Gets the existential container that can be passed to Swift code.
-        /// </summary>
-        public ExistentialContainer1 GetExistentialContainer()
+        ExistentialContainer1 ISwiftExistentialConvertible<ExistentialContainer1>.GetExistentialContainer()
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
             return _swiftContainer;
@@ -39504,12 +38180,6 @@ namespace SwiftBindingsTestLib.SwiftInterop
         }
         #endregion
         #region Marshalling Helpers
-        [StructLayout(LayoutKind.Sequential)]
-        private struct Utf8Slice
-        {
-            public IntPtr Ptr;
-            public nint Len;
-        }
         private static IntPtr MarshalToSwiftBuffer<T>(T value)
         {
             // Use direct memory operations for all types
@@ -39660,7 +38330,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
         /// (non-blittable non-String types, throwing, async) throw <see cref="NotSupportedException"/>.
         /// </remarks>
         /// <param name="container">The Swift existential container.</param>
-        internal TestIdentifiableProxy(ExistentialContainer1 container)
+        public TestIdentifiableProxy(ExistentialContainer1 container)
         {
             _swiftContainer = container;
             _csharpImpl = null;
@@ -39717,10 +38387,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             // This function is generated by EveryProtocolEmitter.EmitWitnessTableGetter()
             return NativeMethods.GetWitnessTable();
         }
-        /// <summary>
-        /// Gets the existential container that can be passed to Swift code.
-        /// </summary>
-        public ExistentialContainer1 GetExistentialContainer()
+        ExistentialContainer1 ISwiftExistentialConvertible<ExistentialContainer1>.GetExistentialContainer()
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
             return _swiftContainer;
@@ -39780,12 +38447,6 @@ namespace SwiftBindingsTestLib.SwiftInterop
         }
         #endregion
         #region Marshalling Helpers
-        [StructLayout(LayoutKind.Sequential)]
-        private struct Utf8Slice
-        {
-            public IntPtr Ptr;
-            public nint Len;
-        }
         private static IntPtr MarshalToSwiftBuffer<T>(T value)
         {
             // Use direct memory operations for all types
@@ -39927,7 +38588,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
         /// (non-blittable non-String types, throwing, async) throw <see cref="NotSupportedException"/>.
         /// </remarks>
         /// <param name="container">The Swift existential container.</param>
-        internal DisplayableProxy(ExistentialContainer1 container)
+        public DisplayableProxy(ExistentialContainer1 container)
         {
             _swiftContainer = container;
             _csharpImpl = null;
@@ -39983,10 +38644,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             // This function is generated by EveryProtocolEmitter.EmitWitnessTableGetter()
             return NativeMethods.GetWitnessTable();
         }
-        /// <summary>
-        /// Gets the existential container that can be passed to Swift code.
-        /// </summary>
-        public ExistentialContainer1 GetExistentialContainer()
+        ExistentialContainer1 ISwiftExistentialConvertible<ExistentialContainer1>.GetExistentialContainer()
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
             return _swiftContainer;
@@ -40046,12 +38704,6 @@ namespace SwiftBindingsTestLib.SwiftInterop
         }
         #endregion
         #region Marshalling Helpers
-        [StructLayout(LayoutKind.Sequential)]
-        private struct Utf8Slice
-        {
-            public IntPtr Ptr;
-            public nint Len;
-        }
         private static IntPtr MarshalToSwiftBuffer<T>(T value)
         {
             // Use direct memory operations for all types
@@ -40231,7 +38883,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
         /// (non-blittable non-String types, throwing, async) throw <see cref="NotSupportedException"/>.
         /// </remarks>
         /// <param name="container">The Swift existential container.</param>
-        internal HasValueProxy(ExistentialContainer1 container)
+        public HasValueProxy(ExistentialContainer1 container)
         {
             _swiftContainer = container;
             _csharpImpl = null;
@@ -40326,10 +38978,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             // This function is generated by EveryProtocolEmitter.EmitWitnessTableGetter()
             return NativeMethods.GetWitnessTable();
         }
-        /// <summary>
-        /// Gets the existential container that can be passed to Swift code.
-        /// </summary>
-        public ExistentialContainer1 GetExistentialContainer()
+        ExistentialContainer1 ISwiftExistentialConvertible<ExistentialContainer1>.GetExistentialContainer()
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
             return _swiftContainer;
@@ -40389,12 +39038,6 @@ namespace SwiftBindingsTestLib.SwiftInterop
         }
         #endregion
         #region Marshalling Helpers
-        [StructLayout(LayoutKind.Sequential)]
-        private struct Utf8Slice
-        {
-            public IntPtr Ptr;
-            public nint Len;
-        }
         private static IntPtr MarshalToSwiftBuffer<T>(T value)
         {
             // Use direct memory operations for all types
@@ -40553,7 +39196,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
         /// (non-blittable non-String types, throwing, async) throw <see cref="NotSupportedException"/>.
         /// </remarks>
         /// <param name="container">The Swift existential container.</param>
-        internal NameableProxy(ExistentialContainer1 container)
+        public NameableProxy(ExistentialContainer1 container)
         {
             _swiftContainer = container;
             _csharpImpl = null;
@@ -40610,10 +39253,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             // This function is generated by EveryProtocolEmitter.EmitWitnessTableGetter()
             return NativeMethods.GetWitnessTable();
         }
-        /// <summary>
-        /// Gets the existential container that can be passed to Swift code.
-        /// </summary>
-        public ExistentialContainer1 GetExistentialContainer()
+        ExistentialContainer1 ISwiftExistentialConvertible<ExistentialContainer1>.GetExistentialContainer()
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
             return _swiftContainer;
@@ -40673,12 +39313,6 @@ namespace SwiftBindingsTestLib.SwiftInterop
         }
         #endregion
         #region Marshalling Helpers
-        [StructLayout(LayoutKind.Sequential)]
-        private struct Utf8Slice
-        {
-            public IntPtr Ptr;
-            public nint Len;
-        }
         private static IntPtr MarshalToSwiftBuffer<T>(T value)
         {
             // Use direct memory operations for all types
@@ -40820,7 +39454,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
         /// (non-blittable non-String types, throwing, async) throw <see cref="NotSupportedException"/>.
         /// </remarks>
         /// <param name="container">The Swift existential container.</param>
-        internal AgeableProxy(ExistentialContainer1 container)
+        public AgeableProxy(ExistentialContainer1 container)
         {
             _swiftContainer = container;
             _csharpImpl = null;
@@ -40870,10 +39504,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             // This function is generated by EveryProtocolEmitter.EmitWitnessTableGetter()
             return NativeMethods.GetWitnessTable();
         }
-        /// <summary>
-        /// Gets the existential container that can be passed to Swift code.
-        /// </summary>
-        public ExistentialContainer1 GetExistentialContainer()
+        ExistentialContainer1 ISwiftExistentialConvertible<ExistentialContainer1>.GetExistentialContainer()
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
             return _swiftContainer;
@@ -40933,12 +39564,6 @@ namespace SwiftBindingsTestLib.SwiftInterop
         }
         #endregion
         #region Marshalling Helpers
-        [StructLayout(LayoutKind.Sequential)]
-        private struct Utf8Slice
-        {
-            public IntPtr Ptr;
-            public nint Len;
-        }
         private static IntPtr MarshalToSwiftBuffer<T>(T value)
         {
             // Use direct memory operations for all types
@@ -41081,7 +39706,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
         /// (non-blittable non-String types, throwing, async) throw <see cref="NotSupportedException"/>.
         /// </remarks>
         /// <param name="container">The Swift existential container.</param>
-        internal AddableProxy(ExistentialContainer1 container)
+        public AddableProxy(ExistentialContainer1 container)
         {
             _swiftContainer = container;
             _csharpImpl = null;
@@ -41132,10 +39757,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             // This function is generated by EveryProtocolEmitter.EmitWitnessTableGetter()
             return NativeMethods.GetWitnessTable();
         }
-        /// <summary>
-        /// Gets the existential container that can be passed to Swift code.
-        /// </summary>
-        public ExistentialContainer1 GetExistentialContainer()
+        ExistentialContainer1 ISwiftExistentialConvertible<ExistentialContainer1>.GetExistentialContainer()
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
             return _swiftContainer;
@@ -41195,12 +39817,6 @@ namespace SwiftBindingsTestLib.SwiftInterop
         }
         #endregion
         #region Marshalling Helpers
-        [StructLayout(LayoutKind.Sequential)]
-        private struct Utf8Slice
-        {
-            public IntPtr Ptr;
-            public nint Len;
-        }
         private static IntPtr MarshalToSwiftBuffer<T>(T value)
         {
             // Use direct memory operations for all types
@@ -41343,7 +39959,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
         /// (non-blittable non-String types, throwing, async) throw <see cref="NotSupportedException"/>.
         /// </remarks>
         /// <param name="container">The Swift existential container.</param>
-        internal SubtractableProxy(ExistentialContainer1 container)
+        public SubtractableProxy(ExistentialContainer1 container)
         {
             _swiftContainer = container;
             _csharpImpl = null;
@@ -41394,10 +40010,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             // This function is generated by EveryProtocolEmitter.EmitWitnessTableGetter()
             return NativeMethods.GetWitnessTable();
         }
-        /// <summary>
-        /// Gets the existential container that can be passed to Swift code.
-        /// </summary>
-        public ExistentialContainer1 GetExistentialContainer()
+        ExistentialContainer1 ISwiftExistentialConvertible<ExistentialContainer1>.GetExistentialContainer()
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
             return _swiftContainer;
@@ -41457,12 +40070,6 @@ namespace SwiftBindingsTestLib.SwiftInterop
         }
         #endregion
         #region Marshalling Helpers
-        [StructLayout(LayoutKind.Sequential)]
-        private struct Utf8Slice
-        {
-            public IntPtr Ptr;
-            public nint Len;
-        }
         private static IntPtr MarshalToSwiftBuffer<T>(T value)
         {
             // Use direct memory operations for all types
@@ -41605,7 +40212,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
         /// (non-blittable non-String types, throwing, async) throw <see cref="NotSupportedException"/>.
         /// </remarks>
         /// <param name="container">The Swift existential container.</param>
-        internal MultipliableProxy(ExistentialContainer1 container)
+        public MultipliableProxy(ExistentialContainer1 container)
         {
             _swiftContainer = container;
             _csharpImpl = null;
@@ -41656,10 +40263,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             // This function is generated by EveryProtocolEmitter.EmitWitnessTableGetter()
             return NativeMethods.GetWitnessTable();
         }
-        /// <summary>
-        /// Gets the existential container that can be passed to Swift code.
-        /// </summary>
-        public ExistentialContainer1 GetExistentialContainer()
+        ExistentialContainer1 ISwiftExistentialConvertible<ExistentialContainer1>.GetExistentialContainer()
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
             return _swiftContainer;
@@ -41719,12 +40323,6 @@ namespace SwiftBindingsTestLib.SwiftInterop
         }
         #endregion
         #region Marshalling Helpers
-        [StructLayout(LayoutKind.Sequential)]
-        private struct Utf8Slice
-        {
-            public IntPtr Ptr;
-            public nint Len;
-        }
         private static IntPtr MarshalToSwiftBuffer<T>(T value)
         {
             // Use direct memory operations for all types
@@ -41867,7 +40465,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
         /// (non-blittable non-String types, throwing, async) throw <see cref="NotSupportedException"/>.
         /// </remarks>
         /// <param name="container">The Swift existential container.</param>
-        internal DividableProxy(ExistentialContainer1 container)
+        public DividableProxy(ExistentialContainer1 container)
         {
             _swiftContainer = container;
             _csharpImpl = null;
@@ -41918,10 +40516,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             // This function is generated by EveryProtocolEmitter.EmitWitnessTableGetter()
             return NativeMethods.GetWitnessTable();
         }
-        /// <summary>
-        /// Gets the existential container that can be passed to Swift code.
-        /// </summary>
-        public ExistentialContainer1 GetExistentialContainer()
+        ExistentialContainer1 ISwiftExistentialConvertible<ExistentialContainer1>.GetExistentialContainer()
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
             return _swiftContainer;
@@ -41981,12 +40576,6 @@ namespace SwiftBindingsTestLib.SwiftInterop
         }
         #endregion
         #region Marshalling Helpers
-        [StructLayout(LayoutKind.Sequential)]
-        private struct Utf8Slice
-        {
-            public IntPtr Ptr;
-            public nint Len;
-        }
         private static IntPtr MarshalToSwiftBuffer<T>(T value)
         {
             // Use direct memory operations for all types
@@ -42129,7 +40718,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
         /// (non-blittable non-String types, throwing, async) throw <see cref="NotSupportedException"/>.
         /// </remarks>
         /// <param name="container">The Swift existential container.</param>
-        internal NamedProxy(ExistentialContainer1 container)
+        public NamedProxy(ExistentialContainer1 container)
         {
             _swiftContainer = container;
             _csharpImpl = null;
@@ -42186,10 +40775,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             // This function is generated by EveryProtocolEmitter.EmitWitnessTableGetter()
             return NativeMethods.GetWitnessTable();
         }
-        /// <summary>
-        /// Gets the existential container that can be passed to Swift code.
-        /// </summary>
-        public ExistentialContainer1 GetExistentialContainer()
+        ExistentialContainer1 ISwiftExistentialConvertible<ExistentialContainer1>.GetExistentialContainer()
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
             return _swiftContainer;
@@ -42249,12 +40835,6 @@ namespace SwiftBindingsTestLib.SwiftInterop
         }
         #endregion
         #region Marshalling Helpers
-        [StructLayout(LayoutKind.Sequential)]
-        private struct Utf8Slice
-        {
-            public IntPtr Ptr;
-            public nint Len;
-        }
         private static IntPtr MarshalToSwiftBuffer<T>(T value)
         {
             // Use direct memory operations for all types
@@ -42409,7 +40989,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
         /// (non-blittable non-String types, throwing, async) throw <see cref="NotSupportedException"/>.
         /// </remarks>
         /// <param name="container">The Swift existential container.</param>
-        internal MutableNamedProxy(ExistentialContainer1 container)
+        public MutableNamedProxy(ExistentialContainer1 container)
         {
             _swiftContainer = container;
             _csharpImpl = null;
@@ -42485,10 +41065,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             // This function is generated by EveryProtocolEmitter.EmitWitnessTableGetter()
             return NativeMethods.GetWitnessTable();
         }
-        /// <summary>
-        /// Gets the existential container that can be passed to Swift code.
-        /// </summary>
-        public ExistentialContainer1 GetExistentialContainer()
+        ExistentialContainer1 ISwiftExistentialConvertible<ExistentialContainer1>.GetExistentialContainer()
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
             return _swiftContainer;
@@ -42548,12 +41125,6 @@ namespace SwiftBindingsTestLib.SwiftInterop
         }
         #endregion
         #region Marshalling Helpers
-        [StructLayout(LayoutKind.Sequential)]
-        private struct Utf8Slice
-        {
-            public IntPtr Ptr;
-            public nint Len;
-        }
         private static IntPtr MarshalToSwiftBuffer<T>(T value)
         {
             // Use direct memory operations for all types
@@ -42699,7 +41270,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
         /// (non-blittable non-String types, throwing, async) throw <see cref="NotSupportedException"/>.
         /// </remarks>
         /// <param name="container">The Swift existential container.</param>
-        internal PrioritizedProxy(ExistentialContainer1 container)
+        public PrioritizedProxy(ExistentialContainer1 container)
         {
             _swiftContainer = container;
             _csharpImpl = null;
@@ -42750,10 +41321,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             // This function is generated by EveryProtocolEmitter.EmitWitnessTableGetter()
             return NativeMethods.GetWitnessTable();
         }
-        /// <summary>
-        /// Gets the existential container that can be passed to Swift code.
-        /// </summary>
-        public ExistentialContainer1 GetExistentialContainer()
+        ExistentialContainer1 ISwiftExistentialConvertible<ExistentialContainer1>.GetExistentialContainer()
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
             return _swiftContainer;
@@ -42813,12 +41381,6 @@ namespace SwiftBindingsTestLib.SwiftInterop
         }
         #endregion
         #region Marshalling Helpers
-        [StructLayout(LayoutKind.Sequential)]
-        private struct Utf8Slice
-        {
-            public IntPtr Ptr;
-            public nint Len;
-        }
         private static IntPtr MarshalToSwiftBuffer<T>(T value)
         {
             // Use direct memory operations for all types
@@ -42964,7 +41526,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
         /// (non-blittable non-String types, throwing, async) throw <see cref="NotSupportedException"/>.
         /// </remarks>
         /// <param name="container">The Swift existential container.</param>
-        internal MutablePrioritizedProxy(ExistentialContainer1 container)
+        public MutablePrioritizedProxy(ExistentialContainer1 container)
         {
             _swiftContainer = container;
             _csharpImpl = null;
@@ -43027,10 +41589,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             // This function is generated by EveryProtocolEmitter.EmitWitnessTableGetter()
             return NativeMethods.GetWitnessTable();
         }
-        /// <summary>
-        /// Gets the existential container that can be passed to Swift code.
-        /// </summary>
-        public ExistentialContainer1 GetExistentialContainer()
+        ExistentialContainer1 ISwiftExistentialConvertible<ExistentialContainer1>.GetExistentialContainer()
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
             return _swiftContainer;
@@ -43090,12 +41649,6 @@ namespace SwiftBindingsTestLib.SwiftInterop
         }
         #endregion
         #region Marshalling Helpers
-        [StructLayout(LayoutKind.Sequential)]
-        private struct Utf8Slice
-        {
-            public IntPtr Ptr;
-            public nint Len;
-        }
         private static IntPtr MarshalToSwiftBuffer<T>(T value)
         {
             // Use direct memory operations for all types
@@ -43256,7 +41809,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
         /// (non-blittable non-String types, throwing, async) throw <see cref="NotSupportedException"/>.
         /// </remarks>
         /// <param name="container">The Swift existential container.</param>
-        internal TaskDescriptorProxy(ExistentialContainer1 container)
+        public TaskDescriptorProxy(ExistentialContainer1 container)
         {
             _swiftContainer = container;
             _csharpImpl = null;
@@ -43347,10 +41900,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             // This function is generated by EveryProtocolEmitter.EmitWitnessTableGetter()
             return NativeMethods.GetWitnessTable();
         }
-        /// <summary>
-        /// Gets the existential container that can be passed to Swift code.
-        /// </summary>
-        public ExistentialContainer1 GetExistentialContainer()
+        ExistentialContainer1 ISwiftExistentialConvertible<ExistentialContainer1>.GetExistentialContainer()
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
             return _swiftContainer;
@@ -43410,12 +41960,6 @@ namespace SwiftBindingsTestLib.SwiftInterop
         }
         #endregion
         #region Marshalling Helpers
-        [StructLayout(LayoutKind.Sequential)]
-        private struct Utf8Slice
-        {
-            public IntPtr Ptr;
-            public nint Len;
-        }
         private static IntPtr MarshalToSwiftBuffer<T>(T value)
         {
             // Use direct memory operations for all types
@@ -43572,7 +42116,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
         /// (non-blittable non-String types, throwing, async) throw <see cref="NotSupportedException"/>.
         /// </remarks>
         /// <param name="container">The Swift existential container.</param>
-        internal StringProcessorProxy(ExistentialContainer1 container)
+        public StringProcessorProxy(ExistentialContainer1 container)
         {
             _swiftContainer = container;
             _csharpImpl = null;
@@ -43661,10 +42205,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             // This function is generated by EveryProtocolEmitter.EmitWitnessTableGetter()
             return NativeMethods.GetWitnessTable();
         }
-        /// <summary>
-        /// Gets the existential container that can be passed to Swift code.
-        /// </summary>
-        public ExistentialContainer1 GetExistentialContainer()
+        ExistentialContainer1 ISwiftExistentialConvertible<ExistentialContainer1>.GetExistentialContainer()
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
             return _swiftContainer;
@@ -43724,12 +42265,6 @@ namespace SwiftBindingsTestLib.SwiftInterop
         }
         #endregion
         #region Marshalling Helpers
-        [StructLayout(LayoutKind.Sequential)]
-        private struct Utf8Slice
-        {
-            public IntPtr Ptr;
-            public nint Len;
-        }
         private static IntPtr MarshalToSwiftBuffer<T>(T value)
         {
             // Use direct memory operations for all types
@@ -43906,7 +42441,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
         /// (non-blittable non-String types, throwing, async) throw <see cref="NotSupportedException"/>.
         /// </remarks>
         /// <param name="container">The Swift existential container.</param>
-        internal StatusHandlerProxy(ExistentialContainer1 container)
+        public StatusHandlerProxy(ExistentialContainer1 container)
         {
             _swiftContainer = container;
             _csharpImpl = null;
@@ -43985,10 +42520,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             // This function is generated by EveryProtocolEmitter.EmitWitnessTableGetter()
             return NativeMethods.GetWitnessTable();
         }
-        /// <summary>
-        /// Gets the existential container that can be passed to Swift code.
-        /// </summary>
-        public ExistentialContainer1 GetExistentialContainer()
+        ExistentialContainer1 ISwiftExistentialConvertible<ExistentialContainer1>.GetExistentialContainer()
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
             return _swiftContainer;
@@ -44048,12 +42580,6 @@ namespace SwiftBindingsTestLib.SwiftInterop
         }
         #endregion
         #region Marshalling Helpers
-        [StructLayout(LayoutKind.Sequential)]
-        private struct Utf8Slice
-        {
-            public IntPtr Ptr;
-            public nint Len;
-        }
         private static IntPtr MarshalToSwiftBuffer<T>(T value)
         {
             // Use direct memory operations for all types
@@ -44214,7 +42740,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
         /// (non-blittable non-String types, throwing, async) throw <see cref="NotSupportedException"/>.
         /// </remarks>
         /// <param name="container">The Swift existential container.</param>
-        internal PriorityHandlerProxy(ExistentialContainer1 container)
+        public PriorityHandlerProxy(ExistentialContainer1 container)
         {
             _swiftContainer = container;
             _csharpImpl = null;
@@ -44293,10 +42819,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             // This function is generated by EveryProtocolEmitter.EmitWitnessTableGetter()
             return NativeMethods.GetWitnessTable();
         }
-        /// <summary>
-        /// Gets the existential container that can be passed to Swift code.
-        /// </summary>
-        public ExistentialContainer1 GetExistentialContainer()
+        ExistentialContainer1 ISwiftExistentialConvertible<ExistentialContainer1>.GetExistentialContainer()
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
             return _swiftContainer;
@@ -44356,12 +42879,6 @@ namespace SwiftBindingsTestLib.SwiftInterop
         }
         #endregion
         #region Marshalling Helpers
-        [StructLayout(LayoutKind.Sequential)]
-        private struct Utf8Slice
-        {
-            public IntPtr Ptr;
-            public nint Len;
-        }
         private static IntPtr MarshalToSwiftBuffer<T>(T value)
         {
             // Use direct memory operations for all types
@@ -44496,7 +43013,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
         /// (non-blittable non-String types, throwing, async) throw <see cref="NotSupportedException"/>.
         /// </remarks>
         /// <param name="container">The Swift existential container.</param>
-        internal ExistentialParamDelegateProxy(ExistentialContainer1 container)
+        public ExistentialParamDelegateProxy(ExistentialContainer1 container)
         {
             _swiftContainer = container;
             _csharpImpl = null;
@@ -44547,10 +43064,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             // This function is generated by EveryProtocolEmitter.EmitWitnessTableGetter()
             return NativeMethods.GetWitnessTable();
         }
-        /// <summary>
-        /// Gets the existential container that can be passed to Swift code.
-        /// </summary>
-        public ExistentialContainer1 GetExistentialContainer()
+        ExistentialContainer1 ISwiftExistentialConvertible<ExistentialContainer1>.GetExistentialContainer()
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
             return _swiftContainer;
@@ -44610,12 +43124,6 @@ namespace SwiftBindingsTestLib.SwiftInterop
         }
         #endregion
         #region Marshalling Helpers
-        [StructLayout(LayoutKind.Sequential)]
-        private struct Utf8Slice
-        {
-            public IntPtr Ptr;
-            public nint Len;
-        }
         private static IntPtr MarshalToSwiftBuffer<T>(T value)
         {
             // Use direct memory operations for all types

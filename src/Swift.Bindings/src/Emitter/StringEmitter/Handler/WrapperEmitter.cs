@@ -230,19 +230,30 @@ namespace BindingsGeneration
                 EmitProtocolWitnessTables(csWriter);
             }
 
-            // Allocate buffer for the constructor result and create SwiftIndirectResult
-            csWriter.WriteLine("IntPtr* buf = stackalloc IntPtr[1];");
-            csWriter.WriteLine("var swiftIndirectResult = new SwiftIndirectResult(buf);");
-            // Emit the P/Invoke call — result goes into 'buf' via swiftIndirectResult
-            EmitPInvokeCall(csWriter);
-            EmitSwiftError(csWriter);
-
-            // Extract the result pointer
-            csWriter.WriteLine("if (*buf == IntPtr.Zero)");
-            csWriter.Indent++;
-            csWriter.WriteLine("throw new InvalidOperationException(\"Swift initializer returned null.\");");
-            csWriter.Indent--;
-            csWriter.WriteLine("return new ObjCRuntime.NativeHandle(*buf);");
+            if (_requiresIndirectResult)
+            {
+                // Non-frozen struct constructors: result goes into buf via SwiftIndirectResult
+                csWriter.WriteLine("IntPtr* buf = stackalloc IntPtr[1];");
+                csWriter.WriteLine("var swiftIndirectResult = new SwiftIndirectResult(buf);");
+                EmitPInvokeCall(csWriter);
+                EmitSwiftError(csWriter);
+                csWriter.WriteLine("if (*buf == IntPtr.Zero)");
+                csWriter.Indent++;
+                csWriter.WriteLine("throw new InvalidOperationException(\"Swift initializer returned null.\");");
+                csWriter.Indent--;
+                csWriter.WriteLine("return new ObjCRuntime.NativeHandle(*buf);");
+            }
+            else
+            {
+                // Class constructors: P/Invoke returns IntPtr directly (pointer in register)
+                EmitPInvokeCall(csWriter);
+                EmitSwiftError(csWriter);
+                csWriter.WriteLine("if (result == IntPtr.Zero)");
+                csWriter.Indent++;
+                csWriter.WriteLine("throw new InvalidOperationException(\"Swift initializer returned null.\");");
+                csWriter.Indent--;
+                csWriter.WriteLine("return new ObjCRuntime.NativeHandle(result);");
+            }
 
             if (needsTryFinally)
             {

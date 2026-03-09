@@ -786,6 +786,76 @@ public class WrapperEmitterReturnTests
         return method;
     }
 
+    [Fact]
+    public void ClassConstructor_SkippedSuperclass_UsesSelfTypeName()
+    {
+        // P1 regression: when a class has a resolved superclass with unsupported generic
+        // constraints (e.g., SwiftUI.View), the superclass is intentionally skipped.
+        // IsEffectivelyDerived returns false, and GetRootBaseTypeNameWithGenerics must
+        // return the child's own type name — NOT the skipped base's name.
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        // Create base class with unsupported generic constraint (SwiftUI module)
+        var baseDecl = new ClassDecl
+        {
+            Name = "ViewWrapper",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ViewWrapper"),
+            MangledName = "$s10TestModule11ViewWrapperCN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl(
+                    TypeName: "Content",
+                    SugaredTypeName: "Content",
+                    GenericConformances: new List<GenericParameterConformance>
+                    {
+                        new GenericParameterConformance(
+                            Path: new[] { "Content" },
+                            ConformanceTarget: SwiftTypeName.FromModuleQualifiedName("SwiftUI.View"),
+                            Kind: ConformanceKind.Protocol)
+                    },
+                    AssosiatedTypeConformances: new List<GenericParameterConformance>())
+            }
+        };
+        moduleDecl.Types.Add(baseDecl);
+
+        // Create child class that resolves to the skipped base
+        var childDecl = new ClassDecl
+        {
+            Name = "MyWidget",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyWidget"),
+            MangledName = "$s10TestModule8MyWidgetCN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            ResolvedSuperclass = baseDecl
+        };
+        moduleDecl.Types.Add(childDecl);
+
+        // Verify the predicates used by the fix
+        Assert.True(childDecl.HasResolvedSuperclass, "HasResolvedSuperclass should be true");
+        Assert.False(ClassHandler.IsEffectivelyDerived(childDecl),
+            "IsEffectivelyDerived should be false when base has unsupported constraint");
+
+        // GetRootBaseTypeNameWithGenerics must return child's own name, NOT base's
+        var rootTypeName = ClassISwiftObjectMethodWriter.GetRootBaseTypeNameWithGenerics(childDecl);
+        Assert.Equal("MyWidget", rootTypeName);
+        Assert.DoesNotContain("ViewWrapper", rootTypeName);
+    }
+
     private static (string csOutput, string swiftOutput) EmitMethod(
         MethodDecl methodDecl,
         TypeDatabase typeDatabase)

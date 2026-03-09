@@ -133,6 +133,52 @@ public class SwiftTypeNameHelperTests
     }
 
     [Fact]
+    public void GetSwiftTypeName_TupleWithLabels_PreservesLabels()
+    {
+        var elem0 = new NamedTypeSpec("Foundation.Data");
+        elem0.TypeLabel = "data";
+        var elem1 = new NamedTypeSpec("Swift.Optional");
+        elem1.GenericParameters.Add(new NamedTypeSpec("Foundation.URLResponse"));
+        elem1.TypeLabel = "response";
+
+        var tuple = new TupleTypeSpec(new List<TypeSpec> { elem0, elem1 });
+
+        var result = SwiftTypeNameHelper.GetSwiftTypeName(tuple);
+
+        Assert.Equal("(data: Foundation.Data, response: (Foundation.URLResponse)?)", result);
+    }
+
+    [Fact]
+    public void GetSwiftTypeName_TupleWithoutLabels_OmitsLabels()
+    {
+        var tuple = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.String")
+        });
+
+        var result = SwiftTypeNameHelper.GetSwiftTypeName(tuple);
+
+        Assert.Equal("(Swift.Int, Swift.String)", result);
+    }
+
+    [Fact]
+    public void GetSwiftTypeName_TupleWithEmptyLabels_OmitsLabels()
+    {
+        var elem0 = new NamedTypeSpec("Swift.Int");
+        elem0.TypeLabel = "";
+        var elem1 = new NamedTypeSpec("Swift.String");
+        elem1.TypeLabel = "";
+
+        var tuple = new TupleTypeSpec(new List<TypeSpec> { elem0, elem1 });
+
+        var result = SwiftTypeNameHelper.GetSwiftTypeName(tuple);
+
+        // Empty labels must not render as ": Type" — that's invalid Swift
+        Assert.Equal("(Swift.Int, Swift.String)", result);
+    }
+
+    [Fact]
     public void GetSwiftTypeName_Closure_ReturnsArrowSyntax()
     {
         var closureType = new ClosureTypeSpec(

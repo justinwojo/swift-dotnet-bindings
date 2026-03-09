@@ -152,6 +152,17 @@ public class MarshallingHelpersTests
     }
 
     [Fact]
+    public void MethodRequiresIndirectResult_ClassConstructor_ReturnsFalse()
+    {
+        // Class constructors return a pointer in-register, not via indirect result
+        var env = CreateMethodEnv(
+            returnType: new NamedTypeSpec("TestModule.MyClass"),
+            isConstructor: true,
+            parentDecl: CreateClassParent());
+        Assert.False(MarshallingHelpers.MethodRequiresIndirectResult(env));
+    }
+
+    [Fact]
     public void MethodRequiresIndirectResult_ClosureReturn_ReturnsFalse()
     {
         // Closure return types are passed as function pointers, not indirectly
@@ -539,6 +550,26 @@ public class MarshallingHelpersTests
             ModuleDecl = CreateModuleDecl(),
             IsFrozen = false,
             MetadataAccessor = "$sMa"
+        };
+    }
+
+    private static ClassDecl CreateClassParent()
+    {
+        var moduleDecl = CreateModuleDecl();
+        return new ClassDecl
+        {
+            Name = "TestClass",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.TestClass"),
+            MangledName = "$sN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
         };
     }
 

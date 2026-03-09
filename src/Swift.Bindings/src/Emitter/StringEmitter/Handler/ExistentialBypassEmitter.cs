@@ -1121,7 +1121,11 @@ public static class ExistentialBypassEmitter
             case TupleTypeSpec tupleTypeSpec:
                 if (tupleTypeSpec == TupleTypeSpec.Empty)
                     return "Void";
-                var elements = string.Join(", ", tupleTypeSpec.Elements.Select(RenderSwiftTypeSpec));
+                var elements = string.Join(", ", tupleTypeSpec.Elements.Select(e =>
+                {
+                    var rendered = RenderSwiftTypeSpec(e);
+                    return !string.IsNullOrEmpty(e.TypeLabel) ? $"{e.TypeLabel}: {rendered}" : rendered;
+                }));
                 return $"({elements})";
 
             case ClosureTypeSpec closureTypeSpec:
@@ -1134,7 +1138,11 @@ public static class ExistentialBypassEmitter
                 }
                 else if (closureTypeSpec.Arguments is TupleTypeSpec argsTuple)
                 {
-                    var elems = string.Join(", ", argsTuple.Elements.Select(RenderSwiftTypeSpec));
+                    var elems = string.Join(", ", argsTuple.Elements.Select(e =>
+                    {
+                        var rendered = RenderSwiftTypeSpec(e);
+                        return !string.IsNullOrEmpty(e.TypeLabel) ? $"{e.TypeLabel}: {rendered}" : rendered;
+                    }));
                     argsRendered = $"({elems})";
                 }
                 else

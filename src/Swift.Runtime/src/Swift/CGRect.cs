@@ -122,4 +122,18 @@ public struct CGRect
 
     /// <inheritdoc/>
     public override int GetHashCode() => HashCode.Combine(Origin, Size);
+
+#if IOS || TVOS || MACCATALYST || MACOS
+    /// <summary>
+    /// Implicitly converts a CoreGraphics.CGRect to a Swift.CGRect.
+    /// </summary>
+    public static implicit operator CGRect(CoreGraphics.CGRect rect) =>
+        new(rect.X, rect.Y, rect.Width, rect.Height);
+
+    /// <summary>
+    /// Implicitly converts a Swift.CGRect to a CoreGraphics.CGRect.
+    /// </summary>
+    public static implicit operator CoreGraphics.CGRect(CGRect rect) =>
+        new(rect.X, rect.Y, rect.Width, rect.Height);
+#endif
 }

@@ -133,10 +133,10 @@ public class ConstructorHandlerOutputTests
     }
 
     [Fact]
-    public void Emit_ClassConstructor_UsesIndirectResult()
+    public void Emit_ClassConstructor_ReturnsIntPtrDirectly()
     {
-        // Non-frozen class constructors require indirect result: allocate _payload and
-        // pass it as SwiftIndirectResult to the P/Invoke.
+        // Class constructors return a pointer in-register (not via SwiftIndirectResult).
+        // The P/Invoke returns IntPtr, which is stored in _payload.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Animal", moduleDecl, typeDatabase);
@@ -145,8 +145,8 @@ public class ConstructorHandlerOutputTests
         var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
 
         Assert.Contains("_payload = new SwiftSafeHandle<Animal>", csOutput);
-        Assert.Contains("NativeMemory.Alloc(_payloadSize)", csOutput);
-        Assert.Contains("new SwiftIndirectResult", csOutput);
+        Assert.DoesNotContain("SwiftIndirectResult", csOutput);
+        Assert.Contains("var result =", csOutput);
     }
 
     [Fact]

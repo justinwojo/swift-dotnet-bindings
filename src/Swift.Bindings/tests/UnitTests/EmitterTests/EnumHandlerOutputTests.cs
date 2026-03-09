@@ -252,34 +252,26 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
-    public void CanSafelyEmitAsSimpleEnum_WithNonEqualityOperator_ReturnsFalse()
+    public void CanSafelyEmitAsSimpleEnum_WithComparisonOperator_ReturnsTrue()
     {
+        // C# integral enums natively support <, >, <=, >= — Comparable conformance
+        // should not force the enum to the class-based path.
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("Direction", moduleDecl, isFrozen: false);
         enumDecl.Cases.Add(CreateCase("north"));
-        enumDecl.Operators.Add(new OperatorDecl
-        {
-            Name = "<",
-            OperatorSymbol = "<",
-            Kind = OperatorKind.Binary,
-            IsPrefix = false,
-            UnderlyingMethod = new MethodDecl
-            {
-                Name = "<",
-                MangledName = "$s10TestModule9DirectionO1loiySbAC_ACtFZ",
-                MethodType = MethodType.Static,
-                IsConstructor = false,
-                CSSignature = new List<ArgumentDecl>(),
-                GenericParameters = new List<GenericArgumentDecl>(),
-                ParentDecl = enumDecl,
-                ModuleDecl = moduleDecl,
-                Throws = false,
-                IsAsync = false,
-                Visibility = Visibility.Public
-            },
-            ParentDecl = enumDecl,
-            ModuleDecl = moduleDecl
-        });
+        enumDecl.Operators.Add(CreateOperator("<", enumDecl, moduleDecl));
+
+        Assert.True(EnumHandler.CanSafelyEmitAsSimpleEnum(enumDecl));
+    }
+
+    [Fact]
+    public void CanSafelyEmitAsSimpleEnum_WithCustomOperator_ReturnsFalse()
+    {
+        // Custom operators (e.g., +) force the class-based path.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Direction", moduleDecl, isFrozen: false);
+        enumDecl.Cases.Add(CreateCase("north"));
+        enumDecl.Operators.Add(CreateOperator("+", enumDecl, moduleDecl));
 
         Assert.False(EnumHandler.CanSafelyEmitAsSimpleEnum(enumDecl));
     }
@@ -930,6 +922,33 @@ public class EnumHandlerOutputTests
             AssociatedValues = new List<TypeSpec>(),
             ParentDecl = null,
             ModuleDecl = null
+        };
+    }
+
+    private static OperatorDecl CreateOperator(string name, EnumDecl enumDecl, ModuleDecl moduleDecl)
+    {
+        return new OperatorDecl
+        {
+            Name = name,
+            OperatorSymbol = name,
+            Kind = OperatorKind.Binary,
+            IsPrefix = false,
+            UnderlyingMethod = new MethodDecl
+            {
+                Name = name,
+                MangledName = $"$s10TestModule{enumDecl.Name}O{name}oiySbAC_ACtFZ",
+                MethodType = MethodType.Static,
+                IsConstructor = false,
+                CSSignature = new List<ArgumentDecl>(),
+                GenericParameters = new List<GenericArgumentDecl>(),
+                ParentDecl = enumDecl,
+                ModuleDecl = moduleDecl,
+                Throws = false,
+                IsAsync = false,
+                Visibility = Visibility.Public
+            },
+            ParentDecl = enumDecl,
+            ModuleDecl = moduleDecl
         };
     }
 

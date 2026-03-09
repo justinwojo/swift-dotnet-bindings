@@ -238,13 +238,25 @@ public class SwiftOptional<T> : ISwiftObject, IDisposable
             _payload.DangerousAddRef(ref success);
             try
             {
-                // Create a copy of the payload for marshalling
+                // Heap-copy the payload bytes. We can't use stackalloc because
+                // ISwiftObject.NewFromPayload takes ownership of the pointer
+                // (stores it in SwiftSafeHandle which calls NativeMemory.Free).
                 byte* sourcePayload = (byte*)_payload.DangerousGetHandle();
-                Span<byte> payloadCopy = stackalloc byte[(int)_payloadSize];
-                new Span<byte>(sourcePayload, (int)_payloadSize).CopyTo(payloadCopy);
-                fixed (byte* payloadPtr = payloadCopy)
+                byte* heapCopy = (byte*)NativeMemory.Alloc(_payloadSize);
+                new Span<byte>(sourcePayload, (int)_payloadSize).CopyTo(
+                    new Span<byte>(heapCopy, (int)_payloadSize));
+                try
                 {
-                    return SwiftMarshal.MarshalFromSwift<T>(new IntPtr(payloadPtr));
+                    return SwiftMarshal.MarshalFromSwift<T>(new IntPtr(heapCopy));
+                }
+                finally
+                {
+                    // ISwiftObject.NewFromPayload takes ownership of the buffer,
+                    // so only free for non-ISwiftObject types (primitives, tuples, etc.)
+                    if (!typeof(ISwiftObject).IsAssignableFrom(typeof(T)))
+                    {
+                        NativeMemory.Free(heapCopy);
+                    }
                 }
             }
             finally

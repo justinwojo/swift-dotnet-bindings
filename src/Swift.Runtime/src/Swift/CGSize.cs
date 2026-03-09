@@ -59,4 +59,16 @@ public struct CGSize
 
     /// <inheritdoc/>
     public override int GetHashCode() => HashCode.Combine(Width, Height);
+
+#if IOS || TVOS || MACCATALYST || MACOS
+    /// <summary>
+    /// Implicitly converts a CoreGraphics.CGSize to a Swift.CGSize.
+    /// </summary>
+    public static implicit operator CGSize(CoreGraphics.CGSize size) => new(size.Width, size.Height);
+
+    /// <summary>
+    /// Implicitly converts a Swift.CGSize to a CoreGraphics.CGSize.
+    /// </summary>
+    public static implicit operator CoreGraphics.CGSize(CGSize size) => new(size.Width, size.Height);
+#endif
 }

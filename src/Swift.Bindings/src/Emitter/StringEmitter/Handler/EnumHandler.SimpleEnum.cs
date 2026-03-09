@@ -1518,8 +1518,9 @@ namespace BindingsGeneration
             if (enumDecl.Types.Any())
                 return false;
 
-            // Non-equality operators are out of scope for simple enum extensions
-            if (enumDecl.Operators.Any(o => o.Name != "==" && o.Name != "!="))
+            // Allow equality and comparison operators — C# integral enums support these natively.
+            // Other operators (e.g., custom |, &, +) force the class-based path.
+            if (enumDecl.Operators.Any(o => o.Name is not ("==" or "!=" or "<" or ">" or "<=" or ">=")))
                 return false;
 
             // Properties, static methods, and instance methods with incompatible signatures

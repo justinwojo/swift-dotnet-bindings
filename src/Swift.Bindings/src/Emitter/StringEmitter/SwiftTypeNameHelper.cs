@@ -67,7 +67,11 @@ public static class SwiftTypeNameHelper
         {
             if (tupleType.IsEmptyTuple)
                 return "Void";
-            var elements = string.Join(", ", tupleType.Elements.Select(GetSwiftTypeName));
+            var elements = string.Join(", ", tupleType.Elements.Select(e =>
+            {
+                var name = GetSwiftTypeName(e);
+                return !string.IsNullOrEmpty(e.TypeLabel) ? $"{e.TypeLabel}: {name}" : name;
+            }));
             return $"({elements})";
         }
 

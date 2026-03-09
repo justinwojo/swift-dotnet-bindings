@@ -37,6 +37,32 @@ namespace BindingsGeneration
                     return;
                 }
             }
+
+            // Non-ObjC Swift class: P/Invoke returns IntPtr directly (pointer in register).
+            // Store the pointer in a heap-allocated buffer and wrap in SwiftSafeHandle.
+            if (_env.ParentDecl is ClassDecl classDecl)
+            {
+                // Build the full type name including generic parameters (e.g., SpikeBox<TElement>)
+                var safeHandleTypeName = GetResolvedTypeName();
+                if (classDecl.IsGeneric)
+                    safeHandleTypeName += GenericTypeEmitter.GetGenericParameterList(classDecl);
+
+                // For effectively derived classes, _payload is declared as SwiftSafeHandle<RootBase>.
+                // Use the same predicate as ClassHandler to avoid referencing a skipped base type.
+                if (ClassHandler.IsEffectivelyDerived(classDecl))
+                {
+                    safeHandleTypeName = ClassISwiftObjectMethodWriter.GetRootBaseTypeNameWithGenerics(classDecl);
+                }
+                csWriter.WriteLines($$"""
+                    unsafe {
+                        IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(IntPtr));
+                        *(IntPtr*)bufferPtr = result;
+                        _payload = new SwiftSafeHandle<{{safeHandleTypeName}}>(bufferPtr);
+                    }
+                    """);
+                return;
+            }
+
             if (!_requiresIndirectResult)
             {
                 csWriter.WriteLine("this = result;");

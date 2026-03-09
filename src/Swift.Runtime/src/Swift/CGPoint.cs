@@ -59,4 +59,16 @@ public struct CGPoint
 
     /// <inheritdoc/>
     public override int GetHashCode() => HashCode.Combine(X, Y);
+
+#if IOS || TVOS || MACCATALYST || MACOS
+    /// <summary>
+    /// Implicitly converts a CoreGraphics.CGPoint to a Swift.CGPoint.
+    /// </summary>
+    public static implicit operator CGPoint(CoreGraphics.CGPoint point) => new(point.X, point.Y);
+
+    /// <summary>
+    /// Implicitly converts a Swift.CGPoint to a CoreGraphics.CGPoint.
+    /// </summary>
+    public static implicit operator CoreGraphics.CGPoint(CGPoint point) => new(point.X, point.Y);
+#endif
 }
