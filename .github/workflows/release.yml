@@ -177,6 +177,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -214,20 +216,26 @@ jobs:
         if: steps.version.outputs.is_dryrun == 'false'
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          FAILED=false
+          EXISTING=0
+          TOTAL=0
           for PKG in Swift.Runtime Swift.Bindings.Sdk Swift.Bindings.Templates; do
+            TOTAL=$((TOTAL + 1))
             PKG_LOWER=$(echo "$PKG" | tr 'A-Z' 'a-z')
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
               "https://api.nuget.org/v3-flatcontainer/${PKG_LOWER}/${VERSION}/${PKG_LOWER}.${VERSION}.nupkg")
             if [ "$STATUS" = "200" ]; then
-              echo "ERROR: $PKG $VERSION already exists on NuGet.org"
-              FAILED=true
+              echo "NOTICE: $PKG $VERSION already exists on NuGet.org"
+              EXISTING=$((EXISTING + 1))
             fi
           done
-          if [ "$FAILED" = "true" ]; then
+          if [ "$EXISTING" -eq "$TOTAL" ]; then
+            echo "All packages already published — rerun detected, continuing to tag/release"
+          elif [ "$EXISTING" -gt 0 ]; then
+            echo "ERROR: Some packages exist and some don't — inconsistent state, aborting"
             exit 1
+          else
+            echo "All packages available for publishing."
           fi
-          echo "All packages available for publishing."
 
       - name: Patch version references
         run: |
@@ -246,13 +254,19 @@ jobs:
             "s|Sdk=\"Swift.Bindings.Sdk/[^\"]*\"|Sdk=\"Swift.Bindings.Sdk/${VERSION}\"|" \
             src/Swift.Bindings.Templates/content/swift-binding/ProjectName.csproj
 
-          # Template template.json: default SDK version parameter
-          sed -i '' \
-            "s|\"defaultValue\": \"[^\"]*\"|\"defaultValue\": \"${VERSION}\"|" \
-            src/Swift.Bindings.Templates/content/swift-binding/.template.config/template.json
-          sed -i '' \
-            "s|\"replaces\": \"[^\"]*\"|\"replaces\": \"${VERSION}\"|" \
-            src/Swift.Bindings.Templates/content/swift-binding/.template.config/template.json
+          # Template template.json: patch only sdkVersion symbol (not platform/tfm)
+          python3 -c "
+          import json, sys
+          path = 'src/Swift.Bindings.Templates/content/swift-binding/.template.config/template.json'
+          with open(path) as f:
+              data = json.load(f)
+          sdk = data['symbols']['sdkVersion']
+          sdk['defaultValue'] = sys.argv[1]
+          sdk['replaces'] = sys.argv[1]
+          with open(path, 'w') as f:
+              json.dump(data, f, indent=2)
+              f.write('\n')
+          " "$VERSION"
 
           # Generator: DefaultSwiftRuntimeVersion constant
           sed -i '' \
@@ -309,8 +323,83 @@ jobs:
         if: steps.version.outputs.is_dryrun == 'false'
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          git tag "v${VERSION}"
-          git push origin "v${VERSION}"
+          if git rev-parse "v${VERSION}" >/dev/null 2>&1; then
+            echo "Tag v${VERSION} already exists, skipping"
+          else
+            git tag "v${VERSION}"
+            git push origin "v${VERSION}"
+          fi
+
+      - name: Generate release notes
+        if: steps.version.outputs.is_dryrun == 'false'
+        env:
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Skip if no API key configured — will fall back to GitHub's auto-generated notes
+          if [ -z "$XAI_API_KEY" ]; then
+            echo "No XAI_API_KEY configured, skipping LLM release notes"
+            exit 0
+          fi
+
+          # Gather commits since last tag
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            COMMITS=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %h %s" --no-merges)
+          else
+            COMMITS=$(git log -n 100 --pretty=format:"- %h %s" --no-merges)
+          fi
+
+          # Use python3 to call Grok API (avoids shell escaping issues with curl + JSON)
+          python3 - "$VERSION" "$COMMITS" <<'PYEOF'
+import json, os, sys, urllib.request, urllib.error
+
+version, commits = sys.argv[1], sys.argv[2]
+api_key = os.environ["XAI_API_KEY"]
+
+prompt = f"""Generate release notes for v{version} of swift-dotnet-bindings, \
+a Swift/.NET binding generator that creates C# bindings from compiled Swift \
+libraries for .NET on Apple platforms.
+
+Here are the commits since the last release:
+
+{commits}
+
+Write concise, professional markdown release notes. Include:
+- A one-line summary of the release
+- Changes grouped by category (e.g., Bug Fixes, Improvements, Infrastructure)
+- Use the commit messages as the source of truth — don't invent changes
+- Keep it factual and brief"""
+
+data = json.dumps({
+    "model": "grok-4-1-fast-reasoning",
+    "messages": [{"role": "user", "content": prompt}],
+    "temperature": 0.3,
+}).encode()
+
+req = urllib.request.Request(
+    "https://api.x.ai/v1/chat/completions",
+    data=data,
+    headers={
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+        "User-Agent": "SwiftBindings-Release/1.0",
+    },
+    method="POST",
+)
+
+try:
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        result = json.loads(resp.read().decode())
+        notes = result["choices"][0]["message"]["content"]
+        with open("RELEASE-NOTES.md", "w") as f:
+            f.write(notes)
+        print("Generated release notes with Grok")
+except Exception as e:
+    print(f"Grok API call failed ({e}), will use GitHub auto-generated notes")
+    sys.exit(0)
+PYEOF
 
       - name: Create GitHub Release
         if: steps.version.outputs.is_dryrun == 'false'
@@ -318,11 +407,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          PRERELEASE_FLAG=""
+          if gh release view "v${VERSION}" >/dev/null 2>&1; then
+            echo "Release v${VERSION} already exists, skipping"
+            exit 0
+          fi
+          notes_args=(--generate-notes)
+          if [ -f RELEASE-NOTES.md ]; then
+            notes_args=(--notes-file RELEASE-NOTES.md)
+          fi
+          prerelease_args=()
           if [ "${{ steps.version.outputs.is_prerelease }}" = "true" ]; then
-            PRERELEASE_FLAG="--prerelease"
+            prerelease_args=(--prerelease)
           fi
           gh release create "v${VERSION}" \
-            --generate-notes \
-            $PRERELEASE_FLAG \
+            "${notes_args[@]}" \
+            "${prerelease_args[@]}" \
             artifacts/*.nupkg
