@@ -351,55 +351,54 @@ jobs:
             COMMITS=$(git log -n 100 --pretty=format:"- %h %s" --no-merges)
           fi
 
-          # Use python3 to call Grok API (avoids shell escaping issues with curl + JSON)
-          python3 - "$VERSION" "$COMMITS" <<'PYEOF'
-import json, os, sys, urllib.request, urllib.error
+          # Call Grok API via python3 (avoids shell escaping issues with curl + JSON)
+          export VERSION COMMITS
+          python3 << 'PYEOF'
+          import json, os, sys, urllib.request, urllib.error, textwrap
+          version = os.environ["VERSION"]
+          commits = os.environ["COMMITS"]
+          api_key = os.environ["XAI_API_KEY"]
+          prompt = textwrap.dedent(f"""
+              Generate release notes for v{version} of swift-dotnet-bindings,
+              a Swift/.NET binding generator that creates C# bindings from compiled
+              Swift libraries for .NET on Apple platforms.
 
-version, commits = sys.argv[1], sys.argv[2]
-api_key = os.environ["XAI_API_KEY"]
+              Here are the commits since the last release:
 
-prompt = f"""Generate release notes for v{version} of swift-dotnet-bindings, \
-a Swift/.NET binding generator that creates C# bindings from compiled Swift \
-libraries for .NET on Apple platforms.
+              {commits}
 
-Here are the commits since the last release:
-
-{commits}
-
-Write concise, professional markdown release notes. Include:
-- A one-line summary of the release
-- Changes grouped by category (e.g., Bug Fixes, Improvements, Infrastructure)
-- Use the commit messages as the source of truth — don't invent changes
-- Keep it factual and brief"""
-
-data = json.dumps({
-    "model": "grok-4-1-fast-reasoning",
-    "messages": [{"role": "user", "content": prompt}],
-    "temperature": 0.3,
-}).encode()
-
-req = urllib.request.Request(
-    "https://api.x.ai/v1/chat/completions",
-    data=data,
-    headers={
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}",
-        "User-Agent": "SwiftBindings-Release/1.0",
-    },
-    method="POST",
-)
-
-try:
-    with urllib.request.urlopen(req, timeout=120) as resp:
-        result = json.loads(resp.read().decode())
-        notes = result["choices"][0]["message"]["content"]
-        with open("RELEASE-NOTES.md", "w") as f:
-            f.write(notes)
-        print("Generated release notes with Grok")
-except Exception as e:
-    print(f"Grok API call failed ({e}), will use GitHub auto-generated notes")
-    sys.exit(0)
-PYEOF
+              Write concise, professional markdown release notes. Include:
+              - A one-line summary of the release
+              - Changes grouped by category (e.g., Bug Fixes, Improvements, Infrastructure)
+              - Use the commit messages as the source of truth - do not invent changes
+              - Keep it factual and brief
+          """).strip()
+          data = json.dumps({
+              "model": "grok-4-1-fast-reasoning",
+              "messages": [{"role": "user", "content": prompt}],
+              "temperature": 0.3,
+          }).encode()
+          req = urllib.request.Request(
+              "https://api.x.ai/v1/chat/completions",
+              data=data,
+              headers={
+                  "Content-Type": "application/json",
+                  "Authorization": f"Bearer {api_key}",
+                  "User-Agent": "SwiftBindings-Release/1.0",
+              },
+              method="POST",
+          )
+          try:
+              with urllib.request.urlopen(req, timeout=120) as resp:
+                  result = json.loads(resp.read().decode())
+                  notes = result["choices"][0]["message"]["content"]
+                  with open("RELEASE-NOTES.md", "w") as f:
+                      f.write(notes)
+                  print("Generated release notes with Grok")
+          except Exception as e:
+              print(f"Grok API call failed ({e}), will use GitHub auto-generated notes")
+              sys.exit(0)
+          PYEOF
 
       - name: Create GitHub Release
         if: steps.version.outputs.is_dryrun == 'false'

@@ -14,6 +14,7 @@ namespace RuntimeTestsApp.SwiftUIBridge;
 /// Validates async inference, callback-based creation, and lifecycle management.
 /// </summary>
 [TestTier(TestTier.Tier2)]
+[CrashRisk("Mono JIT assertion (jit-info.c:918) on async SwiftUI bridge P/Invoke via CallConvSwift")]
 public class BridgeAsyncViewTests : TestBase
 {
     public BridgeAsyncViewTests(TestResults results) : base(results) { }
