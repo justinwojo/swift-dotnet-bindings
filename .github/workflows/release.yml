@@ -343,10 +343,46 @@ jobs:
             exit 0
           fi
 
-          # Gather commits since last tag
-          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          # Gather commits since last release. Release branches don't share
+          # ancestry with previous release tags, so we find where the previous
+          # release forked from main and log from there to HEAD.
+          # Use Python for proper semver ordering (sort -V doesn't handle prereleases).
+          ALL_TAGS=$(git tag -l 'v*' | sed 's/^v//')
+          PREV_TAG=$(python3 -c "
+          import re, sys
+          def pre_key(pre):
+              # SemVer §11: dot-separated identifiers, numeric sorts < alpha,
+              # numeric compared as integers, alpha compared lexically,
+              # shorter set wins if all preceding identifiers are equal.
+              # No prerelease (stable) sorts AFTER any prerelease.
+              if pre is None:
+                  return (1,)  # stable > any prerelease
+              parts = []
+              for p in pre.split('.'):
+                  if p.isdigit():
+                      parts.append((0, int(p), ''))
+                  else:
+                      parts.append((1, 0, p))
+              return (0, parts)
+          def semver_key(v):
+              m = re.match(r'(\d+)\.(\d+)\.(\d+)(?:-(.+))?', v)
+              if not m: return (0, 0, 0, (0, []))
+              return (int(m[1]), int(m[2]), int(m[3]), pre_key(m[4]))
+          current = sys.argv[1]
+          tags = [t.strip() for t in sys.stdin if t.strip()]
+          lower = [t for t in tags if semver_key(t) < semver_key(current)]
+          if lower:
+              lower.sort(key=semver_key)
+              print('v' + lower[-1])
+          " "$VERSION" <<< "$ALL_TAGS")
           if [ -n "$PREV_TAG" ]; then
-            COMMITS=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %h %s" --no-merges)
+            echo "Previous tag: $PREV_TAG"
+            PREV_FORK=$(git merge-base "$PREV_TAG" origin/main 2>/dev/null || echo "")
+            if [ -n "$PREV_FORK" ]; then
+              COMMITS=$(git log "${PREV_FORK}..HEAD" --pretty=format:"- %h %s" --no-merges)
+            else
+              COMMITS=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %h %s" --no-merges)
+            fi
           else
             COMMITS=$(git log -n 100 --pretty=format:"- %h %s" --no-merges)
           fi
@@ -367,9 +403,10 @@ jobs:
 
               {commits}
 
-              Write concise, professional markdown release notes. Include:
-              - A one-line summary of the release
-              - Changes grouped by category (e.g., Bug Fixes, Improvements, Infrastructure)
+              Write concise, professional markdown release notes. Format:
+              - First line: TITLE: <short release title, under 70 chars, no version prefix>
+              - Then a blank line, followed by markdown release notes body
+              - Group changes by category (e.g., Bug Fixes, Improvements, Infrastructure)
               - Use the commit messages as the source of truth - do not invent changes
               - Keep it factual and brief
           """).strip()
@@ -391,9 +428,22 @@ jobs:
           try:
               with urllib.request.urlopen(req, timeout=120) as resp:
                   result = json.loads(resp.read().decode())
-                  notes = result["choices"][0]["message"]["content"]
-                  with open("RELEASE-NOTES.md", "w") as f:
-                      f.write(notes)
+                  content = result["choices"][0]["message"]["content"]
+                  # Extract title from first line if present
+                  lines = content.split("\n", 1)
+                  if lines[0].startswith("TITLE:"):
+                      title = lines[0].removeprefix("TITLE:").strip()
+                      notes = lines[1].lstrip("\n") if len(lines) > 1 else ""
+                      if title:
+                          with open("RELEASE-TITLE.txt", "w") as f:
+                              f.write(title)
+                  else:
+                      notes = content
+                  # Only write notes file if body is non-empty,
+                  # otherwise gh release create falls back to --generate-notes
+                  if notes.strip():
+                      with open("RELEASE-NOTES.md", "w") as f:
+                          f.write(notes)
                   print("Generated release notes with Grok")
           except Exception as e:
               print(f"Grok API call failed ({e}), will use GitHub auto-generated notes")
@@ -414,11 +464,16 @@ jobs:
           if [ -f RELEASE-NOTES.md ]; then
             notes_args=(--notes-file RELEASE-NOTES.md)
           fi
+          title_args=()
+          if [ -f RELEASE-TITLE.txt ]; then
+            title_args=(--title "$(cat RELEASE-TITLE.txt)")
+          fi
           prerelease_args=()
           if [ "${{ steps.version.outputs.is_prerelease }}" = "true" ]; then
             prerelease_args=(--prerelease)
           fi
           gh release create "v${VERSION}" \
+            "${title_args[@]}" \
             "${notes_args[@]}" \
             "${prerelease_args[@]}" \
             artifacts/*.nupkg
