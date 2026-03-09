@@ -51,7 +51,7 @@ Swift Bindings approach (both):
 
 This project is a fork of Microsoft's [`dotnet/runtimelab` (feature/swift-bindings branch)](https://github.com/dotnet/runtimelab/tree/feature/swift-bindings) — an experimental effort that established the foundational architecture (ABI JSON parsing, Swift symbol demangling, type database, code emitter) but was never intended as a shipping product. Development went inactive with support limited to basic classes, structs, and simple method signatures.
 
-This fork extends the generator substantially — adding protocols, generics, closures, async, SwiftUI bridging, protocol extensions, existential containers, and much more. Validated against 46 real-world libraries (88 framework targets — 53 Swift, 34 ObjC, 1 mixed), with select libraries tested end-to-end on a .NET for iOS app.
+Since forking, this project has grown from a proof-of-concept into a comprehensive binding generator — **550+ commits and ~280K net new lines of code (4.7x the original codebase)**. That breaks down to ~95K lines of production code (generator, runtime, SDK) backed by ~182K lines of tests across 6,500+ test cases. The generator now supports protocols, generics, closures, async, SwiftUI bridging, protocol extensions, existential containers, and much more — validated against 46 real-world libraries (88 framework targets — 53 Swift, 34 ObjC, 1 mixed), with select libraries tested end-to-end on a .NET for iOS app.
 
 ---
 

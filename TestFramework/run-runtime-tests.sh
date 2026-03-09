@@ -3,24 +3,27 @@
 # Licensed under the MIT License.
 
 # Runtime Tests Runner for TestFramework
-# Builds the test library, regenerates bindings, builds the test app, and runs on iOS Simulator.
+# Builds the test library, regenerates bindings, builds the test app, and runs tests.
+# Supports iOS Simulator (default) and macOS native.
 #
 # Usage:
-#   ./run-runtime-tests.sh [--tier 1|2|3] [--skip-regen] [--timeout SECONDS]
-#                          [--class ClassName] [--safe-only]
+#   ./run-runtime-tests.sh [--platform ios|macos] [--tier 1|2|3] [--skip-regen]
+#                          [--timeout SECONDS] [--class ClassName] [--safe-only]
 #
 # Options:
-#   --tier N          Run tests up to tier N (default: 1)
-#   --skip-regen      Skip binding regeneration (use existing bindings)
-#   --timeout N       Timeout in seconds (default: 90)
-#   --class NAME      Run only the named test class (exact match, case-insensitive)
-#   --safe-only       Skip test classes marked with [CrashRisk]
+#   --platform PLATFORM  Target platform: ios (default), macos
+#   --tier N             Run tests up to tier N (default: 1)
+#   --skip-regen         Skip binding regeneration (use existing bindings)
+#   --timeout N          Timeout in seconds (default: 90)
+#   --class NAME         Run only the named test class (exact match, case-insensitive)
+#   --safe-only          Skip test classes marked with [CrashRisk]
 
 set -e
 
 cd "$(dirname "$0")"
 
 # Default options
+PLATFORM="ios"
 TIER=1
 SKIP_REGEN=false
 TIMEOUT=90
@@ -30,6 +33,10 @@ SAFE_ONLY=false
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
+        --platform)
+            PLATFORM="$2"
+            shift 2
+            ;;
         --tier)
             TIER="$2"
             shift 2
@@ -52,21 +59,192 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             echo "Unknown option: $1"
+            echo "Usage: ./run-runtime-tests.sh [--platform ios|macos] [--tier 1|2|3] [--skip-regen] [--timeout SECONDS] [--class ClassName] [--safe-only]"
             exit 1
             ;;
     esac
 done
 
+# Validate platform
+case "$PLATFORM" in
+    ios|macos) ;;
+    *)
+        echo "Error: Unknown platform '$PLATFORM'. Must be ios or macos."
+        exit 1
+        ;;
+esac
+
 echo "========================================="
 echo " TestFramework Runtime Tests"
 echo "========================================="
 echo ""
+echo "Platform: $PLATFORM"
 echo "Tier: $TIER"
 echo "Skip regeneration: $SKIP_REGEN"
 echo "Timeout: ${TIMEOUT}s"
 [ -n "$CLASS_FILTER" ] && echo "Class filter: $CLASS_FILTER"
 [ "$SAFE_ONLY" = true ] && echo "Safe-only: yes"
 echo ""
+
+# -------------------------------------------------------------------
+# macOS path: build xcframework → generate bindings → build & run natively
+# -------------------------------------------------------------------
+if [ "$PLATFORM" = "macos" ]; then
+    OUTPUT_DIR="output-macos"
+
+    # Step 1: Build xcframework for macOS and generate bindings (unless skipped)
+    if [ "$SKIP_REGEN" = false ]; then
+        echo "--- Step 1: Build macOS xcframework ---"
+        ./build-xcframework.sh --platform macos
+        echo ""
+
+        echo "--- Step 1.1: Generate macOS bindings ---"
+        mkdir -p "$OUTPUT_DIR"
+        dotnet run --project ../src/Swift.Bindings/src -- \
+            --xcframework .build/SwiftBindingsTestLib.xcframework \
+            --platform macos \
+            -o "$OUTPUT_DIR/"
+        echo ""
+    else
+        echo "--- Step 1: Skipped (--skip-regen) ---"
+        if [ ! -f "$OUTPUT_DIR/SwiftBindingsTestLib.cs" ]; then
+            echo "ERROR: macOS bindings not found. Run without --skip-regen first."
+            exit 1
+        fi
+        echo ""
+    fi
+
+    # Step 1.5: Build async Swift wrappers for macOS (if generated)
+    ASYNC_SWIFT=$(find "$OUTPUT_DIR" -maxdepth 1 -name "*.swift" ! -name "*.SwiftUIBridge.swift" -type f 2>/dev/null | head -1)
+    if [ -n "$ASYNC_SWIFT" ]; then
+        echo "--- Step 1.5: Build async Swift wrappers (macOS) ---"
+        ./build-async-wrapper.sh --platform macos --output-dir "$OUTPUT_DIR"
+        echo ""
+    fi
+
+    # Step 2: Build RuntimeTestsApp.Mac
+    echo "--- Step 2: Build RuntimeTestsApp.Mac ---"
+    cd RuntimeTestsApp.Mac
+
+    # Clean previous build only when bindings may have changed
+    if [ "$SKIP_REGEN" = false ]; then
+        rm -rf bin obj
+    fi
+
+    echo "Building for macOS (arm64)..."
+    dotnet build -c Debug 2>&1 | tail -20
+
+    if [ ! -f "bin/Debug/net10.0/osx-arm64/RuntimeTestsApp.Mac" ]; then
+        echo "ERROR: Build failed - executable not found"
+        exit 1
+    fi
+
+    echo "Build successful."
+    echo ""
+
+    # Step 2.5: Inject native libraries into output directory
+    OUTPUT_BIN="bin/Debug/net10.0/osx-arm64"
+
+    # Copy macOS xcframework slice
+    XCFW_SLICE="../.build/SwiftBindingsTestLib.xcframework/macos-arm64/SwiftBindingsTestLib.framework/SwiftBindingsTestLib"
+    if [ -f "$XCFW_SLICE" ]; then
+        cp "$XCFW_SLICE" "$OUTPUT_BIN/libSwiftBindingsTestLib.dylib"
+        echo "Injected SwiftBindingsTestLib dylib."
+    else
+        echo "Warning: SwiftBindingsTestLib dylib not found at $XCFW_SLICE"
+    fi
+
+    # Copy async wrapper if built
+    ASYNC_SLICE="../output-macos/SwiftBindings.xcframework/macos-arm64/SwiftBindings.framework/SwiftBindings"
+    if [ -f "$ASYNC_SLICE" ]; then
+        cp "$ASYNC_SLICE" "$OUTPUT_BIN/libSwiftBindings.dylib"
+        echo "Injected SwiftBindings async wrapper dylib."
+    fi
+
+    # Copy runtime dylib
+    RUNTIME_DYLIB="../../src/Swift.Runtime/native/macos/libSwiftBindingsRuntime.dylib"
+    if [ -f "$RUNTIME_DYLIB" ]; then
+        cp "$RUNTIME_DYLIB" "$OUTPUT_BIN/"
+        echo "Injected libSwiftBindingsRuntime.dylib."
+    else
+        echo "Warning: libSwiftBindingsRuntime.dylib not found"
+    fi
+    echo ""
+
+    cd ..
+
+    # Step 3: Run natively on macOS
+    echo "--- Step 3: Run on macOS ---"
+
+    # Build launch arguments
+    LAUNCH_ARGS="--tier $TIER"
+    if [ "$TIER" -ge 3 ]; then
+        LAUNCH_ARGS="$LAUNCH_ARGS --flake-detect"
+        echo "Flake detection enabled (Tier 3): each test runs 3x"
+    fi
+    if [ -n "$CLASS_FILTER" ]; then
+        LAUNCH_ARGS="$LAUNCH_ARGS --class $CLASS_FILTER"
+    fi
+    if [ "$SAFE_ONLY" = true ]; then
+        LAUNCH_ARGS="$LAUNCH_ARGS --safe-only"
+    fi
+
+    echo "Launching RuntimeTestsApp.Mac (timeout: ${TIMEOUT}s)..."
+    OUTPUT_FILE=$(mktemp)
+    trap 'rm -f "$OUTPUT_FILE"' EXIT
+
+    # Run in background and poll (macOS lacks GNU timeout)
+    dotnet run --project RuntimeTestsApp.Mac/ --no-build -c Debug -- $LAUNCH_ARGS > "$OUTPUT_FILE" 2>&1 &
+    PID=$!
+
+    ELAPSED=0
+    while [ $ELAPSED -lt $TIMEOUT ]; do
+        sleep 1
+        ELAPSED=$((ELAPSED + 1))
+
+        # Process exited early
+        if ! kill -0 $PID 2>/dev/null; then
+            break
+        fi
+
+        # Check for completion markers
+        if grep -q "TEST SUCCESS\|TEST FAILURE" "$OUTPUT_FILE" 2>/dev/null; then
+            sleep 1
+            break
+        fi
+    done
+
+    # Kill if still running (timeout)
+    kill $PID 2>/dev/null || true
+    EXIT_CODE=0
+    wait $PID 2>/dev/null || EXIT_CODE=$?
+
+    # Show output
+    echo ""
+    echo "=== APP OUTPUT ==="
+    cat "$OUTPUT_FILE"
+
+    echo ""
+    echo "========================================="
+    if grep -q "TEST SUCCESS" "$OUTPUT_FILE" 2>/dev/null; then
+        echo " RUNTIME TESTS PASSED (macOS)"
+        echo "========================================="
+        exit 0
+    elif grep -q "TEST FAILURE" "$OUTPUT_FILE" 2>/dev/null; then
+        echo " RUNTIME TESTS FAILED (macOS)"
+        echo "========================================="
+        exit 1
+    else
+        echo " RUNTIME TESTS UNEXPECTED EXIT (macOS)"
+        echo "========================================="
+        echo "Exit code: $EXIT_CODE"
+        exit 1
+    fi
+fi
+
+# -------------------------------------------------------------------
+# iOS path: existing behavior (unchanged)
+# -------------------------------------------------------------------
 
 # Step 1: Build xcframework and regenerate bindings (unless skipped)
 if [ "$SKIP_REGEN" = false ]; then

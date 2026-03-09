@@ -8,7 +8,10 @@
 # plus test-only helpers into a framework dylib that can be referenced
 # from the .NET test app via P/Invoke.
 #
-# Usage: ./build-bridge.sh
+# Usage: ./build-bridge.sh [--platform ios|macos|tvos]
+#
+# Options:
+#   --platform PLATFORM   Target platform: ios (default), macos, tvos
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -19,11 +22,60 @@ if [ "$(uname -s)" != "Darwin" ]; then
     exit 1
 fi
 
+PLATFORM="ios"
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --platform)
+            PLATFORM="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Usage: ./build-bridge.sh [--platform ios|macos|tvos]"
+            exit 1
+            ;;
+    esac
+done
+
+# Validate platform
+case "$PLATFORM" in
+    ios|macos|tvos) ;;
+    *)
+        echo "Error: Unknown platform '$PLATFORM'. Must be ios, macos, or tvos."
+        exit 1
+        ;;
+esac
+
+# Platform-dependent variables
+case "$PLATFORM" in
+    ios)
+        SLICE_ID="ios-arm64-simulator"
+        SDK_NAME="iphonesimulator"
+        TARGET_TRIPLE="arm64-apple-ios15.0-simulator"
+        PLIST_PLATFORM="iPhoneSimulator"
+        MIN_OS="15.0"
+        ;;
+    macos)
+        SLICE_ID="macos-arm64"
+        SDK_NAME="macosx"
+        TARGET_TRIPLE="arm64-apple-macos12.0"
+        PLIST_PLATFORM="MacOSX"
+        MIN_OS="12.0"
+        ;;
+    tvos)
+        SLICE_ID="tvos-arm64-simulator"
+        SDK_NAME="appletvsimulator"
+        TARGET_TRIPLE="arm64-apple-tvos15.0-simulator"
+        PLIST_PLATFORM="AppleTVSimulator"
+        MIN_OS="15.0"
+        ;;
+esac
+
 MODULE_NAME="SwiftBindingsTestLib"
 BRIDGE_MODULE="SwiftBindingsTestLibBridge"
 GENERATED_BRIDGE="output/${MODULE_NAME}.SwiftUIBridge.swift"
 TEST_HELPERS="SwiftBridge/SwiftUIBridgeTestHelpers.swift"
-XCFW_DIR=".build/${MODULE_NAME}.xcframework/ios-arm64-simulator"
+XCFW_DIR=".build/${MODULE_NAME}.xcframework/$SLICE_ID"
 OUTPUT_DIR="SwiftBridge/${BRIDGE_MODULE}.framework"
 
 # Ensure generated bridge exists
@@ -52,7 +104,7 @@ echo "Bridge shape verified."
 # Create framework directory
 mkdir -p "$OUTPUT_DIR"
 
-SDK_PATH=$(xcrun --sdk iphonesimulator --show-sdk-path)
+SDK_PATH=$(xcrun --sdk "$SDK_NAME" --show-sdk-path)
 
 SOURCES="$GENERATED_BRIDGE"
 if [ -f "$TEST_HELPERS" ]; then
@@ -62,7 +114,7 @@ else
     echo "Compiling generated bridge (no test helpers)..."
 fi
 
-xcrun swiftc -emit-library -target arm64-apple-ios15.0-simulator \
+xcrun swiftc -emit-library -target "$TARGET_TRIPLE" \
   -sdk "$SDK_PATH" \
   -F "$XCFW_DIR/" \
   -module-name "$BRIDGE_MODULE" \
@@ -89,10 +141,10 @@ cat > "$OUTPUT_DIR/Info.plist" << EOF
     <key>CFBundleShortVersionString</key>
     <string>1.0</string>
     <key>MinimumOSVersion</key>
-    <string>15.0</string>
+    <string>${MIN_OS}</string>
     <key>CFBundleSupportedPlatforms</key>
     <array>
-        <string>iPhoneSimulator</string>
+        <string>${PLIST_PLATFORM}</string>
     </array>
 </dict>
 </plist>

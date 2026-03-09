@@ -1,0 +1,64 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RuntimeIdentifier>osx-arm64</RuntimeIdentifier>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Same warning suppressions as RuntimeTestsApp -->
+    <NoWarn>CS0169;SB0001;SB0002;IL2065;IL2075;IL2087;IL2091;IL2026;IL2104</NoWarn>
+    <IncludeSwiftBindingsRuntimeNative>false</IncludeSwiftBindingsRuntimeNative>
+  </PropertyGroup>
+
+  <!-- LibraryImport requires DisableRuntimeMarshalling for Swift interop types (SwiftSelf, SwiftError, etc.) -->
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.DisableRuntimeMarshallingAttribute" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Swift.Runtime/src/Swift.Runtime.csproj"
+                      AdditionalProperties="IncludeSwiftBindingsRuntimeNative=false" />
+  </ItemGroup>
+
+  <!-- Shared test infrastructure (portable — no iOS dependencies) -->
+  <ItemGroup>
+    <Compile Include="../RuntimeTestsApp/Infrastructure/TestBase.cs" />
+    <Compile Include="../RuntimeTestsApp/Infrastructure/TestResults.cs" />
+    <Compile Include="../RuntimeTestsApp/Infrastructure/TestLogger.cs" />
+    <Compile Include="../RuntimeTestsApp/Infrastructure/CrashRiskAttribute.cs" />
+    <Compile Include="../RuntimeTestsApp/Infrastructure/LifetimeTracker.cs" />
+  </ItemGroup>
+
+  <!-- Global usings shared with RuntimeTestsApp -->
+  <ItemGroup>
+    <Compile Include="../RuntimeTestsApp/GlobalUsings.cs" />
+  </ItemGroup>
+
+  <!-- Test classes (portable — reference SwiftBindingsTestLib types, not UIKit) -->
+  <ItemGroup>
+    <Compile Include="../RuntimeTestsApp/Lifetime/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Marshalling/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Metadata/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Closures/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/ErrorHandling/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Generics/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Operators/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Patterns/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Protocols/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Async/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Concurrency/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Spike/**/*.cs" />
+    <!-- SwiftUIBridge tests are gated by #if SWIFTUI_BRIDGE — safe to include but inactive -->
+    <Compile Include="../RuntimeTestsApp/SwiftUIBridge/**/*.cs" />
+  </ItemGroup>
+
+  <!-- Generated bindings (macOS-targeted) -->
+  <ItemGroup>
+    <Compile Include="../output-macos/SwiftBindingsTestLib.cs" Condition="Exists('../output-macos/SwiftBindingsTestLib.cs')" />
+  </ItemGroup>
+
+  <!-- Native libraries are injected by run-runtime-tests.sh (platform=macos).
+       NativeReference is not supported for net10.0 console apps.
+       The script copies dylibs from xcframework slices into the output directory. -->
+</Project>

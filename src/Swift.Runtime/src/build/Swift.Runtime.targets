@@ -42,4 +42,38 @@
     </Content>
   </ItemGroup>
 
+  <!-- Mac Catalyst: TFM contains 'maccatalyst' -->
+  <ItemGroup Condition="'$(IncludeSwiftBindingsRuntimeNative)' == 'true'
+                         AND $(TargetFramework.Contains('maccatalyst'))
+                         AND Exists('$(MSBuildThisFileDirectory)../native/maccatalyst/libSwiftBindingsRuntime.dylib')">
+    <Content Include="$(MSBuildThisFileDirectory)../native/maccatalyst/libSwiftBindingsRuntime.dylib">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>libSwiftBindingsRuntime.dylib</Link>
+    </Content>
+  </ItemGroup>
+
+  <!-- tvOS device: TFM contains 'tvos', RID starts with 'tvos-' -->
+  <ItemGroup Condition="'$(IncludeSwiftBindingsRuntimeNative)' == 'true'
+                         AND $(TargetFramework.Contains('tvos'))
+                         AND '$(RuntimeIdentifier)' != ''
+                         AND $(RuntimeIdentifier.StartsWith('tvos-'))
+                         AND Exists('$(MSBuildThisFileDirectory)../native/tvos/libSwiftBindingsRuntime.dylib')">
+    <Content Include="$(MSBuildThisFileDirectory)../native/tvos/libSwiftBindingsRuntime.dylib">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>libSwiftBindingsRuntime.dylib</Link>
+    </Content>
+  </ItemGroup>
+
+  <!-- tvOS simulator: TFM contains 'tvos', RID starts with 'tvossimulator-' -->
+  <ItemGroup Condition="'$(IncludeSwiftBindingsRuntimeNative)' == 'true'
+                         AND $(TargetFramework.Contains('tvos'))
+                         AND '$(RuntimeIdentifier)' != ''
+                         AND $(RuntimeIdentifier.StartsWith('tvossimulator-'))
+                         AND Exists('$(MSBuildThisFileDirectory)../native/tvossimulator/libSwiftBindingsRuntime.dylib')">
+    <Content Include="$(MSBuildThisFileDirectory)../native/tvossimulator/libSwiftBindingsRuntime.dylib">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>libSwiftBindingsRuntime.dylib</Link>
+    </Content>
+  </ItemGroup>
+
 </Project>

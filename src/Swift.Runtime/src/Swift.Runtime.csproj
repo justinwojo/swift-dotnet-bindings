@@ -64,6 +64,33 @@
       <Link>libSwiftBindingsRuntime.dylib</Link>
     </Content>
   </ItemGroup>
+  <!-- Mac Catalyst: maccatalyst TFM -->
+  <ItemGroup Condition="'$(IncludeSwiftBindingsRuntimeNative)' == 'true' AND Exists('$(MSBuildThisFileDirectory)../native/maccatalyst/libSwiftBindingsRuntime.dylib')">
+    <Content Include="$(MSBuildThisFileDirectory)../native/maccatalyst/libSwiftBindingsRuntime.dylib"
+             Condition="$(TargetFramework.Contains('maccatalyst'))"
+             Pack="false">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>libSwiftBindingsRuntime.dylib</Link>
+    </Content>
+  </ItemGroup>
+  <!-- tvOS: commented out until net10.0-tvos workload is available
+  <ItemGroup Condition="'$(IncludeSwiftBindingsRuntimeNative)' == 'true' AND Exists('$(MSBuildThisFileDirectory)../native/tvos/libSwiftBindingsRuntime.dylib')">
+    <Content Include="$(MSBuildThisFileDirectory)../native/tvos/libSwiftBindingsRuntime.dylib"
+             Condition="$(TargetFramework.Contains('tvos')) AND !$(RuntimeIdentifier.Contains('simulator'))"
+             Pack="false">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>libSwiftBindingsRuntime.dylib</Link>
+    </Content>
+  </ItemGroup>
+  <ItemGroup Condition="'$(IncludeSwiftBindingsRuntimeNative)' == 'true' AND Exists('$(MSBuildThisFileDirectory)../native/tvossimulator/libSwiftBindingsRuntime.dylib')">
+    <Content Include="$(MSBuildThisFileDirectory)../native/tvossimulator/libSwiftBindingsRuntime.dylib"
+             Condition="$(TargetFramework.Contains('tvos')) AND $(RuntimeIdentifier.Contains('simulator'))"
+             Pack="false">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>libSwiftBindingsRuntime.dylib</Link>
+    </Content>
+  </ItemGroup>
+  -->
 
   <!-- Roslyn analyzer: build as analyzer, pack into NuGet for consumers.
        The ProjectReference builds the analyzer alongside Swift.Runtime.
@@ -91,6 +118,9 @@
     <None Include="../native/macos/libSwiftBindingsRuntime.dylib" Pack="true" PackagePath="native/macos" />
     <None Include="../native/ios/libSwiftBindingsRuntime.dylib" Pack="true" PackagePath="native/ios" />
     <None Include="../native/iossimulator/libSwiftBindingsRuntime.dylib" Pack="true" PackagePath="native/iossimulator" />
+    <None Include="../native/maccatalyst/libSwiftBindingsRuntime.dylib" Pack="true" PackagePath="native/maccatalyst" />
+    <None Include="../native/tvos/libSwiftBindingsRuntime.dylib" Pack="true" PackagePath="native/tvos" />
+    <None Include="../native/tvossimulator/libSwiftBindingsRuntime.dylib" Pack="true" PackagePath="native/tvossimulator" />
     <None Include="build/Swift.Runtime.targets" Pack="true" PackagePath="buildTransitive" />
     <None Include="../../../README.md" Pack="true" PackagePath="" />
   </ItemGroup>

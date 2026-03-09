@@ -11,26 +11,91 @@
 # features (protocol proxy conformances, async closures, async inits).
 # A post-processing step strips these before compilation.
 #
-# Usage: ./build-async-wrapper.sh
+# Usage: ./build-async-wrapper.sh [--platform ios|macos|tvos] [--output-dir DIR]
+#
+# Options:
+#   --platform PLATFORM   Target platform: ios (default), macos, tvos
+#   --output-dir DIR      Directory containing generated Swift files (default: output)
 
 set -euo pipefail
 cd "$(dirname "$0")"
 
+PLATFORM="ios"
+OUTPUT_BASE="output"
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --platform)
+            PLATFORM="$2"
+            shift 2
+            ;;
+        --output-dir)
+            OUTPUT_BASE="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Usage: ./build-async-wrapper.sh [--platform ios|macos|tvos] [--output-dir DIR]"
+            exit 1
+            ;;
+    esac
+done
+
+# Validate platform
+case "$PLATFORM" in
+    ios|macos|tvos) ;;
+    *)
+        echo "Error: Unknown platform '$PLATFORM'. Must be ios, macos, or tvos."
+        exit 1
+        ;;
+esac
+
+# Platform-dependent variables
+case "$PLATFORM" in
+    ios)
+        SLICE_ID="ios-arm64-simulator"
+        SDK_NAME="iphonesimulator"
+        TARGET_TRIPLE="arm64-apple-ios15.0-simulator"
+        PLIST_PLATFORM="iPhoneSimulator"
+        PLIST_SUPPORTED_PLATFORM="ios"
+        PLIST_VARIANT="simulator"
+        MIN_OS="15.0"
+        ;;
+    macos)
+        SLICE_ID="macos-arm64"
+        SDK_NAME="macosx"
+        TARGET_TRIPLE="arm64-apple-macos12.0"
+        PLIST_PLATFORM="MacOSX"
+        PLIST_SUPPORTED_PLATFORM="macos"
+        PLIST_VARIANT=""
+        MIN_OS="12.0"
+        ;;
+    tvos)
+        SLICE_ID="tvos-arm64-simulator"
+        SDK_NAME="appletvsimulator"
+        TARGET_TRIPLE="arm64-apple-tvos15.0-simulator"
+        PLIST_PLATFORM="AppleTVSimulator"
+        PLIST_SUPPORTED_PLATFORM="tvos"
+        PLIST_VARIANT="simulator"
+        MIN_OS="15.0"
+        ;;
+esac
+
 MODULE_NAME="SwiftBindingsTestLib"
 WRAPPER_MODULE="SwiftBindings"
-XCFW_DIR=".build/${MODULE_NAME}.xcframework/ios-arm64-simulator"
-OUTPUT_FW_DIR="output/${WRAPPER_MODULE}.xcframework/ios-arm64-simulator/${WRAPPER_MODULE}.framework"
+XCFW_DIR=".build/${MODULE_NAME}.xcframework/$SLICE_ID"
+OUTPUT_FW_DIR="${OUTPUT_BASE}/${WRAPPER_MODULE}.xcframework/$SLICE_ID/${WRAPPER_MODULE}.framework"
 
 # Collect generated Swift wrapper files (exclude SwiftUI bridge)
-SWIFT_FILES=$(find output -maxdepth 1 -name "*.swift" ! -name "*.SwiftUIBridge.swift" -type f 2>/dev/null || true)
+SWIFT_FILES=$(find "$OUTPUT_BASE" -maxdepth 1 -name "*.swift" ! -name "*.SwiftUIBridge.swift" -type f 2>/dev/null || true)
 
 if [ -z "$SWIFT_FILES" ]; then
-    echo "No Swift wrapper files found in output/ — skipping async wrapper build."
+    echo "No Swift wrapper files found in ${OUTPUT_BASE}/ — skipping async wrapper build."
     exit 0
 fi
 
 FILE_COUNT=$(echo "$SWIFT_FILES" | wc -l | tr -d ' ')
 echo "=== Building ${WRAPPER_MODULE} async wrapper ==="
+echo "Platform: $PLATFORM"
 echo "Swift wrapper files: $FILE_COUNT"
 
 # Post-process: strip known-broken sections from generated Swift wrappers.
@@ -38,7 +103,7 @@ echo "Swift wrapper files: $FILE_COUNT"
 # produce uncompilable Swift. We strip these sections to allow the good async
 # method wrappers to compile.
 echo "Post-processing Swift wrappers..."
-CLEANED_DIR="output/.wrapper-build"
+CLEANED_DIR="${OUTPUT_BASE}/.wrapper-build"
 rm -rf "$CLEANED_DIR"
 mkdir -p "$CLEANED_DIR"
 
@@ -213,7 +278,7 @@ PYEOF
     echo "$PY_OUTPUT" | grep -v STRIP_COUNT
     TOTAL_STRIPPED=$((TOTAL_STRIPPED + ${FILE_STRIPPED:-0}))
 done
-echo "$TOTAL_STRIPPED" > "output/wrapper-stripped-count"
+echo "$TOTAL_STRIPPED" > "${OUTPUT_BASE}/wrapper-stripped-count"
 
 # Build cleaned files list
 CLEANED_FILES=$(find "$CLEANED_DIR" -name "*.swift" -type f 2>/dev/null || true)
@@ -223,13 +288,13 @@ if [ -z "$CLEANED_FILES" ]; then
 fi
 
 # Create output framework structure
-rm -rf "output/${WRAPPER_MODULE}.xcframework"
+rm -rf "${OUTPUT_BASE}/${WRAPPER_MODULE}.xcframework"
 mkdir -p "$OUTPUT_FW_DIR"
 
-SDK_PATH=$(xcrun --sdk iphonesimulator --show-sdk-path)
+SDK_PATH=$(xcrun --sdk "$SDK_NAME" --show-sdk-path)
 
 # Compile cleaned wrapper files, linking against the test library framework
-xcrun swiftc -emit-library -target arm64-apple-ios15.0-simulator \
+xcrun swiftc -emit-library -target "$TARGET_TRIPLE" \
     -sdk "$SDK_PATH" \
     -F "$XCFW_DIR/" \
     -module-name "$WRAPPER_MODULE" \
@@ -259,17 +324,26 @@ cat > "$OUTPUT_FW_DIR/Info.plist" << EOF
     <key>CFBundleShortVersionString</key>
     <string>1.0</string>
     <key>MinimumOSVersion</key>
-    <string>15.0</string>
+    <string>${MIN_OS}</string>
     <key>CFBundleSupportedPlatforms</key>
     <array>
-        <string>iPhoneSimulator</string>
+        <string>${PLIST_PLATFORM}</string>
     </array>
 </dict>
 </plist>
 EOF
 
 # Create xcframework Info.plist
-cat > "output/${WRAPPER_MODULE}.xcframework/Info.plist" << EOF
+# For macOS: no SupportedPlatformVariant (single slice, no simulator distinction)
+# For iOS/tvOS: SupportedPlatformVariant = simulator
+VARIANT_PLIST=""
+if [ -n "$PLIST_VARIANT" ]; then
+    VARIANT_PLIST="
+            <key>SupportedPlatformVariant</key>
+            <string>${PLIST_VARIANT}</string>"
+fi
+
+cat > "${OUTPUT_BASE}/${WRAPPER_MODULE}.xcframework/Info.plist" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -278,7 +352,7 @@ cat > "output/${WRAPPER_MODULE}.xcframework/Info.plist" << EOF
     <array>
         <dict>
             <key>LibraryIdentifier</key>
-            <string>ios-arm64-simulator</string>
+            <string>${SLICE_ID}</string>
             <key>LibraryPath</key>
             <string>${WRAPPER_MODULE}.framework</string>
             <key>SupportedArchitectures</key>
@@ -286,9 +360,7 @@ cat > "output/${WRAPPER_MODULE}.xcframework/Info.plist" << EOF
                 <string>arm64</string>
             </array>
             <key>SupportedPlatform</key>
-            <string>ios</string>
-            <key>SupportedPlatformVariant</key>
-            <string>simulator</string>
+            <string>${PLIST_SUPPORTED_PLATFORM}</string>${VARIANT_PLIST}
         </dict>
     </array>
     <key>CFBundlePackageType</key>

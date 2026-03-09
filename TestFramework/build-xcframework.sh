@@ -2,46 +2,112 @@
 # Copyright (c) 2026 Justin Wojciechowski.
 # Licensed under the MIT License.
 #
-# Builds the SwiftBindingsTestLib as an xcframework for iOS Simulator arm64.
-# Optionally includes an iOS device (arm64) slice for physical device deployment.
+# Builds the SwiftBindingsTestLib as an xcframework.
+# Supports iOS Simulator (default), macOS, and tvOS Simulator.
+# Optionally includes a device slice for physical device deployment (iOS/tvOS only).
 # Produces: .build/SwiftBindingsTestLib.xcframework/
 #
-# Usage: ./build-xcframework.sh [--include-device]
+# Usage: ./build-xcframework.sh [--platform ios|macos|tvos] [--include-device]
 #
 # Options:
-#   --include-device    Also build for ios-arm64 (physical device)
+#   --platform PLATFORM   Target platform: ios (default), macos, tvos
+#   --include-device      Also build device slice (iOS/tvOS only; ignored for macOS)
 
 set -e
 cd "$(dirname "$0")"
 
+PLATFORM="ios"
 INCLUDE_DEVICE=false
 while [[ $# -gt 0 ]]; do
     case $1 in
+        --platform)
+            PLATFORM="$2"
+            shift 2
+            ;;
         --include-device)
             INCLUDE_DEVICE=true
             shift
             ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: ./build-xcframework.sh [--include-device]"
+            echo "Usage: ./build-xcframework.sh [--platform ios|macos|tvos] [--include-device]"
             exit 1
             ;;
     esac
 done
 
+# Validate platform
+case "$PLATFORM" in
+    ios|macos|tvos) ;;
+    *)
+        echo "Error: Unknown platform '$PLATFORM'. Must be ios, macos, or tvos."
+        exit 1
+        ;;
+esac
+
+# Platform-dependent variables
+case "$PLATFORM" in
+    ios)
+        SIM_SDK_NAME="iphonesimulator"
+        SIM_TARGET="arm64-apple-ios15.0-simulator"
+        SIM_SLICE_ID="ios-arm64-simulator"
+        SIM_MODULE_SUFFIX="arm64-apple-ios-simulator"
+        SIM_PLIST_PLATFORM="iPhoneSimulator"
+        DEVICE_SDK_NAME="iphoneos"
+        DEVICE_TARGET="arm64-apple-ios15.0"
+        DEVICE_SLICE_ID="ios-arm64"
+        DEVICE_MODULE_SUFFIX="arm64-apple-ios"
+        DEVICE_PLIST_PLATFORM="iPhoneOS"
+        HAS_SIMULATOR=true
+        PLIST_SUPPORTED_PLATFORM="ios"
+        MIN_OS="15.0"
+        ;;
+    macos)
+        SIM_SDK_NAME="macosx"
+        SIM_TARGET="arm64-apple-macos12.0"
+        SIM_SLICE_ID="macos-arm64"
+        SIM_MODULE_SUFFIX="arm64-apple-macos"
+        SIM_PLIST_PLATFORM="MacOSX"
+        HAS_SIMULATOR=false
+        PLIST_SUPPORTED_PLATFORM="macos"
+        MIN_OS="12.0"
+        ;;
+    tvos)
+        SIM_SDK_NAME="appletvsimulator"
+        SIM_TARGET="arm64-apple-tvos15.0-simulator"
+        SIM_SLICE_ID="tvos-arm64-simulator"
+        SIM_MODULE_SUFFIX="arm64-apple-tvos-simulator"
+        SIM_PLIST_PLATFORM="AppleTVSimulator"
+        DEVICE_SDK_NAME="appletvos"
+        DEVICE_TARGET="arm64-apple-tvos15.0"
+        DEVICE_SLICE_ID="tvos-arm64"
+        DEVICE_MODULE_SUFFIX="arm64-apple-tvos"
+        DEVICE_PLIST_PLATFORM="AppleTVOS"
+        HAS_SIMULATOR=true
+        PLIST_SUPPORTED_PLATFORM="tvos"
+        MIN_OS="15.0"
+        ;;
+esac
+
+# macOS has no simulator/device distinction — ignore --include-device
+if [ "$PLATFORM" = "macos" ] && [ "$INCLUDE_DEVICE" = true ]; then
+    echo "Note: --include-device is ignored for macOS (single slice, no simulator/device distinction)."
+    INCLUDE_DEVICE=false
+fi
+
 MODULE_NAME="SwiftBindingsTestLib"
 BUILD_DIR=".build"
-SIM_BUILD_DIR="$BUILD_DIR/ios-simulator"
+SIM_BUILD_DIR="$BUILD_DIR/$SIM_SLICE_ID"
 FRAMEWORK_DIR="$SIM_BUILD_DIR/$MODULE_NAME.framework"
-DEVICE_BUILD_DIR="$BUILD_DIR/ios-device"
+DEVICE_BUILD_DIR="$BUILD_DIR/${DEVICE_SLICE_ID:-}"
 DEVICE_FRAMEWORK_DIR="$DEVICE_BUILD_DIR/$MODULE_NAME.framework"
 XCFRAMEWORK_DIR="$BUILD_DIR/$MODULE_NAME.xcframework"
 
 # SDK paths
-SIM_SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
-SIM_TARGET="arm64-apple-ios15.0-simulator"
+SIM_SDK=$(xcrun --sdk "$SIM_SDK_NAME" --show-sdk-path)
 
 echo "=== Building $MODULE_NAME ==="
+echo "Platform: $PLATFORM"
 echo "Simulator target: $SIM_TARGET"
 echo "Simulator SDK: $SIM_SDK"
 [ "$INCLUDE_DEVICE" = true ] && echo "Device build: ENABLED"
@@ -65,7 +131,7 @@ echo "Compiling $FILE_COUNT Swift source files..."
 
 # Compile simulator slice with library evolution enabled
 echo ""
-echo "--- Compiling simulator slice ---"
+echo "--- Compiling ${PLATFORM} slice ---"
 xcrun swiftc \
     -target "$SIM_TARGET" \
     -sdk "$SIM_SDK" \
@@ -76,13 +142,13 @@ xcrun swiftc \
     -module-name "$MODULE_NAME" \
     -Xlinker -install_name -Xlinker "@rpath/$MODULE_NAME.framework/$MODULE_NAME" \
     -o "$FRAMEWORK_DIR/$MODULE_NAME" \
-    -emit-module-path "$FRAMEWORK_DIR/Modules/$MODULE_NAME.swiftmodule/arm64-apple-ios-simulator.swiftmodule" \
-    -emit-module-interface-path "$FRAMEWORK_DIR/Modules/$MODULE_NAME.swiftmodule/arm64-apple-ios-simulator.swiftinterface" \
+    -emit-module-path "$FRAMEWORK_DIR/Modules/$MODULE_NAME.swiftmodule/${SIM_MODULE_SUFFIX}.swiftmodule" \
+    -emit-module-interface-path "$FRAMEWORK_DIR/Modules/$MODULE_NAME.swiftmodule/${SIM_MODULE_SUFFIX}.swiftinterface" \
     $SWIFT_FILES
 
 # Copy private swiftinterface (same as public for our purposes)
-cp "$FRAMEWORK_DIR/Modules/$MODULE_NAME.swiftmodule/arm64-apple-ios-simulator.swiftinterface" \
-   "$FRAMEWORK_DIR/Modules/$MODULE_NAME.swiftmodule/arm64-apple-ios-simulator.private.swiftinterface"
+cp "$FRAMEWORK_DIR/Modules/$MODULE_NAME.swiftmodule/${SIM_MODULE_SUFFIX}.swiftinterface" \
+   "$FRAMEWORK_DIR/Modules/$MODULE_NAME.swiftmodule/${SIM_MODULE_SUFFIX}.private.swiftinterface"
 
 echo "=== Extracting Symbol Graph ==="
 SYMBOLGRAPH_DIR="$BUILD_DIR/symbolgraph"
@@ -105,20 +171,20 @@ else
     echo "Warning: swift-symbolgraph-extract not found. Doc comments will not be available."
 fi
 
-echo "=== Generating TBD (simulator) ==="
+echo "=== Generating TBD (${PLATFORM}) ==="
 xcrun tapi stubify \
     --filetype=tbd-v4 \
     "$FRAMEWORK_DIR/$MODULE_NAME" \
     -o "$FRAMEWORK_DIR/Modules/$MODULE_NAME.swiftmodule/$MODULE_NAME.tbd"
 
-echo "=== Generating ABI JSON (simulator) ==="
+echo "=== Generating ABI JSON (${PLATFORM}) ==="
 xcrun swift-frontend \
     -compile-module-from-interface \
-    "$FRAMEWORK_DIR/Modules/$MODULE_NAME.swiftmodule/arm64-apple-ios-simulator.swiftinterface" \
+    "$FRAMEWORK_DIR/Modules/$MODULE_NAME.swiftmodule/${SIM_MODULE_SUFFIX}.swiftinterface" \
     -target "$SIM_TARGET" \
     -module-name "$MODULE_NAME" \
     -sdk "$SIM_SDK" \
-    -emit-abi-descriptor-path "$FRAMEWORK_DIR/Modules/$MODULE_NAME.swiftmodule/arm64-apple-ios-simulator.abi.json"
+    -emit-abi-descriptor-path "$FRAMEWORK_DIR/Modules/$MODULE_NAME.swiftmodule/${SIM_MODULE_SUFFIX}.abi.json"
 
 # Create simulator framework Info.plist
 cat > "$FRAMEWORK_DIR/Info.plist" << 'PLIST'
@@ -142,10 +208,9 @@ cat > "$FRAMEWORK_DIR/Info.plist" << 'PLIST'
 </plist>
 PLIST
 
-# --- Device slice (optional) ---
+# --- Device slice (optional, iOS/tvOS only) ---
 if [ "$INCLUDE_DEVICE" = true ]; then
-    DEVICE_SDK=$(xcrun --sdk iphoneos --show-sdk-path)
-    DEVICE_TARGET="arm64-apple-ios15.0"
+    DEVICE_SDK=$(xcrun --sdk "$DEVICE_SDK_NAME" --show-sdk-path)
 
     echo ""
     echo "--- Compiling device slice ---"
@@ -165,12 +230,12 @@ if [ "$INCLUDE_DEVICE" = true ]; then
         -module-name "$MODULE_NAME" \
         -Xlinker -install_name -Xlinker "@rpath/$MODULE_NAME.framework/$MODULE_NAME" \
         -o "$DEVICE_FRAMEWORK_DIR/$MODULE_NAME" \
-        -emit-module-path "$DEVICE_FRAMEWORK_DIR/Modules/$MODULE_NAME.swiftmodule/arm64-apple-ios.swiftmodule" \
-        -emit-module-interface-path "$DEVICE_FRAMEWORK_DIR/Modules/$MODULE_NAME.swiftmodule/arm64-apple-ios.swiftinterface" \
+        -emit-module-path "$DEVICE_FRAMEWORK_DIR/Modules/$MODULE_NAME.swiftmodule/${DEVICE_MODULE_SUFFIX}.swiftmodule" \
+        -emit-module-interface-path "$DEVICE_FRAMEWORK_DIR/Modules/$MODULE_NAME.swiftmodule/${DEVICE_MODULE_SUFFIX}.swiftinterface" \
         $SWIFT_FILES
 
-    cp "$DEVICE_FRAMEWORK_DIR/Modules/$MODULE_NAME.swiftmodule/arm64-apple-ios.swiftinterface" \
-       "$DEVICE_FRAMEWORK_DIR/Modules/$MODULE_NAME.swiftmodule/arm64-apple-ios.private.swiftinterface"
+    cp "$DEVICE_FRAMEWORK_DIR/Modules/$MODULE_NAME.swiftmodule/${DEVICE_MODULE_SUFFIX}.swiftinterface" \
+       "$DEVICE_FRAMEWORK_DIR/Modules/$MODULE_NAME.swiftmodule/${DEVICE_MODULE_SUFFIX}.private.swiftinterface"
 
     echo "=== Generating TBD (device) ==="
     xcrun tapi stubify \
@@ -181,11 +246,11 @@ if [ "$INCLUDE_DEVICE" = true ]; then
     echo "=== Generating ABI JSON (device) ==="
     xcrun swift-frontend \
         -compile-module-from-interface \
-        "$DEVICE_FRAMEWORK_DIR/Modules/$MODULE_NAME.swiftmodule/arm64-apple-ios.swiftinterface" \
+        "$DEVICE_FRAMEWORK_DIR/Modules/$MODULE_NAME.swiftmodule/${DEVICE_MODULE_SUFFIX}.swiftinterface" \
         -target "$DEVICE_TARGET" \
         -module-name "$MODULE_NAME" \
         -sdk "$DEVICE_SDK" \
-        -emit-abi-descriptor-path "$DEVICE_FRAMEWORK_DIR/Modules/$MODULE_NAME.swiftmodule/arm64-apple-ios.abi.json"
+        -emit-abi-descriptor-path "$DEVICE_FRAMEWORK_DIR/Modules/$MODULE_NAME.swiftmodule/${DEVICE_MODULE_SUFFIX}.abi.json"
 
     # Device framework Info.plist
     cat > "$DEVICE_FRAMEWORK_DIR/Info.plist" << 'DPLIST'
@@ -225,6 +290,7 @@ fi
 
 echo ""
 echo "=== Build Complete ==="
+echo "Platform: $PLATFORM"
 echo "xcframework: $XCFRAMEWORK_DIR"
 [ "$INCLUDE_DEVICE" = true ] && echo "Slices: simulator + device"
 echo ""
