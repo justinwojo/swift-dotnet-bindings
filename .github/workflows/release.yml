@@ -138,7 +138,26 @@ jobs:
           ")
           echo "Booting simulator: $DEVICE"
           xcrun simctl boot "$DEVICE" 2>/dev/null || true
-          xcrun simctl bootstatus "$DEVICE" -b
+          # Poll for Booted state (bootstatus -b hangs on GHA macos runners)
+          for i in $(seq 1 60); do
+            STATE=$(xcrun simctl list devices "$DEVICE" -j | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          for r, devs in data['devices'].items():
+              for d in devs:
+                  if d['udid'] == '$DEVICE':
+                      print(d['state']); sys.exit(0)
+          ")
+            if [ "$STATE" = "Booted" ]; then
+              echo "Simulator booted after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+          if [ "$STATE" != "Booted" ]; then
+            echo "ERROR: Simulator failed to boot within 60s (state: $STATE)"
+            exit 1
+          fi
           echo "device_udid=$DEVICE" >> "$GITHUB_OUTPUT"
 
       - name: Run runtime tests (iOS)
