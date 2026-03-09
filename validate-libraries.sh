@@ -437,7 +437,9 @@ process_target() {
     local RUNTIME_TFM
     RUNTIME_TFM=$(platform_to_runtime_tfm "$platform")
     local RUNTIME_DLL="$SCRIPT_DIR/src/Swift.Runtime/src/bin/Debug/$RUNTIME_TFM/Swift.Runtime.dll"
-    if grep -q 'PackageReference.*Swift\.Runtime' "$CSPROJ_FILE" 2>/dev/null; then
+    if grep -q 'PackageReference.*SwiftBindings\.Runtime' "$CSPROJ_FILE" 2>/dev/null; then
+        sed -i '' 's|<PackageReference Include="SwiftBindings.Runtime"[^/]*/>|<Reference Include="Swift.Runtime"><HintPath>'"$RUNTIME_DLL"'</HintPath></Reference>|' "$CSPROJ_FILE"
+    elif grep -q 'PackageReference.*Swift\.Runtime' "$CSPROJ_FILE" 2>/dev/null; then
         sed -i '' 's|<PackageReference Include="Swift.Runtime"[^/]*/>|<Reference Include="Swift.Runtime"><HintPath>'"$RUNTIME_DLL"'</HintPath></Reference>|' "$CSPROJ_FILE"
     fi
 

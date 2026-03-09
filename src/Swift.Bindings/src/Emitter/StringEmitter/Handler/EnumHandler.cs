@@ -196,6 +196,16 @@ namespace BindingsGeneration
                 csWriter.WriteLines(disposeMethods);
                 csWriter.WriteLine();
 
+                // Emit per-type @_cdecl destroy wrapper to avoid CallConvSwift crash on NativeAOT.
+                DestroyWrapperEmitter.EmitIfNeeded(
+                    csWriter, swiftWriter,
+                    simpleName,
+                    typeNameWithGenerics,
+                    moduleDecl.Name,
+                    enumDecl.SwiftTypeName.ToString(),
+                    env.TypeDatabase.AsyncLibraryName,
+                    context.GetEmissionContext());
+
             // Emit case constructors for all cases
             // Cases with associated values become static methods with P/Invoke constructors
             // Simple cases (no associated values) use RawRepresentable if available

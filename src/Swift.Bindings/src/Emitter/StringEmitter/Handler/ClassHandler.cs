@@ -253,6 +253,20 @@ namespace BindingsGeneration
                     {
                         WriteClassPayloadField(csWriter, typeNameWithGenerics);
                         WriteClassPayload(csWriter, typeNameWithGenerics);
+
+                        // Emit per-type @_cdecl destroy wrapper to avoid CallConvSwift crash on NativeAOT.
+                        // Only root classes register the destroy action (derived classes inherit _payload).
+                        var simpleName = typeNameWithGenerics.Contains('<')
+                            ? typeNameWithGenerics.Substring(0, typeNameWithGenerics.IndexOf('<'))
+                            : typeNameWithGenerics;
+                        DestroyWrapperEmitter.EmitIfNeeded(
+                            csWriter, swiftWriter,
+                            simpleName,
+                            typeNameWithGenerics,
+                            moduleDecl.Name,
+                            classDecl.SwiftTypeName.ToString(),
+                            env.TypeDatabase.AsyncLibraryName,
+                            context.GetEmissionContext());
                     }
                 }
 

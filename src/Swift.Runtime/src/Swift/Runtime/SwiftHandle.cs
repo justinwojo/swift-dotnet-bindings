@@ -62,6 +62,25 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
     public readonly static SwiftSafeHandle<T> Zero = new SwiftSafeHandle<T>(IntPtr.Zero);
 
     /// <summary>
+    /// Per-type destroy action registered by generated bindings.
+    /// When set, ReleaseHandle calls this instead of ValueWitnessTable->Destroy,
+    /// routing through a @_cdecl wrapper that avoids the CallConvSwift crash on NativeAOT.
+    /// Static per generic instantiation (each T gets its own field).
+    /// </summary>
+    private static Action<IntPtr>? s_destroyAction;
+
+    /// <summary>
+    /// Registers a custom destroy action for this SafeHandle type parameter.
+    /// Called from generated binding code to route Dispose() through a @_cdecl
+    /// Swift wrapper instead of the ValueWitnessTable function pointer.
+    /// </summary>
+    /// <param name="action">The destroy action that calls the @_cdecl wrapper P/Invoke.</param>
+    public static void RegisterDestroyAction(Action<IntPtr> action)
+    {
+        s_destroyAction = action;
+    }
+
+    /// <summary>
     /// Tracks whether Dispose() was explicitly called.
     /// If true, we're in explicit disposal and should call Destroy.
     /// If false when ReleaseHandle runs, we're in finalization and should skip Destroy.
@@ -131,10 +150,22 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
         {
             try
             {
-                TypeMetadata metadata = SwiftObjectHelper<T>.GetTypeMetadata();
-                if (metadata.IsValid)
+                var destroyAction = s_destroyAction;
+                if (destroyAction != null)
                 {
-                    metadata.ValueWitnessTable->Destroy((void*)handle, metadata);
+                    // Use the @_cdecl wrapper (avoids CallConvSwift crash on NativeAOT).
+                    // Generated bindings register this via RegisterDestroyAction.
+                    destroyAction(handle);
+                }
+                else
+                {
+                    // Fallback to VWT Destroy (works on Mono/JIT, may crash on NativeAOT
+                    // for types with non-trivial fields due to CallConvSwift indirect call).
+                    TypeMetadata metadata = SwiftObjectHelper<T>.GetTypeMetadata();
+                    if (metadata.IsValid)
+                    {
+                        metadata.ValueWitnessTable->Destroy((void*)handle, metadata);
+                    }
                 }
             }
             catch

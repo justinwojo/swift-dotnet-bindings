@@ -5256,6 +5256,16 @@ namespace SwiftBindingsTestLib
             Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
         }
         
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+        private static bool _SBW_RegisterDestroy()
+        {
+            SwiftSafeHandle<IntContainer>.RegisterDestroyAction(_SBW_Destroy);
+            return true;
+        }
+        [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_IntContainer")]
+        private static extern void _SBW_Destroy(IntPtr handle);
+        
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -5479,6 +5489,16 @@ namespace SwiftBindingsTestLib
         {
             Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
         }
+        
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+        private static bool _SBW_RegisterDestroy()
+        {
+            SwiftSafeHandle<OpaqueProvider>.RegisterDestroyAction(_SBW_Destroy);
+            return true;
+        }
+        [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_OpaqueProvider")]
+        private static extern void _SBW_Destroy(IntPtr handle);
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -6285,6 +6305,16 @@ namespace SwiftBindingsTestLib
             Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
         }
         
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+        private static bool _SBW_RegisterDestroy()
+        {
+            SwiftSafeHandle<BoundStringPair>.RegisterDestroyAction(_SBW_Destroy);
+            return true;
+        }
+        [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_BoundStringPair")]
+        private static extern void _SBW_Destroy(IntPtr handle);
+        
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -6771,6 +6801,16 @@ namespace SwiftBindingsTestLib
             Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
         }
         
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+        private static bool _SBW_RegisterDestroy()
+        {
+            SwiftSafeHandle<UniqueResource>.RegisterDestroyAction(_SBW_Destroy);
+            return true;
+        }
+        [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_UniqueResource")]
+        private static extern void _SBW_Destroy(IntPtr handle);
+        
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -6952,6 +6992,16 @@ namespace SwiftBindingsTestLib
         {
             Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
         }
+        
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+        private static bool _SBW_RegisterDestroy()
+        {
+            SwiftSafeHandle<FileHandle>.RegisterDestroyAction(_SBW_Destroy);
+            return true;
+        }
+        [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_FileHandle")]
+        private static extern void _SBW_Destroy(IntPtr handle);
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -7210,6 +7260,16 @@ namespace SwiftBindingsTestLib
             if (!_isCachedSingleton)
                 Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
         }
+        
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+        private static bool _SBW_RegisterDestroy()
+        {
+            SwiftSafeHandle<StatusCode>.RegisterDestroyAction(_SBW_Destroy);
+            return true;
+        }
+        [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_StatusCode")]
+        private static extern void _SBW_Destroy(IntPtr handle);
         
         /// <summary>
         /// Creates a StatusCode from its raw value.
@@ -7565,6 +7625,16 @@ namespace SwiftBindingsTestLib
             if (!_isCachedSingleton)
                 Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
         }
+        
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+        private static bool _SBW_RegisterDestroy()
+        {
+            SwiftSafeHandle<Shape>.RegisterDestroyAction(_SBW_Destroy);
+            return true;
+        }
+        [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_Shape")]
+        private static extern void _SBW_Destroy(IntPtr handle);
         
         /// <summary>
         /// Creates the 'circle' case of Shape.
@@ -8450,6 +8520,16 @@ namespace SwiftBindingsTestLib
             Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
         }
         
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+        private static bool _SBW_RegisterDestroy()
+        {
+            SwiftSafeHandle<EnumPropertyHolder>.RegisterDestroyAction(_SBW_Destroy);
+            return true;
+        }
+        [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_EnumPropertyHolder")]
+        private static extern void _SBW_Destroy(IntPtr handle);
+        
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -8741,6 +8821,16 @@ namespace SwiftBindingsTestLib
         {
             Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
         }
+        
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+        private static bool _SBW_RegisterDestroy()
+        {
+            SwiftSafeHandle<Animal>.RegisterDestroyAction(_SBW_Destroy);
+            return true;
+        }
+        [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_Animal")]
+        private static extern void _SBW_Destroy(IntPtr handle);
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -9249,6 +9339,16 @@ namespace SwiftBindingsTestLib
             Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
         }
         
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+        private static bool _SBW_RegisterDestroy()
+        {
+            SwiftSafeHandle<FinalCounter>.RegisterDestroyAction(_SBW_Destroy);
+            return true;
+        }
+        [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_FinalCounter")]
+        private static extern void _SBW_Destroy(IntPtr handle);
+        
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -9696,6 +9796,16 @@ namespace SwiftBindingsTestLib
             Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
         }
         
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+        private static bool _SBW_RegisterDestroy()
+        {
+            SwiftSafeHandle<ClassWithProperties>.RegisterDestroyAction(_SBW_Destroy);
+            return true;
+        }
+        [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_ClassWithProperties")]
+        private static extern void _SBW_Destroy(IntPtr handle);
+        
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -10135,6 +10245,16 @@ namespace SwiftBindingsTestLib
         {
             Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
         }
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+        private static bool _SBW_RegisterDestroy()
+        {
+            SwiftSafeHandle<FrozenStructWithProperties>.RegisterDestroyAction(_SBW_Destroy);
+            return true;
+        }
+        [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_FrozenStructWithProperties")]
+        private static extern void _SBW_Destroy(IntPtr handle);
+        
         public struct Buffer {
             
                 // For frozen structs, we need to emit fields that match the Swift struct's memory layout exactly.
@@ -10676,6 +10796,16 @@ public partial class NonFrozenPoint : ISwiftObject, IDisposable
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<NonFrozenPoint>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_NonFrozenPoint")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -10957,6 +11087,16 @@ public partial class NonFrozenStructWithProperties : ISwiftObject, IDisposable
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<NonFrozenStructWithProperties>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_NonFrozenStructWithProperties")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -11068,6 +11208,16 @@ public partial class NestedOuter : ISwiftObject, IDisposable
     {
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<NestedOuter>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_NestedOuter")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     public struct Buffer {
         
                 // For frozen structs, we need to emit fields that match the Swift struct's memory layout exactly.
@@ -11577,6 +11727,16 @@ public partial class StructBuilder : ISwiftObject, IDisposable
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<StructBuilder>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_StructBuilder")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -11759,6 +11919,16 @@ public partial class FetchError : ISwiftObject, IDisposable
         if (!_isCachedSingleton)
             Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<FetchError>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_FetchError")]
+    private static extern void _SBW_Destroy(IntPtr handle);
     
     /// <summary>
     /// Creates the 'networkError' case of FetchError.
@@ -12102,6 +12272,16 @@ public partial class FetchResult : ISwiftObject, IDisposable
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<FetchResult>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_FetchResult")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -12219,6 +12399,16 @@ public partial class ResultClosureTest : ISwiftObject, IDisposable
     {
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<ResultClosureTest>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_ResultClosureTest")]
+    private static extern void _SBW_Destroy(IntPtr handle);
     
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
@@ -12401,6 +12591,16 @@ public partial class BatchConfig : ISwiftObject, IDisposable
     {
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<BatchConfig>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_BatchConfig")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     public struct Buffer {
         
                 // For frozen structs, we need to emit fields that match the Swift struct's memory layout exactly.
@@ -13134,6 +13334,16 @@ public partial class Registry : ISwiftObject, IDisposable
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<Registry>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_Registry")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -13536,6 +13746,16 @@ public partial class EventHandler : ISwiftObject, IDisposable
     {
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<EventHandler>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_EventHandler")]
+    private static extern void _SBW_Destroy(IntPtr handle);
     
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
@@ -14803,6 +15023,16 @@ public partial class ParseError : ISwiftObject, IDisposable
             Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<ParseError>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_ParseError")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     /// <summary>
     /// The parsed value exceeded the representable range.
     /// </summary>
@@ -15023,6 +15253,16 @@ public partial class RangeError : ISwiftObject, IDisposable
         if (!_isCachedSingleton)
             Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<RangeError>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_RangeError")]
+    private static extern void _SBW_Destroy(IntPtr handle);
     
     /// <summary>
     /// The value was below the minimum.
@@ -15368,6 +15608,16 @@ public partial class TypedThrowingParser : ISwiftObject, IDisposable
     {
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<TypedThrowingParser>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_TypedThrowingParser")]
+    private static extern void _SBW_Destroy(IntPtr handle);
     
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
@@ -15766,6 +16016,16 @@ public partial class ValidationError : ISwiftObject, IDisposable
             Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<ValidationError>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_ValidationError")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     /// <summary>
     /// Creates the 'tooLong' case of ValidationError.
     /// </summary>
@@ -16086,6 +16346,16 @@ public partial class ThrowingStruct : ISwiftObject, IDisposable
     {
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<ThrowingStruct>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_ThrowingStruct")]
+    private static extern void _SBW_Destroy(IntPtr handle);
     
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
@@ -16664,6 +16934,16 @@ public partial class AsyncConfig : ISwiftObject, IDisposable
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<AsyncConfig>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_AsyncConfig")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -16817,6 +17097,16 @@ public partial class AsyncDataSource : ISwiftObject, IDisposable
     {
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<AsyncDataSource>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_AsyncDataSource")]
+    private static extern void _SBW_Destroy(IntPtr handle);
     
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
@@ -16984,6 +17274,16 @@ public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
     {
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<AsyncThrowingWorker>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_AsyncThrowingWorker")]
+    private static extern void _SBW_Destroy(IntPtr handle);
     
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
@@ -17627,6 +17927,16 @@ public partial class AsyncResult : ISwiftObject, IDisposable
     {
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<AsyncResult>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_AsyncResult")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     public struct Buffer {
         
                 // For frozen structs, we need to emit fields that match the Swift struct's memory layout exactly.
@@ -17875,6 +18185,16 @@ public partial class AsyncStatus : ISwiftObject, IDisposable
         if (!_isCachedSingleton)
             Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<AsyncStatus>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_AsyncStatus")]
+    private static extern void _SBW_Destroy(IntPtr handle);
     
     /// <summary>
     /// Creates the 'inProgress' case of AsyncStatus.
@@ -18319,6 +18639,16 @@ public partial class AsyncTask : ISwiftObject, IDisposable
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<AsyncTask>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_AsyncTask")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -18510,6 +18840,16 @@ public partial class AsyncStringWorker : ISwiftObject, IDisposable
     {
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<AsyncStringWorker>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_AsyncStringWorker")]
+    private static extern void _SBW_Destroy(IntPtr handle);
     
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
@@ -19570,6 +19910,16 @@ public partial class AsyncArrayWorker : ISwiftObject, IDisposable
     {
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<AsyncArrayWorker>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_AsyncArrayWorker")]
+    private static extern void _SBW_Destroy(IntPtr handle);
     
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
@@ -21114,6 +21464,16 @@ public partial class AsyncComplexWorker : ISwiftObject, IDisposable
     {
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<AsyncComplexWorker>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_AsyncComplexWorker")]
+    private static extern void _SBW_Destroy(IntPtr handle);
     
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
@@ -22799,6 +23159,16 @@ public partial class MainActorViewModel : ISwiftObject, IDisposable
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<MainActorViewModel>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_MainActorViewModel")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -23206,6 +23576,16 @@ public partial class MainActorMethods : ISwiftObject, IDisposable
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<MainActorMethods>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_MainActorMethods")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -23428,6 +23808,16 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
     {
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<AsyncWorker>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_AsyncWorker")]
+    private static extern void _SBW_Destroy(IntPtr handle);
     
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
@@ -24633,6 +25023,16 @@ public partial class Counter : ISwiftObject, IDisposable
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<Counter>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_Counter")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -24943,6 +25343,16 @@ public partial class AsyncProcessor : ISwiftObject, IDisposable
     {
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<AsyncProcessor>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_AsyncProcessor")]
+    private static extern void _SBW_Destroy(IntPtr handle);
     
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
@@ -25604,6 +26014,16 @@ public partial class SharedState : ISwiftObject, IDisposable
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<SharedState>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_SharedState")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -25924,6 +26344,16 @@ public partial class SendablePoint : ISwiftObject, IDisposable
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<SendablePoint>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_SendablePoint")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -26144,6 +26574,16 @@ public partial class SendableConfig : ISwiftObject, IDisposable
     {
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<SendableConfig>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_SendableConfig")]
+    private static extern void _SBW_Destroy(IntPtr handle);
     
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
@@ -26416,6 +26856,16 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<NetworkConfig>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_NetworkConfig")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -26514,6 +26964,16 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
             if (!_isCachedSingleton)
                 Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
         }
+        
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+        private static bool _SBW_RegisterDestroy()
+        {
+            SwiftSafeHandle<HttpMethod>.RegisterDestroyAction(_SBW_Destroy);
+            return true;
+        }
+        [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_NetworkConfig_HttpMethod")]
+        private static extern void _SBW_Destroy(IntPtr handle);
         
         /// <summary>
         /// Creates a HttpMethod from its raw value.
@@ -26823,6 +27283,16 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
             if (!_isCachedSingleton)
                 Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
         }
+        
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+        private static bool _SBW_RegisterDestroy()
+        {
+            SwiftSafeHandle<ContentType>.RegisterDestroyAction(_SBW_Destroy);
+            return true;
+        }
+        [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_NetworkConfig_ContentType")]
+        private static extern void _SBW_Destroy(IntPtr handle);
         
         /// <summary>
         /// Creates a ContentType from its raw value.
@@ -27212,6 +27682,16 @@ public partial class OrderContainer : ISwiftObject, IDisposable
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<OrderContainer>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_OrderContainer")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -27310,6 +27790,16 @@ public partial class OrderContainer : ISwiftObject, IDisposable
             if (!_isCachedSingleton)
                 Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
         }
+        
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+        private static bool _SBW_RegisterDestroy()
+        {
+            SwiftSafeHandle<Status>.RegisterDestroyAction(_SBW_Destroy);
+            return true;
+        }
+        [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_OrderContainer_Status")]
+        private static extern void _SBW_Destroy(IntPtr handle);
         
         /// <summary>
         /// Creates a Status from its raw value.
@@ -27713,6 +28203,16 @@ public partial class PaymentContainer : ISwiftObject, IDisposable
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<PaymentContainer>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_PaymentContainer")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -27811,6 +28311,16 @@ public partial class PaymentContainer : ISwiftObject, IDisposable
             if (!_isCachedSingleton)
                 Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
         }
+        
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+        private static bool _SBW_RegisterDestroy()
+        {
+            SwiftSafeHandle<Status>.RegisterDestroyAction(_SBW_Destroy);
+            return true;
+        }
+        [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_PaymentContainer_Status")]
+        private static extern void _SBW_Destroy(IntPtr handle);
         
         /// <summary>
         /// Creates a Status from its raw value.
@@ -28143,6 +28653,16 @@ public partial class LogLevel : ISwiftObject, IDisposable
             Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<LogLevel>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_LogLevel")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     /// <summary>
     /// Creates a LogLevel from its raw value.
     /// Returns null if the raw value doesn't correspond to a valid case.
@@ -28452,6 +28972,16 @@ public partial class Greeting : ISwiftObject, IDisposable
             Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<Greeting>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_Greeting")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     /// <summary>
     /// Creates a Greeting from its raw value.
     /// Returns null if the raw value doesn't correspond to a valid case.
@@ -28760,6 +29290,16 @@ public partial class EdgeCaseStrings : ISwiftObject, IDisposable
         if (!_isCachedSingleton)
             Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<EdgeCaseStrings>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_EdgeCaseStrings")]
+    private static extern void _SBW_Destroy(IntPtr handle);
     
     /// <summary>
     /// Creates a EdgeCaseStrings from its raw value.
@@ -29084,6 +29624,16 @@ public partial class CaseSensitiveEnum : ISwiftObject, IDisposable
             Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<CaseSensitiveEnum>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_CaseSensitiveEnum")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     /// <summary>
     /// Creates a CaseSensitiveEnum from its raw value.
     /// Returns null if the raw value doesn't correspond to a valid case.
@@ -29385,6 +29935,16 @@ public partial class MutableProps : ISwiftObject, IDisposable
     {
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<MutableProps>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_MutableProps")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     public struct Buffer {
         
                 // For frozen structs, we need to emit fields that match the Swift struct's memory layout exactly.
@@ -29790,6 +30350,16 @@ public partial class NonFrozenMutableProps : ISwiftObject, IDisposable
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<NonFrozenMutableProps>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_NonFrozenMutableProps")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -30041,6 +30611,16 @@ public partial class MutableClass : ISwiftObject, IDisposable
     {
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<MutableClass>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_MutableClass")]
+    private static extern void _SBW_Destroy(IntPtr handle);
     
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
@@ -30546,6 +31126,16 @@ public partial class StaticProps : ISwiftObject, IDisposable
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<StaticProps>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_StaticProps")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -30659,6 +31249,16 @@ public partial class StaticMethods : ISwiftObject, IDisposable
     {
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<StaticMethods>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_StaticMethods")]
+    private static extern void _SBW_Destroy(IntPtr handle);
     
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
@@ -31190,6 +31790,16 @@ public partial class ReadOnlyProps : ISwiftObject, IDisposable
     {
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<ReadOnlyProps>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_ReadOnlyProps")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     public struct Buffer {
         
                 // For frozen structs, we need to emit fields that match the Swift struct's memory layout exactly.
@@ -31612,6 +32222,16 @@ public partial class NonFrozenReadOnlyProps : ISwiftObject, IDisposable
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<NonFrozenReadOnlyProps>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_NonFrozenReadOnlyProps")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -31725,6 +32345,16 @@ public partial class OptionalConfig : ISwiftObject, IDisposable
     {
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<OptionalConfig>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_OptionalConfig")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     public struct Buffer {
         
                 // For frozen structs, we need to emit fields that match the Swift struct's memory layout exactly.
@@ -32186,6 +32816,16 @@ public partial class PointerWorker : ISwiftObject, IDisposable
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<PointerWorker>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_PointerWorker")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -32438,6 +33078,16 @@ public partial class RawMemoryWorker : ISwiftObject, IDisposable
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<RawMemoryWorker>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_RawMemoryWorker")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -32656,6 +33306,16 @@ public partial class HandleWrapper : ISwiftObject, IDisposable
     {
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<HandleWrapper>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_HandleWrapper")]
+    private static extern void _SBW_Destroy(IntPtr handle);
     
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
@@ -33200,6 +33860,16 @@ public partial class SliceProcessor : ISwiftObject, IDisposable
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<SliceProcessor>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_SliceProcessor")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -33530,6 +34200,16 @@ public partial class SimpleItem : ISwiftObject, IDisposable
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<SimpleItem>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_SimpleItem")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -33749,6 +34429,16 @@ public partial class MutableItem : ISwiftObject, IDisposable, IHasValue
     {
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<MutableItem>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_MutableItem")]
+    private static extern void _SBW_Destroy(IntPtr handle);
     
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
@@ -33999,6 +34689,16 @@ public partial class DisplayItem : ISwiftObject, IDisposable, IDisplayable
     {
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<DisplayItem>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_DisplayItem")]
+    private static extern void _SBW_Destroy(IntPtr handle);
     
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
@@ -34256,6 +34956,16 @@ public partial class Person : ISwiftObject, IDisposable, IAgeable
     {
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<Person>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_Person")]
+    private static extern void _SBW_Destroy(IntPtr handle);
     
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
@@ -34700,6 +35410,16 @@ public partial class TaskPriority : ISwiftObject, IDisposable
         if (!_isCachedSingleton)
             Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<TaskPriority>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_TaskPriority")]
+    private static extern void _SBW_Destroy(IntPtr handle);
     
     /// <summary>
     /// Creates a TaskPriority from its raw value.
@@ -35146,6 +35866,16 @@ public partial class NamedItem : ISwiftObject, IDisposable
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<NamedItem>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_NamedItem")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -35334,6 +36064,16 @@ public partial class MutableNamedItem : ISwiftObject, IDisposable
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<MutableNamedItem>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_MutableNamedItem")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -35491,6 +36231,16 @@ public partial class PrioritizedItem : ISwiftObject, IDisposable, IPrioritized
     {
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<PrioritizedItem>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_PrioritizedItem")]
+    private static extern void _SBW_Destroy(IntPtr handle);
     
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
@@ -35678,6 +36428,16 @@ public partial class MutablePrioritizedItem : ISwiftObject, IDisposable, IMutabl
     {
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<MutablePrioritizedItem>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_MutablePrioritizedItem")]
+    private static extern void _SBW_Destroy(IntPtr handle);
     
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
@@ -35904,6 +36664,16 @@ public partial class SimpleTask : ISwiftObject, IDisposable
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<SimpleTask>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_SimpleTask")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -36056,6 +36826,16 @@ public partial class EchoProcessor : ISwiftObject, IDisposable, IStringProcessor
     {
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<EchoProcessor>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_EchoProcessor")]
+    private static extern void _SBW_Destroy(IntPtr handle);
     
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
@@ -36246,6 +37026,16 @@ public partial class SimpleStatusHandler : ISwiftObject, IDisposable, IStatusHan
     {
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<SimpleStatusHandler>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_SimpleStatusHandler")]
+    private static extern void _SBW_Destroy(IntPtr handle);
     
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
@@ -36462,6 +37252,16 @@ public partial class SimplePriorityHandler : ISwiftObject, IDisposable, IPriorit
     {
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<SimplePriorityHandler>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_SimplePriorityHandler")]
+    private static extern void _SBW_Destroy(IntPtr handle);
     
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
@@ -36835,6 +37635,16 @@ public partial class SimpleModel : ISwiftObject, IDisposable
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<SimpleModel>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_SimpleModel")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -37021,6 +37831,16 @@ public partial class AsyncService : ISwiftObject, IDisposable
     {
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<AsyncService>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_AsyncService")]
+    private static extern void _SBW_Destroy(IntPtr handle);
     
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     
@@ -37412,6 +38232,16 @@ public partial class Processor : ISwiftObject, IDisposable
     {
         Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<Processor>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_Processor")]
+    private static extern void _SBW_Destroy(IntPtr handle);
     
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
     

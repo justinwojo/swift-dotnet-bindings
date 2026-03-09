@@ -167,6 +167,16 @@ namespace BindingsGeneration
                     }
                     """;
                     csWriter.WriteLines(disposeMethods);
+
+                    // Emit per-type @_cdecl destroy wrapper to avoid CallConvSwift crash on NativeAOT.
+                    DestroyWrapperEmitter.EmitIfNeeded(
+                        csWriter, swiftWriter,
+                        simpleName,
+                        typeNameWithGenerics,
+                        moduleDecl.Name,
+                        structDecl.SwiftTypeName.ToString(),
+                        env.TypeDatabase.AsyncLibraryName,
+                        context.GetEmissionContext());
                 }
 
                 if (swiftTypeInfo.HasValue && swiftTypeInfo.Value.MetadataPtr != IntPtr.Zero)

@@ -170,6 +170,21 @@ namespace BindingsGeneration
                 WritePrivateFields(csWriter, typeNameWithGenerics);
                 WritePayload(csWriter, typeNameWithGenerics);
 
+                // Emit per-type @_cdecl destroy wrapper to avoid CallConvSwift crash on NativeAOT.
+                {
+                    var simpleName = typeNameWithGenerics.Contains('<')
+                        ? typeNameWithGenerics.Substring(0, typeNameWithGenerics.IndexOf('<'))
+                        : typeNameWithGenerics;
+                    DestroyWrapperEmitter.EmitIfNeeded(
+                        csWriter, swiftWriter,
+                        simpleName,
+                        typeNameWithGenerics,
+                        moduleDecl.Name,
+                        structDecl.SwiftTypeName.ToString(),
+                        env.TypeDatabase.AsyncLibraryName,
+                        context.GetEmissionContext());
+                }
+
                 // Emit operators (operators also have P/Invoke - need to handle for generic types)
                 var operatorHandler = new OperatorHandler(_logger);
                 var emittedOperatorSymbols = new HashSet<string>();

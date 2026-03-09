@@ -101,69 +101,123 @@ Generated bindings already emit per-assembly `[ModuleInitializer]` + `SetDllImpo
 
 ---
 
-## Open Issues — Needs Investigation
+### 8. Generate Per-Type `@_cdecl` Destroy Wrappers (Issues 1, 5)
 
-### 8. LottieAnimationView(CGRect) SIGSEGV (Issue 2b)
-
-**Status**: Not fixed — root cause differs from DataCache
-**Severity**: High — blocks all LottieAnimationView construction (Issue 8)
-
-The ObjC constructor return path fix (#2) resolved DataCache but NOT LottieAnimationView(CGRect). Round 4 confirmed the fix is deployed (code offset changed), but the crash persists.
-
-**Crash stack**: `__swift_memcpy24_8` — a 24-byte memcpy for a 32-byte struct (CGRect = 4 Doubles). The size mismatch suggests `CallConvSwift` is passing CGRect incorrectly on ARM64 — possibly splitting it across registers/memory differently than Swift expects.
-
-**Key difference from DataCache**: DataCache's constructor takes a `SwiftString` (passed via `@_cdecl` wrapper). LottieAnimationView's constructor takes a `CGRect` struct passed directly via `CallConvSwift`. The struct parameter passing is the likely issue.
-
-**Possible fixes**:
-- Generate `@_cdecl` wrapper for constructors taking struct parameters (route through C calling convention)
-- Investigate ARM64 struct passing rules in CallConvSwift vs actual Swift ABI
-
----
-
-### 9. LottieAnimationView() Returns Null (Issue 2c)
-
-**Status**: Not investigated
-**Severity**: Medium
-
-Parameterless `init()` returns null. May not exist on this type (only `init(frame:)` may be a valid designator). Needs ABI JSON inspection.
-
----
-
-### 10. LottieColor Struct Constructor SIGSEGV (Issue 2a)
-
-**Status**: NativeAOT limitation — no generator fix possible
-**Severity**: High
-
-Non-frozen struct with 4 Doubles + enum. Generator correctly uses `SwiftIndirectResult`. Crash is in NativeAOT runtime's handling of CallConvSwift with large indirect results.
-
-**Possible workaround**: `@_cdecl` wrapper for struct constructors (same pattern as Destroy wrappers).
-
----
-
-## Planned — Session 2
-
-### 11. Generate Per-Type `@_cdecl` Destroy Wrappers (Issues 1, 5)
-
-**Status**: Not started
+**Status**: Done
 **Severity**: High — Dispose() crashes on device
 
 `SwiftSafeHandle<T>.ReleaseHandle()` calls `ValueWitnessTable->Destroy()` via indirect `CallConvSwift` function pointer — crashes on NativeAOT.
 
-**Fix**: New `DestroyWrapperEmitter` that generates `SBW_{TypeName}_Destroy` per type in each wrapper framework. Wire `ReleaseHandle()` to call the cdecl wrapper instead of the VWT.
+**Fix**: New `DestroyWrapperEmitter` emits `SBW_Destroy_{Module}_{Type}` per type in each wrapper framework. `SwiftSafeHandle<T>.RegisterDestroyAction()` allows generated code to register type-specific destroy actions via static field initializer. Falls back to VWT when no wrapper library (generic types also fall back due to CS7042).
 
-**Consumer workaround until fixed**: Don't call `Dispose()` or use `using` on ISwiftObject types.
+Generic skip logic refined after Codex review: only skips when the **containing type itself** is generic (e.g., `SpikeBox<T>`), not when a non-generic derived type has a generic root SafeHandle type (e.g., `IntContainer` with `SwiftSafeHandle<Container<int>>`). Uses `StartsWith(csharpTypeName, StringComparison.Ordinal)` check.
 
-### 12. Update SB1001 Analyzer (Issue 5)
+**Files**:
+- `src/Swift.Bindings/src/Emitter/StringEmitter/DestroyWrapperEmitter.cs` (new)
+- `src/Swift.Runtime/src/Swift/Runtime/SwiftHandle.cs`
+- `src/Swift.Bindings/src/Emitter/StringEmitter/ModuleEmissionContext.cs`
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/ClassHandler.cs`
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/NonFrozenStructHandler.cs`
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/FrozenStructHandler.cs`
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/EnumHandler.cs`
+- `src/Swift.Bindings/tests/UnitTests/EmitterTests/DestroyWrapperEmitterTests.cs` (new, 16 tests)
 
-**Status**: Not started — depends on #11
+---
 
-**File**: `src/Swift.Analyzers/SwiftObjectDisposeAnalyzer.cs:35-43`
+### 9. Update SB1001 Analyzer (Issue 5)
+
+**Status**: Done — resolved by #8
+**Severity**: Medium
+
+No code changes needed. Issue 8's destroy wrappers make Dispose() safe for all non-generic types with a wrapper library (xcframework mode). The SB1001 analyzer recommendation ("use `using` or call `Dispose()`") is now correct.
+
+**Edge case**: Generic types (e.g., `SpikeBox<T>`) fall back to VWT→Destroy due to CS7042 (DllImport not allowed in generic types). This is a narrow edge case — most consumer-facing types are non-generic.
+
+---
+
+## Open Issues — NativeAOT CallConvSwift Limitations
+
+### 10. LottieAnimationView(CGRect) SIGSEGV (Issue 2b)
+
+**Status**: NativeAOT limitation — needs constructor @_cdecl wrappers
+**Severity**: High — blocks all LottieAnimationView construction
+
+The ObjC constructor return path fix (#2) resolved DataCache but NOT LottieAnimationView(CGRect). Round 4 confirmed the fix is deployed (code offset changed), but the crash persists.
+
+**Root cause confirmed**: The constructor P/Invoke calls directly into Lottie (NOT through wrapper library):
+```csharp
+[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+[LibraryImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC5frameACSo6CGRectV_tcfC")]
+private static partial IntPtr PInvoke_init_8B933573( Swift.CGRect frame);
+```
+CGRect (32 bytes, 4 Doubles) is passed directly via CallConvSwift. On ARM64 NativeAOT, the struct parameter splitting across registers/memory differs from what Swift expects. The `__swift_memcpy24_8` crash (24-byte memcpy for 32-byte struct) confirms the ABI mismatch.
+
+**Fix approach**: Generate constructor `@_cdecl` wrappers in the Swift wrapper library, similar to destroy wrappers. The wrapper would take parameters via C calling convention and call the Swift init internally. This is a significant feature requiring:
+- New `ConstructorWrapperEmitter` (per-constructor wrapper generation)
+- Integration with `WrapperEmitter` to redirect P/Invoke calls through wrapper
+- Handling of ObjC-rooted vs non-ObjC, class vs struct return conventions
+- Default parameter overloads, failable inits, generic parameters
+
+**Scope**: Dedicated session — touches the core constructor emission pipeline.
+
+---
+
+### 11. LottieAnimationView() Returns Null (Issue 2c)
+
+**Status**: Investigated — not a generator bug, likely @MainActor isolation issue on device
+**Severity**: Medium
+
+**Investigation findings**:
+- LottieAnimationView has NO parameterless `init()` in the ABI JSON
+- The closest is `init(configuration:logger:)` (designated, both params have defaults)
+- The generator correctly creates a default-parameter overload via Swift wrapper:
+  ```swift
+  @_silgen_name("DBW_LottieAnimationView_init_4E165D2F_2")
+  public static func _dbw_init_4E165D2F_2() -> Lottie.LottieAnimationView {
+      return Lottie.LottieAnimationView()
+  }
+  ```
+- The symbol IS exported in `LottieSwiftBindings.xcframework` (verified: `_DBW_LottieAnimationView_init_4E165D2F_2` at address `0xc880`)
+- LottieAnimationView is `@MainActor` annotated — init may fail when called off main thread
+- Non-failable init should never return nil in normal Swift execution
+
+**Possible causes on device**:
+1. `@MainActor` isolation: init called from non-main thread on NativeAOT → undefined behavior
+2. `LottieConfiguration()` or `LottieLogger()` default values require runtime setup not available on NativeAOT
+3. CallConvSwift return value marshalling issue (though simple pointer return should be safe)
+
+**Recommendation**: Test with explicit `configuration:logger:` parameters on main thread. If that works, the issue is default parameter evaluation context, not the generator.
+
+---
+
+### 12. LottieColor Struct Constructor SIGSEGV (Issue 2a)
+
+**Status**: NativeAOT limitation — needs constructor @_cdecl wrappers (same feature as #10)
+**Severity**: High
+
+**Investigation findings**:
+- LottieColor is a non-frozen struct with constructor `init(r:g:b:a:denominator:)` (5 params, not 4 as originally reported — `denominator` has a default value)
+- Generator correctly uses `SwiftIndirectResult` for non-frozen struct return
+- Crash is in NativeAOT runtime's handling of CallConvSwift with large indirect results
+
+**Fix**: Same constructor `@_cdecl` wrapper approach as Issue #10. The wrapper would:
+```swift
+@_cdecl("SBW_Lottie_LottieColor_init")
+public func SBW_Lottie_LottieColor_init(
+    _ resultPtr: UnsafeMutableRawPointer,
+    _ r: Double, _ g: Double, _ b: Double, _ a: Double, _ denominator: Double
+) {
+    let result = Lottie.LottieColor(r: r, g: g, b: b, a: a, denominator: denominator)
+    resultPtr.initializeMemory(as: Lottie.LottieColor.self, repeating: result, count: 1)
+}
+```
+C# side would use `CallingConvention.Cdecl`, allocate a buffer, pass it as `IntPtr`, and read the result.
 
 ---
 
 ## Future
 
-### 13. XML Documentation on Generated Types (Issue 9)
+### 13. XML Documentation on Generated Types
 
 **Severity**: Low — discoverability improvement
 
@@ -192,5 +246,5 @@ Generate XML doc comments from Swift documentation in `.swiftinterface` files.
 | DecodingStrategy enum | PASS | |
 | LottieLoopMode cases | PASS | |
 | LottieAnimation.Filepath | PASS | |
-| LottieAnimationView playback | SKIP | Issue 2b — CGRect struct param SIGSEGV |
-| LottieColor construction | SKIP | Issue 2a — NativeAOT limitation |
+| LottieAnimationView playback | SKIP | Issue #10 — CGRect struct param SIGSEGV |
+| LottieColor construction | SKIP | Issue #12 — NativeAOT limitation |
