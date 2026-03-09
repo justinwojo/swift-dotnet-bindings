@@ -1420,14 +1420,10 @@ namespace BindingsGeneration
             {{mainActorLine}}{{i}}@_silgen_name("{{mangledName}}")
             {{i}}public {{staticModifier}}func {{pInvokeName}}{{genericParams}}({{parameters}}){{whereClause}}{
             {{readCodeBlock}}{{i}}    let _entry = _SBWTaskEntry()
-            {{i}}    _sbwTaskLock.lock()
-            {{i}}    _sbwActiveTasks[task] = _entry
-            {{i}}    _sbwTaskLock.unlock()
+            {{i}}    _sbwRegisterTask(task, _entry)
             {{i}}    _entry.task = Task {
             {{i}}        defer {
-            {{i}}            _sbwTaskLock.lock()
-            {{i}}            _sbwActiveTasks.removeValue(forKey: task)
-            {{i}}            _sbwTaskLock.unlock()
+            {{i}}            _sbwUnregisterTask(task)
             {{i}}        }
             {{i}}        do {
             {{i}}            {{resultAssign}}try await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(

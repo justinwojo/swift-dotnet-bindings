@@ -106,14 +106,10 @@ public class AsyncProjection : ITypeProjection
         }
         sb.AppendLine($"    _ task: Int64) {{");
         sb.AppendLine($"    let _entry = _SBWTaskEntry()");
-        sb.AppendLine($"    _sbwTaskLock.lock()");
-        sb.AppendLine($"    _sbwActiveTasks[task] = _entry");
-        sb.AppendLine($"    _sbwTaskLock.unlock()");
+        sb.AppendLine($"    _sbwRegisterTask(task, _entry)");
         sb.AppendLine($"    _entry.task = Task {{");
         sb.AppendLine($"        defer {{");
-        sb.AppendLine($"            _sbwTaskLock.lock()");
-        sb.AppendLine($"            _sbwActiveTasks.removeValue(forKey: task)");
-        sb.AppendLine($"            _sbwTaskLock.unlock()");
+        sb.AppendLine($"            _sbwUnregisterTask(task)");
         sb.AppendLine($"        }}");
 
         if (_throws)

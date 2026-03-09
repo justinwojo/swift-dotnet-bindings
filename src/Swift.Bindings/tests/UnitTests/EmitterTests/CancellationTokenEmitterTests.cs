@@ -76,6 +76,22 @@ public class CancellationTokenEmitterTests
     }
 
     [Fact]
+    public void EmitIfNeeded_EmitsAsyncSafeHelperFunctions()
+    {
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var writer = new SwiftWriter(sw);
+
+        CancellationTaskEmitter.EmitIfNeeded(writer, "TestModule", ctx);
+        var output = sw.ToString();
+
+        // Helper functions wrap NSLock operations so they can be safely called
+        // from async contexts (Swift 6 marks NSLock.lock/unlock as @available(*, noasync))
+        Assert.Contains("private func _sbwRegisterTask(_ taskId: Int64, _ entry: _SBWTaskEntry)", output);
+        Assert.Contains("private func _sbwUnregisterTask(_ taskId: Int64)", output);
+    }
+
+    [Fact]
     public void GetCancelSymbolName_ReturnsModuleSpecificName()
     {
         Assert.Equal("SBW_CancelTask_Nuke", CancellationTaskEmitter.GetCancelSymbolName("Nuke"));
@@ -164,14 +180,16 @@ public class CancellationTokenEmitterTests
     public void AsyncWrapper_StoresEntryInDictionary()
     {
         var (_, swiftOutput) = GenerateAsyncMethod();
-        Assert.Contains("_sbwActiveTasks[task] = _entry", swiftOutput);
+        // Uses helper function instead of direct lock/unlock (Swift 6 async safety)
+        Assert.Contains("_sbwRegisterTask(task, _entry)", swiftOutput);
     }
 
     [Fact]
     public void AsyncWrapper_DefersRemovalFromDictionary()
     {
         var (_, swiftOutput) = GenerateAsyncMethod();
-        Assert.Contains("_sbwActiveTasks.removeValue(forKey: task)", swiftOutput);
+        // Uses helper function instead of direct lock/unlock (Swift 6 async safety)
+        Assert.Contains("_sbwUnregisterTask(task)", swiftOutput);
         Assert.Contains("defer {", swiftOutput);
     }
 

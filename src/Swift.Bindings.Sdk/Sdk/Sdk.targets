@@ -466,14 +466,36 @@ done"
   <!-- Target 7b: Configure NuGet pack layout                                 -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_ConfigureSwiftBindingPack"
-          BeforeTargets="GenerateNuspec"
+          BeforeTargets="_GetPackageFiles"
           DependsOnTargets="_ImportSwiftBindingMetadata"
           Condition="'$(IsPackable)' == 'true' AND '@(SwiftFramework)' != ''">
+
+    <!--
+      Compute a version-qualified TFM for NuGet pack paths.
+      NuGet NU1012 requires platform version in framework-specific PackagePath entries
+      (e.g. buildTransitive/net10.0-ios26.0/, not buildTransitive/net10.0-ios/).
+      If the user specified a versionless TFM (e.g. net10.0-ios), the .NET SDK still
+      resolves $(TargetPlatformVersion) from the installed workload. We detect the
+      versionless form by checking if $(TargetFramework) ends with the bare platform
+      identifier, and append the resolved version if so.
+    -->
+    <PropertyGroup>
+      <_SwiftBindingPackTfm>$(TargetFramework)</_SwiftBindingPackTfm>
+      <_SwiftBindingPackTfm
+          Condition="'$(TargetPlatformVersion)' != ''
+                     AND $(TargetFramework.EndsWith('$(_SwiftBindingPlatform)'))">$(TargetFramework)$(TargetPlatformVersion)</_SwiftBindingPackTfm>
+    </PropertyGroup>
+
+    <!-- Fail fast if we can't resolve a versioned TFM for pack -->
+    <Error Condition="$(TargetFramework.EndsWith('$(_SwiftBindingPlatform)'))
+                      AND '$(TargetPlatformVersion)' == ''"
+           Code="SWIFTBIND035"
+           Text="Cannot resolve platform version for NuGet pack. Specify a versioned TargetFramework (e.g. net10.0-ios26.0) or install the corresponding platform workload." />
 
     <!-- Arrange NuGet pack layout -->
     <ItemGroup>
       <None Include="$(_SwiftBindingIntermediateDir)$(PackageId).targets"
-            Pack="true" PackagePath="buildTransitive/$(TargetFramework)/"
+            Pack="true" PackagePath="buildTransitive/$(_SwiftBindingPackTfm)/"
             Condition="Exists('$(_SwiftBindingIntermediateDir)$(PackageId).targets')" />
       <None Include="%(SwiftFramework.Identity)/**"
             Pack="true"
@@ -484,7 +506,7 @@ done"
             Condition="'$(_SwiftBindingHasWrapperXCFramework)' == 'True'" />
       <!-- Module database for cross-module type resolution in downstream binding projects -->
       <None Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingModuleName)Database.xml"
-            Pack="true" PackagePath="buildTransitive/$(TargetFramework)/"
+            Pack="true" PackagePath="buildTransitive/$(_SwiftBindingPackTfm)/"
             Condition="Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingModuleName)Database.xml')" />
     </ItemGroup>
   </Target>

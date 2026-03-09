@@ -11,6 +11,7 @@ namespace BindingsGeneration;
 /// </summary>
 /// <remarks>
 /// Swift side: _SBWTaskEntry holder class, dictionary keyed by task Int64 (GCHandle), NSLock,
+/// synchronous register/unregister helpers (async-safe in Swift 6),
 /// and @_cdecl cancel function that looks up and cancels the Swift Task.
 /// C# side: SBW_CancelTask P/Invoke, deduped per C# type.
 /// </remarks>
@@ -18,7 +19,8 @@ public static class CancellationTaskEmitter
 {
     /// <summary>
     /// Emits the Swift cancel infrastructure if not already emitted for this module.
-    /// Includes: _SBWTaskEntry class, _sbwActiveTasks dictionary, _sbwTaskLock, and @_cdecl cancel function.
+    /// Includes: _SBWTaskEntry class, _sbwActiveTasks dictionary, _sbwTaskLock,
+    /// _sbwRegisterTask/_sbwUnregisterTask helpers (async-safe), and @_cdecl cancel function.
     /// </summary>
     /// <param name="swiftWriter">The Swift writer to emit to.</param>
     /// <param name="moduleName">The module name for symbol namespacing.</param>
@@ -40,6 +42,21 @@ public static class CancellationTaskEmitter
             }
             private var _sbwActiveTasks: [Int64: _SBWTaskEntry] = [:]
             private let _sbwTaskLock = NSLock()
+
+            // Synchronous helpers — safe to call from async contexts (Swift 6).
+            // NSLock.lock()/unlock() are @available(*, noasync) so direct calls
+            // inside Task {} are errors in the Swift 6 language mode.
+            private func _sbwRegisterTask(_ taskId: Int64, _ entry: _SBWTaskEntry) {
+                _sbwTaskLock.lock()
+                _sbwActiveTasks[taskId] = entry
+                _sbwTaskLock.unlock()
+            }
+
+            private func _sbwUnregisterTask(_ taskId: Int64) {
+                _sbwTaskLock.lock()
+                _sbwActiveTasks.removeValue(forKey: taskId)
+                _sbwTaskLock.unlock()
+            }
 
             @_cdecl("{{symbolName}}")
             public func _sbw_cancelTask(_ taskId: Int64) {

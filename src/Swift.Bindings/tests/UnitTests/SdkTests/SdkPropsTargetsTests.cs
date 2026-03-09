@@ -319,10 +319,37 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void Targets_ConfiguresPackLayout()
         {
-            // Pack paths are now dynamic based on platform
-            Assert.Contains("buildTransitive/$(TargetFramework)/", TargetsContent);
+            // Pack paths use _SwiftBindingPackTfm (version-qualified) not raw $(TargetFramework)
+            Assert.Contains("buildTransitive/$(_SwiftBindingPackTfm)/", TargetsContent);
             Assert.Contains("runtimes/$(_SwiftBindingNuGetRid)/native/", TargetsContent);
-            Assert.Contains("GenerateNuspec", TargetsContent);
+            // Pack target runs before _GetPackageFiles (not GenerateNuspec) so items are
+            // collected before NuGet freezes the file list
+            Assert.Contains("_GetPackageFiles", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_PackTargetRunsBeforeGetPackageFiles()
+        {
+            // Critical: _ConfigureSwiftBindingPack must run before _GetPackageFiles,
+            // not GenerateNuspec. NuGet's pack pipeline collects None items during
+            // _GetPackageFiles (a DependsOnTargets of GenerateNuspec), which runs
+            // before any BeforeTargets="GenerateNuspec" targets fire. Without this,
+            // native xcframeworks and .targets files are added too late and missing
+            // from the .nupkg.
+            Assert.Contains("BeforeTargets=\"_GetPackageFiles\"", TargetsContent);
+            Assert.DoesNotContain("BeforeTargets=\"GenerateNuspec\"", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_PackTfmResolvesVersionFromWorkload()
+        {
+            // _SwiftBindingPackTfm is computed inside _ConfigureSwiftBindingPack
+            // to handle versionless TFMs (net10.0-ios -> net10.0-ios26.0).
+            // NuGet NU1012 requires platform-versioned paths for framework-specific content.
+            Assert.Contains("_SwiftBindingPackTfm", TargetsContent);
+            Assert.Contains("TargetPlatformVersion", TargetsContent);
+            // SWIFTBIND035 fires if version can't be resolved
+            Assert.Contains("SWIFTBIND035", TargetsContent);
         }
 
         [Fact]
@@ -498,7 +525,8 @@ namespace BindingsGeneration.Tests
         public void Targets_PackLayoutIncludesModuleDatabase()
         {
             Assert.Contains("Database.xml", TargetsContent);
-            Assert.Contains("buildTransitive/$(TargetFramework)/", TargetsContent);
+            // Pack paths use _SwiftBindingPackTfm (version-qualified) not raw $(TargetFramework)
+            Assert.Contains("buildTransitive/$(_SwiftBindingPackTfm)/", TargetsContent);
         }
 
         [Fact]
