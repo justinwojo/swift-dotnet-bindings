@@ -115,10 +115,15 @@ jobs:
           fi
           echo "All must-pass features passing."
 
-      - name: Run runtime tests
+      - name: Run runtime tests (iOS)
         run: >
           cd TestFramework &&
           ./run-runtime-tests.sh --tier 2 --timeout 90 --safe-only --skip-regen
+
+      - name: Run runtime tests (macOS)
+        run: >
+          cd TestFramework &&
+          ./run-runtime-tests.sh --platform macos --tier 2 --timeout 90 --safe-only
 
   # --- Release ---
 

@@ -125,6 +125,15 @@ platform_to_runtime_tfm() {
     esac
 }
 
+platform_to_package_suffix() {
+    case "${1:-ios}" in
+        macos) echo "macOS" ;;
+        tvos) echo "tvOS" ;;
+        maccatalyst) echo "MacCatalyst" ;;
+        *) echo "iOS" ;;
+    esac
+}
+
 write_fallback_csproj() {
     local outdir="$1"
     local platform="${2:-ios}"
@@ -400,10 +409,12 @@ process_target() {
         return
     fi
 
-    # Find .csproj to compile — prefer .Swift.iOS.csproj for mixed frameworks
+    # Find .csproj to compile — prefer platform-specific .Swift.{Platform}.csproj for mixed frameworks
     local CSPROJ_FILE=""
-    if ls "$outdir"/*.Swift.iOS.csproj >/dev/null 2>&1; then
-        CSPROJ_FILE=$(ls "$outdir"/*.Swift.iOS.csproj | head -1)
+    local pkg_suffix
+    pkg_suffix=$(platform_to_package_suffix "$platform")
+    if ls "$outdir"/*.Swift.${pkg_suffix}.csproj >/dev/null 2>&1; then
+        CSPROJ_FILE=$(ls "$outdir"/*.Swift.${pkg_suffix}.csproj | head -1)
     elif ls "$outdir"/*.csproj >/dev/null 2>&1; then
         CSPROJ_FILE=$(ls "$outdir"/*.csproj | grep -v 'Test.csproj\|_dep_test.csproj' | head -1)
     fi
@@ -595,10 +606,14 @@ import json
 libs = json.load(open('$MANIFEST'))['libraries']
 dep_map = {}
 for lib in libs:
+    platforms = lib.get('platforms', ['ios'])
     for prod in lib['products']:
         deps = prod.get('dependencies', [])
         if deps:
-            dep_map[prod['framework']] = deps
+            for plat in platforms:
+                target = prod['framework'] if plat == 'ios' else f\"{prod['framework']}@{plat}\"
+                dep_targets = [d if plat == 'ios' else f'{d}@{plat}' for d in deps]
+                dep_map[target] = dep_targets
 def closure(fw, seen=None):
     if seen is None:
         seen = set()
@@ -623,8 +638,6 @@ done
 if [[ -n "$DEP_CLOSURES" ]]; then
     echo ""
     echo -e "${BOLD}--- Dependency Gate ---${NC}"
-
-    RUNTIME_DLL="$SCRIPT_DIR/src/Swift.Runtime/src/bin/Debug/net10.0-ios/Swift.Runtime.dll"
 
     # Collect libraries needing dep gate processing (newline-separated, bash 3.2 compatible)
     DEP_PENDING=""
@@ -660,7 +673,11 @@ if [[ -n "$DEP_CLOSURES" ]]; then
             IFS=',' read -ra DEPS <<< "$dep_list"
             for dep in "${DEPS[@]}"; do
                 dep_dll=""
-                for dll_name in "$dep.dll" "$dep.Swift.iOS.dll" "Test.dll"; do
+                dep_base="${dep%%@*}"
+                dep_plat="ios"
+                [[ "$dep" == *"@"* ]] && dep_plat="${dep##*@}"
+                dep_pkg_suffix=$(platform_to_package_suffix "$dep_plat")
+                for dll_name in "${dep_base}.dll" "${dep_base}.Swift.${dep_pkg_suffix}.dll" "Test.dll"; do
                     dep_dll=$(find "$OUTPUT_BASE/$dep/bin" -name "$dll_name" 2>/dev/null | grep -v 'Swift.Runtime.dll' | head -1)
                     [[ -n "$dep_dll" && -f "$dep_dll" ]] && break
                     dep_dll=""
@@ -680,6 +697,18 @@ if [[ -n "$DEP_CLOSURES" ]]; then
                 continue
             fi
 
+            # Resolve platform-specific settings for this dep target
+            dep_platform="ios"
+            dep_fw_base="$dep_fw"
+            if [[ "$dep_fw" == *"@"* ]]; then
+                dep_platform="${dep_fw##*@}"
+                dep_fw_base="${dep_fw%%@*}"
+            fi
+            dep_tfm=$(platform_to_tfm "$dep_platform")
+            dep_min_os=$(platform_to_min_os "$dep_platform")
+            dep_runtime_tfm=$(platform_to_runtime_tfm "$dep_platform")
+            DEP_RUNTIME_DLL="$SCRIPT_DIR/src/Swift.Runtime/src/bin/Debug/$dep_runtime_tfm/Swift.Runtime.dll"
+
             # Create dep test csproj with AssemblyName so DLL is findable by later rounds
             local_cs_basename=$(basename "$local_cs")
             DEP_CSPROJ="$dep_outdir/_dep_test.csproj"
@@ -687,19 +716,19 @@ if [[ -n "$DEP_CLOSURES" ]]; then
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Library</OutputType>
-    <TargetFramework>net10.0-ios</TargetFramework>
-    <SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
+    <TargetFramework>$dep_tfm</TargetFramework>
+    <SupportedOSPlatformVersion>$dep_min_os</SupportedOSPlatformVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Nullable>enable</Nullable>
     <NoWarn>0169;CA1420</NoWarn>
-    <AssemblyName>$dep_fw</AssemblyName>
+    <AssemblyName>$dep_fw_base</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.DisableRuntimeMarshallingAttribute" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="Swift.Runtime">
-      <HintPath>$RUNTIME_DLL</HintPath>
+      <HintPath>$DEP_RUNTIME_DLL</HintPath>
     </Reference>$FOUND_REFS
   </ItemGroup>
   <ItemGroup>
