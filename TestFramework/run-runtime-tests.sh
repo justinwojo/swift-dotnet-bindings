@@ -29,6 +29,7 @@ SKIP_REGEN=false
 TIMEOUT=90
 CLASS_FILTER=""
 SAFE_ONLY=false
+DEVICE_UDID=""
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -57,9 +58,13 @@ while [[ $# -gt 0 ]]; do
             SAFE_ONLY=true
             shift
             ;;
+        --device-udid)
+            DEVICE_UDID="$2"
+            shift 2
+            ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: ./run-runtime-tests.sh [--platform ios|macos] [--tier 1|2|3] [--skip-regen] [--timeout SECONDS] [--class ClassName] [--safe-only]"
+            echo "Usage: ./run-runtime-tests.sh [--platform ios|macos] [--tier 1|2|3] [--skip-regen] [--timeout SECONDS] [--class ClassName] [--safe-only] [--device-udid UDID]"
             exit 1
             ;;
     esac
@@ -347,7 +352,12 @@ BUNDLE_ID="com.swiftbindings.runtimetestsapp"
 CRASH_LOG_DIR="$HOME/Library/Logs/DiagnosticReports"
 
 # Ensure a simulator is booted
-BOOTED_UDID=$(xcrun simctl list devices booted -j 2>/dev/null | python3 -c "
+if [ -n "$DEVICE_UDID" ]; then
+    # CI provides a pre-booted device via --device-udid
+    echo "Using pre-booted simulator: $DEVICE_UDID"
+else
+    # Local: check for already-booted sim, or find and boot one
+    DEVICE_UDID=$(xcrun simctl list devices booted -j 2>/dev/null | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
 for runtime, devices in data.get('devices', {}).items():
@@ -357,12 +367,11 @@ for runtime, devices in data.get('devices', {}).items():
 sys.exit(1)
 " 2>/dev/null) || true
 
-if [ -z "$BOOTED_UDID" ]; then
-    echo "No booted simulator found. Searching for an iPhone simulator to boot..."
-    DEVICE_UDID=$(xcrun simctl list devices available -j 2>/dev/null | python3 -c "
+    if [ -z "$DEVICE_UDID" ]; then
+        echo "No booted simulator found. Searching for an iPhone simulator to boot..."
+        DEVICE_UDID=$(xcrun simctl list devices available -j 2>/dev/null | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
-# Prefer specific models for deterministic behavior, fall back to any iPhone
 preferred = ['iPhone 16', 'iPhone 15 Pro', 'iPhone 15']
 candidates = []
 for runtime, devices in data.get('devices', {}).items():
@@ -380,23 +389,26 @@ if candidates:
 sys.exit(1)
 " 2>/dev/null) || true
 
-    if [ -z "$DEVICE_UDID" ]; then
-        echo "ERROR: No available iPhone simulator found. Install one via Xcode."
-        exit 1
-    fi
+        if [ -z "$DEVICE_UDID" ]; then
+            echo "ERROR: No available iPhone simulator found. Install one via Xcode."
+            exit 1
+        fi
 
-    echo "Booting simulator $DEVICE_UDID..."
-    xcrun simctl boot "$DEVICE_UDID"
-    echo "Waiting for simulator to finish booting..."
-    xcrun simctl bootstatus "$DEVICE_UDID" -b
-    echo "Simulator booted."
+        echo "Booting simulator $DEVICE_UDID..."
+        xcrun simctl boot "$DEVICE_UDID"
+        echo "Waiting for simulator to finish booting..."
+        xcrun simctl bootstatus "$DEVICE_UDID" -b
+        echo "Simulator booted."
+    else
+        echo "Using already-booted simulator: $DEVICE_UDID"
+    fi
 fi
 
 # Record crash log count before running
 BEFORE_CRASH_COUNT=$(ls -1 "$CRASH_LOG_DIR"/RuntimeTestsApp*.ips 2>/dev/null | wc -l || echo 0)
 
 echo "Installing app..."
-xcrun simctl install booted "$APP_PATH"
+xcrun simctl install "$DEVICE_UDID" "$APP_PATH"
 
 # Build launch arguments
 LAUNCH_ARGS="--tier $TIER"
@@ -414,7 +426,7 @@ fi
 echo "Launching app (timeout: ${TIMEOUT}s)..."
 OUTPUT_FILE=$(mktemp)
 trap 'rm -f "$OUTPUT_FILE"' EXIT
-xcrun simctl launch --console --terminate-running-process booted "$BUNDLE_ID" $LAUNCH_ARGS > "$OUTPUT_FILE" 2>&1 &
+xcrun simctl launch --console --terminate-running-process "$DEVICE_UDID" "$BUNDLE_ID" $LAUNCH_ARGS > "$OUTPUT_FILE" 2>&1 &
 PID=$!
 
 # Poll for success, failure, or crash markers
@@ -456,7 +468,7 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
 done
 
 # Terminate the app
-xcrun simctl terminate booted "$BUNDLE_ID" 2>/dev/null || true
+xcrun simctl terminate "$DEVICE_UDID" "$BUNDLE_ID" 2>/dev/null || true
 kill $PID 2>/dev/null || true
 
 # Check for new crash logs (catches crashes the output markers might miss)

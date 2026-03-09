@@ -191,7 +191,7 @@ public partial class ProtocolProxyEmitter
             writer.WriteLine($"[Obsolete(\"This member is not dispatchable to Swift{reasonSuffix} NotSupportedException \" +");
             writer.WriteLine("    \"on Swift-backed existential containers (SB0003).\",");
             writer.WriteLine("    DiagnosticId = \"SB0003\",");
-            writer.WriteLine("    UrlFormat = \"https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md\")]");
+            writer.WriteLine("    UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md\")]");
         }
 
         writer.WriteLine($"public {csharpTypeName} {propertyName}");
@@ -445,7 +445,7 @@ public partial class ProtocolProxyEmitter
         writer.WriteLine("[Obsolete(\"This member is not dispatchable to Swift: subscript dispatch is not yet implemented. \" +");
         writer.WriteLine("    \"Throws NotSupportedException on Swift-backed existential containers (SB0003).\",");
         writer.WriteLine("    DiagnosticId = \"SB0003\",");
-        writer.WriteLine("    UrlFormat = \"https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md\")]");
+        writer.WriteLine("    UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md\")]");
 
         writer.WriteLine($"public {returnTypeName} this[{parametersString}]");
         writer.WriteLine("{");
@@ -666,7 +666,7 @@ public partial class ProtocolProxyEmitter
             writer.WriteLine($"[Obsolete(\"This member is not dispatchable to Swift{reasonSuffix} NotSupportedException \" +");
             writer.WriteLine("    \"on Swift-backed existential containers (SB0003).\",");
             writer.WriteLine("    DiagnosticId = \"SB0003\",");
-            writer.WriteLine("    UrlFormat = \"https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md\")]");
+            writer.WriteLine("    UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md\")]");
         }
 
         writer.WriteLine($"public {returnTypeName} {methodName}({parametersString})");
@@ -1684,7 +1684,7 @@ public partial class ProtocolProxyEmitter
 
         writer.WriteLine("[Obsolete(\"This member has closure parameters that cannot be marshalled in protocol proxy (SB0003).\",");
         writer.WriteLine("    DiagnosticId = \"SB0003\",");
-        writer.WriteLine("    UrlFormat = \"https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md\")]");
+        writer.WriteLine("    UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md\")]");
         writer.WriteLine($"public {csharpTypeName} {propertyName}");
         writer.WriteLine("{");
         writer.Indent++;
@@ -1772,7 +1772,7 @@ public partial class ProtocolProxyEmitter
 
         writer.WriteLine($"[Obsolete(\"{reason} (SB0003)\",");
         writer.WriteLine("    DiagnosticId = \"SB0003\",");
-        writer.WriteLine("    UrlFormat = \"https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md\")]");
+        writer.WriteLine("    UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md\")]");
         writer.WriteLine($"public {returnTypeName} {methodName}({parametersString})");
         writer.WriteLine("{");
         writer.Indent++;

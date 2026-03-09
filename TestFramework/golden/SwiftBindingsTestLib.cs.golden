@@ -51,7 +51,7 @@ namespace SwiftBindingsTestLib
         
         
         
-        [Obsolete("P/Invoke entry point not exported by the library. This method will throw EntryPointNotFoundException at runtime.", DiagnosticId = "SB0002", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("P/Invoke entry point not exported by the library. This method will throw EntryPointNotFoundException at runtime.", DiagnosticId = "SB0002", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Creates a SpikeBox containing an Int value.
         /// </summary>
@@ -77,7 +77,7 @@ namespace SwiftBindingsTestLib
         private static partial System.IntPtr PInvoke_SBW_Spike_createIntBox_0E161583( nint value);
         
         
-        [Obsolete("P/Invoke entry point not exported by the library. This method will throw EntryPointNotFoundException at runtime.", DiagnosticId = "SB0002", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("P/Invoke entry point not exported by the library. This method will throw EntryPointNotFoundException at runtime.", DiagnosticId = "SB0002", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Releases a retained SpikeBox.
         /// </summary>
@@ -103,7 +103,7 @@ namespace SwiftBindingsTestLib
         private static partial void PInvoke_SBW_Spike_releaseBox_004CD96B( System.IntPtr ptr);
         
         
-        [Obsolete("P/Invoke entry point not exported by the library. This method will throw EntryPointNotFoundException at runtime.", DiagnosticId = "SB0002", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("P/Invoke entry point not exported by the library. This method will throw EntryPointNotFoundException at runtime.", DiagnosticId = "SB0002", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Creates an NSError from a C string message. Used by C# callbacks to propagate errors.
         /// </summary>
@@ -129,7 +129,7 @@ namespace SwiftBindingsTestLib
         private static partial System.IntPtr PInvoke_SBW_Spike_createError_0D1C3499( System.IntPtr message);
         
         
-        [Obsolete("P/Invoke entry point not exported by the library. This method will throw EntryPointNotFoundException at runtime.", DiagnosticId = "SB0002", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("P/Invoke entry point not exported by the library. This method will throw EntryPointNotFoundException at runtime.", DiagnosticId = "SB0002", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Gets the error description as a C string (caller must free with free()).
         /// </summary>
@@ -158,7 +158,7 @@ namespace SwiftBindingsTestLib
         private static partial IntPtr PInvoke_SBW_Spike_getErrorDescription_EBAC97BB( System.IntPtr errorPtr);
         
         
-        [Obsolete("P/Invoke entry point not exported by the library. This method will throw EntryPointNotFoundException at runtime.", DiagnosticId = "SB0002", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("P/Invoke entry point not exported by the library. This method will throw EntryPointNotFoundException at runtime.", DiagnosticId = "SB0002", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Releases an error object.
         /// </summary>
@@ -6533,7 +6533,7 @@ namespace SwiftBindingsTestLib
         private static partial void PInvoke_init_48EE6ACF( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer first,  Swift.SwiftString.Buffer second);
         
         
-        [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         public string GetJoined()
         {
             unsafe
@@ -8695,7 +8695,7 @@ namespace SwiftBindingsTestLib
             return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
         }
         
-        [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Method on an enum.
         /// </summary>
@@ -9591,7 +9591,7 @@ namespace SwiftBindingsTestLib
         private static partial void PInvoke_init_E497DD71( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer name,  Swift.SwiftString.Buffer sound);
         
         
-        [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Instance method.
         /// </summary>
@@ -9627,7 +9627,7 @@ namespace SwiftBindingsTestLib
         private static partial Swift.SwiftString.Buffer PInvoke_speak_53396897( SwiftSelf self);
         
         
-        [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Method that can be overridden.
         /// </summary>
@@ -9835,7 +9835,7 @@ namespace SwiftBindingsTestLib
         private static partial void PInvoke_init_87F7C61F( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer name,  Swift.SwiftString.Buffer breed);
         
         
-        [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true). P/Invoke entry point not exported by the library. This method will throw EntryPointNotFoundException at runtime.", DiagnosticId = "SB0001", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true). P/Invoke entry point not exported by the library. This method will throw EntryPointNotFoundException at runtime.", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Overridden method.
         /// </summary>
@@ -9871,7 +9871,7 @@ namespace SwiftBindingsTestLib
         private static partial Swift.SwiftString.Buffer PInvoke_describe_95FA0440( SwiftSelf self);
         
         
-        [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Subclass-specific method.
         /// </summary>
@@ -13521,7 +13521,7 @@ public int GetTagCount()
 private static partial int PInvoke_tagCount_36244E7E( SwiftSelf<BatchConfig.Buffer> self);
 
 
-[Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+[Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
 /// <summary>
 /// Returns the effective name for display.
 /// </summary>
@@ -13788,7 +13788,7 @@ public partial class ValueAnimal : Animal, ISwiftObject, IHasValue
     private static partial void PInvoke_setValue_DFA70206( int newValue,  SwiftSelf self);
     
     
-    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     /// <summary>
     /// Summary combining inherited and own properties.
     /// </summary>
@@ -14374,7 +14374,7 @@ public partial class EventHandler : ISwiftObject, IDisposable
         return (byte)(del(arg0) ? 1 : 0);
     }
     
-    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     public EventHandler( string label,  Func<int, bool>? onComplete)
     {
         unsafe
@@ -19199,7 +19199,7 @@ public partial class AsyncTask : ISwiftObject, IDisposable
     private static partial void PInvoke_init_1D27DC74( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer taskId);
     
     
-    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     public virtual string GetDescription()
     {
         unsafe
@@ -24076,7 +24076,7 @@ public partial class MainActorMethods : ISwiftObject, IDisposable
     private static partial void PInvoke_init_E3F8BBCE( SwiftIndirectResult swiftIndirectResult,  int value);
     
     
-    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     /// <summary>
     /// Method isolated to the main actor.
     /// </summary>
@@ -24112,7 +24112,7 @@ public partial class MainActorMethods : ISwiftObject, IDisposable
     private static partial Swift.SwiftString.Buffer PInvoke_mainActorMethod_AA83CAC4( SwiftSelf self);
     
     
-    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     /// <summary>
     /// Non-isolated method for comparison.
     /// </summary>
@@ -25658,7 +25658,7 @@ public partial class Counter : ISwiftObject, IDisposable
     private static partial int PInvoke_add_236B8DA2( int amount,  SwiftSelf self);
     
     
-    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     /// <summary>
     /// Nonisolated method — does not access actor state.
     /// </summary>
@@ -27011,7 +27011,7 @@ public partial class SendableConfig : ISwiftObject, IDisposable
     private static partial void PInvoke_init_139AE5F5( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer name,  int maxRetries);
     
     
-    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     /// <summary>
     /// Returns a description of this config.
     /// </summary>
@@ -32873,7 +32873,7 @@ public OptionalConfig( string? label,  int? count,  string fallbackLabel)
 private static partial SwiftBindingsTestLib.OptionalConfig.Buffer PInvoke_init_827AD6A1( IntPtr labelBuffer,  IntPtr countBuffer,  Swift.SwiftString.Buffer fallbackLabel);
 
 
-[Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+[Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
 /// <summary>
 /// Returns the effective label (label or fallbackLabel).
 /// </summary>
@@ -33094,7 +33094,7 @@ public partial class PointerWorker : ISwiftObject, IDisposable
     private static partial void PInvoke_init_258B9F1B( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer label);
     
     
-    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     /// <summary>
     /// Reads the value at the pointer and returns a description.
     /// </summary>
@@ -33344,7 +33344,7 @@ public partial class RawMemoryWorker : ISwiftObject, IDisposable
     private static partial void PInvoke_init_4D77CC98( SwiftIndirectResult swiftIndirectResult,  int alignment);
     
     
-    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     /// <summary>
     /// Reads an Int32 from the raw pointer and returns a description.
     /// </summary>
@@ -33565,7 +33565,7 @@ public partial class HandleWrapper : ISwiftObject, IDisposable
     private static partial void PInvoke_init_35BA0B53( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer name);
     
     
-    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     /// <summary>
     /// Returns a description of the handle wrapper with the pointer's validity.
     /// </summary>
@@ -34441,7 +34441,7 @@ public partial class SimpleItem : ISwiftObject, IDisposable
     private static partial void PInvoke_init_DF9660A7( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer id,  Swift.SwiftString.Buffer label);
     
     
-    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     public string GetDescribe()
     {
         unsafe
@@ -34909,7 +34909,7 @@ public partial class DisplayItem : ISwiftObject, IDisposable, IDisplayable
     private static partial void PInvoke_init_9431CF09( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer text);
     
     
-    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     public string GetDescribe()
     {
         unsafe
@@ -34942,7 +34942,7 @@ public partial class DisplayItem : ISwiftObject, IDisposable, IDisplayable
     private static partial Swift.SwiftString.Buffer PInvoke_describe_4EA6D6C7( SwiftSelf self);
     
     
-    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     public string GetDisplay()
     {
         unsafe
@@ -37212,7 +37212,7 @@ public partial class EchoProcessor : ISwiftObject, IDisposable, IStringProcessor
     private static partial void PInvoke_init_0DD011CE( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer prefix);
     
     
-    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     /// <summary>
     /// Method taking String parameter.
     /// </summary>
@@ -37250,7 +37250,7 @@ public partial class EchoProcessor : ISwiftObject, IDisposable, IStringProcessor
     private static partial Swift.SwiftString.Buffer PInvoke_process_AD65EAFF( Swift.SwiftString.Buffer input,  SwiftSelf self);
     
     
-    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     /// <summary>
     /// Method returning String.
     /// </summary>
@@ -38581,7 +38581,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
     private static unsafe partial void PInvoke_init_80118581( void* s_initCallback_80118581,  void* s_initErrorCallback_80118581,  IntPtr handle,  Swift.SwiftString.Buffer key);
     
     
-    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     public virtual string GetKey()
     {
         unsafe
@@ -39109,7 +39109,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
         [Obsolete("This member is not dispatchable to Swift: return type 'τ_0_0' is not dispatchable. Throws NotSupportedException " +
             "on Swift-backed existential containers (SB0003).",
             DiagnosticId = "SB0003",
-            UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         public Swift.AnyType Add(Swift.AnyType other)
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
@@ -42710,7 +42710,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
         [Obsolete("This member is not dispatchable to Swift: property type 'SwiftBindingsTestLib.TaskPriority' is not dispatchable via witness table. Throws NotSupportedException " +
             "on Swift-backed existential containers (SB0003).",
             DiagnosticId = "SB0003",
-            UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         public SwiftBindingsTestLib.TaskPriority Priority
         {
             get
@@ -42975,7 +42975,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
         [Obsolete("This member is not dispatchable to Swift: property type 'SwiftBindingsTestLib.TaskPriority' is not dispatchable via witness table. Throws NotSupportedException " +
             "on Swift-backed existential containers (SB0003).",
             DiagnosticId = "SB0003",
-            UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         public SwiftBindingsTestLib.TaskPriority Priority
         {
             get
@@ -43290,7 +43290,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
         [Obsolete("This member is not dispatchable to Swift: property type 'SwiftBindingsTestLib.TaskStatus' is not dispatchable via witness table. Throws NotSupportedException " +
             "on Swift-backed existential containers (SB0003).",
             DiagnosticId = "SB0003",
-            UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         public SwiftBindingsTestLib.TaskStatus StatusProperty
         {
             get
@@ -43307,7 +43307,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
         [Obsolete("This member is not dispatchable to Swift: property type 'SwiftBindingsTestLib.TaskPriority' is not dispatchable via witness table. Throws NotSupportedException " +
             "on Swift-backed existential containers (SB0003).",
             DiagnosticId = "SB0003",
-            UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         public SwiftBindingsTestLib.TaskPriority Priority
         {
             get
@@ -43917,7 +43917,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
         [Obsolete("This member is not dispatchable to Swift: parameter 'arg0' has non-dispatchable type 'SwiftBindingsTestLib.TaskStatus'. Throws NotSupportedException " +
             "on Swift-backed existential containers (SB0003).",
             DiagnosticId = "SB0003",
-            UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         public void HandleStatus(SwiftBindingsTestLib.TaskStatus status)
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
@@ -43934,7 +43934,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
         [Obsolete("This member is not dispatchable to Swift: return type 'SwiftBindingsTestLib.TaskStatus' is not dispatchable. Throws NotSupportedException " +
             "on Swift-backed existential containers (SB0003).",
             DiagnosticId = "SB0003",
-            UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         public SwiftBindingsTestLib.TaskStatus GetCurrentStatus()
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
@@ -43948,7 +43948,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
         [Obsolete("This member is not dispatchable to Swift: return type 'SwiftBindingsTestLib.TaskStatus' is not dispatchable. Throws NotSupportedException " +
             "on Swift-backed existential containers (SB0003).",
             DiagnosticId = "SB0003",
-            UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         public SwiftBindingsTestLib.TaskStatus TransitionStatus(SwiftBindingsTestLib.TaskStatus from)
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
@@ -44225,7 +44225,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
         [Obsolete("This member is not dispatchable to Swift: parameter 'arg0' has non-dispatchable type 'SwiftBindingsTestLib.TaskPriority'. Throws NotSupportedException " +
             "on Swift-backed existential containers (SB0003).",
             DiagnosticId = "SB0003",
-            UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         public void SetPriority(SwiftBindingsTestLib.TaskPriority priority)
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
@@ -44242,7 +44242,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
         [Obsolete("This member is not dispatchable to Swift: return type 'SwiftBindingsTestLib.TaskPriority' is not dispatchable. Throws NotSupportedException " +
             "on Swift-backed existential containers (SB0003).",
             DiagnosticId = "SB0003",
-            UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         public SwiftBindingsTestLib.TaskPriority GetPriority()
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
@@ -44256,7 +44256,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
         [Obsolete("This member is not dispatchable to Swift: parameter 'than' has non-dispatchable type 'SwiftBindingsTestLib.TaskPriority'. Throws NotSupportedException " +
             "on Swift-backed existential containers (SB0003).",
             DiagnosticId = "SB0003",
-            UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         public bool IsHigherPriority(SwiftBindingsTestLib.TaskPriority other)
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
@@ -44507,7 +44507,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
         [Obsolete("This member is not dispatchable to Swift: parameter 'value' has non-dispatchable type 'any SwiftBindingsTestLib.HasValue'. Throws NotSupportedException " +
             "on Swift-backed existential containers (SB0003).",
             DiagnosticId = "SB0003",
-            UrlFormat = "https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         public void DidReceive(IHasValue value)
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
