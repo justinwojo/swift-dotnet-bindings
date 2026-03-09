@@ -11,13 +11,18 @@ public sealed record ObjCBindingProjectOptions
     public required string ModuleName { get; init; }
     public required string SourceXCFrameworkPath { get; init; }
     public string? PackageId { get; init; }
+    /// <summary>
+    /// Platform info for multi-platform support. Defaults to iOS if not specified.
+    /// </summary>
+    public PlatformInfo? PlatformInfo { get; init; }
 }
 
 public static class ObjCBindingProjectEmitter
 {
     public static string Emit(ObjCBindingProjectOptions options, ILogger logger)
     {
-        var packageId = options.PackageId ?? $"{options.ModuleName}.ObjC.iOS";
+        var pi = options.PlatformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
+        var packageId = options.PackageId ?? pi.GetDefaultObjCPackageId(options.ModuleName);
         var outputDirFull = Path.GetFullPath(options.OutputDirectory);
         var sourceXcfwFull = Path.GetFullPath(options.SourceXCFrameworkPath);
         // Use absolute path for NativeReference to avoid /tmp → /private/tmp symlink issues
@@ -30,7 +35,7 @@ public static class ObjCBindingProjectEmitter
         var content = $"""
             <Project Sdk="Microsoft.NET.Sdk">
               <PropertyGroup>
-                <TargetFramework>net10.0-ios</TargetFramework>
+                <TargetFramework>{pi.Tfm}</TargetFramework>
                 <Nullable>enable</Nullable>
                 <IsBindingProject>true</IsBindingProject>
                 <EnableDefaultCompileItems>false</EnableDefaultCompileItems>

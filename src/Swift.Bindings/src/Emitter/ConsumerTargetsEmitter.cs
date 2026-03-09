@@ -15,6 +15,10 @@ namespace BindingsGeneration
         public required string PackageId { get; init; }
         public required string EffectiveMinimumOSVersion { get; init; }
         public required bool HasWrapperXCFramework { get; init; }
+        /// <summary>
+        /// Platform info for multi-platform support. Defaults to iOS if not specified.
+        /// </summary>
+        public PlatformInfo? PlatformInfo { get; init; }
     }
 
     /// <summary>
@@ -29,13 +33,14 @@ namespace BindingsGeneration
         /// </summary>
         public static void Emit(ConsumerTargetsEmitterOptions options, ILogger logger)
         {
+            var pi = options.PlatformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
             var sanitized = SanitizeModuleName(options.ModuleName);
             var targetsPath = Path.Combine(options.OutputDirectory, $"{options.PackageId}.targets");
 
             var wrapperNativeRef = options.HasWrapperXCFramework
                 ? $"""
-                          <NativeReference Include="$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/{options.ModuleName}SwiftBindings.xcframework"
-                                           Condition="Exists('$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/{options.ModuleName}SwiftBindings.xcframework')">
+                          <NativeReference Include="$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{options.ModuleName}SwiftBindings.xcframework"
+                                           Condition="Exists('$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{options.ModuleName}SwiftBindings.xcframework')">
                             <Kind>Framework</Kind>
                           </NativeReference>
                 """
@@ -70,8 +75,8 @@ namespace BindingsGeneration
                       <_SwiftBinding_{sanitized}_Injected>true</_SwiftBinding_{sanitized}_Injected>
                     </PropertyGroup>
                     <ItemGroup>
-                      <NativeReference Include="$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/{options.ModuleName}.xcframework"
-                                       Condition="Exists('$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/{options.ModuleName}.xcframework')">
+                      <NativeReference Include="$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{options.ModuleName}.xcframework"
+                                       Condition="Exists('$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{options.ModuleName}.xcframework')">
                         <Kind>Framework</Kind>
                       </NativeReference>
                 {wrapperNativeRef}    </ItemGroup>
@@ -96,7 +101,7 @@ namespace BindingsGeneration
                   <!-- Platform version warning (SWIFTBIND010) -->
                   <Target Name="_Validate{sanitized}PlatformVersion" BeforeTargets="Build"
                           Condition="'$(SupportedOSPlatformVersion)' != '' AND $([System.Version]::Parse('$(SupportedOSPlatformVersion)').CompareTo($([System.Version]::Parse('{options.EffectiveMinimumOSVersion}')))) &lt; 0">
-                    <Warning Text="{options.PackageId} requires iOS {options.EffectiveMinimumOSVersion}+, but SupportedOSPlatformVersion is '$(SupportedOSPlatformVersion)'. Update your project's SupportedOSPlatformVersion to at least {options.EffectiveMinimumOSVersion}."
+                    <Warning Text="{options.PackageId} requires {pi.Platform} {options.EffectiveMinimumOSVersion}+, but SupportedOSPlatformVersion is '$(SupportedOSPlatformVersion)'. Update your project's SupportedOSPlatformVersion to at least {options.EffectiveMinimumOSVersion}."
                              Code="SWIFTBIND010" />
                   </Target>
                 </Project>

@@ -148,7 +148,8 @@ namespace BindingsGeneration
             string outputDirectory,
             XCFrameworkPlatformTarget platformTarget,
             ILogger logger,
-            ICommandRunner? commandRunner = null)
+            ICommandRunner? commandRunner = null,
+            PlatformInfo? platformInfo = null)
         {
             commandRunner ??= new SystemCommandRunner();
             xcframeworkPath = Path.GetFullPath(xcframeworkPath);
@@ -161,7 +162,7 @@ namespace BindingsGeneration
             var slices = ParseInfoPlist(plistPath);
 
             // 3. Select platform slice
-            var slice = SelectSlice(slices, platformTarget, logger);
+            var slice = SelectSlice(slices, platformTarget, logger, platformInfo);
 
             // 4. Detect static xcframework (LibraryPath without .framework)
             if (!slice.LibraryPath.Contains(".framework"))
@@ -234,7 +235,8 @@ namespace BindingsGeneration
             string xcframeworkPath,
             string outputDirectory,
             ILogger logger,
-            ICommandRunner? commandRunner = null)
+            ICommandRunner? commandRunner = null,
+            PlatformInfo? platformInfo = null)
         {
             commandRunner ??= new SystemCommandRunner();
             xcframeworkPath = Path.GetFullPath(xcframeworkPath);
@@ -244,24 +246,36 @@ namespace BindingsGeneration
             var plistPath = Path.Combine(xcframeworkPath, "Info.plist");
             var slices = ParseInfoPlist(plistPath);
 
+            var plistPlatform = platformInfo?.PlistPlatformString ?? "ios";
+            var isCatalyst = platformInfo?.Platform == ApplePlatform.MacCatalyst;
+
+            // For platforms without simulator (macOS, Catalyst), resolve device only
+            if (platformInfo != null && !platformInfo.HasSimulatorVariant)
+            {
+                var deviceResolution = Resolve(xcframeworkPath, outputDirectory,
+                    XCFrameworkPlatformTarget.Device, logger, commandRunner, platformInfo);
+                return (deviceResolution, null);
+            }
+
             // Always resolve simulator (primary)
-            var simSlice = slices.FirstOrDefault(s =>
-                s.SupportedPlatform.Equals("ios", StringComparison.OrdinalIgnoreCase) &&
+            var simSlice = isCatalyst ? null : slices.FirstOrDefault(s =>
+                s.SupportedPlatform.Equals(plistPlatform, StringComparison.OrdinalIgnoreCase) &&
                 string.Equals(s.SupportedPlatformVariant, "simulator", StringComparison.OrdinalIgnoreCase));
 
             if (simSlice == null)
             {
+                var platformName = platformInfo?.Platform.ToString() ?? "iOS";
                 throw new InvalidOperationException(
-                    "No iOS simulator slice found. The xcframework must contain a simulator slice for binding generation.");
+                    $"No {platformName} simulator slice found. The xcframework must contain a simulator slice for binding generation.");
             }
 
             var simResolution = Resolve(xcframeworkPath, outputDirectory,
-                XCFrameworkPlatformTarget.Simulator, logger, commandRunner);
+                XCFrameworkPlatformTarget.Simulator, logger, commandRunner, platformInfo);
 
             // Try to resolve device slice
-            XCFrameworkResolution? deviceResolution = null;
+            XCFrameworkResolution? deviceResolution2 = null;
             var deviceSlice = slices.FirstOrDefault(s =>
-                s.SupportedPlatform.Equals("ios", StringComparison.OrdinalIgnoreCase) &&
+                s.SupportedPlatform.Equals(plistPlatform, StringComparison.OrdinalIgnoreCase) &&
                 !string.Equals(s.SupportedPlatformVariant, "simulator", StringComparison.OrdinalIgnoreCase) &&
                 !string.Equals(s.SupportedPlatformVariant, "maccatalyst", StringComparison.OrdinalIgnoreCase));
 
@@ -269,8 +283,8 @@ namespace BindingsGeneration
             {
                 try
                 {
-                    deviceResolution = Resolve(xcframeworkPath, outputDirectory,
-                        XCFrameworkPlatformTarget.Device, logger, commandRunner);
+                    deviceResolution2 = Resolve(xcframeworkPath, outputDirectory,
+                        XCFrameworkPlatformTarget.Device, logger, commandRunner, platformInfo);
                 }
                 catch (Exception ex)
                 {
@@ -278,7 +292,7 @@ namespace BindingsGeneration
                 }
             }
 
-            return (simResolution, deviceResolution);
+            return (simResolution, deviceResolution2);
         }
 
         /// <summary>
@@ -298,7 +312,8 @@ namespace BindingsGeneration
         public static ObjCFrameworkResolution? ResolveObjCFramework(
             string xcframeworkPath,
             XCFrameworkPlatformTarget platformTarget,
-            ILogger logger)
+            ILogger logger,
+            PlatformInfo? platformInfo = null)
         {
             try
             {
@@ -306,7 +321,7 @@ namespace BindingsGeneration
                 ValidateXCFramework(xcframeworkPath);
                 var plistPath = Path.Combine(xcframeworkPath, "Info.plist");
                 var slices = ParseInfoPlist(plistPath);
-                var slice = SelectSlice(slices, platformTarget, logger);
+                var slice = SelectSlice(slices, platformTarget, logger, platformInfo);
 
                 var sliceDir = Path.Combine(xcframeworkPath, slice.LibraryIdentifier);
 
@@ -352,14 +367,15 @@ namespace BindingsGeneration
         public static ObjCFrameworkResolution? DetectMixedFrameworkObjC(
             XCFrameworkResolution swiftResolution,
             XCFrameworkPlatformTarget platformTarget,
-            ILogger logger)
+            ILogger logger,
+            PlatformInfo? platformInfo = null)
         {
             try
             {
                 var xcframeworkPath = swiftResolution.XCFrameworkPath;
                 var plistPath = Path.Combine(xcframeworkPath, "Info.plist");
                 var slices = ParseInfoPlist(plistPath);
-                var slice = SelectSlice(slices, platformTarget, logger);
+                var slice = SelectSlice(slices, platformTarget, logger, platformInfo);
 
                 var sliceDir = Path.Combine(xcframeworkPath, slice.LibraryIdentifier);
                 var modulesDir = Path.Combine(sliceDir, slice.LibraryPath, "Modules");
@@ -424,7 +440,8 @@ namespace BindingsGeneration
         public static IReadOnlyList<string> ResolveSiblingFrameworkSearchPaths(
             string xcframeworkPath,
             XCFrameworkPlatformTarget platformTarget,
-            ILogger logger)
+            ILogger logger,
+            PlatformInfo? platformInfo = null)
         {
             var paths = new List<string>();
             var parentDir = Path.GetDirectoryName(Path.GetFullPath(xcframeworkPath));
@@ -440,7 +457,7 @@ namespace BindingsGeneration
                     var plistPath = Path.Combine(siblingDir, "Info.plist");
                     if (!File.Exists(plistPath)) continue;
                     var slices = ParseInfoPlist(plistPath);
-                    var slice = SelectSlice(slices, platformTarget, logger);
+                    var slice = SelectSlice(slices, platformTarget, logger, platformInfo);
                     var sliceDir = Path.Combine(siblingDir, slice.LibraryIdentifier);
                     if (Directory.Exists(sliceDir))
                         paths.Add(sliceDir);
@@ -616,15 +633,33 @@ namespace BindingsGeneration
         internal static XCFrameworkSlice SelectSlice(
             List<XCFrameworkSlice> slices,
             XCFrameworkPlatformTarget platformTarget,
-            ILogger logger)
+            ILogger logger,
+            PlatformInfo? platformInfo = null)
         {
-            var iosSlices = slices.Where(s =>
-                s.SupportedPlatform.Equals("ios", StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(s.SupportedPlatformVariant, "maccatalyst", StringComparison.OrdinalIgnoreCase))
-                .ToList();
+            var plistPlatform = platformInfo?.PlistPlatformString ?? "ios";
+            var isCatalyst = platformInfo?.Platform == ApplePlatform.MacCatalyst;
 
-            if (iosSlices.Count == 0)
+            List<XCFrameworkSlice> platformSlices;
+            if (isCatalyst)
             {
+                // Mac Catalyst uses SupportedPlatform="ios" + SupportedPlatformVariant="maccatalyst"
+                platformSlices = slices.Where(s =>
+                    s.SupportedPlatform.Equals("ios", StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(s.SupportedPlatformVariant, "maccatalyst", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+            }
+            else
+            {
+                // Normal platforms: filter by PlistPlatformString, exclude maccatalyst
+                platformSlices = slices.Where(s =>
+                    s.SupportedPlatform.Equals(plistPlatform, StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(s.SupportedPlatformVariant, "maccatalyst", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+            }
+
+            if (platformSlices.Count == 0)
+            {
+                var platformName = platformInfo?.Platform.ToString() ?? "iOS";
                 var platforms = slices.Select(s =>
                 {
                     var p = s.SupportedPlatform;
@@ -633,11 +668,11 @@ namespace BindingsGeneration
                     return p;
                 }).Distinct();
                 throw new InvalidOperationException(
-                    $"No iOS platform slices found. Available platforms: {string.Join(", ", platforms)}.");
+                    $"No {platformName} platform slices found. Available platforms: {string.Join(", ", platforms)}.");
             }
 
             var preferSimulator = platformTarget == XCFrameworkPlatformTarget.Simulator;
-            var preferred = iosSlices.Where(s =>
+            var preferred = platformSlices.Where(s =>
                 preferSimulator
                     ? string.Equals(s.SupportedPlatformVariant, "simulator", StringComparison.OrdinalIgnoreCase)
                     : string.IsNullOrEmpty(s.SupportedPlatformVariant))
@@ -646,14 +681,15 @@ namespace BindingsGeneration
             if (preferred.Count > 0)
                 return preferred[0];
 
-            // Fallback: use whatever iOS slice is available
-            var fallback = iosSlices[0];
+            // Fallback: use whatever platform slice is available
+            var platformName2 = platformInfo?.Platform.ToString() ?? "iOS";
+            var fallback = platformSlices[0];
             var requestedKind = preferSimulator ? "simulator" : "device";
             var actualKind = string.IsNullOrEmpty(fallback.SupportedPlatformVariant)
                 ? "device" : fallback.SupportedPlatformVariant;
             logger.LogWarning(
-                "No iOS {Requested} slice found. Falling back to {Actual} slice '{Id}'.",
-                requestedKind, actualKind, fallback.LibraryIdentifier);
+                "No {Platform} {Requested} slice found. Falling back to {Actual} slice '{Id}'.",
+                platformName2, requestedKind, actualKind, fallback.LibraryIdentifier);
             return fallback;
         }
 
@@ -706,8 +742,8 @@ namespace BindingsGeneration
 
         internal static string? FindSwiftInterface(string swiftModuleDir, string selectedArch)
         {
-            // Prefer arch-specific swiftinterface
-            var archPattern = $"{selectedArch}-apple-ios*.swiftinterface";
+            // Search for any arch-specific swiftinterface (works across platforms: ios, macos, tvos, etc.)
+            var archPattern = $"{selectedArch}-apple-*.swiftinterface";
             var candidates = Directory.GetFiles(swiftModuleDir, archPattern)
                 .Where(f => !f.EndsWith(".private.swiftinterface", StringComparison.OrdinalIgnoreCase))
                 .OrderBy(f => f, StringComparer.Ordinal)
@@ -736,7 +772,7 @@ namespace BindingsGeneration
             ILogger logger)
         {
             // Try arch-specific ABI JSON first
-            var archPattern = $"{selectedArch}-apple-ios*.abi.json";
+            var archPattern = $"{selectedArch}-apple-*.abi.json";
             var candidates = Directory.GetFiles(swiftModuleDir, archPattern)
                 .OrderBy(f => f, StringComparer.Ordinal)
                 .ToList();
@@ -777,21 +813,27 @@ namespace BindingsGeneration
             string outputDirectory,
             ICommandRunner commandRunner)
         {
-            // Resolve SDK path
+            // Resolve SDK path using platform-aware lookup
             var isSimulator = string.Equals(slice.SupportedPlatformVariant, "simulator", StringComparison.OrdinalIgnoreCase);
-            var sdkName = isSimulator ? "iphonesimulator" : "iphoneos";
+            var detectedPlatform = PlatformInfoFactory.DetectFromPlistPlatform(
+                slice.SupportedPlatform, slice.SupportedPlatformVariant);
+            var detectedPlatformInfo = PlatformInfoFactory.Create(detectedPlatform);
+            var sliceVariant = detectedPlatformInfo.GetSlice(isSimulator);
+            var sdkName = sliceVariant.SdkName;
 
             var (sdkExit, sdkPath, sdkErr) = commandRunner.Run("xcrun", $"--sdk {sdkName} --show-sdk-path");
             if (sdkExit != 0 || string.IsNullOrWhiteSpace(sdkPath))
             {
                 throw new InvalidOperationException(
-                    "Failed to locate iOS SDK. Ensure Xcode and iOS SDK are installed.");
+                    $"Failed to locate {detectedPlatform} SDK. Ensure Xcode and the platform SDK are installed.");
             }
 
-            // Build target triple
+            // Build target triple from slice variant
             var targetTriple = isSimulator
-                ? $"{selectedArch}-apple-ios-simulator"
-                : $"{selectedArch}-apple-ios";
+                ? $"{selectedArch}-apple-{sliceVariant.XCFrameworkPlatformString}-simulator"
+                : (detectedPlatform == ApplePlatform.MacCatalyst
+                    ? $"{selectedArch}-apple-ios-macabi"
+                    : $"{selectedArch}-apple-{sliceVariant.XCFrameworkPlatformString}");
 
             Directory.CreateDirectory(outputDirectory);
             var abiOutputPath = Path.Combine(outputDirectory, $"{moduleName}.abi.json");

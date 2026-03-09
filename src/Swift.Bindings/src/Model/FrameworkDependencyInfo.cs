@@ -78,9 +78,19 @@ namespace BindingsGeneration
         public bool IsAutoDetected { get; init; }
 
         /// <summary>
-        /// Effective package ID: explicit override or convention.
+        /// Effective package ID: explicit override or convention (defaults to iOS).
         /// </summary>
-        public string EffectivePackageId => PackageId ?? $"{ModuleName}.Swift.iOS";
+        public string EffectivePackageId => GetEffectivePackageId();
+
+        /// <summary>
+        /// Effective package ID with platform-aware default.
+        /// </summary>
+        public string GetEffectivePackageId(PlatformInfo? platformInfo = null)
+        {
+            if (PackageId != null) return PackageId;
+            var pi = platformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
+            return pi.GetDefaultSwiftPackageId(ModuleName);
+        }
 
         /// <summary>
         /// Effective version: extracted or "0.0.0" placeholder.

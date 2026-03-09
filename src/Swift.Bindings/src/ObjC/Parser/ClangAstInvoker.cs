@@ -29,14 +29,23 @@ public sealed class ClangAstInvoker
     /// When modulemapPath is provided, -fmodules is enabled (needed for @import strategy).
     /// </summary>
     public string InvokeClangAstDump(string headerPath, string frameworkSearchPath, bool isSimulator,
-        string? modulemapPath = null, IReadOnlyList<string>? additionalFrameworkSearchPaths = null)
+        string? modulemapPath = null, IReadOnlyList<string>? additionalFrameworkSearchPaths = null,
+        SliceVariant? sliceVariant = null)
     {
-        var sdkName = isSimulator ? "iphonesimulator" : "iphoneos";
+        string sdkName;
+        if (sliceVariant != null)
+        {
+            sdkName = sliceVariant.SdkName;
+        }
+        else
+        {
+            sdkName = isSimulator ? "iphonesimulator" : "iphoneos";
+        }
         var (sdkExit, sdkPath, sdkErr) = _commandRunner.Run("xcrun", $"--sdk {sdkName} --show-sdk-path");
         if (sdkExit != 0 || string.IsNullOrWhiteSpace(sdkPath))
         {
             throw new InvalidOperationException(
-                $"Failed to locate iOS SDK ({sdkName}). Ensure Xcode and iOS SDK are installed. stderr: {sdkErr}");
+                $"Failed to locate SDK ({sdkName}). Ensure Xcode and the platform SDK are installed. stderr: {sdkErr}");
         }
 
         var baseArgs = $"clang -x objective-c -Xclang -ast-dump=json " +

@@ -33,7 +33,7 @@ public class ClangAstInvokerTests
         var invoker = new ClangAstInvoker(runner, Logger);
         var ex = Assert.Throws<InvalidOperationException>(
             () => invoker.InvokeClangAstDump("/tmp/test.h", "/tmp/frameworks", isSimulator: true));
-        Assert.Contains("Failed to locate iOS SDK", ex.Message);
+        Assert.Contains("Failed to locate SDK", ex.Message);
     }
 
     [Fact]

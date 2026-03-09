@@ -43,38 +43,40 @@ public static class ObjCDocCommentEmitter
 public static class ObjCAvailabilityEmitter
 {
     /// <summary>
-    /// Emits ObjCRuntime availability attributes for iOS platform.
+    /// Emits ObjCRuntime availability attributes for the target platform.
     /// Returns true if the symbol is unavailable (caller should skip emission).
     /// </summary>
-    public static bool EmitAvailabilityAttributes(StringBuilder sb, List<ObjCAvailability> availability, string indent)
+    public static bool EmitAvailabilityAttributes(StringBuilder sb, List<ObjCAvailability> availability, string indent, PlatformInfo? platformInfo = null)
     {
-        // Pre-scan: if any iOS entry is unavailable, skip the entire symbol
-        if (availability.Any(a => a.Platform == "ios" && a.IsUnavailable))
+        var pi = platformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
+
+        // Pre-scan: if any matching platform entry is unavailable, skip the entire symbol
+        if (availability.Any(a => a.Platform == pi.AvailabilityPlatformString && a.IsUnavailable))
             return true;
 
         foreach (var avail in availability)
         {
-            if (avail.Platform != "ios")
+            if (avail.Platform != pi.AvailabilityPlatformString)
                 continue;
 
             if (avail.IntroducedVersion != null)
             {
                 var (major, minor) = ParseVersion(avail.IntroducedVersion);
-                sb.AppendLine($"{indent}[Introduced(PlatformName.iOS, {major}, {minor})]");
+                sb.AppendLine($"{indent}[Introduced(PlatformName.{pi.ObjCRuntimePlatformName}, {major}, {minor})]");
             }
 
             if (avail.DeprecatedVersion != null)
             {
                 var (major, minor) = ParseVersion(avail.DeprecatedVersion);
                 var message = FormatMessage(avail.Message);
-                sb.AppendLine($"{indent}[Deprecated(PlatformName.iOS, {major}, {minor}{message})]");
+                sb.AppendLine($"{indent}[Deprecated(PlatformName.{pi.ObjCRuntimePlatformName}, {major}, {minor}{message})]");
             }
 
             if (avail.ObsoletedVersion != null)
             {
                 var (major, minor) = ParseVersion(avail.ObsoletedVersion);
                 var message = FormatMessage(avail.Message);
-                sb.AppendLine($"{indent}[Obsoleted(PlatformName.iOS, {major}, {minor}{message})]");
+                sb.AppendLine($"{indent}[Obsoleted(PlatformName.{pi.ObjCRuntimePlatformName}, {major}, {minor}{message})]");
             }
         }
 

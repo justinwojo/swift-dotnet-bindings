@@ -28,6 +28,10 @@ namespace BindingsGeneration
         /// ObjC binding project filename for mixed framework ProjectReference.
         /// </summary>
         public string? ObjCProjectFileName { get; init; }
+        /// <summary>
+        /// Platform info for multi-platform support. Defaults to iOS if not specified.
+        /// </summary>
+        public PlatformInfo? PlatformInfo { get; init; }
     }
 
     /// <summary>
@@ -42,7 +46,8 @@ namespace BindingsGeneration
         /// </summary>
         public static void Emit(BindingProjectEmitterOptions options, ILogger logger)
         {
-            var packageId = $"{options.ModuleName}.Swift.iOS";
+            var pi = options.PlatformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
+            var packageId = pi.GetDefaultSwiftPackageId(options.ModuleName);
             var runtimeVersion = options.SwiftRuntimeVersion ?? DefaultSwiftRuntimeVersion;
             var resolvedNamespace = options.ResolvedNamespace ?? options.ModuleName;
             var csprojPath = Path.Combine(options.OutputDirectory, $"{packageId}.csproj");
@@ -77,7 +82,7 @@ namespace BindingsGeneration
 
                     <None Include="{wrapperModuleName}.xcframework/**" Pack="true"
                           Condition="Exists('{wrapperModuleName}.xcframework')"
-                          PackagePath="runtimes/ios-arm64/native/{wrapperModuleName}.xcframework/" />
+                          PackagePath="{pi.GetNativePackPath($"{wrapperModuleName}.xcframework")}" />
                 """
                 : "";
 
@@ -105,7 +110,7 @@ namespace BindingsGeneration
                         : "";
                     dependencyRefs += $"""
 
-                    <PackageReference Include="{dep.EffectivePackageId}" Version="{dep.EffectiveVersion}" />{depComment}
+                    <PackageReference Include="{dep.GetEffectivePackageId(pi)}" Version="{dep.EffectiveVersion}" />{depComment}
                 """;
                 }
             }
@@ -127,7 +132,7 @@ namespace BindingsGeneration
                 <Project Sdk="Microsoft.NET.Sdk">
                   <PropertyGroup>
                     <OutputType>Library</OutputType>
-                    <TargetFramework>net10.0-ios</TargetFramework>
+                    <TargetFramework>{pi.Tfm}</TargetFramework>
                     <ImplicitUsings>enable</ImplicitUsings>
                     <Nullable>enable</Nullable>
                     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -162,9 +167,9 @@ namespace BindingsGeneration
                   <!-- NuGet pack layout -->
                   <ItemGroup>
                     <None Include="{packageId}.targets" Pack="true"
-                          PackagePath="buildTransitive/net10.0-ios/" />
+                          PackagePath="{pi.GetBuildTransitivePath()}" />
                     <None Include="{relativeSourceXcfw}/**" Pack="true"
-                          PackagePath="runtimes/ios-arm64/native/{options.ModuleName}.xcframework/" />{wrapperPackItem}
+                          PackagePath="{pi.GetNativePackPath($"{options.ModuleName}.xcframework")}" />{wrapperPackItem}
                   </ItemGroup>{objcProjectRef}
                 </Project>
                 """;

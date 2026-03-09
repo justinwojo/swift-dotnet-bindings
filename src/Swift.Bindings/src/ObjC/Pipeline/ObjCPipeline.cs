@@ -31,7 +31,8 @@ public static class ObjCPipeline
         bool sdkMode = false,
         bool isMixed = false,
         HashSet<string>? excludeTypeNames = null,
-        IReadOnlyList<string>? additionalFrameworkSearchPaths = null)
+        IReadOnlyList<string>? additionalFrameworkSearchPaths = null,
+        PlatformInfo? platformInfo = null)
     {
         commandRunner ??= new SystemCommandRunner();
 
@@ -53,13 +54,15 @@ public static class ObjCPipeline
         }
 
         // 3. Invoke clang AST dump
+        var pi = platformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
         string json;
         try
         {
+            var sliceVariant = pi.GetSlice(resolution.IsSimulatorSlice);
             json = invoker.InvokeClangAstDump(
                 headerResult.HeaderPath, resolution.FrameworkSearchPath,
                 resolution.IsSimulatorSlice, headerResult.ModulemapPath,
-                additionalFrameworkSearchPaths);
+                additionalFrameworkSearchPaths, sliceVariant);
         }
         catch (Exception ex)
         {
@@ -125,8 +128,8 @@ public static class ObjCPipeline
         }
 
         var diagnostics = new ObjCBindingDiagnostics();
-        var apiDefPath = ApiDefinitionEmitter.Emit(module, outputDirectory, resolvedNamespace, logger, diagnostics);
-        var structsResult = StructsAndEnumsEmitter.Emit(module, outputDirectory, resolvedNamespace, logger, diagnostics);
+        var apiDefPath = ApiDefinitionEmitter.Emit(module, outputDirectory, resolvedNamespace, logger, diagnostics, pi);
+        var structsResult = StructsAndEnumsEmitter.Emit(module, outputDirectory, resolvedNamespace, logger, diagnostics, pi);
         var structsPath = structsResult?.FilePath;
 
         // Emit .csproj:
@@ -143,6 +146,7 @@ public static class ObjCPipeline
                     ModuleName = resolution.ModuleName,
                     SourceXCFrameworkPath = xcframeworkPath,
                     PackageId = packageId,
+                    PlatformInfo = pi,
                 }, logger);
         }
 

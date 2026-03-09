@@ -30,6 +30,10 @@ namespace BindingsGeneration
                 aliases: new[] { "--xcframework" },
                 description: "Path to an xcframework directory. Automatically resolves ABI JSON, dylib, TBD, and swiftinterface. " +
                              "Mutually exclusive with -a, -d, -t.");
+            Option<string> platformOption = new(
+                aliases: new[] { "--platform" },
+                description: "Apple platform target: 'ios' (default), 'macos', 'tvos', 'maccatalyst'.",
+                getDefaultValue: () => "ios");
             Option<string> platformTargetOption = new(
                 aliases: new[] { "--platform-target" },
                 description: "Platform target for xcframework slice selection: 'simulator' (default) or 'device'. " +
@@ -106,6 +110,7 @@ namespace BindingsGeneration
                 tbdOption,
                 outputDirectoryOption,
                 xcframeworkOption,
+                platformOption,
                 platformTargetOption,
                 libraryNameOption,
                 asyncLibraryOption,
@@ -133,6 +138,7 @@ namespace BindingsGeneration
                 var tbdPath = parseResult.GetValueForOption(tbdOption);
                 var outputDirectory = parseResult.GetValueForOption(outputDirectoryOption);
                 var xcframeworkPath = parseResult.GetValueForOption(xcframeworkOption);
+                var platformStr = parseResult.GetValueForOption(platformOption);
                 var platformTargetStr = parseResult.GetValueForOption(platformTargetOption);
                 var libraryName = parseResult.GetValueForOption(libraryNameOption);
                 var asyncLibrary = parseResult.GetValueForOption(asyncLibraryOption);
@@ -156,6 +162,7 @@ namespace BindingsGeneration
                 {
                     Console.WriteLine("Usage:");
                     Console.WriteLine("  --xcframework        Path to xcframework directory. Replaces -a, -d, -t.");
+                    Console.WriteLine("  --platform           Apple platform: 'ios' (default), 'macos', 'tvos', 'maccatalyst'.");
                     Console.WriteLine("  --platform-target    Platform target: 'simulator' (default) or 'device'. Used with --xcframework.");
                     Console.WriteLine("  -a, --swiftabi       Path to the Swift ABI file. Required if --xcframework not used.");
                     Console.WriteLine("  -d, --dylib          Path to the dynamic library. Required if --xcframework not used.");
@@ -182,6 +189,26 @@ namespace BindingsGeneration
 
                 ILoggerFactory loggerFactory = CreateLoggerFactory(verbose);
                 ILogger logger = loggerFactory.CreateLogger<BindingsGenerator>();
+
+                // Parse and validate --platform
+                var parsedPlatform = PlatformInfoFactory.ParsePlatform(platformStr);
+                if (parsedPlatform == null)
+                {
+                    logger.LogError("Error: Invalid --platform '{Value}'. Valid values: 'ios', 'macos', 'tvos', 'maccatalyst'.", platformStr);
+                    context.ExitCode = 1;
+                    return;
+                }
+                var platformInfo = PlatformInfoFactory.Create(parsedPlatform.Value);
+
+                // Validate --platform + --platform-target combinations
+                if (!platformInfo.HasSimulatorVariant &&
+                    string.Equals(platformTargetStr, "simulator", StringComparison.OrdinalIgnoreCase))
+                {
+                    logger.LogWarning(
+                        "{Platform} has no simulator variant. Falling back to device slice.",
+                        platformInfo.Platform);
+                    platformTargetStr = "device";
+                }
 
                 if (string.IsNullOrWhiteSpace(outputDirectory))
                 {
@@ -239,7 +266,7 @@ namespace BindingsGeneration
                     if (objcForced)
                     {
                         var objcResolution = XCFrameworkResolver.ResolveObjCFramework(
-                            xcframeworkPath!, platformTarget, logger);
+                            xcframeworkPath!, platformTarget, logger, platformInfo: platformInfo);
                         if (objcResolution == null)
                         {
                             logger.LogError("Failed to resolve ObjC framework from '{Path}'.", xcframeworkPath);
@@ -247,12 +274,13 @@ namespace BindingsGeneration
                             return;
                         }
                         var siblingSearchPaths = XCFrameworkResolver.ResolveSiblingFrameworkSearchPaths(
-                            xcframeworkPath!, platformTarget, logger);
+                            xcframeworkPath!, platformTarget, logger, platformInfo: platformInfo);
                         var objcResult = ObjCPipeline.Run(
                             objcResolution, xcframeworkPath!, outputDirectory, platformTarget, logger,
                             namespacePattern: namespacePattern, packageId: packageId,
                             sdkMode: sdkMode, isMixed: false,
-                            additionalFrameworkSearchPaths: siblingSearchPaths);
+                            additionalFrameworkSearchPaths: siblingSearchPaths,
+                            platformInfo: platformInfo);
                         context.ExitCode = objcResult.ExitCode;
                         if (objcResult.ErrorMessage != null)
                             logger.LogError("{Message}", objcResult.ErrorMessage);
@@ -262,7 +290,7 @@ namespace BindingsGeneration
                     try
                     {
                         resolution = XCFrameworkResolver.Resolve(
-                            xcframeworkPath!, outputDirectory, platformTarget, logger);
+                            xcframeworkPath!, outputDirectory, platformTarget, logger, platformInfo: platformInfo);
                         swiftAbiPath = resolution.AbiJsonPath;
                         dylibPath = resolution.DylibPath;
                         tbdPath = resolution.TbdPath;
@@ -271,7 +299,7 @@ namespace BindingsGeneration
 
                         // Mixed framework detection: check for ObjC API alongside Swift
                         mixedObjcResolution = XCFrameworkResolver.DetectMixedFrameworkObjC(
-                            resolution, platformTarget, logger);
+                            resolution, platformTarget, logger, platformInfo: platformInfo);
                     }
                     catch (Exception ex) when (ex is SwiftModuleNotFoundException or StaticLibraryException)
                     {
@@ -279,7 +307,7 @@ namespace BindingsGeneration
                         var reason = ex is StaticLibraryException ? "Static library" : "No Swift module found";
                         logger.LogInformation("{Reason} — attempting ObjC framework detection...", reason);
                         var objcResolution = XCFrameworkResolver.ResolveObjCFramework(
-                            xcframeworkPath!, platformTarget, logger);
+                            xcframeworkPath!, platformTarget, logger, platformInfo: platformInfo);
                         if (objcResolution == null)
                         {
                             logger.LogError("Framework has no ObjC module.modulemap and no Swift module.");
@@ -287,12 +315,13 @@ namespace BindingsGeneration
                             return;
                         }
                         var siblingSearchPaths = XCFrameworkResolver.ResolveSiblingFrameworkSearchPaths(
-                            xcframeworkPath!, platformTarget, logger);
+                            xcframeworkPath!, platformTarget, logger, platformInfo: platformInfo);
                         var objcResult = ObjCPipeline.Run(
                             objcResolution, xcframeworkPath!, outputDirectory, platformTarget, logger,
                             namespacePattern: namespacePattern, packageId: packageId,
                             sdkMode: sdkMode, isMixed: false,
-                            additionalFrameworkSearchPaths: siblingSearchPaths);
+                            additionalFrameworkSearchPaths: siblingSearchPaths,
+                            platformInfo: platformInfo);
                         context.ExitCode = objcResult.ExitCode;
                         if (objcResult.ErrorMessage != null)
                             logger.LogError("{Message}", objcResult.ErrorMessage);
@@ -310,7 +339,7 @@ namespace BindingsGeneration
                     // - device: can compile with just a device slice
                     // - If the primary resolution is device-only and architectures is 'simulator', skip
                     var wrapperArchEarly = wrapperArchitectures?.ToLowerInvariant() ?? "simulator";
-                    shouldCompileWrapper = ShouldCompileWrapper(resolution.IsSimulatorSlice, wrapperArchEarly);
+                    shouldCompileWrapper = ShouldCompileWrapper(resolution.IsSimulatorSlice, wrapperArchEarly, platformInfo);
                     if (!shouldCompileWrapper)
                     {
                         logger.LogInformation(
@@ -338,7 +367,7 @@ namespace BindingsGeneration
                         resolution!.DylibPath, xcframeworkPath!, resolution.ModuleName,
                         platformTarget,
                         wrapperArchitectures?.ToLowerInvariant() ?? "simulator",
-                        logger);
+                        logger, platformInfo: platformInfo);
                     if (analysisResult != null)
                     {
                         autoDetectedDeps = analysisResult.ResolvedDependencies;
@@ -369,7 +398,7 @@ namespace BindingsGeneration
                     resolvedDependencies = ResolveFrameworkDependencies(
                         frameworkDependencies!, resolution!, xcframeworkPath!,
                         wrapperArchitectures?.ToLowerInvariant() ?? "simulator",
-                        platformTarget, logger);
+                        platformTarget, logger, platformInfo: platformInfo);
                     if (resolvedDependencies == null)
                     {
                         context.ExitCode = 1;
@@ -447,7 +476,7 @@ namespace BindingsGeneration
                 var effectiveNamespacePattern = ResolveNamespacePattern(namespacePattern, configPath, logger);
 
                 // Auto-extract symbol graph for doc comments (xcframework mode only)
-                symbolGraph = ResolveSymbolGraphPath(symbolGraph, noDocs, resolution, outputDirectory, logger);
+                symbolGraph = ResolveSymbolGraphPath(symbolGraph, noDocs, resolution, outputDirectory, logger, platformInfo: platformInfo);
 
                 var depModuleNames = resolvedDependencies?
                     .Where(d => !d.IsObjCOnly)
@@ -491,7 +520,7 @@ namespace BindingsGeneration
                         {
                             // Multi-arch: resolve both slices, compile wrapper for both
                             var (simResolution, deviceResolution) = XCFrameworkResolver.ResolveAll(
-                                xcframeworkPath!, outputDirectory, logger);
+                                xcframeworkPath!, outputDirectory, logger, platformInfo: platformInfo);
 
                             if (deviceResolution == null)
                             {
@@ -504,7 +533,8 @@ namespace BindingsGeneration
                                 simResolution, deviceResolution, logger,
                                 internalTypeNames: internalTypeNames,
                                 simAdditionalSearchPaths: simDepPaths,
-                                deviceAdditionalSearchPaths: deviceDepPaths);
+                                deviceAdditionalSearchPaths: deviceDepPaths,
+                                platformInfo: platformInfo);
                         }
                         else if (wrapperArchNormalized == "device")
                         {
@@ -514,7 +544,7 @@ namespace BindingsGeneration
                             {
                                 deviceOnlyResolution = XCFrameworkResolver.Resolve(
                                     xcframeworkPath!, outputDirectory,
-                                    XCFrameworkPlatformTarget.Device, logger);
+                                    XCFrameworkPlatformTarget.Device, logger, platformInfo: platformInfo);
                             }
                             catch (Exception ex)
                             {
@@ -529,7 +559,8 @@ namespace BindingsGeneration
                                 deviceOnlyResolution.DylibPath,
                                 "device", "iphoneos", logger,
                                 internalTypeNames: internalTypeNames,
-                                additionalFrameworkSearchPaths: deviceDepPaths);
+                                additionalFrameworkSearchPaths: deviceDepPaths,
+                                platformInfo: platformInfo);
                         }
                         else
                         {
@@ -538,7 +569,8 @@ namespace BindingsGeneration
                                 outputDirectory, resolution.ModuleName,
                                 resolution.FrameworkSearchPath, resolution.DylibPath, logger,
                                 internalTypeNames: internalTypeNames,
-                                additionalFrameworkSearchPaths: simDepPaths);
+                                additionalFrameworkSearchPaths: simDepPaths,
+                                platformInfo: platformInfo);
                         }
                     }
                     catch (Exception ex)
@@ -573,12 +605,13 @@ namespace BindingsGeneration
                 {
                     var swiftTypeNames = CollectSwiftEmittedTypeNames(outputDirectory);
                     var mixedSiblingPaths = XCFrameworkResolver.ResolveSiblingFrameworkSearchPaths(
-                        xcframeworkPath!, platformTarget, logger);
+                        xcframeworkPath!, platformTarget, logger, platformInfo: platformInfo);
                     mixedObjcResult = ObjCPipeline.Run(
                         mixedObjcResolution, xcframeworkPath!, outputDirectory, platformTarget, logger,
                         namespacePattern: namespacePattern, packageId: null,
                         sdkMode: sdkMode, isMixed: true, excludeTypeNames: swiftTypeNames,
-                        additionalFrameworkSearchPaths: mixedSiblingPaths);
+                        additionalFrameworkSearchPaths: mixedSiblingPaths,
+                        platformInfo: platformInfo);
                     if (mixedObjcResult.ExitCode != 0 && mixedObjcResult.ErrorMessage != null)
                         logger.LogWarning("ObjC pipeline for mixed framework: {Msg}", mixedObjcResult.ErrorMessage);
                 }
@@ -594,7 +627,7 @@ namespace BindingsGeneration
 
                         var wrapperXcfwPath = compilationResult?.XCFrameworkPath;
                         var hasWrapperXcfw = wrapperXcfwPath != null && Directory.Exists(wrapperXcfwPath);
-                        var effectivePackageId = packageId ?? $"{resolution.ModuleName}.Swift.iOS";
+                        var effectivePackageId = packageId ?? platformInfo.GetDefaultSwiftPackageId(resolution.ModuleName);
                         var wrapperModuleName = $"{resolution.ModuleName}SwiftBindings";
 
                         // Mixed requires at least one ObjC class, protocol, or category.
@@ -614,7 +647,8 @@ namespace BindingsGeneration
                             compilationResult?.SliceCount ?? 0, logger,
                             resolvedDependencies,
                             frameworkType: isMixed ? "Mixed" : "Swift",
-                            objcProjectName: objcProjFileName);
+                            objcProjectName: objcProjFileName,
+                            platformInfo: platformInfo);
 
                         // Only emit .csproj in non-SDK mode
                         if (!sdkMode)
@@ -630,7 +664,8 @@ namespace BindingsGeneration
                                 WrapperXCFrameworkPath = hasWrapperXcfw ? wrapperXcfwPath : null,
                                 Dependencies = resolvedDependencies,
                                 ResolvedNamespace = projectResolver.ResolveNamespace(resolution.ModuleName),
-                                ObjCProjectFileName = objcProjFileName
+                                ObjCProjectFileName = objcProjFileName,
+                                PlatformInfo = platformInfo,
                             }, logger);
                         }
 
@@ -640,7 +675,8 @@ namespace BindingsGeneration
                             ModuleName = resolution.ModuleName,
                             PackageId = effectivePackageId,
                             EffectiveMinimumOSVersion = metadata.EffectiveMinimumOSVersion,
-                            HasWrapperXCFramework = hasWrapperXcfw
+                            HasWrapperXCFramework = hasWrapperXcfw,
+                            PlatformInfo = platformInfo,
                         }, logger);
 
                         XCFrameworkMetadataExtractor.EmitMetadataJson(metadata, outputDirectory, logger);
@@ -999,8 +1035,13 @@ namespace BindingsGeneration
         /// </summary>
         /// <param name="isSimulatorSlice">True when the primary resolution is a simulator slice.</param>
         /// <param name="wrapperArchitectures">Normalized value of --wrapper-architectures (simulator/device/all).</param>
-        internal static bool ShouldCompileWrapper(bool isSimulatorSlice, string wrapperArchitectures)
+        internal static bool ShouldCompileWrapper(bool isSimulatorSlice, string wrapperArchitectures, PlatformInfo? platformInfo = null)
         {
+            // Platforms without simulator variants (macOS, Mac Catalyst) should always compile
+            // with device slice when wrapperArchitectures is "simulator" (the default).
+            if (platformInfo != null && !platformInfo.HasSimulatorVariant)
+                return true;
+
             return isSimulatorSlice
                 || wrapperArchitectures == "device"
                 || wrapperArchitectures == "all";
@@ -1019,7 +1060,8 @@ namespace BindingsGeneration
         internal static string? ResolveSymbolGraphPath(
             string? explicitSymbolGraph, bool noDocs,
             XCFrameworkResolution? resolution, string outputDirectory,
-            ILogger logger, ICommandRunner? commandRunner = null)
+            ILogger logger, ICommandRunner? commandRunner = null,
+            PlatformInfo? platformInfo = null)
         {
             // 1. Explicit --symbolgraph always wins
             if (!string.IsNullOrWhiteSpace(explicitSymbolGraph))
@@ -1033,7 +1075,7 @@ namespace BindingsGeneration
             if (resolution == null)
                 return null;
 
-            return SymbolGraphExtractor.Extract(resolution, outputDirectory, logger, commandRunner);
+            return SymbolGraphExtractor.Extract(resolution, outputDirectory, logger, commandRunner, platformInfo);
         }
 
         /// <summary>
@@ -1168,7 +1210,8 @@ namespace BindingsGeneration
             string wrapperArchitectures,
             XCFrameworkPlatformTarget primaryPlatformTarget,
             ILogger logger,
-            ICommandRunner? commandRunner = null)
+            ICommandRunner? commandRunner = null,
+            PlatformInfo? platformInfo = null)
         {
             var resolvedDeps = new List<FrameworkDependencyInfo>();
             var seenModules = new Dictionary<string, string>(StringComparer.Ordinal); // module → path
@@ -1212,7 +1255,7 @@ namespace BindingsGeneration
                 {
                     var primaryDepResolution = XCFrameworkResolver.Resolve(
                         depPath, Path.GetTempPath(),
-                        primaryPlatformTarget, logger, commandRunner);
+                        primaryPlatformTarget, logger, commandRunner, platformInfo: platformInfo);
                     moduleName = primaryDepResolution.ModuleName;
                     depDylibPath = primaryDepResolution.DylibPath;
                     depAbiJsonPath = primaryDepResolution.AbiJsonPath;
@@ -1227,7 +1270,7 @@ namespace BindingsGeneration
                 {
                     // Attempt ObjC-only framework fallback — resolves search path + validates modulemap
                     var objcResolution = XCFrameworkResolver.ResolveObjCFramework(
-                        depPath, primaryPlatformTarget, logger);
+                        depPath, primaryPlatformTarget, logger, platformInfo: platformInfo);
 
                     if (objcResolution == null)
                     {
@@ -1259,7 +1302,7 @@ namespace BindingsGeneration
                             ? XCFrameworkPlatformTarget.Device
                             : XCFrameworkPlatformTarget.Simulator;
                         var oppositeResolution = XCFrameworkResolver.ResolveObjCFramework(
-                            depPath, oppositeTarget, logger);
+                            depPath, oppositeTarget, logger, platformInfo: platformInfo);
                         var expectSimulator = oppositeTarget == XCFrameworkPlatformTarget.Simulator;
                         if (oppositeResolution != null && oppositeResolution.IsSimulatorSlice == expectSimulator)
                         {
@@ -1280,7 +1323,7 @@ namespace BindingsGeneration
                     {
                         // Primary resolved simulator but we need device
                         var deviceResolution = XCFrameworkResolver.ResolveObjCFramework(
-                            depPath, XCFrameworkPlatformTarget.Device, logger);
+                            depPath, XCFrameworkPlatformTarget.Device, logger, platformInfo: platformInfo);
                         if (deviceResolution != null && !deviceResolution.IsSimulatorSlice)
                             devicePath = deviceResolution.FrameworkSearchPath;
                         else
@@ -1295,7 +1338,7 @@ namespace BindingsGeneration
                     {
                         // Primary resolved device but we need simulator
                         var simResolution = XCFrameworkResolver.ResolveObjCFramework(
-                            depPath, XCFrameworkPlatformTarget.Simulator, logger);
+                            depPath, XCFrameworkPlatformTarget.Simulator, logger, platformInfo: platformInfo);
                         if (simResolution != null && simResolution.IsSimulatorSlice)
                             simPath = simResolution.FrameworkSearchPath;
                         else
@@ -1373,7 +1416,7 @@ namespace BindingsGeneration
                     {
                         var oppositeResolution = XCFrameworkResolver.Resolve(
                             depPath, Path.GetTempPath(),
-                            oppositeTarget, logger, commandRunner);
+                            oppositeTarget, logger, commandRunner, platformInfo: platformInfo);
 
                         if (oppositeResolution.IsSimulatorSlice)
                             simSearchPath = oppositeResolution.FrameworkSearchPath;
@@ -1395,7 +1438,7 @@ namespace BindingsGeneration
                     {
                         var deviceResolution = XCFrameworkResolver.Resolve(
                             depPath, Path.GetTempPath(),
-                            XCFrameworkPlatformTarget.Device, logger, commandRunner);
+                            XCFrameworkPlatformTarget.Device, logger, commandRunner, platformInfo: platformInfo);
                         deviceSearchPath = deviceResolution.FrameworkSearchPath;
                     }
                     catch (Exception ex)
@@ -1413,7 +1456,7 @@ namespace BindingsGeneration
                     {
                         var simResolution = XCFrameworkResolver.Resolve(
                             depPath, Path.GetTempPath(),
-                            XCFrameworkPlatformTarget.Simulator, logger, commandRunner);
+                            XCFrameworkPlatformTarget.Simulator, logger, commandRunner, platformInfo: platformInfo);
                         simSearchPath = simResolution.FrameworkSearchPath;
                     }
                     catch (Exception ex)

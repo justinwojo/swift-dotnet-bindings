@@ -272,7 +272,8 @@ namespace BindingsGeneration
             ILogger logger,
             IReadOnlyList<FrameworkDependencyInfo>? dependencies = null,
             string? frameworkType = null,
-            string? objcProjectName = null)
+            string? objcProjectName = null,
+            PlatformInfo? platformInfo = null)
         {
             var propsPath = Path.Combine(outputDirectory, "binding-metadata.props");
 
@@ -280,7 +281,7 @@ namespace BindingsGeneration
             // Delimiter-escape each field (%; |; ;) then XML-escape for the XML layer.
             var depEntries = dependencies?
                 .Where(d => !d.IsObjCOnly)
-                .Select(d => $"{XmlEscape(DelimiterEscape(d.ModuleName))}|{XmlEscape(DelimiterEscape(d.EffectivePackageId))}|{XmlEscape(DelimiterEscape(d.EffectiveVersion))}|{XmlEscape(DelimiterEscape(d.XCFrameworkPath))}")
+                .Select(d => $"{XmlEscape(DelimiterEscape(d.ModuleName))}|{XmlEscape(DelimiterEscape(d.GetEffectivePackageId(platformInfo)))}|{XmlEscape(DelimiterEscape(d.EffectiveVersion))}|{XmlEscape(DelimiterEscape(d.XCFrameworkPath))}")
                 .ToList();
             var depsProperty = depEntries != null && depEntries.Count > 0
                 ? $"\n    <_SwiftBindingDependencies>{string.Join(";", depEntries)}</_SwiftBindingDependencies>"

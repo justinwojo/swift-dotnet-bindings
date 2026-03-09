@@ -193,7 +193,8 @@ namespace BindingsGeneration
             XCFrameworkPlatformTarget platformTarget,
             string wrapperArchitectures,
             ILogger logger,
-            ICommandRunner? commandRunner = null)
+            ICommandRunner? commandRunner = null,
+            PlatformInfo? platformInfo = null)
         {
             var runner = commandRunner ?? new SystemCommandRunner();
 
@@ -235,7 +236,7 @@ namespace BindingsGeneration
                 try
                 {
                     var depResolution = XCFrameworkResolver.Resolve(
-                        siblingPath, Path.GetTempPath(), platformTarget, logger, runner);
+                        siblingPath, Path.GetTempPath(), platformTarget, logger, runner, platformInfo: platformInfo);
 
                     // Resolve both slices if needed
                     string? simSearchPath = null;
@@ -261,7 +262,7 @@ namespace BindingsGeneration
                         try
                         {
                             var oppositeResolution = XCFrameworkResolver.Resolve(
-                                siblingPath, Path.GetTempPath(), oppositeTarget, logger, runner);
+                                siblingPath, Path.GetTempPath(), oppositeTarget, logger, runner, platformInfo: platformInfo);
                             var expectSimulator = oppositeTarget == XCFrameworkPlatformTarget.Simulator;
                             if (oppositeResolution.IsSimulatorSlice == expectSimulator)
                             {
@@ -298,7 +299,7 @@ namespace BindingsGeneration
                         {
                             var deviceResolution = XCFrameworkResolver.Resolve(
                                 siblingPath, Path.GetTempPath(),
-                                XCFrameworkPlatformTarget.Device, logger, runner);
+                                XCFrameworkPlatformTarget.Device, logger, runner, platformInfo: platformInfo);
                             if (!deviceResolution.IsSimulatorSlice)
                             {
                                 deviceSearchPath = deviceResolution.FrameworkSearchPath;
@@ -329,7 +330,7 @@ namespace BindingsGeneration
                         {
                             var simResolution = XCFrameworkResolver.Resolve(
                                 siblingPath, Path.GetTempPath(),
-                                XCFrameworkPlatformTarget.Simulator, logger, runner);
+                                XCFrameworkPlatformTarget.Simulator, logger, runner, platformInfo: platformInfo);
                             if (simResolution.IsSimulatorSlice)
                             {
                                 simSearchPath = simResolution.FrameworkSearchPath;
@@ -391,7 +392,7 @@ namespace BindingsGeneration
                 {
                     // Try ObjC-only framework fallback (covers pure ObjC and static library frameworks)
                     var objcResolution = XCFrameworkResolver.ResolveObjCFramework(
-                        siblingPath, platformTarget, logger);
+                        siblingPath, platformTarget, logger, platformInfo: platformInfo);
                     if (objcResolution == null)
                     {
                         unresolved.Add(dep with { UnresolvedReason = "no-xcframework" });
@@ -412,7 +413,7 @@ namespace BindingsGeneration
                             ? XCFrameworkPlatformTarget.Device
                             : XCFrameworkPlatformTarget.Simulator;
                         var oppositeObjc = XCFrameworkResolver.ResolveObjCFramework(
-                            siblingPath, oppositeTarget, logger);
+                            siblingPath, oppositeTarget, logger, platformInfo: platformInfo);
                         var expectSim = oppositeTarget == XCFrameworkPlatformTarget.Simulator;
                         if (oppositeObjc != null && oppositeObjc.IsSimulatorSlice == expectSim)
                         {
@@ -434,7 +435,7 @@ namespace BindingsGeneration
                     else if (wrapperArchitectures == "device" && simPath != null && devicePath == null)
                     {
                         var deviceObjc = XCFrameworkResolver.ResolveObjCFramework(
-                            siblingPath, XCFrameworkPlatformTarget.Device, logger);
+                            siblingPath, XCFrameworkPlatformTarget.Device, logger, platformInfo: platformInfo);
                         if (deviceObjc != null && !deviceObjc.IsSimulatorSlice)
                             devicePath = deviceObjc.FrameworkSearchPath;
                         else
@@ -449,7 +450,7 @@ namespace BindingsGeneration
                     else if (wrapperArchitectures == "simulator" && devicePath != null && simPath == null)
                     {
                         var simObjc = XCFrameworkResolver.ResolveObjCFramework(
-                            siblingPath, XCFrameworkPlatformTarget.Simulator, logger);
+                            siblingPath, XCFrameworkPlatformTarget.Simulator, logger, platformInfo: platformInfo);
                         if (simObjc != null && simObjc.IsSimulatorSlice)
                             simPath = simObjc.FrameworkSearchPath;
                         else

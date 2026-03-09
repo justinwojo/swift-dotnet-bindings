@@ -25,7 +25,7 @@ public static class StructsAndEnumsEmitter
         "MKTileOverlayPath",
     ];
 
-    public static StructsAndEnumsResult? Emit(ObjCModule module, string outputDir, string resolvedNamespace, ILogger logger, ObjCBindingDiagnostics? diagnostics = null)
+    public static StructsAndEnumsResult? Emit(ObjCModule module, string outputDir, string resolvedNamespace, ILogger logger, ObjCBindingDiagnostics? diagnostics = null, PlatformInfo? platformInfo = null)
     {
         var blockTypedefs = module.Typedefs.Where(t => t.UnderlyingType.IsBlock).ToList();
         if (module.Enums.Count == 0 && module.Structs.Count == 0 && !module.Constants.Any(c => c.IsExtern) && module.Functions.Count == 0 && blockTypedefs.Count == 0)
@@ -150,7 +150,7 @@ public static class StructsAndEnumsEmitter
         sb.AppendLine("{");
 
         foreach (var enumDecl in module.Enums)
-            EmitEnum(sb, enumDecl, typedefMap, diagnostics);
+            EmitEnum(sb, enumDecl, typedefMap, diagnostics, platformInfo);
 
         foreach (var structDecl in module.Structs.Where(s => !SystemStructs.Contains(s.Name)))
             EmitStruct(sb, structDecl, typedefMap, knownTypes, logger, diagnostics);
@@ -168,7 +168,7 @@ public static class StructsAndEnumsEmitter
         }
 
         if (module.Constants.Any(c => c.IsExtern) || module.Functions.Count > 0)
-            EmitConstantsClass(sb, module, typedefMap, moduleLocalTypes, functionKnownTypes, enumNames, logger, diagnostics);
+            EmitConstantsClass(sb, module, typedefMap, moduleLocalTypes, functionKnownTypes, enumNames, logger, diagnostics, platformInfo);
 
         sb.AppendLine("}");
 
@@ -210,9 +210,9 @@ public static class StructsAndEnumsEmitter
         return new StructsAndEnumsResult(filePath, bgenDelegatesPath);
     }
 
-    static void EmitEnum(StringBuilder sb, ObjCEnumDecl enumDecl, Dictionary<string, ObjCTypeRef>? typedefMap = null, ObjCBindingDiagnostics? diagnostics = null)
+    static void EmitEnum(StringBuilder sb, ObjCEnumDecl enumDecl, Dictionary<string, ObjCTypeRef>? typedefMap = null, ObjCBindingDiagnostics? diagnostics = null, PlatformInfo? platformInfo = null)
     {
-        if (ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, enumDecl.Availability, "    "))
+        if (ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, enumDecl.Availability, "    ", platformInfo))
         {
             diagnostics?.RecordSkip("Enum", enumDecl.Name, ObjCSkipReason.UnavailableApi, "marked unavailable on iOS");
             return;
@@ -436,24 +436,24 @@ public static class StructsAndEnumsEmitter
         sb.AppendLine();
     }
 
-    static void EmitConstantsClass(StringBuilder sb, ObjCModule module, Dictionary<string, ObjCTypeRef> typedefMap, HashSet<string> moduleLocalTypes, HashSet<string> knownTypes, HashSet<string> enumNames, ILogger logger, ObjCBindingDiagnostics? diagnostics)
+    static void EmitConstantsClass(StringBuilder sb, ObjCModule module, Dictionary<string, ObjCTypeRef> typedefMap, HashSet<string> moduleLocalTypes, HashSet<string> knownTypes, HashSet<string> enumNames, ILogger logger, ObjCBindingDiagnostics? diagnostics, PlatformInfo? platformInfo = null)
     {
         sb.AppendLine($"    public static class {module.ModuleName}Constants");
         sb.AppendLine("    {");
 
         foreach (var constant in module.Constants.Where(c => c.IsExtern))
-            EmitConstant(sb, constant, typedefMap, diagnostics);
+            EmitConstant(sb, constant, typedefMap, diagnostics, platformInfo);
 
         foreach (var function in module.Functions)
-            EmitFunction(sb, function, typedefMap, moduleLocalTypes, knownTypes, enumNames, logger, diagnostics);
+            EmitFunction(sb, function, typedefMap, moduleLocalTypes, knownTypes, enumNames, logger, diagnostics, platformInfo);
 
         sb.AppendLine("    }");
         sb.AppendLine();
     }
 
-    static void EmitConstant(StringBuilder sb, ObjCConstantDecl constant, Dictionary<string, ObjCTypeRef> typedefMap, ObjCBindingDiagnostics? diagnostics)
+    static void EmitConstant(StringBuilder sb, ObjCConstantDecl constant, Dictionary<string, ObjCTypeRef> typedefMap, ObjCBindingDiagnostics? diagnostics, PlatformInfo? platformInfo = null)
     {
-        if (ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, constant.Availability, "        "))
+        if (ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, constant.Availability, "        ", platformInfo))
         {
             diagnostics?.RecordSkip("Constant", constant.Name, ObjCSkipReason.UnavailableApi, "marked unavailable on iOS");
             return;
@@ -505,9 +505,9 @@ public static class StructsAndEnumsEmitter
         return false;
     }
 
-    static void EmitFunction(StringBuilder sb, ObjCFunctionDecl function, Dictionary<string, ObjCTypeRef> typedefMap, HashSet<string> moduleLocalTypes, HashSet<string> knownTypes, HashSet<string> enumNames, ILogger logger, ObjCBindingDiagnostics? diagnostics)
+    static void EmitFunction(StringBuilder sb, ObjCFunctionDecl function, Dictionary<string, ObjCTypeRef> typedefMap, HashSet<string> moduleLocalTypes, HashSet<string> knownTypes, HashSet<string> enumNames, ILogger logger, ObjCBindingDiagnostics? diagnostics, PlatformInfo? platformInfo = null)
     {
-        if (ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, function.Availability, "        "))
+        if (ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, function.Availability, "        ", platformInfo))
         {
             diagnostics?.RecordSkip("Function", function.Name, ObjCSkipReason.UnavailableApi, "marked unavailable on iOS");
             return;

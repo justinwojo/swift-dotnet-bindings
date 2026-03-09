@@ -20,18 +20,22 @@ namespace BindingsGeneration
         /// <param name="outputDirectory">Base output directory for generated bindings.</param>
         /// <param name="logger">Logger instance.</param>
         /// <param name="commandRunner">Optional command runner for testing.</param>
+        /// <param name="platformInfo">Optional platform info; defaults to iOS.</param>
         public static string? Extract(
             XCFrameworkResolution resolution,
             string outputDirectory,
             ILogger logger,
-            ICommandRunner? commandRunner = null)
+            ICommandRunner? commandRunner = null,
+            PlatformInfo? platformInfo = null)
         {
             commandRunner ??= new SystemCommandRunner();
 
             try
             {
                 // 1. Resolve SDK path
-                var sdkName = resolution.IsSimulatorSlice ? "iphonesimulator" : "iphoneos";
+                var pi = platformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
+                var sliceVariant = pi.GetSlice(resolution.IsSimulatorSlice);
+                var sdkName = sliceVariant.SdkName;
                 var (sdkExit, sdkPath, sdkErr) = commandRunner.Run("xcrun", $"--sdk {sdkName} --show-sdk-path");
                 if (sdkExit != 0 || string.IsNullOrWhiteSpace(sdkPath))
                 {
@@ -39,12 +43,13 @@ namespace BindingsGeneration
                     return null;
                 }
 
-                // 2. Build target triple
+                // 2. Build target triple (use actual architecture from resolved slice, not default arm64)
                 var minOS = SwiftWrapperCompiler.ResolveDeploymentTarget(resolution.DylibPath, logger, commandRunner);
-                var arch = resolution.SelectedArchitecture;
-                var targetTriple = resolution.IsSimulatorSlice
-                    ? $"{arch}-apple-ios{minOS}-simulator"
-                    : $"{arch}-apple-ios{minOS}";
+                var effectiveSlice = !string.IsNullOrEmpty(resolution.SelectedArchitecture)
+                    && resolution.SelectedArchitecture != sliceVariant.Architecture
+                    ? sliceVariant with { Architecture = resolution.SelectedArchitecture }
+                    : sliceVariant;
+                var targetTriple = effectiveSlice.GetTargetTriple(minOS);
 
                 // 3. Clean output directory to prevent stale file contamination
                 var symbolgraphDir = Path.Combine(outputDirectory, "symbolgraph");

@@ -318,7 +318,7 @@ namespace BindingsGeneration.Tests
 
             var ex = Assert.Throws<InvalidOperationException>(() =>
                 SwiftWrapperCompiler.ResolveSdkPath(runner));
-            Assert.Contains("Xcode and iOS SDK", ex.Message);
+            Assert.Contains("platform SDK", ex.Message);
         }
 
         [Fact]
@@ -329,7 +329,7 @@ namespace BindingsGeneration.Tests
 
             var ex = Assert.Throws<InvalidOperationException>(() =>
                 SwiftWrapperCompiler.ResolveSdkPath(runner));
-            Assert.Contains("Xcode and iOS SDK", ex.Message);
+            Assert.Contains("platform SDK", ex.Message);
         }
     }
 
