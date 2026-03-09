@@ -215,9 +215,10 @@ TestFramework/output-macos/
 src/Swift.Bindings.Sdk/tools/
 src/Swift.Bindings.Sdk/bin/
 
-# Claude Code local settings and worktrees
+# Claude Code local settings, worktrees, and runtime state
 .claude/settings.local.json
 .claude/worktrees/
+.claude/scheduled_tasks.lock
 
 # LLVM profiling data
 *.profraw
