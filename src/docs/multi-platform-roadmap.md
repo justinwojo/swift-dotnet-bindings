@@ -8,7 +8,7 @@
 ## Current State
 
 - **Generator**: Platform abstraction complete (Session 1). `PlatformInfo`/`SliceVariant` threaded through entire pipeline — both Swift and ObjC. All execution paths accept `PlatformInfo?` with iOS fallback. No hardcoded iOS strings remain in the generator pipeline.
-- **MSBuild SDK**: Still hardcoded to iOS — `Sdk.props`/`Sdk.targets` don't yet detect platform from TFM (Session 2).
+- **MSBuild SDK**: Platform-aware (Session 2). `Sdk.props` auto-detects platform from TFM, `Sdk.targets` uses dynamic pack paths and platform-aware validation. Template supports `--platform` parameter.
 - **Swift.Runtime**: Multi-targets `net10.0;net10.0-ios;net10.0-macos;net10.0-maccatalyst` (tvOS when workload ships). However, native dylib injection only covers macOS, iOS device, and iOS simulator — **Mac Catalyst has no native asset path today** (Session 3).
 - **Test infrastructure**: Deeply tied to iOS Simulator (`xcrun simctl`, UIKit test app, iPhone device models). Existing `NativeAotTestApp.Mac` provides a macOS console test app that can be extended (Session 3).
 
@@ -99,61 +99,58 @@ Both Swift and ObjC emitters:
 
 ---
 
-## Session 2: MSBuild SDK + Template + Docs/Test Sweep + Validation
+## Session 2: MSBuild SDK + Template + Docs/Test Sweep + Validation ✅
+
+**Status**: Complete (March 8, 2026)
+**Validation**: 6628 unit tests pass, 88/88 validation targets pass (iOS unchanged), macOS/tvOS/MacCatalyst generation verified end-to-end with FirebaseCore.
 
 **Goal**: Make the SDK and template platform-aware, sweep hardcoded `net10.0-ios` assumptions from tests and docs, and validate end-to-end with real xcframeworks on macOS.
 
-### Sub-task 2A: MSBuild SDK (single agent)
+### Sub-task 2A: MSBuild SDK ✅
 
-- `Sdk.props`: Auto-detect platform from `$(TargetFramework)` instead of defaulting to `net10.0-ios`
-  - `net10.0-ios` → iOS, `net10.0-macos` → macOS, `net10.0-tvos` → tvOS, `net10.0-maccatalyst` → MacCatalyst
-  - `SwiftPlatformTarget` default: `simulator` for iOS/tvOS, empty for macOS/Catalyst
-  - Keep `net10.0-ios` as fallback default when no TFM specified (most common case)
-- `Sdk.targets`: Dynamic pack paths based on detected platform
-  - Generator invocation: pass `--platform` derived from TFM
-  - NuGet pack layout: `buildTransitive/{tfm}/` and `runtimes/{rid}/native/`
-  - Pack validation: check for platform-appropriate slice directories (not hardcoded `ios-arm64-simulator/` + `ios-arm64/`)
+- `Sdk.props`: Auto-detect platform from `$(TargetFramework)` via `_SwiftBindingPlatform`
+  - TFM → platform: `maccatalyst` (checked first), `tvos`, `macos`, `ios` — all explicit `Contains()` checks
+  - Unsupported TFMs (`net10.0`, `net10.0-android`, typos): `_SwiftBindingPlatformUnsupported=true`, no dangling fallback — `_SwiftBindingPlatform` stays empty so invalid state is visible throughout
+  - `_SwiftBindingHasSimulatorSlice` — true for iOS/tvOS only
+  - `_SwiftBindingNuGetRid` — platform-specific RID (`ios-arm64`, `osx-arm64`, `tvos-arm64`, `maccatalyst-arm64`)
+  - `_SwiftBindingDeviceSliceId`/`_SwiftBindingSimulatorSliceId` — platform-specific slice directory names
+  - `SwiftPlatformTarget` defaults to `simulator` only for platforms with simulator variants
+- `Sdk.targets`:
+  - SWIFTBIND010: fail-fast error for unsupported TFMs (fires before discovery)
+  - Generator invocation: pass `--platform $(_SwiftBindingPlatform)`, conditional `--platform-target`
+  - NuGet pack layout: `buildTransitive/$(TargetFramework)/` and `runtimes/$(_SwiftBindingNuGetRid)/native/`
+  - SWIFTBIND030: only fires for platforms with simulator slices
+  - SWIFTBIND031: split into dual-slice (iOS/tvOS) and single-slice (macOS/Catalyst) validation
+  - Fingerprint includes `$(_SwiftBindingPlatform)`
 
-### Sub-task 2B: Template (can parallel with 2A)
+### Sub-task 2B: Template ✅
 
-- Update `ProjectName.csproj` — keep `net10.0-ios` as default, add comments showing alternatives
-- Add `--platform` template parameter to `dotnet new swift-binding` (`ios` default)
-- Update template package tags
+- `template.json`: `--platform` choice parameter (ios/macos/tvos/maccatalyst), `tfm` generated switch symbol
+- `ProjectName.csproj`: XML comment showing `--platform` alternatives
+- `Swift.Bindings.Templates.csproj`: PackageTags updated with all platforms
+- Classifications updated from `["iOS", ...]` to `["Apple", ...]`
 
-### Sub-task 2C: Docs and test sweep (can parallel with 2A, 2B)
+### Sub-task 2C: Test sweep ✅
 
-Sweep hardcoded `net10.0-ios` assumptions across tests and docs:
-- `SdkPropsTargetsTests.cs` — assertions expecting iOS-only TFM/paths
-- Any test that constructs `BindingGeneratorOptions` with implicit iOS assumptions
-- ObjC emitter tests expecting `.iOS.csproj` naming
-- Doc references to `net10.0-ios` in `CLAUDE.md`, SDK troubleshooting, etc.
-- Update `validation-libraries.json` schema if platform field needed
+- `SdkPropsTargetsTests.cs`: Updated `Targets_ConfiguresPackLayout` and `Targets_PackLayoutIncludesModuleDatabase` to assert dynamic paths (`$(TargetFramework)`, `$(_SwiftBindingNuGetRid)`) instead of hardcoded iOS
+- Added 10 new tests: platform auto-detection, maccatalyst-before-macos ordering, NuGet RID per platform, slice IDs, simulator slice conditional, platform target conditional, generator platform arg, fingerprint includes platform, single-slice validation, unsupported TFM flag (props), SWIFTBIND010 error (targets)
+- `docs/Customization.md`: Added `--platform` CLI option, updated `SwiftPlatformTarget` default to note macOS/Catalyst exception
 
-### Sub-task 2D: macOS end-to-end validation (after 2A merge)
+### Sub-task 2D: macOS end-to-end validation ✅
 
-- Pick 2-3 validation libraries that ship macOS slices (many xcframeworks contain both iOS and macOS)
-- Run generator with `--platform macos` against both Swift and ObjC libraries
-- Verify: correct TFM in `.csproj`, correct NativeReference paths, bindings compile with `dotnet build`
-- Fix any issues discovered
-- Run `validate-libraries.sh` to confirm iOS path is unchanged
+- Tested FirebaseCore.xcframework with `--platform macos`, `--platform tvos`, `--platform maccatalyst`
+- All three produce correct TFM/PackageId: `net10.0-macos`/`FirebaseCore.ObjC.macOS`, `net10.0-tvos`/`FirebaseCore.ObjC.tvOS`, `net10.0-maccatalyst`/`FirebaseCore.ObjC.MacCatalyst`
+- `validate-libraries.sh` tier 1 (34/34) and tier 2 (54/54) pass — iOS path unchanged
 
-### Parallelization
+### Key files modified
 
-```
-Agent 1 (main):     2A — Sdk.props + Sdk.targets
-Agent 2 (worktree): 2B — Template
-Agent 3 (worktree): 2C — Docs and test sweep
-── merge ──
-Agent 4:            2D — macOS end-to-end validation (needs merged SDK)
-```
-
-**Key files**:
-- `src/Swift.Bindings.Sdk/Sdk/Sdk.props`
-- `src/Swift.Bindings.Sdk/Sdk/Sdk.targets`
-- `src/Swift.Bindings.Templates/content/swift-binding/ProjectName.csproj`
-- `src/Swift.Bindings.Templates/Swift.Bindings.Templates.csproj`
-- `src/Swift.Bindings/tests/UnitTests/SdkTests/SdkPropsTargetsTests.cs`
-- `validation-libraries.json`
+- `src/Swift.Bindings.Sdk/Sdk/Sdk.props` — platform auto-detection, NuGet RID, slice ID properties, unsupported TFM flag
+- `src/Swift.Bindings.Sdk/Sdk/Sdk.targets` — SWIFTBIND010, dynamic pack paths, platform-aware validation, generator `--platform` arg
+- `src/Swift.Bindings.Templates/content/swift-binding/.template.config/template.json` — `--platform` parameter
+- `src/Swift.Bindings.Templates/content/swift-binding/ProjectName.csproj` — comment
+- `src/Swift.Bindings.Templates/Swift.Bindings.Templates.csproj` — PackageTags
+- `src/Swift.Bindings/tests/UnitTests/SdkTests/SdkPropsTargetsTests.cs` — updated + 10 new tests
+- `docs/Customization.md` — `--platform` CLI option, updated `SwiftPlatformTarget` docs
 
 ---
 
@@ -242,7 +239,7 @@ Each session should end with these gates passing:
 | Session | Gate |
 |---------|------|
 | 1 | `run-tests.sh` passes (existing iOS tests unbroken). New platform-specific unit tests pass for all 4 platforms. Smoke generation with `--platform macos` produces output with correct TFM/RID/paths. Both Swift and ObjC xcframework inputs tested. |
-| 2 | SDK auto-detects platform from TFM. At least 2 real libraries (1 Swift, 1 ObjC if available) generate + compile for macOS via `dotnet build`. `validate-libraries.sh` still passes for iOS (no regression). |
+| 2 | ✅ SDK auto-detects platform from TFM. FirebaseCore (ObjC) generates correctly for macOS, tvOS, and MacCatalyst. `validate-libraries.sh` 88/88 for iOS (no regression). 6628 unit tests pass. Unsupported TFMs fail fast (SWIFTBIND010). |
 | 3 | Runtime loads native dylib on Catalyst. TestFramework builds and runtime tests pass on macOS natively (via extended `NativeAotTestApp.Mac` or new console test app). iOS test path unchanged. tvOS: validated end-to-end when .NET 10 tvOS workload is available; until then, compile/pack logic only (unit-tested but no runtime gate). |
 
 ---

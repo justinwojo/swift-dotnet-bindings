@@ -5,7 +5,7 @@
     <Description>dotnet new templates for Swift binding projects. Creates a project configured with the Swift.Bindings.Sdk MSBuild SDK.</Description>
     <Authors>Justin Wojciechowski</Authors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageTags>swift;dotnet;bindings;template;ios</PackageTags>
+    <PackageTags>swift;dotnet;bindings;template;ios;macos;tvos;maccatalyst</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageType>Template</PackageType>
     <TargetFramework>netstandard2.0</TargetFramework>

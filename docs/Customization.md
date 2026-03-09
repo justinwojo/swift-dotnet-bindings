@@ -11,7 +11,8 @@ The generator accepts these options:
 | `-d, --dylib <path>` | Path to the dynamic library |
 | `-t, --tbd <path>` | Path to the TBD file |
 | `-o, --output <path>` | **(Required)** Output directory |
-| `--platform-target <target>` | `simulator` (default) or `device`. Selects xcframework slice. |
+| `--platform <platform>` | Target Apple platform: `ios` (default), `macos`, `tvos`, `maccatalyst`. |
+| `--platform-target <target>` | `simulator` (default for iOS/tvOS) or `device`. Selects xcframework slice. Not applicable for macOS/Catalyst. |
 | `-l, --library-name <name>` | Runtime library name for `DllImport`. Defaults to dylib path. |
 | `--async-library <name>` | Library name for async wrapper functions. Usually `SwiftBindings`. |
 | `-s, --swiftinterface <path>` | Path to `.swiftinterface` file. Detects `@inlinable internal` members. |
@@ -32,7 +33,7 @@ When using the `Swift.Bindings.Sdk`, these MSBuild properties are available in y
 
 | Property | Default | Description |
 |----------|---------|-------------|
-| `SwiftPlatformTarget` | `simulator` | Platform slice for generation |
+| `SwiftPlatformTarget` | `simulator` (iOS/tvOS), empty (macOS/Catalyst) | Platform slice for generation. Auto-detected from TFM. |
 | `SwiftWrapperArchitectures` | `all` | Wrapper compilation scope: `simulator`, `device`, or `all` |
 | `SwiftRuntimeVersion` | *(matches SDK version)* | Version of `Swift.Runtime` package |
 | `SwiftGenerateDocComments` | `true` | Auto-extract symbol graph for C# XML doc comments |

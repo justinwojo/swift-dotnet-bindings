@@ -12,6 +12,9 @@
   <!-- Target 0: Validate no SwiftPackage items (v2 stub)                     -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_ValidateSwiftPackageItems" BeforeTargets="_DiscoverSwiftFrameworks">
+    <Error Condition="'$(_SwiftBindingPlatformUnsupported)' == 'true'"
+           Code="SWIFTBIND010"
+           Text="Unsupported TargetFramework '$(TargetFramework)' for Swift bindings. Use an Apple platform TFM: net10.0-ios, net10.0-macos, net10.0-tvos, or net10.0-maccatalyst." />
     <Error Condition="'@(SwiftPackage)' != ''"
            Code="SWIFTBIND100"
            Text="SwiftPackage items are not yet supported. Use SwiftFramework items with a pre-built xcframework." />
@@ -89,7 +92,7 @@
       echo &quot;@(SwiftFrameworkDependency->'%(ModuleDatabasePath)', '%0A')&quot; | while IFS= read -r db; do \
         if [ -n &quot;$$db&quot; ] &amp;&amp; [ -f &quot;$$db&quot; ]; then shasum -a 256 &quot;$$db&quot;; fi; \
       done; \
-      echo &quot;$(_SwiftBindingSdkVersion) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) %(SwiftFramework.NamespacePattern) $(PackageId) %(SwiftFramework.SymbolGraph) %(SwiftFramework.BridgeHints) %(SwiftFramework.SwiftInterface) $(SwiftGenerateDocComments) $(SwiftAutoDetectDependencies) @(SwiftFrameworkDependency, '|')&quot; \
+      echo &quot;$(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) %(SwiftFramework.NamespacePattern) $(PackageId) %(SwiftFramework.SymbolGraph) %(SwiftFramework.BridgeHints) %(SwiftFramework.SwiftInterface) $(SwiftGenerateDocComments) $(SwiftAutoDetectDependencies) @(SwiftFrameworkDependency, '|')&quot; \
     ) | sort | shasum -a 256 | cut -d' ' -f1"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftNewFingerprint" />
@@ -171,7 +174,8 @@
       <_SwiftGenCmd>dotnet exec "$(_SwiftBindingGeneratorDir)Swift.Bindings.dll"</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) --xcframework "%(SwiftFramework.Identity)"</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) -o "$(_SwiftBindingIntermediateDir)"</_SwiftGenCmd>
-      <_SwiftGenCmd>$(_SwiftGenCmd) --platform-target $(SwiftPlatformTarget)</_SwiftGenCmd>
+      <_SwiftGenCmd>$(_SwiftGenCmd) --platform $(_SwiftBindingPlatform)</_SwiftGenCmd>
+      <_SwiftGenCmd Condition="'$(SwiftPlatformTarget)' != ''">$(_SwiftGenCmd) --platform-target $(SwiftPlatformTarget)</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) --wrapper-architectures $(SwiftWrapperArchitectures)</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) --sdk-mode -v $(SwiftGeneratorVerbosity)</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'$(PackageId)' != ''">$(_SwiftGenCmd) --package-id "$(PackageId)"</_SwiftGenCmd>
@@ -437,17 +441,25 @@ done"
           BeforeTargets="_ConfigureSwiftBindingPack"
           Condition="'$(IsPackable)' == 'true' AND '@(SwiftFramework)' != '' AND '$(SwiftFrameworkType)' != 'ObjC'">
 
-    <!-- Guard 1: property check -->
-    <Error Condition="'$(SwiftWrapperArchitectures)' != 'all'"
+    <!-- Guard 1: property check (only for platforms with simulator + device slices) -->
+    <Error Condition="'$(SwiftWrapperArchitectures)' != 'all' AND '$(_SwiftBindingHasSimulatorSlice)' == 'true'"
            Code="SWIFTBIND030"
            Text="NuGet packages require both device and simulator wrapper slices. Remove &lt;SwiftWrapperArchitectures&gt;simulator&lt;/SwiftWrapperArchitectures&gt; or set it to 'all' before packing." />
 
-    <!-- Guard 2: artifact check — verify both slice directories exist in wrapper xcframework -->
+    <!-- Guard 2a: artifact check for platforms with simulator — verify both slice directories exist -->
     <Error Condition="'$(_SwiftBindingHasWrapperXCFramework)' == 'True'
-                      AND (!Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework/ios-arm64-simulator/')
-                           OR !Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework/ios-arm64/'))"
+                      AND '$(_SwiftBindingHasSimulatorSlice)' == 'true'
+                      AND (!Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework/$(_SwiftBindingSimulatorSliceId)/')
+                           OR !Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework/$(_SwiftBindingDeviceSliceId)/'))"
            Code="SWIFTBIND031"
-           Text="Wrapper xcframework is missing device or simulator slice. The source xcframework may not contain both platform slices. Verify your xcframework includes both device (ios-arm64) and simulator slices, or set &lt;IsPackable&gt;false&lt;/IsPackable&gt; for local-only use." />
+           Text="Wrapper xcframework is missing device or simulator slice. The source xcframework may not contain both platform slices. Verify your xcframework includes both device ($(_SwiftBindingDeviceSliceId)) and simulator ($(_SwiftBindingSimulatorSliceId)) slices, or set &lt;IsPackable&gt;false&lt;/IsPackable&gt; for local-only use." />
+
+    <!-- Guard 2b: artifact check for single-slice platforms — verify device slice exists -->
+    <Error Condition="'$(_SwiftBindingHasWrapperXCFramework)' == 'True'
+                      AND '$(_SwiftBindingHasSimulatorSlice)' != 'true'
+                      AND !Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework/$(_SwiftBindingDeviceSliceId)/')"
+           Code="SWIFTBIND031"
+           Text="Wrapper xcframework is missing the $(_SwiftBindingDeviceSliceId) slice. Verify your xcframework includes the correct platform slice, or set &lt;IsPackable&gt;false&lt;/IsPackable&gt; for local-only use." />
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
@@ -461,18 +473,18 @@ done"
     <!-- Arrange NuGet pack layout -->
     <ItemGroup>
       <None Include="$(_SwiftBindingIntermediateDir)$(PackageId).targets"
-            Pack="true" PackagePath="buildTransitive/net10.0-ios/"
+            Pack="true" PackagePath="buildTransitive/$(TargetFramework)/"
             Condition="Exists('$(_SwiftBindingIntermediateDir)$(PackageId).targets')" />
       <None Include="%(SwiftFramework.Identity)/**"
             Pack="true"
-            PackagePath="runtimes/ios-arm64/native/$([System.IO.Path]::GetFileName('%(SwiftFramework.Identity)'))/" />
+            PackagePath="runtimes/$(_SwiftBindingNuGetRid)/native/$([System.IO.Path]::GetFileName('%(SwiftFramework.Identity)'))/" />
       <None Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework/**"
             Pack="true"
-            PackagePath="runtimes/ios-arm64/native/$(_SwiftBindingWrapperModuleName).xcframework/"
+            PackagePath="runtimes/$(_SwiftBindingNuGetRid)/native/$(_SwiftBindingWrapperModuleName).xcframework/"
             Condition="'$(_SwiftBindingHasWrapperXCFramework)' == 'True'" />
       <!-- Module database for cross-module type resolution in downstream binding projects -->
       <None Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingModuleName)Database.xml"
-            Pack="true" PackagePath="buildTransitive/net10.0-ios/"
+            Pack="true" PackagePath="buildTransitive/$(TargetFramework)/"
             Condition="Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingModuleName)Database.xml')" />
     </ItemGroup>
   </Target>
