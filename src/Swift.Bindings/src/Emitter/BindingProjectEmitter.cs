@@ -149,7 +149,7 @@ namespace BindingsGeneration
                   </ItemGroup>
 
                   <ItemGroup>
-                    <PackageReference Include="Swift.Runtime" Version="{runtimeVersion}" />{dependencyRefs}
+                    <PackageReference Include="SwiftBindings.Runtime" Version="{runtimeVersion}" />{dependencyRefs}
                   </ItemGroup>
 
                   <!-- Generated C# bindings -->

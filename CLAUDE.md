@@ -7,9 +7,9 @@ Experimental Swift/.NET interop project. Generates C# bindings from compiled Swi
 ## Repository Structure
 
 - `src/Swift.Bindings/src/` — Generator: Parser → TypeDatabase → Marshaler → Emitter
-- `src/Swift.Bindings.Sdk/` — MSBuild SDK package (`Swift.Bindings.Sdk`): `Sdk.props`, `Sdk.targets`, build scripts
+- `src/Swift.Bindings.Sdk/` — MSBuild SDK package (`SwiftBindings.Sdk`): `Sdk.props`, `Sdk.targets`, build scripts
 - `src/Swift.Bindings.Templates/` — `dotnet new swift-binding` project template
-- `src/Swift.Runtime/src/Swift/` — Runtime: SwiftString, SwiftArray, SafeHandle, ARC (NuGet: `Swift.Runtime`)
+- `src/Swift.Runtime/src/Swift/` — Runtime: SwiftString, SwiftArray, SafeHandle, ARC (NuGet: `SwiftBindings.Runtime`)
 - `TestFramework/` — Comprehensive test library + runtime tests (iOS Simulator)
 - `validation-libraries.json` — Library validation manifest (88 targets across 46 libraries)
 - `scripts/` — `fetch-libraries.sh` (build xcframeworks), `lib.sh` (shared helpers)
@@ -140,7 +140,7 @@ scripts/fetch-libraries.sh
 - **Wrapper compilation failures** (SkeletonView internal types, Mixpanel `#if compiler` types) — C# bindings are correct, but Swift wrapper can't compile without the types. Not dependency-related.
 - **Stripe inter-module dependencies** — use `--framework-dependency` to provide each dependency xcframework. See SDK section below for MSBuild equivalent.
 
-## MSBuild SDK (`Swift.Bindings.Sdk`)
+## MSBuild SDK (`SwiftBindings.Sdk`)
 
 The SDK automates the entire workflow into `dotnet build && dotnet pack`. Design doc: `src/docs/Completed/dx-msbuild-sdk-design.md`.
 
@@ -153,7 +153,7 @@ cd Library.Swift.iOS && dotnet build && dotnet pack
 
 **Minimal project file:**
 ```xml
-<Project Sdk="Swift.Bindings.Sdk">
+<Project Sdk="SwiftBindings.Sdk">
   <PropertyGroup>
     <TargetFramework>net10.0-ios</TargetFramework>
   </PropertyGroup>
@@ -164,7 +164,7 @@ The SDK auto-discovers `*.xcframework` in the project directory, runs the genera
 
 **Project with framework dependencies:**
 ```xml
-<Project Sdk="Swift.Bindings.Sdk">
+<Project Sdk="SwiftBindings.Sdk">
   <PropertyGroup>
     <TargetFramework>net10.0-ios</TargetFramework>
   </PropertyGroup>
@@ -179,7 +179,7 @@ The SDK auto-discovers `*.xcframework` in the project directory, runs the genera
 Use `<SwiftFrameworkDependency>` when your library imports another Swift framework. Each item adds a `-F` search path for wrapper compilation and a `<PackageReference>` for NuGet consumers. Both `PackageId` and `PackageVersion` metadata are required for NuGet pack scenarios (SWIFTBIND040 warns if missing).
 
 **Key SDK files:**
-- `src/Swift.Bindings.Sdk/Sdk/Sdk.props` — default properties, implicit `Swift.Runtime` reference
+- `src/Swift.Bindings.Sdk/Sdk/Sdk.props` — default properties, implicit `SwiftBindings.Runtime` reference
 - `src/Swift.Bindings.Sdk/Sdk/Sdk.targets` — 9 build targets (discover → fingerprint → generate → compile → pack)
 - `src/Swift.Bindings.Sdk/build-sdk.sh` — publishes generator + packs SDK NuGet
 

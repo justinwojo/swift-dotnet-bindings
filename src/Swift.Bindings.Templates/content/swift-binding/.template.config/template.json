@@ -15,7 +15,7 @@
     "sdkVersion": {
       "type": "parameter",
       "datatype": "string",
-      "description": "The Swift.Bindings.Sdk NuGet package version to use.",
+      "description": "The SwiftBindings.Sdk NuGet package version to use.",
       "defaultValue": "0.0.0-dev",
       "replaces": "0.0.0-dev"
     },

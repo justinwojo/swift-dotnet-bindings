@@ -35,7 +35,7 @@ These are the gates between current state and a public release.
 | Phase | What | Effort | Status |
 |-------|------|--------|--------|
 | **Cold-start walkthrough** | Findings doc: `Completed/cold-start-walkthrough-findings.md`. 21 friction points found, 16 resolved (template version bug, namespace default, prerequisites, debugging docs, version consistency). | Done | Done |
-| **Release packaging** | `Swift.Runtime` + `Swift.Bindings.Sdk` NuGet packages ready to publish. `dotnet new swift-binding` installs cleanly. Consumer smoke test: template -> build -> pack -> consume -> call -> works. | 1 session | Not started |
+| **Release packaging** | `SwiftBindings.Runtime` + `SwiftBindings.Sdk` NuGet packages ready to publish. `dotnet new swift-binding` installs cleanly. Consumer smoke test: template -> build -> pack -> consume -> call -> works. | 1 session | Not started |
 | **Pre-launch cleanup** | ABI/module database versioning notes (item J). License check. No secrets in committed files. Update SB diagnostic `UrlFormat` attributes to public repo URL. GitHub release tagging + changelog workflow. Version sweep (handled by release workflow). | 0.5 session | Done |
 | **Upstream bug reports** | File 3 Mono JIT issues + NativeAOT simulator request on dotnet/runtime. Drafts ready: `Future/upstream-bug-reports-draft.md`, `Future/upstream-nativeaot-simulator-issue.md`. | Trivial | Blocked on repo going public |
 | **Contributor onboarding** | `CONTRIBUTING.md`, architecture overview, issue/PR templates. Currently excellent AI docs but nothing for human contributors. | 0.5 session | Not started |

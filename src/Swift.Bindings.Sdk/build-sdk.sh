@@ -2,7 +2,7 @@
 # Copyright (c) 2026 Justin Wojciechowski.
 # Licensed under the MIT License.
 #
-# Builds the Swift.Bindings.Sdk NuGet package.
+# Builds the SwiftBindings.Sdk NuGet package.
 # 1. Publishes the generator into the tools/ directory
 # 2. Packs the SDK NuGet package
 
@@ -11,7 +11,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-echo "=== Building Swift.Bindings.Sdk ==="
+echo "=== Building SwiftBindings.Sdk ==="
 
 # 1. Publish the generator
 echo "Publishing generator..."

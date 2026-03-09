@@ -106,7 +106,7 @@ namespace BindingsGeneration.Tests
             try
             {
                 var content = EmitAndRead(dir, "Nuke", "12.8.0", "15.0");
-                Assert.Contains("Swift.Runtime", content);
+                Assert.Contains("SwiftBindings.Runtime", content);
                 Assert.Contains(BindingProjectEmitter.DefaultSwiftRuntimeVersion, content);
             }
             finally { Directory.Delete(dir, true); }
@@ -483,7 +483,7 @@ namespace BindingsGeneration.Tests
             {
                 var content = EmitAndRead(dir, "Nuke", dependencies: null);
                 // Should have only the Swift.Runtime PackageReference
-                Assert.Contains("Swift.Runtime", content);
+                Assert.Contains("SwiftBindings.Runtime", content);
                 Assert.DoesNotContain("SmartCardIO", content);
                 Assert.DoesNotContain("StripeCore", content);
             }
@@ -601,7 +601,7 @@ namespace BindingsGeneration.Tests
                     }
                 };
                 var content = EmitAndRead(dir, "Main", dependencies: deps);
-                Assert.Contains("Swift.Runtime", content);
+                Assert.Contains("SwiftBindings.Runtime", content);
                 Assert.Contains(BindingProjectEmitter.DefaultSwiftRuntimeVersion, content);
             }
             finally { Directory.Delete(dir, true); }
@@ -624,7 +624,7 @@ namespace BindingsGeneration.Tests
                 };
                 var content = EmitAndRead(dir, "StripePayments", dependencies: deps);
                 // Should have Swift.Runtime but NOT Stripe3DS2
-                Assert.Contains("Swift.Runtime", content);
+                Assert.Contains("SwiftBindings.Runtime", content);
                 Assert.DoesNotContain("Stripe3DS2", content);
             }
             finally { Directory.Delete(dir, true); }

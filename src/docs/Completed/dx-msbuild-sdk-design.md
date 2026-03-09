@@ -43,7 +43,7 @@ dotnet pack
 **Their project file (entire contents):**
 
 ```xml
-<Project Sdk="Swift.Bindings.Sdk/1.0.0">
+<Project Sdk="SwiftBindings.Sdk/1.0.0">
   <PropertyGroup>
     <TargetFramework>net10.0-ios</TargetFramework>
   </PropertyGroup>
@@ -105,7 +105,7 @@ var image = await pipeline.GetImageAsync(new ImageRequest("https://example.com/p
 ```
 
 **What happens automatically:**
-- NuGet restore pulls `Nuke.Swift.iOS` + transitive `Swift.Runtime`
+- NuGet restore pulls `Nuke.Swift.iOS` + transitive `SwiftBindings.Runtime`
 - The package's `.targets` file injects `NativeReference` items for `Nuke.xcframework` and `NukeSwiftBindings.xcframework` (the module-specific wrapper library)
 - The xcframeworks end up in the app's `Frameworks/` directory at build time
 - If the consumer's `SupportedOSPlatformVersion` is too low for the framework, they get a clear build warning
@@ -149,7 +149,7 @@ Takes an xcframework directory and automatically resolves all inputs:
 - `binding-report.json` — coverage metrics
 ### What the Generator Also Does (in `--xcframework` mode)
 
-- Emits a ready-to-build `.csproj` with `PackageReference` to `Swift.Runtime`, NativeReference items, and NuGet pack layout
+- Emits a ready-to-build `.csproj` with `PackageReference` to `SwiftBindings.Runtime`, NativeReference items, and NuGet pack layout
 - Emits a `.targets` file for NuGet consumers (NativeReference injection, platform version validation)
 - Extracts xcframework metadata (version, min iOS, SDK version) into `binding-metadata.json`
 - Detects version placeholders (Xcode default "1.0"/"1.0.0") and emits `PackageVersion=0.0.0` with a warning comment
@@ -157,7 +157,7 @@ Takes an xcframework directory and automatically resolves all inputs:
 ### Swift.Runtime
 
 - Multi-target: `net10.0;net10.0-ios;net10.0-macos;net10.0-maccatalyst`
-- Packable as a NuGet package (`Swift.Runtime`, version `0.1.0-preview.1`)
+- Packable as a NuGet package (`SwiftBindings.Runtime`, version `0.1.0-preview.1`)
 - Contains: SwiftString, SwiftArray, SwiftOptional, ARC, SafeHandle, ValueWitnessTable, type database XMLs, native dylibs per platform
 - NuGet package includes: compiled DLL per TFM, XML type databases, native dylibs in `native/{platform}/`, `.targets` in `buildTransitive/` for automatic dylib injection, README
 - Binding test projects reference it as `<ProjectReference>` within the repo (unaffected by NuGet packaging)
@@ -237,7 +237,7 @@ The MSBuild SDK approach means the user never leaves the standard .NET workflow 
 An MSBuild SDK is a NuGet package with a specific layout:
 
 ```
-Swift.Bindings.Sdk.nupkg/
+SwiftBindings.Sdk.nupkg/
 ├── Sdk/
 │   ├── Sdk.props          # Imported at TOP of every project using this SDK
 │   └── Sdk.targets        # Imported at BOTTOM — defines custom build targets
@@ -245,10 +245,10 @@ Swift.Bindings.Sdk.nupkg/
 │   ├── net10.0/
 │   │   └── swift-bindings.dll   # The generator, shipped as a tool
 │   └── [platform-specific tools if needed]
-└── Swift.Bindings.Sdk.nuspec
+└── SwiftBindings.Sdk.nuspec
 ```
 
-When a project declares `Sdk="Swift.Bindings.Sdk/1.0.0"`, MSBuild automatically:
+When a project declares `Sdk="SwiftBindings.Sdk/1.0.0"`, MSBuild automatically:
 1. Restores the SDK package
 2. Imports `Sdk.props` before the project body
 3. Imports `Sdk.targets` after the project body
@@ -256,7 +256,7 @@ When a project declares `Sdk="Swift.Bindings.Sdk/1.0.0"`, MSBuild automatically:
 `Sdk.props` can define:
 - The `SwiftFramework` item type
 - Default properties (`TargetFramework`, `IsPackable`, etc.)
-- Implicit `PackageReference` to `Swift.Runtime`
+- Implicit `PackageReference` to `SwiftBindings.Runtime`
 
 `Sdk.targets` can define build targets:
 - `ExtractSwiftABI` (BeforeTargets="CoreCompile")
@@ -336,12 +336,12 @@ Each step builds permanently toward the SDK. No step is discarded when the next 
 
 **Contributes to SDK:** Target 3 (CompileSwiftWrapper) invokes this same capability.
 
-### Step 3: Swift.Runtime as a NuGet package ✅
+### Step 3: SwiftBindings.Runtime as a NuGet package ✅
 
 **Status: Complete.**
 
 **What was implemented:**
-- `Swift.Runtime.csproj`: Removed `IsPackable=false` (inherits `true` from `Directory.Build.props`), added NuGet metadata (`PackageId=Swift.Runtime`, `PackageVersion=0.1.0-preview.1`, description, authors, tags, readme)
+- `Swift.Runtime.csproj`: Removed `IsPackable=false` (inherits `true` from `Directory.Build.props`), added NuGet metadata (`PackageId=SwiftBindings.Runtime`, `PackageVersion=0.1.0-preview.1`, description, authors, tags, readme)
 - Content glob narrowed from `Swift/**/*.*` to `Swift/**/*.xml` — C# files compile into the DLL; only the 10 XML type databases need to be copied as content (used by the generator at code-gen time)
 - Added `Pack="false"` to existing conditional Content items for native dylibs — prevents double-packing via both Content items and explicit pack items. Content items continue to work for ProjectReference consumers (all test apps).
 - Added NuGet pack items: native dylibs in `native/{platform}/`, `.targets` file in `buildTransitive/`, README at package root
@@ -349,9 +349,9 @@ Each step builds permanently toward the SDK. No step is discarded when the next 
 - Generator: removed `CopyDirectory` call and helper method from `Program.cs` — generator no longer copies `Swift/` runtime source directory to output. The generator still reads XML type databases from its own bin directory via its ProjectReference to Swift.Runtime.
 - Versioning: independent from binding packages, starts at `0.1.0-preview.1` (pre-release). Uses `<PackageVersion>` (not `<Version>`) to keep assembly version simple.
 
-**After this step:** `dotnet pack` in `src/Swift.Runtime/src/` produces a `.nupkg` with compiled DLLs, XML type databases, native dylibs, consumer `.targets`, and README. External consumers can reference Swift.Runtime from a NuGet feed.
+**After this step:** `dotnet pack` in `src/Swift.Runtime/src/` produces a `.nupkg` with compiled DLLs, XML type databases, native dylibs, consumer `.targets`, and README. External consumers can reference SwiftBindings.Runtime from a NuGet feed.
 
-**Contributes to SDK:** `Sdk.props` will inject the `PackageReference` to `Swift.Runtime` automatically.
+**Contributes to SDK:** `Sdk.props` will inject the `PackageReference` to `SwiftBindings.Runtime` automatically.
 
 ### Step 4: Generator emits compilable `.csproj` + NuGet packaging support ✅
 
@@ -362,7 +362,7 @@ Each step builds permanently toward the SDK. No step is discarded when the next 
 - `PlistReader.cs` — Shared binary/XML plist reader. Uses `plutil -convert xml1 -o /dev/stdout` to handle binary plists (which inner framework Info.plists use), with XML `XmlDocument.Load` fallback for self-generated XML plists. Fixes a latent bug where `SwiftWrapperCompiler.ResolveDeploymentTarget()` silently fell back to "15.0" on binary plists because `XmlDocument.Load()` can't parse binary plist format.
 - `XCFrameworkMetadataExtractor.cs` — Extracts `CFBundleShortVersionString`, `MinimumOSVersion`, and `DTPlatformVersion` from the inner framework's `Info.plist` via `PlistReader`. Detects Xcode default version placeholders ("1.0", "1.0.0") and clamps MinimumOSVersion to max(raw, 15.0) for the .NET 10 iOS floor. Reads platform list from outer xcframework `Info.plist`. Emits `binding-metadata.json` with all extracted metadata.
 - `BindingProjectEmitter.cs` — Emits `{Module}.Swift.iOS.csproj` targeting `net10.0-ios` with:
-  - `PackageReference` to `Swift.Runtime` (version `0.1.0-preview.1`)
+  - `PackageReference` to `SwiftBindings.Runtime` (version `0.1.0-preview.1`)
   - `PackageVersion` from xcframework metadata (or `0.0.0` with XML warning comment for placeholders)
   - `SupportedOSPlatformVersion` from clamped MinimumOSVersion
   - Explicit `Compile` items for generated `.cs` files (with `Condition="Exists()"` on optional Wrappers/SwiftUIBridge files)
@@ -414,7 +414,7 @@ cd Nuke.Swift.iOS && dotnet build && dotnet pack
 - `Program.cs` — Extracted `ShouldCompileWrapper()` as a testable static method covering the `isSimulatorSlice × wrapperArchitectures` matrix. Three branches: `simulator` (existing path), `device` (resolves device slice, calls `CompileSlice` with `iphoneos` SDK), `all` (calls `CompileAll` with both resolutions)
 
 **SDK package (Phase 2):**
-- `src/Swift.Bindings.Sdk/Sdk/Sdk.props` — SDK property defaults: `net10.0-ios`, `AllowUnsafeBlocks`, `IsPackable=true`, `Nullable=enable`, `SwiftWrapperArchitectures=all` (both slices by default), `SwiftPlatformTarget=simulator`, implicit `PackageReference` to `Swift.Runtime` with `$(SwiftRuntimeVersion)` version floor. NO auto-discovery (that's in `.targets`, after project body evaluation)
+- `src/Swift.Bindings.Sdk/Sdk/Sdk.props` — SDK property defaults: `net10.0-ios`, `AllowUnsafeBlocks`, `IsPackable=true`, `Nullable=enable`, `SwiftWrapperArchitectures=all` (both slices by default), `SwiftPlatformTarget=simulator`, implicit `PackageReference` to `SwiftBindings.Runtime` with `$(SwiftRuntimeVersion)` version floor. NO auto-discovery (that's in `.targets`, after project body evaluation)
 - `src/Swift.Bindings.Sdk/Sdk/Sdk.targets` — 10 MSBuild targets:
 
 | # | Target | Fires | Purpose |
@@ -441,13 +441,13 @@ cd Nuke.Swift.iOS && dotnet build && dotnet pack
 
 **Template package (Phase 3):**
 - `src/Swift.Bindings.Templates/` — `dotnet new swift-binding` template with `sdkVersion` parameter
-- Template project: `<Project Sdk="Swift.Bindings.Sdk/0.1.0-preview.1">` with `net10.0-ios`
+- Template project: `<Project Sdk="SwiftBindings.Sdk/0.1.0-preview.1">` with `net10.0-ios`
 
 **Unit tests (51 new tests):**
 - `XCFrameworkMetadataPropsTests.cs` (4 tests): file creation, all properties present, no-wrapper state, valid MSBuild XML
 - `ProgramSdkModeTests.cs` (8 tests): CLI option parsing for `--sdk-mode`, `--package-id`, `--wrapper-architectures`
 - `ShouldCompileWrapperTests.cs` (6 tests): full 2×3 truth table (isSimulatorSlice × wrapperArchitectures)
-- `SdkPropsTargetsTests.cs` (25 tests): Sdk.props content (Microsoft.NET.Sdk import, default properties, Swift.Runtime reference, no auto-discovery), Sdk.targets content (all 9 targets, SWIFTBIND error codes, fingerprint, XmlPeek metadata, pack layout, auto-discovery placement)
+- `SdkPropsTargetsTests.cs` (25 tests): Sdk.props content (Microsoft.NET.Sdk import, default properties, SwiftBindings.Runtime reference, no auto-discovery), Sdk.targets content (all 9 targets, SWIFTBIND error codes, fingerprint, XmlPeek metadata, pack layout, auto-discovery placement)
 - `SwiftWrapperCompilerTests.cs` (2 updated): `targetTriple` parameter on `InvokeSwiftCompiler`
 
 **After this step:** The full vision works:
@@ -475,9 +475,9 @@ Actionable errors cover: static xcframeworks, ObjC-only frameworks, missing Info
 
 **Answer:** `Sdk.props` sets `_SwiftBindingGeneratorDir` to `$(MSBuildThisFileDirectory)../tools/net10.0/any/`. `Sdk.targets` invokes `dotnet exec "$(_SwiftBindingGeneratorDir)Swift.Bindings.dll"` with all CLI flags. The generator runs on .NET; platform tools (`swiftc`, `xcodebuild`, `plutil`) are system tools invoked by the generator via `ICommandRunner`, not shipped in the package. The SDK is a single NuGet (`PackageType=MSBuildSdk`) with `NoBuild=true` — the generator is published to `tools/` at pack time by `build-sdk.sh`.
 
-### Q3: Swift.Runtime Versioning Strategy ✅ Resolved
+### Q3: SwiftBindings.Runtime Versioning Strategy ✅ Resolved
 
-**Answer: Independent versioning.** Swift.Runtime 0.1.0-preview.1 (pre-release, signals experimental status), SDK on its own cadence, binding packages use upstream library versions (e.g., Nuke.Swift.iOS 12.8.0). SDK will declare a minimum Swift.Runtime version via version-ranged `PackageReference` in `Sdk.props`.
+**Answer: Independent versioning.** SwiftBindings.Runtime 0.1.0-preview.1 (pre-release, signals experimental status), SDK on its own cadence, binding packages use upstream library versions (e.g., Nuke.Swift.iOS 12.8.0). SDK will declare a minimum SwiftBindings.Runtime version via version-ranged `PackageReference` in `Sdk.props`.
 
 ### Q4: Swift Wrapper Compilation — Architecture Slices ✅ Resolved
 
@@ -497,7 +497,7 @@ Each framework becomes a separate NuGet package. When a framework imports anothe
 
 ```xml
 <!-- ACSSmartCardIO.Swift.iOS.csproj -->
-<Project Sdk="Swift.Bindings.Sdk/0.1.0-preview.1">
+<Project Sdk="SwiftBindings.Sdk/0.1.0-preview.1">
   <PropertyGroup>
     <TargetFramework>net10.0-ios</TargetFramework>
   </PropertyGroup>
@@ -743,7 +743,7 @@ This complexity is one reason multi-product SPM support is deferred — getting 
 |------|-----------|--------|
 | Step 1 (generator `--xcframework`) | None | Generator works on xcframeworks, not SPM |
 | Step 2 (wrapper compilation) | None | Compiles from generated Swift, not SPM source |
-| Step 3 (Swift.Runtime NuGet) | None | Runtime is independent of input format |
+| Step 3 (SwiftBindings.Runtime NuGet) | None | Runtime is independent of input format |
 | Step 4 (`.csproj` + NuGet packaging) | None | Packages xcframeworks regardless of origin |
 | Step 5 (MSBuild SDK) | **Define both item types + validation ordering** | `SwiftPackage` item type exists, `ValidateSwiftPackageItems` fires before framework discovery, errors with "not yet implemented" message |
 
@@ -783,9 +783,9 @@ The project targets .NET 10.0 with iOS workload. The SDK would require:
 - .NET SDK 10.0+
 - iOS workload installed (`dotnet workload install ios`)
 
-### Swift.Runtime NuGet Package (Step 3 — Complete)
+### SwiftBindings.Runtime NuGet Package (Step 3 — Complete)
 
-Swift.Runtime is packable as `Swift.Runtime` version `0.1.0-preview.1`. The package includes compiled DLLs for all TFMs, XML type databases, native dylibs, and a `.targets` file for automatic native library injection. It must be published to a NuGet feed before the SDK (Step 5) can reference it.
+SwiftBindings.Runtime is packable as `SwiftBindings.Runtime` version `0.1.0-preview.1`. The package includes compiled DLLs for all TFMs, XML type databases, native dylibs, and a `.targets` file for automatic native library injection. It must be published to a NuGet feed before the SDK (Step 5) can reference it.
 
 ---
 

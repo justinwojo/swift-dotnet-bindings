@@ -22,7 +22,7 @@
 Install the project template (which includes the MSBuild SDK reference):
 
 ```bash
-dotnet new install Swift.Bindings.Templates
+dotnet new install SwiftBindings.Templates
 ```
 
 ---
@@ -50,7 +50,7 @@ dotnet new swift-binding -n MyLibrary.Swift.tvOS --platform tvos
 This creates a project file that looks like:
 
 ```xml
-<Project Sdk="Swift.Bindings.Sdk">
+<Project Sdk="SwiftBindings.Sdk">
   <PropertyGroup>
     <TargetFramework>net10.0-ios</TargetFramework>  <!-- or net10.0-macos, net10.0-maccatalyst, net10.0-tvos -->
   </PropertyGroup>

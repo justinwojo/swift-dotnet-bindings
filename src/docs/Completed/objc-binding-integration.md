@@ -104,7 +104,7 @@ Runtime: objc_msgSend (existing .NET MAUI ObjC registrar -- no new runtime neede
 | Symbols | Mangled names (`$s4Nuke11...`) | Selectors (`-[UIImage imageNamed:]`) |
 | Type system | Value types, existentials, witnesses | All reference types, categories |
 | Output format | Direct P/Invoke C# code (`[LibraryImport]`) | `[BaseType]`/`[Export]` binding definitions |
-| Runtime support | Custom (Swift.Runtime NuGet) | Built-in (.NET MAUI ObjC bridge) |
+| Runtime support | Custom (SwiftBindings.Runtime NuGet) | Built-in (.NET MAUI ObjC bridge) |
 
 The parsing, marshaling, and emission layers share almost nothing. The shared surface is at the infrastructure level.
 
@@ -180,7 +180,7 @@ dotnet run --project src/Swift.Bindings/src -- \
 
 ```xml
 <!-- Same SDK for both Swift and ObjC -- auto-detected -->
-<Project Sdk="Swift.Bindings.Sdk/0.2.0">
+<Project Sdk="SwiftBindings.Sdk/0.2.0">
   <PropertyGroup>
     <TargetFramework>net10.0-ios</TargetFramework>
   </PropertyGroup>
@@ -410,7 +410,7 @@ All planned emission components are implemented and tested (73 new ObjC-specific
 - `ObjCTypeMapper.cs` — Static type mapper: pointer types (NSString→string, NSURL→NSUrl, etc.), primitives (BOOL→bool, NSInteger→nint, etc.), special types (SEL→Selector, Class→Class, id→NSObject, id<Proto>→IProto), instancetype→declaringClassName, blocks→Action<T>/Func<T,R> (>16 params→NSObject), CoreFoundation ref types (dispatch_queue_t→DispatchQueue, CGImageRef→CGImage, etc.), AST-driven generic type params (class-scoped, no hardcoded fallback)
 - `ApiDefinitionEmitter.cs` — Emits `ApiDefinition.cs`: protocols first (with `[Protocol]`, `[BaseType(typeof(NSObject))]`, `I` prefix, `[Abstract]` for required members), then classes (`[BaseType(typeof(Super))]`, protocol adoption, constructors from init* selectors, `[Static]` for class methods/properties, `[NullAllowed]` from nullability annotations, `[return: NullAllowed]`, NSError** → `[NullAllowed] out NSError error`, block params → Action/Func, custom setter selectors via `[Export("setSomething:")] set;`, iOS-only `[Introduced]`/`[Deprecated]` availability)
 - `StructsAndEnumsEmitter.cs` — Emits `StructsAndEnums.cs` (null if nothing to emit): enums with `[Native]`/`[Flags]`, `: long`/`: ulong`, all-or-nothing prefix stripping; structs with `[StructLayout(LayoutKind.Sequential)]` and PascalCase fields; `{Module}Constants` public static partial class with `[Field]` for extern NSString/nint/nuint/nfloat/int/float/double constants, `[DllImport]` for functions; non-extern constants skipped, unsupported types emit `// TODO:` comments
-- `ObjCBindingProjectEmitter.cs` — Emits `{PackageId}.csproj` with `<IsBindingProject>true</IsBindingProject>`, `<ObjcBindingApiDefinition>`, conditional `<ObjcBindingCoreSource>`, `<NativeReference>` with relative path. No Swift.Runtime, no AllowUnsafeBlocks, no DisableRuntimeMarshalling.
+- `ObjCBindingProjectEmitter.cs` — Emits `{PackageId}.csproj` with `<IsBindingProject>true</IsBindingProject>`, `<ObjcBindingApiDefinition>`, conditional `<ObjcBindingCoreSource>`, `<NativeReference>` with relative path. No SwiftBindings.Runtime, no AllowUnsafeBlocks, no DisableRuntimeMarshalling.
 
 **Pipeline wiring:**
 - `ObjCPipeline.cs` — Added `namespacePattern`/`packageId` params, namespace resolution via `NamespacePatternResolver`, emission step after AST parse, `ObjCPipelineResult` extended with emitted file paths
@@ -420,7 +420,7 @@ All planned emission components are implemented and tested (73 new ObjC-specific
 - `ObjCTypeMapperTests.cs` — 30 test cases (primitives, pointers, blocks, instancetype, protocol-qualified id, passthrough, NSError**)
 - `ApiDefinitionEmitterTests.cs` — 24 test cases (classes, protocols, constructors, availability, NSError out, blocks, nullable, custom setter selectors, ordering)
 - `StructsAndEnumsEmitterTests.cs` — 17 test cases (prefix stripping, [Flags], explicit values, structs, [Field] constants, non-extern skipping, DllImport, null return, mixed module)
-- `ObjCBindingProjectEmitterTests.cs` — 10 test cases (IsBindingProject, ApiDefinition/CoreSource, NativeReference, no Swift.Runtime/AllowUnsafeBlocks, custom PackageId)
+- `ObjCBindingProjectEmitterTests.cs` — 10 test cases (IsBindingProject, ApiDefinition/CoreSource, NativeReference, no SwiftBindings.Runtime/AllowUnsafeBlocks, custom PackageId)
 - `ObjCPipelineIntegrationTests.cs` — 1 new test (`Pipeline_XCFrameworkFixture_EmitsBindingFiles`) verifying full pipeline emits files with expected content patterns
 
 **Key design decisions made during implementation:**
@@ -665,7 +665,7 @@ Sessions O1-O3 built the ObjC pipeline (parser, emitter, binding project, mixed-
 3. **Swift-imported ObjC**: When Swift re-exports an ObjC type (common in mixed frameworks), which pipeline owns it? Note: the Swift pipeline already handles ObjC types referenced from Swift via `ObjCBridgedProjection` — this question is about the *definition* ownership, not references.
 4. **Binding project compatibility**: Does `<IsBindingProject>` work correctly with .NET 10 and the latest MAUI? It's had issues historically.
 5. **Block ABI**: ObjC blocks have a specific ABI layout. The registrar handles this, but do we need to annotate parameters correctly for complex block signatures?
-6. **SDK naming**: **Decision: keep `Swift.Bindings.Sdk`.** The Swift pipeline is the primary and complex capability (~95% of codebase). Renaming to `Apple.Bindings.Sdk` would imply multi-platform support (macOS/tvOS/etc.) beyond the current scope, and the churn cost (SDK, runtime, template, docs, repo) isn't justified.
+6. **SDK naming**: **Decision: keep `SwiftBindings.Sdk`.** The Swift pipeline is the primary and complex capability (~95% of codebase). Renaming to `Apple.Bindings.Sdk` would imply multi-platform support (macOS/tvOS/etc.) beyond the current scope, and the churn cost (SDK, runtime, template, docs, repo) isn't justified.
 
 ## Naming Convention (decided)
 
@@ -677,8 +677,8 @@ Keep all existing Swift naming. ObjC-only libraries get a `.ObjC.` suffix in the
 | ObjC-only library | `{Library}.ObjC.iOS` | `Realm.ObjC.iOS` |
 | Mixed (Swift + ObjC) | `{Library}.Swift.iOS` | `MixedLib.Swift.iOS` |
 
-- **SDK**: `Swift.Bindings.Sdk` (unchanged)
-- **Runtime**: `Swift.Runtime` (unchanged — ObjC bindings don't need it, they use MAUI's registrar)
+- **SDK**: `SwiftBindings.Sdk` (unchanged)
+- **Runtime**: `SwiftBindings.Runtime` (unchanged — ObjC bindings don't need it, they use MAUI's registrar)
 - **Template**: `dotnet new swift-binding` (unchanged — auto-detects framework type, works for both). Add `dotnet new objc-binding` as a template alias pointing to the same underlying template for discoverability by users searching for ObjC binding tooling.
 - **Mixed libraries** get `.Swift.` because the Swift pipeline is the primary binding mechanism; the ObjC portion is supplementary
 - The `.ObjC.` suffix for ObjC-only packages signals to consumers that this is a traditional binding project (`[Export]`/`[BaseType]`) with different debugging/runtime characteristics than direct P/Invoke

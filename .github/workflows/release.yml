@@ -218,7 +218,7 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           EXISTING=0
           TOTAL=0
-          for PKG in Swift.Runtime Swift.Bindings.Sdk Swift.Bindings.Templates; do
+          for PKG in SwiftBindings.Runtime SwiftBindings.Sdk SwiftBindings.Templates; do
             TOTAL=$((TOTAL + 1))
             PKG_LOWER=$(echo "$PKG" | tr 'A-Z' 'a-z')
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
@@ -251,7 +251,7 @@ jobs:
 
           # Template ProjectName.csproj: SDK version
           sed -i '' \
-            "s|Sdk=\"Swift.Bindings.Sdk/[^\"]*\"|Sdk=\"Swift.Bindings.Sdk/${VERSION}\"|" \
+            "s|Sdk=\"SwiftBindings.Sdk/[^\"]*\"|Sdk=\"SwiftBindings.Sdk/${VERSION}\"|" \
             src/Swift.Bindings.Templates/content/swift-binding/ProjectName.csproj
 
           # Template template.json: patch only sdkVersion symbol (not platform/tfm)
@@ -309,9 +309,9 @@ jobs:
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           for pkg in \
-            "artifacts/Swift.Runtime.${VERSION}.nupkg" \
-            "artifacts/Swift.Bindings.Sdk.${VERSION}.nupkg" \
-            "artifacts/Swift.Bindings.Templates.${VERSION}.nupkg"; do
+            "artifacts/SwiftBindings.Runtime.${VERSION}.nupkg" \
+            "artifacts/SwiftBindings.Sdk.${VERSION}.nupkg" \
+            "artifacts/SwiftBindings.Templates.${VERSION}.nupkg"; do
             echo "Publishing $pkg..."
             dotnet nuget push "$pkg" \
               --api-key "$NUGET_API_KEY" \

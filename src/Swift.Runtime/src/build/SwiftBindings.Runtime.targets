@@ -1,4 +1,4 @@
-<!-- Swift.Runtime NuGet package: conditional native dylib injection.
+<!-- SwiftBindings.Runtime NuGet package: conditional native dylib injection.
      Replicates the ProjectReference dylib logic for NuGet consumers.
      Placed in buildTransitive/ so it flows to transitive dependents. -->
 <Project>

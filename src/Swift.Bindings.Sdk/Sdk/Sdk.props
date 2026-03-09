@@ -73,7 +73,7 @@
 
   <!-- Implicit Swift.Runtime reference with minimum version floor -->
   <ItemGroup>
-    <PackageReference Include="Swift.Runtime" Version="$(SwiftRuntimeVersion)"
+    <PackageReference Include="SwiftBindings.Runtime" Version="$(SwiftRuntimeVersion)"
                       Condition="'$(DisableImplicitSwiftRuntimeReference)' != 'true'" />
   </ItemGroup>
 

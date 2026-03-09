@@ -190,16 +190,16 @@ jobs:
           key: nuget-${{ hashFiles('**/*.csproj') }}
           restore-keys: nuget-
 
-      - name: Pack Swift.Runtime
+      - name: Pack SwiftBindings.Runtime
         run: dotnet pack src/Swift.Runtime/src/ -c Release -o artifacts/
 
       - name: Publish generator
         run: dotnet publish src/Swift.Bindings/src/ -c Release -o src/Swift.Bindings.Sdk/tools/net10.0/any/
 
-      - name: Pack Swift.Bindings.Sdk
+      - name: Pack SwiftBindings.Sdk
         run: dotnet pack src/Swift.Bindings.Sdk/ -c Release -o artifacts/
 
-      - name: Pack Swift.Bindings.Templates
+      - name: Pack SwiftBindings.Templates
         run: dotnet pack src/Swift.Bindings.Templates/ -c Release -o artifacts/
 
       - name: Upload packages

@@ -164,7 +164,7 @@ public class ObjCBindingProjectEmitterTests
         {
             ObjCBindingProjectEmitter.Emit(CreateOptions(tmpDir), Logger);
             var content = File.ReadAllText(Path.Combine(tmpDir, "TestModule.ObjC.iOS.csproj"));
-            Assert.DoesNotContain("Swift.Runtime", content);
+            Assert.DoesNotContain("SwiftBindings.Runtime", content);
         }
         finally
         {

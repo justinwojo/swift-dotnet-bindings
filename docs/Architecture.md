@@ -80,7 +80,7 @@ The `TypeDatabase` maps Swift types to their C# representations. It handles:
 - **Apple framework types**: UIKit, AppKit, CoreGraphics types with ObjC bridging
 - **Cross-module resolution**: Types from dependent frameworks
 
-The type database is stored as XML files shipped with the `Swift.Runtime` package. It's extensible — you can add custom type mappings.
+The type database is stored as XML files shipped with the `SwiftBindings.Runtime` package. It's extensible — you can add custom type mappings.
 
 ## Step 4: Marshaling
 
@@ -189,7 +189,7 @@ Swift uses automatic reference counting (ARC). The generated bindings integrate 
 - **Struct instances**: Copied into managed memory. Value witness table operations handle initialization and destruction.
 - **String marshalling**: `SwiftString` manages the native string lifecycle. Conversion to/from `string` involves UTF-8 encoding at the boundary.
 
-The `Swift.Runtime` package provides the core interop types: `SwiftString`, `SwiftArray<T>`, `SwiftOptional<T>`, `SwiftSafeHandle<T>`, and ARC helpers.
+The `SwiftBindings.Runtime` package provides the core interop types: `SwiftString`, `SwiftArray<T>`, `SwiftOptional<T>`, `SwiftSafeHandle<T>`, and ARC helpers.
 
 ## P/Invoke Calling Conventions
 

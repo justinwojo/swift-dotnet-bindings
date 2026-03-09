@@ -140,7 +140,7 @@ Three-phase architecture: type pre-processing (graph traversal + marshalling lab
 
 ### ~~12. Roslyn Analyzer~~ — COMPLETE (F6, March 2026)
 
-SB1001 analyzer shipped in `Swift.Analyzers`, packaged into `Swift.Runtime` NuGet at `analyzers/dotnet/cs/`. Warns on undisposed `ISwiftObject` locals. Code fix adds `using` modifier.
+SB1001 analyzer shipped in `Swift.Analyzers`, packaged into `SwiftBindings.Runtime` NuGet at `analyzers/dotnet/cs/`. Warns on undisposed `ISwiftObject` locals. Code fix adds `using` modifier.
 
 ---
 

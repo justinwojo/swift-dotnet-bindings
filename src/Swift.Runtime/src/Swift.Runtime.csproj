@@ -16,7 +16,7 @@
     <NoWarn>$(NoWarn);SB1001</NoWarn>
     <IsAotCompatible>true</IsAotCompatible>
     <!-- NuGet package metadata -->
-    <PackageId>Swift.Runtime</PackageId>
+    <PackageId>SwiftBindings.Runtime</PackageId>
     <PackageVersion>0.0.0-dev</PackageVersion>
     <Description>Runtime library for Swift/.NET interop. Provides SwiftString, SwiftArray, SwiftOptional, ARC memory management, protocol witness tables, and type metadata for generated Swift bindings.</Description>
     <Authors>Justin Wojciechowski</Authors>
@@ -121,7 +121,7 @@
     <None Include="../native/maccatalyst/libSwiftBindingsRuntime.dylib" Pack="true" PackagePath="native/maccatalyst" />
     <None Include="../native/tvos/libSwiftBindingsRuntime.dylib" Pack="true" PackagePath="native/tvos" />
     <None Include="../native/tvossimulator/libSwiftBindingsRuntime.dylib" Pack="true" PackagePath="native/tvossimulator" />
-    <None Include="build/Swift.Runtime.targets" Pack="true" PackagePath="buildTransitive" />
+    <None Include="build/SwiftBindings.Runtime.targets" Pack="true" PackagePath="buildTransitive" />
     <None Include="../../../README.md" Pack="true" PackagePath="" />
   </ItemGroup>
 

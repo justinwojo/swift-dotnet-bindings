@@ -41,7 +41,7 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void Props_IncludesSwiftRuntimeReference()
         {
-            Assert.Contains("Swift.Runtime", PropsContent);
+            Assert.Contains("SwiftBindings.Runtime", PropsContent);
             Assert.Contains("$(SwiftRuntimeVersion)", PropsContent);
         }
 
@@ -648,7 +648,7 @@ namespace BindingsGeneration.Tests
             Path.Combine(RuntimeDir, "Swift.Runtime.csproj"));
 
         private static readonly string TargetsContent = File.ReadAllText(
-            Path.Combine(RuntimeDir, "build", "Swift.Runtime.targets"));
+            Path.Combine(RuntimeDir, "build", "SwiftBindings.Runtime.targets"));
 
         [Fact]
         public void Csproj_MacOsDylibCondition_ExcludesTvos()

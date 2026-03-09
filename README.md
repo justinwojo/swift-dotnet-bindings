@@ -159,7 +159,7 @@ For customization options (bridge hints, constructor selection, import overrides
 
 ```bash
 # 1. Install the project template and MSBuild SDK
-dotnet new install Swift.Bindings.Templates
+dotnet new install SwiftBindings.Templates
 
 # 2. Create a binding project (default: iOS; use --platform for others)
 dotnet new swift-binding -n MyLibrary.Bindings

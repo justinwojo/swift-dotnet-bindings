@@ -29,13 +29,13 @@ The generator accepts these options:
 
 ## MSBuild SDK Properties
 
-When using the `Swift.Bindings.Sdk`, these MSBuild properties are available in your `.csproj`:
+When using the `SwiftBindings.Sdk`, these MSBuild properties are available in your `.csproj`:
 
 | Property | Default | Description |
 |----------|---------|-------------|
 | `SwiftPlatformTarget` | `simulator` (iOS/tvOS), empty (macOS/Catalyst) | Platform slice for generation. Auto-detected from TFM. |
 | `SwiftWrapperArchitectures` | `all` | Wrapper compilation scope: `simulator`, `device`, or `all` |
-| `SwiftRuntimeVersion` | *(matches SDK version)* | Version of `Swift.Runtime` package |
+| `SwiftRuntimeVersion` | *(matches SDK version)* | Version of `SwiftBindings.Runtime` package |
 | `SwiftGenerateDocComments` | `true` | Auto-extract symbol graph for C# XML doc comments |
 
 ### SwiftFramework Item Metadata
