@@ -156,8 +156,8 @@ Both Swift and ObjC emitters:
 
 ## Session 3: Runtime Gaps + Test Infrastructure ✅
 
-**Status**: Complete (March 8, 2026). Post-completion codex review fixes applied: `--output-dir` plumbing for `build-async-wrapper.sh`, polling-based timeout replacing GNU `timeout`, `EXIT_CODE` capture.
-**Validation**: 6902 unit tests pass, 88/88 validation targets pass, no regressions. All 6 native dylibs built with correct LC_BUILD_VERSION platform tags. RuntimeTestsApp.Mac compiles and runs on macOS natively. macOS xcframework builds correctly. iOS path unchanged.
+**Status**: Complete (March 8, 2026). All sub-tasks finished. Post-completion codex review fixes applied: `--output-dir` plumbing for `build-async-wrapper.sh`, polling-based timeout replacing GNU `timeout`, `EXIT_CODE` capture. Framework database audit (3D) completed with platform-aware module availability and conditional XML database loading.
+**Validation**: 6928 unit tests pass, 88/88 validation targets pass, no regressions. All 6 native dylibs built with correct LC_BUILD_VERSION platform tags. RuntimeTestsApp.Mac compiles and runs on macOS natively. macOS xcframework builds correctly. tvOS workload installed and `net10.0-tvos` TFM enabled. iOS path unchanged.
 
 **Known issue discovered**: Generator crashes with SIGBUS when processing macOS ABI JSON for SwiftBindingsTestLib (pre-existing bug, not caused by Session 3 changes). The C# bindings are platform-independent, so the iOS-generated bindings work on macOS. Tracked for future investigation.
 
@@ -166,9 +166,11 @@ Both Swift and ObjC emitters:
 **Resolved design decisions** (from planning pass):
 - **Catalyst dylib**: Needs a **separate build** — same `macosx` SDK but triple `arm64-apple-ios15.0-macabi`. The macOS dylib won't work because the linker checks `LC_BUILD_VERSION` platform tag. Cannot share the macOS dylib.
 - **Test app architecture**: Create a new **`RuntimeTestsApp.Mac`** console app (NOT extend `NativeAotTestApp.Mac`). Rationale: NativeAotTestApp.Mac is specialized for NativeAOT blocker experiments with inline `RunTest()` lambdas and `PublishAot=true`. The standard test infrastructure (`TestBase`, `TestResults`, `TestLogger`, `CrashRiskAttribute`) has zero iOS dependencies — it's fully portable. Only `RuntimeTestsApp/Program.cs` uses UIKit/Foundation. A new `.Mac` project shares the test infrastructure and test classes via `<Compile Include>` with a simple console `Program.cs`.
-- **tvOS**: Compile/pack/build-script logic only — no runtime gate until .NET 10 tvOS workload ships. `TargetFrameworks` does NOT include `net10.0-tvos` yet; dylibs are built and packed but TFM is deferred.
+- **tvOS**: tvOS workload now available and installed. `net10.0-tvos` added to `Swift.Runtime.csproj` TargetFrameworks. All dylibs built and packed.
 
-### Sub-task 3A: Runtime — native asset build + MSBuild (single agent)
+### Sub-task 3A: Runtime — native asset build + MSBuild (single agent) ✅
+
+**Status**: Complete. All 6 dylibs built (macos, ios, iossimulator, maccatalyst, tvos, tvossimulator). `.csproj` has Content items for all platforms + None Pack items for NuGet. `.targets` has ItemGroup blocks for all 6 platform variants. tvOS TFM (`net10.0-tvos`) enabled after workload installation.
 
 The runtime `.csproj` already multi-targets `net10.0-maccatalyst`, but **no native dylib is injected for Catalyst** — only macOS, iOS device, and iOS simulator have `<Content>` items. This gap exists in **three places** that must all be fixed:
 
@@ -263,7 +265,9 @@ All three scripts updated with `--platform ios|macos|tvos` parameter (default: `
 - macOS: `SupportedPlatformVariant` omitted from xcframework Info.plist (no simulator variant)
 - iOS/tvOS: `SupportedPlatformVariant` = `simulator`
 
-### Sub-task 3C: Test runner + RuntimeTestsApp.Mac (DEPENDS on 3B)
+### Sub-task 3C: Test runner + RuntimeTestsApp.Mac (DEPENDS on 3B) ✅
+
+**Status**: Complete. `RuntimeTestsApp.Mac` project created with console-based test runner (248 lines). `run-runtime-tests.sh` has `--platform macos` path with polling-based timeout. All portable test classes shared via `<Compile Include>`.
 
 **Cannot parallelize with 3B** — macOS runtime testing requires macOS xcframework builds from 3B.
 
@@ -347,8 +351,17 @@ Add `--platform` flag (default: `ios`):
 
 **Catalyst path**: Deferred — Mac Catalyst apps require special build config (not a simple console app). Lower priority than macOS native.
 
-### Sub-task 3D: Framework databases (can parallel with 3A, 3B)
+### Sub-task 3D: Framework databases (can parallel with 3A, 3B) ✅
 
+**Status**: Complete. Audit found that ABI JSON is already platform-specific (no UIKit in macOS ABI, no AppKit in iOS ABI), so heavy gating is unnecessary. Implemented:
+
+- `PlatformUnavailableModules` dictionary in `AppleFrameworkRegistry` with module-level exclusions for tvOS (ContactsUI, EventKitUI, MessageUI, SafariServices, IntentsUI, CoreNFC, CarPlay, ClassKit, ARKit) and macOS (UIKit, HealthKit, HomeKit, ARKit, CoreNFC, CarPlay, ClassKit)
+- `IsModuleAvailableOnPlatform()` query method — conservative (unknown modules default to available)
+- Platform-aware XML database loading in `GenerateBindings`: UIKit skipped for macOS, AppKit skipped for iOS/tvOS
+- 5 new tests: platform availability Theory (29 cases), null platform test, unavailable module consistency check
+- ObjC type databases verified cross-platform — all use platform-neutral ObjC names, no platform-specific assumptions
+
+**Original scope**:
 - Audit `AppleFrameworkRegistry` for platform-conditional frameworks
   - UIKit types available on tvOS (subset — no `UIWebView`, no `UIBarButtonItem`, etc.)
   - AppKit types only on macOS (and partially on Catalyst via compatibility layer)
@@ -392,8 +405,10 @@ Final:               Integration test: build + run TestFramework on macOS
 - `TestFramework/run-runtime-tests.sh` — `--platform` flag + macOS path
 
 **3D — Framework databases**:
-- `src/Swift.Bindings/src/Configuration/AppleFrameworkRegistry.cs`
-- `src/Swift.Runtime/src/Swift/Databases/*.xml`
+- `src/Swift.Bindings/src/TypeDatabase/AppleFrameworkRegistry.cs` — `PlatformUnavailableModules` + `IsModuleAvailableOnPlatform()`
+- `src/Swift.Bindings/src/Program.cs` — platform-conditional XML database loading in `GenerateBindings`
+- `src/Swift.Bindings/tests/UnitTests/TypeDatabaseTests/AppleFrameworkRegistryTests.cs` — platform availability tests
+- `src/Swift.Runtime/src/Swift.Runtime.csproj` — `net10.0-tvos` TFM enabled, tvOS Content items uncommented
 
 ---
 
@@ -405,7 +420,7 @@ Each session should end with these gates passing:
 |---------|------|
 | 1 | `run-tests.sh` passes (existing iOS tests unbroken). New platform-specific unit tests pass for all 4 platforms. Smoke generation with `--platform macos` produces output with correct TFM/RID/paths. Both Swift and ObjC xcframework inputs tested. |
 | 2 | ✅ SDK auto-detects platform from TFM. FirebaseCore (ObjC) generates correctly for macOS, tvOS, and MacCatalyst. `validate-libraries.sh` 88/88 for iOS (no regression). 6628 unit tests pass. Unsupported TFMs fail fast (SWIFTBIND010). |
-| 3 | `build-runtime.sh all` produces 6 dylibs with correct `LC_BUILD_VERSION` platform tags. `dotnet pack` Swift.Runtime includes all 6 under `native/`. Catalyst `<Content>` resolves on `net10.0-maccatalyst` TFM (both csproj and .targets). `build-xcframework.sh --platform macos` produces a valid macOS xcframework. `RuntimeTestsApp.Mac` compiles and runs the standard test suite on macOS natively (no simulator). iOS test path unchanged (`run-runtime-tests.sh` default). tvOS: dylibs built + packed, build scripts accept `--platform tvos`, but no runtime gate until .NET 10 tvOS workload ships. |
+| 3 | ✅ `build-runtime.sh all` produces 6 dylibs with correct `LC_BUILD_VERSION` platform tags. `dotnet pack` Swift.Runtime includes all 6 under `native/`. Catalyst `<Content>` resolves on `net10.0-maccatalyst` TFM (both csproj and .targets). `build-xcframework.sh --platform macos` produces a valid macOS xcframework. `RuntimeTestsApp.Mac` compiles and runs the standard test suite on macOS natively (no simulator). iOS test path unchanged (`run-runtime-tests.sh` default). tvOS: workload installed, `net10.0-tvos` TFM enabled, dylibs built + packed. `AppleFrameworkRegistry.IsModuleAvailableOnPlatform()` provides platform-aware module queries. Platform-conditional XML database loading (UIKit/AppKit). 6928 unit tests pass, 88/88 validation targets pass. |
 
 ---
 
@@ -427,7 +442,7 @@ The ObjC pipeline shares most platform-hardcoded code with the Swift pipeline (X
 ## Open Questions
 
 1. **Multi-platform NuGet**: Single package with all platform slices, or one package per platform? Per-platform is simpler for v1. Multi-platform is a future enhancement.
-2. **tvOS workload**: .NET 10 tvOS workload availability timeline — may need to defer tvOS runtime TFM.
+2. ~~**tvOS workload**: .NET 10 tvOS workload availability timeline — may need to defer tvOS runtime TFM.~~ **Resolved**: tvOS workload available and installed. `net10.0-tvos` added to `Swift.Runtime.csproj` TargetFrameworks.
 3. **visionOS**: Include now or leave for later? xrOS/visionOS .NET workload status unclear.
 4. **x86_64 macOS**: Support Intel Macs or arm64-only? Most xcframeworks are arm64-only now.
 5. **Catalyst dylib**: ~~Does Catalyst reuse the macOS dylib or need a separate build?~~ **Resolved**: Separate build required. Same `macosx` SDK but triple `arm64-apple-ios15.0-macabi` (vs `-macosx`). Linker checks `LC_BUILD_VERSION` platform tag — macOS dylib won't load in a Catalyst process.

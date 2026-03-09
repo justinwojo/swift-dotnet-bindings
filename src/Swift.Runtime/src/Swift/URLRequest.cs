@@ -92,7 +92,7 @@ public sealed class URLRequest : ISwiftObject, IDisposable
         set => PInvoke_SetTimeoutInterval(this, value);
     }
 
-#if IOS || MACCATALYST || MACOS
+#if IOS || TVOS || MACCATALYST || MACOS
     /// <summary>
     /// Converts this Swift.URLRequest to a .NET iOS Foundation.NSUrlRequest.
     /// </summary>

@@ -160,7 +160,7 @@ public struct Data : ISwiftObject
         return bytes;
     }
 
-#if IOS || MACCATALYST || MACOS
+#if IOS || TVOS || MACCATALYST || MACOS
     /// <summary>
     /// Converts this Swift.Data to a .NET iOS Foundation.NSData.
     /// </summary>

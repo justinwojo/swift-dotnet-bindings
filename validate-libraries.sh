@@ -99,21 +99,54 @@ get_runtime_version() {
         | grep -o '"[^"]*"' | tr -d '"'
 }
 
+# Map platform to TFM and min OS version
+platform_to_tfm() {
+    case "${1:-ios}" in
+        macos) echo "net10.0-macos" ;;
+        tvos) echo "net10.0-tvos" ;;
+        maccatalyst) echo "net10.0-maccatalyst" ;;
+        *) echo "net10.0-ios" ;;
+    esac
+}
+
+platform_to_min_os() {
+    case "${1:-ios}" in
+        macos) echo "12.0" ;;
+        *) echo "15.0" ;;
+    esac
+}
+
+platform_to_runtime_tfm() {
+    case "${1:-ios}" in
+        macos) echo "net10.0-macos" ;;
+        tvos) echo "net10.0-tvos" ;;
+        maccatalyst) echo "net10.0-maccatalyst" ;;
+        *) echo "net10.0-ios" ;;
+    esac
+}
+
 write_fallback_csproj() {
     local outdir="$1"
+    local platform="${2:-ios}"
     local cs_file
     cs_file=$(ls "$outdir"/*.cs 2>/dev/null | grep -v '\.Wrappers\.cs' | grep -v '\.SwiftUIBridge\.cs' | head -1)
     [[ -z "$cs_file" ]] && return 1
     local cs_basename
     cs_basename=$(basename "$cs_file")
 
-    local runtime_dll="$SCRIPT_DIR/src/Swift.Runtime/src/bin/Debug/net10.0-ios/Swift.Runtime.dll"
+    local tfm
+    tfm=$(platform_to_tfm "$platform")
+    local min_os
+    min_os=$(platform_to_min_os "$platform")
+    local runtime_tfm
+    runtime_tfm=$(platform_to_runtime_tfm "$platform")
+    local runtime_dll="$SCRIPT_DIR/src/Swift.Runtime/src/bin/Debug/$runtime_tfm/Swift.Runtime.dll"
     cat > "$outdir/Test.csproj" <<CSPROJ
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Library</OutputType>
-    <TargetFramework>net10.0-ios</TargetFramework>
-    <SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
+    <TargetFramework>$tfm</TargetFramework>
+    <SupportedOSPlatformVersion>$min_os</SupportedOSPlatformVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Nullable>enable</Nullable>
     <NoWarn>0169;CA1420</NoWarn>
@@ -207,27 +240,29 @@ for lib in libs:
 TARGETS=()
 MANUAL_TARGETS=()
 
-while IFS='|' read -r fw lib_name xcfw_path mode known_errors tier; do
-    if ! matches_filter "$fw"; then
+while IFS='|' read -r fw lib_name xcfw_path mode known_errors tier platform; do
+    # Filter uses base framework name (strip @platform suffix for matching)
+    local_fw_base="${fw%%@*}"
+    if ! matches_filter "$local_fw_base"; then
         continue
     fi
     if ! matches_tier "$tier"; then
         continue
     fi
     has_deps=0
-    [[ "$HAS_DEPS_SET" == *"|${fw}|"* ]] && has_deps=1
+    [[ "$HAS_DEPS_SET" == *"|${local_fw_base}|"* ]] && has_deps=1
     if $QUICK; then
         # In --quick mode, don't require xcframeworks — we use cached /tmp output
-        TARGETS+=("$fw|$lib_name|$xcfw_path|$mode|$known_errors|$has_deps")
+        TARGETS+=("$fw|$lib_name|$xcfw_path|$mode|$known_errors|$has_deps|$platform")
     elif [[ "$mode" == "manual" ]]; then
         if [[ -d "$xcfw_path" ]]; then
-            TARGETS+=("$fw|$lib_name|$xcfw_path|$mode|$known_errors|$has_deps")
+            TARGETS+=("$fw|$lib_name|$xcfw_path|$mode|$known_errors|$has_deps|$platform")
         else
             MANUAL_TARGETS+=("$fw")
         fi
     else
         if [[ -d "$xcfw_path" ]]; then
-            TARGETS+=("$fw|$lib_name|$xcfw_path|$mode|$known_errors|$has_deps")
+            TARGETS+=("$fw|$lib_name|$xcfw_path|$mode|$known_errors|$has_deps|$platform")
         else
             echo -e "  ${YELLOW}$fw: xcframework not found — skipping${NC}"
         fi
@@ -304,10 +339,11 @@ fi
 
 process_target() {
     local entry="$1"
-    IFS='|' read -r name lib_name xcfw_path mode known_errors has_deps <<< "$entry"
+    IFS='|' read -r name lib_name xcfw_path mode known_errors has_deps platform <<< "$entry"
     local outdir="$OUTPUT_BASE/$name"
     local output_file="$RESULTS_DIR/$name.output"
     local GEN_VERBOSE=""
+    platform="${platform:-ios}"
 
     # Generate
     if ! $QUICK; then
@@ -315,7 +351,7 @@ process_target() {
         mkdir -p "$outdir"
         local GEN_START=$SECONDS
         local GEN_OUTPUT GEN_EXIT
-        GEN_OUTPUT=$(dotnet "$GENERATOR_DLL" --xcframework "$xcfw_path" -o "$outdir" -v 0 2>&1)
+        GEN_OUTPUT=$(dotnet "$GENERATOR_DLL" --xcframework "$xcfw_path" -o "$outdir" --platform "$platform" -v 0 2>&1)
         GEN_EXIT=$?
         if [[ $GEN_EXIT -eq 0 ]] && ls "$outdir"/*.cs 2>/dev/null | grep -qv '\.Wrappers\.cs\|\.SwiftUIBridge\.cs'; then
             set_result "$name" gen "ok"
@@ -374,7 +410,7 @@ process_target() {
 
     # Fallback .csproj when wrapper compilation fails
     if [[ -z "$CSPROJ_FILE" ]] && ls "$outdir"/*.cs 2>/dev/null | grep -qv '\.Wrappers\.cs\|\.SwiftUIBridge\.cs'; then
-        write_fallback_csproj "$outdir"
+        write_fallback_csproj "$outdir" "$platform"
         CSPROJ_FILE="$outdir/Test.csproj"
     fi
 
@@ -387,7 +423,9 @@ process_target() {
     fi
 
     # Patch .csproj to use local Swift.Runtime DLL
-    local RUNTIME_DLL="$SCRIPT_DIR/src/Swift.Runtime/src/bin/Debug/net10.0-ios/Swift.Runtime.dll"
+    local RUNTIME_TFM
+    RUNTIME_TFM=$(platform_to_runtime_tfm "$platform")
+    local RUNTIME_DLL="$SCRIPT_DIR/src/Swift.Runtime/src/bin/Debug/$RUNTIME_TFM/Swift.Runtime.dll"
     if grep -q 'PackageReference.*Swift\.Runtime' "$CSPROJ_FILE" 2>/dev/null; then
         sed -i '' 's|<PackageReference Include="Swift.Runtime"[^/]*/>|<Reference Include="Swift.Runtime"><HintPath>'"$RUNTIME_DLL"'</HintPath></Reference>|' "$CSPROJ_FILE"
     fi
@@ -753,7 +791,7 @@ fi
 # Build compile gate JSON for current run
 COMPILE_JSON=""
 for entry in "${DISPLAY_TARGETS[@]}"; do
-    IFS='|' read -r name lib_name xcfw_path mode known_errors has_deps <<< "$entry"
+    IFS='|' read -r name lib_name xcfw_path mode known_errors has_deps platform <<< "$entry"
     comp=$(get_result "$name" compile "unknown")
     errs=$(get_result "$name" errors 0)
     lines=$(get_result "$name" lines 0)

@@ -5,10 +5,11 @@ This is preview-quality software. The generator has been validated against 46 re
 ## Platform Requirements
 
 - **macOS only** — the generator requires Apple platform tools (`swift-frontend`, `swiftc`, `xcodebuild`)
-- **Xcode required** — for both binding authors and app builders (this is a .NET iOS requirement, not specific to Swift Bindings)
-- **.NET 10.0** — targets `net10.0-ios` (and `net10.0-macos`, `net10.0-maccatalyst`)
+- **Xcode required** — for both binding authors and app builders (this is a .NET Apple platform requirement, not specific to Swift Bindings)
+- **.NET 10.0** — targets `net10.0-ios`, `net10.0-macos`, `net10.0-maccatalyst`, and `net10.0-tvos`
 - **Dynamic xcframeworks only** — static libraries (`.a` archives) are not supported
 - **Apple platforms only** — no Windows/Linux support (these are Apple-specific frameworks)
+- **tvOS** — generator, SDK, and workload support are complete; runtime test infrastructure is in progress
 
 ## Build Requirements for Swift Libraries
 
@@ -20,7 +21,7 @@ If your library wasn't built this way, the generator will either produce no type
 
 .NET on iOS currently uses the Mono runtime, which has a known JIT compiler defect (`jit-info.c:918`). This causes process-fatal crashes when certain P/Invoke frame types use `CallConvSwift`.
 
-**These issues only affect the Mono JIT (iOS Simulator).** Production device builds using NativeAOT (`dotnet publish -r ios-arm64`) use a completely different codegen (RyuJIT AOT) where `CallConvSwift` works correctly. The workarounds below are necessary for simulator-based development but do not affect shipped App Store apps.
+**These issues only affect the Mono JIT (iOS/tvOS Simulator).** macOS native builds and production device builds using NativeAOT (`dotnet publish -r ios-arm64`) use a completely different codegen (RyuJIT AOT) where `CallConvSwift` works correctly. The workarounds below are necessary for simulator-based development but do not affect macOS apps or shipped App Store apps.
 
 Four workarounds (A through D) are built into the generator and runtime. These are transparent — generated bindings work correctly without any manual intervention. However, they introduce a runtime dependency on `libSwiftBindingsRuntime.dylib`.
 

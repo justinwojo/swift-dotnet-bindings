@@ -61,7 +61,9 @@ for k, v in lib.get('buildSettings', {}).items():
 }
 
 # Expand manifest to flat list of validation targets.
-# Output: one line per target: "framework|library_name|xcfw_path|mode|knownErrors|tier"
+# Output: one line per target: "framework|library_name|xcfw_path|mode|knownErrors|tier|platform"
+# Libraries with "platforms": ["ios", "macos", "tvos"] emit one target per platform.
+# The default (no platforms field) emits a single iOS target with platform="ios".
 manifest_expand_targets() {
     local libraries_dir="${1:-.libraries}"
     python3 -c "
@@ -71,10 +73,14 @@ for lib in libs:
     name = lib['name']
     mode = lib['mode']
     tier = lib.get('tier', 1)
+    platforms = lib.get('platforms', ['ios'])
     for prod in lib['products']:
         fw = prod['framework']
         known = prod.get('knownErrors', 0)
-        print(f'{fw}|{name}|$libraries_dir/{name}/{fw}.xcframework|{mode}|{known}|{tier}')
+        for plat in platforms:
+            # Default iOS target uses bare framework name for backward compatibility
+            target_name = fw if plat == 'ios' else f'{fw}@{plat}'
+            print(f'{target_name}|{name}|$libraries_dir/{name}/{fw}.xcframework|{mode}|{known}|{tier}|{plat}')
 "
 }
 

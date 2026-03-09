@@ -63,7 +63,7 @@ public sealed class URL : ISwiftObject, IDisposable
         return new Uri(absoluteString);
     }
 
-#if IOS || MACCATALYST || MACOS
+#if IOS || TVOS || MACCATALYST || MACOS
     /// <summary>
     /// Converts this Swift.URL to a .NET iOS Foundation.NSUrl.
     /// </summary>

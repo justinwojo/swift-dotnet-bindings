@@ -15,12 +15,15 @@ xcode-select -p
 sudo xcode-select -s /Applications/Xcode.app
 ```
 
-### Missing iOS workload
+### Missing platform workload
 
-If `dotnet build` fails with errors about `net10.0-ios` being an unknown target framework:
+If `dotnet build` fails with errors about `net10.0-ios` (or `net10.0-macos`, `net10.0-maccatalyst`, `net10.0-tvos`) being an unknown target framework, install the appropriate workload:
 
 ```bash
-dotnet workload install ios
+dotnet workload install ios           # for net10.0-ios
+dotnet workload install macos         # for net10.0-macos
+dotnet workload install maccatalyst   # for net10.0-maccatalyst
+dotnet workload install tvos          # for net10.0-tvos
 ```
 
 ---
@@ -34,7 +37,7 @@ These errors come from the SDK's build targets and have clear remediation steps.
 | `SWIFTBIND001` | No xcframework found | Copy a `.xcframework` into the project directory, or add `<SwiftFramework Include="path/to/Library.xcframework" />` |
 | `SWIFTBIND002` | Multiple xcframeworks found (ambiguous) | Declare explicit `<SwiftFramework>` items in your `.csproj` |
 | `SWIFTBIND003` | xcframework path doesn't exist | Check the path in your `<SwiftFramework>` item |
-| `SWIFTBIND010` | Consumer's `SupportedOSPlatformVersion` too low | Raise your app's `SupportedOSPlatformVersion` to match the framework's minimum |
+| `SWIFTBIND010` | Unsupported target framework | Use a supported Apple platform TFM (`net10.0-ios`, `net10.0-macos`, `net10.0-maccatalyst`, `net10.0-tvos`) |
 | `SWIFTBIND020` | Version placeholder detected | The framework uses Xcode's default "1.0" version. Set `<PackageVersion>` manually in your `.csproj` |
 | `SWIFTBIND021` | Dependency version placeholder | A framework dependency has a placeholder version. Set `<PackageVersion>` manually or verify the dependency xcframework's Info.plist |
 | `SWIFTBIND030` | Packing without `SwiftWrapperArchitectures=all` | Set `<SwiftWrapperArchitectures>all</SwiftWrapperArchitectures>` before running `dotnet pack` |
@@ -230,15 +233,17 @@ A Swift object was accessed after its `Dispose()` was called (or after GC collec
 **MSBuild SDK mode** (recommended): Generated files are in your project's intermediate output directory:
 
 ```
-obj/Debug/net10.0-ios/swift-binding/
-├── MyLibrary.cs                    # C# bindings (P/Invoke declarations, type wrappers)
-├── MyLibrary.swift                 # Swift wrapper (async support, protocol dispatch)
+obj/Debug/<tfm>/swift-binding/
+├── MyLibrary.cs                         # C# bindings (P/Invoke declarations, type wrappers)
+├── MyLibrary.swift                      # Swift wrapper (async support, protocol dispatch)
 ├── MyLibrarySwiftBindings.xcframework/  # Compiled Swift wrapper
-├── binding-report.json             # What was bound and what was skipped
-├── binding-metadata.props          # Extracted framework metadata
-├── MyLibrary.Swift.iOS.targets     # Consumer NuGet targets
-└── MyLibraryDatabase.xml           # Module database for cross-module resolution
+├── binding-report.json                  # What was bound and what was skipped
+├── binding-metadata.props               # Extracted framework metadata
+├── MyLibrary.Swift.<Platform>.targets   # Consumer NuGet targets
+└── MyLibraryDatabase.xml                # Module database for cross-module resolution
 ```
+
+Where `<tfm>` is your target framework (e.g., `net10.0-ios`, `net10.0-macos`) and `<Platform>` is the platform suffix (e.g., `iOS`, `macOS`, `MacCatalyst`, `tvOS`).
 
 **CLI mode**: Files are in whatever `-o` output directory you specified.
 

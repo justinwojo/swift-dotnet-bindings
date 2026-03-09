@@ -3,9 +3,12 @@
 ## Prerequisites
 
 - **macOS** with **[Xcode 26](https://developer.apple.com/xcode/)** or later installed (required for Apple platform tooling)
-- **.NET 10 SDK** with the iOS workload:
+- **.NET 10 SDK** with the workload for your target platform:
   ```bash
-  dotnet workload install ios
+  dotnet workload install ios           # iOS
+  dotnet workload install macos         # macOS
+  dotnet workload install maccatalyst   # Mac Catalyst
+  dotnet workload install tvos          # tvOS
   ```
 - A compiled framework (`.xcframework`) you want to bind — either Swift or Objective-C:
   - Must be a **dynamic** framework (not a static `.a` archive)
@@ -31,7 +34,17 @@ The recommended workflow uses the Swift Bindings MSBuild SDK. Your `.xcframework
 ### 1. Create a binding project
 
 ```bash
+# iOS (default)
 dotnet new swift-binding -n MyLibrary.Swift.iOS
+
+# macOS
+dotnet new swift-binding -n MyLibrary.Swift.macOS --platform macos
+
+# Mac Catalyst
+dotnet new swift-binding -n MyLibrary.Swift.MacCatalyst --platform maccatalyst
+
+# tvOS
+dotnet new swift-binding -n MyLibrary.Swift.tvOS --platform tvos
 ```
 
 This creates a project file that looks like:
@@ -39,10 +52,12 @@ This creates a project file that looks like:
 ```xml
 <Project Sdk="Swift.Bindings.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0-ios</TargetFramework>
+    <TargetFramework>net10.0-ios</TargetFramework>  <!-- or net10.0-macos, net10.0-maccatalyst, net10.0-tvos -->
   </PropertyGroup>
 </Project>
 ```
+
+The SDK auto-detects the target platform from the TFM — no additional configuration needed.
 
 ### 2. Add your xcframework
 
@@ -95,6 +110,8 @@ var result = MyClass.DoSomething();
 ```
 
 The consumer doesn't need the Swift Bindings SDK, the generator, or any Swift knowledge. They just reference the NuGet package. It includes MSBuild targets that automatically bundle the native frameworks into the app and configure diagnostic suppression — no manual `NativeReference` items needed.
+
+> **Multi-platform note:** Each binding package targets a single platform (iOS, macOS, etc.). If you need to support multiple platforms from the same library, create one binding project per platform — e.g., `MyLibrary.Swift.iOS` and `MyLibrary.Swift.macOS`. The xcframework must contain slices for each target platform.
 
 ---
 
@@ -153,7 +170,7 @@ dotnet run --project src/Swift.Bindings/src -- \
 | `{Module}SwiftBindings.xcframework/` | Compiled Swift wrapper (xcframework mode) |
 | `{Module}.SwiftUIBridge.cs` + `.swift` | SwiftUI bridge (when views are detected) |
 | `binding-report.json` | Coverage report — what was bound and what was skipped |
-| `{Module}.Swift.iOS.csproj` + `.targets` | Ready-to-build project and NuGet consumer targets (xcframework mode) |
+| `{Module}.Swift.{Platform}.csproj` + `.targets` | Ready-to-build project and NuGet consumer targets (xcframework mode) |
 | `binding-metadata.json` + `.props` | Extracted framework metadata |
 
 **ObjC frameworks** (auto-detected — no flags needed):
@@ -163,7 +180,7 @@ dotnet run --project src/Swift.Bindings/src -- \
 | `ApiDefinition.cs` | Binding interface definitions (`[BaseType]`, `[Export]`, `[Protocol]`) |
 | `StructsAndEnums.cs` | Enums, structs, constants, C functions |
 | `BgenDelegates.cs` | Block-based callback delegate definitions |
-| `{Module}.ObjC.iOS.csproj` | Ready-to-build binding project (`<IsBindingProject>true`) |
+| `{Module}.ObjC.{Platform}.csproj` | Ready-to-build binding project (`<IsBindingProject>true`) |
 | `binding-metadata.props` | Extracted framework metadata |
 
 See [Customization](Customization.md) for the full set of CLI options.
@@ -177,15 +194,19 @@ Many Swift libraries are distributed as Swift Package Manager packages (source c
 ### Using Xcode
 
 1. Open or create an Xcode project/workspace that depends on the SPM package
-2. Build for both device and simulator:
+2. Build for your target platform(s):
    ```bash
+   # iOS (device + simulator)
    xcodebuild archive -scheme MyLibrary -destination "generic/platform=iOS" \
      -archivePath ./build/ios SKIP_INSTALL=NO BUILD_LIBRARY_FOR_DISTRIBUTION=YES
-
    xcodebuild archive -scheme MyLibrary -destination "generic/platform=iOS Simulator" \
      -archivePath ./build/sim SKIP_INSTALL=NO BUILD_LIBRARY_FOR_DISTRIBUTION=YES
+
+   # macOS
+   xcodebuild archive -scheme MyLibrary -destination "generic/platform=macOS" \
+     -archivePath ./build/macos SKIP_INSTALL=NO BUILD_LIBRARY_FOR_DISTRIBUTION=YES
    ```
-3. Create the xcframework:
+3. Create the xcframework (include all slices you built):
    ```bash
    xcodebuild -create-xcframework \
      -framework ./build/ios.xcarchive/Products/Library/Frameworks/MyLibrary.framework \

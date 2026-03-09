@@ -93,7 +93,7 @@ Detailed plans in `Future/`. Consolidated priority in `Future/future-roadmap.md`
 
 | Item | Effort | Design Doc |
 |------|--------|------------|
-| **Multi-platform support** (Mac Catalyst, macOS, tvOS) | Large (3+ sessions) | `Future/dx-multi-framework-auto-detection.md` |
+| ~~**Multi-platform support** (Mac Catalyst, macOS, tvOS)~~ | ~~Large (3+ sessions)~~ | **Done** — 3 sessions complete. `Completed/multi-platform-roadmap.md` |
 | **ObjC binding integration** (replace Objective Sharpie) | Large (2-3 weeks) | `Future/objc-binding-integration.md` |
 | **SPM package support** (source -> xcframework -> bind) | Large | `Future/sdk-future-work.md` |
 | **Performance benchmarks** | Medium | `Future/interop-performance-validation-plan.md` |

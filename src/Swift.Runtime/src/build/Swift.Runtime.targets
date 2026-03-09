@@ -7,9 +7,9 @@
     <IncludeSwiftBindingsRuntimeNative Condition="'$(IncludeSwiftBindingsRuntimeNative)' == ''">true</IncludeSwiftBindingsRuntimeNative>
   </PropertyGroup>
 
-  <!-- macOS: when TFM is NOT ios or maccatalyst -->
+  <!-- macOS: TFM contains 'macos' but NOT 'maccatalyst' -->
   <ItemGroup Condition="'$(IncludeSwiftBindingsRuntimeNative)' == 'true'
-                         AND !$(TargetFramework.Contains('ios'))
+                         AND $(TargetFramework.Contains('macos'))
                          AND !$(TargetFramework.Contains('maccatalyst'))
                          AND Exists('$(MSBuildThisFileDirectory)../native/macos/libSwiftBindingsRuntime.dylib')">
     <Content Include="$(MSBuildThisFileDirectory)../native/macos/libSwiftBindingsRuntime.dylib">

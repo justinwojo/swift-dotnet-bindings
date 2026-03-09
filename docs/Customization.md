@@ -21,7 +21,7 @@ The generator accepts these options:
 | `--bridge-hints <path>` | Path to [bridge hints JSON](SwiftUI-Interop#bridge-hints) for SwiftUI views. |
 | `--namespace-pattern <pattern>` | C# namespace pattern. Supports `{Module}` and `{Framework}`. Default: `{Module}` |
 | `--sdk-mode` | Skip `.csproj` emission (used when the MSBuild SDK is the project system). |
-| `--package-id <id>` | NuGet package ID override. Default: `{Module}.Swift.iOS` |
+| `--package-id <id>` | NuGet package ID override. Default: `{Module}.Swift.{Platform}` (e.g., `.Swift.iOS`, `.Swift.macOS`, `.Swift.tvOS`, `.Swift.MacCatalyst` depending on `--platform`) |
 | `--wrapper-architectures <scope>` | `simulator` (default), `device`, or `all` (both slices). |
 | `--framework-dependency <path>` | Dependency xcframework path. Repeatable. Adds `-F` search paths for wrapper compilation and `PackageReference` in emitted `.csproj`. Requires `--xcframework`. |
 | `--module-database <path>` | Load a dependency module database XML for cross-module type resolution. Repeatable. Generated alongside bindings as `{Module}Database.xml`. |

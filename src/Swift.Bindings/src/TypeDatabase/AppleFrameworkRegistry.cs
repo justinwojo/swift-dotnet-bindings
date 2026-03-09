@@ -428,6 +428,32 @@ internal static class AppleFrameworkRegistry
         "Network.NWEndpoint.Port",
     };
 
+    // --- Platform Availability ---
+    // The ABI JSON from a platform-specific build already reflects type availability
+    // (e.g., macOS ABI won't contain UIKit types). This table is for diagnostics and
+    // conditional database loading — not hard gating. Modules listed here are entirely
+    // absent on the given platform (not just subset).
+
+    private static readonly Dictionary<ApplePlatform, HashSet<string>> PlatformUnavailableModules = new()
+    {
+        [ApplePlatform.tvOS] = new(StringComparer.Ordinal)
+        {
+            // No UI-interactive frameworks on tvOS
+            "ContactsUI", "EventKitUI", "MessageUI", "SafariServices", "IntentsUI",
+            // Hardware/capability not present on Apple TV
+            "CoreNFC", "CarPlay", "ClassKit", "ARKit",
+        },
+        [ApplePlatform.macOS] = new(StringComparer.Ordinal)
+        {
+            // UIKit is iOS/Catalyst/tvOS only (macOS uses AppKit)
+            "UIKit",
+            // Hardware/capability frameworks not available on macOS
+            "HealthKit", "HomeKit", "ARKit", "CoreNFC", "CarPlay", "ClassKit",
+        },
+        // iOS: nearly everything available (AppKit available via Catalyst compat)
+        // MacCatalyst: UIKit + AppKit both available
+    };
+
     // --- ObjC Prefix Detection ---
 
     private static readonly string[] ObjCPrefixes = new[]
@@ -448,6 +474,19 @@ internal static class AppleFrameworkRegistry
     public static bool IsOptionalFallbackModule(string moduleName) => OptionalFallbackModules.Contains(moduleName);
 
     public static bool IsUnsupportedModule(string moduleName) => UnsupportedModules.Contains(moduleName);
+
+    /// <summary>
+    /// Returns true if a module is known to be available on the given platform.
+    /// Returns true for unknown modules (conservative — only known-unavailable modules are gated).
+    /// When platform is null, assumes iOS (all modules available).
+    /// </summary>
+    public static bool IsModuleAvailableOnPlatform(string moduleName, ApplePlatform? platform)
+    {
+        if (platform == null) return true;
+        if (!PlatformUnavailableModules.TryGetValue(platform.Value, out var excluded))
+            return true;
+        return !excluded.Contains(moduleName);
+    }
 
     public static bool IsKnownValueType(string moduleQualifiedName) => ValueTypes.Contains(moduleQualifiedName);
 

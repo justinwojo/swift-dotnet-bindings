@@ -180,6 +180,7 @@
       "revision": "0ead44350d2737db384908569c012fe67c421e4d",
       "mode": "source",
       "minIOS": "15.0",
+      "platforms": ["ios", "macos", "tvos"],
       "products": [
         {
           "scheme": "Nuke",

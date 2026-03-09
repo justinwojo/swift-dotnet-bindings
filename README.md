@@ -27,7 +27,7 @@ Apple is moving away from Objective-C. Every year, more frameworks ship as Swift
 - **WeatherKit**, **App Intents**, **Swift Charts** — all Swift-only
 - Third-party libraries increasingly drop ObjC support entirely
 
-Without Swift interop, **.NET on iOS becomes progressively less accessible each year.**
+Without Swift interop, **.NET on Apple platforms becomes progressively less accessible each year.**
 
 And for the Objective-C frameworks that remain, the de facto binding tool — Objective Sharpie — hasn't been updated for modern Xcode and produces output requiring extensive manual cleanup (`[Verify]` attributes on every binding).
 
@@ -51,7 +51,7 @@ Swift Bindings approach (both):
 
 This project is a fork of Microsoft's [`dotnet/runtimelab` (feature/swift-bindings branch)](https://github.com/dotnet/runtimelab/tree/feature/swift-bindings) — an experimental effort that established the foundational architecture (ABI JSON parsing, Swift symbol demangling, type database, code emitter) but was never intended as a shipping product. Development went inactive with support limited to basic classes, structs, and simple method signatures.
 
-Since forking, this project has grown from a proof-of-concept into a comprehensive binding generator — **550+ commits and ~280K net new lines of code (4.7x the original codebase)**. That breaks down to ~95K lines of production code (generator, runtime, SDK) backed by ~182K lines of tests across 6,500+ test cases. The generator now supports protocols, generics, closures, async, SwiftUI bridging, protocol extensions, existential containers, and much more — validated against 46 real-world libraries (88 framework targets — 53 Swift, 34 ObjC, 1 mixed), with select libraries tested end-to-end on a .NET for iOS app.
+Since forking, this project has grown from a proof-of-concept into a comprehensive binding generator — **550+ commits and ~280K net new lines of code (4.7x the original codebase)**. That breaks down to ~95K lines of production code (generator, runtime, SDK) backed by ~182K lines of tests across 6,500+ test cases. The generator now supports protocols, generics, closures, async, SwiftUI bridging, protocol extensions, existential containers, and much more — validated against 46 real-world libraries (88 framework targets — 53 Swift, 34 ObjC, 1 mixed), with select libraries tested end-to-end on .NET apps running on iOS and macOS.
 
 ---
 
@@ -103,7 +103,7 @@ Validated against **46 libraries (88 framework targets — 53 Swift, 34 Objectiv
 | **Utilities** | CryptoSwift, DeviceKit, PhoneNumberKit, Swinject, RxSwift |
 | **ObjC Frameworks** | Realm, SDWebImage, CocoaLumberjack, MBProgressHUD, Firebase (28 targets) |
 
-Select libraries (Nuke, BlinkID, Lottie, CryptoSwift) have been functionally validated in test apps running on iOS Simulator.
+Select libraries (Nuke, BlinkID, Lottie, CryptoSwift) have been functionally validated in test apps running on iOS Simulator. The generator also validates Nuke across macOS and tvOS targets.
 
 ### Examples
 
@@ -153,22 +153,26 @@ For customization options (bridge hints, constructor selection, import overrides
 
 ## Getting Started
 
-**Requires**: macOS, [Xcode 26](https://developer.apple.com/xcode/) or later, and [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) with the iOS workload (`dotnet workload install ios`).
+**Requires**: macOS, [Xcode 26](https://developer.apple.com/xcode/) or later, and [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) with the platform workload for your target (e.g., `dotnet workload install ios`).
+
+**Supported platforms**: iOS, macOS, Mac Catalyst, tvOS. The generator, MSBuild SDK, and runtime all support multi-platform targeting — generate bindings for any Apple platform with a single `--platform` flag or by changing the TFM.
 
 ```bash
 # 1. Install the project template and MSBuild SDK
 dotnet new install Swift.Bindings.Templates
 
-# 2. Create a binding project
+# 2. Create a binding project (default: iOS; use --platform for others)
 dotnet new swift-binding -n MyLibrary.Bindings
+# dotnet new swift-binding -n MyLibrary.Bindings --platform macos
 
 # 3. Copy your xcframework into the project directory
 cp -r /path/to/MyLibrary.xcframework MyLibrary.Bindings/
 
-# 4. Build — generates bindings and produces a NuGet package
+# 4. Build — generates bindings and compiles the project
 cd MyLibrary.Bindings && dotnet build
 
-# 5. Consume in any .NET iOS/MAUI app
+# 5. Pack into a NuGet package, then consume in any .NET Apple platform app
+dotnet pack
 dotnet add package MyLibrary.Bindings
 ```
 
@@ -235,7 +239,7 @@ cd Nuke.Bindings && dotnet build
 
 ## Known Limitations
 
-Swift Bindings targets .NET 10 on Apple platforms, which currently uses the Mono runtime. Mono's JIT compiler has a known defect that causes crashes with `CallConvSwift` in certain P/Invoke frame types. **This only affects iOS Simulator** — device builds use NativeAOT, which is unaffected. Four transparent workarounds are built into the generator and runtime — generated bindings work correctly without manual intervention.
+Swift Bindings targets .NET 10 on Apple platforms, which currently uses the Mono runtime. Mono's JIT compiler has a known defect that causes crashes with `CallConvSwift` in certain P/Invoke frame types. **This only affects Mono JIT builds (iOS/tvOS Simulator)** — device builds use NativeAOT and macOS native builds are unaffected. Four transparent workarounds are built into the generator and runtime — generated bindings work correctly without manual intervention.
 
 For full details, see [Known Limitations](docs/Known-Limitations.md).
 
@@ -243,7 +247,7 @@ For full details, see [Known Limitations](docs/Known-Limitations.md).
 
 ## Project Status
 
-Swift Bindings is under active development. The core generator, MSBuild SDK, and NuGet packaging are all functional — validated against 46 libraries (88 framework targets — 53 Swift, 34 ObjC, 1 mixed) and tested with **6,400+ unit tests**, **700+ integration tests**, and **240+ end-to-end runtime tests** on iOS Simulator.
+Swift Bindings is under active development. The core generator, MSBuild SDK, and NuGet packaging are all functional — validated against 46 libraries (88 framework targets — 53 Swift, 34 ObjC, 1 mixed) and tested with **6,400+ unit tests**, **700+ integration tests**, and **240+ end-to-end runtime tests** on iOS Simulator and macOS. Multi-platform support (iOS, macOS, Mac Catalyst, tvOS) is built into the generator, SDK, and runtime.
 
 ---
 

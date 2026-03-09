@@ -606,4 +606,87 @@ namespace BindingsGeneration.Tests
             throw new InvalidOperationException("Cannot find repo root.");
         }
     }
+
+    /// <summary>
+    /// Content validation tests for Swift.Runtime.csproj and Swift.Runtime.targets
+    /// to ensure platform-specific native dylib conditions don't overlap.
+    /// </summary>
+    public class RuntimeNativeAssetConditionTests
+    {
+        private static readonly string RuntimeDir = Path.Combine(
+            FindRepoRoot(), "src", "Swift.Runtime", "src");
+
+        private static readonly string CsprojContent = File.ReadAllText(
+            Path.Combine(RuntimeDir, "Swift.Runtime.csproj"));
+
+        private static readonly string TargetsContent = File.ReadAllText(
+            Path.Combine(RuntimeDir, "build", "Swift.Runtime.targets"));
+
+        [Fact]
+        public void Csproj_MacOsDylibCondition_ExcludesTvos()
+        {
+            // The macOS dylib must NOT match net10.0-tvos. The condition must use a positive
+            // 'macos' check (not just exclude 'ios' and 'maccatalyst'), otherwise tvOS picks
+            // up the wrong dylib.
+            var macosBlock = ExtractDylibBlock(CsprojContent, "native/macos/");
+            Assert.NotNull(macosBlock);
+            Assert.Contains("Contains('macos')", macosBlock);
+            // Must not use the old exclusion-only pattern
+            Assert.DoesNotContain("!$(TargetFramework.Contains('ios')) AND !$(TargetFramework.Contains('maccatalyst'))", macosBlock);
+        }
+
+        [Fact]
+        public void Targets_MacOsDylibCondition_ExcludesTvos()
+        {
+            var macosBlock = ExtractDylibBlock(TargetsContent, "native/macos/");
+            Assert.NotNull(macosBlock);
+            Assert.Contains("Contains('macos')", macosBlock);
+            Assert.DoesNotContain("!$(TargetFramework.Contains('ios')) AND !$(TargetFramework.Contains('maccatalyst'))", macosBlock);
+        }
+
+        [Fact]
+        public void Csproj_HasTvosTargetFramework()
+        {
+            Assert.Contains("net10.0-tvos", CsprojContent);
+        }
+
+        [Fact]
+        public void Csproj_HasTvosDylibContentItems()
+        {
+            Assert.Contains("native/tvos/libSwiftBindingsRuntime.dylib", CsprojContent);
+            Assert.Contains("native/tvossimulator/libSwiftBindingsRuntime.dylib", CsprojContent);
+        }
+
+        [Fact]
+        public void Targets_HasTvosDylibBlocks()
+        {
+            Assert.Contains("native/tvos/libSwiftBindingsRuntime.dylib", TargetsContent);
+            Assert.Contains("native/tvossimulator/libSwiftBindingsRuntime.dylib", TargetsContent);
+        }
+
+        private static string? ExtractDylibBlock(string content, string dylib)
+        {
+            var idx = content.IndexOf(dylib, StringComparison.Ordinal);
+            if (idx < 0) return null;
+            // Walk backward to find the enclosing <ItemGroup
+            var start = content.LastIndexOf("<ItemGroup", idx, StringComparison.Ordinal);
+            if (start < 0) return null;
+            var end = content.IndexOf("</ItemGroup>", idx, StringComparison.Ordinal);
+            if (end < 0) return null;
+            return content.Substring(start, end - start + "</ItemGroup>".Length);
+        }
+
+        private static string FindRepoRoot()
+        {
+            var dir = AppDomain.CurrentDomain.BaseDirectory;
+            while (dir != null)
+            {
+                var gitPath = Path.Combine(dir, ".git");
+                if (Directory.Exists(gitPath) || File.Exists(gitPath))
+                    return dir;
+                dir = Path.GetDirectoryName(dir);
+            }
+            throw new InvalidOperationException("Cannot find repo root.");
+        }
+    }
 }

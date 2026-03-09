@@ -320,6 +320,75 @@ public class AppleFrameworkRegistryTests
         Assert.Equal(expected, AppleFrameworkRegistry.IsKnownModuleForElements(module));
     }
 
+    // --- IsModuleAvailableOnPlatform ---
+
+    [Theory]
+    // tvOS: UI-interactive and hardware frameworks unavailable
+    [InlineData("ContactsUI", ApplePlatform.tvOS, false)]
+    [InlineData("EventKitUI", ApplePlatform.tvOS, false)]
+    [InlineData("MessageUI", ApplePlatform.tvOS, false)]
+    [InlineData("SafariServices", ApplePlatform.tvOS, false)]
+    [InlineData("IntentsUI", ApplePlatform.tvOS, false)]
+    [InlineData("CoreNFC", ApplePlatform.tvOS, false)]
+    [InlineData("ARKit", ApplePlatform.tvOS, false)]
+    // tvOS: core frameworks still available
+    [InlineData("UIKit", ApplePlatform.tvOS, true)]
+    [InlineData("Foundation", ApplePlatform.tvOS, true)]
+    [InlineData("AVFoundation", ApplePlatform.tvOS, true)]
+    // macOS: UIKit and mobile-only frameworks unavailable
+    [InlineData("UIKit", ApplePlatform.macOS, false)]
+    [InlineData("HealthKit", ApplePlatform.macOS, false)]
+    [InlineData("HomeKit", ApplePlatform.macOS, false)]
+    [InlineData("ARKit", ApplePlatform.macOS, false)]
+    // macOS: AppKit and core frameworks available
+    [InlineData("AppKit", ApplePlatform.macOS, true)]
+    [InlineData("Foundation", ApplePlatform.macOS, true)]
+    [InlineData("CoreML", ApplePlatform.macOS, true)]
+    // iOS: everything available
+    [InlineData("UIKit", ApplePlatform.iOS, true)]
+    [InlineData("AppKit", ApplePlatform.iOS, true)]
+    [InlineData("ARKit", ApplePlatform.iOS, true)]
+    // MacCatalyst: both UIKit and AppKit available
+    [InlineData("UIKit", ApplePlatform.MacCatalyst, true)]
+    [InlineData("AppKit", ApplePlatform.MacCatalyst, true)]
+    // Unknown modules default to available (conservative)
+    [InlineData("MyCustomLib", ApplePlatform.tvOS, true)]
+    [InlineData("MyCustomLib", ApplePlatform.macOS, true)]
+    public void IsModuleAvailableOnPlatform_ReturnsExpected(string module, ApplePlatform platform, bool expected)
+    {
+        Assert.Equal(expected, AppleFrameworkRegistry.IsModuleAvailableOnPlatform(module, platform));
+    }
+
+    [Fact]
+    public void IsModuleAvailableOnPlatform_NullPlatform_AlwaysReturnsTrue()
+    {
+        // Null platform = iOS default assumption, all modules available
+        Assert.True(AppleFrameworkRegistry.IsModuleAvailableOnPlatform("UIKit", null));
+        Assert.True(AppleFrameworkRegistry.IsModuleAvailableOnPlatform("AppKit", null));
+        Assert.True(AppleFrameworkRegistry.IsModuleAvailableOnPlatform("ContactsUI", null));
+    }
+
+    [Fact]
+    public void PlatformUnavailableModules_AreKnownFrameworks()
+    {
+        // Every module in the unavailability table should be a recognized Apple framework
+        // (either AutoBridge or OptionalFallback), not a random unknown module.
+        var unavailableModules = new[]
+        {
+            "ContactsUI", "EventKitUI", "MessageUI", "SafariServices", "IntentsUI",
+            "CoreNFC", "CarPlay", "ClassKit", "ARKit",
+            "UIKit", "HealthKit", "HomeKit",
+        };
+
+        foreach (var module in unavailableModules)
+        {
+            Assert.True(
+                AppleFrameworkRegistry.IsAutoBridgeModule(module) ||
+                AppleFrameworkRegistry.IsOptionalFallbackModule(module),
+                $"Unavailable module '{module}' should be in AutoBridge or OptionalFallback sets");
+        }
+    }
+
     // --- Cross-cutting consistency checks ---
 
     [Fact]

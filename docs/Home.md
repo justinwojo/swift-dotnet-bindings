@@ -12,7 +12,7 @@ Swift framework (.xcframework)  →  SwiftBindings tool  →  C# bindings + NuGe
 
 Apple is moving away from Objective-C. More frameworks ship as Swift-only every year — StoreKit 2, SwiftUI, WeatherKit, App Intents, Swift Charts — and third-party libraries increasingly drop ObjC support entirely.
 
-Without Swift interop, .NET on iOS becomes progressively less capable with each Xcode release.
+Without Swift interop, .NET on Apple platforms becomes progressively less capable with each Xcode release.
 
 The existing approaches all require a human to manually translate between Swift and C#, method by method:
 

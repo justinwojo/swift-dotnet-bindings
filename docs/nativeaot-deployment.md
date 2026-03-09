@@ -172,13 +172,15 @@ NativeAOT produces compact binaries. A test app with Swift bindings + runtime:
 
 ## Limitations
 
-### NativeAOT is Device-Only
+### NativeAOT is Device-Only (iOS)
 
 NativeAOT for iOS targets `ios-arm64` only. The `iossimulator-arm64` runtime identifier is not supported for `dotnet publish` with `PublishAot=true`. Simulator builds always use Mono JIT.
 
 This means:
 - **Development/debugging** → Simulator (Mono) — fast iteration, no code signing
 - **Release/production** → Device (NativeAOT) — full API access, no JIT limitations
+
+> **macOS note:** macOS native builds do not use the Mono JIT, so the `CallConvSwift` workarounds are unnecessary overhead but harmless. NativeAOT is available for macOS but not required for correct operation.
 
 ### DllImportResolver Conflict
 

@@ -37,22 +37,22 @@ Swift Framework (.xcframework)
 └─────────────────────────────────────┘
          │
          ▼
-┌─────────────────────────────────────┐
-│         Generated Output            │
-├─────────────────────────────────────┤
-│  {Module}.cs          (C# bindings) │
-│  {Module}.swift       (wrappers)    │
-│  {Module}SwiftBindings.xcframework  │
-│  binding-report.json  (metrics)     │
-│  {Module}.Swift.iOS.csproj          │
-└─────────────────────────────────────┘
+┌──────────────────────────────────────────┐
+│         Generated Output                 │
+├──────────────────────────────────────────┤
+│  {Module}.cs            (C# bindings)    │
+│  {Module}.swift         (wrappers)       │
+│  {Module}SwiftBindings.xcframework       │
+│  binding-report.json    (metrics)        │
+│  {Module}.Swift.{Platform}.csproj        │
+└──────────────────────────────────────────┘
 ```
 
 ## Step 1: Input Resolution
 
 The `XCFrameworkResolver` takes an `.xcframework` directory and finds everything the generator needs:
 
-- Parses `Info.plist` to discover iOS platform slices (simulator preferred, device fallback)
+- Parses `Info.plist` to discover platform slices for the target platform (simulator preferred for iOS/tvOS, device for macOS/Catalyst)
 - Locates the Swift module from `Modules/*.swiftmodule`
 - Finds the `.abi.json` (or generates it from `.swiftinterface` via `swift-frontend`)
 - Finds the `.tbd` (or generates it from the dylib via `xcrun tapi stubify`)
@@ -174,7 +174,7 @@ ObjC Framework (.xcframework)
 │  ApiDefinition.cs   (binding defs)  │
 │  StructsAndEnums.cs (types + consts)│
 │  BgenDelegates.cs   (block types)   │
-│  {Module}.ObjC.iOS.csproj           │
+│  {Module}.ObjC.{Platform}.csproj    │
 │  binding-metadata.props             │
 └─────────────────────────────────────┘
 ```
