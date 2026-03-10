@@ -120,13 +120,20 @@ def run_tests(
     safe_only: bool = True,
     skip_regen: bool = True,
     max_test_retries: int = 1,
+    deadline: Optional[float] = None,
 ) -> int:
     """Run runtime tests using the existing run-runtime-tests.sh script.
 
     We delegate to the existing script to preserve all the nuanced crash
     detection, Mono JIT tolerance, and result classification logic.
 
-    Retries once on timeout/infrastructure failure (app hang, launch failure).
+    Retries once on timeout/infrastructure failure (app hang, launch failure),
+    but only if enough time remains before the deadline.
+
+    Args:
+        deadline: Absolute time.time() by which we must finish. Used to
+                  skip retries that can't complete and to shrink subprocess
+                  timeouts on later attempts.
 
     Returns:
         Exit code from run-runtime-tests.sh
@@ -142,13 +149,39 @@ def run_tests(
     if skip_regen:
         cmd.append("--skip-regen")
 
+    # First attempt: generous timeout (build + test).
+    # Retry: much shorter — app is already built/cached, only needs test time.
+    FIRST_ATTEMPT_OVERHEAD = 300  # seconds for wrapper+bridge+app build
+    RETRY_OVERHEAD = 120          # cached build is much faster
+
     for attempt in range(1, max_test_retries + 2):
         if attempt > 1:
+            # Check if we have enough time for a retry
+            min_retry_time = timeout + RETRY_OVERHEAD
+            if deadline is not None:
+                remaining = deadline - time.time()
+                if remaining < min_retry_time:
+                    log.warning(
+                        "Only %.0fs remaining (need %ds for retry) — skipping retry",
+                        remaining, min_retry_time,
+                    )
+                    return 1
+                log.info("%.0fs remaining — enough for retry (need %ds)", remaining, min_retry_time)
+
             log.info("=== TESTS: Retry attempt %d (previous run timed out) ===", attempt)
             gha_warning(f"Test retry attempt {attempt} after timeout/hang")
 
-        log.info("=== TESTS: Running runtime tests (tier=%d, timeout=%ds, attempt=%d) ===",
-                 tier, timeout, attempt)
+        # Calculate subprocess timeout
+        overhead = FIRST_ATTEMPT_OVERHEAD if attempt == 1 else RETRY_OVERHEAD
+        if deadline is not None:
+            remaining = deadline - time.time()
+            # Use the lesser of our standard timeout and remaining time (minus 30s safety margin)
+            subprocess_timeout = min(timeout + overhead, max(remaining - 30, timeout + 60))
+        else:
+            subprocess_timeout = timeout + overhead
+
+        log.info("=== TESTS: Running runtime tests (tier=%d, timeout=%ds, attempt=%d, subprocess_timeout=%.0fs) ===",
+                 tier, timeout, attempt, subprocess_timeout)
         log.info("Command: %s", " ".join(cmd))
 
         try:
@@ -157,7 +190,7 @@ def run_tests(
                 cwd=test_framework_dir,
                 capture_output=True,
                 text=True,
-                timeout=timeout + 300,  # run-runtime-tests.sh builds wrappers+bridge+app before tests
+                timeout=subprocess_timeout,
             )
 
             # Print output so it appears in GHA logs
@@ -259,12 +292,20 @@ def run_pipeline(
     skip_regen: bool = True,
     max_infra_retries: int = 1,
     diag_dir: str = "/tmp/sim-diagnostics",
+    step_timeout: int = 900,
 ) -> int:
     """Full CI pipeline: prepare simulator, build, test, cleanup.
+
+    Args:
+        step_timeout: Total wall-clock budget in seconds (matches the GHA
+                      timeout-minutes value). Used to compute a deadline so
+                      retries are skipped when insufficient time remains.
 
     Returns:
         0 on success, non-zero on failure.
     """
+    pipeline_start = time.time()
+    deadline = pipeline_start + step_timeout  # absolute time we must finish by
     mgr = SimManager()
     created_udid = None  # Track what we created for cleanup
 
@@ -356,6 +397,7 @@ def run_pipeline(
                 timeout=test_timeout,
                 safe_only=safe_only,
                 skip_regen=skip_regen,
+                deadline=deadline,
             )
             gha_endgroup()
 
@@ -462,6 +504,8 @@ Examples:
                                  help="Max infrastructure retries (default: 1)")
     resilience_group.add_argument("--diag-dir", default="/tmp/sim-diagnostics",
                                  help="Directory for diagnostic artifacts")
+    resilience_group.add_argument("--step-timeout", type=int, default=900,
+                                 help="Total wall-clock budget in seconds (default: 900 = 15 min)")
 
     # Logging
     parser.add_argument("-v", "--verbose", action="store_true", help="Debug logging")
@@ -507,6 +551,7 @@ Examples:
         skip_regen=args.skip_regen,
         max_infra_retries=args.max_retries,
         diag_dir=args.diag_dir,
+        step_timeout=args.step_timeout,
     )
     sys.exit(exit_code)
 
