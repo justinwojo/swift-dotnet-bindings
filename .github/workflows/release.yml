@@ -119,7 +119,6 @@ jobs:
         timeout-minutes: 10
         run: >
           python3 scripts/ci/ci_ios_test.py
-          --reuse-device
           --tier 2 --timeout 90 --safe-only --skip-regen --skip-build
 
       - name: Upload simulator diagnostics

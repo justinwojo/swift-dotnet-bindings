@@ -119,11 +119,14 @@ def run_tests(
     timeout: int = 90,
     safe_only: bool = True,
     skip_regen: bool = True,
+    max_test_retries: int = 1,
 ) -> int:
     """Run runtime tests using the existing run-runtime-tests.sh script.
 
     We delegate to the existing script to preserve all the nuanced crash
     detection, Mono JIT tolerance, and result classification logic.
+
+    Retries once on timeout/infrastructure failure (app hang, launch failure).
 
     Returns:
         Exit code from run-runtime-tests.sh
@@ -139,21 +142,55 @@ def run_tests(
     if skip_regen:
         cmd.append("--skip-regen")
 
-    log.info("=== TESTS: Running runtime tests (tier=%d, timeout=%ds) ===", tier, timeout)
-    log.info("Command: %s", " ".join(cmd))
+    for attempt in range(1, max_test_retries + 2):
+        if attempt > 1:
+            log.info("=== TESTS: Retry attempt %d (previous run timed out) ===", attempt)
+            gha_warning(f"Test retry attempt {attempt} after timeout/hang")
 
-    result = subprocess.run(
-        cmd,
-        cwd=test_framework_dir,
-        timeout=timeout + 300,  # run-runtime-tests.sh builds wrappers+bridge+app before tests
-    )
+        log.info("=== TESTS: Running runtime tests (tier=%d, timeout=%ds, attempt=%d) ===",
+                 tier, timeout, attempt)
+        log.info("Command: %s", " ".join(cmd))
 
-    if result.returncode == 0:
-        log.info("=== TESTS: PASSED ===")
-    else:
-        log.error("=== TESTS: FAILED (exit code %d) ===", result.returncode)
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=test_framework_dir,
+                capture_output=True,
+                text=True,
+                timeout=timeout + 300,  # run-runtime-tests.sh builds wrappers+bridge+app before tests
+            )
 
-    return result.returncode
+            # Print output so it appears in GHA logs
+            if result.stdout:
+                print(result.stdout, end="", flush=True)
+            if result.stderr:
+                print(result.stderr, end="", file=sys.stderr, flush=True)
+
+            if result.returncode == 0:
+                log.info("=== TESTS: PASSED ===")
+                return 0
+
+            # Check if this is a timeout/hang (retryable) vs real test failure
+            output = result.stdout or ""
+            if "RUNTIME TESTS TIMEOUT" in output or "launch_failure" in output:
+                if attempt <= max_test_retries:
+                    log.warning("Tests timed out / app hung — will retry")
+                    continue
+            # Real test failure (assertions, etc.) — don't retry
+            log.error("=== TESTS: FAILED (exit code %d) ===", result.returncode)
+            return result.returncode
+
+        except subprocess.TimeoutExpired as e:
+            # subprocess itself timed out
+            if e.stdout:
+                print(e.stdout if isinstance(e.stdout, str) else e.stdout.decode(), end="", flush=True)
+            if attempt <= max_test_retries:
+                log.warning("Test subprocess timed out — will retry")
+                continue
+            log.error("=== TESTS: TIMED OUT (subprocess) ===")
+            return 1
+
+    return 1  # Should not reach here
 
 
 # ---------------------------------------------------------------------------
