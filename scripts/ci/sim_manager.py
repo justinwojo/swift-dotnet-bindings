@@ -95,8 +95,8 @@ class SimConfig:
 
     # Readiness probe settings (phase 2 after Booted)
     readiness_poll_interval: float = 2.0
-    readiness_timeout: float = 60.0
-    readiness_probe_timeout: float = 10.0  # per-probe command timeout
+    readiness_timeout: float = 120.0       # GHA runners can be very slow
+    readiness_probe_timeout: float = 30.0  # per-probe timeout (GHA simctl spawn is slow)
 
     # Preferred device types (in order)
     preferred_devices: list = field(default_factory=lambda: [
