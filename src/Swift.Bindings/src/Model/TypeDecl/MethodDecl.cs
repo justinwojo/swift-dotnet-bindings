@@ -196,6 +196,14 @@ namespace BindingsGeneration
         /// dispatch and are called via generated @_silgen_name Swift wrappers.
         /// </summary>
         public bool IsProtocolExtensionMethod { get; set; } = false;
+
+        /// <summary>
+        /// When true, this constructor uses a @_cdecl Swift wrapper with C calling convention
+        /// instead of CallConvSwift. Routes constructor P/Invokes through CallingConvention.Cdecl
+        /// to avoid NativeAOT/ARM64 ABI mismatches with struct parameters and indirect results.
+        /// Set by ConstructorWrapperEmitter before SignatureHandler construction.
+        /// </summary>
+        public bool UsesCdeclConstructorWrapper { get; set; } = false;
     }
 
     /// <summary>

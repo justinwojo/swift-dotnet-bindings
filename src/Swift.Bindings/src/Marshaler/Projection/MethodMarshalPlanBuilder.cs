@@ -311,6 +311,19 @@ internal class MethodMarshalPlanBuilder
                 safeHandleTypeName = GenericTypeEmitter.GetTypeNameWithGenerics(root);
             }
 
+            if (_env.MethodDecl.UsesCdeclConstructorWrapper)
+            {
+                return new IndirectResultSetup
+                {
+                    IsConstructor = true,
+                    ReturnTypeName = typeName,
+                    AllocationCode = $$"""
+                        _payload = new SwiftSafeHandle<{{safeHandleTypeName}}>((IntPtr)NativeMemory.Alloc(_payloadSize));
+                        var resultPtr = _payload.DangerousGetHandle();
+                        """
+                };
+            }
+
             return new IndirectResultSetup
             {
                 IsConstructor = true,
@@ -365,18 +378,134 @@ internal class MethodMarshalPlanBuilder
         // Prefix all calls with the helper class name.
         var hp = _env.PInvokeHelperContext != null ? $"{_env.PInvokeHelperContext.HelperClassName}." : "";
 
+        // @_cdecl constructor wrappers use out IntPtr errorPtr instead of SwiftError swiftError.
+        // The error pointer is the same retained AnyObject as SwiftError.Value — all downstream
+        // error infrastructure (SBW_GetErrorDescription, SBW_ReleaseError) works identically.
+        bool isCdeclConstructor = _env.MethodDecl.UsesCdeclConstructorWrapper;
+
         string errorCheckCode;
         if (syncTypedErrorType != null)
         {
-            // C2: Typed throws — extract error value with nil-check fallback.
-            // SBW_ReleaseError is in the outermost finally, guaranteeing exactly-once release.
-            errorCheckCode = $$"""
-                if (swiftError.Value != null)
-                {
-                    string _errorMessage;
-                    var _errorPtr = (IntPtr)swiftError.Value;
-                    try
+            if (isCdeclConstructor)
+            {
+                // C2: Typed throws via @_cdecl out-pointer
+                errorCheckCode = $$"""
+                    if (errorPtr != IntPtr.Zero)
                     {
+                        string _errorMessage;
+                        try
+                        {
+                            var _descPtr = {{hp}}SBW_GetErrorDescription(errorPtr);
+                            try
+                            {
+                                _errorMessage = _descPtr != IntPtr.Zero
+                                    ? System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
+                                    : "Unknown Swift error";
+                            }
+                            finally
+                            {
+                                if (_descPtr != IntPtr.Zero) {{hp}}SBW_Free(_descPtr);
+                            }
+                            var _typedErrorPtr = {{hp}}SBW_ExtractTypedError_{{typedErrorSafeSuffix}}(errorPtr);
+                            if (_typedErrorPtr != IntPtr.Zero)
+                            {
+                                try
+                                {
+                                    var _typedError = ({{syncTypedErrorType}})SwiftMarshal.MarshalFromSwift<{{syncTypedErrorType}}>(_typedErrorPtr);
+                                    throw new SwiftException<{{syncTypedErrorType}}>(_typedError, _errorMessage);
+                                }
+                                finally
+                                {
+                                    {{hp}}SBW_Free(_typedErrorPtr);
+                                }
+                            }
+                            throw new SwiftException<{{syncTypedErrorType}}>(_errorMessage);
+                        }
+                        finally
+                        {
+                            {{hp}}SBW_ReleaseError(errorPtr);
+                        }
+                    }
+                    """;
+            }
+            else
+            {
+                // C2: Typed throws — extract error value with nil-check fallback.
+                // SBW_ReleaseError is in the outermost finally, guaranteeing exactly-once release.
+                errorCheckCode = $$"""
+                    if (swiftError.Value != null)
+                    {
+                        string _errorMessage;
+                        var _errorPtr = (IntPtr)swiftError.Value;
+                        try
+                        {
+                            var _descPtr = {{hp}}SBW_GetErrorDescription(_errorPtr);
+                            try
+                            {
+                                _errorMessage = _descPtr != IntPtr.Zero
+                                    ? System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
+                                    : "Unknown Swift error";
+                            }
+                            finally
+                            {
+                                if (_descPtr != IntPtr.Zero) {{hp}}SBW_Free(_descPtr);
+                            }
+                            var _typedErrorPtr = {{hp}}SBW_ExtractTypedError_{{typedErrorSafeSuffix}}(_errorPtr);
+                            if (_typedErrorPtr != IntPtr.Zero)
+                            {
+                                try
+                                {
+                                    var _typedError = ({{syncTypedErrorType}})SwiftMarshal.MarshalFromSwift<{{syncTypedErrorType}}>(_typedErrorPtr);
+                                    throw new SwiftException<{{syncTypedErrorType}}>(_typedError, _errorMessage);
+                                }
+                                finally
+                                {
+                                    {{hp}}SBW_Free(_typedErrorPtr);
+                                }
+                            }
+                            throw new SwiftException<{{syncTypedErrorType}}>(_errorMessage);
+                        }
+                        finally
+                        {
+                            {{hp}}SBW_ReleaseError(_errorPtr);
+                        }
+                    }
+                    """;
+            }
+        }
+        else
+        {
+            if (isCdeclConstructor)
+            {
+                // Untyped throws via @_cdecl out-pointer
+                errorCheckCode = $$"""
+                    if (errorPtr != IntPtr.Zero)
+                    {
+                        string _errorMessage;
+                        var _descPtr = {{hp}}SBW_GetErrorDescription(errorPtr);
+                        try
+                        {
+                            _errorMessage = _descPtr != IntPtr.Zero
+                                ? System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
+                                : "Unknown Swift error";
+                        }
+                        finally
+                        {
+                            if (_descPtr != IntPtr.Zero) {{hp}}SBW_Free(_descPtr);
+                            {{hp}}SBW_ReleaseError(errorPtr);
+                        }
+                        throw new SwiftRuntimeException(_errorMessage);
+                    }
+                    """;
+            }
+            else
+            {
+                // Untyped throws — extract message via SBW_GetErrorDescription, release via SBW_ReleaseError
+                errorCheckCode = $$"""
+                    if (swiftError.Value != null)
+                    {
+                        string _errorMessage;
+                        var _errorPtr = (IntPtr)swiftError.Value;
                         var _descPtr = {{hp}}SBW_GetErrorDescription(_errorPtr);
                         try
                         {
@@ -387,52 +516,12 @@ internal class MethodMarshalPlanBuilder
                         finally
                         {
                             if (_descPtr != IntPtr.Zero) {{hp}}SBW_Free(_descPtr);
+                            {{hp}}SBW_ReleaseError(_errorPtr);
                         }
-                        var _typedErrorPtr = {{hp}}SBW_ExtractTypedError_{{typedErrorSafeSuffix}}(_errorPtr);
-                        if (_typedErrorPtr != IntPtr.Zero)
-                        {
-                            try
-                            {
-                                var _typedError = ({{syncTypedErrorType}})SwiftMarshal.MarshalFromSwift<{{syncTypedErrorType}}>(_typedErrorPtr);
-                                throw new SwiftException<{{syncTypedErrorType}}>(_typedError, _errorMessage);
-                            }
-                            finally
-                            {
-                                {{hp}}SBW_Free(_typedErrorPtr);
-                            }
-                        }
-                        throw new SwiftException<{{syncTypedErrorType}}>(_errorMessage);
+                        throw new SwiftRuntimeException(_errorMessage);
                     }
-                    finally
-                    {
-                        {{hp}}SBW_ReleaseError(_errorPtr);
-                    }
-                }
-                """;
-        }
-        else
-        {
-            // Untyped throws — extract message via SBW_GetErrorDescription, release via SBW_ReleaseError
-            errorCheckCode = $$"""
-                if (swiftError.Value != null)
-                {
-                    string _errorMessage;
-                    var _errorPtr = (IntPtr)swiftError.Value;
-                    var _descPtr = {{hp}}SBW_GetErrorDescription(_errorPtr);
-                    try
-                    {
-                        _errorMessage = _descPtr != IntPtr.Zero
-                            ? System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
-                            : "Unknown Swift error";
-                    }
-                    finally
-                    {
-                        if (_descPtr != IntPtr.Zero) {{hp}}SBW_Free(_descPtr);
-                        {{hp}}SBW_ReleaseError(_errorPtr);
-                    }
-                    throw new SwiftRuntimeException(_errorMessage);
-                }
-                """;
+                    """;
+            }
         }
 
         return new SwiftErrorSetup

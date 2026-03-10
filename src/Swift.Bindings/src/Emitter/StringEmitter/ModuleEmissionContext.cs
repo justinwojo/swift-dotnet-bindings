@@ -225,6 +225,16 @@ public sealed class ModuleEmissionContext
     /// <summary>Adds a destroy wrapper symbol. Returns true if newly added.</summary>
     public bool TryAddDestroyWrapperSymbol(string symbol) => _destroyWrapperSymbols.Add(symbol);
 
+    // ==================== Constructor Wrapper ====================
+
+    private readonly HashSet<string> _constructorWrapperSymbols = new();
+
+    /// <summary>Checks if a constructor @_cdecl wrapper symbol was already emitted for this type.</summary>
+    public bool HasConstructorWrapperSymbol(string symbol) => _constructorWrapperSymbols.Contains(symbol);
+
+    /// <summary>Adds a constructor wrapper symbol. Returns true if newly added.</summary>
+    public bool TryAddConstructorWrapperSymbol(string symbol) => _constructorWrapperSymbols.Add(symbol);
+
     // ==================== Enum Handler RawRepresentable ====================
 
     private readonly HashSet<string> _enumRawRepSymbols = new();

@@ -1,5 +1,5 @@
 {
-  "git_sha": "280f6e2e",
+  "git_sha": "5252aab9",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
@@ -29,13 +29,13 @@
       "CryptoSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 24617,
+        "lines": 24609,
         "dep_compile": "none"
       },
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 91886,
+        "lines": 91883,
         "dep_compile": "none"
       },
       "KeychainAccess": {
@@ -77,19 +77,19 @@
       "Nuke": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21842,
+        "lines": 21840,
         "dep_compile": "none"
       },
       "Nuke@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21842,
+        "lines": 21840,
         "dep_compile": "none"
       },
       "Nuke@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21842,
+        "lines": 21840,
         "dep_compile": "none"
       },
       "RxSwift": {

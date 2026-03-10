@@ -37348,16 +37348,16 @@ public partial class SimplePriorityHandler : ISwiftObject, IDisposable, IPriorit
         unsafe
         {
             _payload = new SwiftSafeHandle<SimplePriorityHandler>((IntPtr)NativeMemory.Alloc(_payloadSize));
-            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+            var resultPtr = _payload.DangerousGetHandle();
             
-            PInvoke_init_30836628(swiftIndirectResult);
+            PInvoke_init_5BDAC20F(resultPtr);
             
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "DBW_SimplePriorityHandler_init_FC07C5C0_1")]
-    private static partial void PInvoke_init_30836628( SwiftIndirectResult swiftIndirectResult);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_SimplePriorityHandler_init_30836628")]
+    private static partial void PInvoke_init_5BDAC20F( IntPtr resultPtr);
     
     
     /// <summary>

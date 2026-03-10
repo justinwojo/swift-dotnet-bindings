@@ -128,7 +128,15 @@ namespace BindingsGeneration
 
             if (MarshallingHelpers.MethodRequiresIndirectResult(_env))
             {
-                AddParameter("SwiftIndirectResult", "swiftIndirectResult");
+                if (_env.MethodDecl.UsesCdeclConstructorWrapper)
+                {
+                    // @_cdecl wrapper: plain IntPtr result buffer, not SwiftIndirectResult register
+                    AddParameter("IntPtr", "resultPtr");
+                }
+                else
+                {
+                    AddParameter("SwiftIndirectResult", "swiftIndirectResult");
+                }
                 SetReturnType("void");
                 return;
             }
@@ -572,7 +580,16 @@ namespace BindingsGeneration
 
             if (_env.MethodDecl.Throws)
             {
-                AddParameter("SwiftError", "swiftError", "out");
+                if (_env.MethodDecl.UsesCdeclConstructorWrapper)
+                {
+                    // @_cdecl wrapper: error reported via out-pointer, not SwiftError register.
+                    // 'out IntPtr' marshals as a pointer parameter — callee writes through it.
+                    AddParameter("IntPtr", "errorPtr", "out");
+                }
+                else
+                {
+                    AddParameter("SwiftError", "swiftError", "out");
+                }
             }
         }
 
@@ -708,7 +725,10 @@ namespace BindingsGeneration
                     ReturnType = pInvokeSignature.ReturnType,
                     ParametersString = pInvokeParams,
                     IsAsync = methodDecl.IsAsync,
-                    IsUnsafe = pInvokeParams.Contains("void*") || pInvokeParams.Contains("delegate*")
+                    IsUnsafe = pInvokeParams.Contains("void*") || pInvokeParams.Contains("delegate*") || pInvokeParams.Contains("IntPtr*"),
+                    CallingConvention = methodDecl.UsesCdeclConstructorWrapper
+                        ? PInvokeCallingConvention.Cdecl
+                        : PInvokeCallingConvention.Swift
                 });
             }
         }

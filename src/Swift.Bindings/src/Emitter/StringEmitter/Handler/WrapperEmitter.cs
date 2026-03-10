@@ -232,9 +232,12 @@ namespace BindingsGeneration
 
             if (_requiresIndirectResult)
             {
-                // Non-frozen struct constructors: result goes into buf via SwiftIndirectResult
+                // Non-frozen struct constructors: result goes into buf via SwiftIndirectResult or IntPtr
                 csWriter.WriteLine("IntPtr* buf = stackalloc IntPtr[1];");
-                csWriter.WriteLine("var swiftIndirectResult = new SwiftIndirectResult(buf);");
+                if (_env.MethodDecl.UsesCdeclConstructorWrapper)
+                    csWriter.WriteLine("var resultPtr = (IntPtr)buf;");
+                else
+                    csWriter.WriteLine("var swiftIndirectResult = new SwiftIndirectResult(buf);");
                 EmitPInvokeCall(csWriter);
                 EmitSwiftError(csWriter);
                 csWriter.WriteLine("if (*buf == IntPtr.Zero)");

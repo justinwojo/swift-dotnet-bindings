@@ -75,8 +75,11 @@ namespace BindingsGeneration
             csWriter.WriteLine("{");
             csWriter.Indent++;
 
-            // Create SwiftIndirectResult pointing to the optional buffer
-            csWriter.WriteLine("var swiftIndirectResult = new SwiftIndirectResult(resultBuffer);");
+            // Create result buffer variable — either SwiftIndirectResult (Swift ABI) or plain IntPtr (cdecl)
+            if (_env.MethodDecl.UsesCdeclConstructorWrapper)
+                csWriter.WriteLine("var resultPtr = (IntPtr)resultBuffer;");
+            else
+                csWriter.WriteLine("var swiftIndirectResult = new SwiftIndirectResult(resultBuffer);");
             csWriter.WriteLine();
 
             // Marshal arguments using existing helpers

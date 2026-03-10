@@ -702,6 +702,23 @@ namespace BindingsGeneration
                 DefaultParameterOverloadEmitter.EmitDebugParamWrapper(swiftWriter, methodEnv);
             }
 
+            // Set @_cdecl constructor wrapper flags BEFORE SignatureHandler creation.
+            // SignatureHandler reads UsesCdeclConstructorWrapper to decide SwiftIndirectResult vs IntPtr
+            // and MangledName to compute the P/Invoke method name via GetPInvokeName().
+            string? originalMangledNameForCtor = null;
+            if (ConstructorWrapperEmitter.ShouldEmitWrapper(methodEnv))
+            {
+                var parentType_ = methodEnv.ParentDecl as TypeDecl;
+                var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
+                    parentType_!.SwiftTypeName.Module,
+                    parentType_.Name,
+                    methodEnv.MethodDecl.MangledName);
+                originalMangledNameForCtor = methodEnv.MethodDecl.MangledName;
+                methodEnv.MethodDecl.UsesCdeclConstructorWrapper = true;
+                methodEnv.MethodDecl.UsesWrapperLibrary = true;
+                methodEnv.MethodDecl.MangledName = cdeclSymbol;
+            }
+
             var signatureHandler = new SignatureHandler(methodEnv);
 
             if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)
@@ -774,6 +791,13 @@ namespace BindingsGeneration
             if (!isAccessor && ThrowingClosureSimplificationEmitter.ShouldSimplify(methodEnv))
             {
                 methodEnv.MethodDecl.HasThrowingClosureSimplification = true;
+            }
+
+            // Emit Swift @_cdecl constructor wrapper AFTER signature validation, BEFORE WrapperEmitter.
+            if (methodEnv.MethodDecl.UsesCdeclConstructorWrapper)
+            {
+                ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(
+                    swiftWriter, methodEnv, context.GetEmissionContext());
             }
 
             var wrapperEmitter = new WrapperEmitter(methodEnv, signatureHandler, fallbackInfo, context.GetEmissionContext());

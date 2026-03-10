@@ -84,6 +84,25 @@ public static class DefaultParameterOverloadEmitter
                 env.PInvokeHelperContext,
                 env.CompositionCollector);
 
+            // Set @_cdecl constructor wrapper flags BEFORE SignatureHandler construction.
+            // Compute the @_cdecl symbol from the original MangledName (before EmitSwiftWrapper changes it).
+            string? silgenSymbolForCdecl = null;
+            string? cdeclSymbolForRestore = null;
+            if (overloadDecl.IsConstructor && ConstructorWrapperEmitter.ShouldEmitWrapper(overloadEnv))
+            {
+                var parentType_ = overloadDecl.ParentDecl as TypeDecl;
+                // Save the @_silgen_name symbol (current MangledName = DBW_...) — the @_cdecl wrapper calls it
+                silgenSymbolForCdecl = overloadDecl.MangledName;
+                var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
+                    parentType_!.SwiftTypeName.Module,
+                    parentType_.Name,
+                    overloadDecl.MangledName);
+                cdeclSymbolForRestore = cdeclSymbol;
+                overloadDecl.UsesCdeclConstructorWrapper = true;
+                // UsesWrapperLibrary already set by BuildOverloadDecl
+                overloadDecl.MangledName = cdeclSymbol;
+            }
+
             // Check if the overload signature is fully marshallable
             var signatureHandler = new SignatureHandler(overloadEnv);
             if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)
@@ -111,8 +130,29 @@ public static class DefaultParameterOverloadEmitter
                 }
             }
 
-            // Emit Swift wrapper
+            // EmitSwiftWrapper reads overloadDecl.MangledName as the @_silgen_name symbol.
+            // If using cdecl, temporarily restore the DBW_... symbol for the Swift wrapper emission.
+            if (cdeclSymbolForRestore != null)
+                overloadDecl.MangledName = silgenSymbolForCdecl!;
+
+            // Emit Swift @_silgen_name wrapper
             EmitSwiftWrapper(swiftWriter, methodDecl, overloadDecl, env);
+
+            // Restore the cdecl symbol as the final MangledName for P/Invoke routing.
+            // EmitSwiftWrapper sets MangledName = wrapperSymbol (the DBW_... name) — overwrite with cdecl.
+            if (cdeclSymbolForRestore != null)
+                overloadDecl.MangledName = cdeclSymbolForRestore;
+
+            // Emit @_cdecl constructor wrapper that calls the @_silgen_name function
+            if (silgenSymbolForCdecl != null && overloadDecl.UsesCdeclConstructorWrapper)
+            {
+                // The @_silgen_name function is a static factory — compute its Swift name
+                var trimCount = methodDecl.CSSignature.Count - overloadDecl.CSSignature.Count;
+                var rawMethodName = methodDecl.GetSwiftName();
+                var silgenFuncName = $"_dbw_{rawMethodName}_{DeterministicHash8(methodDecl.MangledName)}_{trimCount}";
+                ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(
+                    swiftWriter, overloadEnv, emissionContext, silgenTarget: silgenFuncName);
+            }
 
             // Delegate C# emission to normal pipeline
             TypeDatabaseExtensions.AnyTypeFallbackInfo? fallbackInfo = null;
