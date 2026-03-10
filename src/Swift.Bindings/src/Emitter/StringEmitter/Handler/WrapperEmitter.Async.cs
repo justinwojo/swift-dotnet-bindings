@@ -728,7 +728,7 @@ namespace BindingsGeneration
 
             var text = $$"""
                         private static unsafe delegate* unmanaged[Cdecl]<{{(voidReturn ? "" : $"{_pInvokeSignature.ReturnType}, ")}}IntPtr, void> {{callbackFieldName}} = &{{callbackMethodName}};
-                        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+                        [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
                         private static unsafe void {{callbackMethodName}}({{(voidReturn ? "" : $"{_pInvokeSignature.ReturnType} rawResult, ")}}IntPtr task)
                         {
                             GCHandle handle = GCHandle.FromIntPtr(task);
@@ -814,7 +814,7 @@ namespace BindingsGeneration
 
             var text = $$"""
                         private static unsafe delegate* unmanaged[Cdecl]<{{delegateTypeParams}}> {{callbackFieldName}} = &{{callbackMethodName}};
-                        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+                        [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
                         private static unsafe void {{callbackMethodName}}({{methodParamList}})
                         {
                             GCHandle handle = GCHandle.FromIntPtr(task);
@@ -856,7 +856,7 @@ namespace BindingsGeneration
 
             var text = $$"""
                         {{freePInvokeDecl}}private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> {{callbackFieldName}} = &{{callbackMethodName}};
-                        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+                        [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
                         private static unsafe void {{callbackMethodName}}(IntPtr slicePtr, nint sliceLen, IntPtr task)
                         {
                             GCHandle handle = GCHandle.FromIntPtr(task);
@@ -910,7 +910,7 @@ namespace BindingsGeneration
             // The wrapper return type is IReadOnlyList<string> (matches non-async Array<String> return type with WU2 element conversion)
             var text = $$"""
                         {{freePInvokeDecl}}private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> {{callbackFieldName}} = &{{callbackMethodName}};
-                        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+                        [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
                         private static unsafe void {{callbackMethodName}}(IntPtr bufferPtr, nint bufferLen, IntPtr task)
                         {
                             GCHandle handle = GCHandle.FromIntPtr(task);
@@ -1045,7 +1045,7 @@ namespace BindingsGeneration
 
             var text = $$"""
                         {{freePInvokeDecl}}private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> {{callbackFieldName}} = &{{callbackMethodName}};
-                        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+                        [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
                         private static unsafe void {{callbackMethodName}}(IntPtr resultPtr, IntPtr task)
                         {
                             GCHandle handle = GCHandle.FromIntPtr(task);{{readObjPtrCode}}
@@ -1139,7 +1139,7 @@ namespace BindingsGeneration
 
             var text = $$"""
                         {{freePInvokeDecl}}private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> {{callbackFieldName}} = &{{callbackMethodName}};
-                        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+                        [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
                         private static unsafe void {{callbackMethodName}}(IntPtr resultPtr, IntPtr task)
                         {
                             GCHandle handle = GCHandle.FromIntPtr(task);
@@ -1281,7 +1281,7 @@ namespace BindingsGeneration
 
             return $$"""
                         {{freePInvokeDecl}}private static unsafe delegate* unmanaged[Cdecl]<{{delegateParams}}> {{errorCallbackFieldName}} = &{{errorCallbackMethodName}};
-                        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+                        [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
                         private static unsafe void {{errorCallbackMethodName}}({{methodParams}})
                         {
                             GCHandle handle = GCHandle.FromIntPtr(task);

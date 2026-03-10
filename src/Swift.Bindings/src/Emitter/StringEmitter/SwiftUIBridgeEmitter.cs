@@ -1860,7 +1860,7 @@ public static partial class SwiftUIBridgeEmitter
         foreach (var param in bridgeParams.Where(p => p.Kind == BridgeParameterKind.VoidClosure))
         {
             var trampolineName = char.ToUpperInvariant(param.Name[0]) + param.Name[1..] + "Trampoline";
-            sb.AppendLine($"        [UnmanagedCallersOnly(CallConvs = new[] {{ typeof(CallConvCdecl) }})]");
+            sb.AppendLine($"        [UnmanagedCallersOnly(CallConvs = new[] {{ typeof(global::System.Runtime.CompilerServices.CallConvCdecl) }})]");
             sb.AppendLine($"        private static void {trampolineName}(IntPtr userData)");
             sb.AppendLine("        {");
             sb.AppendLine("            if (userData != IntPtr.Zero)");
@@ -1936,7 +1936,7 @@ public static partial class SwiftUIBridgeEmitter
 
         if (hasClosures)
         {
-            sb.AppendLine("            var closureHandles = new System.Collections.Generic.List<GCHandle>();");
+            sb.AppendLine("            var closureHandles = new global::System.Collections.Generic.List<GCHandle>();");
             sb.AppendLine("            try");
             sb.AppendLine("            {");
             var indent = "                ";
@@ -2465,7 +2465,7 @@ public static partial class SwiftUIBridgeEmitter
         trampolineParams.Add("IntPtr userData");
         var returnType = closureReturn?.CSharpPInvokeType ?? "void";
 
-        sb.AppendLine($"        [UnmanagedCallersOnly(CallConvs = new[] {{ typeof(CallConvCdecl) }})]");
+        sb.AppendLine($"        [UnmanagedCallersOnly(CallConvs = new[] {{ typeof(global::System.Runtime.CompilerServices.CallConvCdecl) }})]");
         sb.AppendLine($"        private static {returnType} {trampolineName}({string.Join(", ", trampolineParams)})");
         sb.AppendLine("        {");
         sb.AppendLine("            if (userData != IntPtr.Zero)");

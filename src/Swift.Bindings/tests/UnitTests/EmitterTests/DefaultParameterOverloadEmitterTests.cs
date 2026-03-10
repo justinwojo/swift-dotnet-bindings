@@ -417,6 +417,96 @@ public class DefaultParameterOverloadEmitterTests
 
     #endregion
 
+    #region EmitDebugParamWrapper Autoclosure Tests
+
+    [Fact]
+    public void EmitDebugParamWrapper_AutoclosureParam_InvokedWithParens()
+    {
+        // Issue N: @autoclosure params in _dbg_* wrappers must be invoked with ()
+        // when forwarded to the original method. Without this, Swift complains about
+        // "add () to forward '@autoclosure' parameter".
+        var (moduleDecl, typeDb) = CreateTestEnvironment("LottieLogger");
+        var parentDecl = new StructDecl
+        {
+            Name = "LottieLogger",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.LottieLogger"),
+            MangledName = "$s10TestModule12LottieLoggerVN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$s10TestModule12LottieLoggerVMa"
+        };
+
+        // Create @autoclosure () -> Bool parameter
+        var autoclosureType = new ClosureTypeSpec(TupleTypeSpec.Empty, new NamedTypeSpec("Swift.Bool"));
+        autoclosureType.Attributes.Add(new TypeSpecAttribute("autoclosure"));
+        autoclosureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        // Create debug parameter (file: StaticString = #file)
+        var debugParam = new ArgumentDecl
+        {
+            Name = "file",
+            PrivateName = "file",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.StaticString"),
+            HasDefaultArg = true,
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+
+        var method = new MethodDecl
+        {
+            Name = "assert",
+            MangledName = "$s10TestModule12LottieLoggerV6assertyyXK_SSXKSSzcFtF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                new ArgumentDecl
+                {
+                    Name = "arg0",
+                    PrivateName = "arg0",
+                    SwiftTypeSpec = autoclosureType,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                },
+                debugParam
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        parentDecl.Methods.Add(method);
+
+        // Emit the debug param wrapper
+        var stringWriter = new StringWriter();
+        var swiftWriter = new SwiftWriter(stringWriter);
+        var env = new MethodEnvironment(method, typeDb);
+        DefaultParameterOverloadEmitter.EmitDebugParamWrapper(swiftWriter, env);
+        var output = stringWriter.ToString();
+
+        // The autoclosure param should be invoked with () in the call
+        Assert.Contains("arg0()", output);
+        // The wrapper should strip the debug param (file)
+        Assert.DoesNotContain("file:", output);
+    }
+
+    #endregion
+
     #region AllTrailingDefaultsAreCSharpMappable Tests
 
     [Fact]

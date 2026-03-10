@@ -893,8 +893,10 @@ namespace BindingsGeneration
             if (!_hasExplicitEqualityOperator)
             {
                 var equalityOperator = $$"""
-                public static bool operator ==({{_typeNameWithGenerics}} left, {{_typeNameWithGenerics}} right)
+                public static bool operator ==({{_typeNameWithGenerics}}? left, {{_typeNameWithGenerics}}? right)
                 {
+                    if (left is null) return right is null;
+                    if (right is null) return false;
                     return Swift.Runtime.SwiftEquatable.Equals(left, right);
                 }
                 """;
@@ -906,8 +908,10 @@ namespace BindingsGeneration
             if (!_hasExplicitInequalityOperator)
             {
                 var inequalityOperator = $$"""
-                public static bool operator !=({{_typeNameWithGenerics}} left, {{_typeNameWithGenerics}} right)
+                public static bool operator !=({{_typeNameWithGenerics}}? left, {{_typeNameWithGenerics}}? right)
                 {
+                    if (left is null) return right is not null;
+                    if (right is null) return true;
                     return !Swift.Runtime.SwiftEquatable.Equals(left, right);
                 }
                 """;
@@ -919,6 +923,7 @@ namespace BindingsGeneration
             var equatableEquals = $$"""
             public bool Equals({{_typeNameWithGenerics}}? other)
             {
+                if (other is null) return false;
                 return Swift.Runtime.SwiftEquatable.Equals(this, other);
             }
             """;

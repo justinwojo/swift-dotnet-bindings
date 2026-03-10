@@ -399,7 +399,7 @@ internal class MethodMarshalPlanBuilder
                             try
                             {
                                 _errorMessage = _descPtr != IntPtr.Zero
-                                    ? System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
+                                    ? global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
                                     : "Unknown Swift error";
                             }
                             finally
@@ -443,7 +443,7 @@ internal class MethodMarshalPlanBuilder
                             try
                             {
                                 _errorMessage = _descPtr != IntPtr.Zero
-                                    ? System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
+                                    ? global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
                                     : "Unknown Swift error";
                             }
                             finally
@@ -486,7 +486,7 @@ internal class MethodMarshalPlanBuilder
                         try
                         {
                             _errorMessage = _descPtr != IntPtr.Zero
-                                ? System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
+                                ? global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
                                 : "Unknown Swift error";
                         }
                         finally
@@ -510,7 +510,7 @@ internal class MethodMarshalPlanBuilder
                         try
                         {
                             _errorMessage = _descPtr != IntPtr.Zero
-                                ? System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
+                                ? global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
                                 : "Unknown Swift error";
                         }
                         finally

@@ -471,17 +471,33 @@ public static class ConstructorWrapperEmitter
                         $"{argLabel}{label}Val");
             }
 
-            // Simple enums: pass raw value directly, reconstruct via unsafeBitCast.
-            // init(rawValue:) may not be publicly accessible for all enums (e.g., nested
-            // enums like ImageProcessingOptions.Unit), so unsafeBitCast is used instead.
-            // This is safe because simple enums have the same memory layout as their raw value type.
+            // Simple enums: pass raw value as C-compatible integer, reconstruct safely.
+            // unsafeBitCast crashes when enum storage size differs from parameter type
+            // (e.g., a 3-case `: Int` enum stored in 1 byte vs 8-byte Int parameter).
             if (typeRecord.Kind == TypeRecordKind.Enum && typeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
             {
                 var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(swiftTypeSpec);
                 var rawType = GetSwiftRawValueType(typeRecord.RawValueTypeName);
-                return ($"_ {label}: {rawType}",
-                        $"let {label}Val = unsafeBitCast({label}, to: {swiftType}.self)",
-                        $"{argLabel}{label}Val");
+
+                string conversion;
+                if (!string.IsNullOrEmpty(typeRecord.RawValueTypeName))
+                {
+                    // RawRepresentable enum: init(rawValue:) safely maps raw value → case
+                    // regardless of in-memory storage size. The synthesized init?(rawValue:)
+                    // has the same access level as the type and is always available from
+                    // the wrapper module. Guard against invalid raw values from C# (e.g.,
+                    // casting an arbitrary integer to the enum type).
+                    conversion = $"guard let {label}Val = {swiftType}(rawValue: {label}) else {{ preconditionFailure(\"Invalid raw value \\({label}) for {swiftType}\") }}";
+                }
+                else
+                {
+                    // Tag-only enum (no RawRepresentable): C# sends the case index as
+                    // a widened integer. Extract the tag from the low bytes via safe
+                    // memory load (little-endian: tag is in the first N bytes).
+                    conversion = $"var {label}Raw = {label}; let {label}Val = withUnsafeMutablePointer(to: &{label}Raw) {{ UnsafeMutableRawPointer($0).load(as: {swiftType}.self) }}";
+                }
+
+                return ($"_ {label}: {rawType}", conversion, $"{argLabel}{label}Val");
             }
 
             // Complex enums: pass as pointer

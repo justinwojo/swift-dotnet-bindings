@@ -507,6 +507,9 @@ namespace BindingsGeneration
             // Check if any protocols are suitable for EveryProtocol conformance
             var suitableProtocols = protocols
                 .Where(p => !p.HasSelfRequirement && p.AssociatedTypes.Count == 0)
+                // Skip internal, @_spi, and @usableFromInline protocols — EveryProtocol can only
+                // conform to protocols whose members are all publicly accessible.
+                .Where(p => !p.IsModuleInternal)
                 .Where(p => p.Properties.Any() ||
                            p.Methods.Any(m => !m.IsConstructor && m.MethodType != MethodType.Static) ||
                            p.Subscripts.Any())
@@ -519,6 +522,10 @@ namespace BindingsGeneration
                 // use abbreviated forms ($sSl, $sSB, $ss17...).
                 .Where(p => IsMangledNameFromModule(p.MangledName, moduleDecl.Name))
                 .Where(p => !HasMembersReferencingUnsupportedModule(p, typeDatabase))
+                // Skip protocols whose member signatures reference types from this module
+                // that are not in the type database (module-internal types). EveryProtocol
+                // can't implement methods requiring internal types.
+                .Where(p => !HasMembersReferencingInternalTypes(p, typeDatabase, moduleDecl.Name))
                 .ToList();
 
             if (!suitableProtocols.Any())
@@ -635,6 +642,118 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Returns true if the protocol has any non-static member whose type references a type
+        /// from the current module that is not registered in the type database. Such types are
+        /// likely module-internal and will cause compilation errors when EveryProtocol tries to
+        /// conform to the protocol (the wrapper module cannot access internal types).
+        /// </summary>
+        internal static bool HasMembersReferencingInternalTypes(ProtocolDecl protocolDecl, ITypeDatabase typeDatabase, string moduleName)
+        {
+            foreach (var property in protocolDecl.Properties)
+            {
+                if (property.IsStatic) continue;
+                if (ReferencesInternalModuleType(property.SwiftTypeSpec, typeDatabase, moduleName))
+                    return true;
+            }
+            foreach (var method in protocolDecl.Methods)
+            {
+                if (method.IsConstructor || method.MethodType == MethodType.Static) continue;
+                foreach (var arg in method.CSSignature)
+                {
+                    if (ReferencesInternalModuleType(arg.SwiftTypeSpec, typeDatabase, moduleName))
+                        return true;
+                }
+            }
+            foreach (var subscript in protocolDecl.Subscripts)
+            {
+                if (subscript.IsStatic) continue;
+                if (ReferencesInternalModuleType(subscript.ReturnTypeSpec, typeDatabase, moduleName))
+                    return true;
+                foreach (var param in subscript.IndexParameters)
+                {
+                    if (ReferencesInternalModuleType(param.SwiftTypeSpec, typeDatabase, moduleName))
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Recursively checks if a TypeSpec references a type from the specified module that
+        /// is not registered in the type database (indicating it is module-internal).
+        /// </summary>
+        private static bool ReferencesInternalModuleType(TypeSpec? typeSpec, ITypeDatabase typeDatabase, string moduleName)
+        {
+            if (typeSpec == null)
+                return false;
+
+            switch (typeSpec)
+            {
+                case NamedTypeSpec namedType:
+                    if (namedType.HasModule())
+                    {
+                        var typeModule = namedType.Module;
+                        // Only check types from the current module — types from other modules
+                        // are either imported or from the standard library.
+                        if (typeModule == moduleName)
+                        {
+                            var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+                            if (!typeDatabase.TryGetTypeRecord(swiftTypeName, out _))
+                                return true; // From this module but not in DB → likely internal
+                        }
+                    }
+                    else
+                    {
+                        // Unqualified type name — ABI JSON sometimes omits the module prefix
+                        // for types in the current module. Try resolving with the module name.
+                        var qualifiedName = $"{moduleName}.{namedType.Name}";
+                        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(qualifiedName);
+                        if (!typeDatabase.TryGetTypeRecord(swiftTypeName, out _))
+                        {
+                            // Not found with module prefix either — could be a stdlib type
+                            // (e.g., "Int", "String") or genuinely internal. Only flag as
+                            // internal if it's not a well-known Swift/stdlib type.
+                            var stdlibName = SwiftTypeName.FromModuleQualifiedName($"Swift.{namedType.Name}");
+                            if (!typeDatabase.TryGetTypeRecord(stdlibName, out _))
+                                return true; // Not in module DB or stdlib → likely internal
+                        }
+                    }
+                    foreach (var genericParam in namedType.GenericParameters)
+                    {
+                        if (ReferencesInternalModuleType(genericParam, typeDatabase, moduleName))
+                            return true;
+                    }
+                    return false;
+
+                case TupleTypeSpec tupleType:
+                    foreach (var element in tupleType.Elements)
+                    {
+                        if (ReferencesInternalModuleType(element, typeDatabase, moduleName))
+                            return true;
+                    }
+                    return false;
+
+                case ClosureTypeSpec closureType:
+                    if (ReferencesInternalModuleType(closureType.Arguments, typeDatabase, moduleName))
+                        return true;
+                    if (ReferencesInternalModuleType(closureType.ReturnType, typeDatabase, moduleName))
+                        return true;
+                    return false;
+
+                case ProtocolListTypeSpec protocolList:
+                    foreach (var protocol in protocolList.Protocols.Keys)
+                    {
+                        if (ReferencesInternalModuleType(protocol, typeDatabase, moduleName))
+                            return true;
+                    }
+                    return false;
+
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
         /// Emits a wrap-only proxy class for a composition interface.
         /// The proxy wraps a Swift existential container; member access throws NotSupportedException.
         /// </summary>
@@ -650,7 +769,7 @@ namespace BindingsGeneration
             csWriter.WriteLine($"/// Wrap-only proxy for the {compositionName} composition existential.");
             csWriter.WriteLine($"/// Wraps a Swift existential container; member access is not supported.");
             csWriter.WriteLine($"/// </summary>");
-            csWriter.WriteLine("[System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]");
+            csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
             csWriter.WriteLine($"public unsafe class {proxyClassName} : {compositionName}, ISwiftObject, IDisposable, Swift.Runtime.ISwiftExistentialConvertible<{containerType}>");
             csWriter.WriteLine("{");
             csWriter.Indent++;

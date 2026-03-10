@@ -176,7 +176,11 @@ namespace BindingsGeneration
 
             TypeRecordFlags flags = CacluateFlags(structDecl);
 
-            RegisterStructType(namedTypeSpec, structDecl, swiftTypeInfo, flags);
+            // Skip @_spi types — they are not part of the public API surface.
+            // Not registering them ensures members referencing them fail type resolution
+            // and are naturally skipped by the emitter.
+            if (!structDecl.IsSpiProtected)
+                RegisterStructType(namedTypeSpec, structDecl, swiftTypeInfo, flags);
 
             // Update the struct declaration in memory so future passes see these properties.
             structDecl.IsFrozen = (flags & TypeRecordFlags.Frozen) != 0;
@@ -349,7 +353,8 @@ namespace BindingsGeneration
             var swiftTypeInfo = new SwiftTypeInfo { MetadataPtr = metadataPtr };
             TypeRecordFlags flags = CalculateEnumFlags(enumDecl);
 
-            RegisterEnumType(namedTypeSpec, enumDecl, swiftTypeInfo, flags);
+            if (!enumDecl.IsSpiProtected)
+                RegisterEnumType(namedTypeSpec, enumDecl, swiftTypeInfo, flags);
         }
 
         /// <summary>
@@ -473,7 +478,8 @@ namespace BindingsGeneration
             }
             var swiftTypeInfo = new SwiftTypeInfo { MetadataPtr = metadataPtr };
 
-            RegisterClassType(namedTypeSpec, classDecl, swiftTypeInfo);
+            if (!classDecl.IsSpiProtected)
+                RegisterClassType(namedTypeSpec, classDecl, swiftTypeInfo);
         }
 
         /// <summary>
@@ -855,7 +861,8 @@ namespace BindingsGeneration
                 Kind = TypeRecordKind.Protocol,
             };
 
-            _moduleDatabase.RegisterType(protocolDecl.SwiftTypeName, typeRecord);
+            if (!protocolDecl.IsSpiProtected)
+                _moduleDatabase.RegisterType(protocolDecl.SwiftTypeName, typeRecord);
         }
 
         /// <summary>

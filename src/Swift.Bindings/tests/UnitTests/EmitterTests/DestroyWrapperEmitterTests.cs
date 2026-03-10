@@ -75,6 +75,27 @@ public class DestroyWrapperEmitterTests
 
     #endregion
 
+    #region Global Namespace Qualification Tests
+
+    [Fact]
+    public void EmitCSharpDestroyRegistration_UsesGlobalSystemNamespace()
+    {
+        // DllImport attributes must use global::System to avoid name shadowing
+        // when a Swift type named "System" exists in the module (e.g., XMLCoder.XMLDocumentType.System).
+        var sw = new StringWriter();
+        var writer = new CSharpWriter(sw);
+
+        DestroyWrapperEmitter.EmitCSharpDestroyRegistration(
+            writer, "XMLDocumentType", "XMLDocumentType", "XMLCoder", "XMLCoder.XMLDocumentType", "XMLCoderSwiftBindings");
+
+        var output = sw.ToString();
+        Assert.Contains("global::System.Runtime.InteropServices.DllImport", output);
+        Assert.Contains("global::System.Runtime.InteropServices.CallingConvention.Cdecl", output);
+        Assert.DoesNotContain("[System.Runtime.InteropServices.DllImport", output);
+    }
+
+    #endregion
+
     #region C# Registration Emission Tests
 
     [Fact]

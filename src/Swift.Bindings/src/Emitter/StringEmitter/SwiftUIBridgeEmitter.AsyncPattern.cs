@@ -1049,7 +1049,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine();
 
         // OnReady trampoline
-        sb.AppendLine($"        [UnmanagedCallersOnly(CallConvs = new[] {{ typeof(CallConvCdecl) }})]");
+        sb.AppendLine($"        [UnmanagedCallersOnly(CallConvs = new[] {{ typeof(global::System.Runtime.CompilerServices.CallConvCdecl) }})]");
         sb.AppendLine("        private static void OnReadyTrampoline(IntPtr handle, IntPtr userData)");
         sb.AppendLine("        {");
         sb.AppendLine("            var stateHandle = GCHandle.FromIntPtr(userData);");
@@ -1061,7 +1061,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine();
 
         // OnError trampoline (idempotent — safe if called twice)
-        sb.AppendLine($"        [UnmanagedCallersOnly(CallConvs = new[] {{ typeof(CallConvCdecl) }})]");
+        sb.AppendLine($"        [UnmanagedCallersOnly(CallConvs = new[] {{ typeof(global::System.Runtime.CompilerServices.CallConvCdecl) }})]");
         sb.AppendLine("        private static void OnErrorTrampoline(IntPtr msgPtr, nint msgLen, IntPtr userData)");
         sb.AppendLine("        {");
         sb.AppendLine("            if (userData == IntPtr.Zero) return;");
@@ -1083,7 +1083,7 @@ public static partial class SwiftUIBridgeEmitter
         // OnResult trampoline (if applicable)
         if (pattern.HasResultCallback)
         {
-            sb.AppendLine($"        [UnmanagedCallersOnly(CallConvs = new[] {{ typeof(CallConvCdecl) }})]");
+            sb.AppendLine($"        [UnmanagedCallersOnly(CallConvs = new[] {{ typeof(global::System.Runtime.CompilerServices.CallConvCdecl) }})]");
             sb.AppendLine("        private static void OnResultTrampoline(int resultCode, IntPtr userData)");
             sb.AppendLine("        {");
             sb.AppendLine("            if (userData == IntPtr.Zero) return;");

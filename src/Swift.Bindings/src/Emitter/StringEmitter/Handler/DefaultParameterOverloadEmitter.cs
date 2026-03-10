@@ -662,7 +662,13 @@ public static class DefaultParameterOverloadEmitter
                 var n when string.IsNullOrEmpty(n) => "",
                 var n => $"{n}: "
             };
-            callArgs.Add(argStr + valueRef);
+
+            // @autoclosure params are received as regular closures in the wrapper,
+            // but the original method expects a bare expression. Invoke with () so
+            // Swift can re-wrap the result in @autoclosure at the call site.
+            var autoclosureSuffix = arg.SwiftTypeSpec is ClosureTypeSpec cls && cls.IsAutoClosure ? "()" : "";
+
+            callArgs.Add(argStr + valueRef + autoclosureSuffix);
         }
         var callArgString = string.Join(", ", callArgs);
 

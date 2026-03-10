@@ -209,6 +209,19 @@ namespace BindingsGeneration
                             "Underscore-prefixed type suppressed from public API.");
                         continue;
                     }
+
+                    // Suppress @_spi types — they are only visible to SPI consumers
+                    // (e.g., other Stripe modules) and not part of the public API.
+                    // NOTE: We specifically check IsSpiProtected, NOT IsModuleInternal,
+                    // because IsModuleInternal is also set for @usableFromInline types
+                    // which may still need bindings (they appear in public API signatures
+                    // of @inlinable functions).
+                    if (typeDecl.IsSpiProtected)
+                    {
+                        ReportCollector.RecordTypeSkipped(typeDecl, SkipReason.ModuleInternal,
+                            "@_spi type suppressed from bindings (not part of public API).");
+                        continue;
+                    }
                 }
 
                 if (baseDecl is StructDecl structDecl)
@@ -281,6 +294,20 @@ namespace BindingsGeneration
                 }
                 else if (baseDecl is MethodDecl methodDecl)
                 {
+                    // Issue M: Skip implicit+overriding constructors that the parser flagged as
+                    // module-internal because the class defines its own designated initializers.
+                    // These constructors don't actually exist at runtime (Swift's initialization rules).
+                    // We specifically check IsImplicit && IsOverride && IsConstructor rather than
+                    // blanket IsModuleInternal, because IsModuleInternal is also set on
+                    // @usableFromInline methods that may still need to be emitted as protocol
+                    // requirement implementations.
+                    if (methodDecl.IsModuleInternal && methodDecl.IsImplicit && methodDecl.IsOverride && methodDecl.IsConstructor)
+                    {
+                        if (!methodDecl.IsAccessor)
+                            ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, methodDecl.ParentDecl, SkipReason.ModuleInternal, "Implicit+overriding constructor is module-internal.");
+                        continue;
+                    }
+
                     // Suppress synthesized protocol methods (e.g., hash(into:) for Hashable)
                     // whose functionality is provided by .NET equivalents (GetHashCode)
                     if (methodDecl.ParentDecl is TypeDecl parentType &&

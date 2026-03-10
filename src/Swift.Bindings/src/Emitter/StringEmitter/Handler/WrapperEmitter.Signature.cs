@@ -237,7 +237,7 @@ namespace BindingsGeneration
             // this hides the raw SwiftResult-based signature from IntelliSense.
             if (!_env.MethodDecl.IsAccessor && _env.MethodDecl.HasThrowingClosureSimplification)
             {
-                csWriter.WriteLine("[System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]");
+                csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
             }
         }
 

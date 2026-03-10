@@ -530,6 +530,51 @@ public class TypeHandlerHelpersTests
         Assert.DoesNotContain("operator !=(", result);
     }
 
+    [Fact]
+    public void WriteSwiftEquatable_RefType_OperatorsHaveNullGuards()
+    {
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+        var structDecl = CreateStructDeclWithConformances("Widget", CreateModuleDecl("TestModule"),
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Widget"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                "$sMc"));
+
+        var writer = new EqualityMethodsWriter(csWriter, structDecl, refType: true, "Widget");
+        writer.WriteSwiftEquatableImplementation();
+
+        var result = output.ToString();
+        // operator == should accept nullable params and null-check
+        Assert.Contains("operator ==(Widget? left, Widget? right)", result);
+        Assert.Contains("if (left is null) return right is null;", result);
+        // operator != should accept nullable params and null-check
+        Assert.Contains("operator !=(Widget? left, Widget? right)", result);
+        Assert.Contains("if (left is null) return right is not null;", result);
+        // IEquatable<T>.Equals should null-check
+        Assert.Contains("if (other is null) return false;", result);
+    }
+
+    [Fact]
+    public void WriteSwiftEquatable_ValueType_OperatorsHaveNoNullGuards()
+    {
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+        var structDecl = CreateStructDeclWithConformances("Point", CreateModuleDecl("TestModule"),
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                "$sMc"));
+
+        var writer = new EqualityMethodsWriter(csWriter, structDecl, refType: false, "Point");
+        writer.WriteSwiftEquatableImplementation();
+
+        var result = output.ToString();
+        // Value type operators should NOT have nullable params
+        Assert.Contains("operator ==(Point left, Point right)", result);
+        Assert.DoesNotContain("left is null", result);
+    }
+
     #endregion
 
     #region ToStringHelper Tests

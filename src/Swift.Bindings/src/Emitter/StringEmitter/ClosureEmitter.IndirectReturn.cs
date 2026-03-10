@@ -53,7 +53,7 @@ public static partial class ClosureEmitter
         }
         var invokeArgsString = string.Join(", ", invokeArgs);
 
-        var callConvType = useCdecl ? "typeof(CallConvCdecl)" : "typeof(CallConvSwift)";
+        var callConvType = useCdecl ? "typeof(global::System.Runtime.CompilerServices.CallConvCdecl)" : "typeof(global::System.Runtime.CompilerServices.CallConvSwift)";
         var contextExtraction = useCdecl ? "contextPtr" : "new IntPtr(context.Value)";
 
         csWriter.WriteLines($$"""

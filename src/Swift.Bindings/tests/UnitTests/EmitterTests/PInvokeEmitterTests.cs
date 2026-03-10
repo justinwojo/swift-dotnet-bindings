@@ -744,6 +744,87 @@ public class PInvokeEmitterTests
         Assert.DoesNotContain(sig.Parameters, p => p.Name == "self");
     }
 
+    [Fact]
+    public void ThrowingCdeclConstructor_ErrorParamBeforeArgs()
+    {
+        // Issue L: For @_cdecl constructor wrappers, Swift places errorOut BEFORE regular
+        // parameters: (resultPtr, errorOut, args...). C# P/Invoke must match this ordering.
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        RegisterType(testModule, "TestModule.DataCache", "TestModule", "DataCache",
+            TypeRecordFlags.None, TypeRecordKind.Struct);
+
+        var moduleDecl = CreateModuleDecl();
+        var structDecl = CreateFrozenStructDecl("DataCache", moduleDecl);
+        var method = CreateMethod("init", structDecl, moduleDecl, isConstructor: true);
+        method.Throws = true;
+        method.UsesCdeclConstructorWrapper = true;
+        // Add a String parameter (name)
+        method.CSSignature.Add(CreateArg("name", new NamedTypeSpec("Swift.String"), moduleDecl));
+
+        var typeDb = CreateBasicTypeDatabase("DataCache", testModule);
+        var sig = GetPInvokeSignature(method, typeDb);
+
+        // Find errorPtr and name parameter indices
+        var errorIdx = -1;
+        var nameIdx = -1;
+        for (int i = 0; i < sig.Parameters.Count; i++)
+        {
+            if (sig.Parameters[i].Name == "errorPtr") errorIdx = i;
+            if (sig.Parameters[i].Name == "name") nameIdx = i;
+        }
+
+        Assert.True(errorIdx >= 0, "errorPtr parameter should exist");
+        Assert.True(nameIdx >= 0, "name parameter should exist");
+        Assert.True(errorIdx < nameIdx, $"errorPtr (index {errorIdx}) should come before name (index {nameIdx})");
+    }
+
+    [Fact]
+    public void NonThrowingCdeclConstructor_NoErrorParam()
+    {
+        // Non-throwing @_cdecl constructors should not have an error parameter
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        RegisterType(testModule, "TestModule.Config", "TestModule", "Config",
+            TypeRecordFlags.None, TypeRecordKind.Struct);
+
+        var moduleDecl = CreateModuleDecl();
+        var structDecl = CreateFrozenStructDecl("Config", moduleDecl);
+        var method = CreateMethod("init", structDecl, moduleDecl, isConstructor: true);
+        method.Throws = false;
+        method.UsesCdeclConstructorWrapper = true;
+        method.CSSignature.Add(CreateArg("value", new NamedTypeSpec("Swift.Int"), moduleDecl));
+
+        var typeDb = CreateBasicTypeDatabase("Config", testModule);
+        var sig = GetPInvokeSignature(method, typeDb);
+
+        Assert.DoesNotContain(sig.Parameters, p => p.Name == "errorPtr");
+    }
+
+    [Fact]
+    public void ThrowingNonCdeclMethod_ErrorParamLast()
+    {
+        // Normal throwing methods (non-cdecl) should have error param AFTER args
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethod("parse", classDecl, moduleDecl);
+        method.Throws = true;
+        method.CSSignature.Add(CreateArg("data", new NamedTypeSpec("Swift.Int"), moduleDecl));
+
+        var typeDb = CreateBasicTypeDatabase("Loader");
+        var sig = GetPInvokeSignature(method, typeDb);
+
+        var errorIdx = -1;
+        var dataIdx = -1;
+        for (int i = 0; i < sig.Parameters.Count; i++)
+        {
+            if (sig.Parameters[i].Name == "swiftError") errorIdx = i;
+            if (sig.Parameters[i].Name == "data") dataIdx = i;
+        }
+
+        Assert.True(errorIdx >= 0, "swiftError parameter should exist");
+        Assert.True(dataIdx >= 0, "data parameter should exist");
+        Assert.True(errorIdx > dataIdx, $"swiftError (index {errorIdx}) should come after data (index {dataIdx})");
+    }
+
     #endregion
 
     #region Signature String Tests

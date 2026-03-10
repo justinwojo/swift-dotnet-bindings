@@ -206,7 +206,7 @@ public class AsyncProjection : ITypeProjection
                 }
 
                 errorBody.Add(new MarshalStatement.Line(
-                    "var errorMessage = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(msg) ?? \"Unknown Swift error\";"));
+                    "var errorMessage = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(msg) ?? \"Unknown Swift error\";"));
                 errorBody.Add(new MarshalStatement.Line(
                     "tcs.TrySetException(isCancelled == 1 ? new OperationCanceledException(errorMessage) : new SwiftException(errorMessage));"));
                 errorBody.Add(new MarshalStatement.Line("handle.Free();"));

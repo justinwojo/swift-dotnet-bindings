@@ -134,6 +134,41 @@ public class SwiftABIParserRuntimeTests
         Assert.False(pubType.IsModuleInternal, "Public type should not be marked as internal");
     }
 
+    [Fact]
+    public void ParseModule_TypeWithSPIAccessControl_IsSpiProtected()
+    {
+        var classNode = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Class",
+            name: "SPIProtectedType",
+            mangledName: "$s10TestModule16SPIProtectedTypeCN");
+        classNode.DeclAttributes = new[] { "SPIAccessControl", "AccessControl" };
+
+        using var fixture = CreateParserWithNodes(classNode);
+        var result = fixture.Parser.ParseModule();
+
+        var spiType = Assert.Single(result.ModuleDecl.Types);
+        Assert.True(spiType.IsSpiProtected, "@_spi type should have IsSpiProtected = true");
+    }
+
+    [Fact]
+    public void ParseModule_TypeWithUsableFromInline_IsNotSpiProtected()
+    {
+        var classNode = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Class",
+            name: "InlineableType",
+            mangledName: "$s10TestModule14InlineableTypeCN");
+        classNode.DeclAttributes = new[] { "UsableFromInline" };
+
+        using var fixture = CreateParserWithNodes(classNode);
+        var result = fixture.Parser.ParseModule();
+
+        var inlineType = Assert.Single(result.ModuleDecl.Types);
+        Assert.True(inlineType.IsModuleInternal, "@usableFromInline should be module internal");
+        Assert.False(inlineType.IsSpiProtected, "@usableFromInline should NOT be SPI protected");
+    }
+
     #endregion
 
     #region funcSelfKind → IsMutating Tests

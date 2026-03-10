@@ -1059,16 +1059,19 @@ public class ConstructorWrapperEmitterTests
         var output = sw.ToString();
         // Should emit "Int32" (the correct Swift type), NOT "Int" (the fallback)
         Assert.Contains("_ priority: Int32", output);
-        Assert.Contains("unsafeBitCast(priority, to: Priority.self)", output);
+        // Use init(rawValue:) for safe conversion — unsafeBitCast crashes when
+        // enum storage size differs from parameter type. Guard against invalid raw values.
+        Assert.Contains("guard let priorityVal = Priority(rawValue: priority) else { preconditionFailure(", output);
+        Assert.DoesNotContain("unsafeBitCast", output);
     }
 
     [Fact]
-    public void EmitSwiftWrapper_WithSimpleEnumParam_UsesUnsafeBitCastNotInitRawValue()
+    public void EmitSwiftWrapper_WithSimpleEnumParam_UsesInitRawValue()
     {
-        // Issue F: init(rawValue:) may not be publicly accessible for all enums
-        // (e.g., nested enums like ImageProcessingOptions.Unit).
-        // The wrapper must use unsafeBitCast instead, which works for all simple enums
-        // since their memory layout is identical to their raw value type.
+        // Issue S: unsafeBitCast crashes when enum storage size differs from parameter
+        // type (e.g., a 3-case `: Int` enum stored in 1 byte vs 8-byte Int parameter).
+        // Use init(rawValue:) instead, which safely maps raw value → case regardless
+        // of in-memory storage size.
         var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes(
             "Border",
             ("TestModule.Unit", TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum, TypeRecordKind.Enum, "Swift.Int"));
@@ -1115,10 +1118,71 @@ public class ConstructorWrapperEmitterTests
         ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
 
         var output = sw.ToString();
-        // Must use unsafeBitCast, NOT init(rawValue:)!
-        Assert.Contains("unsafeBitCast(unit, to: Unit.self)", output);
-        Assert.DoesNotContain("Unit(rawValue:", output);
+        // Must use init(rawValue:) for safe conversion, NOT unsafeBitCast.
+        // Guard against invalid raw values from C#.
+        Assert.Contains("guard let unitVal = Unit(rawValue: unit) else { preconditionFailure(", output);
+        Assert.DoesNotContain("unsafeBitCast", output);
         Assert.Contains("_ unit: Int", output);
+    }
+
+    [Fact]
+    public void EmitSwiftWrapper_WithTagOnlyEnumParam_UsesSafeMemoryLoad()
+    {
+        // Tag-only enums (no RawRepresentable conformance) need safe memory load
+        // instead of unsafeBitCast, since enum storage may be smaller than Int.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes(
+            "Widget",
+            // null rawValueTypeName = tag-only enum
+            ("TestModule.Direction", TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum, TypeRecordKind.Enum, null));
+
+        var parentDecl = CreateStructDecl("Widget", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule6WidgetVyAcA9DirectionOcfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                new ArgumentDecl
+                {
+                    Name = "direction",
+                    PrivateName = "direction",
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.Direction"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
+            "TestModule", "Widget", method.MangledName);
+        method.MangledName = cdeclSymbol;
+        method.UsesCdeclConstructorWrapper = true;
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var writer = new SwiftWriter(sw);
+
+        ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
+
+        var output = sw.ToString();
+        // Tag-only: uses safe memory load, not unsafeBitCast or init(rawValue:)
+        Assert.Contains("_ direction: Int", output); // fallback raw type for null
+        Assert.Contains("withUnsafeMutablePointer", output);
+        Assert.Contains(".load(as: Direction.self)", output);
+        Assert.DoesNotContain("unsafeBitCast", output);
+        Assert.DoesNotContain("init(rawValue:", output);
     }
 
     [Fact]

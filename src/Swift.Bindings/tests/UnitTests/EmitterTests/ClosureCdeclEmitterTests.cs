@@ -214,7 +214,7 @@ public class ClosureCdeclEmitterTests
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
         // Cdecl wrapper: closure callback uses CallConvCdecl
-        Assert.Contains("typeof(CallConvCdecl)", csOutput);
+        Assert.Contains("typeof(global::System.Runtime.CompilerServices.CallConvCdecl)", csOutput);
         // Callback function pointer uses Cdecl convention
         Assert.Contains("delegate* unmanaged[Cdecl]<", csOutput);
     }
@@ -263,7 +263,7 @@ public class ClosureCdeclEmitterTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        Assert.Contains("typeof(CallConvCdecl)", csOutput);
+        Assert.Contains("typeof(global::System.Runtime.CompilerServices.CallConvCdecl)", csOutput);
         Assert.Contains("IntPtr contextPtr", csOutput);
     }
 

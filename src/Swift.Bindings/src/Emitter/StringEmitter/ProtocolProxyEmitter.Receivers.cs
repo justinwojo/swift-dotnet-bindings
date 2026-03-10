@@ -97,7 +97,7 @@ public partial class ProtocolProxyEmitter
                 if (getterConversion == null && NativeIntOverloadEmitter.TryGetAbiWideningType(property.SwiftTypeSpec, out var abiType))
                     getterConversion = $"({abiType})result";
 
-                writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]");
+                writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
                 writer.WriteLine($"private static IntPtr {receiverName}(IntPtr vtHandle, IntPtr selfContainer)");
                 writer.WriteLine("{");
                 writer.Indent++;
@@ -136,7 +136,7 @@ public partial class ProtocolProxyEmitter
                     assignmentExpr = $"({narrowedType}){assignmentExpr}";
 
                 writer.WriteLines($$"""
-                    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+                    [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
                     private static void {{receiverName}}(IntPtr vtHandle, IntPtr selfContainer, IntPtr valuePtr)
                     {
                         var container = *(ExistentialContainer1*)selfContainer;
@@ -166,7 +166,7 @@ public partial class ProtocolProxyEmitter
                 var paramTypes = "IntPtr vtHandle, IntPtr selfContainer" + string.Concat(
                     subscript.IndexParameters.Select((p, i) => $", IntPtr arg{i}"));
 
-                writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]");
+                writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
                 writer.WriteLine($"private static IntPtr {receiverName}({paramTypes})");
                 writer.WriteLine("{");
                 writer.Indent++;
@@ -210,7 +210,7 @@ public partial class ProtocolProxyEmitter
                 var paramTypes = "IntPtr vtHandle, IntPtr selfContainer, IntPtr valuePtr" + string.Concat(
                     subscript.IndexParameters.Select((p, i) => $", IntPtr arg{i}"));
 
-                writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]");
+                writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
                 writer.WriteLine($"private static void {receiverName}({paramTypes})");
                 writer.WriteLine("{");
                 writer.Indent++;
@@ -271,7 +271,7 @@ public partial class ProtocolProxyEmitter
 
         var csharpReturnType = hasReturn ? "IntPtr" : "void";
 
-        writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]");
+        writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
         writer.WriteLine($"private static {csharpReturnType} {receiverName}({paramTypes})");
         writer.WriteLine("{");
         writer.Indent++;

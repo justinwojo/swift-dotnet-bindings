@@ -738,6 +738,15 @@ namespace BindingsGeneration
                 var pInvokeSignature = new PInvokeSignatureBuilder(_env);
                 pInvokeSignature.HandleReturnType();
                 pInvokeSignature.HandleSwiftAsync();
+
+                // @_cdecl constructor wrappers place errorOut BEFORE regular parameters
+                // in Swift (resultPtr, errorOut, args...), so the C# P/Invoke must match.
+                // Normal methods place the error register AFTER all parameters.
+                if (_env.MethodDecl.UsesCdeclConstructorWrapper && _env.MethodDecl.Throws)
+                {
+                    pInvokeSignature.HandleSwiftError();
+                }
+
                 // Protocol extension @_silgen_name wrappers place self_ as the first
                 // explicit parameter in Swift. Place it before args to match the ABI.
                 // Other free-function wrappers (@_cdecl closures, optional pointer) put
@@ -756,7 +765,12 @@ namespace BindingsGeneration
                     pInvokeSignature.HandleProtocolConformance();
                     pInvokeSignature.HandleSwiftSelf();
                 }
-                pInvokeSignature.HandleSwiftError();
+
+                // Non-cdecl-constructor methods: error goes after all other params
+                if (!(_env.MethodDecl.UsesCdeclConstructorWrapper && _env.MethodDecl.Throws))
+                {
+                    pInvokeSignature.HandleSwiftError();
+                }
                 _pInvokeSignature = pInvokeSignature.Build();
             }
             return _pInvokeSignature;

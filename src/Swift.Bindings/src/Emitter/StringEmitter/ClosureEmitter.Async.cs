@@ -48,7 +48,7 @@ public static partial class ClosureEmitter
             /// [UnmanagedCallersOnly] start function for async+throwing closure parameter '{{parameterName}}'.
             /// Called synchronously by Swift, spawns Task.Run to execute the async delegate.
             /// </summary>
-            [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+            [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
             private static unsafe void {{callbackName}}(
                 IntPtr contextPtr,          // GCHandle to {{stateType}}
                 IntPtr continuationBoxPtr,  // Swift's ContinuationBox pointer

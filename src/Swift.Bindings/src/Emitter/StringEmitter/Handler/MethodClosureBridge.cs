@@ -551,7 +551,7 @@ public static class MethodClosureBridge
         if (!closureReturnIsVoid)
             returnType = "byte"; // Only Bool return supported for now
 
-        csWriter.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(System.Runtime.CompilerServices.CallConvCdecl) })]");
+        csWriter.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
         csWriter.WriteLine($"private static unsafe {returnType} {callbackBaseName}({string.Join(", ", paramParts)})");
         csWriter.WriteLine("{");
         csWriter.Indent++;

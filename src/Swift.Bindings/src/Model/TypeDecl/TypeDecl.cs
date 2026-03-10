@@ -63,6 +63,14 @@ namespace BindingsGeneration
         public bool IsModuleInternal { get; set; } = false;
 
         /// <summary>
+        /// Whether this type is decorated with @_spi (System Programming Interface).
+        /// @_spi types are only visible to SPI consumers (e.g., other modules in the same
+        /// package). Unlike @usableFromInline types, @_spi types should NEVER appear in
+        /// generated bindings — they are not part of the public API surface.
+        /// </summary>
+        public bool IsSpiProtected { get; set; } = false;
+
+        /// <summary>
         /// Whether this type is annotated with @MainActor.
         /// When true, generated Swift wrapper functions must include @MainActor annotation.
         /// </summary>

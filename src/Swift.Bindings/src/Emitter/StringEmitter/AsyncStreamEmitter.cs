@@ -26,7 +26,7 @@ public static class AsyncStreamEmitter
         var elementType = asyncStreamHandler.GetCSharpElementType(propertyDecl.SwiftTypeSpec);
 
         csWriter.WriteLines($$"""
-            [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+            [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
             private static unsafe byte {{callbackName}}_OnElement(void* elementPtr, long context)
             {
                 var stream = SwiftAsyncStream<{{elementType}}>.FromContext(context);
@@ -48,7 +48,7 @@ public static class AsyncStreamEmitter
         string callbackName)
     {
         csWriter.WriteLines($$"""
-            [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+            [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
             private static void {{callbackName}}_OnComplete(long context)
             {
                 // Stream completion is handled by the SwiftAsyncStream instance

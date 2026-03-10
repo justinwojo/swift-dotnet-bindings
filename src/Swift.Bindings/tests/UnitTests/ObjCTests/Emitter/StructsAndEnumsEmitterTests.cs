@@ -1888,4 +1888,81 @@ public class StructsAndEnumsEmitterTests
         var output = EmitAndRead(module);
         Assert.Contains("TODO", output);
     }
+
+    [Fact]
+    public void EmitStruct_ReferencingSkippedStruct_IsAlsoSkipped()
+    {
+        // When struct A has a union (unsafe layout) and struct B references struct A
+        // as a field type, struct B should also be skipped because A won't be emitted.
+        // This prevents CS0246 errors for undefined struct types.
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Structs =
+            [
+                new ObjCStructDecl
+                {
+                    Name = "InnerInfo",
+                    HasUnsafeLayout = true,
+                    UnsafeLayoutReason = "contains anonymous union",
+                    Fields =
+                    [
+                        new ObjCStructField { Name = "value", Type = SimpleType("int") }
+                    ]
+                },
+                new ObjCStructDecl
+                {
+                    Name = "OuterEvent",
+                    Fields =
+                    [
+                        new ObjCStructField { Name = "event_type", Type = SimpleType("int") },
+                        new ObjCStructField { Name = "info", Type = SimpleType("InnerInfo") }
+                    ]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        // InnerInfo has unsafe layout → skipped
+        Assert.DoesNotContain("public struct InnerInfo", output);
+        // OuterEvent references InnerInfo which is skipped → also skipped
+        Assert.DoesNotContain("public struct OuterEvent", output);
+    }
+
+    [Fact]
+    public void EmitStruct_ReferencingEmittableStruct_IsEmitted()
+    {
+        // When struct A is emittable and struct B references A, both should be emitted.
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Structs =
+            [
+                new ObjCStructDecl
+                {
+                    Name = "Point",
+                    Fields =
+                    [
+                        new ObjCStructField { Name = "x", Type = SimpleType("float") },
+                        new ObjCStructField { Name = "y", Type = SimpleType("float") }
+                    ]
+                },
+                new ObjCStructDecl
+                {
+                    Name = "Rect",
+                    Fields =
+                    [
+                        new ObjCStructField { Name = "origin", Type = SimpleType("Point") },
+                        new ObjCStructField { Name = "width", Type = SimpleType("float") },
+                        new ObjCStructField { Name = "height", Type = SimpleType("float") }
+                    ]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("public struct Point", output);
+        Assert.Contains("public struct Rect", output);
+        Assert.Contains("public Point Origin;", output);
+    }
 }

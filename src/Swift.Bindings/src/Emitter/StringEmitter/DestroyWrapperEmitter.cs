@@ -88,7 +88,7 @@ public static class DestroyWrapperEmitter
                 return true;
             }
 
-            [System.Runtime.InteropServices.DllImport("{{wrapperLibraryName}}", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "{{symbolName}}")]
+            [global::System.Runtime.InteropServices.DllImport("{{wrapperLibraryName}}", CallingConvention = global::System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "{{symbolName}}")]
             private static extern void _SBW_Destroy(IntPtr handle);
             """);
         csWriter.WriteLine();

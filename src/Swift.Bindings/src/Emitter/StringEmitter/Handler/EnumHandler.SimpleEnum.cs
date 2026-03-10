@@ -936,9 +936,9 @@ namespace BindingsGeneration
         private static void EmitCaseIterableAllCases(CSharpWriter csWriter, EnumDecl enumDecl, string enumName)
         {
             csWriter.WriteLine("/// <summary>Returns all cases of the enum.</summary>");
-            csWriter.WriteLine($"public static System.Collections.Generic.IReadOnlyList<{enumName}> AllCases {{ get; }} =");
+            csWriter.WriteLine($"public static global::System.Collections.Generic.IReadOnlyList<{enumName}> AllCases {{ get; }} =");
             csWriter.Indent++;
-            csWriter.WriteLine($"System.Array.AsReadOnly(Enum.GetValues<{enumName}>());");
+            csWriter.WriteLine($"global::System.Array.AsReadOnly(Enum.GetValues<{enumName}>());");
             csWriter.Indent--;
             csWriter.WriteLine();
         }

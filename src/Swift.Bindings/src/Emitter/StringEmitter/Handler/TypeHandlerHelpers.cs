@@ -460,26 +460,56 @@ namespace BindingsGeneration
             // Use typeNameWithGenerics for operator parameters to fix CS0563/CS0305
             if (!_hasExplicitEqualityOperator)
             {
-                var equalityOperator = $$"""
-                public static bool operator ==({{_typeNameWithGenerics}} left, {{_typeNameWithGenerics}} right)
+                string equalityBody;
+                if (refType)
                 {
-                    return Swift.Runtime.SwiftEquatable.Equals(left, right);
+                    equalityBody = $$"""
+                    public static bool operator ==({{_typeNameWithGenerics}}? left, {{_typeNameWithGenerics}}? right)
+                    {
+                        if (left is null) return right is null;
+                        if (right is null) return false;
+                        return Swift.Runtime.SwiftEquatable.Equals(left, right);
+                    }
+                    """;
                 }
-                """;
-                _writer.WriteLines(equalityOperator);
+                else
+                {
+                    equalityBody = $$"""
+                    public static bool operator ==({{_typeNameWithGenerics}} left, {{_typeNameWithGenerics}} right)
+                    {
+                        return Swift.Runtime.SwiftEquatable.Equals(left, right);
+                    }
+                    """;
+                }
+                _writer.WriteLines(equalityBody);
                 _writer.WriteLine();
             }
 
             // Only write operator != if no explicit operator is defined
             if (!_hasExplicitInequalityOperator)
             {
-                var inequalityOperator = $$"""
-                public static bool operator !=({{_typeNameWithGenerics}} left, {{_typeNameWithGenerics}} right)
+                string inequalityBody;
+                if (refType)
                 {
-                    return !Swift.Runtime.SwiftEquatable.Equals(left, right);
+                    inequalityBody = $$"""
+                    public static bool operator !=({{_typeNameWithGenerics}}? left, {{_typeNameWithGenerics}}? right)
+                    {
+                        if (left is null) return right is not null;
+                        if (right is null) return true;
+                        return !Swift.Runtime.SwiftEquatable.Equals(left, right);
+                    }
+                    """;
                 }
-                """;
-                _writer.WriteLines(inequalityOperator);
+                else
+                {
+                    inequalityBody = $$"""
+                    public static bool operator !=({{_typeNameWithGenerics}} left, {{_typeNameWithGenerics}} right)
+                    {
+                        return !Swift.Runtime.SwiftEquatable.Equals(left, right);
+                    }
+                    """;
+                }
+                _writer.WriteLines(inequalityBody);
                 _writer.WriteLine();
             }
 
@@ -487,7 +517,7 @@ namespace BindingsGeneration
             var equatableEquals = $$"""
             public bool Equals({{_typeNameWithGenerics}}{{(refType == true ? "?" : "")}} other)
             {
-                return Swift.Runtime.SwiftEquatable.Equals(this, other);
+                {{(refType == true ? "if (other is null) return false;\n            " : "")}}return Swift.Runtime.SwiftEquatable.Equals(this, other);
             }
             """;
 

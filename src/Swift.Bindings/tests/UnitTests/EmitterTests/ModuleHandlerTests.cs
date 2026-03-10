@@ -816,5 +816,171 @@ public class ModuleHandlerTests
 
     #region CQ-3: Module-Internal Type Suppression Tests
 
+    [Fact]
+    public void Emit_InternalProtocol_ExcludedFromEveryProtocol()
+    {
+        // Issue Q: Internal/@_spi protocols should not be included in EveryProtocol conformance.
+        // StripeCore regression: 884 errors from conforming to internal protocols.
+        var (_, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
+            customizeModule: module =>
+            {
+                // Public protocol — should be included
+                var publicProtocol = new ProtocolDecl
+                {
+                    Name = "PublicProto",
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.PublicProto"),
+                    MangledName = "$s10TestModule11PublicProtoP",
+                    IsModuleInternal = false,
+                    HasSelfRequirement = false,
+                    IsClassBound = false,
+                    Properties = new List<PropertyDecl>
+                    {
+                        CreateProtocolProperty("value", "Swift.Int", module)
+                    },
+                    Methods = new List<MethodDecl>(),
+                    Types = new List<TypeDecl>(),
+                    Operators = new List<OperatorDecl>(),
+                    Subscripts = new List<SubscriptDecl>(),
+                    AssociatedTypes = new List<AssociatedTypeDecl>(),
+                    InheritedProtocols = new List<NamedTypeSpec>(),
+                    ParentDecl = module,
+                    ModuleDecl = module
+                };
+
+                // Internal/@_spi protocol — should be excluded
+                var internalProtocol = new ProtocolDecl
+                {
+                    Name = "InternalProto",
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.InternalProto"),
+                    MangledName = "$s10TestModule13InternalProtoP",
+                    IsModuleInternal = true,
+                    HasSelfRequirement = false,
+                    IsClassBound = false,
+                    Properties = new List<PropertyDecl>
+                    {
+                        CreateProtocolProperty("secret", "Swift.Int", module)
+                    },
+                    Methods = new List<MethodDecl>(),
+                    Types = new List<TypeDecl>(),
+                    Operators = new List<OperatorDecl>(),
+                    Subscripts = new List<SubscriptDecl>(),
+                    AssociatedTypes = new List<AssociatedTypeDecl>(),
+                    InheritedProtocols = new List<NamedTypeSpec>(),
+                    ParentDecl = module,
+                    ModuleDecl = module
+                };
+
+                module.Protocols.Add(publicProtocol);
+                module.Protocols.Add(internalProtocol);
+            });
+
+        // Public protocol should be conformable
+        Assert.Contains("TestModule.PublicProto", swiftOutput);
+        // Internal protocol should NOT be in the EveryProtocol conformance
+        Assert.DoesNotContain("TestModule.InternalProto", swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_ProtocolWithInternalTypeInMethodSignature_ExcludedFromEveryProtocol()
+    {
+        // Issue Q continued: Even if a protocol is public, if its method signatures
+        // reference types from the current module that are not in the type database
+        // (i.e., internal types), EveryProtocol can't conform because the wrapper
+        // module can't access those types.
+        var (_, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
+            customizeModule: module =>
+            {
+                // Protocol whose method takes an internal type parameter
+                var protocolWithInternalType = new ProtocolDecl
+                {
+                    Name = "InternalTypedProto",
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.InternalTypedProto"),
+                    MangledName = "$s10TestModule18InternalTypedProtoP",
+                    IsModuleInternal = false, // protocol itself is public
+                    HasSelfRequirement = false,
+                    IsClassBound = false,
+                    Properties = new List<PropertyDecl>(),
+                    Methods = new List<MethodDecl>
+                    {
+                        new()
+                        {
+                            Name = "process",
+                            MangledName = "$s10TestModule18InternalTypedProtoP7processyyAA0E7ContextVF",
+                            MethodType = MethodType.Instance,
+                            IsConstructor = false,
+                            CSSignature = new List<ArgumentDecl>
+                            {
+                                new()
+                                {
+                                    SwiftTypeSpec = new TupleTypeSpec(new List<TypeSpec>()),
+                                    Name = string.Empty,
+                                    PrivateName = string.Empty,
+                                    IsInOut = false,
+                                    IsGeneric = false,
+                                    ParentDecl = null,
+                                    ModuleDecl = module
+                                },
+                                new()
+                                {
+                                    // "TestModule.InternalContext" is NOT in the type database
+                                    SwiftTypeSpec = new NamedTypeSpec("TestModule.InternalContext"),
+                                    Name = "context",
+                                    PrivateName = "context",
+                                    IsInOut = false,
+                                    IsGeneric = false,
+                                    ParentDecl = null,
+                                    ModuleDecl = module
+                                }
+                            },
+                            Throws = false,
+                            IsAsync = false,
+                            GenericParameters = new List<GenericArgumentDecl>(),
+                            Visibility = Visibility.Public,
+                            ParentDecl = null,
+                            ModuleDecl = module
+                        }
+                    },
+                    Types = new List<TypeDecl>(),
+                    Operators = new List<OperatorDecl>(),
+                    Subscripts = new List<SubscriptDecl>(),
+                    AssociatedTypes = new List<AssociatedTypeDecl>(),
+                    InheritedProtocols = new List<NamedTypeSpec>(),
+                    ParentDecl = module,
+                    ModuleDecl = module
+                };
+
+                // Protocol with only public types — should be included
+                var publicProtocol = new ProtocolDecl
+                {
+                    Name = "PublicTypedProto",
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.PublicTypedProto"),
+                    MangledName = "$s10TestModule15PublicTypedProtoP",
+                    IsModuleInternal = false,
+                    HasSelfRequirement = false,
+                    IsClassBound = false,
+                    Properties = new List<PropertyDecl>
+                    {
+                        CreateProtocolProperty("count", "Swift.Int", module)
+                    },
+                    Methods = new List<MethodDecl>(),
+                    Types = new List<TypeDecl>(),
+                    Operators = new List<OperatorDecl>(),
+                    Subscripts = new List<SubscriptDecl>(),
+                    AssociatedTypes = new List<AssociatedTypeDecl>(),
+                    InheritedProtocols = new List<NamedTypeSpec>(),
+                    ParentDecl = module,
+                    ModuleDecl = module
+                };
+
+                module.Protocols.Add(protocolWithInternalType);
+                module.Protocols.Add(publicProtocol);
+            });
+
+        // Protocol with internal type reference should NOT be in EveryProtocol
+        Assert.DoesNotContain("TestModule.InternalTypedProto", swiftOutput);
+        // Protocol with only public/standard types should be included
+        Assert.Contains("TestModule.PublicTypedProto", swiftOutput);
+    }
+
     #endregion
 }

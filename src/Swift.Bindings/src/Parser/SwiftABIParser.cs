@@ -176,6 +176,15 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Returns true if the node has @_spi (SPIAccessControl) attribute.
+        /// </summary>
+        private static bool IsNodeSpiProtected(Node node)
+        {
+            return node.DeclAttributes is not null &&
+                   Array.IndexOf(node.DeclAttributes, "SPIAccessControl") != -1;
+        }
+
+        /// <summary>
         /// Sets actor isolation flags on a type declaration based on swiftinterface data.
         /// </summary>
         private void ApplyActorIsolation(TypeDecl typeDecl)
@@ -721,7 +730,8 @@ namespace BindingsGeneration
                 ModuleDecl = moduleDecl,
                 IsFrozen = hasFrozenAttribute,
                 MetadataAccessor = _demangledTbd.GetMetadataAccessor(swiftTypeName),
-                IsModuleInternal = IsNodeModuleInternal(node)
+                IsModuleInternal = IsNodeModuleInternal(node),
+                IsSpiProtected = IsNodeSpiProtected(node)
             };
             if (!decl.IsModuleInternal)
                 decl.IsModuleInternal = IsInternalFromPublicTypeNames(decl);
@@ -763,7 +773,8 @@ namespace BindingsGeneration
                 IsFrozen = hasFrozenAttribute,
                 MetadataAccessor = _demangledTbd.GetMetadataAccessor(swiftTypeName),
                 RawValueTypeName = node.EnumRawTypeName,
-                IsModuleInternal = IsNodeModuleInternal(node)
+                IsModuleInternal = IsNodeModuleInternal(node),
+                IsSpiProtected = IsNodeSpiProtected(node)
             };
             if (!decl.IsModuleInternal)
                 decl.IsModuleInternal = IsInternalFromPublicTypeNames(decl);
@@ -952,6 +963,7 @@ namespace BindingsGeneration
                 IsActor = isActor,
                 IsFinal = node.DeclAttributes?.Contains("Final") == true,
                 IsModuleInternal = IsNodeModuleInternal(node),
+                IsSpiProtected = IsNodeSpiProtected(node),
                 SuperclassUsr = node.superclassUsr,
                 SuperclassNames = node.superclassNames?.ToList() ?? new List<string>(),
                 InheritsConvenienceInitializers = node.inheritsConvenienceInitializers ?? false,
@@ -1028,7 +1040,8 @@ namespace BindingsGeneration
                 IsClassBound = isClassBound,
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
-                IsModuleInternal = IsNodeModuleInternal(node)
+                IsModuleInternal = IsNodeModuleInternal(node),
+                IsSpiProtected = IsNodeSpiProtected(node)
             };
             if (!decl.IsModuleInternal)
                 decl.IsModuleInternal = IsInternalFromPublicTypeNames(decl);

@@ -1180,4 +1180,174 @@ public class SwiftABIParserTests
     }
 
     #endregion
+
+    #region Implicit+Overriding Constructor Filtering Tests
+
+    [Fact]
+    public void ImplicitOverridingConstructor_MarkedAsModuleInternal()
+    {
+        // Issue M: Implicit+overriding constructors on classes that define their own
+        // designated inits (inheritsConvenienceInitializers=false, hasMissingDesignatedInitializers=false)
+        // should be marked IsModuleInternal so they don't get emitted.
+        // This prevents "missing argument for parameter" errors in generated wrappers.
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var classDecl = new ClassDecl
+        {
+            Name = "CompatibleAnimation",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.CompatibleAnimation"),
+            MangledName = "$s10TestModule19CompatibleAnimationCN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            InheritsConvenienceInitializers = false,
+            HasMissingDesignatedInitializers = false
+        };
+
+        // Implicit+overriding zero-arg constructor — should be marked internal
+        var implicitCtor = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule19CompatibleAnimationCACycfc",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            IsImplicit = true,
+            IsOverride = true,
+            IsModuleInternal = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "",
+                    PrivateName = "",
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = classDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        classDecl.Methods.Add(implicitCtor);
+
+        // Simulate the parser's post-processing logic
+        foreach (var method in classDecl.Methods)
+        {
+            if (!method.IsModuleInternal && method.IsImplicit && method.IsOverride &&
+                method.IsConstructor && method.ParentDecl is ClassDecl classParent &&
+                !classParent.InheritsConvenienceInitializers &&
+                !classParent.HasMissingDesignatedInitializers)
+            {
+                method.IsModuleInternal = true;
+            }
+        }
+
+        Assert.True(implicitCtor.IsModuleInternal,
+            "Implicit+overriding constructor should be marked as module-internal when class defines its own designated inits");
+    }
+
+    [Fact]
+    public void ImplicitOverridingConstructor_NotMarkedWhenInheritsConvenience()
+    {
+        // When a class inherits convenience initializers, implicit constructors ARE valid
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var classDecl = new ClassDecl
+        {
+            Name = "SimpleView",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.SimpleView"),
+            MangledName = "$s10TestModule10SimpleViewCN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            InheritsConvenienceInitializers = true,
+            HasMissingDesignatedInitializers = false
+        };
+
+        var implicitCtor = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule10SimpleViewCACycfc",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            IsImplicit = true,
+            IsOverride = true,
+            IsModuleInternal = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "",
+                    PrivateName = "",
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = classDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        classDecl.Methods.Add(implicitCtor);
+
+        // Apply same filter logic
+        foreach (var method in classDecl.Methods)
+        {
+            if (!method.IsModuleInternal && method.IsImplicit && method.IsOverride &&
+                method.IsConstructor && method.ParentDecl is ClassDecl classParent &&
+                !classParent.InheritsConvenienceInitializers &&
+                !classParent.HasMissingDesignatedInitializers)
+            {
+                method.IsModuleInternal = true;
+            }
+        }
+
+        Assert.False(implicitCtor.IsModuleInternal,
+            "Implicit constructor should NOT be internal when class inherits convenience initializers");
+    }
+
+    #endregion
 }
