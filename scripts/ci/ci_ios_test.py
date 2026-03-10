@@ -29,6 +29,7 @@ Usage:
 import argparse
 import logging
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -150,9 +151,9 @@ def run_tests(
         cmd.append("--skip-regen")
 
     # First attempt: generous timeout (build + test).
-    # Retry: much shorter — app is already built/cached, only needs test time.
+    # Retry: also needs full build time since we clean corrupted artifacts.
     FIRST_ATTEMPT_OVERHEAD = 300  # seconds for wrapper+bridge+app build
-    RETRY_OVERHEAD = 120          # cached build is much faster
+    RETRY_OVERHEAD = 300          # full rebuild needed (artifacts cleaned)
     APP_BUNDLE_ID = "com.swiftbindings.runtimetestsapp"
 
     for attempt in range(1, max_test_retries + 2):
@@ -169,14 +170,26 @@ def run_tests(
                     return 1
                 log.info("%.0fs remaining — enough for retry (need %ds)", remaining, min_retry_time)
 
-            # Terminate any lingering app from previous attempt to avoid launch_failure
-            log.info("Terminating lingering app before retry...")
+            # Clean up after previous attempt to prevent stale state:
+            # 1. Terminate any lingering app to avoid launch_failure
+            # 2. Clean build artifacts to avoid corrupted AOT .o files
+            #    (subprocess kill can interrupt dotnet build mid-compilation)
+            log.info("Cleaning up before retry...")
             try:
                 mgr = SimManager()
                 mgr.terminate_app(device_udid, APP_BUNDLE_ID)
-                time.sleep(2)  # Let simulator settle
             except Exception:
                 pass  # App may not be running — that's fine
+
+            # Clean corrupted build artifacts from killed subprocess
+            app_dir = os.path.join(test_framework_dir, "RuntimeTestsApp")
+            for subdir in ("obj", "bin"):
+                path = os.path.join(app_dir, subdir)
+                if os.path.isdir(path):
+                    log.info("Cleaning %s", path)
+                    shutil.rmtree(path, ignore_errors=True)
+
+            time.sleep(2)  # Let simulator settle
 
             log.info("=== TESTS: Retry attempt %d (previous run timed out) ===", attempt)
             gha_warning(f"Test retry attempt {attempt} after timeout/hang")
