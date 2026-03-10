@@ -1089,10 +1089,11 @@ public class WitnessDispatchEmitter
     /// <c>UnsafeMutablePointer&lt;T&gt;</c> and <c>assumingMemoryBound(to: T.self)</c>.
     /// </summary>
     private static void EmitHeapAllocatedPropertyGetter(SwiftWriter writer, string accessorSymbol, string freeSymbol,
-        string moduleQualifiedName, string propertyName, string swiftTypeName)
+        string moduleQualifiedName, string propertyName, string swiftTypeName, bool isActorIsolated = false)
     {
+        var mainActorAttr = isActorIsolated ? "@MainActor " : "";
         writer.WriteLines($$"""
-            @_silgen_name("{{accessorSymbol}}")
+            {{mainActorAttr}}@_silgen_name("{{accessorSymbol}}")
             public func {{accessorSymbol}}(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
                 let existential = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
                 let result = existential.{{propertyName}}
@@ -1116,11 +1117,13 @@ public class WitnessDispatchEmitter
         var accessorSymbol = GetAccessorSymbol(protocolName, "get", property.Name, 0);
         var freeSymbol = GetFreeSymbol(protocolName, "get", property.Name, 0);
 
+        bool isActorIsolated = property.IsActorIsolated || protocolDecl.IsMainActorIsolated;
+        var mainActorAttr = isActorIsolated ? "@MainActor " : "";
         if (IsStringType(property.SwiftTypeSpec))
         {
             // String getter: convert Swift String to UTF-8 bytes via SBW_Utf8Slice
             writer.WriteLines($$"""
-                @_silgen_name("{{accessorSymbol}}")
+                {{mainActorAttr}}@_silgen_name("{{accessorSymbol}}")
                 public func {{accessorSymbol}}(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
                     let existential = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
                     let result: String = existential.{{property.Name}}
@@ -1151,7 +1154,7 @@ public class WitnessDispatchEmitter
             // Blittable getter: direct pointer allocation
             var csharpReturnType = GetCSharpTypeName(property.SwiftTypeSpec);
             var swiftReturnType = GetSwiftPrimitiveType(csharpReturnType);
-            EmitHeapAllocatedPropertyGetter(writer, accessorSymbol, freeSymbol, moduleQualifiedName, property.Name, swiftReturnType);
+            EmitHeapAllocatedPropertyGetter(writer, accessorSymbol, freeSymbol, moduleQualifiedName, property.Name, swiftReturnType, isActorIsolated);
         }
     }
 
@@ -1159,12 +1162,14 @@ public class WitnessDispatchEmitter
     {
         var protocolName = protocolDecl.Name;
         var accessorSymbol = GetAccessorSymbol(protocolName, "set", property.Name, 0);
+        bool isActorIsolated = property.IsActorIsolated || protocolDecl.IsMainActorIsolated;
+        var mainActorAttr = isActorIsolated ? "@MainActor " : "";
 
         if (IsStringType(property.SwiftTypeSpec))
         {
             // String setter: decode SBW_Utf8Slice → String, then assign via typed pointee
             writer.WriteLines($$"""
-                @_silgen_name("{{accessorSymbol}}")
+                {{mainActorAttr}}@_silgen_name("{{accessorSymbol}}")
                 public func {{accessorSymbol}}(_ containerPtr: UnsafeMutableRawPointer, _ valuePtr: UnsafeRawPointer) {
                     let typedPtr = containerPtr.assumingMemoryBound(to: (any {{moduleQualifiedName}}).self)
                     var existential = typedPtr.pointee
@@ -1191,7 +1196,7 @@ public class WitnessDispatchEmitter
             var swiftType = GetSwiftPrimitiveType(csharpType);
 
             writer.WriteLines($$"""
-                @_silgen_name("{{accessorSymbol}}")
+                {{mainActorAttr}}@_silgen_name("{{accessorSymbol}}")
                 public func {{accessorSymbol}}(_ containerPtr: UnsafeMutableRawPointer, _ valuePtr: UnsafeRawPointer) {
                     let typedPtr = containerPtr.assumingMemoryBound(to: (any {{moduleQualifiedName}}).self)
                     var existential = typedPtr.pointee

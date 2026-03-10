@@ -406,9 +406,31 @@ public static class ConstructorWrapperEmitter
         // are not C-representable in @_cdecl functions. Marshal as UnsafeRawPointer.
         if (IsGenericContainerType(swiftTypeSpec))
         {
+            // When calling _dbw_init_* (omitLabels=true) and the param is a large Optional
+            // that _dbw_init_* also widens to UnsafeRawPointer, pass the pointer through directly
+            // instead of loading the Optional value (which would cause a type mismatch).
+            if (omitLabels && OptionalPointerWrapperEmitter.ShouldWidenParam(arg, env.BoundGenericsHandler))
+            {
+                return ($"_ {label}: UnsafeRawPointer",
+                        null,
+                        $"{label}");
+            }
+
             var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(swiftTypeSpec);
             return ($"_ {label}: UnsafeRawPointer",
                     $"let {label}Val = {label}.load(as: {swiftType}.self)",
+                    $"{argLabel}{label}Val");
+        }
+
+        // String: @_cdecl bridges String ↔ NSString* (ObjC interop) which is incompatible
+        // with the raw SwiftString.Buffer that C# passes via CallConvCdecl.
+        // Accept as two Int words matching the 16-byte buffer layout and reconstruct.
+        // On ARM64, C# passes SwiftString.Buffer (16-byte struct) in two consecutive GP registers,
+        // exactly matching two Int parameters in the @_cdecl signature.
+        if (swiftTypeSpec is NamedTypeSpec strNamed && strNamed.Name == "Swift.String")
+        {
+            return ($"_ _sW0_{label}: Int, _ _sW1_{label}: Int",
+                    $"let {label}Val = unsafeBitCast((_sW0_{label}, _sW1_{label}), to: String.self)",
                     $"{argLabel}{label}Val");
         }
 
@@ -420,6 +442,20 @@ public static class ConstructorWrapperEmitter
                 MarshallingHelpers.IsObjCRooted(typeRecord))
             {
                 var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(swiftTypeSpec);
+
+                // Check for NSString typedef structs (e.g., CALayerContentsGravity, CATransitionType).
+                // These are ObjC-bridged in the type database but are Swift structs wrapping NSString,
+                // not class types. Unmanaged<T> requires T to be a class, so reconstruct via
+                // NSString → String → init(rawValue:) instead.
+                if (swiftTypeSpec is NamedTypeSpec nsTypedef &&
+                    AppleFrameworkRegistry.TryGetNetTypeName(nsTypedef.Name, out var remapped) &&
+                    remapped == "Foundation.NSString")
+                {
+                    return ($"_ {label}: UnsafeMutableRawPointer",
+                            $"let {label}Val = {swiftType}(rawValue: Unmanaged<NSString>.fromOpaque({label}).takeUnretainedValue() as String)",
+                            $"{argLabel}{label}Val");
+                }
+
                 return ($"_ {label}: UnsafeMutableRawPointer",
                         $"let {label}Val = Unmanaged<{swiftType}>.fromOpaque({label}).takeUnretainedValue()",
                         $"{argLabel}{label}Val");
@@ -435,13 +471,16 @@ public static class ConstructorWrapperEmitter
                         $"{argLabel}{label}Val");
             }
 
-            // Simple enums: pass raw value directly
+            // Simple enums: pass raw value directly, reconstruct via unsafeBitCast.
+            // init(rawValue:) may not be publicly accessible for all enums (e.g., nested
+            // enums like ImageProcessingOptions.Unit), so unsafeBitCast is used instead.
+            // This is safe because simple enums have the same memory layout as their raw value type.
             if (typeRecord.Kind == TypeRecordKind.Enum && typeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
             {
                 var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(swiftTypeSpec);
                 var rawType = GetSwiftRawValueType(typeRecord.RawValueTypeName);
                 return ($"_ {label}: {rawType}",
-                        $"let {label}Val = {swiftType}(rawValue: {label})!",
+                        $"let {label}Val = unsafeBitCast({label}, to: {swiftType}.self)",
                         $"{argLabel}{label}Val");
             }
 

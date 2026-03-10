@@ -1,5 +1,5 @@
 {
-  "git_sha": "ab976c5f",
+  "git_sha": "406bb1c0",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
@@ -341,7 +341,7 @@
       "SVGView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 12455,
+        "lines": 12251,
         "dep_compile": "none"
       },
       "SDWebImage": {

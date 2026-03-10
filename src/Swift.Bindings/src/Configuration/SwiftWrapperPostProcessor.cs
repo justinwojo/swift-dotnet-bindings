@@ -70,8 +70,11 @@ namespace BindingsGeneration
                 }
 
                 // Pattern 2: @_silgen_name / @_cdecl + function blocks with broken patterns
+                // Also match when prefixed with @MainActor (same line or preceding line)
                 if (stripped.StartsWith("@_silgen_name(", StringComparison.Ordinal) ||
-                    stripped.StartsWith("@_cdecl(", StringComparison.Ordinal))
+                    stripped.StartsWith("@_cdecl(", StringComparison.Ordinal) ||
+                    stripped.StartsWith("@MainActor @_silgen_name(", StringComparison.Ordinal) ||
+                    stripped.StartsWith("@MainActor @_cdecl(", StringComparison.Ordinal))
                 {
                     int end = FindBlockEnd(lines, i);
                     var body = ScanBlockBody(lines, i, end);
@@ -82,6 +85,28 @@ namespace BindingsGeneration
                         removedCount++;
                         i = end + 1;
                         continue;
+                    }
+                }
+
+                // Pattern 2b: Standalone @MainActor on its own line, followed by @_cdecl / @_silgen_name
+                // ConstructorWrapperEmitter emits @MainActor and @_cdecl on separate lines.
+                // If the block is broken, strip the @MainActor line along with the function block.
+                if (stripped.TrimEnd() == "@MainActor" && i + 1 < lines.Count)
+                {
+                    var nextStripped = lines[i + 1].TrimStart();
+                    if (nextStripped.StartsWith("@_silgen_name(", StringComparison.Ordinal) ||
+                        nextStripped.StartsWith("@_cdecl(", StringComparison.Ordinal))
+                    {
+                        int end = FindBlockEnd(lines, i + 1);
+                        var body = ScanBlockBody(lines, i + 1, end);
+
+                        if (IsSilgenNameBroken(lines, i + 1, end, body) ||
+                            ReferencesInternalType(body, internalTypeNames))
+                        {
+                            removedCount++;
+                            i = end + 1;
+                            continue;
+                        }
                     }
                 }
 

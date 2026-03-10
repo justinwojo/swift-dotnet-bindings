@@ -735,9 +735,10 @@ public class EveryProtocolEmitter
     private string BuildArgumentPassList(IReadOnlyList<ArgumentDecl> parameters)
     {
         var lines = new List<string>();
-        foreach (var param in parameters)
+        for (int i = 0; i < parameters.Count; i++)
         {
-            var paramName = string.IsNullOrEmpty(param.Name) ? "index" : param.Name;
+            var param = parameters[i];
+            var paramName = string.IsNullOrEmpty(param.Name) || param.Name == "_" ? $"arg{i}" : param.Name;
             lines.Add($"var {paramName}Copy = {paramName}");
         }
         return lines.Count > 0 ? string.Join("\n        ", lines) : "";
@@ -746,9 +747,10 @@ public class EveryProtocolEmitter
     private string BuildArgRefs(IReadOnlyList<ArgumentDecl> parameters)
     {
         var refs = new List<string>();
-        foreach (var param in parameters)
+        for (int i = 0; i < parameters.Count; i++)
         {
-            var paramName = string.IsNullOrEmpty(param.Name) ? "index" : param.Name;
+            var param = parameters[i];
+            var paramName = string.IsNullOrEmpty(param.Name) || param.Name == "_" ? $"arg{i}" : param.Name;
             refs.Add($"&{paramName}Copy");
         }
         return refs.Count > 0 ? ", " + string.Join(", ", refs) : "";
@@ -826,8 +828,8 @@ public class EveryProtocolEmitter
     /// </summary>
     private static string GetSwiftParameterName(ArgumentDecl param, int index)
     {
-        // Use private name if available
-        if (!string.IsNullOrEmpty(param.PrivateName))
+        // Use private name if available (but not _ which is a discard pattern, not a variable)
+        if (!string.IsNullOrEmpty(param.PrivateName) && param.PrivateName != "_")
         {
             return param.PrivateName;
         }

@@ -103,7 +103,7 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void ResolveDeploymentTarget_NoPlist_FallsBackTo15()
+        public void ResolveDeploymentTarget_NoPlist_FallsBackTo16()
         {
             var dir = CreateTempDir();
             try
@@ -112,13 +112,13 @@ namespace BindingsGeneration.Tests
                 File.WriteAllText(dylibPath, "");
 
                 var result = SwiftWrapperCompiler.ResolveDeploymentTarget(dylibPath, NullLogger.Instance);
-                Assert.Equal("15.0", result);
+                Assert.Equal("16.0", result);
             }
             finally { Directory.Delete(dir, true); }
         }
 
         [Fact]
-        public void ResolveDeploymentTarget_PlistMissingKey_FallsBackTo15()
+        public void ResolveDeploymentTarget_PlistMissingKey_FallsBackTo16()
         {
             var dir = CreateTempDir();
             try
@@ -137,7 +137,7 @@ namespace BindingsGeneration.Tests
                 File.WriteAllText(dylibPath, "");
 
                 var result = SwiftWrapperCompiler.ResolveDeploymentTarget(dylibPath, NullLogger.Instance);
-                Assert.Equal("15.0", result);
+                Assert.Equal("16.0", result);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -190,7 +190,7 @@ namespace BindingsGeneration.Tests
 
                 var result = SwiftWrapperCompiler.ResolveDeploymentTarget(
                     dylibPath, NullLogger.Instance, runner);
-                Assert.Equal("15.0", result);
+                Assert.Equal("16.0", result);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -913,6 +913,50 @@ namespace BindingsGeneration.Tests
         {
             Assert.Equal(WrapperCompilationOutcome.Success,
                 SwiftWrapperCompiler.EffectiveOutcome(WrapperCompilationOutcome.Success, sdkMode: false));
+        }
+    }
+
+    #endregion
+
+    #region I. Deployment Target Tests
+
+    public class DeploymentTargetTests
+    {
+        [Fact]
+        public void EnforceMinimumDeploymentTarget_LowerVersion_RaisesToMinimum()
+        {
+            // Issue P: source framework at 13.0 should be raised to 16.0
+            var result = SwiftWrapperCompiler.EnforceMinimumDeploymentTarget("13.0", "16.0");
+            Assert.Equal("16.0", result);
+        }
+
+        [Fact]
+        public void EnforceMinimumDeploymentTarget_HigherVersion_KeepsOriginal()
+        {
+            // Source at 17.0 stays at 17.0
+            var result = SwiftWrapperCompiler.EnforceMinimumDeploymentTarget("17.0", "16.0");
+            Assert.Equal("17.0", result);
+        }
+
+        [Fact]
+        public void EnforceMinimumDeploymentTarget_EqualVersion_KeepsOriginal()
+        {
+            var result = SwiftWrapperCompiler.EnforceMinimumDeploymentTarget("16.0", "16.0");
+            Assert.Equal("16.0", result);
+        }
+
+        [Fact]
+        public void EnforceMinimumDeploymentTarget_InvalidVersion_KeepsOriginal()
+        {
+            var result = SwiftWrapperCompiler.EnforceMinimumDeploymentTarget("invalid", "16.0");
+            Assert.Equal("invalid", result);
+        }
+
+        [Fact]
+        public void EnforceMinimumDeploymentTarget_15_0_RaisedTo16()
+        {
+            var result = SwiftWrapperCompiler.EnforceMinimumDeploymentTarget("15.0", "16.0");
+            Assert.Equal("16.0", result);
         }
     }
 

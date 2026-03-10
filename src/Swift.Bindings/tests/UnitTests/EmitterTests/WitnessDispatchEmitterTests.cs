@@ -2282,6 +2282,81 @@ public class WitnessDispatchEmitterTests
 
     #endregion
 
+    #region Actor-Isolated Property Wrappers (Issue K)
+
+    [Fact]
+    public void EmitPropertyGetter_MainActorProtocol_EmitsMainActorAttribute()
+    {
+        // When a protocol is @MainActor, its property getters should have @MainActor
+        var protocol = CreateSimpleProtocol("CameraModel");
+        protocol.IsMainActorIsolated = true;
+        protocol.Properties.Add(CreateProperty("isTorchEnabled", new NamedTypeSpec("Swift.Bool")));
+        var output = EmitDispatch(protocol);
+
+        Assert.Contains("@MainActor @_silgen_name(\"SBW_CameraModel_get_isTorchEnabled_0\")", output);
+    }
+
+    [Fact]
+    public void EmitPropertySetter_MainActorProtocol_EmitsMainActorAttribute()
+    {
+        var protocol = CreateSimpleProtocol("CameraModel");
+        protocol.IsMainActorIsolated = true;
+        protocol.Properties.Add(new PropertyDecl
+        {
+            Name = "isTorchEnabled",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Bool"),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("isTorchEnabled_get") },
+                new SetAccessorDecl { Method = CreateMethodDecl("isTorchEnabled_set") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+        var output = EmitDispatch(protocol);
+
+        Assert.Contains("@MainActor @_silgen_name(\"SBW_CameraModel_set_isTorchEnabled_0\")", output);
+    }
+
+    [Fact]
+    public void EmitPropertyGetter_ActorIsolatedProperty_EmitsMainActorAttribute()
+    {
+        // Individual property with IsActorIsolated (protocol not @MainActor)
+        var protocol = CreateSimpleProtocol("SomeProtocol");
+        var prop = CreateProperty("isolatedProp", new NamedTypeSpec("Swift.Int32"));
+        prop.IsActorIsolated = true;
+        protocol.Properties.Add(prop);
+        var output = EmitDispatch(protocol);
+
+        Assert.Contains("@MainActor @_silgen_name(\"SBW_SomeProtocol_get_isolatedProp_0\")", output);
+    }
+
+    [Fact]
+    public void EmitPropertyGetter_NonActorIsolated_NoMainActorAttribute()
+    {
+        // Non-isolated protocol should NOT have @MainActor
+        var protocol = CreateProtocolWithProperty("Regular", "value", new NamedTypeSpec("Swift.Int32"));
+        var output = EmitDispatch(protocol);
+
+        Assert.DoesNotContain("@MainActor", output);
+    }
+
+    [Fact]
+    public void EmitPropertyGetter_MainActorProtocol_StringType_EmitsMainActorAttribute()
+    {
+        // String getter path should also get @MainActor
+        var protocol = CreateSimpleProtocol("CameraModel");
+        protocol.IsMainActorIsolated = true;
+        protocol.Properties.Add(CreateProperty("name", new NamedTypeSpec("Swift.String")));
+        var output = EmitDispatch(protocol);
+
+        Assert.Contains("@MainActor @_silgen_name(\"SBW_CameraModel_get_name_0\")", output);
+    }
+
+    #endregion
+
     #region F4: Optional Existential Return
 
     [Theory]

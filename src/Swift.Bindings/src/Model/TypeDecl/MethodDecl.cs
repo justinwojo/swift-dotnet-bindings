@@ -103,6 +103,13 @@ namespace BindingsGeneration
         public bool IsModuleInternal { get; set; } = false;
 
         /// <summary>
+        /// Whether this method is compiler-synthesized (implicit inherited constructor).
+        /// Parsed from the ABI JSON 'implicit' field. Used to filter out inherited
+        /// constructors that appear in the ABI but are not callable from external code.
+        /// </summary>
+        public bool IsImplicit { get; set; } = false;
+
+        /// <summary>
         /// Whether this method is @MainActor-isolated (individually annotated, not inherited from type).
         /// </summary>
         public bool IsActorIsolated { get; set; } = false;

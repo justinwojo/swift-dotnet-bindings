@@ -433,7 +433,7 @@ namespace BindingsGeneration
         internal static string ResolveDeploymentTarget(
             string dylibPath, ILogger logger, ICommandRunner? commandRunner = null)
         {
-            const string fallback = "15.0";
+            const string fallback = "16.0";
 
             var frameworkDir = Path.GetDirectoryName(dylibPath);
             if (string.IsNullOrEmpty(frameworkDir))
@@ -443,12 +443,30 @@ namespace BindingsGeneration
             var data = PlistReader.ReadPlistDict(infoPlistPath, commandRunner, logger);
             if (data != null && data.TryGetValue("MinimumOSVersion", out var minOS) && minOS is string minOSStr)
             {
-                logger.LogInformation("Resolved deployment target {Version} from source framework.", minOSStr);
-                return minOSStr;
+                // Ensure minimum 16.0 for parameterized protocol syntax (any AsyncSequence<T, E>)
+                // which the generator may emit in wrapper code. Parameterized existentials
+                // require Swift 5.7 runtime support (iOS 16.0+).
+                var resolved = EnforceMinimumDeploymentTarget(minOSStr, "16.0");
+                if (resolved != minOSStr)
+                    logger.LogInformation("Raised deployment target from {Source} to {Resolved} (parameterized protocols require 16.0+).", minOSStr, resolved);
+                else
+                    logger.LogInformation("Resolved deployment target {Version} from source framework.", resolved);
+                return resolved;
             }
 
             logger.LogDebug("Could not read MinimumOSVersion from Info.plist, using default {Version}", fallback);
             return fallback;
+        }
+
+        /// <summary>
+        /// Returns the higher of two version strings (major.minor comparison).
+        /// Used to enforce minimum deployment targets for language features.
+        /// </summary>
+        internal static string EnforceMinimumDeploymentTarget(string sourceVersion, string minimumVersion)
+        {
+            if (Version.TryParse(sourceVersion, out var src) && Version.TryParse(minimumVersion, out var min))
+                return src >= min ? sourceVersion : minimumVersion;
+            return sourceVersion; // Can't parse — keep original
         }
 
         /// <summary>

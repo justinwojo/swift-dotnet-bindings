@@ -758,6 +758,131 @@ public class ConstructorWrapperEmitterTests
 
     #endregion
 
+    #region Optional String Passthrough Tests (Issue J)
+
+    [Fact]
+    public void EmitSwiftWrapper_OptionalStringParam_WithSilgenTarget_PassesPointerThrough()
+    {
+        // When calling a _dbw_init_* function (silgenTarget != null) with an Optional<String> parameter,
+        // the _sbw_init_* wrapper should pass the UnsafeRawPointer through directly instead of
+        // loading Optional<String> (which would cause a type mismatch since _dbw_init_* also widens).
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Settings");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("Settings", moduleDecl);
+
+        // Create Optional<String> type spec
+        var optionalString = new NamedTypeSpec("Swift.Optional");
+        optionalString.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule8SettingsVySSSgcfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                new ArgumentDecl
+                {
+                    Name = "licensee",
+                    PrivateName = "licensee",
+                    SwiftTypeSpec = optionalString,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
+            "TestModule", "Settings", method.MangledName);
+        method.UsesCdeclConstructorWrapper = true;
+        method.MangledName = cdeclSymbol;
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var writer = new SwiftWriter(sw);
+
+        // Pass silgenTarget to simulate calling a _dbw_init_* function (omitLabels=true)
+        ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx, silgenTarget: "_dbw_init_TestSettings");
+
+        var output = sw.ToString();
+        // With silgenTarget (calling _dbw_init_*), Optional params that are widened
+        // should pass the raw pointer through, NOT load Optional<String>
+        Assert.Contains("_ licensee: UnsafeRawPointer", output);
+        // Should NOT contain the load pattern for widened Optional params
+        Assert.DoesNotContain("licensee.load(as: Optional<String>.self)", output);
+    }
+
+    [Fact]
+    public void EmitSwiftWrapper_OptionalStringParam_WithoutSilgenTarget_LoadsValue()
+    {
+        // Without silgenTarget (direct init call), Optional<String> should be loaded normally
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Settings");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("Settings", moduleDecl);
+
+        var optionalString = new NamedTypeSpec("Swift.Optional");
+        optionalString.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule8SettingsVySSSgcfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                new ArgumentDecl
+                {
+                    Name = "licensee",
+                    PrivateName = "licensee",
+                    SwiftTypeSpec = optionalString,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
+            "TestModule", "Settings", method.MangledName);
+        method.UsesCdeclConstructorWrapper = true;
+        method.MangledName = cdeclSymbol;
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var writer = new SwiftWriter(sw);
+
+        // Without silgenTarget: direct init call, should load the Optional value
+        ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
+
+        var output = sw.ToString();
+        Assert.Contains("licensee.load(as: Optional<String>.self)", output);
+    }
+
+    #endregion
+
     #region Frozen/Non-Frozen Struct Parameter Tests
 
     [Fact]
@@ -934,7 +1059,127 @@ public class ConstructorWrapperEmitterTests
         var output = sw.ToString();
         // Should emit "Int32" (the correct Swift type), NOT "Int" (the fallback)
         Assert.Contains("_ priority: Int32", output);
-        Assert.Contains("Priority(rawValue: priority)!", output);
+        Assert.Contains("unsafeBitCast(priority, to: Priority.self)", output);
+    }
+
+    [Fact]
+    public void EmitSwiftWrapper_WithSimpleEnumParam_UsesUnsafeBitCastNotInitRawValue()
+    {
+        // Issue F: init(rawValue:) may not be publicly accessible for all enums
+        // (e.g., nested enums like ImageProcessingOptions.Unit).
+        // The wrapper must use unsafeBitCast instead, which works for all simple enums
+        // since their memory layout is identical to their raw value type.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes(
+            "Border",
+            ("TestModule.Unit", TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum, TypeRecordKind.Enum, "Swift.Int"));
+
+        var parentDecl = CreateStructDecl("Border", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule6BorderVyAcA4UnitOcfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                new ArgumentDecl
+                {
+                    Name = "unit",
+                    PrivateName = "unit",
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.Unit"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
+            "TestModule", "Border", method.MangledName);
+        method.MangledName = cdeclSymbol;
+        method.UsesCdeclConstructorWrapper = true;
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var writer = new SwiftWriter(sw);
+
+        ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
+
+        var output = sw.ToString();
+        // Must use unsafeBitCast, NOT init(rawValue:)!
+        Assert.Contains("unsafeBitCast(unit, to: Unit.self)", output);
+        Assert.DoesNotContain("Unit(rawValue:", output);
+        Assert.Contains("_ unit: Int", output);
+    }
+
+    [Fact]
+    public void EmitSwiftWrapper_WithNSStringTypedefParam_UsesNSStringReconstruction()
+    {
+        // Issue G: NSString typedef structs (e.g., CALayerContentsGravity) are ObjC-bridged
+        // in the type database but are Swift structs, not classes. Unmanaged<T> requires T
+        // to be a class, so the wrapper must reconstruct via NSString → String → init(rawValue:).
+        var (moduleDecl, typeDb) = CreateTestEnvironment("ContentView");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("ContentView", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule11ContentViewVyACSo27CALayerContentsGravityacfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                new ArgumentDecl
+                {
+                    Name = "contentMode",
+                    PrivateName = "contentMode",
+                    // QuartzCore.CALayerContentsGravity is in AppleFrameworkRegistry.TypeNameRemaps
+                    // mapped to Foundation.NSString
+                    SwiftTypeSpec = new NamedTypeSpec("QuartzCore.CALayerContentsGravity"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
+            "TestModule", "ContentView", method.MangledName);
+        method.MangledName = cdeclSymbol;
+        method.UsesCdeclConstructorWrapper = true;
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var writer = new SwiftWriter(sw);
+
+        ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
+
+        var output = sw.ToString();
+        // Must NOT use Unmanaged<CALayerContentsGravity> (it's a struct, not a class)
+        Assert.DoesNotContain("Unmanaged<CALayerContentsGravity>", output);
+        // Must reconstruct via NSString → String → init(rawValue:)
+        Assert.Contains("Unmanaged<NSString>", output);
+        Assert.Contains("as String)", output);
+        Assert.Contains("CALayerContentsGravity(rawValue:", output);
     }
 
     #endregion
@@ -1292,6 +1537,127 @@ public class ConstructorWrapperEmitterTests
 
         var output = sw.ToString();
         Assert.Contains("_ proto: UnsafeRawPointer", output);
+    }
+
+    [Fact]
+    public void EmitSwiftWrapper_WithStringParam_UsesTwoIntWords()
+    {
+        // Issue L: @_cdecl bridges String ↔ NSString* which is incompatible with SwiftString.Buffer.
+        // The wrapper must accept two Int words and reconstruct via unsafeBitCast.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("ImageRequest");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("ImageRequest", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule12ImageRequestVyACSScfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                new ArgumentDecl
+                {
+                    Name = "stringLiteral",
+                    PrivateName = "value",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
+            "TestModule", "ImageRequest", method.MangledName);
+        method.MangledName = cdeclSymbol;
+        method.UsesCdeclConstructorWrapper = true;
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var writer = new SwiftWriter(sw);
+
+        ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
+
+        var output = sw.ToString();
+        // Must use two Int words, NOT String type (which @_cdecl bridges to NSString*)
+        Assert.Contains("_ _sW0_value: Int", output);
+        Assert.Contains("_ _sW1_value: Int", output);
+        Assert.DoesNotContain("_ value: String", output);
+        // Must reconstruct via unsafeBitCast
+        Assert.Contains("unsafeBitCast((_sW0_value, _sW1_value), to: String.self)", output);
+        // Must use reconstructed value in call
+        Assert.Contains("stringLiteral: valueVal", output);
+    }
+
+    [Fact]
+    public void EmitSwiftWrapper_WithMultipleStringParams_UsesTwoIntWordsEach()
+    {
+        // Verify multiple String params each get their own two-word mapping
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Pair");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("Pair", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule4PairVyACSS_SStcfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                new ArgumentDecl
+                {
+                    Name = "first",
+                    PrivateName = "first",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                    IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl
+                },
+                new ArgumentDecl
+                {
+                    Name = "second",
+                    PrivateName = "second",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                    IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
+            "TestModule", "Pair", method.MangledName);
+        method.MangledName = cdeclSymbol;
+        method.UsesCdeclConstructorWrapper = true;
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var writer = new SwiftWriter(sw);
+
+        ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
+
+        var output = sw.ToString();
+        Assert.Contains("_sW0_first: Int", output);
+        Assert.Contains("_sW1_first: Int", output);
+        Assert.Contains("_sW0_second: Int", output);
+        Assert.Contains("_sW1_second: Int", output);
+        Assert.Contains("unsafeBitCast((_sW0_first, _sW1_first), to: String.self)", output);
+        Assert.Contains("unsafeBitCast((_sW0_second, _sW1_second), to: String.self)", output);
     }
 
     #endregion

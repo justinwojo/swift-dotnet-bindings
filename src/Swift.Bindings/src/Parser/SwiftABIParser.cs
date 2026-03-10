@@ -60,6 +60,7 @@ namespace BindingsGeneration
         public required string? paramValueOwnership { get; set; }
         public required bool? hasDefaultArg { get; set; }
         public bool? overriding { get; set; }
+        public bool? @implicit { get; set; }
         public string? funcSelfKind { get; set; }
         public string? usr { get; set; }
         public string? superclassUsr { get; set; }
@@ -1094,6 +1095,7 @@ namespace BindingsGeneration
                 IsMutating = node.funcSelfKind == "Mutating",
                 IsFinal = node.DeclAttributes?.Contains("Final") == true,
                 IsOverride = node.overriding == true || node.DeclAttributes?.Contains("Override") == true,
+                IsImplicit = node.@implicit == true,
                 IsModuleInternal = IsNodeModuleInternal(node) ||
                     IsInternalFromSwiftInterface(parentDecl.Name, node.PrintedName),
             };
@@ -1101,6 +1103,20 @@ namespace BindingsGeneration
             // Suppress unconditionally unavailable methods
             if (!methodDecl.IsModuleInternal && parentDecl is TypeDecl parentTypeForUnavail &&
                 IsUnavailableFromSwiftInterface(parentTypeForUnavail, node.PrintedName))
+            {
+                methodDecl.IsModuleInternal = true;
+            }
+
+            // Suppress implicit inherited constructors that are not callable from external code.
+            // Swift's initialization safety rules: when a class defines its own designated inits
+            // (inheritsConvenienceInitializers=false) and all designated inits are visible
+            // (hasMissingDesignatedInitializers=false), implicit inherited constructors from
+            // the superclass are NOT available. Emitting wrappers for them causes compilation errors
+            // like "missing argument for parameter 'name'" because the implicit init doesn't exist.
+            if (!methodDecl.IsModuleInternal && methodDecl.IsImplicit && methodDecl.IsOverride &&
+                methodDecl.IsConstructor && parentDecl is ClassDecl classParentForImplicit &&
+                !classParentForImplicit.InheritsConvenienceInitializers &&
+                !classParentForImplicit.HasMissingDesignatedInitializers)
             {
                 methodDecl.IsModuleInternal = true;
             }

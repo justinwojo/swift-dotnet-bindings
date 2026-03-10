@@ -913,4 +913,157 @@ namespace BindingsGeneration.Tests
     }
 
     #endregion
+
+    #region @MainActor Attribute Prefix Tests (Issue K)
+
+    public class PostProcessorMainActorTests
+    {
+        [Fact]
+        public void Process_MainActorSilgenNameWithBrokenBody_StripsEntireBlock()
+        {
+            // @MainActor @_silgen_name(...) should be detected and stripped like @_silgen_name(...)
+            var input = """
+                @MainActor @_silgen_name("SBW_Proto_get_prop_0")
+                public func SBW_Proto_get_prop_0(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
+                    let existential = containerPtr.load(as: (any TestModule.Proto).self)
+                    let result = existential.prop
+                    let ptr = UnsafeMutablePointer<Bool>.allocate(capacity: 1)
+                    ptr.initialize(to: result)
+                    return UnsafeMutableRawPointer(ptr)
+                }
+                @_silgen_name("SBW_Proto_free_get_prop_0")
+                public func SBW_Proto_free_get_prop_0(_ ptr: UnsafeMutableRawPointer) {
+                    ptr.assumingMemoryBound(to: Bool.self).deinitialize(count: 1)
+                    ptr.deallocate()
+                }
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input);
+
+            // The getter has "let existential" + ".load(as: (any " + "existential." → should be stripped
+            // But the free function should remain
+            Assert.Contains("SBW_Proto_free_get_prop_0", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_MainActorSilgenName_NoOrphanedAttributes()
+        {
+            // When a @MainActor @_silgen_name getter is stripped, the attribute line
+            // must also be removed — no orphaned @MainActor @_silgen_name lines.
+            var input = """
+                @MainActor @_silgen_name("SBW_Proto_get_prop_0")
+                public func SBW_Proto_get_prop_0(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
+                    let existential = containerPtr.load(as: (any TestModule.Proto).self)
+                    let result = existential.prop
+                    let ptr = UnsafeMutablePointer<Bool>.allocate(capacity: 1)
+                    ptr.initialize(to: result)
+                    return UnsafeMutableRawPointer(ptr)
+                }
+                @_silgen_name("SBW_Proto_free_get_prop_0")
+                public func SBW_Proto_free_get_prop_0(_ ptr: UnsafeMutableRawPointer) {
+                    ptr.assumingMemoryBound(to: Bool.self).deinitialize(count: 1)
+                    ptr.deallocate()
+                }
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input);
+
+            // The @MainActor @_silgen_name line for the getter must not remain orphaned
+            Assert.DoesNotContain("SBW_Proto_get_prop_0", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_MainActorCdeclWithBrokenBody_StripsEntireBlock()
+        {
+            var input = """
+                @MainActor @_cdecl("SBW_broken_func")
+                public func SBW_broken_func(_ ptr: UnsafeMutableRawPointer) {
+                    let proxy = EveryProtocol()
+                    proxy.execute()
+                }
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input);
+
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.DoesNotContain("SBW_broken_func", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_MainActorSilgenName_CleanBody_Preserved()
+        {
+            // @MainActor @_silgen_name with a clean body should NOT be stripped
+            var input = """
+                @MainActor @_silgen_name("SBW_setter")
+                public func SBW_setter(_ containerPtr: UnsafeMutableRawPointer, _ valuePtr: UnsafeRawPointer) {
+                    let typedPtr = containerPtr.assumingMemoryBound(to: (any TestModule.Proto).self)
+                    var existential = typedPtr.pointee
+                    existential.value = valuePtr.load(as: Bool.self)
+                    typedPtr.pointee = existential
+                }
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input);
+
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("SBW_setter", result.CleanedContent);
+        }
+        [Fact]
+        public void Process_StandaloneMainActorLine_BeforeBrokenCdecl_StripsEntireBlock()
+        {
+            // ConstructorWrapperEmitter emits @MainActor on its own line, then @_cdecl on the next.
+            // If the block is broken, both lines must be stripped — no orphaned @MainActor.
+            var input = """
+                @MainActor
+                @_cdecl("SBW_init_broken")
+                public func _sbw_init_broken(_ resultPtr: UnsafeMutableRawPointer) {
+                    let proxy = EveryProtocol()
+                    proxy.execute()
+                }
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input);
+
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.DoesNotContain("SBW_init_broken", result.CleanedContent);
+            Assert.DoesNotContain("@MainActor", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_StandaloneMainActorLine_BeforeCleanCdecl_Preserved()
+        {
+            // Clean @MainActor + @_cdecl should be preserved.
+            var input = """
+                @MainActor
+                @_cdecl("SBW_init_good")
+                public func _sbw_init_good(_ resultPtr: UnsafeMutableRawPointer) {
+                    let result = TestModule.SomeType()
+                    resultPtr.initializeMemory(as: TestModule.SomeType.self, repeating: result, count: 1)
+                }
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input);
+
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("SBW_init_good", result.CleanedContent);
+            Assert.Contains("@MainActor", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_StandaloneMainActorLine_BeforeBrokenSilgenName_StripsEntireBlock()
+        {
+            var input = """
+                @MainActor
+                @_silgen_name("SBW_broken_getter")
+                public func SBW_broken_getter(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
+                    let existential = containerPtr.load(as: (any TestModule.Proto).self)
+                    let result = existential.prop
+                    let ptr = UnsafeMutablePointer<Bool>.allocate(capacity: 1)
+                    ptr.initialize(to: result)
+                    return UnsafeMutableRawPointer(ptr)
+                }
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input);
+
+            Assert.DoesNotContain("@MainActor", result.CleanedContent);
+            Assert.DoesNotContain("SBW_broken_getter", result.CleanedContent);
+            Assert.True(result.StrippedBlockCount >= 1);
+        }
+    }
+
+    #endregion
 }

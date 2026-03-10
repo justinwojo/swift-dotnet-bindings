@@ -98,16 +98,23 @@ public static class AsyncStreamEmitter
         var isStatic = propertyDecl.IsStatic;
         var selfParam = isStatic ? "" : "_ self: " + parentTypeName + ", ";
         var selfAccess = isStatic ? parentTypeName : "self";
+        // Check both property-level and parent type-level actor isolation
+        bool isMainActorIsolated = propertyDecl.IsActorIsolated
+            || (propertyDecl.ParentDecl as TypeDecl)?.IsMainActorIsolated == true;
+        bool isOnCustomActor = (propertyDecl.ParentDecl as ClassDecl)?.IsActor == true && !isMainActorIsolated;
+        var mainActorAttr = isMainActorIsolated ? "@MainActor " : "";
+        // Custom actor properties need `await` to access from within a Task
+        var awaitPrefix = isOnCustomActor ? "await " : "";
 
         swiftWriter.WriteLines($$"""
-            @_silgen_name("{{swiftWrapperName}}")
+            {{mainActorAttr}}@_silgen_name("{{swiftWrapperName}}")
             public func {{swiftWrapperName}}(
                 {{selfParam}}elementCallback: @escaping @convention(c) (UnsafeRawPointer, Int64) -> Bool,
                 completionCallback: @escaping @convention(c) (Int64) -> Void,
                 context: Int64
             ) {
                 Task {
-                    for await element in {{selfAccess}}.{{NameProvider.EscapeSwiftKeyword(propertyDecl.Name)}} {
+                    for await element in {{awaitPrefix}}{{selfAccess}}.{{NameProvider.EscapeSwiftKeyword(propertyDecl.Name)}} {
                         let shouldContinue = withUnsafePointer(to: element) { ptr in
                             elementCallback(UnsafeRawPointer(ptr), context)
                         }

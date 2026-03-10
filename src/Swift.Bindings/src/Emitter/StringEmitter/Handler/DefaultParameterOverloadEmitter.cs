@@ -349,8 +349,13 @@ public static class DefaultParameterOverloadEmitter
                 var n => $"{n}: "
             };
 
+            // @autoclosure params are received as regular closures in the wrapper,
+            // but the original method expects a bare expression. Invoke with () so
+            // Swift can re-wrap the result in @autoclosure at the call site.
+            var autoclosureSuffix = arg.SwiftTypeSpec is ClosureTypeSpec cls && cls.IsAutoClosure ? "()" : "";
+
             // Call args use native param names — @_silgen_name preserves original ABI
-            callArgs.Add(argStr + valueRef);
+            callArgs.Add(argStr + valueRef + autoclosureSuffix);
         }
         var callArgString = string.Join(", ", callArgs);
 

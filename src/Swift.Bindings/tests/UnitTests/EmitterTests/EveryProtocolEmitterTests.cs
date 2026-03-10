@@ -599,6 +599,87 @@ public class EveryProtocolEmitterTests
 
     #endregion
 
+    #region Underscore Parameter Name Tests (Issue I)
+
+    [Fact]
+    public void EmitProtocolExtension_UnderscorePrivateName_DoesNotReferenceUnderscore()
+    {
+        // When a protocol method has _ as the internal parameter name (PrivateName),
+        // the emitter should NOT generate "var _Copy = _" (which is illegal in Swift).
+        // Instead, it should fall back to using the public Name as the internal name.
+        var protocol = CreateSimpleProtocol("ImageProvider");
+        var method = CreateMethodDecl("contentsGravity", MethodType.Instance, false, false);
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "for",
+            PrivateName = "_",
+            SwiftTypeSpec = new NamedTypeSpec("TestModule.ImageAsset"),
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+        protocol.Methods.Add(method);
+
+        var output = EmitProtocolExtension(protocol);
+
+        // Should NOT contain "var _Copy = _" (the broken pattern)
+        Assert.DoesNotContain("var _Copy = _", output);
+        // Should NOT try to use _ as a value
+        Assert.DoesNotContain("= _\n", output);
+    }
+
+    [Fact]
+    public void EmitProtocolExtension_BothNamesUnderscore_UsesSyntheticName()
+    {
+        // When both Name and PrivateName are _, use synthetic arg0
+        var protocol = CreateSimpleProtocol("ImageProvider");
+        var method = CreateMethodDecl("contentsGravity", MethodType.Instance, false, false);
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "_",
+            PrivateName = "_",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+        protocol.Methods.Add(method);
+
+        var output = EmitProtocolExtension(protocol);
+
+        // Should use synthetic name, not _
+        Assert.DoesNotContain("var _Copy", output);
+        // Index starts at 1 (skipping return type at index 0)
+        Assert.Contains("arg1", output);
+    }
+
+    [Fact]
+    public void EmitProtocolExtension_NormalParamName_PreservesName()
+    {
+        // Normal parameter names should still work as before
+        var protocol = CreateSimpleProtocol("ImageProvider");
+        var method = CreateMethodDecl("contentsGravity", MethodType.Instance, false, false);
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "for",
+            PrivateName = "asset",
+            SwiftTypeSpec = new NamedTypeSpec("TestModule.ImageAsset"),
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+        protocol.Methods.Add(method);
+
+        var output = EmitProtocolExtension(protocol);
+
+        Assert.Contains("asset", output);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private string EmitEveryProtocolClass()
