@@ -261,6 +261,26 @@
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 4a: Validate wrapper compilation result                          -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <Target Name="_ValidateSwiftWrapperCompilation"
+          AfterTargets="_ImportSwiftBindingMetadata"
+          Condition="'$(_SwiftBindingWrapperModuleName)' != '' AND '$(SwiftFrameworkType)' != 'ObjC'">
+
+    <!-- Wrapper was expected but compilation failed: promote to error when SwiftWrapperRequired=true -->
+    <Error Condition="$([System.String]::Equals('$(SwiftWrapperRequired)', 'true', StringComparison.OrdinalIgnoreCase))
+                      AND '$(_SwiftBindingHasWrapperXCFramework)' != 'True'"
+           Code="SWIFTBIND051"
+           Text="Swift wrapper compilation failed for '$(_SwiftBindingWrapperModuleName)'. Constructor, destroy, and async wrappers will not be available — APIs that depend on them will throw DllNotFoundException at runtime. Check build output for SWIFTBIND050 details. To suppress this error, set &lt;SwiftWrapperRequired&gt;false&lt;/SwiftWrapperRequired&gt; in your project file." />
+
+    <!-- When SwiftWrapperRequired=false, still warn so the failure is visible -->
+    <Warning Condition="!$([System.String]::Equals('$(SwiftWrapperRequired)', 'true', StringComparison.OrdinalIgnoreCase))
+                        AND '$(_SwiftBindingHasWrapperXCFramework)' != 'True'"
+             Code="SWIFTBIND051"
+             Text="Swift wrapper compilation failed for '$(_SwiftBindingWrapperModuleName)'. Constructor, destroy, and async wrappers will not be available — APIs that depend on them will throw DllNotFoundException at runtime. Set &lt;SwiftWrapperRequired&gt;true&lt;/SwiftWrapperRequired&gt; to promote this to a build error." />
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <!-- Target 4b: Auto-resolve cross-module dependencies via ProjectReference -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_ResolveSwiftAutoDetectedDependencies"

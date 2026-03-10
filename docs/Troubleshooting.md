@@ -44,6 +44,7 @@ These errors come from the SDK's build targets and have clear remediation steps.
 | `SWIFTBIND031` | Wrapper xcframework missing device or simulator slice | Rebuild with `SwiftWrapperArchitectures=all` to compile both slices |
 | `SWIFTBIND040` | `SwiftFrameworkDependency` missing metadata | Add `PackageId` and `PackageVersion` metadata to each `<SwiftFrameworkDependency>` item for correct NuGet dependency propagation |
 | `SWIFTBIND050` | Swift wrapper compilation failed | Check for missing dependency frameworks (use `--framework-dependency` or `<SwiftFrameworkDependency>`). C# bindings remain valid — wrapper-dependent methods will throw `DllNotFoundException` at runtime. |
+| `SWIFTBIND051` | Wrapper compilation required but failed | The wrapper xcframework failed to compile and `SwiftWrapperRequired` is `true` (default). Constructor, destroy, and async wrappers will be unavailable at runtime. Fix the wrapper compilation error (see SWIFTBIND050), or set `<SwiftWrapperRequired>false</SwiftWrapperRequired>` to downgrade to a warning. |
 | `SWIFTBIND060` | Dependency detected but xcframework not found | Use `--framework-dependency` (CLI) or `<SwiftFrameworkDependency>` (SDK) to provide the dependency xcframework. |
 | `SWIFTBIND070` | Module database not found | Check path in `--module-database` or `ModuleDatabasePath` metadata. |
 | `SWIFTBIND071` | Module database targets current module | Don't pass the current module's own database as a dependency. |

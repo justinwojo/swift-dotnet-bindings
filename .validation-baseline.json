@@ -1,17 +1,17 @@
 {
-  "git_sha": "4228248c",
+  "git_sha": "ab976c5f",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 53907,
+        "lines": 53909,
         "dep_compile": "none"
       },
       "BlinkID": {
         "compile": "ok",
         "errors": 0,
-        "lines": 47017,
+        "lines": 47013,
         "dep_compile": "none"
       },
       "BlinkIDUX": {
@@ -29,13 +29,13 @@
       "CryptoSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 24590,
+        "lines": 24588,
         "dep_compile": "none"
       },
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 91879,
+        "lines": 91870,
         "dep_compile": "none"
       },
       "KeychainAccess": {
@@ -47,25 +47,25 @@
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 55417,
+        "lines": 55412,
         "dep_compile": "none"
       },
       "Lottie": {
         "compile": "ok",
         "errors": 0,
-        "lines": 31961,
+        "lines": 31957,
         "dep_compile": "none"
       },
       "Mappedin": {
         "compile": "ok",
         "errors": 0,
-        "lines": 48607,
+        "lines": 48528,
         "dep_compile": "none"
       },
       "MicroblinkPlatform": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4567,
+        "lines": 4566,
         "dep_compile": "none"
       },
       "Mixpanel": {
@@ -77,25 +77,25 @@
       "Nuke": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21838,
+        "lines": 21839,
         "dep_compile": "none"
       },
       "Nuke@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21838,
+        "lines": 21839,
         "dep_compile": "none"
       },
       "Nuke@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21838,
+        "lines": 21839,
         "dep_compile": "none"
       },
       "RxSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 18822,
+        "lines": 18827,
         "dep_compile": "none"
       },
       "SkeletonView": {
@@ -119,7 +119,7 @@
       "Starscream": {
         "compile": "ok",
         "errors": 0,
-        "lines": 15722,
+        "lines": 15724,
         "dep_compile": "none"
       },
       "Stripe": {
@@ -149,25 +149,25 @@
       "StripeConnect": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 12349,
+        "lines": 12348,
         "dep_compile": "ok"
       },
       "StripeCore": {
         "compile": "ok",
         "errors": 0,
-        "lines": 33930,
+        "lines": 33895,
         "dep_compile": "none"
       },
       "StripeCryptoOnramp": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 6130,
+        "lines": 6123,
         "dep_compile": "ok"
       },
       "StripeFinancialConnections": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 2827,
+        "lines": 2826,
         "dep_compile": "ok"
       },
       "StripeIdentity": {
@@ -179,19 +179,19 @@
       "StripeIssuing": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 1833,
+        "lines": 1835,
         "dep_compile": "ok"
       },
       "StripePayments": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 75994,
+        "lines": 75992,
         "dep_compile": "ok"
       },
       "StripePaymentSheet": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 50709,
+        "lines": 50684,
         "dep_compile": "ok"
       },
       "StripePaymentsUI": {
@@ -203,7 +203,7 @@
       "StripeUICore": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 32368,
+        "lines": 32345,
         "dep_compile": "ok"
       },
       "Realm": {
@@ -239,13 +239,13 @@
       "Valet": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4580,
+        "lines": 4578,
         "dep_compile": "none"
       },
       "SwiftyBeaver": {
         "compile": "ok",
         "errors": 0,
-        "lines": 9101,
+        "lines": 9100,
         "dep_compile": "none"
       },
       "Reachability": {
@@ -329,7 +329,7 @@
       "XMLCoder": {
         "compile": "fail",
         "errors": 2,
-        "lines": 22124,
+        "lines": 22120,
         "dep_compile": "none"
       },
       "AnimatedCollectionViewLayout": {

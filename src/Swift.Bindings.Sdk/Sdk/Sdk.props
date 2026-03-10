@@ -53,6 +53,8 @@
     <SwiftWrapperArchitectures Condition="'$(SwiftWrapperArchitectures)' == ''">all</SwiftWrapperArchitectures>
     <!-- Property-driven version floor — users can override to use newer runtime -->
     <SwiftRuntimeVersion Condition="'$(SwiftRuntimeVersion)' == ''">0.0.0-dev</SwiftRuntimeVersion>
+    <!-- Require wrapper compilation to succeed (set to false for libraries with known internal type issues) -->
+    <SwiftWrapperRequired Condition="'$(SwiftWrapperRequired)' == ''">true</SwiftWrapperRequired>
     <!-- Auto-extract symbol graph for doc comments (set to false to disable) -->
     <SwiftGenerateDocComments Condition="'$(SwiftGenerateDocComments)' == ''">true</SwiftGenerateDocComments>
     <!-- Auto-detect framework dependencies from binary linkage (set to false to disable) -->

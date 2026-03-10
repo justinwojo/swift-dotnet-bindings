@@ -39,15 +39,25 @@ public static class ConstructorWrapperEmitter
         if (env.MethodDecl.CSSignature.Skip(1).Any(env.ClosureHandler.IsClosure))
             return false;
 
+        // Skip constructors with protocol existential parameters — ABI/semantic mismatch.
+        // Covers two forms:
+        // 1. ProtocolListTypeSpec / IsAny: C# emits ExistentialContainer by value, @_cdecl needs UnsafeRawPointer
+        // 2. NamedTypeSpec resolving to Protocol/Existential TypeRecord: C# emits SafeHandle (opaque
+        //    allocation pointer), but @_cdecl does .load(as: Protocol.self) expecting existential data
+        // Optional-wrapped existentials use IntPtr buffer and are safe.
+        if (HasProtocolExistentialParameter(env))
+            return false;
+
         // Skip async constructors (async uses its own wrapper pattern)
         if (env.MethodDecl.IsAsync)
             return false;
 
         // Skip non-copyable (~Copyable) struct types — defense-in-depth guard.
-        // Non-copyable types explicitly list Escapable in their conformances
-        // (normal types have both Copyable and Escapable implicitly, unlisted).
+        // In Swift 6.2+, ALL types explicitly list both Copyable and Escapable in ABI JSON.
+        // Non-copyable types list Escapable WITHOUT Copyable.
         if (env.ParentDecl is StructDecl structDecl &&
-            structDecl.Conformances.Any(c => c.Protocol.ToString() == "Swift.Escapable"))
+            structDecl.Conformances.Any(c => c.Protocol.ToString() == "Swift.Escapable") &&
+            !structDecl.Conformances.Any(c => c.Protocol.ToString() == "Swift.Copyable"))
             return false;
 
         // Skip constructors with non-copyable (~Copyable) struct parameters.
@@ -58,6 +68,30 @@ public static class ConstructorWrapperEmitter
             return false;
 
         return true;
+    }
+
+    /// <summary>
+    /// Checks whether any constructor parameter is a protocol existential type.
+    /// Covers two forms that produce ABI/semantic mismatches with the C# P/Invoke:
+    /// 1. ProtocolListTypeSpec or NamedTypeSpec.IsAny — PInvokeEmitter emits ExistentialContainer by value
+    /// 2. NamedTypeSpec resolving to Protocol/Existential TypeRecord — PInvokeEmitter emits SafeHandle
+    /// Both mismatch the @_cdecl wrapper's UnsafeRawPointer expectation.
+    /// </summary>
+    private static bool HasProtocolExistentialParameter(MethodEnvironment env)
+    {
+        foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
+        {
+            // Form 1: ProtocolListTypeSpec or IsAny (caught by ExistentialHandler)
+            if (env.ExistentialHandler.IsExistential(arg.SwiftTypeSpec))
+                return true;
+
+            // Form 2: NamedTypeSpec resolving to Protocol/Existential TypeRecord
+            if (arg.SwiftTypeSpec is NamedTypeSpec namedSpec &&
+                env.TypeDatabase.TryGetTypeRecord(namedSpec, out var typeRecord) &&
+                (typeRecord.Kind == TypeRecordKind.Protocol || typeRecord.Kind == TypeRecordKind.Existential))
+                return true;
+        }
+        return false;
     }
 
     /// <summary>
@@ -82,7 +116,10 @@ public static class ConstructorWrapperEmitter
                 var paramStructDecl = FindStructDecl(moduleTypes, namedSpec.Name);
                 if (paramStructDecl != null)
                 {
-                    if (paramStructDecl.Conformances.Any(c => c.Protocol.ToString() == "Swift.Escapable"))
+                    // In Swift 6.2+, ALL types list both Copyable and Escapable.
+                    // Non-copyable types list Escapable WITHOUT Copyable.
+                    if (paramStructDecl.Conformances.Any(c => c.Protocol.ToString() == "Swift.Escapable") &&
+                        !paramStructDecl.Conformances.Any(c => c.Protocol.ToString() == "Swift.Copyable"))
                         return true;
                     continue;
                 }
@@ -195,6 +232,10 @@ public static class ConstructorWrapperEmitter
         var callArgs = new List<string>();
         var keptArgs = methodDecl.CSSignature.Skip(1).ToList();
 
+        // When calling a _dbw_init_* function (silgenTarget != null), all parameters use _ (no external labels).
+        // Only direct init calls need argument labels.
+        bool omitLabels = silgenTarget != null;
+
         for (int i = 0; i < keptArgs.Count; i++)
         {
             var arg = keptArgs[i];
@@ -205,7 +246,7 @@ public static class ConstructorWrapperEmitter
                 continue;
 
             var label = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
-            var (cdeclParam, reconstruction, callArg) = GetCdeclParamMapping(arg, label, env);
+            var (cdeclParam, reconstruction, callArg) = GetCdeclParamMapping(arg, label, env, omitLabels);
             swiftParams.Add(cdeclParam);
             if (reconstruction != null)
                 reconstructionLines.Add(reconstruction);
@@ -319,13 +360,15 @@ public static class ConstructorWrapperEmitter
     /// Maps a constructor parameter to its @_cdecl-compatible Swift type, reconstruction code,
     /// and call argument expression.
     /// </summary>
+    /// <param name="omitLabels">When true, omit argument labels (used when calling _dbw_init_* which uses _ for all params).</param>
     private static (string cdeclParam, string? reconstruction, string callArg) GetCdeclParamMapping(
-        ArgumentDecl arg, string label, MethodEnvironment env)
+        ArgumentDecl arg, string label, MethodEnvironment env, bool omitLabels = false)
     {
         var swiftTypeSpec = arg.SwiftTypeSpec;
 
         // Determine the Swift argument label for the init call
-        var argLabel = arg.Name switch
+        // When calling _dbw_init_* (omitLabels=true), all params use _ (no external label)
+        var argLabel = omitLabels ? "" : arg.Name switch
         {
             var n when n.StartsWith("arg") => "",
             var n when n.StartsWith("_") => $"{n.Substring(1)}: ",
@@ -349,6 +392,26 @@ public static class ConstructorWrapperEmitter
             return ($"_ {label}: {swiftType}", null, $"{argLabel}{label}");
         }
 
+        // Protocol existentials are not C-representable in @_cdecl functions.
+        // Marshal as UnsafeRawPointer and reconstruct inside the wrapper body.
+        if (IsProtocolExistentialType(swiftTypeSpec, env.TypeDatabase))
+        {
+            var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(swiftTypeSpec);
+            return ($"_ {label}: UnsafeRawPointer",
+                    $"let {label}Val: {swiftType} = {label}.load(as: {swiftType}.self)",
+                    $"{argLabel}{label}Val");
+        }
+
+        // Generic container types (Optional<T>, Array<T>, Dictionary<K,V>, etc.)
+        // are not C-representable in @_cdecl functions. Marshal as UnsafeRawPointer.
+        if (IsGenericContainerType(swiftTypeSpec))
+        {
+            var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(swiftTypeSpec);
+            return ($"_ {label}: UnsafeRawPointer",
+                    $"let {label}Val = {label}.load(as: {swiftType}.self)",
+                    $"{argLabel}{label}Val");
+        }
+
         // Classes: receive as UnsafeMutableRawPointer, reconstruct via Unmanaged
         if (env.TypeDatabase.TryGetTypeRecord(swiftTypeSpec, out var typeRecord))
         {
@@ -359,6 +422,16 @@ public static class ConstructorWrapperEmitter
                 var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(swiftTypeSpec);
                 return ($"_ {label}: UnsafeMutableRawPointer",
                         $"let {label}Val = Unmanaged<{swiftType}>.fromOpaque({label}).takeUnretainedValue()",
+                        $"{argLabel}{label}Val");
+            }
+
+            // Protocol/Existential TypeRecords: not C-representable, pass as pointer
+            if (typeRecord.Kind == TypeRecordKind.Protocol ||
+                typeRecord.Kind == TypeRecordKind.Existential)
+            {
+                var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(swiftTypeSpec);
+                return ($"_ {label}: UnsafeRawPointer",
+                        $"let {label}Val: {swiftType} = {label}.load(as: {swiftType}.self)",
                         $"{argLabel}{label}Val");
             }
 
@@ -405,6 +478,52 @@ public static class ConstructorWrapperEmitter
         return ($"_ {label}: UnsafeRawPointer",
                 $"let {label}Val = {label}.load(as: {fallbackSwiftType}.self)",
                 $"{argLabel}{label}Val");
+    }
+
+    /// <summary>
+    /// Checks whether a type spec represents a protocol existential (any Protocol),
+    /// including Optional-wrapped protocol existentials.
+    /// Protocol existentials are not C-representable and must be marshalled as UnsafeRawPointer in @_cdecl functions.
+    /// </summary>
+    private static bool IsProtocolExistentialType(TypeSpec typeSpec, ITypeDatabase typeDatabase)
+    {
+        // Direct protocol list: any Protocol or any P1 & P2
+        if (typeSpec is ProtocolListTypeSpec)
+            return true;
+
+        // Optional<Protocol>: NamedTypeSpec("Swift.Optional") wrapping a ProtocolListTypeSpec
+        if (typeSpec is NamedTypeSpec namedSpec && namedSpec.Name == "Swift.Optional" &&
+            namedSpec.GenericParameters.Count == 1 && namedSpec.GenericParameters[0] is ProtocolListTypeSpec)
+            return true;
+
+        // Single protocol referenced by name: check TypeRecord
+        if (typeSpec is NamedTypeSpec singleNamed &&
+            typeDatabase.TryGetTypeRecord(singleNamed, out var record) &&
+            (record.Kind == TypeRecordKind.Protocol || record.Kind == TypeRecordKind.Existential))
+            return true;
+
+        // Optional<SingleProtocol> referenced by name
+        if (typeSpec is NamedTypeSpec optNamed && optNamed.Name == "Swift.Optional" &&
+            optNamed.GenericParameters.Count == 1 && optNamed.GenericParameters[0] is NamedTypeSpec innerNamed &&
+            typeDatabase.TryGetTypeRecord(innerNamed, out var innerRecord) &&
+            (innerRecord.Kind == TypeRecordKind.Protocol || innerRecord.Kind == TypeRecordKind.Existential))
+            return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// Checks whether a type spec is a generic container type (Optional, Array, Dictionary, Set, Result).
+    /// These Swift generic types are not C-representable in @_cdecl functions and must be
+    /// marshalled as UnsafeRawPointer with .load(as:) reconstruction in the wrapper body.
+    /// </summary>
+    private static bool IsGenericContainerType(TypeSpec typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec named || named.GenericParameters.Count == 0)
+            return false;
+
+        return named.Name is "Swift.Optional" or "Swift.Array" or "Swift.Dictionary"
+            or "Swift.Set" or "Swift.Result";
     }
 
     /// <summary>

@@ -248,9 +248,11 @@ namespace BindingsGeneration
         {
             TypeRecordFlags flags = TypeRecordFlags.None;
 
-            // Non-copyable (~Copyable) types explicitly list Swift.Escapable in conformances.
-            // Normal types have both Copyable and Escapable implicitly (unlisted).
-            if (structDecl.Conformances.Any(c => c.Protocol.ToString() == "Swift.Escapable"))
+            // Non-copyable (~Copyable) types list Escapable WITHOUT Copyable.
+            // In Swift 6.2+, normal types explicitly list BOTH Copyable and Escapable.
+            // In pre-6.2, normal types list neither (both implicit).
+            if (structDecl.Conformances.Any(c => c.Protocol.ToString() == "Swift.Escapable") &&
+                !structDecl.Conformances.Any(c => c.Protocol.ToString() == "Swift.Copyable"))
                 flags |= TypeRecordFlags.NonCopyable;
 
             if (!structDecl.IsFrozen)

@@ -118,6 +118,92 @@ public class ConstructorWrapperEmitterTests
     }
 
     [Fact]
+    public void ShouldEmitWrapper_ProtocolExistentialParameter_ReturnsFalse()
+    {
+        // Direct protocol existential params (any Protocol) cause ABI mismatch:
+        // C# P/Invoke passes ExistentialContainer (multi-field struct) by value,
+        // but @_cdecl wrapper would need UnsafeRawPointer (single pointer).
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Pipeline");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Pipeline", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule8PipelineVyAcA11DataCaching_pcfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                new ArgumentDecl
+                {
+                    Name = "cache",
+                    PrivateName = "cache",
+                    SwiftTypeSpec = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.DataCaching") }),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.False(ConstructorWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_NamedProtocolTypeRecordParameter_ReturnsFalse()
+    {
+        // Named protocol params (NamedTypeSpec resolving to TypeRecordKind.Protocol) cause
+        // semantic mismatch: C# P/Invoke emits SafeHandle (opaque allocation pointer),
+        // but @_cdecl wrapper does .load(as: Protocol.self) expecting existential container data.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("Pipeline",
+            ("TestModule.DataCaching", TypeRecordFlags.None, TypeRecordKind.Protocol));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Pipeline", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule8PipelineVyAcA11DataCachingcfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                new ArgumentDecl
+                {
+                    Name = "cache",
+                    PrivateName = "cache",
+                    // NamedTypeSpec (not ProtocolListTypeSpec) — resolves to Protocol via TypeDatabase
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.DataCaching"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.False(ConstructorWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
     public void ShouldEmitWrapper_ValidConstructor_ReturnsTrue()
     {
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
@@ -146,7 +232,7 @@ public class ConstructorWrapperEmitterTests
     [Fact]
     public void ShouldEmitWrapper_NonCopyableStruct_ReturnsFalse()
     {
-        // ~Copyable types explicitly list Swift.Escapable in their conformances.
+        // ~Copyable types list Escapable WITHOUT Copyable in their conformances.
         // Defense-in-depth guard: skip non-copyable types even though assumingMemoryBound.initialize
         // is ~Copyable-safe, because non-copyable types may have other ABI constraints.
         var (moduleDecl, typeDb) = CreateTestEnvironment("UniqueResource");
@@ -155,6 +241,7 @@ public class ConstructorWrapperEmitterTests
         var parentDecl = CreateStructDecl("UniqueResource", moduleDecl);
         parentDecl.Conformances = new List<TypeConformance>
         {
+            // Only Escapable — no Copyable = ~Copyable type
             new(SwiftTypeName.FromModuleQualifiedName("TestModule.UniqueResource"),
                 SwiftTypeName.FromModuleQualifiedName("Swift.Escapable"),
                 "$s10TestModule14UniqueResourceVACSWAAMc")
@@ -168,12 +255,36 @@ public class ConstructorWrapperEmitterTests
     [Fact]
     public void ShouldEmitWrapper_CopyableStruct_ReturnsTrue()
     {
-        // Normal (Copyable) structs don't list Escapable explicitly — they should get wrappers.
+        // Normal (Copyable) structs don't list Escapable explicitly (pre-Swift 6.2) — should get wrappers.
         var (moduleDecl, typeDb) = CreateTestEnvironment("NormalStruct");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
         var parentDecl = CreateStructDecl("NormalStruct", moduleDecl);
-        // Empty conformances = Copyable (implicit)
+        // Empty conformances = Copyable (implicit, pre-Swift 6.2)
+        var method = CreateMethod("init", isConstructor: true, parentDecl, moduleDecl);
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.True(ConstructorWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_Swift62CopyableStruct_ReturnsTrue()
+    {
+        // In Swift 6.2+, normal Copyable types explicitly list BOTH Copyable and Escapable.
+        // Must still get wrappers — only types with Escapable WITHOUT Copyable are ~Copyable.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("NormalStruct62");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("NormalStruct62", moduleDecl);
+        parentDecl.Conformances = new List<TypeConformance>
+        {
+            new(SwiftTypeName.FromModuleQualifiedName("TestModule.NormalStruct62"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Escapable"),
+                "$s10TestModule14NormalStruct62VACSWAAMc"),
+            new(SwiftTypeName.FromModuleQualifiedName("TestModule.NormalStruct62"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Copyable"),
+                "$s10TestModule14NormalStruct62VACsSYAAMc")
+        };
         var method = CreateMethod("init", isConstructor: true, parentDecl, moduleDecl);
 
         var env = new MethodEnvironment(method, typeDb);
@@ -189,7 +300,7 @@ public class ConstructorWrapperEmitterTests
         var (moduleDecl, typeDb) = CreateTestEnvironment("Container");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
-        // Create the non-copyable struct type (with explicit Escapable conformance)
+        // Create the non-copyable struct type (with explicit Escapable but NO Copyable conformance)
         var nonCopyableDecl = CreateStructDecl("UniqueToken", moduleDecl);
         nonCopyableDecl.Conformances = new List<TypeConformance>
         {
@@ -947,6 +1058,240 @@ public class ConstructorWrapperEmitterTests
         var output = sw.ToString();
         Assert.Contains("_dbw_init_ABCD1234_1", output);
         Assert.Contains("TestModule.MyStruct._dbw_init_ABCD1234_1(", output);
+    }
+
+    [Fact]
+    public void EmitSwiftWrapper_WithSilgenTarget_OmitsArgumentLabels()
+    {
+        // Issue A: _dbw_init_* functions use _ for all params (no external labels).
+        // When silgenTarget is set, argument labels must be omitted.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("ImageCache");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("ImageCache", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s4Nuke10ImageCacheCACSi9costLimit_tcfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                new ArgumentDecl
+                {
+                    Name = "costLimit",
+                    PrivateName = "costLimit",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
+            "TestModule", "ImageCache", method.MangledName);
+        method.MangledName = cdeclSymbol;
+        method.UsesCdeclConstructorWrapper = true;
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var writer = new SwiftWriter(sw);
+
+        // Call with silgenTarget (simulates default-param overload calling _dbw_init_*)
+        ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(
+            writer, env, ctx, silgenTarget: "_dbw_init_ABCD1234_1");
+
+        var output = sw.ToString();
+        // Must NOT contain "costLimit: costLimit" (labeled call to _dbw_init_*)
+        Assert.DoesNotContain("costLimit: costLimit", output);
+        Assert.DoesNotContain("costLimit: costLimitVal", output);
+        // Must call _dbw_init_* with bare args: _dbw_init_ABCD1234_1(costLimit)
+        Assert.Contains("_dbw_init_ABCD1234_1(costLimit)", output);
+    }
+
+    [Fact]
+    public void EmitSwiftWrapper_WithoutSilgenTarget_KeepsArgumentLabels()
+    {
+        // When calling init directly (no silgenTarget), labels must be preserved.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("ImageCache");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("ImageCache", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s4Nuke10ImageCacheCACSi9costLimit_tcfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                new ArgumentDecl
+                {
+                    Name = "costLimit",
+                    PrivateName = "costLimit",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
+            "TestModule", "ImageCache", method.MangledName);
+        method.MangledName = cdeclSymbol;
+        method.UsesCdeclConstructorWrapper = true;
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var writer = new SwiftWriter(sw);
+
+        // Call WITHOUT silgenTarget (direct init call)
+        ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
+
+        var output = sw.ToString();
+        // Must contain labeled argument: costLimit: costLimit
+        Assert.Contains("costLimit: costLimit", output);
+    }
+
+    #endregion
+
+    #region Protocol Existential Parameter Tests
+
+    [Fact]
+    public void EmitSwiftWrapper_WithProtocolExistentialParam_PassesAsPointer()
+    {
+        // Issue B: Protocol existentials (any Protocol) are not C-representable.
+        // Must marshal as UnsafeRawPointer, not as the protocol type directly.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes(
+            "AnimationLayer",
+            ("TestModule.AnimationProvider", TypeRecordFlags.Frozen, TypeRecordKind.Protocol));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("AnimationLayer", moduleDecl);
+
+        // Protocol existential as ProtocolListTypeSpec
+        var protocolTypeSpec = new ProtocolListTypeSpec(
+            new[] { new NamedTypeSpec("TestModule.AnimationProvider") });
+
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule14AnimationLayerCyAcA0C8ProviderpcfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                new ArgumentDecl
+                {
+                    Name = "provider",
+                    PrivateName = "provider",
+                    SwiftTypeSpec = protocolTypeSpec,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
+            "TestModule", "AnimationLayer", method.MangledName);
+        method.MangledName = cdeclSymbol;
+        method.UsesCdeclConstructorWrapper = true;
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var writer = new SwiftWriter(sw);
+
+        ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
+
+        var output = sw.ToString();
+        // Must be UnsafeRawPointer, NOT the protocol type
+        Assert.Contains("_ provider: UnsafeRawPointer", output);
+        Assert.DoesNotContain("_ provider: any", output);
+        Assert.DoesNotContain("_ provider: AnimationProvider", output);
+    }
+
+    [Fact]
+    public void EmitSwiftWrapper_WithProtocolTypeRecordParam_PassesAsPointer()
+    {
+        // Protocol types resolved via TypeRecord must also use UnsafeRawPointer.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes(
+            "Container",
+            ("TestModule.MyProtocol", TypeRecordFlags.Frozen, TypeRecordKind.Protocol));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Container", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule9ContainerCyAcA10MyProtocolpcfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                new ArgumentDecl
+                {
+                    Name = "proto",
+                    PrivateName = "proto",
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.MyProtocol"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
+            "TestModule", "Container", method.MangledName);
+        method.MangledName = cdeclSymbol;
+        method.UsesCdeclConstructorWrapper = true;
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var writer = new SwiftWriter(sw);
+
+        ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
+
+        var output = sw.ToString();
+        Assert.Contains("_ proto: UnsafeRawPointer", output);
     }
 
     #endregion
