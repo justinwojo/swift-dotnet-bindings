@@ -175,6 +175,7 @@ namespace BindingsGeneration
                 string classBound = typeDeclarationNode?.Attributes?["classBound"]?.Value ?? "false";
                 string objcRooted = typeDeclarationNode?.Attributes?["objcRooted"]?.Value ?? "false";
                 string hasMethodSelfTypeParams = typeDeclarationNode?.Attributes?["hasMethodSelfTypeParams"]?.Value ?? "false";
+                string nonCopyable = typeDeclarationNode?.Attributes?["nonCopyable"]?.Value ?? "false";
                 string? rawValueType = typeDeclarationNode?.Attributes?["rawValueType"]?.Value;
                 string? emittedMemberCountStr = typeDeclarationNode?.Attributes?["emittedMemberCount"]?.Value;
                 int? emittedMemberCount = emittedMemberCountStr != null ? int.Parse(emittedMemberCountStr) : null;
@@ -215,7 +216,8 @@ namespace BindingsGeneration
                             (inheritedRequirementsOnly.ToLower() == "true" ? TypeRecordFlags.InheritedRequirementsOnly : TypeRecordFlags.None) |
                             (classBound.ToLower() == "true" ? TypeRecordFlags.ClassBound : TypeRecordFlags.None) |
                             (objcRooted.ToLower() == "true" ? TypeRecordFlags.ObjCRooted : TypeRecordFlags.None) |
-                            (hasMethodSelfTypeParams.ToLower() == "true" ? TypeRecordFlags.HasMethodSelfTypeParams : TypeRecordFlags.None),
+                            (hasMethodSelfTypeParams.ToLower() == "true" ? TypeRecordFlags.HasMethodSelfTypeParams : TypeRecordFlags.None) |
+                            (nonCopyable.ToLower() == "true" ? TypeRecordFlags.NonCopyable : TypeRecordFlags.None),
                     Kind = kindStr.ToLower() switch
                     {
                         "class" => TypeRecordKind.Class,

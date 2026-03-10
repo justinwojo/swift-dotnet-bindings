@@ -43,7 +43,77 @@ public static class ConstructorWrapperEmitter
         if (env.MethodDecl.IsAsync)
             return false;
 
+        // Skip non-copyable (~Copyable) struct types — defense-in-depth guard.
+        // Non-copyable types explicitly list Escapable in their conformances
+        // (normal types have both Copyable and Escapable implicitly, unlisted).
+        if (env.ParentDecl is StructDecl structDecl &&
+            structDecl.Conformances.Any(c => c.Protocol.ToString() == "Swift.Escapable"))
+            return false;
+
+        // Skip constructors with non-copyable (~Copyable) struct parameters.
+        // The @_cdecl wrapper passes frozen structs by value through the C ABI, which
+        // requires copying. Non-copyable types can't be copied, so the wrapper won't compile.
+        // C# passes frozen structs by value too, so there's no pointer fallback available.
+        if (HasNonCopyableStructParameter(env))
+            return false;
+
         return true;
+    }
+
+    /// <summary>
+    /// Checks whether any constructor parameter is a non-copyable (~Copyable) frozen struct.
+    /// Non-copyable types are detected by an explicit Swift.Escapable conformance in their
+    /// TypeDecl (normal Copyable types have both Copyable and Escapable implicitly, unlisted).
+    /// For cross-module types where the StructDecl isn't available, falls back to the
+    /// NonCopyable flag on the TypeRecord.
+    /// </summary>
+    private static bool HasNonCopyableStructParameter(MethodEnvironment env)
+    {
+        var moduleTypes = env.MethodDecl.ModuleDecl?.Types;
+
+        foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
+        {
+            if (arg.SwiftTypeSpec is not NamedTypeSpec namedSpec)
+                continue;
+
+            // Try same-module StructDecl first (has full conformance info)
+            if (moduleTypes != null)
+            {
+                var paramStructDecl = FindStructDecl(moduleTypes, namedSpec.Name);
+                if (paramStructDecl != null)
+                {
+                    if (paramStructDecl.Conformances.Any(c => c.Protocol.ToString() == "Swift.Escapable"))
+                        return true;
+                    continue;
+                }
+            }
+
+            // Cross-module fallback: check TypeRecord.NonCopyable flag
+            if (env.TypeDatabase.TryGetTypeRecord(namedSpec, out var typeRecord) &&
+                typeRecord.Flags.HasFlag(TypeRecordFlags.NonCopyable))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Finds a StructDecl by module-qualified name in a type list (including nested types).
+    /// </summary>
+    private static StructDecl? FindStructDecl(IEnumerable<TypeDecl> types, string qualifiedName)
+    {
+        foreach (var type in types)
+        {
+            if (type is StructDecl sd && sd.SwiftTypeName?.ModuleQualifiedName == qualifiedName)
+                return sd;
+            if (type.Types?.Count > 0)
+            {
+                var nested = FindStructDecl(type.Types, qualifiedName);
+                if (nested != null) return nested;
+            }
+        }
+        return null;
     }
 
     /// <summary>
@@ -177,6 +247,17 @@ public static class ConstructorWrapperEmitter
         swiftWriter.WriteLines($$"""
             // Constructor @_cdecl wrapper for {{moduleQualifiedSwiftName}}.
             // Routes constructor through C calling convention to avoid CallConvSwift crash on NativeAOT.
+            """);
+
+        // Add @MainActor annotation when the parent type is @MainActor-isolated.
+        // Without this, calling a @MainActor init from a non-isolated @_cdecl function
+        // causes a Swift 6 compile error. Safe for synchronous functions (no runtime dispatch).
+        if (parentTypeDecl.IsMainActorIsolated)
+        {
+            swiftWriter.WriteLine("@MainActor");
+        }
+
+        swiftWriter.WriteLines($$"""
             @_cdecl("{{symbolName}}")
             """);
 
@@ -221,13 +302,13 @@ public static class ConstructorWrapperEmitter
         {
             // Failable struct constructor (non-throwing)
             swiftWriter.WriteLine($"let result: {moduleQualifiedSwiftName}? = {callExpr}");
-            swiftWriter.WriteLine($"resultPtr.initializeMemory(as: Optional<{moduleQualifiedSwiftName}>.self, repeating: result, count: 1)");
+            swiftWriter.WriteLine($"resultPtr.assumingMemoryBound(to: Optional<{moduleQualifiedSwiftName}>.self).initialize(to: result)");
         }
         else
         {
             // Non-failable, non-throwing struct constructor
             swiftWriter.WriteLine($"let result = {callExpr}");
-            swiftWriter.WriteLine($"resultPtr.initializeMemory(as: {moduleQualifiedSwiftName}.self, repeating: result, count: 1)");
+            swiftWriter.WriteLine($"resultPtr.assumingMemoryBound(to: {moduleQualifiedSwiftName}.self).initialize(to: result)");
         }
 
         swiftWriter.Indent--;
@@ -300,7 +381,7 @@ public static class ConstructorWrapperEmitter
                         $"{argLabel}{label}Val");
             }
 
-            // Non-frozen structs: pass as pointer, load value
+            // Non-frozen structs: C# passes SafeHandle (IntPtr), receive as pointer
             if (!MarshallingHelpers.IsTypeFrozen(typeRecord))
             {
                 var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(swiftTypeSpec);
@@ -309,22 +390,13 @@ public static class ConstructorWrapperEmitter
                         $"{argLabel}{label}Val");
             }
 
-            // Frozen structs with memory management: pass as pointer
-            if (MarshallingHelpers.RequiresMemoryManagement(typeRecord))
-            {
-                var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(swiftTypeSpec);
-                return ($"_ {label}: UnsafeRawPointer",
-                        $"let {label}Val = {label}.load(as: {swiftType}.self)",
-                        $"{argLabel}{label}Val");
-            }
-
-            // Frozen structs (blittable): pass as pointer, load value
+            // Frozen structs (including those with memory management like String):
+            // C# passes the struct value directly (Buffer or blittable struct),
+            // so @_cdecl must accept the Swift type by value — not as a pointer.
             if (MarshallingHelpers.IsTypeFrozen(typeRecord))
             {
                 var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(swiftTypeSpec);
-                return ($"_ {label}: UnsafeRawPointer",
-                        $"let {label}Val = {label}.load(as: {swiftType}.self)",
-                        $"{argLabel}{label}Val");
+                return ($"_ {label}: {swiftType}", null, $"{argLabel}{label}");
             }
         }
 
@@ -360,17 +432,17 @@ public static class ConstructorWrapperEmitter
     /// </summary>
     private static string GetSwiftRawValueType(string? rawValueTypeName) => rawValueTypeName switch
     {
-        "Swift.Int" => "Int",
-        "Swift.UInt" => "UInt",
-        "Swift.Int8" => "Int8",
-        "Swift.UInt8" => "UInt8",
-        "Swift.Int16" => "Int16",
-        "Swift.UInt16" => "UInt16",
-        "Swift.Int32" => "Int32",
-        "Swift.UInt32" => "UInt32",
-        "Swift.Int64" => "Int64",
-        "Swift.UInt64" => "UInt64",
-        "Swift.String" => "String",
+        "Swift.Int" or "Int" => "Int",
+        "Swift.UInt" or "UInt" => "UInt",
+        "Swift.Int8" or "Int8" => "Int8",
+        "Swift.UInt8" or "UInt8" => "UInt8",
+        "Swift.Int16" or "Int16" => "Int16",
+        "Swift.UInt16" or "UInt16" => "UInt16",
+        "Swift.Int32" or "Int32" => "Int32",
+        "Swift.UInt32" or "UInt32" => "UInt32",
+        "Swift.Int64" or "Int64" => "Int64",
+        "Swift.UInt64" or "UInt64" => "UInt64",
+        "Swift.String" or "String" => "String",
         _ => "Int" // fallback
     };
 
@@ -416,7 +488,7 @@ public static class ConstructorWrapperEmitter
             sw.WriteLines($$"""
                 do {
                     let result: {{swiftTypeName}}? = try {{callExpr}}
-                    resultPtr.initializeMemory(as: Optional<{{swiftTypeName}}>.self, repeating: result, count: 1)
+                    resultPtr.assumingMemoryBound(to: Optional<{{swiftTypeName}}>.self).initialize(to: result)
                 } catch {
                     errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()
                 }
@@ -427,7 +499,7 @@ public static class ConstructorWrapperEmitter
             sw.WriteLines($$"""
                 do {
                     let result = try {{callExpr}}
-                    resultPtr.initializeMemory(as: {{swiftTypeName}}.self, repeating: result, count: 1)
+                    resultPtr.assumingMemoryBound(to: {{swiftTypeName}}.self).initialize(to: result)
                 } catch {
                     errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()
                 }

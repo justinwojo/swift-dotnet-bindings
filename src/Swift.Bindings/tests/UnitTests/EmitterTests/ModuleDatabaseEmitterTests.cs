@@ -368,6 +368,75 @@ namespace BindingsGeneration.Tests
             finally { Directory.Delete(dir, true); }
         }
 
+        [Fact]
+        public async Task Emit_NonCopyableStruct_RoundTrips()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var module = new ModuleTypeDatabase("MyLib", "/fake/MyLib.dylib");
+                var swiftName = SwiftTypeName.FromModuleQualifiedName("MyLib.UniqueHandle");
+                var record = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("MyLib", "UniqueHandle"),
+                    SwiftTypeName = swiftName,
+                    MetadataAccessor = "$s5MyLib12UniqueHandleVMa",
+                    Flags = TypeRecordFlags.Frozen | TypeRecordFlags.NonCopyable,
+                    Kind = TypeRecordKind.Struct
+                };
+                module.RegisterType(swiftName, record);
+
+                var path = ModuleDatabaseEmitter.Emit(module, dir, NullLogger.Instance);
+                Assert.NotNull(path);
+
+                var xml = File.ReadAllText(path!);
+                Assert.Contains("nonCopyable=\"true\"", xml);
+
+                // Round-trip: load and verify NonCopyable flag survives
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(path);
+
+                Assert.True(typeDatabase.TryGetTypeRecord(swiftName, out var loaded));
+                Assert.Equal(TypeRecordKind.Struct, loaded!.Kind);
+                Assert.True(loaded.Flags.HasFlag(TypeRecordFlags.NonCopyable));
+                Assert.True(loaded.Flags.HasFlag(TypeRecordFlags.Frozen));
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public async Task Emit_CopyableStruct_DoesNotSetNonCopyableFlag()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var module = new ModuleTypeDatabase("MyLib", "/fake/MyLib.dylib");
+                var swiftName = SwiftTypeName.FromModuleQualifiedName("MyLib.Point");
+                var record = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("MyLib", "Point"),
+                    SwiftTypeName = swiftName,
+                    MetadataAccessor = "$s5MyLib5PointVMa",
+                    Flags = TypeRecordFlags.Frozen,
+                    Kind = TypeRecordKind.Struct
+                };
+                module.RegisterType(swiftName, record);
+
+                var path = ModuleDatabaseEmitter.Emit(module, dir, NullLogger.Instance);
+                Assert.NotNull(path);
+
+                var xml = File.ReadAllText(path!);
+                Assert.DoesNotContain("nonCopyable", xml);
+
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(path);
+
+                Assert.True(typeDatabase.TryGetTypeRecord(swiftName, out var loaded));
+                Assert.False(loaded!.Flags.HasFlag(TypeRecordFlags.NonCopyable));
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
         private static string CreateTempDir()
         {
             var dir = Path.Combine(Path.GetTempPath(), $"mdb_emit_{Guid.NewGuid():N}");

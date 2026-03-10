@@ -1,11 +1,11 @@
 {
-  "git_sha": "5252aab9",
+  "git_sha": "4228248c",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 53912,
+        "lines": 53907,
         "dep_compile": "none"
       },
       "BlinkID": {
@@ -29,19 +29,19 @@
       "CryptoSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 24609,
+        "lines": 24590,
         "dep_compile": "none"
       },
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 91883,
+        "lines": 91879,
         "dep_compile": "none"
       },
       "KeychainAccess": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4606,
+        "lines": 4604,
         "dep_compile": "none"
       },
       "Kingfisher": {
@@ -53,7 +53,7 @@
       "Lottie": {
         "compile": "ok",
         "errors": 0,
-        "lines": 31963,
+        "lines": 31961,
         "dep_compile": "none"
       },
       "Mappedin": {
@@ -65,7 +65,7 @@
       "MicroblinkPlatform": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4568,
+        "lines": 4567,
         "dep_compile": "none"
       },
       "Mixpanel": {
@@ -77,37 +77,37 @@
       "Nuke": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21840,
+        "lines": 21838,
         "dep_compile": "none"
       },
       "Nuke@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21840,
+        "lines": 21838,
         "dep_compile": "none"
       },
       "Nuke@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21840,
+        "lines": 21838,
         "dep_compile": "none"
       },
       "RxSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 18827,
+        "lines": 18822,
         "dep_compile": "none"
       },
       "SkeletonView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 14290,
+        "lines": 14288,
         "dep_compile": "none"
       },
       "SmartCardIO": {
         "compile": "ok",
         "errors": 0,
-        "lines": 5371,
+        "lines": 5361,
         "dep_compile": "none"
       },
       "SnapKit": {
@@ -119,7 +119,7 @@
       "Starscream": {
         "compile": "ok",
         "errors": 0,
-        "lines": 15725,
+        "lines": 15722,
         "dep_compile": "none"
       },
       "Stripe": {
@@ -149,13 +149,13 @@
       "StripeConnect": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 12354,
+        "lines": 12349,
         "dep_compile": "ok"
       },
       "StripeCore": {
         "compile": "ok",
         "errors": 0,
-        "lines": 33934,
+        "lines": 33930,
         "dep_compile": "none"
       },
       "StripeCryptoOnramp": {
@@ -179,19 +179,19 @@
       "StripeIssuing": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 1836,
+        "lines": 1833,
         "dep_compile": "ok"
       },
       "StripePayments": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 75999,
+        "lines": 75994,
         "dep_compile": "ok"
       },
       "StripePaymentSheet": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 50711,
+        "lines": 50709,
         "dep_compile": "ok"
       },
       "StripePaymentsUI": {
@@ -227,13 +227,13 @@
       "Swinject": {
         "compile": "ok",
         "errors": 0,
-        "lines": 5101,
+        "lines": 5100,
         "dep_compile": "none"
       },
       "PhoneNumberKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 15441,
+        "lines": 15439,
         "dep_compile": "none"
       },
       "Valet": {
@@ -275,7 +275,7 @@
       "Parchment": {
         "compile": "ok",
         "errors": 0,
-        "lines": 17581,
+        "lines": 17579,
         "dep_compile": "none"
       },
       "KeychainSwift": {
@@ -329,7 +329,7 @@
       "XMLCoder": {
         "compile": "fail",
         "errors": 2,
-        "lines": 22125,
+        "lines": 22124,
         "dep_compile": "none"
       },
       "AnimatedCollectionViewLayout": {

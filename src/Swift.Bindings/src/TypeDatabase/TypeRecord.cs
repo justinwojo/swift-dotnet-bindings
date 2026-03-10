@@ -55,6 +55,10 @@ public enum TypeRecordFlags
     // for Self positions, making the constraint unsatisfiable by concrete types (CS0738).
     // Used to skip the constraint in generic where clauses and bound generic validation.
     HasMethodSelfTypeParams = 1 << 9,
+    // This flag indicates a struct is non-copyable (~Copyable). Non-copyable types explicitly
+    // list Swift.Escapable in their conformances (normal types have both Copyable and Escapable
+    // implicitly, unlisted). Used to skip @_cdecl constructor wrappers for cross-module params.
+    NonCopyable = 1 << 10,
 }
 
 /// <summary>

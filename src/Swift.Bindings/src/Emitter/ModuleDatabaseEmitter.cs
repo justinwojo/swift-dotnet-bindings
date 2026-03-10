@@ -124,6 +124,9 @@ namespace BindingsGeneration
             if ((record.Flags & TypeRecordFlags.HasMethodSelfTypeParams) != 0)
                 writer.WriteAttributeString("hasMethodSelfTypeParams", "true");
 
+            if ((record.Flags & TypeRecordFlags.NonCopyable) != 0)
+                writer.WriteAttributeString("nonCopyable", "true");
+
             if (!string.IsNullOrEmpty(record.RawValueTypeName))
                 writer.WriteAttributeString("rawValueType", record.RawValueTypeName);
 

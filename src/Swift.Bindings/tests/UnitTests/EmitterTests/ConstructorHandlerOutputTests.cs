@@ -276,6 +276,99 @@ public class ConstructorHandlerOutputTests
 
     #endregion
 
+    #region @_cdecl Constructor Wrapper Integration Tests
+
+    [Fact]
+    public void Emit_PrimaryConstructor_EmitsCdeclSwiftWrapper()
+    {
+        // Primary constructors (not default-param overloads) must also get @_cdecl wrappers.
+        // This was the core bug: ConstructorHandler was missing the wrapper emission logic.
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateFrozenStructDecl("Point", moduleDecl);
+        var constructor = CreateConstructorDecl("init", parentDecl, moduleDecl);
+
+        var (_, swiftOutput) = EmitConstructor(constructor, typeDatabase);
+
+        // Swift output should contain the @_cdecl wrapper
+        Assert.Contains("@_cdecl(\"", swiftOutput);
+        Assert.Contains("SBW_TestModule_Point_init_", swiftOutput);
+        Assert.Contains("resultPtr.assumingMemoryBound(to: TestModule.Point.self).initialize(to: result)", swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_PrimaryClassConstructor_EmitsCdeclSwiftWrapper()
+    {
+        // Class constructors should also get @_cdecl wrappers that return pointers.
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Animal", moduleDecl, typeDatabase);
+        var constructor = CreateConstructorDeclForClass("init", parentDecl, moduleDecl);
+
+        var (_, swiftOutput) = EmitConstructor(constructor, typeDatabase);
+
+        Assert.Contains("@_cdecl(\"", swiftOutput);
+        Assert.Contains("SBW_TestModule_Animal_init_", swiftOutput);
+        Assert.Contains("Unmanaged.passRetained(result).toOpaque()", swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_PrimaryConstructorWithParam_CdeclWrapperIncludesParam()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateFrozenStructDecl("Point", moduleDecl);
+        var constructor = CreateConstructorDecl("init", parentDecl, moduleDecl,
+            parameters: new List<ArgumentDecl>
+            {
+                CreateArgument("x", new NamedTypeSpec("Swift.Int"), moduleDecl)
+            });
+
+        var (_, swiftOutput) = EmitConstructor(constructor, typeDatabase);
+
+        Assert.Contains("@_cdecl(\"", swiftOutput);
+        Assert.Contains("_ x: Int", swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_PrimaryConstructor_CSharpUsesCdeclCallingConvention()
+    {
+        // When @_cdecl wrapper is emitted, C# P/Invoke should NOT use CallConvSwift
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateFrozenStructDecl("Point", moduleDecl);
+        var constructor = CreateConstructorDecl("init", parentDecl, moduleDecl);
+
+        var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
+
+        // With @_cdecl wrapper, the P/Invoke should reference the wrapper library
+        Assert.Contains("SBW_TestModule_Point_init_", csOutput);
+        // Should NOT have CallConvSwift — the wrapper uses C calling convention
+        Assert.DoesNotContain("CallConvSwift", csOutput);
+    }
+
+    [Fact]
+    public void Emit_PrimaryConstructor_NoAsyncLibrary_NoCdeclWrapper()
+    {
+        // Without xcframework mode (no AsyncLibraryName), no @_cdecl wrapper.
+        var typeDatabase = CreateTypeDatabase();
+        // AsyncLibraryName is null — not in xcframework mode
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateFrozenStructDecl("Point", moduleDecl);
+        var constructor = CreateConstructorDecl("init", parentDecl, moduleDecl);
+
+        var (_, swiftOutput) = EmitConstructor(constructor, typeDatabase);
+
+        Assert.DoesNotContain("@_cdecl(\"", swiftOutput);
+        Assert.DoesNotContain("SBW_", swiftOutput);
+    }
+
+    #endregion
+
     private static TypeDatabase CreateTypeDatabase()
     {
         var typeDatabase = new TypeDatabase();
@@ -599,7 +692,9 @@ public class ConstructorHandlerOutputTests
         var handler = new ConstructorHandler(new NullLogger<ConstructorHandler>(), new HashSet<string>());
         var env = new MethodEnvironment(methodDecl, typeDatabase);
         var conductor = new Conductor(new NullLoggerFactory());
-        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
+        // Use a fresh ModuleEmissionContext to avoid cross-test dedup via the shared Default singleton.
+        var context = new TypeHandlerContext(null, new(), null, EmissionContext: new ModuleEmissionContext());
+        handler.Emit(csWriter, swiftWriter, env, conductor, context);
 
         return (csOutput.ToString(), swiftOutput.ToString());
     }
