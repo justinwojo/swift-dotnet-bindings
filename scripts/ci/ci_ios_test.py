@@ -151,15 +151,22 @@ def run_tests(
         cmd.append("--skip-regen")
 
     # First attempt: generous timeout (build + test).
-    # Retry: also needs full build time since we clean corrupted artifacts.
+    # Retry overhead depends on whether the previous build completed.
     FIRST_ATTEMPT_OVERHEAD = 300  # seconds for wrapper+bridge+app build
-    RETRY_OVERHEAD = 300          # full rebuild needed (artifacts cleaned)
+    RETRY_OVERHEAD_CLEAN = 300    # full rebuild if build was interrupted
+    RETRY_OVERHEAD_CACHED = 120   # incremental rebuild if build completed
     APP_BUNDLE_ID = "com.swiftbindings.runtimetestsapp"
+    last_output = ""  # Track output from previous attempt for smart cleanup
 
     for attempt in range(1, max_test_retries + 2):
         if attempt > 1:
+            # Determine if we need a full rebuild or incremental
+            # If "Step 3" appeared in last output, build completed — artifacts are fine
+            build_completed = "Step 3: Run on iOS Simulator" in last_output
+            retry_overhead = RETRY_OVERHEAD_CACHED if build_completed else RETRY_OVERHEAD_CLEAN
+
             # Check if we have enough time for a retry
-            min_retry_time = timeout + RETRY_OVERHEAD
+            min_retry_time = timeout + retry_overhead
             if deadline is not None:
                 remaining = deadline - time.time()
                 if remaining < min_retry_time:
@@ -170,24 +177,22 @@ def run_tests(
                     return 1
                 log.info("%.0fs remaining — enough for retry (need %ds)", remaining, min_retry_time)
 
-            # Clean up after previous attempt to prevent stale state:
-            # 1. Terminate any lingering app to avoid launch_failure
-            # 2. Clean build artifacts to avoid corrupted AOT .o files
-            #    (subprocess kill can interrupt dotnet build mid-compilation)
-            log.info("Cleaning up before retry...")
+            # Clean up after previous attempt to prevent stale state
+            log.info("Cleaning up before retry (build_completed=%s)...", build_completed)
             try:
                 mgr = SimManager()
                 mgr.terminate_app(device_udid, APP_BUNDLE_ID)
             except Exception:
                 pass  # App may not be running — that's fine
 
-            # Clean corrupted build artifacts from killed subprocess
-            app_dir = os.path.join(test_framework_dir, "RuntimeTestsApp")
-            for subdir in ("obj", "bin"):
-                path = os.path.join(app_dir, subdir)
-                if os.path.isdir(path):
-                    log.info("Cleaning %s", path)
-                    shutil.rmtree(path, ignore_errors=True)
+            if not build_completed:
+                # Build was interrupted — clean corrupted AOT artifacts
+                app_dir = os.path.join(test_framework_dir, "RuntimeTestsApp")
+                for subdir in ("obj", "bin"):
+                    path = os.path.join(app_dir, subdir)
+                    if os.path.isdir(path):
+                        log.info("Cleaning corrupted build artifacts: %s", path)
+                        shutil.rmtree(path, ignore_errors=True)
 
             time.sleep(2)  # Let simulator settle
 
@@ -195,7 +200,10 @@ def run_tests(
             gha_warning(f"Test retry attempt {attempt} after timeout/hang")
 
         # Calculate subprocess timeout
-        overhead = FIRST_ATTEMPT_OVERHEAD if attempt == 1 else RETRY_OVERHEAD
+        if attempt == 1:
+            overhead = FIRST_ATTEMPT_OVERHEAD
+        else:
+            overhead = RETRY_OVERHEAD_CLEAN if not build_completed else RETRY_OVERHEAD_CACHED
         if deadline is not None:
             remaining = deadline - time.time()
             # Use the lesser of our standard timeout and remaining time (minus 30s safety margin)
@@ -217,6 +225,7 @@ def run_tests(
             )
 
             # Print output so it appears in GHA logs
+            last_output = result.stdout or ""
             if result.stdout:
                 print(result.stdout, end="", flush=True)
             if result.stderr:
@@ -227,8 +236,7 @@ def run_tests(
                 return 0
 
             # Check if this is a timeout/hang (retryable) vs real test failure
-            output = result.stdout or ""
-            if "RUNTIME TESTS TIMEOUT" in output or "launch_failure" in output:
+            if "RUNTIME TESTS TIMEOUT" in last_output or "launch_failure" in last_output:
                 if attempt <= max_test_retries:
                     log.warning("Tests timed out / app hung — will retry")
                     continue
@@ -237,9 +245,12 @@ def run_tests(
             return result.returncode
 
         except subprocess.TimeoutExpired as e:
-            # subprocess itself timed out
+            # subprocess itself timed out — capture output for smart cleanup
             if e.stdout:
-                print(e.stdout if isinstance(e.stdout, str) else e.stdout.decode(), end="", flush=True)
+                last_output = e.stdout if isinstance(e.stdout, str) else e.stdout.decode()
+                print(last_output, end="", flush=True)
+            else:
+                last_output = ""
             if attempt <= max_test_retries:
                 log.warning("Test subprocess timed out — will retry")
                 continue
@@ -527,8 +538,8 @@ Examples:
                                  help="Max infrastructure retries (default: 1)")
     resilience_group.add_argument("--diag-dir", default="/tmp/sim-diagnostics",
                                  help="Directory for diagnostic artifacts")
-    resilience_group.add_argument("--step-timeout", type=int, default=900,
-                                 help="Total wall-clock budget in seconds (default: 900 = 15 min)")
+    resilience_group.add_argument("--step-timeout", type=int, default=1140,
+                                 help="Total wall-clock budget in seconds (default: 1140 = 19 min)")
 
     # Logging
     parser.add_argument("-v", "--verbose", action="store_true", help="Debug logging")

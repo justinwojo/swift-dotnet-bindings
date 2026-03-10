@@ -116,11 +116,11 @@ jobs:
           echo "All must-pass features passing."
 
       - name: Run iOS Simulator tests
-        timeout-minutes: 15
+        timeout-minutes: 20
         run: >
           python3 scripts/ci/ci_ios_test.py
           --tier 2 --timeout 90 --safe-only --skip-regen --skip-build
-          --step-timeout 840
+          --step-timeout 1140
 
       - name: Upload simulator diagnostics
         if: failure()
