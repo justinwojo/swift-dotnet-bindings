@@ -239,7 +239,14 @@ public static class OptionalPointerWrapperEmitter
 
         var tryPrefix = methodDecl.Throws ? "try " : "";
 
+        // Determine if wrapper needs @MainActor annotation for actor-isolated types
+        bool needsMainActor = ((parentDecl as TypeDecl)?.IsMainActorIsolated == true
+            || methodDecl.IsActorIsolated)
+            && !methodDecl.IsNonisolated;
+
         // Emit the wrapper
+        if (needsMainActor)
+            swiftWriter.WriteLine("@MainActor");
         swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
         swiftWriter.WriteLine($"public func {NameProvider.GetPInvokeName(methodDecl)}(");
         swiftWriter.WriteLine($"    {paramsStr}");

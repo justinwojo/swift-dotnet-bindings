@@ -105,6 +105,9 @@ public static class AsyncStreamEmitter
         var mainActorAttr = isMainActorIsolated ? "@MainActor " : "";
         // Custom actor properties need `await` to access from within a Task
         var awaitPrefix = isOnCustomActor ? "await " : "";
+        // @MainActor functions: Task { } doesn't inherit actor context, so we need
+        // Task { @MainActor in } to access actor-isolated properties within the task.
+        var taskOpen = isMainActorIsolated ? "Task { @MainActor in" : "Task {";
 
         swiftWriter.WriteLines($$"""
             {{mainActorAttr}}@_silgen_name("{{swiftWrapperName}}")
@@ -113,7 +116,7 @@ public static class AsyncStreamEmitter
                 completionCallback: @escaping @convention(c) (Int64) -> Void,
                 context: Int64
             ) {
-                Task {
+                {{taskOpen}}
                     for await element in {{awaitPrefix}}{{selfAccess}}.{{NameProvider.EscapeSwiftKeyword(propertyDecl.Name)}} {
                         let shouldContinue = withUnsafePointer(to: element) { ptr in
                             elementCallback(UnsafeRawPointer(ptr), context)

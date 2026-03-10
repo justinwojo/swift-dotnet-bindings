@@ -2394,4 +2394,54 @@ public class WitnessDispatchEmitterTests
     }
 
     #endregion
+
+    #region Generic Type Parameter Guard Tests (Issue O)
+
+    [Fact]
+    public void IsPropertyGetterDispatchable_GenericTypeParam_ReturnsFalse()
+    {
+        // DateResult<τ_0_0> contains an unresolved generic type parameter
+        var genericType = new NamedTypeSpec("TestModule.DateResult");
+        genericType.GenericParameters.Add(new NamedTypeSpec("τ_0_0"));
+        var property = CreateProperty("result", genericType);
+        Assert.False(_emitter.IsPropertyGetterDispatchable(property));
+    }
+
+    [Fact]
+    public void IsPropertySetterDispatchable_GenericTypeParam_ReturnsFalse()
+    {
+        // DateResult<τ_0_0> contains an unresolved generic type parameter
+        var genericType = new NamedTypeSpec("TestModule.DateResult");
+        genericType.GenericParameters.Add(new NamedTypeSpec("τ_0_0"));
+        var property = CreateProperty("result", genericType);
+        Assert.False(_emitter.IsPropertySetterDispatchable(property));
+    }
+
+    [Fact]
+    public void IsPropertyGetterDispatchable_ConcreteType_StillWorks()
+    {
+        // Swift.Int is blittable and concrete — should still be dispatchable
+        var property = CreateProperty("count", new NamedTypeSpec("Swift.Int"));
+        Assert.True(_emitter.IsPropertyGetterDispatchable(property));
+    }
+
+    [Fact]
+    public void IsPropertyGetterDispatchable_AssociatedTypeRef_ReturnsFalse()
+    {
+        // Self.Element or τ_0_0.Element — associated type references contain unresolved generic params
+        var assocType = new AssociatedTypeReferenceSpec("τ_0_0", "Element");
+        var property = CreateProperty("current", assocType);
+        Assert.False(_emitter.IsPropertyGetterDispatchable(property));
+    }
+
+    [Fact]
+    public void IsPropertyGetterDispatchable_SelfAssociatedType_ReturnsFalse()
+    {
+        // Self.Index — Self-based associated type reference
+        var assocType = new AssociatedTypeReferenceSpec("Self", "Index");
+        var property = CreateProperty("startIndex", assocType);
+        Assert.False(_emitter.IsPropertyGetterDispatchable(property));
+    }
+
+    #endregion
 }

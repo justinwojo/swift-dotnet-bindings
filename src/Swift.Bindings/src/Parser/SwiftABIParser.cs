@@ -1111,6 +1111,7 @@ namespace BindingsGeneration
                 IsImplicit = node.@implicit == true,
                 IsModuleInternal = IsNodeModuleInternal(node) ||
                     IsInternalFromSwiftInterface(parentDecl.Name, node.PrintedName),
+                IsSpiProtected = IsNodeSpiProtected(node),
             };
 
             // Suppress unconditionally unavailable methods
@@ -1451,6 +1452,7 @@ namespace BindingsGeneration
                 HasStorage = node.DeclAttributes is not null && Array.IndexOf(node.DeclAttributes, "HasStorage") != -1,
                 IsOverride = node.overriding == true || node.DeclAttributes?.Contains("Override") == true,
                 IsFinal = node.DeclAttributes?.Contains("Final") == true,
+                IsSpiProtected = IsNodeSpiProtected(node),
                 Accessors = HandleAccessors(node.Accessors, sanitizedName, parentDecl, moduleDecl)
             };
             if (parentDecl is TypeDecl propParentType)

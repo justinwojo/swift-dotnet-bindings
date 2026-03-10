@@ -477,6 +477,66 @@ public class ConstrainedExistentialBridgeTests
         Assert.False(result);
     }
 
+    [Fact]
+    public void TryEmitConstructor_GenericClass_ReturnsFalse()
+    {
+        // Generic classes can't have their type parameters specified in the constructor call,
+        // causing "generic parameter could not be inferred" errors (Issue R).
+        var typeDatabase = CreateTypeDatabaseWithClassBoundProtocol();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = CreateClassDecl("GenericScanner", moduleDecl, typeDatabase);
+        classDecl.GenericParameters.Add(new GenericArgumentDecl("T", "T", new(), new()));
+
+        var protocol = new NamedTypeSpec("TestModule.CameraFrameAnalyzer",
+            new TypeSpec[] { new NamedTypeSpec("TestModule.CameraFrame"), new NamedTypeSpec("TestModule.UIEvent") });
+        var protocolList = new ProtocolListTypeSpec(new[] { protocol });
+
+        var constructor = CreateConstructorDecl(classDecl, moduleDecl, new[]
+        {
+            CreateArgumentDecl("analyzer", protocolList)
+        });
+
+        var env = new MethodEnvironment(constructor, typeDatabase);
+        var csWriter = new CSharpWriter(new StringWriter());
+        var swiftWriter = new SwiftWriter(new StringWriter());
+
+        Assert.False(ConstrainedExistentialBridge.TryEmitConstructor(csWriter, swiftWriter, env, _logger));
+    }
+
+    #endregion
+
+    #region MainActor Isolation Tests
+
+    [Fact]
+    public void TryEmitConstructor_MainActorIsolated_EmitsMainActorAttribute()
+    {
+        var typeDatabase = CreateTypeDatabaseWithClassBoundProtocol();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = CreateClassDecl("ScannerModel", moduleDecl, typeDatabase);
+        classDecl.IsMainActorIsolated = true;
+
+        var protocol = new NamedTypeSpec("TestModule.CameraFrameAnalyzer",
+            new TypeSpec[] { new NamedTypeSpec("TestModule.CameraFrame"), new NamedTypeSpec("TestModule.UIEvent") });
+        var protocolList = new ProtocolListTypeSpec(new[] { protocol });
+
+        var constructor = CreateConstructorDecl(classDecl, moduleDecl, new[]
+        {
+            CreateArgumentDecl("analyzer", protocolList)
+        });
+
+        var env = new MethodEnvironment(constructor, typeDatabase);
+        var csOut = new StringWriter();
+        var swiftOut = new StringWriter();
+        var csWriter = new CSharpWriter(csOut);
+        var swiftWriter = new SwiftWriter(swiftOut);
+
+        var result = ConstrainedExistentialBridge.TryEmitConstructor(csWriter, swiftWriter, env, _logger);
+
+        Assert.True(result);
+        var swift = swiftOut.ToString();
+        Assert.Contains("@MainActor", swift);
+    }
+
     #endregion
 
     #region Helpers

@@ -294,6 +294,15 @@ namespace BindingsGeneration
                 }
                 else if (baseDecl is MethodDecl methodDecl)
                 {
+                    // Suppress @_spi methods — these are only visible to SPI consumers
+                    // (e.g., other modules in the same package) and should not be in bindings.
+                    if (methodDecl.IsSpiProtected)
+                    {
+                        if (!methodDecl.IsAccessor)
+                            ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, methodDecl.ParentDecl, SkipReason.ModuleInternal, "@_spi method suppressed from bindings.");
+                        continue;
+                    }
+
                     // Issue M: Skip implicit+overriding constructors that the parser flagged as
                     // module-internal because the class defines its own designated initializers.
                     // These constructors don't actually exist at runtime (Swift's initialization rules).

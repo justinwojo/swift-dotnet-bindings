@@ -1,23 +1,23 @@
 {
-  "git_sha": "e585a739",
+  "git_sha": "4c1a025f",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 51107,
+        "lines": 51104,
         "dep_compile": "none"
       },
       "BlinkID": {
         "compile": "ok",
         "errors": 0,
-        "lines": 47013,
+        "lines": 31,
         "dep_compile": "none"
       },
       "BlinkIDUX": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 12118,
+        "lines": 12098,
         "dep_compile": "ok"
       },
       "BRLMPrinterKit": {
@@ -35,7 +35,7 @@
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 91953,
+        "lines": 91968,
         "dep_compile": "none"
       },
       "KeychainAccess": {
@@ -47,7 +47,7 @@
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 55428,
+        "lines": 55446,
         "dep_compile": "none"
       },
       "Lottie": {
@@ -131,7 +131,7 @@
       "StripeApplePay": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 1326,
+        "lines": 1186,
         "dep_compile": "ok"
       },
       "StripeCameraCore": {
@@ -149,13 +149,13 @@
       "StripeConnect": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 8478,
+        "lines": 8433,
         "dep_compile": "ok"
       },
       "StripeCore": {
         "compile": "ok",
         "errors": 0,
-        "lines": 6679,
+        "lines": 5813,
         "dep_compile": "none"
       },
       "StripeCryptoOnramp": {
@@ -167,13 +167,13 @@
       "StripeFinancialConnections": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 1911,
+        "lines": 1823,
         "dep_compile": "ok"
       },
       "StripeIdentity": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 1153,
+        "lines": 1102,
         "dep_compile": "ok"
       },
       "StripeIssuing": {
@@ -185,19 +185,19 @@
       "StripePayments": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 65323,
+        "lines": 62279,
         "dep_compile": "ok"
       },
       "StripePaymentSheet": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 33993,
+        "lines": 31657,
         "dep_compile": "ok"
       },
       "StripePaymentsUI": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 7399,
+        "lines": 7099,
         "dep_compile": "ok"
       },
       "StripeUICore": {
@@ -263,7 +263,7 @@
       "ObjectMapper": {
         "compile": "ok",
         "errors": 0,
-        "lines": 5331,
+        "lines": 5329,
         "dep_compile": "none"
       },
       "BonMot": {

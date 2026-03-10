@@ -48,6 +48,13 @@ namespace BindingsGeneration
         public bool WasEmitted { get; set; } = false;
 
         /// <summary>
+        /// Whether this property is marked @_spi (System Programming Interface).
+        /// @_spi members on public types are only visible to SPI consumers and should not
+        /// appear in generated bindings.
+        /// </summary>
+        public bool IsSpiProtected { get; set; } = false;
+
+        /// <summary>
         /// Whether this property is @MainActor-isolated (individually annotated, not inherited from type).
         /// </summary>
         public bool IsActorIsolated { get; set; } = false;

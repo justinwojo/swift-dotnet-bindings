@@ -103,6 +103,13 @@ namespace BindingsGeneration
         public bool IsModuleInternal { get; set; } = false;
 
         /// <summary>
+        /// Whether this method is marked @_spi (System Programming Interface).
+        /// @_spi members on public types are only visible to SPI consumers (e.g., other modules
+        /// in the same package) and should not appear in generated bindings.
+        /// </summary>
+        public bool IsSpiProtected { get; set; } = false;
+
+        /// <summary>
         /// Whether this method is compiler-synthesized (implicit inherited constructor).
         /// Parsed from the ABI JSON 'implicit' field. Used to filter out inherited
         /// constructors that appear in the ABI but are not callable from external code.

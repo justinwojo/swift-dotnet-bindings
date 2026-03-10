@@ -71,6 +71,13 @@ public static class MemberEmissionValidator
         var closureHandler = new ClosureHandler(typeDatabase);
         var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
 
+        // Skip @_spi properties — only visible to SPI consumers
+        if (property.IsSpiProtected)
+        {
+            skipDetails = "@_spi property suppressed from bindings.";
+            return SkipReason.ModuleInternal;
+        }
+
         // B19: Skip properties referencing SwiftUI/Combine types (unless registered in type database)
         if (MemberEmissionValidator.ReferencesUnsupportedModule(property.SwiftTypeSpec, typeDatabase))
         {

@@ -287,19 +287,28 @@ public class WitnessDispatchEmitter
 
     /// <summary>
     /// Determines if a property getter can be dispatched via witness table.
-    /// A getter is dispatchable if its return type is blittable or String.
+    /// A getter is dispatchable if its return type is blittable or String,
+    /// and does not contain unresolved generic type parameters.
     /// </summary>
     public bool IsPropertyGetterDispatchable(PropertyDecl property)
     {
+        // Properties whose type contains unresolved generic type parameters (e.g., DateResult<StringType>)
+        // cannot be dispatched because the Swift wrapper would generate invalid code like
+        // UnsafeMutablePointer<Any> that can't match the concrete generic type.
+        if (ContainsGenericTypeParam(property.SwiftTypeSpec))
+            return false;
         return IsTypeDispatchable(property.SwiftTypeSpec);
     }
 
     /// <summary>
     /// Determines if a property setter can be dispatched via witness table.
-    /// A setter is dispatchable if its type is blittable or String.
+    /// A setter is dispatchable if its type is blittable or String,
+    /// and does not contain unresolved generic type parameters.
     /// </summary>
     public bool IsPropertySetterDispatchable(PropertyDecl property)
     {
+        if (ContainsGenericTypeParam(property.SwiftTypeSpec))
+            return false;
         return IsTypeDispatchable(property.SwiftTypeSpec);
     }
 
@@ -1032,6 +1041,52 @@ public class WitnessDispatchEmitter
             return false;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Recursively checks if a TypeSpec contains unresolved generic type parameters.
+    /// Types with generic params (e.g., DateResult&lt;StringType&gt;) can't be used in
+    /// Swift wrapper code because the compiler can't infer the concrete type.
+    /// </summary>
+    private static bool ContainsGenericTypeParam(TypeSpec? typeSpec)
+    {
+        if (typeSpec == null) return false;
+        switch (typeSpec)
+        {
+            case NamedTypeSpec namedType:
+                if (TypeSpecHelpers.IsGenericTypeParameter(namedType.Name))
+                    return true;
+                foreach (var gp in namedType.GenericParameters)
+                {
+                    if (ContainsGenericTypeParam(gp))
+                        return true;
+                }
+                return false;
+            case TupleTypeSpec tupleType:
+                foreach (var elem in tupleType.Elements)
+                {
+                    if (ContainsGenericTypeParam(elem))
+                        return true;
+                }
+                return false;
+            case ClosureTypeSpec closureType:
+                return ContainsGenericTypeParam(closureType.Arguments) ||
+                       ContainsGenericTypeParam(closureType.ReturnType);
+            case ProtocolListTypeSpec protocolList:
+                foreach (var p in protocolList.Protocols.Keys)
+                {
+                    if (ContainsGenericTypeParam(p))
+                        return true;
+                }
+                return false;
+            case AssociatedTypeReferenceSpec assocType:
+                // Associated types like Self.Element or τ_0_0.Element reference
+                // unresolved generic type parameters through their base type.
+                return TypeSpecHelpers.IsGenericTypeParameter(assocType.BaseType)
+                    || assocType.BaseType == "Self";
+            default:
+                return false;
+        }
     }
 
     private bool IsTypeBlittable(TypeSpec? typeSpec)

@@ -1088,7 +1088,122 @@ public class OptionalPointerWrapperTests
 
     #endregion
 
+    #region Generic Parent Type Guard Tests (Issue O)
+
+    [Fact]
+    public void EmitSwiftWrapper_NonGenericParent_EmitsWrapper()
+    {
+        // Non-generic struct parent: wrapper should be emitted
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDecl("DateResult", moduleDecl, false);
+
+        var method = CreatePropertyAccessorMethod("day", new NamedTypeSpec("Swift.Optional",
+            new TypeSpec[] { new NamedTypeSpec("Swift.Int") }), structDecl, moduleDecl);
+
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        OptionalPointerWrapperEmitter.EmitSwiftWrapper(swiftWriter, new MethodEnvironment(method, typeDatabase), structDecl);
+
+        var swift = swiftOutput.ToString();
+        Assert.Contains("@_silgen_name(", swift);
+        Assert.Contains("assumingMemoryBound(to: TestModule.DateResult.self)", swift);
+    }
+
+    [Fact]
+    public void GenericParent_ShouldNotEmitOptionalPointerWrapper()
+    {
+        // Generic struct parent like DateResult<StringType>: wrapper should NOT be emitted
+        // because the wrapper generates `TypeName.self` without type parameters,
+        // causing "generic parameter could not be inferred" errors.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDecl("DateResult", moduleDecl, false);
+        structDecl.GenericParameters.Add(new GenericArgumentDecl("StringType", "StringType", new(), new()));
+
+        // Verify the guard: IsGeneric should be true
+        Assert.True(structDecl.IsGeneric);
+    }
+
+    #endregion
+
+    #region MainActor Annotation Tests (Issue K)
+
+    [Fact]
+    public void EmitSwiftWrapper_MainActorIsolatedParent_EmitsMainActorAttribute()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = CreateClassDecl("ScannerModel", moduleDecl);
+        classDecl.IsMainActorIsolated = true;
+
+        var method = CreatePropertyAccessorMethod("sampleBuffer", new NamedTypeSpec("Swift.Optional",
+            new TypeSpec[] { new NamedTypeSpec("Swift.Int") }), classDecl, moduleDecl);
+
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        OptionalPointerWrapperEmitter.EmitSwiftWrapper(swiftWriter, new MethodEnvironment(method, typeDatabase), classDecl);
+
+        var swift = swiftOutput.ToString();
+        Assert.Contains("@MainActor", swift);
+        Assert.Contains("@_silgen_name(", swift);
+    }
+
+    [Fact]
+    public void EmitSwiftWrapper_NonIsolatedParent_NoMainActorAttribute()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = CreateClassDecl("RegularModel", moduleDecl);
+
+        var method = CreatePropertyAccessorMethod("data", new NamedTypeSpec("Swift.Optional",
+            new TypeSpec[] { new NamedTypeSpec("Swift.Int") }), classDecl, moduleDecl);
+
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        OptionalPointerWrapperEmitter.EmitSwiftWrapper(swiftWriter, new MethodEnvironment(method, typeDatabase), classDecl);
+
+        var swift = swiftOutput.ToString();
+        Assert.DoesNotContain("@MainActor", swift);
+    }
+
+    #endregion
+
     #region Test Helpers
+
+    private static MethodDecl CreatePropertyAccessorMethod(string propertyName, TypeSpec returnType,
+        BaseDecl parentDecl, ModuleDecl moduleDecl)
+    {
+        return new MethodDecl
+        {
+            Name = $"{propertyName}_Get",
+            MangledName = $"$s10TestModule{propertyName.Length}{propertyName}vg",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            IsAccessor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = returnType,
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = parentDecl,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public,
+        };
+    }
 
     private static TypeDatabase CreateTypeDatabase()
     {

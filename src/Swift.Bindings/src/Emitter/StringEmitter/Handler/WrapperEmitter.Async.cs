@@ -1415,13 +1415,16 @@ namespace BindingsGeneration
                 readCodeBlock += "\n";
 
             var mainActorLine = needsMainActor ? $"{i}@MainActor\n" : "";
+            // @MainActor functions: Task { } doesn't inherit actor context, so we need
+            // Task { @MainActor in } to access actor-isolated members within the task body.
+            var taskOpen = needsMainActor ? "Task { @MainActor in" : "Task {";
 
             var funcBody = $$"""
             {{mainActorLine}}{{i}}@_silgen_name("{{mangledName}}")
             {{i}}public {{staticModifier}}func {{pInvokeName}}{{genericParams}}({{parameters}}){{whereClause}}{
             {{readCodeBlock}}{{i}}    let _entry = _SBWTaskEntry()
             {{i}}    _sbwRegisterTask(task, _entry)
-            {{i}}    _entry.task = Task {
+            {{i}}    _entry.task = {{taskOpen}}
             {{i}}        defer {
             {{i}}            _sbwUnregisterTask(task)
             {{i}}        }

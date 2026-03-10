@@ -154,6 +154,15 @@ namespace BindingsGeneration
                     var emittedProjectedSignatures = new HashSet<string>(StringComparer.Ordinal);
                     foreach (MethodDecl methodDecl in moduleDecl.Methods)
                     {
+                        // Skip @_spi module-level functions — only visible to SPI consumers
+                        if (methodDecl.IsSpiProtected)
+                        {
+                            _logger.LogDebug($"Skipping @_spi module function '{methodDecl.Name}'");
+                            ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, moduleDecl, SkipReason.ModuleInternal, "@_spi module-level function suppressed from bindings.");
+                            csWriter.WriteLine();
+                            continue;
+                        }
+
                         // Primary dedup: Swift-level signature
                         var signatureKey = GetMethodSignatureKey(methodDecl, env.TypeDatabase, _logger);
                         if (emittedMethodSignatures.Contains(signatureKey))
@@ -522,6 +531,9 @@ namespace BindingsGeneration
                 // use abbreviated forms ($sSl, $sSB, $ss17...).
                 .Where(p => IsMangledNameFromModule(p.MangledName, moduleDecl.Name))
                 .Where(p => !HasMembersReferencingUnsupportedModule(p, typeDatabase))
+                // Skip protocols that inherit from Decodable/Encodable/Codable — EveryProtocol's
+                // handle: UnsafeRawPointer? property can't synthesize Codable conformance.
+                .Where(p => !InheritsCodable(p, protocols, typeDatabase))
                 // Skip protocols whose member signatures reference types from this module
                 // that are not in the type database (module-internal types). EveryProtocol
                 // can't implement methods requiring internal types.
@@ -587,6 +599,64 @@ namespace BindingsGeneration
             // Only override signatures that appear in BOTH sets (i.e., a real conflict exists)
             nonThrowingSignatures.IntersectWith(throwingSignatures);
             return nonThrowingSignatures;
+        }
+
+        /// <summary>
+        /// Checks if a protocol inherits from Decodable, Encodable, or Codable,
+        /// either directly or transitively through inherited protocols.
+        /// EveryProtocol's handle: UnsafeRawPointer? property cannot synthesize Codable
+        /// conformance, so protocols requiring it must be skipped.
+        /// </summary>
+        /// <param name="protocolDecl">The protocol to check.</param>
+        /// <param name="allProtocols">All protocols in the module for intra-module transitive lookup.
+        /// If null, only direct inheritance is checked.</param>
+        /// <param name="typeDatabase">Type database for cross-module transitive lookup via
+        /// TypeRecordFlags.InheritsCodable. If null, only intra-module lookup is used.</param>
+        internal static bool InheritsCodable(ProtocolDecl protocolDecl, IReadOnlyList<ProtocolDecl>? allProtocols = null, ITypeDatabase? typeDatabase = null)
+        {
+            return InheritsCodableRecursive(protocolDecl, allProtocols, typeDatabase, new HashSet<string>(StringComparer.Ordinal));
+        }
+
+        private static bool InheritsCodableRecursive(ProtocolDecl protocolDecl, IReadOnlyList<ProtocolDecl>? allProtocols, ITypeDatabase? typeDatabase, HashSet<string> visited)
+        {
+            // Prevent infinite loops in circular inheritance chains
+            var qualifiedName = protocolDecl.SwiftTypeName?.ToString() ?? protocolDecl.Name;
+            if (!visited.Add(qualifiedName))
+                return false;
+
+            foreach (var inherited in protocolDecl.InheritedProtocols)
+            {
+                var name = inherited.Name;
+                // Strip module prefix if present (e.g., "Swift.Decodable" → "Decodable")
+                var dotIndex = name.LastIndexOf('.');
+                var simpleName = dotIndex >= 0 ? name.Substring(dotIndex + 1) : name;
+
+                if (simpleName is "Decodable" or "Encodable" or "Codable")
+                    return true;
+
+                // Intra-module transitive check: look up the inherited protocol in the module
+                if (allProtocols != null)
+                {
+                    var inheritedDecl = allProtocols.FirstOrDefault(p =>
+                        p.Name == simpleName || p.Name == name ||
+                        p.SwiftTypeName?.ToString() == name);
+                    if (inheritedDecl != null && InheritsCodableRecursive(inheritedDecl, allProtocols, typeDatabase, visited))
+                        return true;
+                }
+
+                // Cross-module transitive check: look up the inherited protocol's TypeRecord
+                // in the type database. Dependency modules are processed before the main module,
+                // so their InheritsCodable flags are already set.
+                if (typeDatabase != null)
+                {
+                    var inheritedSwiftName = SwiftTypeName.FromModuleQualifiedName(name);
+                    if (typeDatabase.TryGetTypeRecord(inheritedSwiftName, out var record) &&
+                        record.Kind == TypeRecordKind.Protocol &&
+                        record.Flags.HasFlag(TypeRecordFlags.InheritsCodable))
+                        return true;
+                }
+            }
+            return false;
         }
 
         /// <summary>

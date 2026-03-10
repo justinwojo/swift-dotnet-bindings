@@ -721,6 +721,12 @@ public class EveryProtocolEmitter
                 }
                 return false;
 
+            case AssociatedTypeReferenceSpec assocType:
+                // Associated types like Self.Element or τ_0_0.Element reference
+                // unresolved generic type parameters through their base type.
+                return TypeSpecHelpers.IsGenericTypeParameter(assocType.BaseType)
+                    || assocType.BaseType == "Self";
+
             default:
                 return false;
         }

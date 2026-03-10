@@ -74,6 +74,11 @@ public static class ConstrainedExistentialBridge
         if (methodDecl.IsFailable || methodDecl.Throws || methodDecl.IsAsync)
             return false;
 
+        // Gate: non-generic class — if the class has type parameters (e.g., SomeClass<T, U>),
+        // the constructor call can't specify them, causing "generic parameter could not be inferred".
+        if (classDecl.IsGeneric)
+            return false;
+
         // Classify all params (first element in CSSignature is the return type)
         var allArgs = methodDecl.CSSignature.Skip(1).ToList();
         bool hasConstrainedExistential = false;
@@ -176,7 +181,7 @@ public static class ConstrainedExistentialBridge
         var wrapperLibPath = env.TypeDatabase.AsyncLibraryName ?? moduleLibPath;
 
         // --- Emit Swift wrapper ---
-        EmitSwiftWrapper(swiftWriter, wrapperSymbol, swiftTypeName, bridgeParams, methodDecl, neededImports);
+        EmitSwiftWrapper(swiftWriter, wrapperSymbol, swiftTypeName, bridgeParams, methodDecl, neededImports, classDecl.IsMainActorIsolated);
 
         // --- Emit C# constructor ---
         EmitCSharpConstructor(csWriter, env, classDecl, typeNameWithGenerics, wrapperSymbol, wrapperLibPath, bridgeParams);
@@ -190,7 +195,8 @@ public static class ConstrainedExistentialBridge
         string swiftTypeName,
         List<BridgeParam> bridgeParams,
         MethodDecl methodDecl,
-        HashSet<string> neededImports)
+        HashSet<string> neededImports,
+        bool isMainActorIsolated = false)
     {
         // Build Swift parameter list
         var swiftParams = new List<string>();
@@ -239,6 +245,8 @@ public static class ConstrainedExistentialBridge
         }
 
         swiftWriter.WriteLine();
+        if (isMainActorIsolated)
+            swiftWriter.WriteLine("@MainActor");
         swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
         swiftWriter.WriteLine($"public func {wrapperSymbol}({swiftParamString}) -> UnsafeMutableRawPointer {{");
         swiftWriter.Indent++;
@@ -401,6 +409,9 @@ public static class ConstrainedExistentialBridge
     /// <summary>
     /// Renders the full Swift type string for a constrained existential, e.g.,
     /// "any BlinkIDUX.CameraFrameAnalyzer&lt;BlinkID.CameraFrame, BlinkIDUX.UIEvent&gt;"
+    /// Module qualifications are preserved to avoid ambiguity with UIKit types
+    /// (e.g., BlinkIDUX.UIEvent vs UIKit.UIEvent). The import statements ensure
+    /// module-qualified names resolve correctly.
     /// </summary>
     internal static string RenderConstrainedExistentialSwiftType(TypeSpec typeSpec)
     {

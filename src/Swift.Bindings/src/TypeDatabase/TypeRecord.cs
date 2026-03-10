@@ -59,6 +59,10 @@ public enum TypeRecordFlags
     // list Swift.Escapable in their conformances (normal types have both Copyable and Escapable
     // implicitly, unlisted). Used to skip @_cdecl constructor wrappers for cross-module params.
     NonCopyable = 1 << 10,
+    // This flag indicates a protocol inherits from Codable (Decodable/Encodable), either
+    // directly or transitively through inherited protocols. EveryProtocol can't synthesize
+    // Codable conformance, so these protocols must be skipped during conformance emission.
+    InheritsCodable = 1 << 11,
 }
 
 /// <summary>

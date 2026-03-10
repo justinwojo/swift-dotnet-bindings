@@ -78,6 +78,71 @@ public class ModuleProcessorCycleTests
         Assert.NotNull(result);
     }
 
+    [Fact]
+    public void FinalizeTypeProcessing_IntraModuleCodableChain_SetsFlagRegardlessOfOrder()
+    {
+        // protocol A: B {}  — declared BEFORE B
+        // protocol B: Codable {}
+        // A should get InheritsCodable flag even though it's processed first.
+        var typeSpecA = new NamedTypeSpec("TestModule.ProtocolA");
+        var typeSpecB = new NamedTypeSpec("TestModule.ProtocolB");
+
+        var protocolB = CreateProtocolDecl("ProtocolB", typeSpecB,
+            inherited: new[] { new NamedTypeSpec("Codable") });
+        var protocolA = CreateProtocolDecl("ProtocolA", typeSpecA,
+            inherited: new[] { new NamedTypeSpec("TestModule.ProtocolB") });
+
+        // A before B — exercises the declaration order issue
+        var typeDecls = new Dictionary<NamedTypeSpec, TypeDecl>
+        {
+            { typeSpecA, protocolA },
+            { typeSpecB, protocolB },
+        };
+
+        var typeDatabase = new TypeDatabase();
+        var processor = new ModuleProcessor(
+            "TestModule",
+            "/tmp/TestModule.dylib",
+            "TestModule",
+            typeDecls,
+            typeDatabase,
+            NullLogger.Instance);
+
+        var result = processor.FinalizeTypeProcessingAndCreateModuleDatabase();
+        typeDatabase.AddModuleDatabase(result.ModuleDatabase);
+
+        // Both should have InheritsCodable
+        Assert.True(typeDatabase.TryGetTypeRecord(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.ProtocolB"), out var recordB));
+        Assert.True(recordB!.Flags.HasFlag(TypeRecordFlags.InheritsCodable));
+
+        Assert.True(typeDatabase.TryGetTypeRecord(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.ProtocolA"), out var recordA));
+        Assert.True(recordA!.Flags.HasFlag(TypeRecordFlags.InheritsCodable));
+    }
+
+    private static ProtocolDecl CreateProtocolDecl(string name, NamedTypeSpec typeSpec,
+        NamedTypeSpec[]? inherited = null)
+    {
+        return new ProtocolDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromTypeSpec(typeSpec),
+            MangledName = $"$s10TestModule{name.Length}{name}P",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = inherited?.ToList() ?? new List<NamedTypeSpec>(),
+            HasSelfRequirement = false,
+            IsClassBound = false,
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+    }
+
     private static StructDecl CreateStructDecl(string name, NamedTypeSpec typeSpec, params (string propName, NamedTypeSpec propType)[] properties)
     {
         var propertyDecls = new List<PropertyDecl>();
