@@ -87,7 +87,7 @@ class SimConfig:
     command_max_retries: int = 3
     command_backoff_base: float = 2.0      # seconds
     command_backoff_max: float = 8.0       # seconds
-    command_timeout: float = 30.0          # per-command timeout
+    command_timeout: float = 60.0          # per-command timeout (GHA simctl can be slow)
 
     # Boot phase settings
     boot_poll_interval: float = 3.0        # seconds between state polls

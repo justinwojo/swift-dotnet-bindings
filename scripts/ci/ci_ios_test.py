@@ -145,7 +145,7 @@ def run_tests(
     result = subprocess.run(
         cmd,
         cwd=test_framework_dir,
-        timeout=timeout + 60,  # Extra margin beyond test timeout
+        timeout=timeout + 300,  # run-runtime-tests.sh builds wrappers+bridge+app before tests
     )
 
     if result.returncode == 0:
