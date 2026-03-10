@@ -153,6 +153,7 @@ def run_tests(
     # Retry: much shorter — app is already built/cached, only needs test time.
     FIRST_ATTEMPT_OVERHEAD = 300  # seconds for wrapper+bridge+app build
     RETRY_OVERHEAD = 120          # cached build is much faster
+    APP_BUNDLE_ID = "com.swiftbindings.runtimetestsapp"
 
     for attempt in range(1, max_test_retries + 2):
         if attempt > 1:
@@ -167,6 +168,15 @@ def run_tests(
                     )
                     return 1
                 log.info("%.0fs remaining — enough for retry (need %ds)", remaining, min_retry_time)
+
+            # Terminate any lingering app from previous attempt to avoid launch_failure
+            log.info("Terminating lingering app before retry...")
+            try:
+                mgr = SimManager()
+                mgr.terminate_app(device_udid, APP_BUNDLE_ID)
+                time.sleep(2)  # Let simulator settle
+            except Exception:
+                pass  # App may not be running — that's fine
 
             log.info("=== TESTS: Retry attempt %d (previous run timed out) ===", attempt)
             gha_warning(f"Test retry attempt {attempt} after timeout/hang")
