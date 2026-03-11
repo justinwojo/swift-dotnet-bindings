@@ -404,7 +404,7 @@ public static class ConstructorWrapperEmitter
     /// and call argument expression.
     /// </summary>
     /// <param name="omitLabels">When true, omit argument labels (used when calling _dbw_init_* which uses _ for all params).</param>
-    private static (string cdeclParam, string? reconstruction, string callArg) GetCdeclParamMapping(
+    internal static (string cdeclParam, string? reconstruction, string callArg) GetCdeclParamMapping(
         ArgumentDecl arg, string label, MethodEnvironment env, bool omitLabels = false)
     {
         var swiftTypeSpec = arg.SwiftTypeSpec;
@@ -583,7 +583,7 @@ public static class ConstructorWrapperEmitter
     /// including Optional-wrapped protocol existentials.
     /// Protocol existentials are not C-representable and must be marshalled as UnsafeRawPointer in @_cdecl functions.
     /// </summary>
-    private static bool IsProtocolExistentialType(TypeSpec typeSpec, ITypeDatabase typeDatabase)
+    internal static bool IsProtocolExistentialType(TypeSpec typeSpec, ITypeDatabase typeDatabase)
     {
         // Direct protocol list: any Protocol or any P1 & P2
         if (typeSpec is ProtocolListTypeSpec)
@@ -615,7 +615,7 @@ public static class ConstructorWrapperEmitter
     /// These Swift generic types are not C-representable in @_cdecl functions and must be
     /// marshalled as UnsafeRawPointer with .load(as:) reconstruction in the wrapper body.
     /// </summary>
-    private static bool IsGenericContainerType(TypeSpec typeSpec)
+    internal static bool IsGenericContainerType(TypeSpec typeSpec)
     {
         if (typeSpec is not NamedTypeSpec named || named.GenericParameters.Count == 0)
             return false;
@@ -628,7 +628,7 @@ public static class ConstructorWrapperEmitter
     /// Returns true for types that can be passed directly through the C ABI
     /// without pointer wrapping (integers, floats, etc.).
     /// </summary>
-    private static bool IsCdeclPrimitive(TypeSpec typeSpec)
+    internal static bool IsCdeclPrimitive(TypeSpec typeSpec)
     {
         if (typeSpec is not NamedTypeSpec named)
             return false;
@@ -647,7 +647,7 @@ public static class ConstructorWrapperEmitter
     /// <summary>
     /// Maps C# enum underlying type names to Swift raw value type names.
     /// </summary>
-    private static string GetSwiftRawValueType(string? rawValueTypeName) => rawValueTypeName switch
+    internal static string GetSwiftRawValueType(string? rawValueTypeName) => rawValueTypeName switch
     {
         "Swift.Int" or "Int" => "Int",
         "Swift.UInt" or "UInt" => "UInt",

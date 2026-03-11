@@ -597,6 +597,12 @@ namespace BindingsGeneration
 
             foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1).Where(a => !a.IsGeneric && !_env.BoundGenericsHandler.IsBoundGeneric(a) && !_env.ClosureHandler.IsClosure(a) && !_env.TupleHandler.IsTuple(a) && !_env.ExistentialHandler.IsExistential(a) && (_env.MethodDecl.IsAccessor || !MarshallingHelpers.IsConvertibleType(a.SwiftTypeSpec))))
             {
+                // @_cdecl property wrapper: String params are passed as (IntPtr, int) directly.
+                // Skip PayloadBuffer extraction — there's no SwiftString to extract from.
+                if (_env.MethodDecl.UsesCdeclPropertyWrapper &&
+                    argumentDecl.SwiftTypeSpec is NamedTypeSpec strArgNts && strArgNts.Name == "Swift.String")
+                    continue;
+
                 TypeRecord typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(argumentDecl.SwiftTypeSpec);
                 var csName = NameProvider.GetCSharpParameterName(argumentDecl);
 

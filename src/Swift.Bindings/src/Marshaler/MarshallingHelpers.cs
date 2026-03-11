@@ -96,6 +96,18 @@ namespace BindingsGeneration
         {
             if (env.MethodDecl.IsAsync) return false;
 
+            // @_cdecl property wrappers can't return Swift structs (SBW_Utf8Slice).
+            // Force indirect result for String so the result is written via resultPtr parameter.
+            // Other types (classes, enums, non-frozen structs) are handled by the checks below.
+            // Frozen structs are caught at the end of this method.
+            // Setters return void — no indirect result needed.
+            if (env.MethodDecl.UsesCdeclPropertyWrapper && !MethodIsSetter(env.MethodDecl))
+            {
+                var returnTypeForCdecl = env.MethodDecl.CSSignature.First();
+                if (returnTypeForCdecl.SwiftTypeSpec is NamedTypeSpec nts && nts.Name == "Swift.String")
+                    return true;
+            }
+
             // Failable constructors (init?) always need indirect result because they return
             // Optional<Self> which must be checked for None before extracting the value.
             if (env.MethodDecl.IsConstructor && env.MethodDecl.IsFailable) return true;
@@ -146,6 +158,17 @@ namespace BindingsGeneration
 
             TypeRecord typeRecord = env.TypeDatabase.GetTypeRecordOrThrow(returnType.SwiftTypeSpec);
 
+            // @_cdecl property wrappers: NSString typedef structs (e.g., CALayerContentsGravity)
+            // are registered as kind="class" in XML but are Swift structs wrapping NSString.
+            // Unmanaged.passRetained() is invalid for these — must use indirect result.
+            if (env.MethodDecl.UsesCdeclPropertyWrapper &&
+                !MethodIsSetter(env.MethodDecl) &&
+                IsObjCBridged(typeRecord) &&
+                returnType.SwiftTypeSpec is NamedTypeSpec nsTypedefSpec &&
+                AppleFrameworkRegistry.TryGetNetTypeName(nsTypedefSpec.Name, out var remappedName) &&
+                remappedName == "Foundation.NSString")
+                return true;
+
             // Swift classes return pointers directly in registers, not via indirect result
             if (typeRecord.Kind == TypeRecordKind.Class)
                 return false;
@@ -157,6 +180,16 @@ namespace BindingsGeneration
                 return false;
 
             if (!IsTypeFrozen(typeRecord)) return true;
+
+            // @_cdecl property wrappers: frozen structs also need indirect result
+            // because @_cdecl can't return Swift structs (even @frozen ones).
+            // Primitives (Int, Float, Bool, CGFloat) are C-compatible and return directly.
+            // Setters return void — skip.
+            if (env.MethodDecl.UsesCdeclPropertyWrapper &&
+                !MethodIsSetter(env.MethodDecl) &&
+                !ConstructorWrapperEmitter.IsCdeclPrimitive(returnType.SwiftTypeSpec))
+                return true;
+
             return false;
         }
 

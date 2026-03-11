@@ -126,9 +126,12 @@ namespace BindingsGeneration
                 return;
             }
 
+            // String @_cdecl property wrappers use indirect result (resultPtr) because
+            // @_cdecl can't return Swift structs (SBW_Utf8Slice). Falls through to indirect result path below.
+
             if (MarshallingHelpers.MethodRequiresIndirectResult(_env))
             {
-                if (_env.MethodDecl.UsesCdeclConstructorWrapper)
+                if (_env.MethodDecl.UsesCdeclWrapper)
                 {
                     // @_cdecl wrapper: plain IntPtr result buffer, not SwiftIndirectResult register
                     AddParameter("IntPtr", "resultPtr");
@@ -346,6 +349,15 @@ namespace BindingsGeneration
 
                 // Determine ref modifier for inout parameters
                 var inoutModifier = argument.IsInOut ? "ref" : "";
+
+                // @_cdecl property wrapper: String params via UTF-8 pointer + length
+                if (_env.MethodDecl.UsesCdeclPropertyWrapper &&
+                    argument.SwiftTypeSpec is NamedTypeSpec argStrNamed && argStrNamed.Name == "Swift.String")
+                {
+                    AddParameter("IntPtr", csName + "Utf8Ptr");
+                    AddParameter("int", csName + "Utf8Len");
+                    continue;
+                }
 
                 if (argument.IsGeneric)
                 {
@@ -580,7 +592,7 @@ namespace BindingsGeneration
 
             if (_env.MethodDecl.Throws)
             {
-                if (_env.MethodDecl.UsesCdeclConstructorWrapper)
+                if (_env.MethodDecl.UsesCdeclWrapper)
                 {
                     // @_cdecl wrapper: error reported via out-pointer, not SwiftError register.
                     // 'out IntPtr' marshals as a pointer parameter — callee writes through it.
@@ -726,7 +738,7 @@ namespace BindingsGeneration
                     ParametersString = pInvokeParams,
                     IsAsync = methodDecl.IsAsync,
                     IsUnsafe = pInvokeParams.Contains("void*") || pInvokeParams.Contains("delegate*") || pInvokeParams.Contains("IntPtr*"),
-                    CallingConvention = methodDecl.UsesCdeclConstructorWrapper
+                    CallingConvention = methodDecl.UsesCdeclWrapper
                         ? PInvokeCallingConvention.Cdecl
                         : PInvokeCallingConvention.Swift
                 });

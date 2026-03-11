@@ -307,6 +307,7 @@ namespace BindingsGeneration
             EmitSafeHandleAddRef(csWriter);
 
             EmitDeclarationsForAllocations(csWriter);
+            EmitCdeclPayloadDeclaration(csWriter);
 
             EmitTryBlockStart(csWriter);
             EmitFixedBlockStart(csWriter);
@@ -444,7 +445,33 @@ namespace BindingsGeneration
             csWriter.WriteLine("finally");
             EmitBodyStart(csWriter);
             EmitSafeHandleRelease(csWriter);
+            EmitCdeclIndirectResultCleanup(csWriter);
             EmitBodyEnd(csWriter);
+        }
+
+        /// <summary>
+        /// Emits NativeMemory.Free for @_cdecl indirect result buffers allocated via NativeMemory.Alloc.
+        /// Non-cdecl paths use stack-based SwiftIndirectResult and don't need cleanup.
+        /// </summary>
+        private void EmitCdeclIndirectResultCleanup(CSharpWriter csWriter)
+        {
+            var cleanup = _syncPlan?.IndirectResultMethod?.CleanupCode;
+            if (cleanup != null)
+            {
+                csWriter.WriteLine(cleanup);
+            }
+        }
+
+        /// <summary>
+        /// Declares the payload variable before the try block so it's accessible in finally for cleanup.
+        /// Only emitted for @_cdecl wrappers that use NativeMemory.Alloc (not stack-based SwiftIndirectResult).
+        /// </summary>
+        private void EmitCdeclPayloadDeclaration(CSharpWriter csWriter)
+        {
+            if (_syncPlan?.IndirectResultMethod?.CleanupCode != null)
+            {
+                csWriter.WriteLine("void* payload = null;");
+            }
         }
 
         /// <summary>

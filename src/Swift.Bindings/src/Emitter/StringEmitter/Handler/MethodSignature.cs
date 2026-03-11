@@ -361,6 +361,16 @@ namespace BindingsGeneration
         {
             var argument = _env.MethodDecl.CSSignature.First();
 
+            // @_cdecl property wrapper: String returns via Utf8Slice (C struct), not SwiftString.
+            // The Swift @_cdecl wrapper returns SBW_Utf8Slice; C# receives it as Utf8Slice.
+            // No MarshalFromSwift needed — PropertyHandler's getter body handles the conversion.
+            if (_env.MethodDecl.UsesCdeclPropertyWrapper &&
+                argument.SwiftTypeSpec is NamedTypeSpec cdeclStrNts && cdeclStrNts.Name == "Swift.String")
+            {
+                SetReturnType("Utf8Slice");
+                return;
+            }
+
             // Try factory-based projection for non-tuple types.
             // Tuples use legacy handling to preserve element labels and match marshalling
             // (factory TupleProjection does deep conversion; marshalling hasn't been updated yet).
@@ -496,6 +506,16 @@ namespace BindingsGeneration
                     continue;
 
                 var csParamName = NameProvider.GetCSharpParameterName(argument);
+
+                // @_cdecl property wrapper: String params use UTF-8 pointer + length.
+                // Must match the P/Invoke signature (IntPtr {name}Utf8Ptr, int {name}Utf8Len).
+                if (_env.MethodDecl.UsesCdeclPropertyWrapper &&
+                    argument.SwiftTypeSpec is NamedTypeSpec cdeclStrArgNts && cdeclStrArgNts.Name == "Swift.String")
+                {
+                    AddParameter("IntPtr", csParamName + "Utf8Ptr");
+                    AddParameter("int", csParamName + "Utf8Len");
+                    continue;
+                }
 
                 // Try factory-based projection for non-tuple types (same guards as HandleReturnType)
                 if (argument.SwiftTypeSpec is not TupleTypeSpec)

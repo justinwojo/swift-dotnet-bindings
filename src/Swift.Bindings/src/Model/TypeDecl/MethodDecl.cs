@@ -218,6 +218,20 @@ namespace BindingsGeneration
         /// Set by ConstructorWrapperEmitter before SignatureHandler construction.
         /// </summary>
         public bool UsesCdeclConstructorWrapper { get; set; } = false;
+
+        /// <summary>
+        /// When true, this property accessor uses a @_cdecl Swift wrapper with C calling convention
+        /// instead of CallConvSwift. Routes property getter/setter P/Invokes through CallingConvention.Cdecl
+        /// to avoid NativeAOT/ARM64 ABI mismatches with enum, string, and non-blittable struct properties.
+        /// Set by PropertyWrapperEmitter before SignatureHandler construction.
+        /// </summary>
+        public bool UsesCdeclPropertyWrapper { get; set; } = false;
+
+        /// <summary>
+        /// Computed property: true if any @_cdecl wrapper is active (constructor or property).
+        /// Used in PInvokeEmitter and MethodMarshalPlanBuilder to route through Cdecl calling convention.
+        /// </summary>
+        public bool UsesCdeclWrapper => UsesCdeclConstructorWrapper || UsesCdeclPropertyWrapper;
     }
 
     /// <summary>

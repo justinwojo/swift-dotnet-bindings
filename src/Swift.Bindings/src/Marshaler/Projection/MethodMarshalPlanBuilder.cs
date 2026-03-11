@@ -336,6 +336,34 @@ internal class MethodMarshalPlanBuilder
         }
         else
         {
+            if (_env.MethodDecl.UsesCdeclWrapper)
+            {
+                // @_cdecl property wrapper: plain IntPtr result buffer, not SwiftIndirectResult register.
+                // Utf8Slice is a C# struct (no Swift metadata); use fixed-size allocation.
+                // Real Swift types use TypeMetadata for correct size.
+                // payload is declared before try block (EmitCdeclPayloadDeclaration)
+                // so it's accessible in finally for NativeMemory.Free cleanup.
+                var isUtf8Slice = _wrapperSignature.ReturnType == "Utf8Slice";
+                var allocCode = isUtf8Slice
+                    ? """
+                        payload = NativeMemory.Alloc((nuint)(nint.Size * 2));
+                        var resultPtr = (IntPtr)payload;
+                        """
+                    : $$"""
+                        var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<{{_wrapperSignature.ReturnType}}>();
+                        payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                        var resultPtr = (IntPtr)payload;
+                        """;
+
+                return new IndirectResultSetup
+                {
+                    IsConstructor = false,
+                    ReturnTypeName = _wrapperSignature.ReturnType,
+                    AllocationCode = allocCode,
+                    CleanupCode = "NativeMemory.Free(payload);"
+                };
+            }
+
             return new IndirectResultSetup
             {
                 IsConstructor = false,
@@ -381,7 +409,7 @@ internal class MethodMarshalPlanBuilder
         // @_cdecl constructor wrappers use out IntPtr errorPtr instead of SwiftError swiftError.
         // The error pointer is the same retained AnyObject as SwiftError.Value — all downstream
         // error infrastructure (SBW_GetErrorDescription, SBW_ReleaseError) works identically.
-        bool isCdeclConstructor = _env.MethodDecl.UsesCdeclConstructorWrapper;
+        bool isCdeclConstructor = _env.MethodDecl.UsesCdeclWrapper;
 
         string errorCheckCode;
         if (syncTypedErrorType != null)

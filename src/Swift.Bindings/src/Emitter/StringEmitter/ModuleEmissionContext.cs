@@ -245,6 +245,13 @@ public sealed class ModuleEmissionContext
     /// <summary>Adds an ObjC override property wrapper symbol. Returns true if newly added.</summary>
     public bool TryAddObjCPropertyWrapperSymbol(string symbol) => _objcPropertyWrapperSymbols.Add(symbol);
 
+    // ==================== Property @_cdecl Wrapper ====================
+
+    private readonly HashSet<string> _propertyWrapperSymbols = new();
+
+    /// <summary>Adds a property @_cdecl wrapper symbol. Returns true if newly added (not a duplicate).</summary>
+    public bool TryAddPropertyWrapperSymbol(string symbol) => _propertyWrapperSymbols.Add(symbol);
+
     // ==================== Enum Handler RawRepresentable ====================
 
     private readonly HashSet<string> _enumRawRepSymbols = new();

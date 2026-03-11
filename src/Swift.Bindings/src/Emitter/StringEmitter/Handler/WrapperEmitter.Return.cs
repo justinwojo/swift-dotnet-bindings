@@ -77,6 +77,19 @@ namespace BindingsGeneration
         {
             var returnArg = _env.MethodDecl.CSSignature.First();
 
+            // @_cdecl property wrapper: String returns SBW_Utf8Slice via resultPtr (out-parameter)
+            // because @_cdecl can't return Swift structs. Read the Utf8Slice from the result buffer.
+            if (_env.MethodDecl.UsesCdeclPropertyWrapper &&
+                returnArg.SwiftTypeSpec is NamedTypeSpec cdeclStrNts && cdeclStrNts.Name == "Swift.String")
+            {
+                csWriter.WriteLines("""
+                    unsafe {
+                        return *(Utf8Slice*)resultPtr;
+                    }
+                    """);
+                return;
+            }
+
             if (_requiresSwiftAsync)
             {
                 csWriter.WriteLine("return _tcs.Task;");
@@ -94,7 +107,9 @@ namespace BindingsGeneration
             // returns null (user-defined generics). Uses the wrapper signature's return type.
             if (_requiresIndirectResult)
             {
-                csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(new IntPtr(swiftIndirectResult.Value));");
+                // @_cdecl wrappers use plain IntPtr resultPtr, not SwiftIndirectResult
+                var resultExpr = _env.MethodDecl.UsesCdeclWrapper ? "resultPtr" : "new IntPtr(swiftIndirectResult.Value)";
+                csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>({resultExpr});");
                 return;
             }
 

@@ -245,6 +245,12 @@ public record IndirectResultSetup
 
     /// <summary>Allocation and SwiftIndirectResult creation code.</summary>
     public required string AllocationCode { get; init; }
+
+    /// <summary>
+    /// Cleanup code emitted after reading the return value (e.g., NativeMemory.Free).
+    /// Null when no cleanup is needed (stack-based SwiftIndirectResult, constructor paths).
+    /// </summary>
+    public string? CleanupCode { get; init; }
 }
 
 /// <summary>

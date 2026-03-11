@@ -425,8 +425,9 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             }
         }
 
-        // Check if this property needs ObjC override wrappers BEFORE emitting accessor methods.
-        // Must be determined once, then applied to each accessor — not per-accessor.
+        // Check if this property needs @_cdecl wrappers BEFORE emitting accessor methods.
+        // PropertyWrapperEmitter takes priority; ObjCOverridePropertyWrapperEmitter is fallback.
+        bool needsCdeclWrapper = false;
         bool needsObjCOverrideWrapper = false;
         if (propertyDecl.Accessors.Count > 0)
         {
@@ -436,7 +437,10 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             if (conductor.TryGetMethodHandler(firstAccessor.Method, out var checkHandler))
             {
                 var checkEnv = (MethodEnvironment)checkHandler.Marshal(firstAccessor.Method, propertyEnv.TypeDatabase);
-                needsObjCOverrideWrapper = ObjCOverridePropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, checkEnv);
+                needsCdeclWrapper = PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, checkEnv);
+                // Only check ObjC override if @_cdecl doesn't handle it
+                if (!needsCdeclWrapper)
+                    needsObjCOverrideWrapper = ObjCOverridePropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, checkEnv);
             }
         }
 
@@ -449,10 +453,41 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 // Type conversions would cause a mismatch between property type and accessor return/param types
                 accessor.Method.IsAccessor = true;
 
+                // @_cdecl property wrapper: set flags BEFORE Marshal/Emit so that
+                // SignatureHandler and PInvokeEmitter see the updated MangledName and flags.
+                if (needsCdeclWrapper && propertyDecl.ParentDecl is TypeDecl parentTypeDecl3 && parentTypeDecl3.SwiftTypeName != null)
+                {
+                    bool isGetter = accessor is GetAccessorDecl;
+                    var symbol = PropertyWrapperEmitter.GetAccessorSymbolName(
+                        parentTypeDecl3.SwiftTypeName.Module,
+                        parentTypeDecl3.Name,
+                        propertyDecl.Name,
+                        isGetter);
+
+                    accessor.Method.UsesCdeclPropertyWrapper = true;
+                    accessor.Method.UsesWrapperLibrary = true;
+                    accessor.Method.UsesFreeFunctionWrapper = true;
+                    accessor.Method.MangledName = symbol;
+
+                    // Get the accessor env for emission
+                    var cdeclCheckEnv = (MethodEnvironment)methodHandler.Marshal(accessor.Method, propertyEnv.TypeDatabase);
+
+                    // Emit the Swift @_cdecl wrapper function
+                    if (isGetter)
+                    {
+                        PropertyWrapperEmitter.EmitSwiftGetterWrapper(
+                            swiftWriter, propertyDecl, symbol, cdeclCheckEnv, context.GetEmissionContext());
+                    }
+                    else
+                    {
+                        PropertyWrapperEmitter.EmitSwiftSetterWrapper(
+                            swiftWriter, propertyDecl, symbol, cdeclCheckEnv, context.GetEmissionContext());
+                    }
+                }
                 // ObjC override property wrapper: set flags BEFORE Marshal/Emit so that
                 // SignatureHandler and PInvokeEmitter see the updated MangledName and flags.
                 // Must happen before methodHandler.Marshal since the environment captures MangledName.
-                if (needsObjCOverrideWrapper && propertyDecl.ParentDecl is TypeDecl parentTypeDecl2 && parentTypeDecl2.SwiftTypeName != null)
+                else if (needsObjCOverrideWrapper && propertyDecl.ParentDecl is TypeDecl parentTypeDecl2 && parentTypeDecl2.SwiftTypeName != null)
                 {
                     bool isGetter = accessor is GetAccessorDecl;
                     var symbol = ObjCOverridePropertyWrapperEmitter.GetAccessorSymbolName(
@@ -489,6 +524,24 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 if (context.CompositionCollector != null)
                     accessorEnv.ExistentialHandler.SetCompositionCollector(context.CompositionCollector);
                 methodHandler.Emit(csWriter, swiftWriter, accessorEnv, conductor, context);
+            }
+        }
+
+        // @_cdecl property wrapper: emit SBW_Free P/Invoke for string getters (once per type)
+        if (needsCdeclWrapper && WitnessDispatchEmitter.IsStringType(propertyDecl.SwiftTypeSpec))
+        {
+            var typeKey = (propertyDecl.ParentDecl as TypeDecl)?.SwiftTypeName?.ModuleQualifiedName
+                ?? propertyDecl.ModuleDecl?.Name ?? "";
+            if (!Utf8SliceEmitter.HasFreePInvokeForType(typeKey, context.GetEmissionContext()))
+            {
+                Utf8SliceEmitter.MarkFreePInvokeEmittedForType(typeKey, context.GetEmissionContext());
+                var moduleName = propertyDecl.ModuleDecl?.Name ?? "";
+                var wrapperLibPath = propertyEnv.TypeDatabase.AsyncLibraryName
+                    ?? propertyEnv.TypeDatabase.GetLibraryPath(moduleName);
+                var freeSymbol = Utf8SliceEmitter.GetFreeSymbolName(moduleName);
+                csWriter.WriteLine($"[LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{freeSymbol}\")]");
+                csWriter.WriteLine("private static partial void SBW_Free(IntPtr ptr);");
+                csWriter.WriteLine();
             }
         }
 
@@ -655,6 +708,16 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             return;
         }
 
+        // @_cdecl property wrapper: String getters return SBW_Utf8Slice → decode to string
+        if (getter.Method.UsesCdeclPropertyWrapper && WitnessDispatchEmitter.IsStringType(propertyDecl.SwiftTypeSpec))
+        {
+            csWriter.WriteLine($"get {{ var __slice = {methodName}(); " +
+                $"if (__slice.Len == 0) return string.Empty; " +
+                $"try {{ return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; }} " +
+                $"finally {{ SBW_Free(__slice.Ptr); }} }}");
+            return;
+        }
+
         var projection = s_projectionFactory.Project(propertyDecl.SwiftTypeSpec,
             new ProjectionContext { TypeDatabase = propertyEnv.TypeDatabase, IsParameter = false, GenericContext = genericContext });
         if (projection != null)
@@ -714,6 +777,18 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         if (isExistential || isOptionalExistential)
         {
             csWriter.WriteLine($"set => {methodName}(value);");
+            return;
+        }
+
+        // @_cdecl property wrapper: String setters encode to UTF-8 bytes, pin, and pass pointer + length
+        if (setter.Method.UsesCdeclPropertyWrapper && WitnessDispatchEmitter.IsStringType(propertyDecl.SwiftTypeSpec))
+        {
+            csWriter.WriteLines($$"""
+                set {
+                    var __utf8 = System.Text.Encoding.UTF8.GetBytes(value);
+                    unsafe { fixed (byte* __p = __utf8) { {{methodName}}((IntPtr)__p, __utf8.Length); } }
+                }
+                """);
             return;
         }
 
