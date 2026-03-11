@@ -1,5 +1,5 @@
 {
-  "git_sha": "4c1a025f",
+  "git_sha": "f652eff7",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
@@ -17,7 +17,7 @@
       "BlinkIDUX": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 12098,
+        "lines": 12061,
         "dep_compile": "ok"
       },
       "BRLMPrinterKit": {

@@ -98,19 +98,17 @@ public static class AsyncStreamEmitter
         var isStatic = propertyDecl.IsStatic;
         var selfParam = isStatic ? "" : "_ self: " + parentTypeName + ", ";
         var selfAccess = isStatic ? parentTypeName : "self";
-        // Check both property-level and parent type-level actor isolation
-        bool isMainActorIsolated = propertyDecl.IsActorIsolated
-            || (propertyDecl.ParentDecl as TypeDecl)?.IsMainActorIsolated == true;
-        bool isOnCustomActor = (propertyDecl.ParentDecl as ClassDecl)?.IsActor == true && !isMainActorIsolated;
-        var mainActorAttr = isMainActorIsolated ? "@MainActor " : "";
+        // Note: @MainActor-isolated instance AsyncStream properties are skipped at the gate
+        // (PropertyHandler + MemberEmissionValidator) because the wrapper captures `self` as a
+        // function parameter, which Swift 6 strict concurrency won't allow to access actor-isolated
+        // properties through. Only custom actor and non-isolated properties reach here.
+        bool isOnCustomActor = (propertyDecl.ParentDecl as ClassDecl)?.IsActor == true;
         // Custom actor properties need `await` to access from within a Task
         var awaitPrefix = isOnCustomActor ? "await " : "";
-        // @MainActor functions: Task { } doesn't inherit actor context, so we need
-        // Task { @MainActor in } to access actor-isolated properties within the task.
-        var taskOpen = isMainActorIsolated ? "Task { @MainActor in" : "Task {";
+        var taskOpen = "Task {";
 
         swiftWriter.WriteLines($$"""
-            {{mainActorAttr}}@_silgen_name("{{swiftWrapperName}}")
+            @_silgen_name("{{swiftWrapperName}}")
             public func {{swiftWrapperName}}(
                 {{selfParam}}elementCallback: @escaping @convention(c) (UnsafeRawPointer, Int64) -> Bool,
                 completionCallback: @escaping @convention(c) (Int64) -> Void,

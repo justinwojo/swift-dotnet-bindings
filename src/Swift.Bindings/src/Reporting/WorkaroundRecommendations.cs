@@ -40,6 +40,8 @@ public static class WorkaroundRecommendations
             "Rename one member via a Swift extension to disambiguate.",
         SkipReason.GenericTypeCallback =>
             "Write a Swift wrapper that avoids closures or async in generic type members.",
+        SkipReason.ActorIsolatedAsyncStream =>
+            "@MainActor-isolated AsyncStream properties cannot be wrapped (self is a function parameter). Use a Swift wrapper that accesses the property through actor method dispatch.",
         SkipReason.StaticProtocolMember =>
             "Static protocol members cannot be dispatched through witness tables. Use a Swift wrapper.",
         SkipReason.SynthesizedCodable =>
@@ -87,6 +89,8 @@ public static class WorkaroundRecommendations
             "C# signature collides with another member",
         SkipReason.GenericTypeCallback =>
             "closure or async in generic type member",
+        SkipReason.ActorIsolatedAsyncStream =>
+            "@MainActor-isolated AsyncStream property (self is function parameter)",
         SkipReason.StaticProtocolMember =>
             "static protocol member cannot be dispatched",
         SkipReason.SynthesizedCodable =>

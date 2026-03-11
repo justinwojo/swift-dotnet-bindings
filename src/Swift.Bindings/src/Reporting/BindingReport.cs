@@ -59,6 +59,7 @@ public enum SkipReason
     SwiftUIView,
     StaticProtocolMember,
     GenericTypeCallback,
+    ActorIsolatedAsyncStream,
     SynthesizedCodable,
     UnderscorePrefixInternal,
     ModuleInternal,

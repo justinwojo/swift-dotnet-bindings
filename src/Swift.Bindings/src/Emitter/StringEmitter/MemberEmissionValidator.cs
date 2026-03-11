@@ -93,6 +93,17 @@ public static class MemberEmissionValidator
                 skipDetails = "AsyncStream element type is not supported.";
                 return SkipReason.UnsupportedAsyncStream;
             }
+            // Skip @MainActor-isolated instance AsyncStream properties — the wrapper captures
+            // `self` as a function parameter, not the actor's implicit self (Swift 6 strict concurrency).
+            if (!property.IsStatic && !property.IsNonisolated)
+            {
+                bool isParentMainActorIsolated = (property.ParentDecl as TypeDecl)?.IsMainActorIsolated == true;
+                if (isParentMainActorIsolated || property.IsActorIsolated)
+                {
+                    skipDetails = "@MainActor-isolated AsyncStream property cannot be wrapped — self is a function parameter, not the actor's implicit self.";
+                    return SkipReason.ActorIsolatedAsyncStream;
+                }
+            }
             // AsyncStream is handled specially - it's emittable
             projectedTypeName = asyncStreamHandler.GetCSharpElementType(property.SwiftTypeSpec);
             return null;

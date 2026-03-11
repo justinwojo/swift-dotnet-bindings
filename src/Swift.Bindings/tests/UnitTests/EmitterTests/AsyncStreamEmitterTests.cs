@@ -7,31 +7,13 @@ using Xunit;
 namespace BindingsGeneration.Tests;
 
 /// <summary>
-/// Tests for AsyncStreamEmitter — specifically the @MainActor Task isolation fix (Issue K).
+/// Tests for AsyncStreamEmitter — Issue K: @MainActor-isolated AsyncStream properties are skipped
+/// because the wrapper captures `self` as a function parameter, not the actor's implicit self.
+/// Swift 6 strict concurrency won't allow accessing @MainActor-isolated properties through a
+/// captured reference parameter.
 /// </summary>
 public class AsyncStreamEmitterTests
 {
-    [Fact]
-    public void EmitSwiftWrapper_MainActorIsolatedParent_EmitsTaskWithMainActor()
-    {
-        var moduleDecl = CreateModuleDecl("TestModule");
-        var classDecl = CreateClassDecl("Camera", moduleDecl);
-        classDecl.IsMainActorIsolated = true;
-
-        var property = CreateAsyncStreamProperty("sampleBuffer", classDecl, moduleDecl);
-        var asyncStreamHandler = new AsyncStreamHandler(new TypeDatabase());
-
-        var swiftOutput = new StringWriter();
-        var swiftWriter = new SwiftWriter(swiftOutput);
-
-        AsyncStreamEmitter.EmitSwiftWrapper(swiftWriter, property, asyncStreamHandler,
-            "Camera_sampleBuffer_AsyncStream", "TestModule.Camera");
-
-        var swift = swiftOutput.ToString();
-        Assert.Contains("@MainActor @_silgen_name(", swift);
-        Assert.Contains("Task { @MainActor in", swift);
-    }
-
     [Fact]
     public void EmitSwiftWrapper_NonIsolatedParent_EmitsPlainTask()
     {
@@ -39,7 +21,7 @@ public class AsyncStreamEmitterTests
         var classDecl = CreateClassDecl("Sensor", moduleDecl);
 
         var property = CreateAsyncStreamProperty("readings", classDecl, moduleDecl);
-        var asyncStreamHandler = new AsyncStreamHandler(new TypeDatabase());
+        var asyncStreamHandler = new AsyncStreamHandler(new MockTypeDatabase());
 
         var swiftOutput = new StringWriter();
         var swiftWriter = new SwiftWriter(swiftOutput);
@@ -51,6 +33,99 @@ public class AsyncStreamEmitterTests
         Assert.DoesNotContain("@MainActor", swift);
         Assert.Contains("Task {", swift);
         Assert.DoesNotContain("@MainActor in", swift);
+    }
+
+    [Fact]
+    public void MemberEmissionValidator_SkipsMainActorIsolatedAsyncStream()
+    {
+        var typeDatabase = new MockTypeDatabase();
+
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = CreateClassDecl("Camera", moduleDecl);
+        classDecl.IsMainActorIsolated = true;
+
+        var property = CreateAsyncStreamProperty("sampleBuffer", classDecl, moduleDecl);
+
+        var skipReason = MemberEmissionValidator.CanEmitProperty(
+            property, typeDatabase, out var skipDetails, out var projectedTypeName);
+
+        Assert.Equal(SkipReason.ActorIsolatedAsyncStream, skipReason);
+        Assert.Contains("@MainActor-isolated", skipDetails!);
+        Assert.Null(projectedTypeName);
+    }
+
+    [Fact]
+    public void MemberEmissionValidator_SkipsPropertyLevelActorIsolatedAsyncStream()
+    {
+        var typeDatabase = new MockTypeDatabase();
+
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = CreateClassDecl("DataStream", moduleDecl);
+        // Parent is NOT @MainActor, but property itself is
+
+        var property = CreateAsyncStreamProperty("events", classDecl, moduleDecl);
+        property.IsActorIsolated = true;
+
+        var skipReason = MemberEmissionValidator.CanEmitProperty(
+            property, typeDatabase, out var skipDetails, out var projectedTypeName);
+
+        Assert.Equal(SkipReason.ActorIsolatedAsyncStream, skipReason);
+        Assert.Null(projectedTypeName);
+    }
+
+    [Fact]
+    public void MemberEmissionValidator_AllowsNonIsolatedAsyncStream()
+    {
+        var typeDatabase = new MockTypeDatabase();
+
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = CreateClassDecl("Sensor", moduleDecl);
+
+        var property = CreateAsyncStreamProperty("readings", classDecl, moduleDecl);
+
+        var skipReason = MemberEmissionValidator.CanEmitProperty(
+            property, typeDatabase, out var skipDetails, out var projectedTypeName);
+
+        Assert.Null(skipReason);
+        Assert.Equal("long", projectedTypeName);
+    }
+
+    [Fact]
+    public void MemberEmissionValidator_AllowsStaticMainActorAsyncStream()
+    {
+        var typeDatabase = new MockTypeDatabase();
+
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = CreateClassDecl("Camera", moduleDecl);
+        classDecl.IsMainActorIsolated = true;
+
+        var property = CreateAsyncStreamProperty("globalUpdates", classDecl, moduleDecl);
+        property.IsStatic = true; // Static doesn't capture self
+
+        var skipReason = MemberEmissionValidator.CanEmitProperty(
+            property, typeDatabase, out var skipDetails, out var projectedTypeName);
+
+        Assert.Null(skipReason);
+        Assert.Equal("long", projectedTypeName);
+    }
+
+    [Fact]
+    public void MemberEmissionValidator_AllowsNonisolatedAsyncStreamOnMainActorType()
+    {
+        var typeDatabase = new MockTypeDatabase();
+
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = CreateClassDecl("Camera", moduleDecl);
+        classDecl.IsMainActorIsolated = true;
+
+        var property = CreateAsyncStreamProperty("statusUpdates", classDecl, moduleDecl);
+        property.IsNonisolated = true; // Explicitly opts out of parent's isolation
+
+        var skipReason = MemberEmissionValidator.CanEmitProperty(
+            property, typeDatabase, out var skipDetails, out var projectedTypeName);
+
+        Assert.Null(skipReason);
+        Assert.Equal("long", projectedTypeName);
     }
 
     #region Helpers
@@ -91,8 +166,8 @@ public class AsyncStreamEmitterTests
 
     private static PropertyDecl CreateAsyncStreamProperty(string name, TypeDecl parentDecl, ModuleDecl moduleDecl)
     {
-        // AsyncStream<Element> type spec
-        var asyncStreamType = new NamedTypeSpec("Swift.AsyncStream",
+        // AsyncStream<Element> type spec — use _Concurrency.AsyncStream as the handler expects
+        var asyncStreamType = new NamedTypeSpec("_Concurrency.AsyncStream",
             new TypeSpec[] { new NamedTypeSpec("Swift.Int") });
 
         return new PropertyDecl
@@ -105,6 +180,42 @@ public class AsyncStreamEmitterTests
             Accessors = new List<AccessorDecl>(),
             HasStorage = false,
         };
+    }
+
+    /// <summary>
+    /// Mock type database with Swift.Int registered so AsyncStream element type resolves.
+    /// </summary>
+    private class MockTypeDatabase : ITypeDatabase
+    {
+        private readonly Dictionary<string, TypeRecord> _types;
+
+        public string AsyncLibraryName => null!;
+
+        public MockTypeDatabase()
+        {
+            _types = new Dictionary<string, TypeRecord>
+            {
+                ["Swift.Int"] = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                    MetadataAccessor = "",
+                    Flags = TypeRecordFlags.Frozen,
+                    Kind = TypeRecordKind.Struct
+                }
+            };
+        }
+
+        public bool IsTypeProcessed(SwiftTypeName swiftTypeName) => _types.ContainsKey(swiftTypeName.ModuleQualifiedName);
+
+        public bool TryGetTypeRecord(SwiftTypeName swiftTypeName, out TypeRecord record)
+        {
+            return _types.TryGetValue(swiftTypeName.ModuleQualifiedName, out record);
+        }
+
+        public string GetLibraryPath(string moduleName) => "";
+
+        public void UpdateTypeRecord(SwiftTypeName name, TypeRecord record) { }
     }
 
     #endregion
