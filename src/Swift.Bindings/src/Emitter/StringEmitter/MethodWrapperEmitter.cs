@@ -100,8 +100,8 @@ public static class MethodWrapperEmitter
         if (env.MethodDecl.UsesWrapperLibrary)
             return false;
 
-        // 14. No generic container params/returns
-        if (HasGenericContainerParamsOrReturn(env))
+        // 14. No generic container params/returns (except Optional<reference-type>)
+        if (HasNonReferenceOptionalGenericContainerParamsOrReturn(env))
             return false;
 
         var returnSpec = env.MethodDecl.CSSignature.First().SwiftTypeSpec;
@@ -122,9 +122,10 @@ public static class MethodWrapperEmitter
         if (returnSpec.IsDynamicSelf)
             return false;
 
-        // 16. No large Optional params/returns
-        if (env.BoundGenericsHandler.HasLargeOptionalParams(env.MethodDecl) ||
-            env.BoundGenericsHandler.IsLargeOptionalReturn(env.MethodDecl))
+        // 16. No large Optional params/returns (unless all optionals are reference-type)
+        if ((env.BoundGenericsHandler.HasLargeOptionalParams(env.MethodDecl) ||
+             env.BoundGenericsHandler.IsLargeOptionalReturn(env.MethodDecl)) &&
+            !AllOptionalParamsAndReturnAreReferenceType(env))
             return false;
 
         // 17. No nested type returns
@@ -475,6 +476,9 @@ public static class MethodWrapperEmitter
                 case PropertyWrapperEmitter.CdeclReturnKind.ClassPointer:
                     swiftWriter.WriteLine("    return UnsafeMutableRawPointer(bitPattern: 1)!");
                     break;
+                case PropertyWrapperEmitter.CdeclReturnKind.OptionalClassPointer:
+                    swiftWriter.WriteLine("    return nil");
+                    break;
                 case PropertyWrapperEmitter.CdeclReturnKind.Direct:
                     swiftWriter.WriteLine("    return 0");
                     break;
@@ -530,6 +534,10 @@ public static class MethodWrapperEmitter
 
             case PropertyWrapperEmitter.CdeclReturnKind.ClassPointer:
                 swiftWriter.WriteLine($"return Unmanaged.passRetained({callExpr}).toOpaque()");
+                break;
+
+            case PropertyWrapperEmitter.CdeclReturnKind.OptionalClassPointer:
+                swiftWriter.WriteLine($"return ({callExpr}).map {{ Unmanaged.passRetained($0).toOpaque() }}");
                 break;
 
             case PropertyWrapperEmitter.CdeclReturnKind.Direct:
@@ -652,21 +660,93 @@ public static class MethodWrapperEmitter
     }
 
     /// <summary>
-    /// Checks whether any parameter or the return type is a generic container type.
+    /// Checks whether any parameter or the return type is a generic container type
+    /// that is NOT an Optional with a reference-type inner.
+    /// Optional&lt;Class&gt;, Optional&lt;ObjC-bridged&gt;, Optional&lt;ObjC-rooted&gt; use nullable pointer ABI
+    /// and are safe to pass through @_cdecl wrappers.
     /// </summary>
-    private static bool HasGenericContainerParamsOrReturn(MethodEnvironment env)
+    private static bool HasNonReferenceOptionalGenericContainerParamsOrReturn(MethodEnvironment env)
     {
-        // Check return type
         var returnSpec = env.MethodDecl.CSSignature.First().SwiftTypeSpec;
-        if (ConstructorWrapperEmitter.IsGenericContainerType(returnSpec))
+        if (ConstructorWrapperEmitter.IsGenericContainerType(returnSpec) &&
+            !IsOptionalWithReferenceInner(returnSpec, env.TypeDatabase))
             return true;
 
-        // Check parameters
         foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
         {
-            if (ConstructorWrapperEmitter.IsGenericContainerType(arg.SwiftTypeSpec))
+            if (ConstructorWrapperEmitter.IsGenericContainerType(arg.SwiftTypeSpec) &&
+                !IsOptionalWithReferenceInner(arg.SwiftTypeSpec, env.TypeDatabase))
                 return true;
         }
+        return false;
+    }
+
+    /// <summary>
+    /// Checks that every Optional param and return in the method has a reference-type inner.
+    /// If ANY Optional is value-type, returns false (whole method deferred).
+    /// </summary>
+    private static bool AllOptionalParamsAndReturnAreReferenceType(MethodEnvironment env)
+    {
+        var returnSpec = env.MethodDecl.CSSignature.First().SwiftTypeSpec;
+        if (IsOptionalType(returnSpec) && !IsOptionalWithReferenceInner(returnSpec, env.TypeDatabase))
+            return false;
+
+        foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
+        {
+            if (IsOptionalType(arg.SwiftTypeSpec) && !IsOptionalWithReferenceInner(arg.SwiftTypeSpec, env.TypeDatabase))
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Returns true for Swift.Optional&lt;T&gt; type specs (any generic parameter count > 0).
+    /// </summary>
+    internal static bool IsOptionalType(TypeSpec typeSpec)
+        => typeSpec is NamedTypeSpec { Name: "Swift.Optional", GenericParameters.Count: > 0 };
+
+    /// <summary>
+    /// Returns true for Optional&lt;T&gt; where T is a reference-like type (Class, ObjC-bridged, ObjC-rooted).
+    /// These use nullable pointer ABI (UnsafeMutableRawPointer?) in @_cdecl wrappers.
+    /// </summary>
+    internal static bool IsOptionalWithReferenceInner(TypeSpec typeSpec, ITypeDatabase typeDatabase)
+    {
+        if (!IsOptionalType(typeSpec))
+            return false;
+
+        var inner = ((NamedTypeSpec)typeSpec).GenericParameters[0];
+        if (inner is not NamedTypeSpec innerNamed)
+            return false;
+
+        // Path 1: Type has a TypeRecord — check kind directly
+        if (typeDatabase.TryGetTypeRecord(inner, out var typeRecord))
+        {
+            // NSString typedef structs (e.g., CALayerContentsGravity, CATransitionType) are
+            // ObjC-bridged in the type database but are Swift structs wrapping NSString, not
+            // class instances. Unmanaged<T> requires a class, so these must NOT be treated
+            // as reference types. Mirrors the exclusion in GetCdeclReturnMapping and
+            // GetCdeclParamMapping.
+            if (MarshallingHelpers.IsObjCBridged(typeRecord) &&
+                AppleFrameworkRegistry.TryGetNetTypeName(innerNamed.Name, out var remapped) &&
+                remapped == "Foundation.NSString")
+                return false;
+
+            return typeRecord.Kind == TypeRecordKind.Class ||
+                   MarshallingHelpers.IsObjCBridged(typeRecord) ||
+                   MarshallingHelpers.IsObjCRooted(typeRecord);
+        }
+
+        // Path 2: Unresolved Apple framework ObjC class fallback.
+        // Delegate to MarshallingHelpers.IsOptionalObjCBridged which handles both the
+        // TypeRecord path AND the fallback heuristic: IsOptionalFallbackModule +
+        // !IsNestedType + !IsKnownAppleValueType + HasObjCClassPrefix.
+        // Since Path 1 already handled the TypeRecord case, this only triggers the
+        // fallback heuristic. Add defense-in-depth checks matching TypeProjectionFactory.
+        if (!innerNamed.ContainsGenericParameters &&
+            !AppleFrameworkRegistry.IsPointerType(innerNamed.Name) &&
+            MarshallingHelpers.IsOptionalObjCBridged(typeSpec, typeDatabase))
+            return true;
+
         return false;
     }
 }

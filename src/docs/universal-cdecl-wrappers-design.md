@@ -472,16 +472,33 @@ C# P/Invoke returns `TypeMetadata` directly (blittable `readonly struct` wrappin
 
 **Problem**: `Optional<T>` hits the generic container guard in `PropertyWrapperEmitter` and `MethodWrapperEmitter`. Properties with `Optional<NSURLResponse>`, `Optional<CacheType>`, etc. fall through to `CallConvSwift`.
 
-**Solution**: Extend property/method wrapper emitters to handle Optional parameters and returns:
-- **Optional class** (reference type): `UnsafeMutableRawPointer?` — nil = null pointer, non-nil = `Unmanaged.passRetained().toOpaque()`
-- **Optional value type** (enum, struct): Write to out-buffer + `Int32` null flag (pattern already exists in `WrapperEmitter.Return.cs` for async optional returns)
-- **Optional frozen struct**: Inline buffer + null flag
+**Solution**: Split into two sub-phases by type kind:
 
-Property and method wrappers already handle non-optional versions of each type. The extension adds the null-check + flag/pointer-nil encoding.
+##### Sub-phase C.1: Optional\<reference-type\> [COMPLETE]
 
-**Files**: `PropertyWrapperEmitter.cs`, `MethodWrapperEmitter.cs`, `ConstructorWrapperEmitter.cs` (parameter loop), `GetCdeclParamMapping()` (return marshalling).
+**Approach**: Nullable pointer ABI (`UnsafeMutableRawPointer?`). The IntPtr from C# IS the object pointer (or 0 for nil). No buffer or flag needed.
 
-**Effort**: Medium. The marshalling patterns exist (async optional returns), but applying them uniformly across property/method/constructor wrappers requires careful per-type handling.
+- **Guards lifted**: MethodWrapperEmitter guard 14 (generic containers) and guard 16 (large optionals) now allow Optional\<Class\>, Optional\<ObjC-bridged\>, and Optional\<ObjC-rooted\> through.
+- **PropertyWrapperEmitter**: Guard 7 (large optionals) and guard 9 (generic containers) allow reference-type optionals. ObjC-bridged read-write properties remain blocked (setter IntPtr alias incompatibility).
+- **New return kind**: `CdeclReturnKind.OptionalClassPointer` — returns `result.map { Unmanaged.passRetained($0).toOpaque() }`.
+- **New param mapping**: `GetCdeclParamMapping` intercepts Optional\<reference\> before the generic-container path: receives `UnsafeMutableRawPointer?`, reconstructs via `label.map { Unmanaged<T>.fromOpaque($0).takeUnretainedValue() }`.
+- **Key insight**: C# side needs NO changes — PInvokeSignatureBuilder short-circuits all bound-generic returns to IntPtr (correct for nullable pointer).
+- **Helper**: `IsOptionalWithReferenceInner()` is the single gate, handling both TypeRecord-based classification and unresolved Apple framework ObjC fallback heuristic.
+- **NSString typedef exclusion**: NSString typedef structs (`CALayerContentsGravity`, `CATransitionType`, etc.) are `ObjCBridged` in the type database but are Swift structs wrapping NSString — `Unmanaged<T>` requires a class. The helper excludes these via `TryGetNetTypeName` → `"Foundation.NSString"`, mirroring the existing carveouts in `GetCdeclReturnMapping` and `GetCdeclParamMapping`.
+
+**Files modified**: `MethodWrapperEmitter.cs`, `PropertyWrapperEmitter.cs`, `ConstructorWrapperEmitter.cs`.
+
+##### Sub-phase C.2: Optional\<value-type\> [DEFERRED]
+
+**Approach**: Buffer + discriminant flag. Optional\<Bool\>, Optional\<Int\>, Optional\<SwiftString\>, Optional\<FrozenStruct\>, Optional\<Enum\> require:
+1. Buffer approach in @_cdecl (result buffer + discriminant flag)
+2. Changes to PInvokeSignatureBuilder to NOT short-circuit Optional\<value\> returns
+3. Changes to MethodMarshalPlanBuilder for IndirectResult allocation with `ContainerTypeName`
+4. Changes to WrapperEmitter.Return.cs for accessor Optional\<value\> returns
+
+These are complex and high-risk — separate session.
+
+**Effort**: Medium (C.1 complete), Medium-large (C.2 remaining).
 
 #### Sub-phase D: Generic Types (~12%)
 

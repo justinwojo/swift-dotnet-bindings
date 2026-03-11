@@ -1,17 +1,17 @@
 {
-  "git_sha": "574bc360",
+  "git_sha": "fdaa90b2",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 50940,
+        "lines": 50916,
         "dep_compile": "none"
       },
       "BlinkID": {
         "compile": "ok",
         "errors": 0,
-        "lines": 47966,
+        "lines": 47960,
         "dep_compile": "none"
       },
       "BlinkIDUX": {
@@ -35,31 +35,31 @@
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 92404,
+        "lines": 92392,
         "dep_compile": "none"
       },
       "KeychainAccess": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4609,
+        "lines": 4607,
         "dep_compile": "none"
       },
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 55391,
+        "lines": 55328,
         "dep_compile": "none"
       },
       "Lottie": {
         "compile": "ok",
         "errors": 0,
-        "lines": 31889,
+        "lines": 31863,
         "dep_compile": "none"
       },
       "Mappedin": {
         "compile": "ok",
         "errors": 0,
-        "lines": 48852,
+        "lines": 48830,
         "dep_compile": "none"
       },
       "MicroblinkPlatform": {
@@ -71,25 +71,25 @@
       "Mixpanel": {
         "compile": "ok",
         "errors": 0,
-        "lines": 8626,
+        "lines": 8620,
         "dep_compile": "none"
       },
       "Nuke": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21760,
+        "lines": 21744,
         "dep_compile": "none"
       },
       "Nuke@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21760,
+        "lines": 21744,
         "dep_compile": "none"
       },
       "Nuke@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21760,
+        "lines": 21744,
         "dep_compile": "none"
       },
       "RxSwift": {
@@ -101,7 +101,7 @@
       "SkeletonView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 14413,
+        "lines": 14409,
         "dep_compile": "none"
       },
       "SmartCardIO": {
@@ -149,13 +149,13 @@
       "StripeConnect": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 8460,
+        "lines": 8456,
         "dep_compile": "ok"
       },
       "StripeCore": {
         "compile": "ok",
         "errors": 0,
-        "lines": 6060,
+        "lines": 6056,
         "dep_compile": "none"
       },
       "StripeCryptoOnramp": {
@@ -185,19 +185,19 @@
       "StripePayments": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 62764,
+        "lines": 62334,
         "dep_compile": "ok"
       },
       "StripePaymentSheet": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 31658,
+        "lines": 31656,
         "dep_compile": "ok"
       },
       "StripePaymentsUI": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 6910,
+        "lines": 6900,
         "dep_compile": "ok"
       },
       "StripeUICore": {
@@ -245,7 +245,7 @@
       "SwiftyBeaver": {
         "compile": "ok",
         "errors": 0,
-        "lines": 9181,
+        "lines": 9177,
         "dep_compile": "none"
       },
       "Reachability": {
@@ -275,7 +275,7 @@
       "Parchment": {
         "compile": "ok",
         "errors": 0,
-        "lines": 17239,
+        "lines": 17223,
         "dep_compile": "none"
       },
       "KeychainSwift": {
@@ -293,7 +293,7 @@
       "FSPagerView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4176,
+        "lines": 4164,
         "dep_compile": "none"
       },
       "SwiftyGif": {
@@ -323,7 +323,7 @@
       "AMPopTip": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4363,
+        "lines": 4355,
         "dep_compile": "none"
       },
       "XMLCoder": {
@@ -341,7 +341,7 @@
       "SVGView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 12333,
+        "lines": 12300,
         "dep_compile": "none"
       },
       "SDWebImage": {

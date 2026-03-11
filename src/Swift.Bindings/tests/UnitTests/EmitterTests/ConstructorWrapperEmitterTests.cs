@@ -2064,4 +2064,109 @@ public class ConstructorWrapperEmitterTests
     }
 
     #endregion
+
+    #region Optional<reference-type> Param Mapping Tests
+
+    [Fact]
+    public void GetCdeclParamMapping_OptionalClass_ReturnsNullablePointer()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("Container",
+            ("TestModule.MyClass", TypeRecordFlags.None, TypeRecordKind.Class));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Container", moduleDecl);
+
+        var optionalSpec = new NamedTypeSpec("Swift.Optional");
+        optionalSpec.GenericParameters.Add(new NamedTypeSpec("TestModule.MyClass"));
+
+        var arg = new ArgumentDecl
+        {
+            Name = "child",
+            PrivateName = "child",
+            SwiftTypeSpec = optionalSpec,
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+
+        var method = CreateMethod("init", isConstructor: true, parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        var (cdeclParam, reconstruction, callArg) = ConstructorWrapperEmitter.GetCdeclParamMapping(
+            arg, "child", env, omitLabels: false);
+
+        // Swift param should be UnsafeMutableRawPointer? (nullable)
+        Assert.Contains("UnsafeMutableRawPointer?", cdeclParam);
+        // Reconstruction should use Unmanaged.fromOpaque
+        Assert.NotNull(reconstruction);
+        Assert.Contains("Unmanaged<MyClass>.fromOpaque", reconstruction);
+        Assert.Contains("takeUnretainedValue", reconstruction);
+    }
+
+    [Fact]
+    public void GetCdeclParamMapping_OptionalClass_ReconstructsViaUnmanaged()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("Container",
+            ("TestModule.MyClass", TypeRecordFlags.None, TypeRecordKind.Class));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Container", moduleDecl);
+
+        var optionalSpec = new NamedTypeSpec("Swift.Optional");
+        optionalSpec.GenericParameters.Add(new NamedTypeSpec("TestModule.MyClass"));
+
+        var arg = new ArgumentDecl
+        {
+            Name = "child",
+            PrivateName = "child",
+            SwiftTypeSpec = optionalSpec,
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+
+        var method = CreateMethod("init", isConstructor: true, parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        var (_, reconstruction, callArg) = ConstructorWrapperEmitter.GetCdeclParamMapping(
+            arg, "child", env, omitLabels: false);
+
+        // Reconstruction uses Optional.map with Unmanaged.fromOpaque
+        Assert.NotNull(reconstruction);
+        Assert.Contains("child.map {", reconstruction);
+        Assert.Contains("MyClass?", reconstruction);
+        // Call arg uses reconstructed value
+        Assert.Contains("childVal", callArg);
+    }
+
+    [Fact]
+    public void GetCdeclReturnMapping_OptionalClass_ReturnsOptionalClassPointer()
+    {
+        var typeDb = new TypeDatabase();
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.MyClass"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "MyClass"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyClass"),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Class
+            });
+        typeDb.AddModuleDatabase(testModule);
+
+        var optionalSpec = new NamedTypeSpec("Swift.Optional");
+        optionalSpec.GenericParameters.Add(new NamedTypeSpec("TestModule.MyClass"));
+
+        var (mapping, needsResultPtr) = PropertyWrapperEmitter.GetCdeclReturnMapping(optionalSpec, typeDb);
+
+        Assert.Equal(PropertyWrapperEmitter.CdeclReturnKind.OptionalClassPointer, mapping.Kind);
+        Assert.Equal("UnsafeMutableRawPointer?", mapping.cdeclReturnType);
+        Assert.False(needsResultPtr);
+    }
+
+    #endregion
 }

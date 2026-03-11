@@ -49,12 +49,13 @@ public static class PropertyWrapperEmitter
             return false;
 
         // 7. Skip large optional params/returns — defer to OptionalPointerWrapperEmitter
-        //    This preserves the existing MethodHandler.cs routing.
+        //    unless all optionals are reference-type (nullable pointer ABI).
         if (propertyDecl.Accessors.Count > 0)
         {
             var firstMethod = propertyDecl.Accessors[0].Method;
-            if (accessorEnv.BoundGenericsHandler.HasLargeOptionalParams(firstMethod) ||
-                accessorEnv.BoundGenericsHandler.IsLargeOptionalReturn(firstMethod))
+            if ((accessorEnv.BoundGenericsHandler.HasLargeOptionalParams(firstMethod) ||
+                 accessorEnv.BoundGenericsHandler.IsLargeOptionalReturn(firstMethod)) &&
+                !MethodWrapperEmitter.IsOptionalWithReferenceInner(propertyDecl.SwiftTypeSpec, accessorEnv.TypeDatabase))
                 return false;
         }
 
@@ -67,10 +68,17 @@ public static class PropertyWrapperEmitter
             return false;
 
         // 9. Skip generic container properties (Array, Dictionary, Set, Optional<non-class>).
-        //    @_cdecl uses resultPtr for these on the Swift side, but the C# bound-generic
-        //    marshalling infrastructure returns IntPtr directly without resultPtr allocation.
-        //    Handling these requires a different marshalling strategy not yet implemented.
-        if (ConstructorWrapperEmitter.IsGenericContainerType(propertyDecl.SwiftTypeSpec))
+        //    Optional<reference-type> uses nullable pointer ABI and is safe for @_cdecl.
+        if (ConstructorWrapperEmitter.IsGenericContainerType(propertyDecl.SwiftTypeSpec) &&
+            !MethodWrapperEmitter.IsOptionalWithReferenceInner(propertyDecl.SwiftTypeSpec, accessorEnv.TypeDatabase))
+            return false;
+
+        // 9b. ObjC-bridged Optional accessor setter: C# aliases IntPtr directly, incompatible
+        //     with @_cdecl reconstruction. Getter is fine — PropertyHandler's ObjC conversion
+        //     is calling-convention agnostic.
+        if (MethodWrapperEmitter.IsOptionalType(propertyDecl.SwiftTypeSpec) &&
+            MarshallingHelpers.IsOptionalObjCBridged(propertyDecl.SwiftTypeSpec, accessorEnv.TypeDatabase) &&
+            propertyDecl.Accessors.OfType<SetAccessorDecl>().Any())
             return false;
 
         return true;
@@ -330,6 +338,10 @@ public static class PropertyWrapperEmitter
         if (typeSpec is NamedTypeSpec strNamed && strNamed.Name == "Swift.String")
             return (new CdeclReturnMapping("SBW_Utf8Slice", CdeclReturnKind.String), true);
 
+        // Optional<reference type>: nullable pointer ABI (no result buffer needed)
+        if (MethodWrapperEmitter.IsOptionalWithReferenceInner(typeSpec, typeDatabase))
+            return (new CdeclReturnMapping("UnsafeMutableRawPointer?", CdeclReturnKind.OptionalClassPointer), false);
+
         // Generic containers (Optional, Array, etc.): need result pointer
         if (ConstructorWrapperEmitter.IsGenericContainerType(typeSpec))
             return (new CdeclReturnMapping("Void", CdeclReturnKind.IndirectResult), true);
@@ -440,6 +452,10 @@ public static class PropertyWrapperEmitter
                 swiftWriter.WriteLine($"return Unmanaged.passRetained({propAccess}).toOpaque()");
                 break;
 
+            case CdeclReturnKind.OptionalClassPointer:
+                swiftWriter.WriteLine($"return ({propAccess}).map {{ Unmanaged.passRetained($0).toOpaque() }}");
+                break;
+
             case CdeclReturnKind.Direct:
             default:
                 swiftWriter.WriteLine($"return {propAccess}");
@@ -470,11 +486,12 @@ public static class PropertyWrapperEmitter
     /// </summary>
     internal enum CdeclReturnKind
     {
-        Direct,          // Primitive, frozen struct — return by value
-        Bool,            // Bool → Int8 conversion
-        String,          // String → SBW_Utf8Slice
-        SimpleEnum,      // Enum → raw value type
-        ClassPointer,    // Class → Unmanaged.passRetained().toOpaque()
-        IndirectResult   // Non-frozen struct, complex enum → writes to resultPtr
+        Direct,               // Primitive, frozen struct — return by value
+        Bool,                 // Bool → Int8 conversion
+        String,               // String → SBW_Utf8Slice
+        SimpleEnum,           // Enum → raw value type
+        ClassPointer,         // Class → Unmanaged.passRetained().toOpaque()
+        OptionalClassPointer, // Optional<Class> → result.map { Unmanaged.passRetained($0).toOpaque() }
+        IndirectResult        // Non-frozen struct, complex enum → writes to resultPtr
     }
 }

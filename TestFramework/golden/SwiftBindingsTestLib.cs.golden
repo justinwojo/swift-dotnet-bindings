@@ -13776,11 +13776,9 @@ public partial class Registry : ISwiftObject, IDisposable
             _payload.DangerousAddRef(ref success);
             try
             {
-                var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                
-                var result = PInvoke_lookup_4BDCDB0F(id, self);
+                var result = PInvoke_lookup_E0C112AF(id, *(IntPtr*)_payload.DangerousGetHandle());
                 
                 return SwiftMarshal.MarshalFromSwift<SwiftOptional<SwiftBindingsTestLib.Animal>>(new IntPtr(&result)).ToNullable();
             }
@@ -13794,9 +13792,9 @@ public partial class Registry : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib8RegistryC6lookup2idAA6AnimalCSgs5Int32V_tF")]
-    private static partial IntPtr PInvoke_lookup_4BDCDB0F( int id,  SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Registry_lookup_4BDCDB0F")]
+    private static partial IntPtr PInvoke_lookup_E0C112AF( int id,  IntPtr _selfClass);
     
     
     /// <summary>

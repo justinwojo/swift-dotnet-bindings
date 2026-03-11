@@ -495,6 +495,18 @@ public static class ConstructorWrapperEmitter
                     $"{argLabel}{label}Val");
         }
 
+        // Optional<reference type>: nullable pointer ABI.
+        // C# passes IntPtr (0 for nil, object pointer for non-nil) via PayloadBuffer<IntPtr>.Buffer.
+        // @_cdecl receives UnsafeMutableRawPointer? (nullable pointer maps to void* in C ABI).
+        if (MethodWrapperEmitter.IsOptionalWithReferenceInner(swiftTypeSpec, env.TypeDatabase))
+        {
+            var innerType = ((NamedTypeSpec)swiftTypeSpec).GenericParameters[0];
+            var swiftInnerType = ExistentialBypassEmitter.RenderSwiftTypeSpec(innerType);
+            return ($"_ {label}: UnsafeMutableRawPointer?",
+                    $"let {label}Val: {swiftInnerType}? = {label}.map {{ Unmanaged<{swiftInnerType}>.fromOpaque($0).takeUnretainedValue() }}",
+                    $"{argLabel}{label}Val");
+        }
+
         // Generic container types (Optional<T>, Array<T>, Dictionary<K,V>, etc.)
         // are not C-representable in @_cdecl functions. Marshal as UnsafeRawPointer.
         if (IsGenericContainerType(swiftTypeSpec))

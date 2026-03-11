@@ -1175,4 +1175,241 @@ public class MethodWrapperEmitterTests
     }
 
     #endregion
+
+    #region Optional<reference-type> Guard Tests
+
+    [Fact]
+    public void ShouldEmitWrapper_OptionalClassParam_ReturnsTrue()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
+            ("TestModule.MyClass", TypeRecordFlags.None, TypeRecordKind.Class));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var optionalSpec = new NamedTypeSpec("Swift.Optional");
+        optionalSpec.GenericParameters.Add(new NamedTypeSpec("TestModule.MyClass"));
+        var method = CreateMethodWithParam("doWork", optionalSpec, "obj", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_OptionalObjCBridgedParam_ReturnsTrue()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
+            ("TestModule.UIImage", TypeRecordFlags.ObjCBridged, TypeRecordKind.Struct));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var optionalSpec = new NamedTypeSpec("Swift.Optional");
+        optionalSpec.GenericParameters.Add(new NamedTypeSpec("TestModule.UIImage"));
+        var method = CreateMethodWithParam("doWork", optionalSpec, "image", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_OptionalUnresolvedAppleObjCParam_ReturnsTrue()
+    {
+        // UIKit.UITableView: no TypeRecord, classified via fallback heuristic
+        // (IsOptionalFallbackModule + HasObjCClassPrefix)
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var optionalSpec = new NamedTypeSpec("Swift.Optional");
+        optionalSpec.GenericParameters.Add(new NamedTypeSpec("UIKit.UITableView"));
+        var method = CreateMethodWithParam("doWork", optionalSpec, "table", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_OptionalValueTypeParam_ReturnsFalse()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var optionalSpec = new NamedTypeSpec("Swift.Optional");
+        optionalSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var method = CreateMethodWithParam("doWork", optionalSpec, "value", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_OptionalStringParam_ReturnsFalse()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var optionalSpec = new NamedTypeSpec("Swift.Optional");
+        optionalSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        var method = CreateMethodWithParam("doWork", optionalSpec, "name", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_ArrayParam_StillReturnsFalse()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var arraySpec = new NamedTypeSpec("Swift.Array");
+        arraySpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var method = CreateMethodWithParam("doWork", arraySpec, "items", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_MixedOptionalRefAndValue_ReturnsFalse()
+    {
+        // Method with both Optional<Class> and Optional<Int> → blocked because of value-type optional
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
+            ("TestModule.MyClass", TypeRecordFlags.None, TypeRecordKind.Class));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+
+        var optionalClassSpec = new NamedTypeSpec("Swift.Optional");
+        optionalClassSpec.GenericParameters.Add(new NamedTypeSpec("TestModule.MyClass"));
+
+        var optionalIntSpec = new NamedTypeSpec("Swift.Optional");
+        optionalIntSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+
+        var method = new MethodDecl
+        {
+            Name = "doWork",
+            MangledName = "$s10TestModule_doWork",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    Name = "",
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                },
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = optionalClassSpec,
+                    Name = "obj",
+                    PrivateName = "obj",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                },
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = optionalIntSpec,
+                    Name = "count",
+                    PrivateName = "count",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    #endregion
+
+    #region IsOptionalWithReferenceInner Helper Tests
+
+    [Fact]
+    public void IsOptionalWithReferenceInner_UnresolvedAppleFrameworkType_ReturnsTrue()
+    {
+        // UIKit.UITableView: no TypeRecord but matching fallback heuristic
+        var typeDb = new TypeDatabase();
+        var optionalSpec = new NamedTypeSpec("Swift.Optional");
+        optionalSpec.GenericParameters.Add(new NamedTypeSpec("UIKit.UITableView"));
+
+        Assert.True(MethodWrapperEmitter.IsOptionalWithReferenceInner(optionalSpec, typeDb));
+    }
+
+    [Fact]
+    public void IsOptionalWithReferenceInner_UnresolvedAppleValueType_ReturnsFalse()
+    {
+        // UIKit.UIEdgeInsets: known Apple value type in ValueTypes exclusion set,
+        // excluded by IsKnownValueType in both IsObjCModuleType and IsOptionalObjCBridged
+        var typeDb = new TypeDatabase();
+        var optionalSpec = new NamedTypeSpec("Swift.Optional");
+        optionalSpec.GenericParameters.Add(new NamedTypeSpec("UIKit.UIEdgeInsets"));
+
+        Assert.False(MethodWrapperEmitter.IsOptionalWithReferenceInner(optionalSpec, typeDb));
+    }
+
+    [Fact]
+    public void IsOptionalWithReferenceInner_UnresolvedApplePointerType_ReturnsFalse()
+    {
+        // Swift.UnsafeMutablePointer: rejected by IsPointerType guard
+        var typeDb = new TypeDatabase();
+        var optionalSpec = new NamedTypeSpec("Swift.Optional");
+        optionalSpec.GenericParameters.Add(new NamedTypeSpec("Swift.UnsafeMutablePointer"));
+
+        Assert.False(MethodWrapperEmitter.IsOptionalWithReferenceInner(optionalSpec, typeDb));
+    }
+
+    [Fact]
+    public void IsOptionalWithReferenceInner_NonOptionalType_ReturnsFalse()
+    {
+        var typeDb = new TypeDatabase();
+        Assert.False(MethodWrapperEmitter.IsOptionalWithReferenceInner(new NamedTypeSpec("Swift.Int"), typeDb));
+    }
+
+    [Fact]
+    public void IsOptionalWithReferenceInner_NSStringTypedefStruct_ReturnsFalse()
+    {
+        // NSString typedef structs (e.g., CALayerContentsGravity) are ObjC-bridged in the type
+        // database but are Swift structs wrapping NSString — not class instances.
+        // Unmanaged<T>.passRetained() requires a class, so these must NOT be classified as
+        // reference types. Regression test for NSString typedef carveout.
+        var typeDb = new TypeDatabase();
+        var quartzModule = new ModuleTypeDatabase("QuartzCore", "/usr/lib/libQuartzCore.dylib");
+        quartzModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("QuartzCore.CALayerContentsGravity"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("CoreAnimation", "CALayerContentsGravity"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("QuartzCore.CALayerContentsGravity"),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.ObjCBridged,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDb.AddModuleDatabase(quartzModule);
+
+        var optionalSpec = new NamedTypeSpec("Swift.Optional");
+        optionalSpec.GenericParameters.Add(new NamedTypeSpec("QuartzCore.CALayerContentsGravity"));
+
+        Assert.False(MethodWrapperEmitter.IsOptionalWithReferenceInner(optionalSpec, typeDb));
+    }
+
+    #endregion
 }
