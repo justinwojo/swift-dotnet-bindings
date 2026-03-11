@@ -73,6 +73,17 @@ public static class TestDispatcher
                     B3_AsyncWrapper();
                     break;
 
+                // cd-dispose: Verify @_cdecl destroy wrappers for all type categories
+                case "cd-dispose-class":
+                    CD_DisposeClass();
+                    break;
+                case "cd-dispose-struct-string":
+                    CD_DisposeStructString();
+                    break;
+                case "cd-dispose-struct-nested":
+                    CD_DisposeStructNested();
+                    break;
+
                 // NativeAOT-specific
                 case "n1-moduleinit":
                     N1_ModuleInit();
@@ -110,6 +121,7 @@ public static class TestDispatcher
             "b1-vwt-destroy", "b1-vwt-initcopy",
             "b2-intptr-manual",
             "b3-async-safehandle", "b3-async-static", "b3-async-wrapper",
+            "cd-dispose-class", "cd-dispose-struct-string", "cd-dispose-struct-nested",
             "n1-moduleinit", "n2-resolve-no-inject", "n3-trimming",
         };
 
@@ -364,6 +376,46 @@ public static class TestDispatcher
         else
             Console.WriteLine($"FAIL: n3-trimming: {string.Join("; ", errors)}");
     }
+
+    // -----------------------------------------------------------------------
+    // cd-dispose: @_cdecl destroy wrapper tests
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// cd-dispose-class: Dispose() on a Swift class routes through @_cdecl destroy wrapper.
+    /// Verifies Issue 2 fix for class types.
+    /// </summary>
+    static void CD_DisposeClass()
+    {
+        var animal = new Animal("dispose-test", "woof");
+        animal.Dispose();
+        Console.WriteLine("PASS: cd-dispose-class");
+    }
+
+    /// <summary>
+    /// cd-dispose-struct-string: Dispose() on a struct with String field.
+    /// Previously crashed on NativeAOT via VWT Destroy (Issue 2).
+    /// Now routes through SBW_Destroy_* @_cdecl wrapper.
+    /// </summary>
+    static void CD_DisposeStructString()
+    {
+        var worker = new AsyncThrowingWorker("dispose-struct-test");
+        worker.Dispose();
+        Console.WriteLine("PASS: cd-dispose-struct-string");
+    }
+
+    /// <summary>
+    /// cd-dispose-struct-nested: Dispose() on a frozen struct with nested Inner struct + String ref field.
+    /// NestedOuter is @frozen with NestedOuter.Inner (value) + label (String) — exercises destroy
+    /// wrapper for complex struct layouts where deinitialize must release the String reference.
+    /// </summary>
+    static void CD_DisposeStructNested()
+    {
+        var inner = new NestedOuter.Inner(42);
+        var obj = new NestedOuter(inner, "dispose-nested-test");
+        obj.Dispose();
+        Console.WriteLine("PASS: cd-dispose-struct-nested");
+    }
 }
 
 #endregion
@@ -387,14 +439,7 @@ public class Application
         }
 
         // Register resolver for bundled frameworks
-        try
-        {
-            NativeLibrary.SetDllImportResolver(Assembly.GetExecutingAssembly(), ResolveBundledFramework);
-        }
-        catch (InvalidOperationException)
-        {
-            // Already registered from generated bindings ModuleInitializer
-        }
+        SwiftFrameworkResolver.RegisterForAssembly(Assembly.GetExecutingAssembly());
 
         if (testId != null)
         {

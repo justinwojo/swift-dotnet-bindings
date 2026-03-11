@@ -5,6 +5,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using RuntimeTestsApp.Infrastructure;
+using Swift.Runtime;
 using SwiftBindingsTestLib;
 
 namespace RuntimeTestsApp.Mac;
@@ -46,14 +47,7 @@ public class Program
         }
 
         // Register resolver for bundled frameworks BEFORE any Swift types are accessed.
-        try
-        {
-            NativeLibrary.SetDllImportResolver(Assembly.GetExecutingAssembly(), ResolveBundledFramework);
-        }
-        catch (InvalidOperationException)
-        {
-            // A resolver is already registered (from generated bindings ModuleInitializer).
-        }
+        SwiftFrameworkResolver.RegisterForAssembly(Assembly.GetExecutingAssembly());
 
         var maxTier = TierOverride ?? TestTier.Tier1;
         return await RunTestsAsync(maxTier);

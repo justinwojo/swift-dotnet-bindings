@@ -725,11 +725,11 @@ public class ModuleHandlerTests
     }
 
     [Fact]
-    public void Emit_ContainsSetDllImportResolver()
+    public void Emit_ContainsSwiftFrameworkResolverCall()
     {
         var (csOutput, _) = EmitModuleWithDependencies("TestModule", new List<string>());
 
-        Assert.Contains("NativeLibrary.SetDllImportResolver", csOutput);
+        Assert.Contains("SwiftFrameworkResolver.RegisterForAssembly", csOutput);
     }
 
     [Fact]
@@ -748,19 +748,20 @@ public class ModuleHandlerTests
     }
 
     [Fact]
-    public void Emit_FrameworkResolverHasTryCatchGuard()
+    public void Emit_FrameworkResolverCallsSwiftFrameworkResolver()
     {
         var (csOutput, _) = EmitModuleWithDependencies("TestModule", new List<string>());
 
-        Assert.Contains("catch (InvalidOperationException)", csOutput);
+        Assert.Contains("SwiftFrameworkResolver.RegisterForAssembly", csOutput);
+        Assert.DoesNotContain("NativeLibrary.SetDllImportResolver", csOutput);
     }
 
     [Fact]
-    public void Emit_FrameworkResolverUsesFrameworkPathPattern()
+    public void Emit_FrameworkResolverUsesGlobalQualification()
     {
         var (csOutput, _) = EmitModuleWithDependencies("TestModule", new List<string>());
 
-        Assert.Contains("@rpath/{libraryName}.framework/{libraryName}", csOutput);
+        Assert.Contains("global::Swift.Runtime.SwiftFrameworkResolver", csOutput);
     }
 
     [Fact]

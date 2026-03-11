@@ -269,20 +269,7 @@ namespace BindingsGeneration
                     [ModuleInitializer]
                     internal static void Initialize()
                     {
-                        try
-                        {
-                            NativeLibrary.SetDllImportResolver(typeof(__SwiftFrameworkResolver_{{moduleName}}).Assembly, (libraryName, assembly, searchPath) =>
-                            {
-                                var frameworkPath = $"@rpath/{libraryName}.framework/{libraryName}";
-                                if (NativeLibrary.TryLoad(frameworkPath, out var handle))
-                                    return handle;
-                                return IntPtr.Zero;
-                            });
-                        }
-                        catch (InvalidOperationException)
-                        {
-                            // A resolver is already registered for this assembly.
-                        }
+                        global::Swift.Runtime.SwiftFrameworkResolver.RegisterForAssembly(typeof(__SwiftFrameworkResolver_{{moduleName}}).Assembly);
                     }
                 }
                 """);

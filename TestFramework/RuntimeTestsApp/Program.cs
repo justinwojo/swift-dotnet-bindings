@@ -4,6 +4,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using Swift.Runtime;
 using Foundation;
 using RuntimeTestsApp.Infrastructure;
 using SwiftBindingsTestLib;
@@ -66,15 +67,7 @@ public class Application
         }
 
         // Register resolver for bundled frameworks BEFORE any Swift types are accessed.
-        // Generated bindings may already register a [ModuleInitializer] resolver for the same assembly.
-        try
-        {
-            NativeLibrary.SetDllImportResolver(Assembly.GetExecutingAssembly(), ResolveBundledFramework);
-        }
-        catch (InvalidOperationException)
-        {
-            // A resolver is already registered (from generated bindings ModuleInitializer).
-        }
+        SwiftFrameworkResolver.RegisterForAssembly(Assembly.GetExecutingAssembly());
 
         UIApplication.Main(args, null, typeof(AppDelegate));
     }

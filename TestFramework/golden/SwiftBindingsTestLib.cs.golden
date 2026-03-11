@@ -5359,11 +5359,9 @@ namespace SwiftBindingsTestLib
                 _payload.DangerousAddRef(ref success);
                 try
                 {
-                    var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
                     
                     
-                    
-                    var result = PInvoke_element_7E5535C2(index, self);
+                    var result = PInvoke_element_F1BFE31A(index, _payload.DangerousGetHandle());
                     
                     return result;
                 }
@@ -5377,9 +5375,9 @@ namespace SwiftBindingsTestLib
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib12IntContainerV7element2ats5Int32VAG_tF")]
-        private static partial int PInvoke_element_7E5535C2( int index,  SwiftSelf self);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_IntContainer_element_7E5535C2")]
+        private static partial int PInvoke_element_F1BFE31A( int index,  IntPtr _self);
         
         
     }
@@ -5434,7 +5432,7 @@ namespace SwiftBindingsTestLib
         
         public string Label
         {
-            get { var __slice = Label_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+            get { var __slice = Label_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
         }
         
         private IDescribable OpaqueItem_Get()
@@ -6185,13 +6183,14 @@ namespace SwiftBindingsTestLib
             {
                 try
                 {
-                    var self = new SwiftSelf<BoundIntPair>(this);
-                    
-                    
-                    
-                    var result = PInvoke_sum_3051AAB3(self);
-                    
-                    return result;
+                    fixed (BoundIntPair* __self = &this)
+                    {
+                        
+                        
+                        var result = PInvoke_sum_03F1E2EF((IntPtr)__self);
+                        
+                        return result;
+                    }
                 }
                 
                 finally
@@ -6201,9 +6200,9 @@ namespace SwiftBindingsTestLib
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib12BoundIntPairV3sums5Int32VyF")]
-        private static partial int PInvoke_sum_3051AAB3( SwiftSelf<BoundIntPair> self);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_BoundIntPair_sum_3051AAB3")]
+        private static partial int PInvoke_sum_03F1E2EF( IntPtr _selfFixed);
         
         
     }
@@ -6258,7 +6257,7 @@ namespace SwiftBindingsTestLib
         
         public string First
         {
-            get { var __slice = First_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+            get { var __slice = First_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
         }
         
         private Utf8Slice Second_Get()
@@ -6298,7 +6297,7 @@ namespace SwiftBindingsTestLib
         
         public string Second
         {
-            get { var __slice = Second_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+            get { var __slice = Second_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
         }
         
         [EditorBrowsable(EditorBrowsableState.Never)]
@@ -6417,37 +6416,48 @@ namespace SwiftBindingsTestLib
         private static partial void PInvoke_init_9F593FF6( IntPtr resultPtr,  Swift.SwiftString.Buffer first,  Swift.SwiftString.Buffer second);
         
         
-        [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         public string GetJoined()
         {
             unsafe
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
+                void* payload = null;
                 try
                 {
-                    var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
+                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<string>();
+                    payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                    var resultPtr = (IntPtr)payload;
                     
                     
                     
-                    var result = PInvoke_joined_1970F119(self);
+                    PInvoke_joined_8019FF1F(resultPtr, _payload.DangerousGetHandle());
                     
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                    return swiftResult.ToString();
+                    unsafe {
+                        var __slice = *(Utf8Slice*)resultPtr;
+                        if (__slice.Len == 0) return string.Empty;
+                        try {
+                            return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(
+                                __slice.Ptr, (int)__slice.Len) ?? string.Empty;
+                        } finally {
+                            SBW_Free(__slice.Ptr);
+                        }
+                    }
                 }
                 
                 finally
                 {
                     if (success)
                        _payload.DangerousRelease();
+                    NativeMemory.Free(payload);
                 }
                 
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib15BoundStringPairV6joinedSSyF")]
-        private static partial Swift.SwiftString.Buffer PInvoke_joined_1970F119( SwiftSelf self);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_BoundStringPair_joined_1970F119")]
+        private static partial void PInvoke_joined_8019FF1F( IntPtr resultPtr,  IntPtr _self);
         
         
     }
@@ -7486,7 +7496,7 @@ namespace SwiftBindingsTestLib
         /// </summary>
         public string RawValue
         {
-            get { var __slice = RawValue_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+            get { var __slice = RawValue_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
         }
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
@@ -8029,7 +8039,9 @@ namespace SwiftBindingsTestLib
             return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
         }
         
-        [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
+        private static partial void SBW_Free(IntPtr ptr);
+        
         /// <summary>
         /// Method on an enum.
         /// </summary>
@@ -8039,30 +8051,42 @@ namespace SwiftBindingsTestLib
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
+                void* payload = null;
                 try
                 {
-                    var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
+                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<string>();
+                    payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                    var resultPtr = (IntPtr)payload;
                     
                     
                     
-                    var result = PInvoke_describe_6BB2B4E1(self);
+                    PInvoke_describe_75901355(resultPtr, _payload.DangerousGetHandle());
                     
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                    return swiftResult.ToString();
+                    unsafe {
+                        var __slice = *(Utf8Slice*)resultPtr;
+                        if (__slice.Len == 0) return string.Empty;
+                        try {
+                            return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(
+                                __slice.Ptr, (int)__slice.Len) ?? string.Empty;
+                        } finally {
+                            SBW_Free(__slice.Ptr);
+                        }
+                    }
                 }
                 
                 finally
                 {
                     if (success)
                        _payload.DangerousRelease();
+                    NativeMemory.Free(payload);
                 }
                 
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib5ShapeO8describeSSyF")]
-        private static partial Swift.SwiftString.Buffer PInvoke_describe_6BB2B4E1( SwiftSelf self);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Shape_describe_6BB2B4E1")]
+        private static partial void PInvoke_describe_75901355( IntPtr resultPtr,  IntPtr _self);
         
         
     }
@@ -8647,33 +8671,33 @@ namespace SwiftBindingsTestLib
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
+                void* payload = null;
                 try
                 {
-                    var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
-                    
                     var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<SwiftBindingsTestLib.Shape>();
-                    var payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
-                    var swiftIndirectResult = new SwiftIndirectResult(payload);
+                    payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                    var resultPtr = (IntPtr)payload;
                     
                     
                     
-                    PInvoke_getShape_AAD4466C(swiftIndirectResult, self);
+                    PInvoke_getShape_4956076B(resultPtr, *(IntPtr*)_payload.DangerousGetHandle());
                     
-                    return (SwiftBindingsTestLib.Shape)SwiftMarshal.MarshalFromSwift<SwiftBindingsTestLib.Shape>(new IntPtr(swiftIndirectResult.Value));
+                    return (SwiftBindingsTestLib.Shape)SwiftMarshal.MarshalFromSwift<SwiftBindingsTestLib.Shape>(resultPtr);
                 }
                 
                 finally
                 {
                     if (success)
                        _payload.DangerousRelease();
+                    NativeMemory.Free(payload);
                 }
                 
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib18EnumPropertyHolderC8getShapeAA0I0OyFTj")]
-        private static partial void PInvoke_getShape_AAD4466C( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_EnumPropertyHolder_getShape_AAD4466C")]
+        private static partial void PInvoke_getShape_4956076B( IntPtr resultPtr,  IntPtr _selfClass);
         
         
     }
@@ -8756,7 +8780,7 @@ namespace SwiftBindingsTestLib
         
         public virtual string Name
         {
-            get { var __slice = Name_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+            get { var __slice = Name_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
             set {
                 var __utf8 = System.Text.Encoding.UTF8.GetBytes(value);
                 unsafe { fixed (byte* __p = __utf8) { Name_Set((IntPtr)__p, __utf8.Length); } }
@@ -8828,7 +8852,7 @@ namespace SwiftBindingsTestLib
         
         public virtual string Sound
         {
-            get { var __slice = Sound_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+            get { var __slice = Sound_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
             set {
                 var __utf8 = System.Text.Encoding.UTF8.GetBytes(value);
                 unsafe { fixed (byte* __p = __utf8) { Sound_Set((IntPtr)__p, __utf8.Length); } }
@@ -8956,7 +8980,6 @@ namespace SwiftBindingsTestLib
         private static partial IntPtr PInvoke_init_2F7A453A( Swift.SwiftString.Buffer name,  Swift.SwiftString.Buffer sound);
         
         
-        [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Instance method.
         /// </summary>
@@ -8966,33 +8989,44 @@ namespace SwiftBindingsTestLib
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
+                void* payload = null;
                 try
                 {
-                    var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
+                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<string>();
+                    payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                    var resultPtr = (IntPtr)payload;
                     
                     
                     
-                    var result = PInvoke_speak_53396897(self);
+                    PInvoke_speak_B34460A5(resultPtr, *(IntPtr*)_payload.DangerousGetHandle());
                     
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                    return swiftResult.ToString();
+                    unsafe {
+                        var __slice = *(Utf8Slice*)resultPtr;
+                        if (__slice.Len == 0) return string.Empty;
+                        try {
+                            return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(
+                                __slice.Ptr, (int)__slice.Len) ?? string.Empty;
+                        } finally {
+                            SBW_Free(__slice.Ptr);
+                        }
+                    }
                 }
                 
                 finally
                 {
                     if (success)
                        _payload.DangerousRelease();
+                    NativeMemory.Free(payload);
                 }
                 
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib6AnimalC5speakSSyFTj")]
-        private static partial Swift.SwiftString.Buffer PInvoke_speak_53396897( SwiftSelf self);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Animal_speak_53396897")]
+        private static partial void PInvoke_speak_B34460A5( IntPtr resultPtr,  IntPtr _selfClass);
         
         
-        [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Method that can be overridden.
         /// </summary>
@@ -9002,30 +9036,42 @@ namespace SwiftBindingsTestLib
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
+                void* payload = null;
                 try
                 {
-                    var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
+                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<string>();
+                    payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                    var resultPtr = (IntPtr)payload;
                     
                     
                     
-                    var result = PInvoke_describe_F041ED5B(self);
+                    PInvoke_describe_7FB459D1(resultPtr, *(IntPtr*)_payload.DangerousGetHandle());
                     
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                    return swiftResult.ToString();
+                    unsafe {
+                        var __slice = *(Utf8Slice*)resultPtr;
+                        if (__slice.Len == 0) return string.Empty;
+                        try {
+                            return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(
+                                __slice.Ptr, (int)__slice.Len) ?? string.Empty;
+                        } finally {
+                            SBW_Free(__slice.Ptr);
+                        }
+                    }
                 }
                 
                 finally
                 {
                     if (success)
                        _payload.DangerousRelease();
+                    NativeMemory.Free(payload);
                 }
                 
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib6AnimalC8describeSSyFTj")]
-        private static partial Swift.SwiftString.Buffer PInvoke_describe_F041ED5B( SwiftSelf self);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Animal_describe_F041ED5B")]
+        private static partial void PInvoke_describe_7FB459D1( IntPtr resultPtr,  IntPtr _selfClass);
         
         
     }
@@ -9108,7 +9154,7 @@ namespace SwiftBindingsTestLib
         
         public virtual string Breed
         {
-            get { var __slice = Breed_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+            get { var __slice = Breed_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
             set {
                 var __utf8 = System.Text.Encoding.UTF8.GetBytes(value);
                 unsafe { fixed (byte* __p = __utf8) { Breed_Set((IntPtr)__p, __utf8.Length); } }
@@ -9208,7 +9254,6 @@ namespace SwiftBindingsTestLib
         private static partial IntPtr PInvoke_init_45C03DD3( Swift.SwiftString.Buffer name,  Swift.SwiftString.Buffer breed);
         
         
-        [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true). P/Invoke entry point not exported by the library. This method will throw EntryPointNotFoundException at runtime.", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Overridden method.
         /// </summary>
@@ -9218,33 +9263,44 @@ namespace SwiftBindingsTestLib
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
+                void* payload = null;
                 try
                 {
-                    var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
+                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<string>();
+                    payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                    var resultPtr = (IntPtr)payload;
                     
                     
                     
-                    var result = PInvoke_describe_95FA0440(self);
+                    PInvoke_describe_F977516D(resultPtr, *(IntPtr*)_payload.DangerousGetHandle());
                     
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                    return swiftResult.ToString();
+                    unsafe {
+                        var __slice = *(Utf8Slice*)resultPtr;
+                        if (__slice.Len == 0) return string.Empty;
+                        try {
+                            return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(
+                                __slice.Ptr, (int)__slice.Len) ?? string.Empty;
+                        } finally {
+                            SBW_Free(__slice.Ptr);
+                        }
+                    }
                 }
                 
                 finally
                 {
                     if (success)
                        _payload.DangerousRelease();
+                    NativeMemory.Free(payload);
                 }
                 
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib3DogC8describeSSyFTj")]
-        private static partial Swift.SwiftString.Buffer PInvoke_describe_95FA0440( SwiftSelf self);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Dog_describe_95FA0440")]
+        private static partial void PInvoke_describe_F977516D( IntPtr resultPtr,  IntPtr _selfClass);
         
         
-        [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Subclass-specific method.
         /// </summary>
@@ -9254,30 +9310,42 @@ namespace SwiftBindingsTestLib
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
+                void* payload = null;
                 try
                 {
-                    var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
+                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<string>();
+                    payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                    var resultPtr = (IntPtr)payload;
                     
                     
                     
-                    var result = PInvoke_fetch_CC54C7C8(self);
+                    PInvoke_fetch_45FE68A7(resultPtr, *(IntPtr*)_payload.DangerousGetHandle());
                     
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                    return swiftResult.ToString();
+                    unsafe {
+                        var __slice = *(Utf8Slice*)resultPtr;
+                        if (__slice.Len == 0) return string.Empty;
+                        try {
+                            return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(
+                                __slice.Ptr, (int)__slice.Len) ?? string.Empty;
+                        } finally {
+                            SBW_Free(__slice.Ptr);
+                        }
+                    }
                 }
                 
                 finally
                 {
                     if (success)
                        _payload.DangerousRelease();
+                    NativeMemory.Free(payload);
                 }
                 
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib3DogC5fetchSSyFTj")]
-        private static partial Swift.SwiftString.Buffer PInvoke_fetch_CC54C7C8( SwiftSelf self);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Dog_fetch_CC54C7C8")]
+        private static partial void PInvoke_fetch_45FE68A7( IntPtr resultPtr,  IntPtr _selfClass);
         
         
     }
@@ -9482,11 +9550,9 @@ namespace SwiftBindingsTestLib
                 _payload.DangerousAddRef(ref success);
                 try
                 {
-                    var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                     
                     
-                    
-                    var result = PInvoke_increment_35E1D943(self);
+                    var result = PInvoke_increment_5A31C122(*(IntPtr*)_payload.DangerousGetHandle());
                     
                     return result;
                 }
@@ -9500,9 +9566,9 @@ namespace SwiftBindingsTestLib
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib12FinalCounterC9increments5Int32VyF")]
-        private static partial int PInvoke_increment_35E1D943( SwiftSelf self);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_FinalCounter_increment_35E1D943")]
+        private static partial int PInvoke_increment_5A31C122( IntPtr _selfClass);
         
         
         /// <summary>
@@ -9516,11 +9582,9 @@ namespace SwiftBindingsTestLib
                 _payload.DangerousAddRef(ref success);
                 try
                 {
-                    var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                     
                     
-                    
-                    var result = PInvoke_add_A5B2528E(amount, self);
+                    var result = PInvoke_add_867717BA(amount, *(IntPtr*)_payload.DangerousGetHandle());
                     
                     return result;
                 }
@@ -9534,9 +9598,9 @@ namespace SwiftBindingsTestLib
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib12FinalCounterC3addys5Int32VAFF")]
-        private static partial int PInvoke_add_A5B2528E( int amount,  SwiftSelf self);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_FinalCounter_add_A5B2528E")]
+        private static partial int PInvoke_add_867717BA( int amount,  IntPtr _selfClass);
         
         
         /// <summary>
@@ -9550,11 +9614,9 @@ namespace SwiftBindingsTestLib
                 _payload.DangerousAddRef(ref success);
                 try
                 {
-                    var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                     
                     
-                    
-                    PInvoke_reset_D422593C(self);
+                    PInvoke_reset_2E7AE0C8(*(IntPtr*)_payload.DangerousGetHandle());
                     
                     return;
                 }
@@ -9568,9 +9630,9 @@ namespace SwiftBindingsTestLib
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib12FinalCounterC5resetyyF")]
-        private static partial void PInvoke_reset_D422593C( SwiftSelf self);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_FinalCounter_reset_D422593C")]
+        private static partial void PInvoke_reset_2E7AE0C8( IntPtr _selfClass);
         
         
     }
@@ -9715,7 +9777,7 @@ namespace SwiftBindingsTestLib
         
         public virtual string StoredString
         {
-            get { var __slice = StoredString_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+            get { var __slice = StoredString_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
             set {
                 var __utf8 = System.Text.Encoding.UTF8.GetBytes(value);
                 unsafe { fixed (byte* __p = __utf8) { StoredString_Set((IntPtr)__p, __utf8.Length); } }
@@ -9762,7 +9824,7 @@ namespace SwiftBindingsTestLib
         /// </summary>
         public virtual string Summary
         {
-            get { var __slice = Summary_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+            get { var __slice = Summary_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
         }
         
         private static int InstanceCount_Get()
@@ -9944,7 +10006,7 @@ namespace SwiftBindingsTestLib
             {
                 
                 
-                PInvoke_resetCount_842252EB();
+                PInvoke_resetCount_CB53E120();
                 
                 return;
             }
@@ -9955,9 +10017,9 @@ namespace SwiftBindingsTestLib
             
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib19ClassWithPropertiesC10resetCountyyFZ")]
-        private static partial void PInvoke_resetCount_842252EB();
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_ClassWithProperties_resetCount_842252EB")]
+        private static partial void PInvoke_resetCount_CB53E120();
         
         
     }
@@ -10174,13 +10236,14 @@ namespace SwiftBindingsTestLib
             {
                 try
                 {
-                    var self = new SwiftSelf<FrozenPoint>(this);
-                    
-                    
-                    
-                    var result = PInvoke_distanceFromOrigin_1BA0003A(self);
-                    
-                    return result;
+                    fixed (FrozenPoint* __self = &this)
+                    {
+                        
+                        
+                        var result = PInvoke_distanceFromOrigin_D7C79E2E((IntPtr)__self);
+                        
+                        return result;
+                    }
                 }
                 
                 finally
@@ -10190,9 +10253,9 @@ namespace SwiftBindingsTestLib
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11FrozenPointV18distanceFromOriginSdyF")]
-        private static partial double PInvoke_distanceFromOrigin_1BA0003A( SwiftSelf<FrozenPoint> self);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_FrozenPoint_distanceFromOrigin_1BA0003A")]
+        private static partial double PInvoke_distanceFromOrigin_D7C79E2E( IntPtr _selfFixed);
         
         
         /// <summary>
@@ -10202,27 +10265,34 @@ namespace SwiftBindingsTestLib
         {
             unsafe
             {
+                void* payload = null;
                 try
                 {
-                    var self = new SwiftSelf<FrozenPoint>(this);
-                    
-                    
-                    
-                    var result = PInvoke_translated_E715A8B7(dx, dy, self);
-                    
-                    return result;
+                    fixed (FrozenPoint* __self = &this)
+                    {
+                        var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<SwiftBindingsTestLib.FrozenPoint>();
+                        payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                        var resultPtr = (IntPtr)payload;
+                        
+                        
+                        
+                        PInvoke_translated_5C7A11AD(resultPtr, dx, dy, (IntPtr)__self);
+                        
+                        return SwiftMarshal.MarshalFromSwift<SwiftBindingsTestLib.FrozenPoint>(resultPtr);
+                    }
                 }
                 
                 finally
                 {
+                    NativeMemory.Free(payload);
                 }
                 
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11FrozenPointV10translated2dx2dyACSd_SdtF")]
-        private static partial SwiftBindingsTestLib.FrozenPoint PInvoke_translated_E715A8B7( double dx,  double dy,  SwiftSelf<FrozenPoint> self);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_FrozenPoint_translated_E715A8B7")]
+        private static partial void PInvoke_translated_5C7A11AD( IntPtr resultPtr,  double dx,  double dy,  IntPtr _selfFixed);
         
         
         /// <summary>
@@ -10474,7 +10544,7 @@ namespace SwiftBindingsTestLib
     
     public string Name
     {
-        get { var __slice = Name_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = Name_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
         set {
             var __utf8 = System.Text.Encoding.UTF8.GetBytes(value);
             unsafe { fixed (byte* __p = __utf8) { Name_Set((IntPtr)__p, __utf8.Length); } }
@@ -10521,7 +10591,7 @@ namespace SwiftBindingsTestLib
     /// </summary>
     public string DisplayName
     {
-        get { var __slice = DisplayName_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = DisplayName_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     private static Utf8Slice DefaultName_Get()
@@ -10560,7 +10630,7 @@ namespace SwiftBindingsTestLib
     /// </summary>
     public static string DefaultName
     {
-        get { var __slice = DefaultName_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = DefaultName_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     private static Utf8Slice TypeName_Get()
@@ -10599,7 +10669,7 @@ namespace SwiftBindingsTestLib
     /// </summary>
     public static string TypeName
     {
-        get { var __slice = TypeName_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = TypeName_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     
@@ -10946,11 +11016,9 @@ public partial class NonFrozenPoint : ISwiftObject, IDisposable
             _payload.DangerousAddRef(ref success);
             try
             {
-                var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
                 
                 
-                
-                var result = PInvoke_distanceFromOrigin_37E1E640(self);
+                var result = PInvoke_distanceFromOrigin_0A8FBCE4(_payload.DangerousGetHandle());
                 
                 return result;
             }
@@ -10964,9 +11032,9 @@ public partial class NonFrozenPoint : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib14NonFrozenPointV18distanceFromOriginSdyF")]
-    private static partial double PInvoke_distanceFromOrigin_37E1E640( SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_NonFrozenPoint_distanceFromOrigin_37E1E640")]
+    private static partial double PInvoke_distanceFromOrigin_0A8FBCE4( IntPtr _self);
     
     
 }
@@ -11409,7 +11477,7 @@ private static partial void SBW_Free(IntPtr ptr);
 
 public string Label
 {
-    get { var __slice = Label_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+    get { var __slice = Label_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     set {
         var __utf8 = System.Text.Encoding.UTF8.GetBytes(value);
         unsafe { fixed (byte* __p = __utf8) { Label_Set((IntPtr)__p, __utf8.Length); } }
@@ -11653,11 +11721,9 @@ public int GetInnerValue()
         _payload.DangerousAddRef(ref success);
         try
         {
-            var self = new SwiftSelf<NestedOuter.Buffer>(*(NestedOuter.Buffer*)_payload.DangerousGetHandle());
             
             
-            
-            var result = PInvoke_innerValue_278AD039(self);
+            var result = PInvoke_innerValue_8BB53792(_payload.DangerousGetHandle());
             
             return result;
         }
@@ -11671,9 +11737,9 @@ public int GetInnerValue()
     }
 }
 
-[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-[LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11NestedOuterV10innerValues5Int32VyF")]
-private static partial int PInvoke_innerValue_278AD039( SwiftSelf<NestedOuter.Buffer> self);
+[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+[LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_NestedOuter_innerValue_278AD039")]
+private static partial int PInvoke_innerValue_8BB53792( IntPtr _self);
 
 
 }
@@ -11869,29 +11935,31 @@ public partial class StructBuilder : ISwiftObject, IDisposable
     {
         unsafe
         {
+            void* payload = null;
             try
             {
                 var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<SwiftBindingsTestLib.StructBuilder>();
-                var payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
-                var swiftIndirectResult = new SwiftIndirectResult(payload);
+                payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                var resultPtr = (IntPtr)payload;
                 
                 
                 
-                PInvoke_withValue_8B9D469D(swiftIndirectResult, value);
+                PInvoke_withValue_264A33F4(resultPtr, value);
                 
-                return SwiftMarshal.MarshalFromSwift<SwiftBindingsTestLib.StructBuilder>(new IntPtr(swiftIndirectResult.Value));
+                return SwiftMarshal.MarshalFromSwift<SwiftBindingsTestLib.StructBuilder>(resultPtr);
             }
             
             finally
             {
+                NativeMemory.Free(payload);
             }
             
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib13StructBuilderV9withValueyACs5Int32VFZ")]
-    private static partial void PInvoke_withValue_8B9D469D( SwiftIndirectResult swiftIndirectResult,  int value);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_StructBuilder_withValue_8B9D469D")]
+    private static partial void PInvoke_withValue_264A33F4( IntPtr resultPtr,  int value);
     
     
     /// <summary>
@@ -11901,29 +11969,31 @@ public partial class StructBuilder : ISwiftObject, IDisposable
     {
         unsafe
         {
+            void* payload = null;
             try
             {
                 var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<SwiftBindingsTestLib.StructBuilder>();
-                var payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
-                var swiftIndirectResult = new SwiftIndirectResult(payload);
+                payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                var resultPtr = (IntPtr)payload;
                 
                 
                 
-                PInvoke_makeDefault_2C63F390(swiftIndirectResult);
+                PInvoke_makeDefault_B243FDE0(resultPtr);
                 
-                return SwiftMarshal.MarshalFromSwift<SwiftBindingsTestLib.StructBuilder>(new IntPtr(swiftIndirectResult.Value));
+                return SwiftMarshal.MarshalFromSwift<SwiftBindingsTestLib.StructBuilder>(resultPtr);
             }
             
             finally
             {
+                NativeMemory.Free(payload);
             }
             
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib13StructBuilderV11makeDefaultACyFZ")]
-    private static partial void PInvoke_makeDefault_2C63F390( SwiftIndirectResult swiftIndirectResult);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_StructBuilder_makeDefault_2C63F390")]
+    private static partial void PInvoke_makeDefault_B243FDE0( IntPtr resultPtr);
     
     
 }
@@ -12293,7 +12363,7 @@ public partial class FetchResult : ISwiftObject, IDisposable
     
     public virtual string Data
     {
-        get { var __slice = Data_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = Data_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
         set {
             var __utf8 = System.Text.Encoding.UTF8.GetBytes(value);
             unsafe { fixed (byte* __p = __utf8) { Data_Set((IntPtr)__p, __utf8.Length); } }
@@ -12734,7 +12804,7 @@ private static partial void SBW_Free(IntPtr ptr);
 
 public string Name
 {
-    get { var __slice = Name_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+    get { var __slice = Name_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     set {
         var __utf8 = System.Text.Encoding.UTF8.GetBytes(value);
         unsafe { fixed (byte* __p = __utf8) { Name_Set((IntPtr)__p, __utf8.Length); } }
@@ -12985,11 +13055,9 @@ public int GetTagCount()
         _payload.DangerousAddRef(ref success);
         try
         {
-            var self = new SwiftSelf<BatchConfig.Buffer>(*(BatchConfig.Buffer*)_payload.DangerousGetHandle());
             
             
-            
-            var result = PInvoke_tagCount_36244E7E(self);
+            var result = PInvoke_tagCount_1966126C(_payload.DangerousGetHandle());
             
             return result;
         }
@@ -13003,12 +13071,11 @@ public int GetTagCount()
     }
 }
 
-[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-[LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11BatchConfigV8tagCounts5Int32VyF")]
-private static partial int PInvoke_tagCount_36244E7E( SwiftSelf<BatchConfig.Buffer> self);
+[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+[LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_BatchConfig_tagCount_36244E7E")]
+private static partial int PInvoke_tagCount_1966126C( IntPtr _self);
 
 
-[Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
 /// <summary>
 /// Returns the effective name for display.
 /// </summary>
@@ -13018,30 +13085,42 @@ public string GetEffectiveName()
     {
         var success = false;
         _payload.DangerousAddRef(ref success);
+        void* payload = null;
         try
         {
-            var self = new SwiftSelf<BatchConfig.Buffer>(*(BatchConfig.Buffer*)_payload.DangerousGetHandle());
+            var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<string>();
+            payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
+            var resultPtr = (IntPtr)payload;
             
             
             
-            var result = PInvoke_effectiveName_29570547(self);
+            PInvoke_effectiveName_BAC85154(resultPtr, _payload.DangerousGetHandle());
             
-            var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-            return swiftResult.ToString();
+            unsafe {
+                var __slice = *(Utf8Slice*)resultPtr;
+                if (__slice.Len == 0) return string.Empty;
+                try {
+                    return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(
+                        __slice.Ptr, (int)__slice.Len) ?? string.Empty;
+                } finally {
+                    SBW_Free(__slice.Ptr);
+                }
+            }
         }
         
         finally
         {
             if (success)
                _payload.DangerousRelease();
+            NativeMemory.Free(payload);
         }
         
     }
 }
 
-[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-[LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11BatchConfigV13effectiveNameSSyF")]
-private static partial Swift.SwiftString.Buffer PInvoke_effectiveName_29570547( SwiftSelf<BatchConfig.Buffer> self);
+[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+[LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_BatchConfig_effectiveName_29570547")]
+private static partial void PInvoke_effectiveName_BAC85154( IntPtr resultPtr,  IntPtr _self);
 
 
 }
@@ -13219,11 +13298,9 @@ public partial class ValueAnimal : Animal, ISwiftObject, IHasValue
             _payload.DangerousAddRef(ref success);
             try
             {
-                var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                
-                var result = PInvoke_getValue_36CFB9F9(self);
+                var result = PInvoke_getValue_1F0CED41(*(IntPtr*)_payload.DangerousGetHandle());
                 
                 return result;
             }
@@ -13237,9 +13314,9 @@ public partial class ValueAnimal : Animal, ISwiftObject, IHasValue
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11ValueAnimalC03getE0s5Int32VyFTj")]
-    private static partial int PInvoke_getValue_36CFB9F9( SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_ValueAnimal_getValue_36CFB9F9")]
+    private static partial int PInvoke_getValue_1F0CED41( IntPtr _selfClass);
     
     
     public virtual void SetValue( int newValue)
@@ -13250,11 +13327,9 @@ public partial class ValueAnimal : Animal, ISwiftObject, IHasValue
             _payload.DangerousAddRef(ref success);
             try
             {
-                var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                
-                PInvoke_setValue_DFA70206(newValue, self);
+                PInvoke_setValue_6E246E47(newValue, *(IntPtr*)_payload.DangerousGetHandle());
                 
                 return;
             }
@@ -13268,12 +13343,14 @@ public partial class ValueAnimal : Animal, ISwiftObject, IHasValue
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11ValueAnimalC03setE0yys5Int32VFTj")]
-    private static partial void PInvoke_setValue_DFA70206( int newValue,  SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_ValueAnimal_setValue_DFA70206")]
+    private static partial void PInvoke_setValue_6E246E47( int newValue,  IntPtr _selfClass);
     
     
-    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
+    private static partial void SBW_Free(IntPtr ptr);
+    
     /// <summary>
     /// Summary combining inherited and own properties.
     /// </summary>
@@ -13283,30 +13360,42 @@ public partial class ValueAnimal : Animal, ISwiftObject, IHasValue
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
+            void* payload = null;
             try
             {
-                var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
+                var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<string>();
+                payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                var resultPtr = (IntPtr)payload;
                 
                 
                 
-                var result = PInvoke_summary_614EB3BC(self);
+                PInvoke_summary_8AC35C32(resultPtr, *(IntPtr*)_payload.DangerousGetHandle());
                 
-                var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                return swiftResult.ToString();
+                unsafe {
+                    var __slice = *(Utf8Slice*)resultPtr;
+                    if (__slice.Len == 0) return string.Empty;
+                    try {
+                        return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(
+                            __slice.Ptr, (int)__slice.Len) ?? string.Empty;
+                    } finally {
+                        SBW_Free(__slice.Ptr);
+                    }
+                }
             }
             
             finally
             {
                 if (success)
                    _payload.DangerousRelease();
+                NativeMemory.Free(payload);
             }
             
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11ValueAnimalC7summarySSyFTj")]
-    private static partial Swift.SwiftString.Buffer PInvoke_summary_614EB3BC( SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_ValueAnimal_summary_614EB3BC")]
+    private static partial void PInvoke_summary_8AC35C32( IntPtr resultPtr,  IntPtr _selfClass);
     
     
 }
@@ -13469,11 +13558,9 @@ public partial class Registry : ISwiftObject, IDisposable
             _payload.DangerousAddRef(ref success);
             try
             {
-                var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                
-                var result = PInvoke_register_A4E79BB1(animal.Payload, self);
+                var result = PInvoke_register_0E8590C6(animal.Payload, *(IntPtr*)_payload.DangerousGetHandle());
                 
                 return result;
             }
@@ -13487,9 +13574,9 @@ public partial class Registry : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib8RegistryC8registerys5Int32VAA6AnimalCF")]
-    private static partial int PInvoke_register_A4E79BB1( SafeHandle animal,  SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Registry_register_A4E79BB1")]
+    private static partial int PInvoke_register_0E8590C6( SafeHandle animal,  IntPtr _selfClass);
     
     
     /// <summary>
@@ -13537,11 +13624,9 @@ public partial class Registry : ISwiftObject, IDisposable
             _payload.DangerousAddRef(ref success);
             try
             {
-                var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                
-                var result = PInvoke_count_7ACBBF4D(self);
+                var result = PInvoke_count_B9C44F14(*(IntPtr*)_payload.DangerousGetHandle());
                 
                 return result;
             }
@@ -13555,9 +13640,9 @@ public partial class Registry : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib8RegistryC5counts5Int32VyF")]
-    private static partial int PInvoke_count_7ACBBF4D( SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Registry_count_7ACBBF4D")]
+    private static partial int PInvoke_count_B9C44F14( IntPtr _selfClass);
     
     
     /// <summary>
@@ -13571,11 +13656,9 @@ public partial class Registry : ISwiftObject, IDisposable
             _payload.DangerousAddRef(ref success);
             try
             {
-                var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                
-                PInvoke_clear_ADB28CB6(self);
+                PInvoke_clear_75E3A897(*(IntPtr*)_payload.DangerousGetHandle());
                 
                 return;
             }
@@ -13589,9 +13672,9 @@ public partial class Registry : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib8RegistryC5clearyyF")]
-    private static partial void PInvoke_clear_ADB28CB6( SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Registry_clear_ADB28CB6")]
+    private static partial void PInvoke_clear_75E3A897( IntPtr _selfClass);
     
     
 }
@@ -13772,7 +13855,7 @@ public partial class EventHandler : ISwiftObject, IDisposable
     
     public string Label
     {
-        get { var __slice = Label_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = Label_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
         set {
             var __utf8 = System.Text.Encoding.UTF8.GetBytes(value);
             unsafe { fixed (byte* __p = __utf8) { Label_Set((IntPtr)__p, __utf8.Length); } }
@@ -13938,7 +14021,7 @@ public partial class EventHandler : ISwiftObject, IDisposable
             {
                 
                 
-                var result = PInvoke_createDefault_6E40A5F2();
+                var result = PInvoke_createDefault_F635BF75();
                 
                 var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));
                 try
@@ -13960,9 +14043,9 @@ public partial class EventHandler : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib12EventHandlerC13createDefaultACyFZ")]
-    private static partial IntPtr PInvoke_createDefault_6E40A5F2();
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_EventHandler_createDefault_6E40A5F2")]
+    private static partial IntPtr PInvoke_createDefault_F635BF75();
     
     
     /// <summary>
@@ -13976,11 +14059,9 @@ public partial class EventHandler : ISwiftObject, IDisposable
             _payload.DangerousAddRef(ref success);
             try
             {
-                var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                
-                var result = PInvoke_fire_446D9F10(value, self);
+                var result = PInvoke_fire_A80C4435(value, *(IntPtr*)_payload.DangerousGetHandle());
                 
                 return result;
             }
@@ -13994,10 +14075,10 @@ public partial class EventHandler : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib12EventHandlerC4fireySbs5Int32VF")]
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_EventHandler_fire_446D9F10")]
     [return: MarshalAs(UnmanagedType.U1)]
-    private static partial bool PInvoke_fire_446D9F10( int value,  SwiftSelf self);
+    private static partial bool PInvoke_fire_A80C4435( int value,  IntPtr _selfClass);
     
     
 }
@@ -15776,21 +15857,18 @@ public partial class TypedThrowingParser : ISwiftObject, IDisposable
             _payload.DangerousAddRef(ref success);
             try
             {
-                var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
-                
                 
                 using var inputSwift = new SwiftString(input);
                 using var inputDisposable = inputSwift.PayloadBuffer;
                 
-                var result = PInvoke_parse_53ABFB29(inputDisposable.Buffer, self, out var swiftError);
+                var result = PInvoke_parse_2B91BE65(inputDisposable.Buffer, _payload.DangerousGetHandle(), out var errorPtr);
                 
-                if (swiftError.Value != null)
+                if (errorPtr != IntPtr.Zero)
                 {
                     string _errorMessage;
-                    var _errorPtr = (IntPtr)swiftError.Value;
                     try
                     {
-                        var _descPtr = SBW_GetErrorDescription(_errorPtr);
+                        var _descPtr = SBW_GetErrorDescription(errorPtr);
                         try
                         {
                             _errorMessage = _descPtr != IntPtr.Zero
@@ -15801,7 +15879,7 @@ public partial class TypedThrowingParser : ISwiftObject, IDisposable
                         {
                             if (_descPtr != IntPtr.Zero) SBW_Free(_descPtr);
                         }
-                        var _typedErrorPtr = SBW_ExtractTypedError_SwiftBindingsTestLib_ParseError(_errorPtr);
+                        var _typedErrorPtr = SBW_ExtractTypedError_SwiftBindingsTestLib_ParseError(errorPtr);
                         if (_typedErrorPtr != IntPtr.Zero)
                         {
                             try
@@ -15818,7 +15896,7 @@ public partial class TypedThrowingParser : ISwiftObject, IDisposable
                     }
                     finally
                     {
-                        SBW_ReleaseError(_errorPtr);
+                        SBW_ReleaseError(errorPtr);
                     }
                 }
                 
@@ -15834,9 +15912,9 @@ public partial class TypedThrowingParser : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib19TypedThrowingParserV5parseys5Int32VSSAA10ParseErrorOYKF")]
-    private static partial int PInvoke_parse_53ABFB29( Swift.SwiftString.Buffer input,  SwiftSelf self, out SwiftError swiftError);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_TypedThrowingParser_parse_53ABFB29")]
+    private static partial int PInvoke_parse_2B91BE65( Swift.SwiftString.Buffer input,  IntPtr _self, out IntPtr errorPtr);
     
     
     [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_CancelTask_SwiftBindingsTestLib")]
@@ -16510,17 +16588,14 @@ public partial class ThrowingStruct : ISwiftObject, IDisposable
             _payload.DangerousAddRef(ref success);
             try
             {
-                var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
                 
                 
+                var result = PInvoke_divideBy_CE14027F(divisor, _payload.DangerousGetHandle(), out var errorPtr);
                 
-                var result = PInvoke_divideBy_E46ABCFF(divisor, self, out var swiftError);
-                
-                if (swiftError.Value != null)
+                if (errorPtr != IntPtr.Zero)
                 {
                     string _errorMessage;
-                    var _errorPtr = (IntPtr)swiftError.Value;
-                    var _descPtr = SBW_GetErrorDescription(_errorPtr);
+                    var _descPtr = SBW_GetErrorDescription(errorPtr);
                     try
                     {
                         _errorMessage = _descPtr != IntPtr.Zero
@@ -16530,7 +16605,7 @@ public partial class ThrowingStruct : ISwiftObject, IDisposable
                     finally
                     {
                         if (_descPtr != IntPtr.Zero) SBW_Free(_descPtr);
-                        SBW_ReleaseError(_errorPtr);
+                        SBW_ReleaseError(errorPtr);
                     }
                     throw new SwiftRuntimeException(_errorMessage);
                 }
@@ -16547,9 +16622,9 @@ public partial class ThrowingStruct : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib14ThrowingStructV8divideByys5Int32VAFKF")]
-    private static partial int PInvoke_divideBy_E46ABCFF( int divisor,  SwiftSelf self, out SwiftError swiftError);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_ThrowingStruct_divideBy_E46ABCFF")]
+    private static partial int PInvoke_divideBy_CE14027F( int divisor,  IntPtr _self, out IntPtr errorPtr);
     
     
     /// <summary>
@@ -16563,17 +16638,14 @@ public partial class ThrowingStruct : ISwiftObject, IDisposable
             _payload.DangerousAddRef(ref success);
             try
             {
-                var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
                 
                 
+                var result = PInvoke_validatePositive_7466611C(_payload.DangerousGetHandle(), out var errorPtr);
                 
-                var result = PInvoke_validatePositive_942FACAA(self, out var swiftError);
-                
-                if (swiftError.Value != null)
+                if (errorPtr != IntPtr.Zero)
                 {
                     string _errorMessage;
-                    var _errorPtr = (IntPtr)swiftError.Value;
-                    var _descPtr = SBW_GetErrorDescription(_errorPtr);
+                    var _descPtr = SBW_GetErrorDescription(errorPtr);
                     try
                     {
                         _errorMessage = _descPtr != IntPtr.Zero
@@ -16583,7 +16655,7 @@ public partial class ThrowingStruct : ISwiftObject, IDisposable
                     finally
                     {
                         if (_descPtr != IntPtr.Zero) SBW_Free(_descPtr);
-                        SBW_ReleaseError(_errorPtr);
+                        SBW_ReleaseError(errorPtr);
                     }
                     throw new SwiftRuntimeException(_errorMessage);
                 }
@@ -16600,9 +16672,9 @@ public partial class ThrowingStruct : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib14ThrowingStructV16validatePositives5Int32VyKF")]
-    private static partial int PInvoke_validatePositive_942FACAA( SwiftSelf self, out SwiftError swiftError);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_ThrowingStruct_validatePositive_942FACAA")]
+    private static partial int PInvoke_validatePositive_7466611C( IntPtr _self, out IntPtr errorPtr);
     
     
     /// <summary>
@@ -16616,13 +16688,12 @@ public partial class ThrowingStruct : ISwiftObject, IDisposable
             {
                 
                 
-                var result = PInvoke_safeDivide_1053C104(a, b, out var swiftError);
+                var result = PInvoke_safeDivide_4FE68FF9(a, b, out var errorPtr);
                 
-                if (swiftError.Value != null)
+                if (errorPtr != IntPtr.Zero)
                 {
                     string _errorMessage;
-                    var _errorPtr = (IntPtr)swiftError.Value;
-                    var _descPtr = SBW_GetErrorDescription(_errorPtr);
+                    var _descPtr = SBW_GetErrorDescription(errorPtr);
                     try
                     {
                         _errorMessage = _descPtr != IntPtr.Zero
@@ -16632,7 +16703,7 @@ public partial class ThrowingStruct : ISwiftObject, IDisposable
                     finally
                     {
                         if (_descPtr != IntPtr.Zero) SBW_Free(_descPtr);
-                        SBW_ReleaseError(_errorPtr);
+                        SBW_ReleaseError(errorPtr);
                     }
                     throw new SwiftRuntimeException(_errorMessage);
                 }
@@ -16647,9 +16718,9 @@ public partial class ThrowingStruct : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib14ThrowingStructV10safeDivideys5Int32VAF_AFtKFZ")]
-    private static partial int PInvoke_safeDivide_1053C104( int a,  int b, out SwiftError swiftError);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_ThrowingStruct_safeDivide_1053C104")]
+    private static partial int PInvoke_safeDivide_4FE68FF9( int a,  int b, out IntPtr errorPtr);
     
     
 }
@@ -16938,7 +17009,7 @@ public partial class AsyncConfig : ISwiftObject, IDisposable
     
     public string Name
     {
-        get { var __slice = Name_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = Name_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     private ulong Delay_Get()
@@ -17140,7 +17211,7 @@ public partial class AsyncDataSource : ISwiftObject, IDisposable
     
     public string Identifier
     {
-        get { var __slice = Identifier_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = Identifier_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     [EditorBrowsable(EditorBrowsableState.Never)]
@@ -17324,7 +17395,7 @@ public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
     
     public string Name
     {
-        get { var __slice = Name_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = Name_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     [EditorBrowsable(EditorBrowsableState.Never)]
@@ -18096,7 +18167,7 @@ private static partial void SBW_Free(IntPtr ptr);
 
 public string Message
 {
-    get { var __slice = Message_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+    get { var __slice = Message_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
 }
 
 private bool Success_Get()
@@ -18624,7 +18695,7 @@ public partial class AsyncTask : ISwiftObject, IDisposable
     
     public string TaskId
     {
-        get { var __slice = TaskId_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = TaskId_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     private Utf8Slice Status_Get()
@@ -18692,7 +18763,7 @@ public partial class AsyncTask : ISwiftObject, IDisposable
     
     public virtual string StatusProperty
     {
-        get { var __slice = Status_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = Status_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
         set {
             var __utf8 = System.Text.Encoding.UTF8.GetBytes(value);
             unsafe { fixed (byte* __p = __utf8) { Status_Set((IntPtr)__p, __utf8.Length); } }
@@ -18820,37 +18891,48 @@ public partial class AsyncTask : ISwiftObject, IDisposable
     private static partial IntPtr PInvoke_init_13807576( Swift.SwiftString.Buffer taskId,  Swift.SwiftString.Buffer status);
     
     
-    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     public virtual string GetDescription()
     {
         unsafe
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
+            void* payload = null;
             try
             {
-                var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
+                var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<string>();
+                payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                var resultPtr = (IntPtr)payload;
                 
                 
                 
-                var result = PInvoke_getDescription_FE9C3159(self);
+                PInvoke_getDescription_CDBEF393(resultPtr, *(IntPtr*)_payload.DangerousGetHandle());
                 
-                var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                return swiftResult.ToString();
+                unsafe {
+                    var __slice = *(Utf8Slice*)resultPtr;
+                    if (__slice.Len == 0) return string.Empty;
+                    try {
+                        return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(
+                            __slice.Ptr, (int)__slice.Len) ?? string.Empty;
+                    } finally {
+                        SBW_Free(__slice.Ptr);
+                    }
+                }
             }
             
             finally
             {
                 if (success)
                    _payload.DangerousRelease();
+                NativeMemory.Free(payload);
             }
             
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib9AsyncTaskC14getDescriptionSSyFTj")]
-    private static partial Swift.SwiftString.Buffer PInvoke_getDescription_FE9C3159( SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_AsyncTask_getDescription_FE9C3159")]
+    private static partial void PInvoke_getDescription_CDBEF393( IntPtr resultPtr,  IntPtr _selfClass);
     
     
 }
@@ -18905,7 +18987,7 @@ public partial class AsyncStringWorker : ISwiftObject, IDisposable
     
     public string Prefix
     {
-        get { var __slice = Prefix_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = Prefix_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     [EditorBrowsable(EditorBrowsableState.Never)]
@@ -19979,7 +20061,7 @@ public partial class AsyncArrayWorker : ISwiftObject, IDisposable
     
     public string Identifier
     {
-        get { var __slice = Identifier_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = Identifier_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     [EditorBrowsable(EditorBrowsableState.Never)]
@@ -21537,7 +21619,7 @@ public partial class AsyncComplexWorker : ISwiftObject, IDisposable
     
     public string WorkerId
     {
-        get { var __slice = WorkerId_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = WorkerId_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     [EditorBrowsable(EditorBrowsableState.Never)]
@@ -23124,7 +23206,7 @@ public partial class MainActorViewModel : ISwiftObject, IDisposable
     
     public virtual string Title
     {
-        get { var __slice = Title_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = Title_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
         set {
             var __utf8 = System.Text.Encoding.UTF8.GetBytes(value);
             unsafe { fixed (byte* __p = __utf8) { Title_Set((IntPtr)__p, __utf8.Length); } }
@@ -23233,7 +23315,7 @@ public partial class MainActorViewModel : ISwiftObject, IDisposable
     /// </summary>
     public virtual string Summary
     {
-        get { var __slice = Summary_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = Summary_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     [EditorBrowsable(EditorBrowsableState.Never)]
@@ -23366,11 +23448,9 @@ public partial class MainActorViewModel : ISwiftObject, IDisposable
             _payload.DangerousAddRef(ref success);
             try
             {
-                var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                
-                var result = PInvoke_increment_B3ED6879(self);
+                var result = PInvoke_increment_72BED10A(*(IntPtr*)_payload.DangerousGetHandle());
                 
                 return result;
             }
@@ -23384,9 +23464,9 @@ public partial class MainActorViewModel : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib18MainActorViewModelC9increments5Int32VyFTj")]
-    private static partial int PInvoke_increment_B3ED6879( SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_MainActorViewModel_increment_B3ED6879")]
+    private static partial int PInvoke_increment_72BED10A( IntPtr _selfClass);
     
     
     [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_CancelTask_SwiftBindingsTestLib")]
@@ -23760,7 +23840,9 @@ public partial class MainActorMethods : ISwiftObject, IDisposable
     private static partial void PInvoke_init_0D2CFC09( IntPtr resultPtr,  int value);
     
     
-    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
+    private static partial void SBW_Free(IntPtr ptr);
+    
     /// <summary>
     /// Method isolated to the main actor.
     /// </summary>
@@ -23770,33 +23852,44 @@ public partial class MainActorMethods : ISwiftObject, IDisposable
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
+            void* payload = null;
             try
             {
-                var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
+                var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<string>();
+                payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                var resultPtr = (IntPtr)payload;
                 
                 
                 
-                var result = PInvoke_mainActorMethod_AA83CAC4(self);
+                PInvoke_mainActorMethod_4BA802FC(resultPtr, _payload.DangerousGetHandle());
                 
-                var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                return swiftResult.ToString();
+                unsafe {
+                    var __slice = *(Utf8Slice*)resultPtr;
+                    if (__slice.Len == 0) return string.Empty;
+                    try {
+                        return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(
+                            __slice.Ptr, (int)__slice.Len) ?? string.Empty;
+                    } finally {
+                        SBW_Free(__slice.Ptr);
+                    }
+                }
             }
             
             finally
             {
                 if (success)
                    _payload.DangerousRelease();
+                NativeMemory.Free(payload);
             }
             
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib16MainActorMethodsV04mainF6MethodSSyF")]
-    private static partial Swift.SwiftString.Buffer PInvoke_mainActorMethod_AA83CAC4( SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_MainActorMethods_mainActorMethod_AA83CAC4")]
+    private static partial void PInvoke_mainActorMethod_4BA802FC( IntPtr resultPtr,  IntPtr _self);
     
     
-    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     /// <summary>
     /// Non-isolated method for comparison.
     /// </summary>
@@ -23806,30 +23899,42 @@ public partial class MainActorMethods : ISwiftObject, IDisposable
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
+            void* payload = null;
             try
             {
-                var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
+                var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<string>();
+                payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                var resultPtr = (IntPtr)payload;
                 
                 
                 
-                var result = PInvoke_regularMethod_5906F1EB(self);
+                PInvoke_regularMethod_A894CCCC(resultPtr, _payload.DangerousGetHandle());
                 
-                var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                return swiftResult.ToString();
+                unsafe {
+                    var __slice = *(Utf8Slice*)resultPtr;
+                    if (__slice.Len == 0) return string.Empty;
+                    try {
+                        return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(
+                            __slice.Ptr, (int)__slice.Len) ?? string.Empty;
+                    } finally {
+                        SBW_Free(__slice.Ptr);
+                    }
+                }
             }
             
             finally
             {
                 if (success)
                    _payload.DangerousRelease();
+                NativeMemory.Free(payload);
             }
             
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib16MainActorMethodsV13regularMethodSSyF")]
-    private static partial Swift.SwiftString.Buffer PInvoke_regularMethod_5906F1EB( SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_MainActorMethods_regularMethod_5906F1EB")]
+    private static partial void PInvoke_regularMethod_A894CCCC( IntPtr resultPtr,  IntPtr _self);
     
     
 }
@@ -23884,7 +23989,7 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
     
     public string Name
     {
-        get { var __slice = Name_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = Name_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     [EditorBrowsable(EditorBrowsableState.Never)]
@@ -25101,7 +25206,7 @@ public partial class Counter : ISwiftObject, IDisposable
     /// </summary>
     public virtual string TypeName
     {
-        get { var __slice = TypeName_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = TypeName_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     [EditorBrowsable(EditorBrowsableState.Never)]
@@ -26090,7 +26195,7 @@ public partial class SharedState : ISwiftObject, IDisposable
     /// </summary>
     public virtual string Label
     {
-        get { var __slice = Label_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = Label_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
         set {
             var __utf8 = System.Text.Encoding.UTF8.GetBytes(value);
             unsafe { fixed (byte* __p = __utf8) { Label_Set((IntPtr)__p, __utf8.Length); } }
@@ -26227,11 +26332,9 @@ public partial class SharedState : ISwiftObject, IDisposable
             _payload.DangerousAddRef(ref success);
             try
             {
-                var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                
-                var result = PInvoke_getCounter_9D0BDA4B(self);
+                var result = PInvoke_getCounter_094943CF(*(IntPtr*)_payload.DangerousGetHandle());
                 
                 return result;
             }
@@ -26245,9 +26348,9 @@ public partial class SharedState : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11SharedStateC10getCounters5Int32VyFTj")]
-    private static partial int PInvoke_getCounter_9D0BDA4B( SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_SharedState_getCounter_9D0BDA4B")]
+    private static partial int PInvoke_getCounter_094943CF( IntPtr _selfClass);
     
     
     /// <summary>
@@ -26261,11 +26364,9 @@ public partial class SharedState : ISwiftObject, IDisposable
             _payload.DangerousAddRef(ref success);
             try
             {
-                var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                
-                PInvoke_incrementCounter_811325B9(self);
+                PInvoke_incrementCounter_23C79F17(*(IntPtr*)_payload.DangerousGetHandle());
                 
                 return;
             }
@@ -26279,9 +26380,9 @@ public partial class SharedState : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11SharedStateC16incrementCounteryyFTj")]
-    private static partial void PInvoke_incrementCounter_811325B9( SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_SharedState_incrementCounter_811325B9")]
+    private static partial void PInvoke_incrementCounter_23C79F17( IntPtr _selfClass);
     
     
 }
@@ -26543,11 +26644,9 @@ public partial class SendablePoint : ISwiftObject, IDisposable
             _payload.DangerousAddRef(ref success);
             try
             {
-                var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
                 
                 
-                
-                var result = PInvoke_manhattanDistance_9AD960FE(self);
+                var result = PInvoke_manhattanDistance_92C94E6C(_payload.DangerousGetHandle());
                 
                 return result;
             }
@@ -26561,9 +26660,9 @@ public partial class SendablePoint : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib13SendablePointV17manhattanDistances5Int32VyF")]
-    private static partial int PInvoke_manhattanDistance_9AD960FE( SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_SendablePoint_manhattanDistance_9AD960FE")]
+    private static partial int PInvoke_manhattanDistance_92C94E6C( IntPtr _self);
     
     
 }
@@ -26618,7 +26717,7 @@ public partial class SendableConfig : ISwiftObject, IDisposable
     
     public string Name
     {
-        get { var __slice = Name_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = Name_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     private int MaxRetries_Get()
@@ -26773,7 +26872,6 @@ public partial class SendableConfig : ISwiftObject, IDisposable
     private static partial IntPtr PInvoke_init_F016837E( Swift.SwiftString.Buffer name,  int maxRetries);
     
     
-    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     /// <summary>
     /// Returns a description of this config.
     /// </summary>
@@ -26783,30 +26881,42 @@ public partial class SendableConfig : ISwiftObject, IDisposable
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
+            void* payload = null;
             try
             {
-                var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
+                var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<string>();
+                payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                var resultPtr = (IntPtr)payload;
                 
                 
                 
-                var result = PInvoke_describe_3F85E210(self);
+                PInvoke_describe_D239DF22(resultPtr, *(IntPtr*)_payload.DangerousGetHandle());
                 
-                var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                return swiftResult.ToString();
+                unsafe {
+                    var __slice = *(Utf8Slice*)resultPtr;
+                    if (__slice.Len == 0) return string.Empty;
+                    try {
+                        return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(
+                            __slice.Ptr, (int)__slice.Len) ?? string.Empty;
+                    } finally {
+                        SBW_Free(__slice.Ptr);
+                    }
+                }
             }
             
             finally
             {
                 if (success)
                    _payload.DangerousRelease();
+                NativeMemory.Free(payload);
             }
             
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib14SendableConfigC8describeSSyF")]
-    private static partial Swift.SwiftString.Buffer PInvoke_describe_3F85E210( SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_SendableConfig_describe_3F85E210")]
+    private static partial void PInvoke_describe_D239DF22( IntPtr resultPtr,  IntPtr _selfClass);
     
     
 }
@@ -26939,7 +27049,7 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
     
     public string Url
     {
-        get { var __slice = Url_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = Url_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     [EditorBrowsable(EditorBrowsableState.Never)]
@@ -27295,7 +27405,7 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
         /// </summary>
         public string RawValue
         {
-            get { var __slice = RawValue_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+            get { var __slice = RawValue_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
         }
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
@@ -27613,7 +27723,7 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
         /// </summary>
         public string RawValue
         {
-            get { var __slice = RawValue_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+            get { var __slice = RawValue_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
         }
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
@@ -27759,7 +27869,7 @@ public partial class OrderContainer : ISwiftObject, IDisposable
     
     public string OrderId
     {
-        get { var __slice = OrderId_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = OrderId_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     private SwiftBindingsTestLib.OrderContainer.Status Status_Get()
@@ -28154,7 +28264,7 @@ public partial class OrderContainer : ISwiftObject, IDisposable
         /// </summary>
         public string RawValue
         {
-            get { var __slice = RawValue_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+            get { var __slice = RawValue_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
         }
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
@@ -28300,7 +28410,7 @@ public partial class PaymentContainer : ISwiftObject, IDisposable
     
     public string PaymentId
     {
-        get { var __slice = PaymentId_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = PaymentId_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     private SwiftBindingsTestLib.PaymentContainer.Status Status_Get()
@@ -28695,7 +28805,7 @@ public partial class PaymentContainer : ISwiftObject, IDisposable
         /// </summary>
         public string RawValue
         {
-            get { var __slice = RawValue_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+            get { var __slice = RawValue_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
         }
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
@@ -29050,7 +29160,7 @@ public partial class LogLevel : ISwiftObject, IDisposable
     /// </summary>
     public string RawValue
     {
-        get { var __slice = RawValue_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = RawValue_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
@@ -29383,7 +29493,7 @@ public partial class Greeting : ISwiftObject, IDisposable
     /// </summary>
     public string RawValue
     {
-        get { var __slice = RawValue_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = RawValue_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
@@ -29731,7 +29841,7 @@ public partial class EdgeCaseStrings : ISwiftObject, IDisposable
     /// </summary>
     public string RawValue
     {
-        get { var __slice = RawValue_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = RawValue_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
@@ -30064,7 +30174,7 @@ public partial class CaseSensitiveEnum : ISwiftObject, IDisposable
     /// </summary>
     public string RawValue
     {
-        get { var __slice = RawValue_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = RawValue_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
@@ -30320,7 +30430,7 @@ private static partial void SBW_Free(IntPtr ptr);
 
 public string Name
 {
-    get { var __slice = Name_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+    get { var __slice = Name_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     set {
         var __utf8 = System.Text.Encoding.UTF8.GetBytes(value);
         unsafe { fixed (byte* __p = __utf8) { Name_Set((IntPtr)__p, __utf8.Length); } }
@@ -30557,7 +30667,7 @@ public partial class NonFrozenMutableProps : ISwiftObject, IDisposable
     
     public string Label
     {
-        get { var __slice = Label_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = Label_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
         set {
             var __utf8 = System.Text.Encoding.UTF8.GetBytes(value);
             unsafe { fixed (byte* __p = __utf8) { Label_Set((IntPtr)__p, __utf8.Length); } }
@@ -30820,7 +30930,7 @@ public partial class MutableClass : ISwiftObject, IDisposable
     
     public virtual string Title
     {
-        get { var __slice = Title_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = Title_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
         set {
             var __utf8 = System.Text.Encoding.UTF8.GetBytes(value);
             unsafe { fixed (byte* __p = __utf8) { Title_Set((IntPtr)__p, __utf8.Length); } }
@@ -31347,7 +31457,7 @@ public partial class StaticProps : ISwiftObject, IDisposable
     /// </summary>
     public static string CounterDescription
     {
-        get { var __slice = CounterDescription_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = CounterDescription_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     [EditorBrowsable(EditorBrowsableState.Never)]
@@ -31595,7 +31705,7 @@ public partial class StaticMethods : ISwiftObject, IDisposable
         {
             
             
-            var result = PInvoke_getStoredValue_6A5185AE();
+            var result = PInvoke_getStoredValue_B249EAC9();
             
             return result;
         }
@@ -31606,9 +31716,9 @@ public partial class StaticMethods : ISwiftObject, IDisposable
         
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib13StaticMethodsV14getStoredValues5Int32VyFZ")]
-    private static partial int PInvoke_getStoredValue_6A5185AE();
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_StaticMethods_getStoredValue_6A5185AE")]
+    private static partial int PInvoke_getStoredValue_B249EAC9();
     
     
     /// <summary>
@@ -31620,7 +31730,7 @@ public partial class StaticMethods : ISwiftObject, IDisposable
         {
             
             
-            PInvoke_setStoredValue_7DB665F1(value);
+            PInvoke_setStoredValue_7F96EDBC(value);
             
             return;
         }
@@ -31631,9 +31741,9 @@ public partial class StaticMethods : ISwiftObject, IDisposable
         
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib13StaticMethodsV14setStoredValueyys5Int32VFZ")]
-    private static partial void PInvoke_setStoredValue_7DB665F1( int value);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_StaticMethods_setStoredValue_7DB665F1")]
+    private static partial void PInvoke_setStoredValue_7F96EDBC( int value);
     
     
     /// <summary>
@@ -31645,7 +31755,7 @@ public partial class StaticMethods : ISwiftObject, IDisposable
         {
             
             
-            var result = PInvoke_incrementAndGet_6989C04D();
+            var result = PInvoke_incrementAndGet_F9841F18();
             
             return result;
         }
@@ -31656,9 +31766,9 @@ public partial class StaticMethods : ISwiftObject, IDisposable
         
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib13StaticMethodsV15incrementAndGets5Int32VyFZ")]
-    private static partial int PInvoke_incrementAndGet_6989C04D();
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_StaticMethods_incrementAndGet_6989C04D")]
+    private static partial int PInvoke_incrementAndGet_F9841F18();
     
     
 }
@@ -32169,7 +32279,7 @@ private static partial void SBW_Free(IntPtr ptr);
 
 public string StoredString
 {
-    get { var __slice = StoredString_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+    get { var __slice = StoredString_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
 }
 
 private Utf8Slice Summary_Get()
@@ -32212,7 +32322,7 @@ private static partial void PInvoke_summary_Get_49163CCF( IntPtr resultPtr,  Int
 /// </summary>
 public string Summary
 {
-    get { var __slice = Summary_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+    get { var __slice = Summary_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
 }
 
 private static int Version_Get()
@@ -32417,7 +32527,7 @@ public partial class NonFrozenReadOnlyProps : ISwiftObject, IDisposable
     
     public string StoredString
     {
-        get { var __slice = StoredString_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = StoredString_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     private Utf8Slice Uppercased_Get()
@@ -32457,7 +32567,7 @@ public partial class NonFrozenReadOnlyProps : ISwiftObject, IDisposable
     
     public string Uppercased
     {
-        get { var __slice = Uppercased_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = Uppercased_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     [EditorBrowsable(EditorBrowsableState.Never)]
@@ -32834,7 +32944,7 @@ private static partial void SBW_Free(IntPtr ptr);
 
 public string FallbackLabel
 {
-    get { var __slice = FallbackLabel_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+    get { var __slice = FallbackLabel_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     set {
         var __utf8 = System.Text.Encoding.UTF8.GetBytes(value);
         unsafe { fixed (byte* __p = __utf8) { FallbackLabel_Set((IntPtr)__p, __utf8.Length); } }
@@ -32943,7 +33053,6 @@ public OptionalConfig( string? label,  int? count,  string fallbackLabel)
 private static partial SwiftBindingsTestLib.OptionalConfig.Buffer PInvoke_init_BB6D97A7( IntPtr labelBuffer,  IntPtr countBuffer,  Swift.SwiftString.Buffer fallbackLabel);
 
 
-[Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
 /// <summary>
 /// Returns the effective label (label or fallbackLabel).
 /// </summary>
@@ -32953,30 +33062,42 @@ public string GetEffectiveLabel()
     {
         var success = false;
         _payload.DangerousAddRef(ref success);
+        void* payload = null;
         try
         {
-            var self = new SwiftSelf<OptionalConfig.Buffer>(*(OptionalConfig.Buffer*)_payload.DangerousGetHandle());
+            var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<string>();
+            payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
+            var resultPtr = (IntPtr)payload;
             
             
             
-            var result = PInvoke_effectiveLabel_06354D60(self);
+            PInvoke_effectiveLabel_04D842F4(resultPtr, _payload.DangerousGetHandle());
             
-            var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-            return swiftResult.ToString();
+            unsafe {
+                var __slice = *(Utf8Slice*)resultPtr;
+                if (__slice.Len == 0) return string.Empty;
+                try {
+                    return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(
+                        __slice.Ptr, (int)__slice.Len) ?? string.Empty;
+                } finally {
+                    SBW_Free(__slice.Ptr);
+                }
+            }
         }
         
         finally
         {
             if (success)
                _payload.DangerousRelease();
+            NativeMemory.Free(payload);
         }
         
     }
 }
 
-[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-[LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib14OptionalConfigV14effectiveLabelSSyF")]
-private static partial Swift.SwiftString.Buffer PInvoke_effectiveLabel_06354D60( SwiftSelf<OptionalConfig.Buffer> self);
+[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+[LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_OptionalConfig_effectiveLabel_06354D60")]
+private static partial void PInvoke_effectiveLabel_04D842F4( IntPtr resultPtr,  IntPtr _self);
 
 
 }
@@ -33059,7 +33180,7 @@ public partial class PointerWorker : ISwiftObject, IDisposable
     
     public string Label
     {
-        get { var __slice = Label_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = Label_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
         set {
             var __utf8 = System.Text.Encoding.UTF8.GetBytes(value);
             unsafe { fixed (byte* __p = __utf8) { Label_Set((IntPtr)__p, __utf8.Length); } }
@@ -33552,7 +33673,7 @@ public partial class HandleWrapper : ISwiftObject, IDisposable
     
     public string Name
     {
-        get { var __slice = Name_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = Name_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
         set {
             var __utf8 = System.Text.Encoding.UTF8.GetBytes(value);
             unsafe { fixed (byte* __p = __utf8) { Name_Set((IntPtr)__p, __utf8.Length); } }
@@ -34383,7 +34504,7 @@ public partial class SimpleItem : ISwiftObject, IDisposable
     
     public string Id
     {
-        get { var __slice = Id_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = Id_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     private Utf8Slice Label_Get()
@@ -34423,7 +34544,7 @@ public partial class SimpleItem : ISwiftObject, IDisposable
     
     public string Label
     {
-        get { var __slice = Label_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = Label_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     private Utf8Slice Description_Get()
@@ -34463,7 +34584,7 @@ public partial class SimpleItem : ISwiftObject, IDisposable
     
     public string Description
     {
-        get { var __slice = Description_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = Description_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     [EditorBrowsable(EditorBrowsableState.Never)]
@@ -34585,37 +34706,48 @@ public partial class SimpleItem : ISwiftObject, IDisposable
     private static partial void PInvoke_init_EBC5DA95( IntPtr resultPtr,  Swift.SwiftString.Buffer id,  Swift.SwiftString.Buffer label);
     
     
-    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     public string GetDescribe()
     {
         unsafe
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
+            void* payload = null;
             try
             {
-                var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
+                var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<string>();
+                payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                var resultPtr = (IntPtr)payload;
                 
                 
                 
-                var result = PInvoke_describe_4E933DBC(self);
+                PInvoke_describe_62F3E1C4(resultPtr, _payload.DangerousGetHandle());
                 
-                var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                return swiftResult.ToString();
+                unsafe {
+                    var __slice = *(Utf8Slice*)resultPtr;
+                    if (__slice.Len == 0) return string.Empty;
+                    try {
+                        return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(
+                            __slice.Ptr, (int)__slice.Len) ?? string.Empty;
+                    } finally {
+                        SBW_Free(__slice.Ptr);
+                    }
+                }
             }
             
             finally
             {
                 if (success)
                    _payload.DangerousRelease();
+                NativeMemory.Free(payload);
             }
             
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10SimpleItemV8describeSSyF")]
-    private static partial Swift.SwiftString.Buffer PInvoke_describe_4E933DBC( SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_SimpleItem_describe_4E933DBC")]
+    private static partial void PInvoke_describe_62F3E1C4( IntPtr resultPtr,  IntPtr _self);
     
     
 }
@@ -34812,11 +34944,9 @@ public partial class MutableItem : ISwiftObject, IDisposable, IHasValue
             _payload.DangerousAddRef(ref success);
             try
             {
-                var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
                 
                 
-                
-                var result = PInvoke_getValue_2B87C82F(self);
+                var result = PInvoke_getValue_8B4370A7(_payload.DangerousGetHandle());
                 
                 return result;
             }
@@ -34830,9 +34960,9 @@ public partial class MutableItem : ISwiftObject, IDisposable, IHasValue
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11MutableItemV8getValues5Int32VyF")]
-    private static partial int PInvoke_getValue_2B87C82F( SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_MutableItem_getValue_2B87C82F")]
+    private static partial int PInvoke_getValue_8B4370A7( IntPtr _self);
     
     
     public void SetValue( int newValue)
@@ -34843,11 +34973,9 @@ public partial class MutableItem : ISwiftObject, IDisposable, IHasValue
             _payload.DangerousAddRef(ref success);
             try
             {
-                var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
                 
                 
-                
-                PInvoke_setValue_55A72758(newValue, self);
+                PInvoke_setValue_9DD96709(newValue, _payload.DangerousGetHandle());
                 
                 return;
             }
@@ -34861,9 +34989,9 @@ public partial class MutableItem : ISwiftObject, IDisposable, IHasValue
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11MutableItemV8setValueyys5Int32VF")]
-    private static partial void PInvoke_setValue_55A72758( int newValue,  SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_MutableItem_setValue_55A72758")]
+    private static partial void PInvoke_setValue_9DD96709( int newValue,  IntPtr _self);
     
     
 }
@@ -34918,7 +35046,7 @@ public partial class DisplayItem : ISwiftObject, IDisposable, IDisplayable
     
     public string Text
     {
-        get { var __slice = Text_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = Text_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     private Utf8Slice Description_Get()
@@ -34958,7 +35086,7 @@ public partial class DisplayItem : ISwiftObject, IDisposable, IDisplayable
     
     public string Description
     {
-        get { var __slice = Description_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = Description_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     [EditorBrowsable(EditorBrowsableState.Never)]
@@ -35078,70 +35206,92 @@ public partial class DisplayItem : ISwiftObject, IDisposable, IDisplayable
     private static partial void PInvoke_init_7310DBA7( IntPtr resultPtr,  Swift.SwiftString.Buffer text);
     
     
-    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     public string GetDescribe()
     {
         unsafe
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
+            void* payload = null;
             try
             {
-                var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
+                var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<string>();
+                payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                var resultPtr = (IntPtr)payload;
                 
                 
                 
-                var result = PInvoke_describe_4EA6D6C7(self);
+                PInvoke_describe_30C56C99(resultPtr, _payload.DangerousGetHandle());
                 
-                var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                return swiftResult.ToString();
+                unsafe {
+                    var __slice = *(Utf8Slice*)resultPtr;
+                    if (__slice.Len == 0) return string.Empty;
+                    try {
+                        return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(
+                            __slice.Ptr, (int)__slice.Len) ?? string.Empty;
+                    } finally {
+                        SBW_Free(__slice.Ptr);
+                    }
+                }
             }
             
             finally
             {
                 if (success)
                    _payload.DangerousRelease();
+                NativeMemory.Free(payload);
             }
             
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11DisplayItemV8describeSSyF")]
-    private static partial Swift.SwiftString.Buffer PInvoke_describe_4EA6D6C7( SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_DisplayItem_describe_4EA6D6C7")]
+    private static partial void PInvoke_describe_30C56C99( IntPtr resultPtr,  IntPtr _self);
     
     
-    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     public string GetDisplay()
     {
         unsafe
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
+            void* payload = null;
             try
             {
-                var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
+                var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<string>();
+                payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                var resultPtr = (IntPtr)payload;
                 
                 
                 
-                var result = PInvoke_display_B95905ED(self);
+                PInvoke_display_F02BF10F(resultPtr, _payload.DangerousGetHandle());
                 
-                var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                return swiftResult.ToString();
+                unsafe {
+                    var __slice = *(Utf8Slice*)resultPtr;
+                    if (__slice.Len == 0) return string.Empty;
+                    try {
+                        return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(
+                            __slice.Ptr, (int)__slice.Len) ?? string.Empty;
+                    } finally {
+                        SBW_Free(__slice.Ptr);
+                    }
+                }
             }
             
             finally
             {
                 if (success)
                    _payload.DangerousRelease();
+                NativeMemory.Free(payload);
             }
             
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11DisplayItemV7displaySSyF")]
-    private static partial Swift.SwiftString.Buffer PInvoke_display_B95905ED( SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_DisplayItem_display_B95905ED")]
+    private static partial void PInvoke_display_F02BF10F( IntPtr resultPtr,  IntPtr _self);
     
     
 }
@@ -35196,7 +35346,7 @@ public partial class Person : ISwiftObject, IDisposable, IAgeable
     
     public string Name
     {
-        get { var __slice = Name_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = Name_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     private int Age_Get()
@@ -35554,13 +35704,14 @@ public unsafe partial struct MultiConformingValue : ISwiftObject, IDisposable, I
         {
             try
             {
-                var self = new SwiftSelf<MultiConformingValue>(this);
-                
-                
-                
-                var result = PInvoke_add_F104C5CA(other, self);
-                
-                return result;
+                fixed (MultiConformingValue* __self = &this)
+                {
+                    
+                    
+                    var result = PInvoke_add_96044A85(other, (IntPtr)__self);
+                    
+                    return result;
+                }
             }
             
             finally
@@ -35570,9 +35721,9 @@ public unsafe partial struct MultiConformingValue : ISwiftObject, IDisposable, I
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib20MultiConformingValueV3addys5Int32VAFF")]
-    private static partial int PInvoke_add_F104C5CA( int other,  SwiftSelf<MultiConformingValue> self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_MultiConformingValue_add_F104C5CA")]
+    private static partial int PInvoke_add_96044A85( int other,  IntPtr _selfFixed);
     
     
     public int Subtract( int other)
@@ -35581,13 +35732,14 @@ public unsafe partial struct MultiConformingValue : ISwiftObject, IDisposable, I
         {
             try
             {
-                var self = new SwiftSelf<MultiConformingValue>(this);
-                
-                
-                
-                var result = PInvoke_subtract_6913418E(other, self);
-                
-                return result;
+                fixed (MultiConformingValue* __self = &this)
+                {
+                    
+                    
+                    var result = PInvoke_subtract_46988FCC(other, (IntPtr)__self);
+                    
+                    return result;
+                }
             }
             
             finally
@@ -35597,9 +35749,9 @@ public unsafe partial struct MultiConformingValue : ISwiftObject, IDisposable, I
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib20MultiConformingValueV8subtractys5Int32VAFF")]
-    private static partial int PInvoke_subtract_6913418E( int other,  SwiftSelf<MultiConformingValue> self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_MultiConformingValue_subtract_6913418E")]
+    private static partial int PInvoke_subtract_46988FCC( int other,  IntPtr _selfFixed);
     
     
     public int Multiply( int other)
@@ -35608,13 +35760,14 @@ public unsafe partial struct MultiConformingValue : ISwiftObject, IDisposable, I
         {
             try
             {
-                var self = new SwiftSelf<MultiConformingValue>(this);
-                
-                
-                
-                var result = PInvoke_multiply_D260C76A(other, self);
-                
-                return result;
+                fixed (MultiConformingValue* __self = &this)
+                {
+                    
+                    
+                    var result = PInvoke_multiply_7B942146(other, (IntPtr)__self);
+                    
+                    return result;
+                }
             }
             
             finally
@@ -35624,9 +35777,9 @@ public unsafe partial struct MultiConformingValue : ISwiftObject, IDisposable, I
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib20MultiConformingValueV8multiplyys5Int32VAFF")]
-    private static partial int PInvoke_multiply_D260C76A( int other,  SwiftSelf<MultiConformingValue> self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_MultiConformingValue_multiply_D260C76A")]
+    private static partial int PInvoke_multiply_7B942146( int other,  IntPtr _selfFixed);
     
     
     public int Divide( int other)
@@ -35635,13 +35788,14 @@ public unsafe partial struct MultiConformingValue : ISwiftObject, IDisposable, I
         {
             try
             {
-                var self = new SwiftSelf<MultiConformingValue>(this);
-                
-                
-                
-                var result = PInvoke_divide_0113BEBD(other, self);
-                
-                return result;
+                fixed (MultiConformingValue* __self = &this)
+                {
+                    
+                    
+                    var result = PInvoke_divide_CA6CF776(other, (IntPtr)__self);
+                    
+                    return result;
+                }
             }
             
             finally
@@ -35651,9 +35805,9 @@ public unsafe partial struct MultiConformingValue : ISwiftObject, IDisposable, I
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib20MultiConformingValueV6divideys5Int32VAFF")]
-    private static partial int PInvoke_divide_0113BEBD( int other,  SwiftSelf<MultiConformingValue> self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_MultiConformingValue_divide_0113BEBD")]
+    private static partial int PInvoke_divide_CA6CF776( int other,  IntPtr _selfFixed);
     
     
 }
@@ -35914,7 +36068,7 @@ public partial class TaskPriority : ISwiftObject, IDisposable
     /// </summary>
     public string RawValue
     {
-        get { var __slice = RawValue_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = RawValue_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
@@ -36156,7 +36310,7 @@ public partial class NamedItem : ISwiftObject, IDisposable
     /// </summary>
     public string Name
     {
-        get { var __slice = Name_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = Name_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     [EditorBrowsable(EditorBrowsableState.Never)]
@@ -36356,7 +36510,7 @@ public partial class MutableNamedItem : ISwiftObject, IDisposable
     /// </summary>
     public string Name
     {
-        get { var __slice = Name_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = Name_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
         set {
             var __utf8 = System.Text.Encoding.UTF8.GetBytes(value);
             unsafe { fixed (byte* __p = __utf8) { Name_Set((IntPtr)__p, __utf8.Length); } }
@@ -36890,7 +37044,7 @@ public partial class SimpleTask : ISwiftObject, IDisposable
     
     public string TaskName
     {
-        get { var __slice = TaskName_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = TaskName_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     private SwiftBindingsTestLib.TaskStatus Status_Get()
@@ -37131,7 +37285,7 @@ public partial class EchoProcessor : ISwiftObject, IDisposable, IStringProcessor
     
     public string Prefix
     {
-        get { var __slice = Prefix_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = Prefix_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     [EditorBrowsable(EditorBrowsableState.Never)]
@@ -37248,7 +37402,6 @@ public partial class EchoProcessor : ISwiftObject, IDisposable, IStringProcessor
     private static partial void PInvoke_init_04AC447C( IntPtr resultPtr,  Swift.SwiftString.Buffer prefix);
     
     
-    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     /// <summary>
     /// Method taking String parameter.
     /// </summary>
@@ -37258,35 +37411,46 @@ public partial class EchoProcessor : ISwiftObject, IDisposable, IStringProcessor
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
+            void* payload = null;
             try
             {
-                var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
+                var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<string>();
+                payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                var resultPtr = (IntPtr)payload;
                 
                 
                 using var inputSwift = new SwiftString(input);
                 using var inputDisposable = inputSwift.PayloadBuffer;
                 
-                var result = PInvoke_process_AD65EAFF(inputDisposable.Buffer, self);
+                PInvoke_process_4024C207(resultPtr, inputDisposable.Buffer, _payload.DangerousGetHandle());
                 
-                var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                return swiftResult.ToString();
+                unsafe {
+                    var __slice = *(Utf8Slice*)resultPtr;
+                    if (__slice.Len == 0) return string.Empty;
+                    try {
+                        return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(
+                            __slice.Ptr, (int)__slice.Len) ?? string.Empty;
+                    } finally {
+                        SBW_Free(__slice.Ptr);
+                    }
+                }
             }
             
             finally
             {
                 if (success)
                    _payload.DangerousRelease();
+                NativeMemory.Free(payload);
             }
             
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib13EchoProcessorV7process5inputS2S_tF")]
-    private static partial Swift.SwiftString.Buffer PInvoke_process_AD65EAFF( Swift.SwiftString.Buffer input,  SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_EchoProcessor_process_AD65EAFF")]
+    private static partial void PInvoke_process_4024C207( IntPtr resultPtr,  Swift.SwiftString.Buffer input,  IntPtr _self);
     
     
-    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     /// <summary>
     /// Method returning String.
     /// </summary>
@@ -37296,30 +37460,42 @@ public partial class EchoProcessor : ISwiftObject, IDisposable, IStringProcessor
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
+            void* payload = null;
             try
             {
-                var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
+                var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<string>();
+                payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                var resultPtr = (IntPtr)payload;
                 
                 
                 
-                var result = PInvoke_getOutput_31BFA72C(self);
+                PInvoke_getOutput_6ACC7A66(resultPtr, _payload.DangerousGetHandle());
                 
-                var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                return swiftResult.ToString();
+                unsafe {
+                    var __slice = *(Utf8Slice*)resultPtr;
+                    if (__slice.Len == 0) return string.Empty;
+                    try {
+                        return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(
+                            __slice.Ptr, (int)__slice.Len) ?? string.Empty;
+                    } finally {
+                        SBW_Free(__slice.Ptr);
+                    }
+                }
             }
             
             finally
             {
                 if (success)
                    _payload.DangerousRelease();
+                NativeMemory.Free(payload);
             }
             
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib13EchoProcessorV9getOutputSSyF")]
-    private static partial Swift.SwiftString.Buffer PInvoke_getOutput_31BFA72C( SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_EchoProcessor_getOutput_31BFA72C")]
+    private static partial void PInvoke_getOutput_6ACC7A66( IntPtr resultPtr,  IntPtr _self);
     
     
 }
@@ -37457,11 +37633,9 @@ public partial class SimpleStatusHandler : ISwiftObject, IDisposable, IStatusHan
             _payload.DangerousAddRef(ref success);
             try
             {
-                var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
                 
                 
-                
-                PInvoke_handleStatus_7ECA307A((int)status, self);
+                PInvoke_handleStatus_27A9C66C((int)status, _payload.DangerousGetHandle());
                 
                 return;
             }
@@ -37475,9 +37649,9 @@ public partial class SimpleStatusHandler : ISwiftObject, IDisposable, IStatusHan
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib19SimpleStatusHandlerV06handleF0yyAA04TaskF0OF")]
-    private static partial void PInvoke_handleStatus_7ECA307A( int status,  SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_SimpleStatusHandler_handleStatus_7ECA307A")]
+    private static partial void PInvoke_handleStatus_27A9C66C( int status,  IntPtr _self);
     
     
     /// <summary>
@@ -37491,11 +37665,9 @@ public partial class SimpleStatusHandler : ISwiftObject, IDisposable, IStatusHan
             _payload.DangerousAddRef(ref success);
             try
             {
-                var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
                 
                 
-                
-                var result = PInvoke_getCurrentStatus_EC698059(self);
+                var result = PInvoke_getCurrentStatus_2FAA594D(_payload.DangerousGetHandle());
                 
                 return (SwiftBindingsTestLib.TaskStatus)result;
             }
@@ -37509,9 +37681,9 @@ public partial class SimpleStatusHandler : ISwiftObject, IDisposable, IStatusHan
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib19SimpleStatusHandlerV010getCurrentF0AA04TaskF0OyF")]
-    private static partial int PInvoke_getCurrentStatus_EC698059( SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_SimpleStatusHandler_getCurrentStatus_EC698059")]
+    private static partial int PInvoke_getCurrentStatus_2FAA594D( IntPtr _self);
     
     
     /// <summary>
@@ -37525,11 +37697,9 @@ public partial class SimpleStatusHandler : ISwiftObject, IDisposable, IStatusHan
             _payload.DangerousAddRef(ref success);
             try
             {
-                var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
                 
                 
-                
-                var result = PInvoke_transitionStatus_8A5239D7((int)from, self);
+                var result = PInvoke_transitionStatus_F1B08D55((int)from, _payload.DangerousGetHandle());
                 
                 return (SwiftBindingsTestLib.TaskStatus)result;
             }
@@ -37543,9 +37713,9 @@ public partial class SimpleStatusHandler : ISwiftObject, IDisposable, IStatusHan
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib19SimpleStatusHandlerV010transitionF04fromAA04TaskF0OAG_tF")]
-    private static partial int PInvoke_transitionStatus_8A5239D7( int from,  SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_SimpleStatusHandler_transitionStatus_8A5239D7")]
+    private static partial int PInvoke_transitionStatus_F1B08D55( int from,  IntPtr _self);
     
     
 }
@@ -37698,11 +37868,9 @@ public partial class SimplePriorityHandler : ISwiftObject, IDisposable, IPriorit
             _payload.DangerousAddRef(ref success);
             try
             {
-                var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
                 
                 
-                
-                PInvoke_setPriority_00EAA58E(priority.Payload.DangerousGetHandle(), self);
+                PInvoke_setPriority_A3BCF54A(priority.Payload.DangerousGetHandle(), _payload.DangerousGetHandle());
                 
                 return;
             }
@@ -37716,9 +37884,9 @@ public partial class SimplePriorityHandler : ISwiftObject, IDisposable, IPriorit
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib21SimplePriorityHandlerV03setF0yyAA04TaskF0OF")]
-    private static partial void PInvoke_setPriority_00EAA58E( IntPtr priority,  SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_SimplePriorityHandler_setPriority_00EAA58E")]
+    private static partial void PInvoke_setPriority_A3BCF54A( IntPtr priority,  IntPtr _self);
     
     
     /// <summary>
@@ -37730,33 +37898,33 @@ public partial class SimplePriorityHandler : ISwiftObject, IDisposable, IPriorit
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
+            void* payload = null;
             try
             {
-                var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
-                
                 var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<SwiftBindingsTestLib.TaskPriority>();
-                var payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
-                var swiftIndirectResult = new SwiftIndirectResult(payload);
+                payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                var resultPtr = (IntPtr)payload;
                 
                 
                 
-                PInvoke_getPriority_AF0F3E89(swiftIndirectResult, self);
+                PInvoke_getPriority_1D98D757(resultPtr, _payload.DangerousGetHandle());
                 
-                return (SwiftBindingsTestLib.TaskPriority)SwiftMarshal.MarshalFromSwift<SwiftBindingsTestLib.TaskPriority>(new IntPtr(swiftIndirectResult.Value));
+                return (SwiftBindingsTestLib.TaskPriority)SwiftMarshal.MarshalFromSwift<SwiftBindingsTestLib.TaskPriority>(resultPtr);
             }
             
             finally
             {
                 if (success)
                    _payload.DangerousRelease();
+                NativeMemory.Free(payload);
             }
             
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib21SimplePriorityHandlerV03getF0AA04TaskF0OyF")]
-    private static partial void PInvoke_getPriority_AF0F3E89( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_SimplePriorityHandler_getPriority_AF0F3E89")]
+    private static partial void PInvoke_getPriority_1D98D757( IntPtr resultPtr,  IntPtr _self);
     
     
     /// <summary>
@@ -37770,11 +37938,9 @@ public partial class SimplePriorityHandler : ISwiftObject, IDisposable, IPriorit
             _payload.DangerousAddRef(ref success);
             try
             {
-                var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
                 
                 
-                
-                var result = PInvoke_isHigherPriority_783B1645(other.Payload.DangerousGetHandle(), self);
+                var result = PInvoke_isHigherPriority_EF6534CE(other.Payload.DangerousGetHandle(), _payload.DangerousGetHandle());
                 
                 return result;
             }
@@ -37788,10 +37954,10 @@ public partial class SimplePriorityHandler : ISwiftObject, IDisposable, IPriorit
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib21SimplePriorityHandlerV08isHigherF04thanSbAA04TaskF0O_tF")]
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_SimplePriorityHandler_isHigherPriority_783B1645")]
     [return: MarshalAs(UnmanagedType.U1)]
-    private static partial bool PInvoke_isHigherPriority_783B1645( IntPtr other,  SwiftSelf self);
+    private static partial bool PInvoke_isHigherPriority_EF6534CE( IntPtr other,  IntPtr _self);
     
     
 }
@@ -38062,11 +38228,9 @@ public partial class SimpleModel : ISwiftObject, IDisposable
             _payload.DangerousAddRef(ref success);
             try
             {
-                var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                
-                var result = PInvoke_getValue_7B34EB20(self);
+                var result = PInvoke_getValue_0CE92294(*(IntPtr*)_payload.DangerousGetHandle());
                 
                 return result;
             }
@@ -38080,9 +38244,9 @@ public partial class SimpleModel : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11SimpleModelC8getValues5Int32VyFTj")]
-    private static partial int PInvoke_getValue_7B34EB20( SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_SimpleModel_getValue_7B34EB20")]
+    private static partial int PInvoke_getValue_0CE92294( IntPtr _selfClass);
     
     
 }
@@ -38137,7 +38301,7 @@ public partial class AsyncService : ISwiftObject, IDisposable
     
     public string Key
     {
-        get { var __slice = Key_Get(); if (__slice.Len == 0) return string.Empty; try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        get { var __slice = Key_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     [EditorBrowsable(EditorBrowsableState.Never)]
@@ -38414,37 +38578,48 @@ public partial class AsyncService : ISwiftObject, IDisposable
     private static unsafe partial void PInvoke_init_80118581( void* s_initCallback_80118581,  void* s_initErrorCallback_80118581,  IntPtr handle,  Swift.SwiftString.Buffer key);
     
     
-    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     public virtual string GetKey()
     {
         unsafe
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
+            void* payload = null;
             try
             {
-                var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
+                var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<string>();
+                payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                var resultPtr = (IntPtr)payload;
                 
                 
                 
-                var result = PInvoke_getKey_3F2A0A59(self);
+                PInvoke_getKey_C98C8572(resultPtr, *(IntPtr*)_payload.DangerousGetHandle());
                 
-                var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                return swiftResult.ToString();
+                unsafe {
+                    var __slice = *(Utf8Slice*)resultPtr;
+                    if (__slice.Len == 0) return string.Empty;
+                    try {
+                        return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(
+                            __slice.Ptr, (int)__slice.Len) ?? string.Empty;
+                    } finally {
+                        SBW_Free(__slice.Ptr);
+                    }
+                }
             }
             
             finally
             {
                 if (success)
                    _payload.DangerousRelease();
+                NativeMemory.Free(payload);
             }
             
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib12AsyncServiceC6getKeySSyFTj")]
-    private static partial Swift.SwiftString.Buffer PInvoke_getKey_3F2A0A59( SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_AsyncService_getKey_3F2A0A59")]
+    private static partial void PInvoke_getKey_C98C8572( IntPtr resultPtr,  IntPtr _selfClass);
     
     
 }
@@ -38660,11 +38835,9 @@ public partial class Processor : ISwiftObject, IDisposable
             _payload.DangerousAddRef(ref success);
             try
             {
-                var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                
-                var result = PInvoke_getMode_23F03989(self);
+                var result = PInvoke_getMode_D0010B30(*(IntPtr*)_payload.DangerousGetHandle());
                 
                 return result;
             }
@@ -38678,9 +38851,9 @@ public partial class Processor : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib9ProcessorC7getModes5Int32VyFTj")]
-    private static partial int PInvoke_getMode_23F03989( SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Processor_getMode_23F03989")]
+    private static partial int PInvoke_getMode_D0010B30( IntPtr _selfClass);
     
     
 }
@@ -38812,20 +38985,7 @@ internal static class __SwiftFrameworkResolver_SwiftBindingsTestLib
     [ModuleInitializer]
     internal static void Initialize()
     {
-        try
-        {
-            NativeLibrary.SetDllImportResolver(typeof(__SwiftFrameworkResolver_SwiftBindingsTestLib).Assembly, (libraryName, assembly, searchPath) =>
-            {
-                var frameworkPath = $"@rpath/{libraryName}.framework/{libraryName}";
-                if (NativeLibrary.TryLoad(frameworkPath, out var handle))
-                    return handle;
-                return IntPtr.Zero;
-            });
-        }
-        catch (InvalidOperationException)
-        {
-            // A resolver is already registered for this assembly.
-        }
+        global::Swift.Runtime.SwiftFrameworkResolver.RegisterForAssembly(typeof(__SwiftFrameworkResolver_SwiftBindingsTestLib).Assembly);
     }
 }
 #pragma warning restore CA2255

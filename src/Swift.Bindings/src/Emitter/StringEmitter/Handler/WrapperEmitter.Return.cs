@@ -88,7 +88,7 @@ namespace BindingsGeneration
                         var __slice = *(Utf8Slice*)resultPtr;
                         if (__slice.Len == 0) return string.Empty;
                         try {
-                            return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(
+                            return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(
                                 __slice.Ptr, (int)__slice.Len) ?? string.Empty;
                         } finally {
                             SBW_Free(__slice.Ptr);

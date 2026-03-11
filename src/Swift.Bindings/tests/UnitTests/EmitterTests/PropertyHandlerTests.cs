@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.IO;
+using System.Linq;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -373,6 +374,27 @@ public class PropertyHandlerTests
         Assert.Contains("get { using var __ret = Name_Get(); return __ret.ToString(); }", csOutput);
         // Setter should use block-bodied with using disposal (new SwiftString creates IDisposable)
         Assert.Contains("set { using var __val = new SwiftString(value); Name_Set(__val); }", csOutput);
+    }
+
+    [Fact]
+    public void Emit_CdeclPropertyStringGetter_UsesGlobalSystemQualification()
+    {
+        // @_cdecl string property getters decode Utf8Slice via Marshal.PtrToStringUTF8.
+        // Must use global::System to avoid shadowing when a type member is named "System"
+        // (e.g. XMLCoder.XMLDocumentType.System).
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("DocType", moduleDecl);
+        var property = CreateEmittablePropertyDecl(classDecl, moduleDecl, "name", "Swift.String", hasGetter: true, hasSetter: false);
+
+        // Set UsesCdeclPropertyWrapper on the getter to trigger the Utf8Slice decode path
+        var getter = property.Accessors.OfType<GetAccessorDecl>().Single();
+        getter.Method.UsesCdeclPropertyWrapper = true;
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        Assert.Contains("global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8", csOutput);
+        Assert.DoesNotContain("{ System.Runtime.InteropServices.Marshal", csOutput);
     }
 
     [Fact]

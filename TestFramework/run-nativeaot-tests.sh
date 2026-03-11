@@ -230,7 +230,7 @@ echo ""
 # --- Step 5: Define test lists ---
 MAIN_MUST_PASS_TESTS="b1-string-create b1-string-length b1-string-wrapper b1-existential b1-generated-binding"
 MAIN_CRASHRISK_TESTS="cr-enum-basic cr-enum-string cr-enum-shape cr-enum-nested cr-array-basic cr-array-advanced cr-gc-basic cr-gc-mutableprops cr-gc-stress cr-existential"
-MAIN_INVESTIGATIVE_TESTS="b1-vwt-destroy b1-vwt-initcopy b2-intptr-manual b3-async-safehandle b3-async-static b3-async-wrapper n1-moduleinit n3-trimming"
+MAIN_INVESTIGATIVE_TESTS="b1-vwt-destroy b1-vwt-initcopy b2-intptr-manual b3-async-safehandle b3-async-static b3-async-wrapper n1-moduleinit n3-trimming cd-dispose-class cd-dispose-struct-string cd-dispose-struct-nested"
 MAIN_NO_INJECT_TESTS="n2-resolve-no-inject"
 MAIN_WITH_INJECT_TESTS="n2-resolve-with-inject"
 NONBLITTABLE_TESTS="b2-optional-dllimport b2-safehandle-dllimport b2-optional-libimport b2-optional-marshaller"
