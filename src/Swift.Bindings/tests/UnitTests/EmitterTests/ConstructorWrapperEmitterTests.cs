@@ -73,7 +73,7 @@ public class ConstructorWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_ClosureParam_ReturnsFalse()
+    public void ShouldEmitWrapper_CdeclCompatibleClosureParam_ReturnsTrue()
     {
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
@@ -82,6 +82,52 @@ public class ConstructorWrapperEmitterTests
 
         var closureType = new ClosureTypeSpec(
             new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule6MyTypeVySiyccfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                new ArgumentDecl
+                {
+                    Name = "handler",
+                    PrivateName = "handler",
+                    SwiftTypeSpec = closureType,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.True(ConstructorWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_NonCdeclClosureParam_ReturnsFalse()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("MyType", moduleDecl);
+
+        // Closure with String arg — not Cdecl-compatible
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.String") }),
             TupleTypeSpec.Empty);
         closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
 

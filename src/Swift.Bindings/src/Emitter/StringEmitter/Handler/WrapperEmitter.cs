@@ -453,9 +453,13 @@ namespace BindingsGeneration
         /// <summary>
         /// Emits NativeMemory.Free for @_cdecl indirect result buffers allocated via NativeMemory.Alloc.
         /// Non-cdecl paths use stack-based SwiftIndirectResult and don't need cleanup.
+        /// Constructor paths use _payload SafeHandle (not raw payload pointer) and don't need cleanup.
         /// </summary>
         private void EmitCdeclIndirectResultCleanup(CSharpWriter csWriter)
         {
+            // Constructor indirect results use _payload SafeHandle — no raw memory to free.
+            if (_env.MethodDecl.IsConstructor) return;
+
             var cleanup = _syncPlan?.IndirectResultMethod?.CleanupCode;
             if (cleanup != null)
             {

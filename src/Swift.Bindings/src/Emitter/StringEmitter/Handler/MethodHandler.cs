@@ -329,6 +329,10 @@ namespace BindingsGeneration
                 methodEnv.MethodDecl.UsesCdeclConstructorWrapper = true;
                 methodEnv.MethodDecl.UsesWrapperLibrary = true;
                 methodEnv.MethodDecl.MangledName = cdeclSymbol;
+
+                // Mark if this @_cdecl constructor wrapper handles closure params inline
+                if (methodEnv.MethodDecl.CSSignature.Skip(1).Any(methodEnv.ClosureHandler.IsClosure))
+                    methodEnv.MethodDecl.HasClosureParams = true;
             }
 
             var signatureHandler = new SignatureHandler(methodEnv);
@@ -742,6 +746,10 @@ namespace BindingsGeneration
                 methodEnv.MethodDecl.UsesCdeclConstructorWrapper = true;
                 methodEnv.MethodDecl.UsesWrapperLibrary = true;
                 methodEnv.MethodDecl.MangledName = cdeclSymbol;
+
+                // Mark if this @_cdecl constructor wrapper handles closure params inline
+                if (methodEnv.MethodDecl.CSSignature.Skip(1).Any(methodEnv.ClosureHandler.IsClosure))
+                    methodEnv.MethodDecl.HasClosureParams = true;
             }
 
             // Set @_cdecl method wrapper flags BEFORE SignatureHandler creation.
@@ -760,6 +768,10 @@ namespace BindingsGeneration
                 methodEnv.MethodDecl.UsesCdeclMethodWrapper = true;
                 methodEnv.MethodDecl.UsesWrapperLibrary = true;
                 methodEnv.MethodDecl.MangledName = cdeclSymbol;
+
+                // Mark if this @_cdecl method wrapper handles closure params inline
+                if (methodEnv.MethodDecl.CSSignature.Skip(1).Any(methodEnv.ClosureHandler.IsClosure))
+                    methodEnv.MethodDecl.HasClosureParams = true;
             }
 
             var signatureHandler = new SignatureHandler(methodEnv);

@@ -101,6 +101,10 @@ public static class DefaultParameterOverloadEmitter
                 overloadDecl.UsesCdeclConstructorWrapper = true;
                 // UsesWrapperLibrary already set by BuildOverloadDecl
                 overloadDecl.MangledName = cdeclSymbol;
+
+                // Propagate HasClosureParams for @_cdecl constructor overloads with closures
+                if (overloadDecl.CSSignature.Skip(1).Any(overloadEnv.ClosureHandler.IsClosure))
+                    overloadDecl.HasClosureParams = true;
             }
 
             // Set @_cdecl method wrapper flags BEFORE SignatureHandler construction.
@@ -123,6 +127,10 @@ public static class DefaultParameterOverloadEmitter
                 overloadDecl.UsesCdeclMethodWrapper = true;
                 // UsesWrapperLibrary already set by BuildOverloadDecl
                 overloadDecl.MangledName = cdeclSymbol;
+
+                // Propagate HasClosureParams for @_cdecl method overloads with closures
+                if (overloadDecl.CSSignature.Skip(1).Any(overloadEnv.ClosureHandler.IsClosure))
+                    overloadDecl.HasClosureParams = true;
             }
 
             // Check if the overload signature is fully marshallable

@@ -133,7 +133,7 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_ClosureParameter_ReturnsFalse()
+    public void ShouldEmitWrapper_CdeclCompatibleClosureParameter_ReturnsTrue()
     {
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
@@ -141,6 +141,25 @@ public class MethodWrapperEmitterTests
         var parentDecl = CreateClassDecl("MyType", moduleDecl);
         var closureType = new ClosureTypeSpec(
             new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodWithParam("doWork", closureType, "callback", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_NonCdeclClosureParameter_ReturnsFalse()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        // Closure with String arg — not Cdecl-compatible
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.String") }),
             TupleTypeSpec.Empty);
         closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
 

@@ -1,5 +1,5 @@
 {
-  "git_sha": "eb303ab4",
+  "git_sha": "d79debad",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
@@ -35,7 +35,7 @@
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 92397,
+        "lines": 92386,
         "dep_compile": "none"
       },
       "KeychainAccess": {
@@ -47,7 +47,7 @@
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 55393,
+        "lines": 55391,
         "dep_compile": "none"
       },
       "Lottie": {
@@ -119,7 +119,7 @@
       "Starscream": {
         "compile": "ok",
         "errors": 0,
-        "lines": 15659,
+        "lines": 15650,
         "dep_compile": "none"
       },
       "Stripe": {
@@ -227,7 +227,7 @@
       "Swinject": {
         "compile": "ok",
         "errors": 0,
-        "lines": 5096,
+        "lines": 5094,
         "dep_compile": "none"
       },
       "PhoneNumberKit": {
@@ -287,7 +287,7 @@
       "SwipeCellKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 8276,
+        "lines": 8266,
         "dep_compile": "none"
       },
       "FSPagerView": {

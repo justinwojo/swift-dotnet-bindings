@@ -241,6 +241,20 @@ namespace BindingsGeneration
         /// Used in PInvokeEmitter and MethodMarshalPlanBuilder to route through Cdecl calling convention.
         /// </summary>
         public bool UsesCdeclWrapper => UsesCdeclConstructorWrapper || UsesCdeclPropertyWrapper || UsesCdeclMethodWrapper;
+
+        /// <summary>
+        /// Whether this method has closure parameters handled by the @_cdecl wrapper.
+        /// Set by MethodHandler when UsesCdeclMethodWrapper/UsesCdeclConstructorWrapper is set
+        /// on a method with closures.
+        /// </summary>
+        public bool HasClosureParams { get; set; } = false;
+
+        /// <summary>
+        /// True when closure params should use Cdecl marshalling (IntPtr funcPtr + IntPtr context).
+        /// Covers standalone closure wrappers (HasClosureCdeclWrapper) and @_cdecl wrappers
+        /// (method or constructor) that handle closure params inline.
+        /// </summary>
+        public bool HasCdeclClosureMarshalling => HasClosureCdeclWrapper || (UsesCdeclWrapper && HasClosureParams);
     }
 
     /// <summary>

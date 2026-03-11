@@ -251,9 +251,9 @@ namespace BindingsGeneration
                         }
                         else if (_env.ClosureHandler.RequiresThunk(closureTypeSpec))
                         {
-                            if (_env.MethodDecl.HasClosureCdeclWrapper)
+                            if (_env.MethodDecl.HasCdeclClosureMarshalling)
                             {
-                                // Cdecl closure wrapper: pass func ptr + context as separate IntPtr params
+                                // Cdecl closure wrapper (standalone or @_cdecl inline): pass func ptr + context as separate IntPtr params
                                 var callbackName = ClosureHandler.GetCallbackFunctionName(
                                     _env.MethodDecl.Name, argument.Name, _env.MethodDecl.MangledName);
                                 AddParameter(new MarshalledType.CdeclClosureFuncPtr(callbackName, csName), csName + "FuncPtr");

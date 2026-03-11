@@ -380,6 +380,45 @@ Fixed `System` namespace shadowing in generated code — `XMLDocumentType.System
 
 ---
 
+### Phase 2.5: Closure Parameters in @_cdecl Wrappers [COMPLETE]
+
+**Sessions**: 1 implement
+**Goal**: Extend `MethodWrapperEmitter` and `ConstructorWrapperEmitter` to handle closure parameters inline within @_cdecl wrappers, eliminating the separate standalone closure wrapper path for methods/constructors that qualify for @_cdecl wrappers.
+
+**Scope**: Methods and constructors with closure parameters where all closure arg/return types are Cdecl-compatible (same coverage as Workaround B). Closures with non-Cdecl-compatible callback types (String, non-frozen struct args in the closure signature) are deferred.
+
+**What changed**: Phase 2 explicitly skipped methods with closure parameters (guard #8 in `MethodWrapperEmitter.ShouldEmitWrapper()`). These methods fell through to Workaround B (`ClosureEmitter.SwiftWrapper.cs`) which only handled closures with Cdecl-compatible types. Phase 2.5 lifts this guard, delegating to `NeedsClosureCdeclWrapper()` for condition parity plus an explicit async closure guard (since `GetSwiftClosureAdapterCode()` only emits synchronous adapter code).
+
+#### Implementation Summary
+
+| File | Change |
+|------|--------|
+| `MethodDecl.cs` | Added `HasClosureParams` flag + `HasCdeclClosureMarshalling` computed property |
+| `MethodWrapperEmitter.cs` | Lifted guard #8 (delegate to `NeedsClosureCdeclWrapper()` + `HasAnyAsyncClosure()`), extended param loop for closure adapter emission |
+| `ConstructorWrapperEmitter.cs` | Same guard lift + closure param handling |
+| `ClosureEmitter.SwiftWrapper.cs` | Added `GetSwiftArgLabelForCdecl()` internal wrapper |
+| `MethodHandler.cs` | Set `HasClosureParams` flag at 3 locations after @_cdecl wrapper flag assignment |
+| `PInvokeEmitter.cs` | Gate change: `HasClosureCdeclWrapper` → `HasCdeclClosureMarshalling` |
+| `WrapperEmitter.Marshalling.cs` | Gate changes: lines 257, 519 → `HasCdeclClosureMarshalling` |
+| `DefaultParameterOverloadEmitter.cs` | Propagated `HasClosureParams` to method + constructor overload decls |
+| `WrapperEmitter.cs` | Fixed `EmitCdeclIndirectResultCleanup` to skip constructors (SafeHandle, not raw payload) |
+| `MethodWrapperClosureTests.cs` (new) | 20 tests covering guards, emission, constructors, marshalling |
+
+#### Key Design Decisions
+
+1. **Reuse `ClosureEmitter` helpers** — `GetSwiftClosureAdapterCode()`, `GetSwiftConventionCType()`, `IsClosureCdeclCompatible()` are already public and handle edge cases (optional closures, throwing, indirect return).
+2. **Delegate to `NeedsClosureCdeclWrapper()`** for guard parity — ensures exact condition parity with standalone closure wrapper path. The `HasAnyAsyncClosure()` guard adds the one missing check (plain async closures).
+3. **`HasCdeclClosureMarshalling` bridges both paths** — uses existing `UsesCdeclWrapper` aggregate + `HasClosureParams`, so PInvokeEmitter and WrapperEmitter.Marshalling work for both standalone and inline closure handling.
+
+#### Validation Gate
+
+- [x] `./run-tests.sh` — 6937 unit tests pass, 0 failures (20 new closure wrapper tests)
+- [x] `./validate-libraries.sh --tier all` — 90/90 pass (Kingfisher improved from fail to pass)
+- [x] TestFramework: C# compile-check pass, Swift wrapper compile pass, golden files updated
+- [x] Kingfisher `AnyImageModifier` constructor with throwing closure — correctly emits @_cdecl wrapper
+
+---
+
 ### Phase 4: Cleanup and Documentation
 
 **Sessions**: 1 implement
@@ -390,7 +429,7 @@ Fixed `System` namespace shadowing in generated code — `XMLDocumentType.System
 | Component | Why it's unnecessary |
 |-----------|---------------------|
 | Workaround A: `SwiftString` runtime wrappers in `libSwiftBindingsRuntime` | SwiftString operations go through per-library `@_cdecl` wrappers |
-| Workaround B: Closure Cdecl expansion (`ClosureEmitter.SwiftWrapper.cs`) | All methods already use `@_cdecl` |
+| Workaround B: Closure Cdecl expansion (`ClosureEmitter.SwiftWrapper.cs`) | Most closure-parameter methods use `@_cdecl` wrappers (Phase 2.5). Standalone path remains for edge cases: non-Cdecl closure types (String/struct callback args), generic parent classes, and free functions. Audit remaining `HasClosureCdeclWrapper` usage. |
 | Workaround C: Existential metadata wrapper in `libSwiftBindingsRuntime` | Moved to per-library wrapper or kept in runtime with `@_cdecl` |
 | Workaround D: `MonoJitRiskDetector` | No risky path exists |
 | `libSwiftBindingsRuntime.dylib` build pipeline | Functions moved to per-library wrappers (or consolidated into runtime package's own `@_cdecl` helpers) |
@@ -623,18 +662,18 @@ The wrapper xcframework already exists for every library that uses the `--xcfram
 
 Currently the wrapper xcframework contains:
 - Async method wrappers (`@_silgen_name` with `@convention(c)` callbacks)
-- Closure adapter wrappers (`@_silgen_name`)
+- Closure adapter wrappers (`@_silgen_name` — standalone path for non-Cdecl closure types and edge cases)
 - ExistentialBypass witness dispatch wrappers (`@_cdecl`)
 - ObjC override property wrappers (`@_silgen_name`)
 - Utf8Slice helper struct
 
 Universal `@_cdecl` adds:
 - Property getter/setter wrappers (`@_cdecl`)
-- Method wrappers (`@_cdecl`)
-- Constructor wrappers (`@_cdecl`)
+- Method wrappers (`@_cdecl`) — including inline closure adapter code for Cdecl-compatible closures (Phase 2.5)
+- Constructor wrappers (`@_cdecl`) — same inline closure handling (Phase 2.5)
 - Destroy wrappers (`@_cdecl`)
 
-The existing `@_silgen_name` wrappers (async, closures) could also be migrated to `@_cdecl` for consistency in a future pass, but they already work correctly because they use `@convention(c)` callbacks — the Swift ABI is internal to the wrapper.
+The existing `@_silgen_name` async wrappers could also be migrated to `@_cdecl` for consistency in a future pass, but they already work correctly because they use `@convention(c)` callbacks — the Swift ABI is internal to the wrapper. The standalone `@_silgen_name` closure wrappers are mostly superseded by Phase 2.5's inline closure handling but remain for edge cases (non-Cdecl closure types, generic parents, free functions).
 
 ---
 

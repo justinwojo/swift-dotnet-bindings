@@ -254,9 +254,9 @@ namespace BindingsGeneration
                 }
                 else if (_env.ClosureHandler.RequiresThunk(closureTypeSpec))
                 {
-                    if (_env.MethodDecl.HasClosureCdeclWrapper)
+                    if (_env.MethodDecl.HasCdeclClosureMarshalling)
                     {
-                        // Cdecl wrapper: just allocate the GCHandle if closure is non-null.
+                        // Cdecl wrapper (standalone or @_cdecl inline): just allocate the GCHandle if closure is non-null.
                         // The call-argument mapping (MethodSignature) handles passing func ptr and context.
                         if (isOptional)
                         {
@@ -516,7 +516,7 @@ namespace BindingsGeneration
         {
             // Determine if callbacks should use Cdecl calling convention.
             // Async+throwing closures always use their own Cdecl pattern regardless.
-            var useCdecl = _env.MethodDecl.HasClosureCdeclWrapper;
+            var useCdecl = _env.MethodDecl.HasCdeclClosureMarshalling;
 
             foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1).Where(_env.ClosureHandler.IsClosure))
             {

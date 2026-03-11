@@ -13960,15 +13960,14 @@ public partial class EventHandler : ISwiftObject, IDisposable
         return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
     }
     
-    private static unsafe readonly delegate* unmanaged[Swift]<int, SwiftSelf, byte> s_init_onComplete_5D66AB7B_Callback = &init_onComplete_5D66AB7B_Callback;
-    [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvSwift) })]
-    private static unsafe byte init_onComplete_5D66AB7B_Callback(int arg0, SwiftSelf context)
+    private static unsafe readonly delegate* unmanaged[Cdecl]<int, IntPtr, byte> s_init_onComplete_E9647334_Callback = &init_onComplete_E9647334_Callback;
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
+    private static unsafe byte init_onComplete_E9647334_Callback(int arg0, IntPtr contextPtr)
     {
-        var del = SwiftClosureMarshaller.GetDelegateFromContext<Func<int, bool>>(new IntPtr(context.Value));
+        var del = SwiftClosureMarshaller.GetDelegateFromContext<Func<int, bool>>(contextPtr);
         return (byte)(del(arg0) ? 1 : 0);
     }
     
-    [Obsolete("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns that crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     public EventHandler( string label,  Func<int, bool>? onComplete)
     {
         unsafe
@@ -13976,19 +13975,11 @@ public partial class EventHandler : ISwiftObject, IDisposable
             GCHandle onCompleteHandle = default;
             try
             {
-                SwiftClosureData onCompleteClosure;
                 if (onComplete != null)
-                {
                     onCompleteHandle = GCHandle.Alloc(onComplete);
-                    onCompleteClosure = new SwiftClosureData((IntPtr)s_init_onComplete_5D66AB7B_Callback, GCHandle.ToIntPtr(onCompleteHandle));
-                }
-                else
-                {
-                    onCompleteClosure = default; // Zero-initialized = nil in Swift
-                }
                 using var labelSwift = new SwiftString(label);
                 using var labelDisposable = labelSwift.PayloadBuffer;
-                var result = PInvoke_init_5D66AB7B(labelDisposable.Buffer, onCompleteClosure);
+                var result = PInvoke_init_E9647334(labelDisposable.Buffer, onCompleteHandle.IsAllocated ? (IntPtr)s_init_onComplete_E9647334_Callback : IntPtr.Zero, onCompleteHandle.IsAllocated ? GCHandle.ToIntPtr(onCompleteHandle) : IntPtr.Zero);
                 
                 unsafe {
                     IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(IntPtr));
@@ -14005,9 +13996,9 @@ public partial class EventHandler : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib12EventHandlerC5label10onCompleteACSS_Sbs5Int32VcSgtcfC")]
-    private static partial IntPtr PInvoke_init_5D66AB7B( Swift.SwiftString.Buffer label,  SwiftClosureData onComplete);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_EventHandler_init_5D66AB7B")]
+    private static partial IntPtr PInvoke_init_E9647334( Swift.SwiftString.Buffer label,  IntPtr onCompleteFuncPtr,  IntPtr onCompleteContext);
     
     
     /// <summary>
@@ -14225,9 +14216,9 @@ public unsafe partial struct Transformer : ISwiftObject, IDisposable
     private static partial SwiftBindingsTestLib.Transformer PInvoke_init_C61B7FA6( int offset);
     
     
-    private static unsafe readonly delegate* unmanaged[Cdecl]<int, IntPtr, int> s_apply__using_569490DE_Callback = &apply__using_569490DE_Callback;
+    private static unsafe readonly delegate* unmanaged[Cdecl]<int, IntPtr, int> s_apply__using_3B0212D2_Callback = &apply__using_3B0212D2_Callback;
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-    private static unsafe int apply__using_569490DE_Callback(int arg0, IntPtr contextPtr)
+    private static unsafe int apply__using_3B0212D2_Callback(int arg0, IntPtr contextPtr)
     {
         var del = SwiftClosureMarshaller.GetDelegateFromContext<Func<int, int>>(contextPtr);
         return del(arg0);
@@ -14248,7 +14239,7 @@ public unsafe partial struct Transformer : ISwiftObject, IDisposable
                     
                     transformHandle = GCHandle.Alloc(transform);
                     
-                    var result = PInvoke_apply_569490DE(value, transformHandle.IsAllocated ? (IntPtr)s_apply__using_569490DE_Callback : IntPtr.Zero, transformHandle.IsAllocated ? GCHandle.ToIntPtr(transformHandle) : IntPtr.Zero, (IntPtr)__self);
+                    var result = PInvoke_apply_3B0212D2(value, transformHandle.IsAllocated ? (IntPtr)s_apply__using_3B0212D2_Callback : IntPtr.Zero, transformHandle.IsAllocated ? GCHandle.ToIntPtr(transformHandle) : IntPtr.Zero, (IntPtr)__self);
                     
                     return result;
                 }
@@ -14262,9 +14253,9 @@ public unsafe partial struct Transformer : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib11TransformerV5apply_5usings5Int32VAG_A2GctF_cdecl")]
-    private static partial int PInvoke_apply_569490DE( int value,  IntPtr transformFuncPtr,  IntPtr transformContext,  IntPtr _selfFixed);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Transformer_apply_569490DE")]
+    private static partial int PInvoke_apply_3B0212D2( int value,  IntPtr transformFuncPtr,  IntPtr transformContext,  IntPtr _selfFixed);
     
     
     private static unsafe readonly delegate* unmanaged[Cdecl]<int, IntPtr, int> s_chain_arg0_F8FD00D7_Callback = &chain_arg0_F8FD00D7_Callback;
@@ -33946,9 +33937,9 @@ public unsafe partial struct ClosureConsumer : ISwiftObject, IDisposable
     private static partial SwiftBindingsTestLib.ClosureConsumer PInvoke_init_0ADB68FC( int multiplier);
     
     
-    private static unsafe readonly delegate* unmanaged[Cdecl]<int, IntPtr, int> s_applyToValue__using_AC00068C_Callback = &applyToValue__using_AC00068C_Callback;
+    private static unsafe readonly delegate* unmanaged[Cdecl]<int, IntPtr, int> s_applyToValue__using_7D525933_Callback = &applyToValue__using_7D525933_Callback;
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-    private static unsafe int applyToValue__using_AC00068C_Callback(int arg0, IntPtr contextPtr)
+    private static unsafe int applyToValue__using_7D525933_Callback(int arg0, IntPtr contextPtr)
     {
         var del = SwiftClosureMarshaller.GetDelegateFromContext<Func<int, int>>(contextPtr);
         return del(arg0);
@@ -33969,7 +33960,7 @@ public unsafe partial struct ClosureConsumer : ISwiftObject, IDisposable
                     
                     transformHandle = GCHandle.Alloc(transform);
                     
-                    var result = PInvoke_applyToValue_AC00068C(value, transformHandle.IsAllocated ? (IntPtr)s_applyToValue__using_AC00068C_Callback : IntPtr.Zero, transformHandle.IsAllocated ? GCHandle.ToIntPtr(transformHandle) : IntPtr.Zero, (IntPtr)__self);
+                    var result = PInvoke_applyToValue_7D525933(value, transformHandle.IsAllocated ? (IntPtr)s_applyToValue__using_7D525933_Callback : IntPtr.Zero, transformHandle.IsAllocated ? GCHandle.ToIntPtr(transformHandle) : IntPtr.Zero, (IntPtr)__self);
                     
                     return result;
                 }
@@ -33983,14 +33974,14 @@ public unsafe partial struct ClosureConsumer : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib15ClosureConsumerV12applyToValue_5usings5Int32VAG_A2GctF_cdecl")]
-    private static partial int PInvoke_applyToValue_AC00068C( int value,  IntPtr transformFuncPtr,  IntPtr transformContext,  IntPtr _selfFixed);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_ClosureConsumer_applyToValue_AC00068C")]
+    private static partial int PInvoke_applyToValue_7D525933( int value,  IntPtr transformFuncPtr,  IntPtr transformContext,  IntPtr _selfFixed);
     
     
-    private static unsafe readonly delegate* unmanaged[Cdecl]<int, IntPtr, int> s_processWithClosure_closure_2AE8845C_Callback = &processWithClosure_closure_2AE8845C_Callback;
+    private static unsafe readonly delegate* unmanaged[Cdecl]<int, IntPtr, int> s_processWithClosure_closure_E7C3B6B4_Callback = &processWithClosure_closure_E7C3B6B4_Callback;
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-    private static unsafe int processWithClosure_closure_2AE8845C_Callback(int arg0, IntPtr contextPtr)
+    private static unsafe int processWithClosure_closure_E7C3B6B4_Callback(int arg0, IntPtr contextPtr)
     {
         var del = SwiftClosureMarshaller.GetDelegateFromContext<Func<int, int>>(contextPtr);
         return del(arg0);
@@ -34009,7 +34000,7 @@ public unsafe partial struct ClosureConsumer : ISwiftObject, IDisposable
                 
                 closureHandle = GCHandle.Alloc(closure);
                 
-                var result = PInvoke_processWithClosure_2AE8845C(value, closureHandle.IsAllocated ? (IntPtr)s_processWithClosure_closure_2AE8845C_Callback : IntPtr.Zero, closureHandle.IsAllocated ? GCHandle.ToIntPtr(closureHandle) : IntPtr.Zero);
+                var result = PInvoke_processWithClosure_E7C3B6B4(value, closureHandle.IsAllocated ? (IntPtr)s_processWithClosure_closure_E7C3B6B4_Callback : IntPtr.Zero, closureHandle.IsAllocated ? GCHandle.ToIntPtr(closureHandle) : IntPtr.Zero);
                 
                 return result;
             }
@@ -34022,9 +34013,9 @@ public unsafe partial struct ClosureConsumer : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib15ClosureConsumerV011processWithE0_7closures5Int32VAG_A2GctFZ_cdecl")]
-    private static partial int PInvoke_processWithClosure_2AE8845C( int value,  IntPtr closureFuncPtr,  IntPtr closureContext);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_ClosureConsumer_processWithClosure_2AE8845C")]
+    private static partial int PInvoke_processWithClosure_E7C3B6B4( int value,  IntPtr closureFuncPtr,  IntPtr closureContext);
     
     
 }

@@ -667,6 +667,16 @@ public static partial class ClosureEmitter
     /// <summary>
     /// Gets the Swift argument label for a parameter.
     /// Reconstructs the original Swift label from the argument name.
+    /// Used by MethodWrapperEmitter and ConstructorWrapperEmitter for closure call args.
+    /// </summary>
+    internal static string GetSwiftArgLabelForCdecl(ArgumentDecl arg)
+    {
+        return GetSwiftArgLabel(arg);
+    }
+
+    /// <summary>
+    /// Gets the Swift argument label for a parameter.
+    /// Reconstructs the original Swift label from the argument name.
     /// </summary>
     private static string GetSwiftArgLabel(ArgumentDecl arg)
     {

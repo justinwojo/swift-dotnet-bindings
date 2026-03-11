@@ -62,9 +62,15 @@ public static class MethodWrapperEmitter
         if (env.MethodDecl.IsAsync)
             return false;
 
-        // 8. No closure parameters
+        // 8. Closure parameters: allowed only when NeedsClosureCdeclWrapper validates them
+        // AND no plain async closures (GetSwiftClosureAdapterCode only emits sync adapters).
         if (env.MethodDecl.CSSignature.Skip(1).Any(env.ClosureHandler.IsClosure))
-            return false;
+        {
+            if (!MonoJitRiskDetector.NeedsClosureCdeclWrapper(env.MethodDecl, env.ClosureHandler))
+                return false;
+            if (HasAnyAsyncClosure(env))
+                return false;
+        }
 
         // 9. No protocol existential parameters
         if (HasProtocolExistentialParameter(env))
@@ -210,6 +216,7 @@ public static class MethodWrapperEmitter
 
         // Build parameter reconstruction lines and @_cdecl params
         var reconstructionLines = new List<string>();
+        var closureAdapterLines = new List<string>();
         var callArgs = new List<string>();
         var keptArgs = methodDecl.CSSignature.Skip(1).ToList();
 
@@ -223,6 +230,29 @@ public static class MethodWrapperEmitter
                 continue;
             if (arg.SwiftTypeSpec.IsEmptyTuple)
                 continue;
+
+            // Closure parameters: two @_cdecl params (funcPtr + context) + adapter code
+            var closureTypeSpec = env.ClosureHandler.GetClosureTypeSpec(arg);
+            if (closureTypeSpec != null &&
+                env.ClosureHandler.IsSupportedClosure(closureTypeSpec) &&
+                env.ClosureHandler.RequiresThunk(closureTypeSpec) &&
+                !env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec))
+            {
+                var csName = NameProvider.StripVerbatimPrefix(
+                    NameProvider.GetCSharpParameterName(arg));
+                swiftParams.Add($"_ {csName}FuncPtr: UnsafeMutableRawPointer?");
+                swiftParams.Add($"_ {csName}Context: UnsafeMutableRawPointer?");
+
+                bool isOptional = env.ClosureHandler.IsOptionalClosure(arg.SwiftTypeSpec);
+                closureAdapterLines.AddRange(
+                    ClosureEmitter.GetSwiftClosureAdapterCode(
+                        csName, closureTypeSpec, env.ClosureHandler, isOptional));
+
+                var adapterName = $"_adapted_{csName}";
+                var argLabel = omitLabels ? "" : ClosureEmitter.GetSwiftArgLabelForCdecl(arg);
+                callArgs.Add($"{argLabel}{adapterName}");
+                continue;
+            }
 
             var label = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
             var (cdeclParam, reconstruction, callArg) = ConstructorWrapperEmitter.GetCdeclParamMapping(arg, label, env, omitLabels);
@@ -303,6 +333,12 @@ public static class MethodWrapperEmitter
 
         // Emit parameter reconstruction lines
         foreach (var line in reconstructionLines)
+        {
+            swiftWriter.WriteLine(line);
+        }
+
+        // Emit closure adapter lines (reconstruct native Swift closures from Cdecl func ptrs)
+        foreach (var line in closureAdapterLines)
         {
             swiftWriter.WriteLine(line);
         }
@@ -490,6 +526,22 @@ public static class MethodWrapperEmitter
                 swiftWriter.WriteLine($"return {callExpr}");
                 break;
         }
+    }
+
+    /// <summary>
+    /// Checks whether any closure parameter is an async closure (IsAsync).
+    /// GetSwiftClosureAdapterCode() only emits synchronous adapter code, so async closures
+    /// (even non-throwing ones) are not supported in @_cdecl wrappers.
+    /// </summary>
+    private static bool HasAnyAsyncClosure(MethodEnvironment env)
+    {
+        return env.MethodDecl.CSSignature.Skip(1)
+            .Where(env.ClosureHandler.IsClosure)
+            .Any(arg =>
+            {
+                var spec = env.ClosureHandler.GetClosureTypeSpec(arg);
+                return spec != null && env.ClosureHandler.IsAsyncClosure(spec);
+            });
     }
 
     /// <summary>
