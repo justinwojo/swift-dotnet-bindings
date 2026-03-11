@@ -394,6 +394,79 @@ namespace TestModule
         AssertCompiles(code, "OptionSet_GetHashCode");
     }
 
+    /// <summary>
+    /// Verifies xcframework-mode metadata accessor pattern compiles:
+    /// Cdecl P/Invoke returning TypeMetadata (blittable struct wrapping IntPtr).
+    /// Regression guard for Sub-phase B metadata wrapper changes in
+    /// TypeHandlerHelpers.cs, ClassHandler.cs, EnumISwiftObjectMethodWriter.cs.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "CompileSmoke")]
+    [Trait("Category", "Regression")]
+    public void XcframeworkMode_MetadataAccessor_Compiles()
+    {
+        RequireRuntimeDll();
+
+        // The generated code uses LibraryImport + partial, which requires the
+        // containing class to also be partial. This matches real output.
+        var code = CommonUsings + @"
+namespace TestModule
+{
+    public partial class TestType : ISwiftObject, IDisposable
+    {
+        static nuint _payloadSize = 8;
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        SwiftSafeHandle<TestType> _payload = SwiftSafeHandle<TestType>.Zero;
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        public SwiftSafeHandle<TestType> Payload => _payload;
+        IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
+
+        public void Dispose()
+        {
+            _payload.Dispose();
+            GC.SuppressFinalize(this);
+        }
+
+        TestType(SwiftHandle handle)
+        {
+            _payload = new SwiftSafeHandle<TestType>(handle);
+        }
+
+        protected TestType(SwiftInheritanceChain _swiftObject) { }
+
+        // Xcframework mode: Cdecl P/Invoke returning TypeMetadata directly
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport(""test_wrapper"", EntryPoint = ""SBW_GetMetadata_Test_TestType_ABCD1234"")]
+        internal static partial TypeMetadata PInvoke_getMetadata();
+
+        static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
+
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
+        {
+            return new TestType(handle);
+        }
+
+        static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
+            where TProtocol : class
+        {
+            throw new NotSupportedException();
+        }
+
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
+        {
+            nint payload = _payload.DangerousGetHandle();
+            MemoryMarshal.Write(swiftDestSpan, in payload);
+            return sizeof(nint);
+        }
+    }
+}
+";
+
+        AssertCompiles(code, "XcframeworkMode_MetadataAccessor");
+    }
+
     // --- Helpers ---
 
     private void AssertCompiles(string code, string projectName, string[] additionalRefs = default)

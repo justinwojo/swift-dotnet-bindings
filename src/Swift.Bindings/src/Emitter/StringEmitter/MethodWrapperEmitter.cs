@@ -42,20 +42,21 @@ public static class MethodWrapperEmitter
         if (string.IsNullOrEmpty(env.TypeDatabase.AsyncLibraryName))
             return false;
 
-        // 5. Must be on a type (not a free function on ModuleDecl)
-        if (env.ParentDecl is not TypeDecl typeDecl)
+        // 5. Must be on a type or module (free function)
+        var parentTypeDecl = env.ParentDecl as TypeDecl;
+        if (parentTypeDecl == null && env.ParentDecl is not ModuleDecl)
             return false;
 
-        // 5b. Non-generic parent type — @_cdecl can't express type parameters
-        if (typeDecl.IsGeneric)
+        // 5b. Non-generic parent type (only applies to TypeDecl) — @_cdecl can't express type parameters
+        if (parentTypeDecl?.IsGeneric == true)
             return false;
 
         // 6. No method-level generics
         if (env.MethodDecl.IsGeneric)
             return false;
 
-        // 6b. Actor types — actor-isolated methods require async context, @_cdecl is sync
-        if (typeDecl is ClassDecl { IsActor: true })
+        // 6b. Actor types (only applies to TypeDecl) — actor-isolated methods require async context, @_cdecl is sync
+        if (parentTypeDecl is ClassDecl { IsActor: true })
             return false;
 
         // 7. Not async (async uses its own wrapper pattern)
@@ -165,17 +166,18 @@ public static class MethodWrapperEmitter
 
         var methodDecl = env.MethodDecl;
         var parentTypeDecl = env.ParentDecl as TypeDecl;
-        if (parentTypeDecl == null) return;
+        var parentModuleDecl = env.ParentDecl as ModuleDecl;
+        if (parentTypeDecl == null && parentModuleDecl == null) return;
 
         var symbolName = methodDecl.MangledName; // Already set to cdecl symbol by caller
         if (!ctx.TryAddMethodWrapperSymbol(symbolName))
             return; // Already emitted
 
-        var moduleName = parentTypeDecl.SwiftTypeName.Module;
-        var moduleQualifiedSwiftName = parentTypeDecl.SwiftTypeName.ModuleQualifiedName;
+        var moduleName = parentTypeDecl?.SwiftTypeName.Module ?? parentModuleDecl!.Name;
+        var moduleQualifiedSwiftName = parentTypeDecl?.SwiftTypeName.ModuleQualifiedName ?? "";
 
         bool isClass = env.ParentDecl is ClassDecl;
-        bool isStatic = methodDecl.MethodType == MethodType.Static;
+        bool isStatic = methodDecl.MethodType == MethodType.Static || parentTypeDecl == null;
         bool isMutating = methodDecl.IsMutating;
         bool throws = methodDecl.Throws;
 
@@ -291,8 +293,10 @@ public static class MethodWrapperEmitter
         // Build the call expression
         // For mutating methods, use through-pointer access so mutations write back.
         string selfRef;
-        if (isStatic)
+        if (isStatic && parentTypeDecl != null)
             selfRef = moduleQualifiedSwiftName;
+        else if (isStatic)
+            selfRef = "";  // Free function: no type prefix
         else if (isMutating && !isClass)
             selfRef = $"self_.assumingMemoryBound(to: {moduleQualifiedSwiftName}.self).pointee";
         else
@@ -301,25 +305,32 @@ public static class MethodWrapperEmitter
         string callExpr;
         if (silgenTarget != null)
         {
-            // Default param overload: call the @_silgen_name wrapper via extension method
-            callExpr = $"{selfRef}.{silgenTarget}({callArgString})";
+            callExpr = string.IsNullOrEmpty(selfRef)
+                ? $"{silgenTarget}({callArgString})"
+                : $"{selfRef}.{silgenTarget}({callArgString})";
         }
         else
         {
-            callExpr = $"{selfRef}.{NameProvider.ParserNameToSwift(methodDecl)}({callArgString})";
+            var swiftMethodName = NameProvider.ParserNameToSwift(methodDecl);
+            callExpr = string.IsNullOrEmpty(selfRef)
+                ? $"{swiftMethodName}({callArgString})"
+                : $"{selfRef}.{swiftMethodName}({callArgString})";
         }
 
         // Emit the @_cdecl function
         swiftWriter.WriteLine();
+        var wrapperTarget = string.IsNullOrEmpty(moduleQualifiedSwiftName)
+            ? $"free function {methodDecl.Name}"
+            : $"{moduleQualifiedSwiftName}.{methodDecl.Name}";
         swiftWriter.WriteLines($$"""
-            // Method @_cdecl wrapper for {{moduleQualifiedSwiftName}}.{{methodDecl.Name}}.
+            // Method @_cdecl wrapper for {{wrapperTarget}}.
             // Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
             """);
 
         // Add @MainActor annotation when the parent type or the method itself is @MainActor-isolated.
         // Note: IsActorIsolated specifically tracks @MainActor member annotations (not custom actors).
         // Custom actors are excluded by the IsActor guard in ShouldEmitWrapper.
-        if (parentTypeDecl.IsMainActorIsolated || methodDecl.IsActorIsolated)
+        if (parentTypeDecl?.IsMainActorIsolated == true || methodDecl.IsActorIsolated)
         {
             swiftWriter.WriteLine("@MainActor");
         }

@@ -419,25 +419,234 @@ Fixed `System` namespace shadowing in generated code — `XMLDocumentType.System
 
 ---
 
+### Phase 3.5: Complete CallConvSwift Elimination
+
+**Goal**: Route 100% of generated P/Invokes through `@_cdecl` wrappers. Zero `CallConvSwift` in generated bindings.
+
+**Current state** (post Session 1): ~55% → ~70% of P/Invokes are on `@_cdecl`. Sub-phases A, B, and H are complete. The remaining ~30% still use `CallConvSwift`, broken down as:
+
+| Category | Share | Status |
+|---|---|---|
+| ~~Free functions~~ | ~~29%~~ | **Complete** (Session 1, Sub-phase A) |
+| ~~Metadata accessors~~ | ~~22%~~ | **Complete** (Session 1, Sub-phase B) |
+| Optional types | 18% | Sub-phase C: Optional-aware parameter/return marshalling |
+| Generic parent/method | 12% | Sub-phase D: @_cdecl trampoline over @_silgen_name |
+| @_silgen_name intermediaries | 4.5% | Sub-phase E: @_cdecl trampolines for async/default-param/array-slice/optbuf wrappers |
+| Protocol existential | 4% | Sub-phase F: Opaque pointer + ExistentialContainer reconstruction |
+| Remaining misc | ~10% | Sub-phase G: Closure returns, tuple returns, nested types, non-copyable, non-primitive frozen structs, subscripts |
+| ~~Runtime P/Invokes~~ | ~~—~~ | **Complete** (Session 1, Sub-phase H) |
+
+All remaining sub-phases are independent — no ordering dependencies. Ordered by impact (biggest CallConvSwift reduction first).
+
+#### Sub-phase A: Free Functions (~29%) — COMPLETE
+
+**Problem**: `MethodWrapperEmitter.ShouldEmitWrapper()` guard #5 rejects methods where `ParentDecl is not TypeDecl`. Module-level free functions have `ModuleDecl` as parent.
+
+**Solution**: Lifted guard #5 to accept `ModuleDecl`. Free functions force `isStatic = true`, emit no `self` parameter, and use empty `selfRef` (no type prefix in call expression). Symbol naming uses `"Free"` as the type segment: `SBW_{module}_Free_{method}_{hash}`.
+
+**Files changed**: `MethodWrapperEmitter.cs` (guards #5/#5b/#6b null-safe, free function emission), `MethodHandler.cs` (null-safe flag-setting), `MethodWrapperEmitterTests.cs` (6 new tests).
+
+**Validation**: 90/90 libraries pass, 7223 unit tests pass.
+
+#### Sub-phase B: Metadata Accessors (~22%) — COMPLETE
+
+**Problem**: Every bound type emits a `PInvoke_getMetadata()` that calls the Swift metadata accessor (`$s...Ma` symbol) via `CallConvSwift`.
+
+**Solution**: New `MetadataWrapperEmitter` emits per-type `@_cdecl` wrappers returning metadata as raw pointers:
+```swift
+@_cdecl("SBW_GetMetadata_Nuke_Nuke_ImageRequest_A1B2C3D4")
+public func _sbw_getMetadata_A1B2C3D4() -> UnsafeMutableRawPointer {
+    unsafeBitCast(Nuke.ImageRequest.self as Any.Type, to: UnsafeMutableRawPointer.self)
+}
+```
+
+C# P/Invoke returns `TypeMetadata` directly (blittable `readonly struct` wrapping `IntPtr`, marshals identically via Cdecl). Dedup via `ModuleEmissionContext._metadataWrapperSymbols`. `TypeMetadata.FromHandle(IntPtr)` public factory added for code outside the runtime assembly.
+
+**Prerequisite completed**: Added `TypeMetadata.FromHandle(IntPtr)` public factory method.
+
+**Files changed**: New `MetadataWrapperEmitter.cs`, `ModuleEmissionContext.cs` (dedup set), `TypeHandlerHelpers.cs`/`ClassHandler.cs`/`EnumISwiftObjectMethodWriter.cs` (3-way branch: generic/xcframework-cdecl/manual), `NonFrozenStructHandler.cs`/`FrozenStructHandler.cs`/`EnumHandler.cs` (thread SwiftWriter+context), `MetadataWrapperEmitterTests.cs` (5 new tests), `CompileSmokeTests.cs` (xcframework-mode metadata pattern).
+
+**Validation**: 90/90 libraries pass, 7223 unit tests pass.
+
+#### Sub-phase C: Optional Types (~18%)
+
+**Problem**: `Optional<T>` hits the generic container guard in `PropertyWrapperEmitter` and `MethodWrapperEmitter`. Properties with `Optional<NSURLResponse>`, `Optional<CacheType>`, etc. fall through to `CallConvSwift`.
+
+**Solution**: Extend property/method wrapper emitters to handle Optional parameters and returns:
+- **Optional class** (reference type): `UnsafeMutableRawPointer?` — nil = null pointer, non-nil = `Unmanaged.passRetained().toOpaque()`
+- **Optional value type** (enum, struct): Write to out-buffer + `Int32` null flag (pattern already exists in `WrapperEmitter.Return.cs` for async optional returns)
+- **Optional frozen struct**: Inline buffer + null flag
+
+Property and method wrappers already handle non-optional versions of each type. The extension adds the null-check + flag/pointer-nil encoding.
+
+**Files**: `PropertyWrapperEmitter.cs`, `MethodWrapperEmitter.cs`, `ConstructorWrapperEmitter.cs` (parameter loop), `GetCdeclParamMapping()` (return marshalling).
+
+**Effort**: Medium. The marshalling patterns exist (async optional returns), but applying them uniformly across property/method/constructor wrappers requires careful per-type handling.
+
+#### Sub-phase D: Generic Types (~12%)
+
+**Problem**: `@_cdecl` cannot express Swift generic type parameters. Methods on `ImageCache<Key>` or generic methods like `func map<T>()` have no way to pass `T` through a C function signature.
+
+**Solution**: Two-layer approach (same pattern as async wrappers):
+1. `@_silgen_name` function handles the generic Swift types internally
+2. `@_cdecl` trampoline wraps it with C-compatible signature, forwarding all params as `UnsafeRawPointer` + `TypeMetadata`
+
+```swift
+// Layer 1: @_silgen_name (generic, internal Swift ABI)
+@_silgen_name("_silgen_Nuke_ImageCache_removeAll")
+func _silgen_removeAll<Key>(_ self_: UnsafeRawPointer) { ... }
+
+// Layer 2: @_cdecl trampoline (C ABI, no generics)
+@_cdecl("SBW_Nuke_ImageCache_removeAll_ABCD1234")
+func _sbw_removeAll(_ self_: UnsafeRawPointer) {
+    _silgen_removeAll(self_)
+}
+```
+
+For generic methods with type parameters in the signature, the @_cdecl trampoline passes all values as `UnsafeRawPointer` and the @_silgen_name layer reconstructs typed values using the metadata.
+
+**Files**: `MethodWrapperEmitter.cs`, `ConstructorWrapperEmitter.cs`, new trampoline emission logic.
+
+**Effort**: Medium-large. The trampoline pattern is straightforward, but generic parameter marshalling (passing values as opaque pointers + reconstructing via metadata) adds complexity. Start with the common case: generic parent types with concrete method signatures (no method-level generics).
+
+#### Sub-phase E: @_silgen_name Intermediaries (~4.5%)
+
+**Problem**: Existing async wrappers, default-parameter overloads, array-slice wrappers, and optional-buffer (`_optbuf`) wrappers already use `@_silgen_name` functions in the wrapper xcframework. But the C# P/Invoke calls them via `CallConvSwift`.
+
+**Solution**: Add a `@_cdecl` trampoline for each `@_silgen_name` wrapper. The trampoline has a C-compatible signature and simply forwards to the `@_silgen_name` function.
+
+This is mechanical: for each existing `@_silgen_name` wrapper, generate a corresponding `@_cdecl` with the same parameters (already C-compatible for most — async callbacks are `@convention(c)`, closures pass as funcPtr+context).
+
+**Files**: Async wrapper emission (`WrapperEmitter.Async.cs`), `DefaultParameterOverloadEmitter.cs`, `ArraySliceEmitter.cs`, `OptionalPointerWrapperEmitter.cs`, `PInvokeEmitter.cs`.
+
+**Effort**: Medium. Mechanical but wide surface area — every existing @_silgen_name emission point needs a companion @_cdecl.
+
+#### Sub-phase F: Protocol Existential (~4%)
+
+**Problem**: Methods with protocol existential parameters (`any Protocol`) or returns use `ExistentialContainer` which doesn't map to a C-compatible type at the `@_cdecl` boundary.
+
+**Solution**: Pass existential values as `UnsafeRawPointer` to a buffer containing the `ExistentialContainer`. The `@_cdecl` wrapper reconstructs the existential from the buffer:
+
+```swift
+@_cdecl("SBW_Nuke_process_08AB12CD")
+func _sbw_process(_ input: UnsafeRawPointer, _ self_: UnsafeRawPointer) {
+    let existential = input.load(as: (any ImageProcessing).self)
+    // ... call method with existential
+}
+```
+
+**Files**: `MethodWrapperEmitter.cs`, `ConstructorWrapperEmitter.cs`, `PropertyWrapperEmitter.cs` (lift existential guards), `GetCdeclParamMapping()`.
+
+**Effort**: Medium. The ExistentialContainer layout is well-understood in the codebase. Main risk is ensuring correct memory management for existential values across the boundary.
+
+#### Sub-phase G: Remaining Misc (~10%)
+
+Smaller categories, each with specific solutions:
+
+| Pattern | Solution | Effort |
+|---|---|---|
+| Closure returns | @_cdecl returns `(funcPtr, context)` pair, C# reconstructs delegate | Small |
+| Tuple returns | Write to out-buffer (flattened), same pattern as complex enum returns | Small |
+| Nested types | Naming fix — use full `ParentType.NestedType` in wrapper | Small |
+| Non-copyable structs | Pass as `UnsafeRawPointer` (no copy needed in wrapper) | Small |
+| Non-primitive frozen structs | Pass as `UnsafeRawPointer` to buffer (like non-frozen) | Small |
+| Subscript accessors | Extend `PropertyWrapperEmitter` to handle subscript key params | Medium |
+| Failable constructors | Return `Optional<UnsafeRawPointer>` (nil = init failed) | Small |
+| Non-frozen struct returns (methods) | `resultPtr` out-buffer pattern (exists for constructors, extend to methods) | Small |
+
+**Effort**: Medium total. Each item is small but there are many.
+
+#### Sub-phase H: Runtime P/Invokes — COMPLETE
+
+**Problem**: `SwiftString.cs` had `_useWrapperPath` fallback — tried `libSwiftBindingsRuntime` @_cdecl wrappers first, fell back to direct `CallConvSwift` P/Invokes on `DllNotFoundException`. `TypeMetadata.cs` had similar fallback for existential metadata. On Mono (iOS Simulator), missing wrapper library would silently fall through to the process-fatal CallConvSwift path.
+
+**Solution**:
+1. Removed ALL `CallConvSwift` P/Invokes from `SwiftString.cs` (`PInvoke_Create`, `PInvoke_GetLength`, `PInvoke_GetUtf8ContiguousArray`, `PInvoke_WithUnsafeBytes`, `ToStringDirect()`)
+2. Removed `_useWrapperPath` flag, `_isMonoRuntime` flag, `ToStringCallbackContext` struct
+3. Wrapper library is now the **only** path — missing library throws `SwiftRuntimeException` with clear message (no silent fallback)
+4. Metadata path: Cdecl wrapper → direct `$sSSN` symbol lookup fallback (no CallConvSwift for metadata)
+5. `TypeMetadata.cs`: Removed `swift_getExistentialTypeMetadata` CallConvSwift P/Invoke and `_isMonoRuntime` flag
+6. Added `SBW_SwiftString_GetMetadata` to `SwiftBindingsRuntime.swift`
+7. Runtime test project copies `libSwiftBindingsRuntime.dylib` to test output
+
+Zero `CallConvSwift` code paths remain in `SwiftString.cs`. Zero in `TypeMetadata.cs` (only comments).
+
+**Files changed**: `SwiftString.cs` (major rewrite), `TypeMetadata.cs` (fallback removal), `SwiftBindingsRuntime.swift` (new export), `SwiftRuntimeException.cs` (inner exception ctor), `SwiftStringWrapperTests.cs` (6th required symbol), `Swift.Runtime.Tests.csproj` (dylib copy).
+
+**Validation**: 90/90 libraries pass, 7223 unit tests pass, 262 runtime tests pass.
+
+#### Implementation Strategy
+
+Three plan+implement sessions total. All sub-phases use the same wrapper emitter patterns established in Phases 1–3.
+
+**Session 1** (plan + implement) — "Easy wins" — **COMPLETE**:
+
+| Sub-phase | What | Status |
+|---|---|---|
+| A | Free functions — lift guard, no-self emission | Done |
+| B | Metadata accessors — new `MetadataWrapperEmitter` | Done |
+| H | Runtime fallback removal — wrapper-only, clear errors | Done |
+| G partial | Investigation only — easy items already handled, rest deferred to Session 2 | N/A |
+
+Result: ~55% → ~70% Cdecl. G partial items (non-frozen struct returns, failable ctors, nested type naming) were already handled by existing code. Closure returns, tuple returns deferred to Session 2 (new marshalling patterns required).
+
+**Session 2** (plan + implement) — "New marshalling patterns":
+
+| Sub-phase | What | Effort |
+|---|---|---|
+| C | Optional types — per-type null encoding | Medium |
+| D | Generic types — @_cdecl trampoline over @_silgen_name | Medium |
+| E | @_silgen_name intermediaries — async/default-param/optbuf trampolines | Medium |
+| F | Protocol existential — opaque pointer + ExistentialContainer | Medium |
+| G remainder | Non-primitive frozen structs, subscripts, non-copyable | Small-medium |
+
+Expected result: **100% CallConvSwift eliminated**. Phase 4 fully unblocked.
+
+**Session 3** (plan + implement) — Phase 4: Full cleanup and documentation. Delete all workaround infrastructure.
+
+#### Validation Gate (per session)
+
+Session 1 results:
+- [x] `grep -c "CallConvSwift" <generated>.cs` decreases (Nuke: ~200→151, significant Cdecl increase)
+- [x] `./run-tests.sh` — 7223 unit + 262 runtime tests pass, 0 failures
+- [x] `./validate-libraries.sh --tier all` — 90/90 pass, 0 regressions
+- [x] TestFramework: golden files updated
+- [x] `SwiftString.cs` — zero CallConvSwift code paths
+- [x] `TypeMetadata.cs` — zero CallConvSwift P/Invokes (only comments)
+- [x] `CompileSmokeTests.cs` — xcframework-mode metadata pattern covered
+
+#### Final Validation (after Session 4)
+
+- [ ] `grep -rc "CallConvSwift" /tmp/binding-validation/*/` returns **zero** across all 90 libraries
+- [ ] `grep "CallConvSwift" TestFramework/output/SwiftBindingsTestLib.cs` returns **zero**
+- [ ] Runtime: `SwiftString.cs` and `TypeMetadata.cs` have no `CallConvSwift` P/Invokes
+- [ ] All `ShouldEmitWrapper()` guards that returned false now either return true (wrappable) or suppress the method entirely (not emittable)
+
+---
+
 ### Phase 4: Cleanup and Documentation
 
+**Prerequisite**: Phase 3.5 complete (zero `CallConvSwift` in generated code and runtime).
 **Sessions**: 1 implement
-**Goal**: Remove workaround code, update documentation, preserve upstream issue documentation for Microsoft.
+**Goal**: Remove ALL workaround infrastructure. Single clean code path. Update documentation.
 
 #### What Gets Removed (Code)
 
 | Component | Why it's unnecessary |
 |-----------|---------------------|
-| Workaround A: `SwiftString` runtime wrappers in `libSwiftBindingsRuntime` | SwiftString operations go through per-library `@_cdecl` wrappers |
-| Workaround B: Closure Cdecl expansion (`ClosureEmitter.SwiftWrapper.cs`) | Most closure-parameter methods use `@_cdecl` wrappers (Phase 2.5). Standalone path remains for edge cases: non-Cdecl closure types (String/struct callback args), generic parent classes, and free functions. Audit remaining `HasClosureCdeclWrapper` usage. |
-| Workaround C: Existential metadata wrapper in `libSwiftBindingsRuntime` | Moved to per-library wrapper or kept in runtime with `@_cdecl` |
-| Workaround D: `MonoJitRiskDetector` | No risky path exists |
-| `libSwiftBindingsRuntime.dylib` build pipeline | Functions moved to per-library wrappers (or consolidated into runtime package's own `@_cdecl` helpers) |
-| `[CrashRisk]` attributes on test classes | All tests should pass on both Mono and NativeAOT |
-| `--safe-only` flag in test runner | No unsafe tests |
+| ~~Workaround A: `_useWrapperPath` fallback in `SwiftString.cs`~~ | **Already removed** (Phase 3.5 Session 1, Sub-phase H) |
+| ~~Workaround A: `PInvoke_Create`, `PInvoke_GetLength`, `PInvoke_ToString` CallConvSwift P/Invokes~~ | **Already removed** (Phase 3.5 Session 1, Sub-phase H) |
+| Workaround B: `ClosureEmitter.SwiftWrapper.cs` standalone closure wrappers | All closure-parameter methods route through @_cdecl method/constructor wrappers (Phase 2.5 + 3.5) |
+| Workaround B: `HasClosureCdeclWrapper` / `UsesFreeFunctionWrapper` flags | No standalone closure path exists — all closures handled inline in @_cdecl wrappers |
+| Workaround B: `NeedsClosureCdeclWrapper()` in `MonoJitRiskDetector` | No callers remain |
+| ~~Workaround C: `SwiftBindings_GetExistentialTypeMetadata` fallback in `TypeMetadata.cs`~~ | **Already removed** (Phase 3.5 Session 1, Sub-phase H) |
+| Workaround D: `MonoJitRiskDetector.cs` (entire file) | No risky path exists — nothing uses CallConvSwift |
+| Workaround D: `DetectedJitRisks` on `MethodDecl` | Informational flag with no consumers |
+| `libSwiftBindingsRuntime.dylib` build pipeline | All functions either moved to per-library wrappers or kept as @_cdecl-only in runtime (no CallConvSwift fallback) |
+| `[CrashRisk]` attributes on test classes | All tests pass on both Mono and NativeAOT |
+| `--safe-only` flag in test runner | No unsafe tests exist |
 | Tier 3 deferral for Mono JIT tests | All tiers run everywhere |
-| `_useWrapperPath` fallback logic in `SwiftString.cs` | Single code path |
-| `HasClosureCdeclWrapper` / `UsesFreeFunctionWrapper` flags | All methods use wrappers |
+| Dual `PInvokeCallingConvention` routing in `PInvokeEmitter` | Single path: all P/Invokes are Cdecl |
 
 #### What Gets Preserved (Documentation)
 
@@ -490,17 +699,21 @@ Each bug report follows the existing draft format:
 
 #### Validation Gate
 
-- [ ] `MonoJitRiskDetector.cs` deleted
-- [ ] `ClosureEmitter.SwiftWrapper.cs` deleted (or repurposed)
-- [ ] `libSwiftBindingsRuntime.dylib` removed from build pipeline
+- [ ] `MonoJitRiskDetector.cs` deleted (entire file)
+- [ ] `ClosureEmitter.SwiftWrapper.cs` deleted — all closure handling is inline in @_cdecl wrappers
+- [ ] `HasClosureCdeclWrapper`, `UsesFreeFunctionWrapper`, `DetectedJitRisks` removed from `MethodDecl`
+- [ ] `_useWrapperPath` and CallConvSwift fallback P/Invokes removed from `SwiftString.cs`
+- [ ] CallConvSwift fallback removed from `TypeMetadata.cs` existential metadata path
+- [ ] `libSwiftBindingsRuntime.dylib` — either removed entirely (functions in per-library wrappers) or retained as @_cdecl-only (no CallConvSwift inside)
+- [ ] `PInvokeCallingConvention.Swift` enum value unused — all generated P/Invokes are `.Cdecl`
 - [ ] `[CrashRisk]` attributes removed from all test classes
 - [ ] `--safe-only` flag removed from test runner
-- [ ] All tests run as Tier 1/2 on both Mono and NativeAOT
+- [ ] All tests run as Tier 1/2 on both Mono and NativeAOT — no crash-risk segregation
+- [ ] `grep -rc "CallConvSwift" /tmp/binding-validation/*/` returns **zero** for all 90 libraries
 - [ ] Full test suite passes without any workaround code
 - [ ] Library validation 90/90 still passes
-- [ ] `known-issues-workarounds.md` rewritten: explains `@_cdecl` approach, documents `UseDirectSwiftPInvoke` revert flag, retains upstream bug references
+- [ ] `known-issues-workarounds.md` rewritten: explains `@_cdecl` approach, retains upstream bug references
 - [ ] `Future/upstream-bug-reports-draft.md` expanded with all 5 .NET runtime bugs, each with minimal reproduction case
-- [ ] `UseDirectSwiftPInvoke` documented in `docs/Troubleshooting.md`
 
 ---
 
@@ -591,13 +804,13 @@ Verify that Nuke and Lottie work end-to-end on a real device.
 
 ## Overall "Done" Definition
 
-- [ ] **Zero `CallConvSwift` in generated code** — all P/Invokes use `CallingConvention.Cdecl` by default
-- [ ] **`UseDirectSwiftPInvoke` flag works** — setting it to `true` switches back to direct `CallConvSwift` P/Invokes with no code gen changes
-- [ ] **All 10 KNOWN-ISSUES resolved or documented as .NET runtime limitations** — Issues 1, 2, 7, 9, 10 fixed by this work; Issues 4, 5 fixed by Phase 3; Issues 6, 8 are separate feature work
+- [ ] **Zero `CallConvSwift` in generated code** — `grep -rc "CallConvSwift"` returns zero for all 90 validated libraries, TestFramework, and runtime
+- [ ] **Zero workaround infrastructure** — `MonoJitRiskDetector`, `ClosureEmitter.SwiftWrapper.cs`, `_useWrapperPath`, `HasClosureCdeclWrapper`, `UsesFreeFunctionWrapper`, `DetectedJitRisks`, `[CrashRisk]`, `--safe-only` all deleted
+- [ ] **All 10 KNOWN-ISSUES resolved or documented as .NET runtime limitations** — Issues 1, 2, 7, 9, 10 fixed by @_cdecl wrappers; Issues 4, 5 fixed by Phase 3; Issues 6, 8 are separate feature work
 - [ ] **Nuke + Lottie device test suites: 0 crashes** — all previously-skipped tests pass
-- [ ] **No workaround infrastructure remains** — single clean code path
+- [ ] **Single code path** — every P/Invoke goes C# → @_cdecl → Swift. No dual-path routing, no fallbacks, no risk detection
 - [ ] **Upstream bugs documented** — `Future/upstream-bug-reports-draft.md` expanded with all 5 bugs, ready to file on dotnet/runtime when repo is public
-- [ ] **End-user documentation clear** — `known-issues-workarounds.md` explains that SwiftBindings bypasses `CallConvSwift` via `@_cdecl` wrappers for stability, with the option to switch back via `UseDirectSwiftPInvoke` once Microsoft fixes the underlying runtime issues
+- [ ] **End-user documentation clear** — `known-issues-workarounds.md` explains that SwiftBindings routes all calls through `@_cdecl` wrappers for stability, bypassing `CallConvSwift` entirely
 
 ---
 

@@ -92,7 +92,7 @@ namespace BindingsGeneration
             var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(structDecl);
             var whereClause = GenericTypeEmitter.GetWhereClause(structDecl, env.TypeDatabase);
 
-            var ISwiftObjectMethodWriter = new ISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, structDecl, typeNameWithGenerics);
+            var ISwiftObjectMethodWriter = new ISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, structDecl, typeNameWithGenerics, swiftWriter, context.GetEmissionContext());
             // Create P/Invoke helper context for generic types (to avoid CS7042)
             var ownPInvokeContext = PInvokeHelperContext.CreateIfGeneric(structDecl);
             var pinvokeHelperContext = ownPInvokeContext ?? context.PInvokeHelperContext;

@@ -259,6 +259,13 @@ public sealed class ModuleEmissionContext
     /// <summary>Adds a method @_cdecl wrapper symbol. Returns true if newly added (not a duplicate).</summary>
     public bool TryAddMethodWrapperSymbol(string symbol) => _methodWrapperSymbols.Add(symbol);
 
+    // ==================== Metadata @_cdecl Wrapper ====================
+
+    private readonly HashSet<string> _metadataWrapperSymbols = new();
+
+    /// <summary>Adds a metadata @_cdecl wrapper symbol. Returns true if newly added (not a duplicate).</summary>
+    public bool TryAddMetadataWrapperSymbol(string symbol) => _metadataWrapperSymbols.Add(symbol);
+
     // ==================== Enum Handler RawRepresentable ====================
 
     private readonly HashSet<string> _enumRawRepSymbols = new();

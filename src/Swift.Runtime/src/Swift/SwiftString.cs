@@ -6,9 +6,9 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Runtime.InteropServices.Swift;
 using System.Text;
 using Swift.Runtime;
 using Swift.Runtime.InteropServices;
@@ -35,21 +35,6 @@ public class SwiftString : ISwiftObject, IDisposable
 
     private static Dictionary<Type, string> _protocolConformanceSymbols;
 
-    /// <summary>
-    /// When true, ToString()/Length use the SwiftBindingsRuntime wrapper path
-    /// (avoids Mono JIT CallConvSwift assertion). Falls back to false if the
-    /// runtime library is not deployed, after which direct P/Invoke is used.
-    /// On Mono, fallback to direct CallConvSwift is not allowed (process-fatal).
-    /// </summary>
-    private static bool _useWrapperPath = true;
-
-    /// <summary>
-    /// True when running on the Mono runtime (iOS). On Mono, the direct
-    /// CallConvSwift P/Invoke path triggers a process-fatal JIT assertion,
-    /// so fallback is not safe — we must throw instead.
-    /// </summary>
-    private static readonly bool _isMonoRuntime = Type.GetType("Mono.Runtime") != null;
-
     static SwiftString()
     {
         _protocolConformanceSymbols = new Dictionary<Type, string>
@@ -64,7 +49,28 @@ public class SwiftString : ISwiftObject, IDisposable
 
     static TypeMetadata ISwiftObject.GetTypeMetadata()
     {
-        return TypeMetadata.Cache.GetOrAdd(typeof(SwiftString), _ => PInvoke_getMetadata());
+        return TypeMetadata.Cache.GetOrAdd(typeof(SwiftString), _ =>
+        {
+            // Prefer SwiftBindingsRuntime wrapper (Cdecl, no CallConvSwift)
+            try
+            {
+                return TypeMetadata.FromHandle(RuntimeNativeMethods.SwiftString_GetMetadata());
+            }
+            catch (DllNotFoundException) { }
+            catch (EntryPointNotFoundException) { }
+
+            // Fallback: resolve the direct metadata symbol from libswiftCore (no function call needed).
+            // $sSSN is Swift.String's metadata pointer — NativeLibrary.TryGetExport returns it directly.
+            if (NativeLibrary.TryLoad(KnownLibraries.SwiftCore, out var coreHandle) &&
+                NativeLibrary.TryGetExport(coreHandle, "$sSSN", out var metadataPtr))
+            {
+                return TypeMetadata.FromHandle(metadataPtr);
+            }
+
+            throw new SwiftRuntimeException(
+                "Unable to get type metadata for SwiftString. " +
+                "Ensure either libSwiftBindingsRuntime.dylib or libswiftCore.dylib is available.");
+        });
     }
 
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
@@ -134,35 +140,17 @@ public class SwiftString : ISwiftObject, IDisposable
         unsafe
         {
             IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(SwiftString.Buffer));
-
-            if (_useWrapperPath)
+            try
             {
-                try
+                fixed (byte* utf8BytesPtr = utf8Bytes)
                 {
-                    fixed (byte* utf8BytesPtr = utf8Bytes)
-                    {
-                        RuntimeNativeMethods.SwiftString_Create(
-                            (IntPtr)utf8BytesPtr, utf8Bytes.Length, bufferPtr);
-                    }
-                    _payload = new SwiftSafeHandle<SwiftString>(bufferPtr);
-                    return;
+                    RuntimeNativeMethods.SwiftString_Create(
+                        (IntPtr)utf8BytesPtr, utf8Bytes.Length, bufferPtr);
                 }
-                catch (DllNotFoundException) { _useWrapperPath = false; }
-                catch (EntryPointNotFoundException) { _useWrapperPath = false; }
             }
-
-            if (_isMonoRuntime)
-            {
-                NativeMemory.Free((void*)bufferPtr);
-                ThrowMissingWrapperOnMono();
-            }
-
-            fixed (byte* utf8BytesPtr = utf8Bytes)
-            {
-                var result = PInvoke_Create(utf8BytesPtr, utf8Bytes.Length, 1);
-                *(SwiftString.Buffer*)bufferPtr = result;
-                _payload = new SwiftSafeHandle<SwiftString>(bufferPtr);
-            }
+            catch (DllNotFoundException ex) { NativeMemory.Free((void*)bufferPtr); ThrowMissingRuntime(ex); }
+            catch (EntryPointNotFoundException ex) { NativeMemory.Free((void*)bufferPtr); ThrowMissingRuntime(ex); }
+            _payload = new SwiftSafeHandle<SwiftString>(bufferPtr);
         }
     }
 
@@ -173,21 +161,12 @@ public class SwiftString : ISwiftObject, IDisposable
     {
         get
         {
-            if (_useWrapperPath)
+            try
             {
-                try
-                {
-                    return GetLengthViaWrapper();
-                }
-                catch (DllNotFoundException) { _useWrapperPath = false; }
-                catch (EntryPointNotFoundException) { _useWrapperPath = false; }
+                return GetLengthViaWrapper();
             }
-
-            if (_isMonoRuntime)
-                ThrowMissingWrapperOnMono();
-
-            using PayloadBuffer<SwiftString.Buffer> disposable = PayloadBuffer;
-            return (int)PInvoke_GetLength(disposable.Buffer);
+            catch (DllNotFoundException ex) { ThrowMissingRuntime(ex); return 0; }
+            catch (EntryPointNotFoundException ex) { ThrowMissingRuntime(ex); return 0; }
         }
     }
 
@@ -211,20 +190,12 @@ public class SwiftString : ISwiftObject, IDisposable
     /// </summary>
     public override string ToString()
     {
-        if (_useWrapperPath)
+        try
         {
-            try
-            {
-                return ToStringViaWrapper();
-            }
-            catch (DllNotFoundException) { _useWrapperPath = false; }
-            catch (EntryPointNotFoundException) { _useWrapperPath = false; }
+            return ToStringViaWrapper();
         }
-
-        if (_isMonoRuntime)
-            ThrowMissingWrapperOnMono();
-
-        return ToStringDirect();
+        catch (DllNotFoundException ex) { ThrowMissingRuntime(ex); return ""; }
+        catch (EntryPointNotFoundException ex) { ThrowMissingRuntime(ex); return ""; }
     }
 
     private unsafe string ToStringViaWrapper()
@@ -255,66 +226,17 @@ public class SwiftString : ISwiftObject, IDisposable
         }
     }
 
-    private static void ThrowMissingWrapperOnMono()
+    /// <summary>
+    /// Translates raw interop exceptions into clear SwiftRuntimeException.
+    /// No fallback to CallConvSwift — the wrapper library is required.
+    /// </summary>
+    [DoesNotReturn]
+    private static void ThrowMissingRuntime(Exception inner)
     {
         throw new SwiftRuntimeException(
-            "SwiftString operations require the SwiftBindingsRuntime native library on Mono. " +
-            "The direct CallConvSwift P/Invoke path triggers a process-fatal JIT assertion on Mono. " +
-            "Ensure libSwiftBindingsRuntime.dylib is included in your application bundle.");
+            "SwiftString operations require the SwiftBindingsRuntime native library. " +
+            "Ensure libSwiftBindingsRuntime.dylib is included in your application bundle.", inner);
     }
-
-    private string ToStringDirect()
-    {
-        var elementType = TypeMetadata.GetTypeMetadataOrThrow<byte>();
-        var resultType = TypeMetadata.GetTypeMetadataOrThrow<long>();
-
-        using PayloadBuffer<SwiftString.Buffer> disposable = PayloadBuffer;
-        var length = Length;
-        if (length <= 0)
-            return string.Empty;
-
-        var contiguousArray = PInvoke_GetUtf8ContiguousArray(disposable.Buffer);
-
-#pragma warning disable CS8500
-        unsafe
-        {
-            ToStringCallbackContext callbackContext;
-            callbackContext._length = length;
-            PInvoke_WithUnsafeBytes(&Callback, &callbackContext, contiguousArray, elementType, resultType);
-            return callbackContext._returnString!;
-
-            [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-            static IntPtr Callback(byte* bytes, SwiftSelf context)
-            {
-                ToStringCallbackContext* pContext = (ToStringCallbackContext*)context.Value;
-                pContext->_returnString = Encoding.UTF8.GetString(new ReadOnlySpan<byte>(bytes, pContext->_length));
-                return default;
-            }
-        }
-#pragma warning restore CS8500
-    }
-
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSSMa")]
-    public static extern TypeMetadata PInvoke_getMetadata();
-
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSS21_builtinStringLiteral17utf8CodeUnitCount7isASCIISSBp_BwBi1_tcfC")]
-    public static extern unsafe SwiftString.Buffer PInvoke_Create(byte* str, long len, byte isASCII);
-
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSS5countSivg")]
-    public static extern long PInvoke_GetLength(SwiftString.Buffer str);
-
-    // https://developer.apple.com/documentation/swift/string/utf8cstring
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSS11utf8CStrings15ContiguousArrayVys4Int8VGvg")]
-    public static extern IntPtr PInvoke_GetUtf8ContiguousArray(SwiftString.Buffer str);
-
-    // https://developer.apple.com/documentation/swift/contiguousarray/withunsafebytes(_:)
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$ss15ContiguousArrayV15withUnsafeBytesyqd__qd__SWKXEKlF")]
-    public static extern unsafe IntPtr PInvoke_WithUnsafeBytes(delegate* unmanaged[Swift]<byte*, SwiftSelf, IntPtr> callback, void* context, IntPtr contiguousArray, TypeMetadata elementType, TypeMetadata resultType);
 
     /// <summary>
     /// Implicitly converts a C# string to a SwiftString.
@@ -373,11 +295,9 @@ public class SwiftString : ISwiftObject, IDisposable
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl,
                    EntryPoint = "SBW_SwiftString_Destroy")]
         public static extern void SwiftString_Destroy(IntPtr bufferPtr);
-    }
 
-    private struct ToStringCallbackContext
-    {
-        public int _length;
-        public string _returnString;
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl,
+                   EntryPoint = "SBW_SwiftString_GetMetadata")]
+        public static extern IntPtr SwiftString_GetMetadata();
     }
 }

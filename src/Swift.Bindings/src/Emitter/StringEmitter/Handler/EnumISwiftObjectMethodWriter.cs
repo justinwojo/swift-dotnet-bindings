@@ -18,8 +18,10 @@ namespace BindingsGeneration
         private readonly string _typeNameWithGenerics;
         private readonly string _constructorName;
         private readonly PInvokeHelperContext? _pinvokeHelperContext;
+        private readonly SwiftWriter? _swiftWriter;
+        private readonly ModuleEmissionContext? _emissionCtx;
 
-        public EnumISwiftObjectMethodWriter(CSharpWriter csWriter, ITypeDatabase typeDatabase, ModuleDecl moduleDecl, EnumDecl enumDecl, string typeNameWithGenerics, PInvokeHelperContext? pinvokeHelperContext)
+        public EnumISwiftObjectMethodWriter(CSharpWriter csWriter, ITypeDatabase typeDatabase, ModuleDecl moduleDecl, EnumDecl enumDecl, string typeNameWithGenerics, PInvokeHelperContext? pinvokeHelperContext, SwiftWriter? swiftWriter = null, ModuleEmissionContext? emissionCtx = null)
         {
             _writer = csWriter;
             _typeDatabase = typeDatabase;
@@ -29,6 +31,8 @@ namespace BindingsGeneration
             var angleBracket = typeNameWithGenerics.IndexOf('<');
             _constructorName = angleBracket >= 0 ? typeNameWithGenerics.Substring(0, angleBracket) : typeNameWithGenerics;
             _pinvokeHelperContext = pinvokeHelperContext;
+            _swiftWriter = swiftWriter;
+            _emissionCtx = emissionCtx;
         }
 
         /// <summary>
@@ -66,20 +70,49 @@ namespace BindingsGeneration
                 return;
             }
 
-            _writer.WriteLine("static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();");
-            _writer.WriteLine();
-
-            foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
+            if (_swiftWriter != null && _emissionCtx != null &&
+                     !string.IsNullOrEmpty(_typeDatabase.AsyncLibraryName))
             {
-                LibraryPath = libPath,
-                EntryPoint = _enumDecl.MetadataAccessor,
-                MethodName = "PInvoke_getMetadata",
-                ReturnType = "TypeMetadata",
-                ParametersString = "",
-                Visibility = PInvokeVisibility.Internal
-            }))
-                _writer.WriteLine(line);
-            _writer.WriteLine();
+                // Xcframework mode: emit @_cdecl metadata wrapper
+                var moduleQualified = _enumDecl.SwiftTypeName.ModuleQualifiedName;
+                var moduleName = _enumDecl.SwiftTypeName.Module;
+                var symbol = MetadataWrapperEmitter.GetMetadataSymbolName(moduleName, moduleQualified);
+                MetadataWrapperEmitter.EmitIfNeeded(_swiftWriter, moduleName, moduleQualified, symbol, _emissionCtx);
+
+                _writer.WriteLine("static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();");
+                _writer.WriteLine();
+
+                foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
+                {
+                    LibraryPath = _typeDatabase.AsyncLibraryName!,
+                    EntryPoint = symbol,
+                    MethodName = "PInvoke_getMetadata",
+                    ReturnType = "TypeMetadata",
+                    ParametersString = "",
+                    Visibility = PInvokeVisibility.Internal,
+                    CallingConvention = PInvokeCallingConvention.Cdecl
+                }))
+                    _writer.WriteLine(line);
+                _writer.WriteLine();
+            }
+            else
+            {
+                // Manual mode: existing CallConvSwift path
+                _writer.WriteLine("static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();");
+                _writer.WriteLine();
+
+                foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
+                {
+                    LibraryPath = libPath,
+                    EntryPoint = _enumDecl.MetadataAccessor,
+                    MethodName = "PInvoke_getMetadata",
+                    ReturnType = "TypeMetadata",
+                    ParametersString = "",
+                    Visibility = PInvokeVisibility.Internal
+                }))
+                    _writer.WriteLine(line);
+                _writer.WriteLine();
+            }
         }
 
         /// <summary>

@@ -12,4 +12,8 @@ public class SwiftRuntimeException : Exception
     public SwiftRuntimeException(string message) : base(message)
     {
     }
+
+    public SwiftRuntimeException(string message, Exception innerException) : base(message, innerException)
+    {
+    }
 }

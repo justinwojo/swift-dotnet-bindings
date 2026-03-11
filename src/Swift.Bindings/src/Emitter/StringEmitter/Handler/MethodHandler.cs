@@ -760,9 +760,11 @@ namespace BindingsGeneration
                 MethodWrapperEmitter.ShouldEmitWrapper(methodEnv))
             {
                 var parentType_ = methodEnv.ParentDecl as TypeDecl;
+                var parentModule = methodEnv.ParentDecl as ModuleDecl;
+                string moduleName = parentType_?.SwiftTypeName.Module ?? parentModule?.Name ?? "";
+                string typeName = parentType_?.Name ?? "Free";
                 var cdeclSymbol = MethodWrapperEmitter.GetMethodSymbolName(
-                    parentType_!.SwiftTypeName.Module,
-                    parentType_.Name,
+                    moduleName, typeName,
                     methodEnv.MethodDecl.Name,
                     methodEnv.MethodDecl.MangledName);
                 methodEnv.MethodDecl.UsesCdeclMethodWrapper = true;

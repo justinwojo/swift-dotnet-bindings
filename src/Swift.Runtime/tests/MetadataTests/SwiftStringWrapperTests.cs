@@ -36,7 +36,7 @@ public class SwiftStringWrapperTests : IClassFixture<SwiftStringWrapperTests.Wra
                     return;
                 }
 
-                // Check all 5 entry points — Create/Destroy were added in Step 3
+                // Check all 6 entry points — GetMetadata added in Phase 3.5
                 var required = new[]
                 {
                     "SBW_SwiftString_ToUtf8",
@@ -44,6 +44,7 @@ public class SwiftStringWrapperTests : IClassFixture<SwiftStringWrapperTests.Wra
                     "SBW_SwiftString_FreeUtf8",
                     "SBW_SwiftString_Create",
                     "SBW_SwiftString_Destroy",
+                    "SBW_SwiftString_GetMetadata",
                 };
 
                 var missing = required.Where(
@@ -238,5 +239,7 @@ public class SwiftStringWrapperTests : IClassFixture<SwiftStringWrapperTests.Wra
             "SBW_SwiftString_Create should be exported");
         Assert.True(NativeLibrary.TryGetExport(handle, "SBW_SwiftString_Destroy", out _),
             "SBW_SwiftString_Destroy should be exported");
+        Assert.True(NativeLibrary.TryGetExport(handle, "SBW_SwiftString_GetMetadata", out _),
+            "SBW_SwiftString_GetMetadata should be exported");
     }
 }

@@ -209,3 +209,14 @@ public func sbw_swiftStringDestroy(_ bufferPtr: UnsafeMutableRawPointer) {
 public func sbw_swiftStringFreeUtf8(_ ptr: UnsafeMutablePointer<UInt8>?) {
     ptr?.deallocate()
 }
+
+/// Returns the type metadata pointer for Swift.String.
+///
+/// Used by SwiftString's ISwiftObject.GetTypeMetadata() implementation
+/// to obtain metadata via Cdecl instead of CallConvSwift.
+///
+/// - Returns: The raw metadata pointer for String.self.
+@_cdecl("SBW_SwiftString_GetMetadata")
+public func sbw_swiftStringGetMetadata() -> UnsafeMutableRawPointer {
+    unsafeBitCast(String.self as Any.Type, to: UnsafeMutableRawPointer.self)
+}

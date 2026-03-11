@@ -295,7 +295,7 @@ namespace BindingsGeneration
                 bool hasInequality = emittedOperatorSymbols.Contains("!=");
 
                 // Emit ISwiftObject implementation
-                var iSwiftObjectWriter = new ClassISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, classDecl, typeNameWithGenerics, pinvokeHelperContext);
+                var iSwiftObjectWriter = new ClassISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, classDecl, typeNameWithGenerics, pinvokeHelperContext, swiftWriter, context.GetEmissionContext());
                 var equatableWriter = new ClassEqualityMethodsWriter(csWriter, classDecl, typeNameWithGenerics, hasEquality, hasInequality);
 
                 // Derived classes emit equality if they have their own IEquatable<DerivedType>
@@ -421,8 +421,10 @@ namespace BindingsGeneration
         private readonly bool _isObjCRooted;
         private readonly bool _isObjCBoundary;
         private readonly string _rootBaseTypeNameWithGenerics;
+        private readonly SwiftWriter? _swiftWriter;
+        private readonly ModuleEmissionContext? _emissionCtx;
 
-        public ClassISwiftObjectMethodWriter(CSharpWriter csWriter, ITypeDatabase typeDatabase, ModuleDecl moduleDecl, ClassDecl classDecl, string typeNameWithGenerics, PInvokeHelperContext? pinvokeHelperContext = null)
+        public ClassISwiftObjectMethodWriter(CSharpWriter csWriter, ITypeDatabase typeDatabase, ModuleDecl moduleDecl, ClassDecl classDecl, string typeNameWithGenerics, PInvokeHelperContext? pinvokeHelperContext = null, SwiftWriter? swiftWriter = null, ModuleEmissionContext? emissionCtx = null)
         {
             _writer = csWriter;
             _typeDatabase = typeDatabase;
@@ -436,6 +438,8 @@ namespace BindingsGeneration
             _isObjCRooted = classDecl.IsObjCRooted;
             _isObjCBoundary = _isObjCRooted && !_isDerived;
             _rootBaseTypeNameWithGenerics = GetRootBaseTypeNameWithGenerics(classDecl);
+            _swiftWriter = swiftWriter;
+            _emissionCtx = emissionCtx;
         }
 
         /// <summary>
@@ -512,8 +516,35 @@ namespace BindingsGeneration
                 };
                 _pinvokeHelperContext.AddDeclaration(declaration);
             }
+            else if (_swiftWriter != null && _emissionCtx != null &&
+                     !string.IsNullOrEmpty(_typeDatabase.AsyncLibraryName))
+            {
+                // Xcframework mode: emit @_cdecl metadata wrapper
+                var moduleQualified = _classDecl.SwiftTypeName.ModuleQualifiedName;
+                var moduleName = _classDecl.SwiftTypeName.Module;
+                var symbol = MetadataWrapperEmitter.GetMetadataSymbolName(moduleName, moduleQualified);
+                MetadataWrapperEmitter.EmitIfNeeded(_swiftWriter, moduleName, moduleQualified, symbol, _emissionCtx);
+
+                _writer.WriteLine("static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();");
+                _writer.WriteLine();
+
+                foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
+                {
+                    LibraryPath = _typeDatabase.AsyncLibraryName!,
+                    EntryPoint = symbol,
+                    MethodName = "PInvoke_getMetadata",
+                    ReturnType = "TypeMetadata",
+                    ParametersString = "",
+                    Visibility = PInvokeVisibility.Internal,
+                    CallingConvention = PInvokeCallingConvention.Cdecl,
+                    HasNewModifier = _isDerived
+                }))
+                    _writer.WriteLine(line);
+                _writer.WriteLine();
+            }
             else
             {
+                // Manual mode: existing CallConvSwift path
                 _writer.WriteLine("static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();");
                 _writer.WriteLine();
 

@@ -16,4 +16,13 @@
     </ProjectReference>
   </ItemGroup>
 
+  <!-- Copy SwiftBindingsRuntime native library so SwiftString tests can run on macOS.
+       Without this, Create/ToString/Length fail because CallConvSwift fallbacks are removed. -->
+  <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)../native/macos/libSwiftBindingsRuntime.dylib')">
+    <Content Include="$(MSBuildThisFileDirectory)../native/macos/libSwiftBindingsRuntime.dylib">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>libSwiftBindingsRuntime.dylib</Link>
+    </Content>
+  </ItemGroup>
+
 </Project>

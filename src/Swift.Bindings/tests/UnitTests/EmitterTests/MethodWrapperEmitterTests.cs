@@ -315,6 +315,46 @@ public class MethodWrapperEmitterTests
         Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
     }
 
+    [Fact]
+    public void ShouldEmitWrapper_FreeFunction_ReturnsTrue()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Dummy");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var method = CreateFreeFunction("globalHelper", moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_FreeFunction_NoAsyncLibrary_ReturnsFalse()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Dummy");
+        // AsyncLibraryName is null — not in xcframework mode
+
+        var method = CreateFreeFunction("globalHelper", moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_FreeFunction_GenericMethod_ReturnsFalse()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Dummy");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var method = CreateFreeFunction("globalHelper", moduleDecl);
+        method.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
     #endregion
 
     #region Symbol Name Tests
@@ -340,6 +380,13 @@ public class MethodWrapperEmitterTests
         var sym1 = MethodWrapperEmitter.GetMethodSymbolName("Mod", "Type", "method", "$s_mangled1");
         var sym2 = MethodWrapperEmitter.GetMethodSymbolName("Mod", "Type", "method", "$s_mangled2");
         Assert.NotEqual(sym1, sym2);
+    }
+
+    [Fact]
+    public void GetMethodSymbolName_FreeFunction_UsesFreeSegment()
+    {
+        var symbol = MethodWrapperEmitter.GetMethodSymbolName("TestModule", "Free", "globalHelper", "$s_mangled_free");
+        Assert.StartsWith("SBW_TestModule_Free_globalHelper_", symbol);
     }
 
     #endregion
@@ -645,6 +692,53 @@ public class MethodWrapperEmitterTests
         Assert.Contains("} catch {", output);
         // Should have sentinel return in catch block for class pointer return
         Assert.Contains("UnsafeMutableRawPointer(bitPattern: 1)!", output);
+    }
+
+    [Fact]
+    public void EmitSwiftMethodWrapper_FreeFunction_NoSelfParam()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Dummy");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var method = CreateFreeFunction("globalHelper", moduleDecl);
+        method.MangledName = "SBW_TestModule_Free_globalHelper_abc12345";
+        method.UsesCdeclMethodWrapper = true;
+        method.UsesWrapperLibrary = true;
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
+
+        var output = sw.ToString();
+        Assert.Contains("@_cdecl(\"SBW_TestModule_Free_globalHelper_abc12345\")", output);
+        Assert.DoesNotContain("self_", output);
+    }
+
+    [Fact]
+    public void EmitSwiftMethodWrapper_FreeFunction_CallExpression_NoTypePrefix()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Dummy");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var method = CreateFreeFunctionWithReturn("computeValue", new NamedTypeSpec("Swift.Int"), moduleDecl);
+        method.MangledName = "SBW_TestModule_Free_computeValue_abc12345";
+        method.UsesCdeclMethodWrapper = true;
+        method.UsesWrapperLibrary = true;
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
+
+        var output = sw.ToString();
+        // Free function call should NOT have a type prefix like "TestModule.MyType.computeValue"
+        Assert.DoesNotContain("TestModule.", output.Split("@_cdecl")[1]); // After @_cdecl line, no module prefix in call
+        Assert.Contains("computeValue()", output);
     }
 
     #endregion
@@ -1018,6 +1112,66 @@ public class MethodWrapperEmitterTests
     {
         return CreateTestEnvironmentWithExtraTypes(typeName,
             extraTypes.Select(t => (t.qualifiedName, t.flags, t.kind, (string?)null)).ToArray());
+    }
+
+    private static MethodDecl CreateFreeFunction(string name, ModuleDecl moduleDecl)
+    {
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s10TestModule_{name}",
+            MethodType = MethodType.Static,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    Name = "",
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+    }
+
+    private static MethodDecl CreateFreeFunctionWithReturn(string name, TypeSpec returnType, ModuleDecl moduleDecl)
+    {
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s10TestModule_{name}",
+            MethodType = MethodType.Static,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = returnType,
+                    Name = "",
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
     }
 
     #endregion

@@ -18,14 +18,18 @@ namespace BindingsGeneration
         private readonly StructDecl _structDecl;
         private readonly string _typeNameWithGenerics;
         private readonly string _constructorName;
+        private readonly SwiftWriter? _swiftWriter;
+        private readonly ModuleEmissionContext? _emissionCtx;
 
-        public ISwiftObjectMethodWriter(CSharpWriter csWriter, ITypeDatabase typeDatabase, ModuleDecl moduleDecl, StructDecl structDecl, string typeNameWithGenerics)
+        public ISwiftObjectMethodWriter(CSharpWriter csWriter, ITypeDatabase typeDatabase, ModuleDecl moduleDecl, StructDecl structDecl, string typeNameWithGenerics, SwiftWriter? swiftWriter = null, ModuleEmissionContext? emissionCtx = null)
         {
             _writer = csWriter;
             _typeDatabase = typeDatabase;
             _moduleDecl = moduleDecl;
             _structDecl = structDecl;
             _typeNameWithGenerics = typeNameWithGenerics;
+            _swiftWriter = swiftWriter;
+            _emissionCtx = emissionCtx;
             // Constructor name is the type name without generic parameters (e.g., "ContentTypeInfo<T>" → "ContentTypeInfo")
             var angleBracket = typeNameWithGenerics.IndexOf('<');
             _constructorName = angleBracket >= 0 ? typeNameWithGenerics.Substring(0, angleBracket) : typeNameWithGenerics;
@@ -90,8 +94,34 @@ namespace BindingsGeneration
                 };
                 pinvokeHelperContext.AddDeclaration(declaration);
             }
+            else if (_swiftWriter != null && _emissionCtx != null &&
+                     !string.IsNullOrEmpty(_typeDatabase.AsyncLibraryName))
+            {
+                // Xcframework mode: emit @_cdecl metadata wrapper
+                var moduleQualified = _structDecl.SwiftTypeName.ModuleQualifiedName;
+                var moduleName = _structDecl.SwiftTypeName.Module;
+                var symbol = MetadataWrapperEmitter.GetMetadataSymbolName(moduleName, moduleQualified);
+                MetadataWrapperEmitter.EmitIfNeeded(_swiftWriter, moduleName, moduleQualified, symbol, _emissionCtx);
+
+                _writer.WriteLine("static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();");
+                _writer.WriteLine();
+
+                foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
+                {
+                    LibraryPath = _typeDatabase.AsyncLibraryName!,
+                    EntryPoint = symbol,
+                    MethodName = "PInvoke_getMetadata",
+                    ReturnType = "TypeMetadata",
+                    ParametersString = "",
+                    Visibility = PInvokeVisibility.Internal,
+                    CallingConvention = PInvokeCallingConvention.Cdecl
+                }))
+                    _writer.WriteLine(line);
+                _writer.WriteLine();
+            }
             else
             {
+                // Manual mode: existing CallConvSwift path
                 _writer.WriteLine("static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();");
                 _writer.WriteLine();
 

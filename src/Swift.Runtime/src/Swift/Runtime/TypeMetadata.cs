@@ -7,7 +7,6 @@ using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Runtime.InteropServices.Swift;
 using System.Text;
 
 namespace Swift.Runtime;
@@ -148,12 +147,6 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
     private readonly IntPtr handle;
     public IntPtr Handle => handle;
 
-    /// <summary>
-    /// Detects whether we're running on the Mono runtime (simulator).
-    /// Under NativeAOT (device), this is false and direct CallConvSwift P/Invokes are safe.
-    /// </summary>
-    private static readonly bool _isMonoRuntime = Type.GetType("Mono.Runtime") != null;
-
     static TypeMetadata()
     {
         // TODO - add metadata for common built-in types like scalars and strings
@@ -173,6 +166,12 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
     {
         this.handle = handle;
     }
+
+    /// <summary>
+    /// Creates a TypeMetadata from a raw handle pointer.
+    /// Used by generated bindings that obtain metadata via @_cdecl wrappers returning IntPtr.
+    /// </summary>
+    public static TypeMetadata FromHandle(IntPtr handle) => new TypeMetadata(handle);
 
     /// <summary>
     /// Returns true if and only if the TypeMetadata is valid.
@@ -369,7 +368,7 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
         {
             var numProtocols = GetProtocolCountFromExistentialType(type);
 
-            // Use SwiftBindingsRuntime wrapper (avoids Mono JIT crash entirely)
+            // Use SwiftBindingsRuntime wrapper (avoids CallConvSwift entirely)
             if (TryGetExistentialTypeMetadataViaWrapper(numProtocols, out var existentialMetadata))
             {
                 cache.GetOrAdd(type, _ => existentialMetadata);
@@ -377,25 +376,7 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
                 return true;
             }
 
-            // Wrapper unavailable. Under NativeAOT (not Mono), fall back to direct
-            // CallConvSwift P/Invoke — no JIT assertion risk. Only safe for numProtocols == 0
-            // (the 'Any' existential); numProtocols > 0 requires protocol descriptor pointers.
-            if (!_isMonoRuntime && numProtocols == 0)
-            {
-                var directMetadata = swift_getExistentialTypeMetadata(
-                    TypeMetadataRequest.Complete,
-                    IntPtr.Zero,
-                    0,
-                    IntPtr.Zero);
-                if (directMetadata.IsValid)
-                {
-                    cache.GetOrAdd(type, _ => directMetadata);
-                    result = directMetadata;
-                    return true;
-                }
-            }
-
-            // No fallback available.
+            // Wrapper unavailable or returned zero.
             throw new SwiftRuntimeException(
                 numProtocols > 0
                     ? $"SwiftArray<{type.Name}> is not yet supported. " +
@@ -445,19 +426,6 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
         if (TryGetExistentialTypeMetadataViaWrapper(numProtocols, out var result))
             return result;
 
-        // Under NativeAOT (not Mono), fall back to direct CallConvSwift P/Invoke.
-        // Only safe for numProtocols == 0 (the 'Any' existential).
-        if (!_isMonoRuntime && numProtocols == 0)
-        {
-            var directResult = swift_getExistentialTypeMetadata(
-                TypeMetadataRequest.Complete,
-                IntPtr.Zero,
-                0,
-                IntPtr.Zero);
-            if (directResult.IsValid)
-                return directResult;
-        }
-
         throw new SwiftRuntimeException(
             numProtocols > 0
                 ? $"Existential containers with {numProtocols} protocol(s) require protocol descriptor " +
@@ -465,14 +433,6 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
                 : "Cannot get existential type metadata. " +
                   "Ensure libSwiftBindingsRuntime.dylib is included in your application bundle.");
     }
-
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [DllImport(KnownLibraries.SwiftCore, EntryPoint = "swift_getExistentialTypeMetadata")]
-    private static extern TypeMetadata swift_getExistentialTypeMetadata(
-        TypeMetadataRequest request,
-        IntPtr superclassConstraint,
-        nuint numProtocols,
-        IntPtr protocols);
 
     /// <summary>
     /// P/Invoke declarations for the SwiftBindingsRuntime library.
