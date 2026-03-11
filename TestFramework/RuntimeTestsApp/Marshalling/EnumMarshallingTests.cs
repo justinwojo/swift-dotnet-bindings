@@ -267,11 +267,12 @@ public class EnumMarshallingTests : TestBase
     public void TestOrderContainerCreation()
     {
         // CreateOrder takes orderId + statusRaw strings, returns OrderContainer?
-        var order = TestLibFunctions.CreateOrder("ORD-001", "pending");
+        // Swift raw value is "order_pending" (not the case name "pending")
+        var order = TestLibFunctions.CreateOrder("ORD-001", "order_pending");
         AssertNotNull(order, "Order created");
 
         var statusRaw = TestLibFunctions.GetOrderStatusRaw(order!);
-        AssertEqual("pending", statusRaw, "Order status raw value");
+        AssertEqual("order_pending", statusRaw, "Order status raw value");
 
         TestLogger.Info("OrderContainer creation passed");
     }
@@ -279,17 +280,21 @@ public class EnumMarshallingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestOrderStatusFromRawValue()
     {
-        // Test nested OrderContainer.Status enum
-        var pending = OrderContainer.Status.FromRawValue("pending");
-        AssertNotNull(pending, "OrderContainer.Status pending not null");
-        AssertEqual("pending", pending!.RawValue.ToString(), "pending round-trip");
+        // Test nested OrderContainer.Status enum — raw values are "order_*", not case names
+        var pending = OrderContainer.Status.FromRawValue("order_pending");
+        AssertNotNull(pending, "OrderContainer.Status order_pending not null");
+        AssertEqual("order_pending", pending!.RawValue.ToString(), "order_pending round-trip");
 
-        var shipped = OrderContainer.Status.FromRawValue("shipped");
-        AssertNotNull(shipped, "OrderContainer.Status shipped not null");
-        AssertEqual("shipped", shipped!.RawValue.ToString(), "shipped round-trip");
+        var shipped = OrderContainer.Status.FromRawValue("order_shipped");
+        AssertNotNull(shipped, "OrderContainer.Status order_shipped not null");
+        AssertEqual("order_shipped", shipped!.RawValue.ToString(), "order_shipped round-trip");
 
         var invalid = OrderContainer.Status.FromRawValue("bogus");
         AssertNull(invalid, "Invalid order status is null");
+
+        // Case name (not raw value) should also return null
+        var caseName = OrderContainer.Status.FromRawValue("pending");
+        AssertNull(caseName, "Case name 'pending' is not a valid raw value");
 
         TestLogger.Info("OrderContainer.Status FromRawValue passed");
     }
@@ -297,7 +302,8 @@ public class EnumMarshallingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestOrderStatusAllCases()
     {
-        var cases = new[] { "pending", "processing", "shipped", "delivered", "cancelled" };
+        // Swift raw values are "order_*" prefixed, not case names
+        var cases = new[] { "order_pending", "order_processing", "order_shipped", "order_delivered", "order_cancelled" };
         foreach (var rawValue in cases)
         {
             var status = OrderContainer.Status.FromRawValue(rawValue);
@@ -310,11 +316,12 @@ public class EnumMarshallingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestPaymentContainerCreation()
     {
-        var payment = TestLibFunctions.CreatePayment("PAY-001", "authorized");
+        // Swift raw value is "payment_authorized" (not case name "authorized")
+        var payment = TestLibFunctions.CreatePayment("PAY-001", "payment_authorized");
         AssertNotNull(payment, "Payment created");
 
         var statusRaw = TestLibFunctions.GetPaymentStatusRaw(payment!);
-        AssertEqual("authorized", statusRaw, "Payment status raw value");
+        AssertEqual("payment_authorized", statusRaw, "Payment status raw value");
 
         TestLogger.Info("PaymentContainer creation passed");
     }
@@ -322,7 +329,8 @@ public class EnumMarshallingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestPaymentStatusFromRawValue()
     {
-        var cases = new[] { "pending", "authorized", "captured", "refunded", "failed" };
+        // Swift raw values are "payment_*" prefixed, not case names
+        var cases = new[] { "payment_pending", "payment_authorized", "payment_captured", "payment_refunded", "payment_failed" };
         foreach (var rawValue in cases)
         {
             var status = PaymentContainer.Status.FromRawValue(rawValue);

@@ -206,6 +206,74 @@ public class PInvokeHelperEmitterTests
         Assert.Single(context.Declarations);
     }
 
+    [Fact]
+    public void AddDeclaration_PerEnumSuffixedNames_NotDeduped()
+    {
+        // Verifies that per-enum suffixed method names (e.g., PInvoke_CaseByIndex_StatusA
+        // vs PInvoke_CaseByIndex_StatusB) are NOT deduped when multiple string enums
+        // share the same PInvokeHelperContext (nested in same generic parent).
+        var context = new PInvokeHelperContext("GenericParent", new[] { "T0" });
+        var declA = new PInvokeDeclaration
+        {
+            LibraryPath = "/tmp/wrapper.dylib",
+            EntryPoint = "SBW_TestModule_StatusA_CaseByIndex",
+            MethodName = "PInvoke_CaseByIndex_TestModule_StatusA",
+            ReturnType = "IntPtr",
+            ParametersString = "nint index",
+            IsAsync = false
+        };
+        var declB = new PInvokeDeclaration
+        {
+            LibraryPath = "/tmp/wrapper.dylib",
+            EntryPoint = "SBW_TestModule_StatusB_CaseByIndex",
+            MethodName = "PInvoke_CaseByIndex_TestModule_StatusB",
+            ReturnType = "IntPtr",
+            ParametersString = "nint index",
+            IsAsync = false
+        };
+
+        context.AddDeclaration(declA);
+        context.AddDeclaration(declB);
+
+        Assert.Equal(2, context.Declarations.Count);
+        Assert.Equal("SBW_TestModule_StatusA_CaseByIndex", context.Declarations[0].EntryPoint);
+        Assert.Equal("SBW_TestModule_StatusB_CaseByIndex", context.Declarations[1].EntryPoint);
+    }
+
+    [Fact]
+    public void AddDeclaration_SameLeafNameDifferentPaths_NotDeduped()
+    {
+        // Verifies that same-named enums under different nested paths
+        // (e.g., Outer.Foo.Status vs Outer.Bar.Status) get unique method names
+        // via module-qualified suffix and are NOT deduped.
+        var context = new PInvokeHelperContext("GenericParent", new[] { "T0" });
+        var declFoo = new PInvokeDeclaration
+        {
+            LibraryPath = "/tmp/wrapper.dylib",
+            EntryPoint = "SBW_Mod_Outer_Foo_Status_CaseByIndex",
+            MethodName = "PInvoke_CaseByIndex_Mod_Outer_Foo_Status",
+            ReturnType = "IntPtr",
+            ParametersString = "nint index",
+            IsAsync = false
+        };
+        var declBar = new PInvokeDeclaration
+        {
+            LibraryPath = "/tmp/wrapper.dylib",
+            EntryPoint = "SBW_Mod_Outer_Bar_Status_CaseByIndex",
+            MethodName = "PInvoke_CaseByIndex_Mod_Outer_Bar_Status",
+            ReturnType = "IntPtr",
+            ParametersString = "nint index",
+            IsAsync = false
+        };
+
+        context.AddDeclaration(declFoo);
+        context.AddDeclaration(declBar);
+
+        Assert.Equal(2, context.Declarations.Count);
+        Assert.Equal("SBW_Mod_Outer_Foo_Status_CaseByIndex", context.Declarations[0].EntryPoint);
+        Assert.Equal("SBW_Mod_Outer_Bar_Status_CaseByIndex", context.Declarations[1].EntryPoint);
+    }
+
     #endregion
 
     #region EmitHelperClass Tests

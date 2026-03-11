@@ -20,6 +20,13 @@ namespace BindingsGeneration
             var libPath = typeDatabase.GetLibraryPath(moduleDecl.Name);
             var wrapperLibPath = typeDatabase.AsyncLibraryName ?? libPath;
             var isStringRawType = rawTypeName == "String";
+            // Per-enum suffix for helper P/Invoke method names to avoid dedup collisions
+            // when multiple enums share a PInvokeHelperContext (nested in same generic parent).
+            // Uses module-qualified name (e.g., "Mod_Outer_Foo_Status") so same-named enums
+            // under different nested paths (Outer.Foo.Status vs Outer.Bar.Status) don't collide.
+            var enumPInvokeSuffix = pinvokeHelperContext != null
+                ? $"_{enumDecl.SwiftTypeName.ModuleQualifiedName.Replace(".", "_")}"
+                : "";
 
             // Map Swift raw type to C# type
             var csharpRawType = rawTypeName switch
@@ -59,13 +66,16 @@ namespace BindingsGeneration
 
             // For String raw types, emit Swift wrapper and C# marshalling infrastructure
             string? wrapperSymbol = null;
+            string? caseByIndexSymbol = null;
             if (isStringRawType)
             {
                 // Use full module-qualified name to avoid collisions for same-named nested enums
                 // e.g., BlinkID.Foo.ErrorType and BlinkID.Bar.ErrorType get unique symbols
                 var sanitizedName = enumDecl.SwiftTypeName.ModuleQualifiedName.Replace(".", "_");
                 wrapperSymbol = $"SBW_{sanitizedName}_InitWithRawValue";
+                caseByIndexSymbol = $"SBW_{sanitizedName}_CaseByIndex";
                 EmitStringRawValueSwiftWrapper(swiftWriter, enumDecl, moduleDecl, wrapperSymbol, ctx);
+                EmitCaseByIndexSwiftWrapper(swiftWriter, enumDecl, simpleCases, caseByIndexSymbol, ctx);
             }
 
             // Emit FromRawValue method - different implementations for frozen vs non-frozen enums
@@ -117,7 +127,7 @@ namespace BindingsGeneration
                     csWriter.WriteLine("{");
                     csWriter.Indent++;
                     var rawInitCall = pinvokeHelperContext != null
-                        ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_InitWithRawValue(rawValue, {string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList())})"
+                        ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_InitWithRawValue{enumPInvokeSuffix}(rawValue, {string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList())})"
                         : "PInvoke_InitWithRawValue(rawValue)";
                     csWriter.WriteLine($"IntPtr resultPtr = {rawInitCall};");
                     csWriter.WriteLine("if (resultPtr == IntPtr.Zero)");
@@ -140,7 +150,7 @@ namespace BindingsGeneration
                         {
                             LibraryPath = libPath,
                             EntryPoint = initRawValueMethod.MangledName,
-                            MethodName = "PInvoke_InitWithRawValue",
+                            MethodName = $"PInvoke_InitWithRawValue{enumPInvokeSuffix}",
                             ReturnType = "IntPtr",
                             ParametersString = $"{csharpRawType} rawValue",
                             IsAsync = false,
@@ -217,7 +227,7 @@ namespace BindingsGeneration
                     // Blittable raw type: direct P/Invoke
                     csWriter.WriteLine("var swiftIndirectResult = new SwiftIndirectResult(resultBuffer);");
                     var rawInitIndirectCall = pinvokeHelperContext != null
-                        ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_InitWithRawValue(swiftIndirectResult, rawValue, {string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList())})"
+                        ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_InitWithRawValue{enumPInvokeSuffix}(swiftIndirectResult, rawValue, {string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList())})"
                         : "PInvoke_InitWithRawValue(swiftIndirectResult, rawValue)";
                     csWriter.WriteLine($"{rawInitIndirectCall};");
                 }
@@ -275,7 +285,7 @@ namespace BindingsGeneration
                     {
                         LibraryPath = libPath,
                         EntryPoint = initRawValueMethod.MangledName,
-                        MethodName = "PInvoke_InitWithRawValue",
+                        MethodName = $"PInvoke_InitWithRawValue{enumPInvokeSuffix}",
                         ReturnType = "void",
                         ParametersString = $"SwiftIndirectResult result, {csharpRawType} rawValue",
                         IsAsync = false,
@@ -323,6 +333,30 @@ namespace BindingsGeneration
                 }
             }
 
+            // For string enums with a wrapper library, emit CaseByIndex P/Invoke
+            // (allows constructing cases by index without knowing raw values)
+            if (isStringRawType && caseByIndexSymbol != null)
+            {
+                if (pinvokeHelperContext != null)
+                {
+                    pinvokeHelperContext.AddDeclaration(new PInvokeDeclaration
+                    {
+                        LibraryPath = wrapperLibPath,
+                        EntryPoint = caseByIndexSymbol,
+                        MethodName = $"PInvoke_CaseByIndex{enumPInvokeSuffix}",
+                        ReturnType = "IntPtr",
+                        ParametersString = "nint index",
+                        IsAsync = false
+                    });
+                }
+                else
+                {
+                    csWriter.WriteLine($"[LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{caseByIndexSymbol}\")]");
+                    csWriter.WriteLine("private static partial IntPtr PInvoke_CaseByIndex(nint index);");
+                    csWriter.WriteLine();
+                }
+            }
+
             // Emit static properties for each simple case
             // Simple cases use sequential raw values starting from 0 (Swift default behavior)
             for (int i = 0; i < simpleCases.Count; i++)
@@ -333,20 +367,61 @@ namespace BindingsGeneration
                     NameProvider.GetCaseName(caseName, caseNameMap), propertyRenames);
                 var fieldName = caseName;
 
-                // Determine the raw value - for Int-based enums, Swift uses sequential values starting at 0
-                // For String-based enums, the raw value is the case name
-                string rawValueLiteral;
-                if (csharpRawType == "string")
+                // For string enums with CaseByIndex wrapper: construct cases by index
+                // This avoids the ABI JSON limitation where actual raw values are unknown.
+                // FromRawValue(caseName) fails when the raw value != case name (e.g., case ok = "OK").
+                if (isStringRawType && caseByIndexSymbol != null)
                 {
-                    rawValueLiteral = $"\"{caseName}\"";
-                }
-                else
-                {
-                    rawValueLiteral = i.ToString();
+                    var caseByIndexCall = pinvokeHelperContext != null
+                        ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_CaseByIndex{enumPInvokeSuffix}({i})"
+                        : $"PInvoke_CaseByIndex({i})";
+
+                    if (canCacheCases)
+                    {
+                        csWriter.WriteLine($"private static readonly Lazy<{enumTypeName}> _lazy_{fieldName} = new(() =>");
+                        csWriter.WriteLine("{");
+                        csWriter.Indent++;
+                        csWriter.WriteLine($"IntPtr ptr = {caseByIndexCall};");
+                        csWriter.WriteLine($"var result = new {enumTypeName}();");
+                        csWriter.WriteLine($"result._payload = new SwiftSafeHandle<{enumTypeName}>(ptr);");
+                        csWriter.WriteLine("result._isCachedSingleton = true;");
+                        csWriter.WriteLine("return result;");
+                        csWriter.Indent--;
+                        csWriter.WriteLine("});");
+
+                        csWriter.WriteLine("/// <summary>");
+                        csWriter.WriteLine($"/// Gets the '{caseName}' case of {enumTypeName}.");
+                        csWriter.WriteLine("/// </summary>");
+                        csWriter.WriteLine("/// <remarks>Cached singleton instance — does not require disposal.</remarks>");
+                        csWriter.WriteLine($"public static {enumTypeName} {capitalizedName} => _lazy_{fieldName}.Value;");
+                        csWriter.WriteLine();
+                    }
+                    else
+                    {
+                        csWriter.WriteLine("/// <summary>");
+                        csWriter.WriteLine($"/// Gets the '{caseName}' case of {enumTypeName}.");
+                        csWriter.WriteLine("/// </summary>");
+                        csWriter.WriteLine($"public static {enumTypeName} {capitalizedName}");
+                        csWriter.WriteLine("{");
+                        csWriter.Indent++;
+                        csWriter.WriteLine("get");
+                        csWriter.WriteLine("{");
+                        csWriter.Indent++;
+                        csWriter.WriteLine($"IntPtr ptr = {caseByIndexCall};");
+                        csWriter.WriteLine($"var result = new {enumTypeName}();");
+                        csWriter.WriteLine($"result._payload = new SwiftSafeHandle<{enumTypeName}>(ptr);");
+                        csWriter.WriteLine("return result;");
+                        csWriter.Indent--;
+                        csWriter.WriteLine("}");
+                        csWriter.Indent--;
+                        csWriter.WriteLine("}");
+                        csWriter.WriteLine();
+                    }
+                    continue;
                 }
 
-                // Escape quotes in rawValueLiteral for the error message string
-                var escapedRawValue = rawValueLiteral.Replace("\"", "\\\"");
+                // Non-string enums: use FromRawValue with sequential integer raw values
+                string rawValueLiteral = i.ToString();
 
                 if (canCacheCases)
                 {
@@ -355,7 +430,7 @@ namespace BindingsGeneration
                     csWriter.WriteLine("{");
                     csWriter.Indent++;
                     csWriter.WriteLine($"var result = FromRawValue({rawValueLiteral})");
-                    csWriter.WriteLine($"    ?? throw new InvalidOperationException(\"Failed to create {enumTypeName}.{capitalizedName} from raw value {escapedRawValue}\");");
+                    csWriter.WriteLine($"    ?? throw new InvalidOperationException(\"Failed to create {enumTypeName}.{capitalizedName} from raw value {rawValueLiteral}\");");
                     csWriter.WriteLine("result._isCachedSingleton = true;");
                     csWriter.WriteLine("return result;");
                     csWriter.Indent--;
@@ -385,7 +460,7 @@ namespace BindingsGeneration
                     csWriter.WriteLine("if (result == null)");
                     csWriter.WriteLine("{");
                     csWriter.Indent++;
-                    csWriter.WriteLine($"throw new InvalidOperationException(\"Failed to create {enumTypeName}.{capitalizedName} from raw value {escapedRawValue}\");");
+                    csWriter.WriteLine($"throw new InvalidOperationException(\"Failed to create {enumTypeName}.{capitalizedName} from raw value {rawValueLiteral}\");");
                     csWriter.Indent--;
                     csWriter.WriteLine("}");
                     csWriter.WriteLine("return result;");
@@ -472,6 +547,39 @@ namespace BindingsGeneration
 
                     """);
             }
+        }
+
+        /// <summary>
+        /// Emits a Swift wrapper that constructs a String enum case by its index.
+        /// This avoids the ABI JSON limitation where actual raw values are unknown —
+        /// cases are constructed directly (e.g., .ok, .notFound) rather than through init(rawValue:).
+        /// </summary>
+        private void EmitCaseByIndexSwiftWrapper(SwiftWriter swiftWriter, EnumDecl enumDecl, List<EnumCaseDecl> simpleCases, string caseByIndexSymbol, ModuleEmissionContext? ctx = null)
+        {
+            ctx ??= ModuleEmissionContext.Default;
+            if (!ctx.TryAddEnumRawRepWrapperSymbol(caseByIndexSymbol))
+                return;
+
+            var enumFullName = enumDecl.SwiftTypeName.ModuleQualifiedName;
+
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"@_silgen_name(\"{caseByIndexSymbol}\")");
+            sb.AppendLine($"public func {caseByIndexSymbol}(_ index: Int) -> UnsafeMutableRawPointer {{");
+            sb.AppendLine($"    let value: {enumFullName}");
+            sb.AppendLine("    switch index {");
+            for (int i = 0; i < simpleCases.Count; i++)
+            {
+                sb.AppendLine($"    case {i}: value = .{simpleCases[i].Name}");
+            }
+            sb.AppendLine($"    default: fatalError(\"Invalid case index \\(index) for {enumFullName}\")");
+            sb.AppendLine("    }");
+            sb.AppendLine($"    let ptr = UnsafeMutablePointer<{enumFullName}>.allocate(capacity: 1)");
+            sb.AppendLine("    ptr.initialize(to: value)");
+            sb.AppendLine("    return UnsafeMutableRawPointer(ptr)");
+            sb.AppendLine("}");
+
+            swiftWriter.WriteLines(sb.ToString());
+            swiftWriter.WriteLine();
         }
 
         // Utf8Slice struct is now shared at module level (emitted by ModuleHandler).

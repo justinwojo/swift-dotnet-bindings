@@ -67,6 +67,12 @@ public static class ConstructorWrapperEmitter
         if (HasNonCopyableStructParameter(env))
             return false;
 
+        // Skip constructors with nested frozen struct parameters.
+        // @_cdecl can't represent nested Swift types (e.g. NestedOuter.Inner) in C ABI.
+        // The Swift compiler rejects these with: "type of the parameter cannot be represented in Objective-C".
+        if (HasNestedFrozenStructParameter(env))
+            return false;
+
         return true;
     }
 
@@ -130,6 +136,43 @@ public static class ConstructorWrapperEmitter
                 typeRecord.Flags.HasFlag(TypeRecordFlags.NonCopyable))
             {
                 return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Checks whether any constructor parameter is a nested frozen struct type.
+    /// @_cdecl can't represent nested Swift types (e.g. NestedOuter.Inner) in C ABI —
+    /// the Swift compiler rejects with "type of the parameter cannot be represented in Objective-C".
+    /// Non-frozen nested structs are fine because they're passed as UnsafeRawPointer.
+    /// </summary>
+    private static bool HasNestedFrozenStructParameter(MethodEnvironment env)
+    {
+        foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
+        {
+            if (arg.SwiftTypeSpec is not NamedTypeSpec namedSpec)
+                continue;
+
+            if (!env.TypeDatabase.TryGetTypeRecord(namedSpec, out var typeRecord))
+                continue;
+
+            if (typeRecord.Kind != TypeRecordKind.Struct)
+                continue;
+
+            if (!MarshallingHelpers.IsTypeFrozen(typeRecord))
+                continue;
+
+            // Nested type: the name after stripping the module prefix still contains a dot.
+            // e.g. "ModuleName.NestedOuter.Inner" → "NestedOuter.Inner" (has dot = nested)
+            // vs   "ModuleName.Point" → "Point" (no dot = top-level)
+            var name = namedSpec.Name;
+            var dotIndex = name.IndexOf('.');
+            if (dotIndex >= 0)
+            {
+                var afterModule = name.Substring(dotIndex + 1);
+                if (afterModule.Contains('.'))
+                    return true;
             }
         }
         return false;
