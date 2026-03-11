@@ -228,10 +228,19 @@ namespace BindingsGeneration
         public bool UsesCdeclPropertyWrapper { get; set; } = false;
 
         /// <summary>
-        /// Computed property: true if any @_cdecl wrapper is active (constructor or property).
+        /// When true, this method uses a @_cdecl Swift wrapper with C calling convention
+        /// instead of CallConvSwift. Routes method P/Invokes through CallingConvention.Cdecl
+        /// to avoid NativeAOT/ARM64 ABI mismatches with non-blittable params (NSUrl, etc.)
+        /// and remaining Mono JIT crashes on device.
+        /// Set by MethodWrapperEmitter before SignatureHandler construction.
+        /// </summary>
+        public bool UsesCdeclMethodWrapper { get; set; } = false;
+
+        /// <summary>
+        /// Computed property: true if any @_cdecl wrapper is active (constructor, property, or method).
         /// Used in PInvokeEmitter and MethodMarshalPlanBuilder to route through Cdecl calling convention.
         /// </summary>
-        public bool UsesCdeclWrapper => UsesCdeclConstructorWrapper || UsesCdeclPropertyWrapper;
+        public bool UsesCdeclWrapper => UsesCdeclConstructorWrapper || UsesCdeclPropertyWrapper || UsesCdeclMethodWrapper;
     }
 
     /// <summary>

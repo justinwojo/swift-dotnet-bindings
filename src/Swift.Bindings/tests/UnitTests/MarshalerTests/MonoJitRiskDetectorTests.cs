@@ -602,10 +602,12 @@ public class MonoJitRiskDetectorTests
     }
 
     [Fact]
-    public void EmitMethod_RiskySignature_DllImportUsesModuleLib_WhenAsyncLibrarySet()
+    public void EmitMethod_RiskySignature_DllImportUsesWrapperLib_WhenAsyncLibrarySet()
     {
-        // Even with AsyncLibraryName set, risk detection alone must NOT reroute the DllImport.
-        // Only UsesWrapperLibrary (set by wrapper generators) should trigger rerouting.
+        // With Phase 2 @_cdecl method wrappers, eligible methods (non-async, non-generic,
+        // non-closure, non-existential) with AsyncLibraryName set are now routed through
+        // the wrapper library via MethodWrapperEmitter. The @_cdecl wrapper IS a real
+        // wrapper generator that sets UsesWrapperLibrary=true.
         var typeDatabase = CreateTypeDatabase();
         typeDatabase.AsyncLibraryName = "/tmp/AsyncWrapper.dylib";
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -619,13 +621,13 @@ public class MonoJitRiskDetectorTests
 
         MonoJitRiskDetector.ApplyRiskDetection(method);
         Assert.True(method.DetectedJitRisks.HasFlag(MonoJitRiskDetector.MonoJitRisk.SwiftStringReturn));
+        // Before MethodHandler.Emit, UsesWrapperLibrary is false (risk detection alone doesn't set it)
         Assert.False(method.UsesWrapperLibrary);
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        // LibraryImport must use module library — NOT the async wrapper lib
-        Assert.Contains("[LibraryImport(\"/tmp/TestModule.dylib\"", csOutput);
-        Assert.DoesNotContain("AsyncWrapper", csOutput);
+        // After emission, @_cdecl method wrapper routes through wrapper library
+        Assert.Contains("[LibraryImport(\"/tmp/AsyncWrapper.dylib\"", csOutput);
     }
 
     [Fact]

@@ -92,7 +92,8 @@ namespace BindingsGeneration
                     // Standalone closure Cdecl wrappers need it only for instance methods
                     // (static methods have no self parameter to pin).
                     _requiresFixedBlock = MarshallingHelpers.MethodIsSetter(_env.MethodDecl)
-                        || (_env.MethodDecl.UsesFreeFunctionWrapper && _requiresSwiftSelf);
+                        || (_env.MethodDecl.UsesFreeFunctionWrapper && _requiresSwiftSelf)
+                        || (_env.MethodDecl.UsesCdeclMethodWrapper && _requiresSwiftSelf);
                 }
             }
 

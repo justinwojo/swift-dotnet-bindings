@@ -744,6 +744,24 @@ namespace BindingsGeneration
                 methodEnv.MethodDecl.MangledName = cdeclSymbol;
             }
 
+            // Set @_cdecl method wrapper flags BEFORE SignatureHandler creation.
+            // Must come after constructor wrapper check (mutually exclusive).
+            if (!methodEnv.MethodDecl.IsConstructor &&
+                !methodEnv.MethodDecl.UsesCdeclPropertyWrapper &&
+                !methodEnv.MethodDecl.UsesCdeclConstructorWrapper &&
+                MethodWrapperEmitter.ShouldEmitWrapper(methodEnv))
+            {
+                var parentType_ = methodEnv.ParentDecl as TypeDecl;
+                var cdeclSymbol = MethodWrapperEmitter.GetMethodSymbolName(
+                    parentType_!.SwiftTypeName.Module,
+                    parentType_.Name,
+                    methodEnv.MethodDecl.Name,
+                    methodEnv.MethodDecl.MangledName);
+                methodEnv.MethodDecl.UsesCdeclMethodWrapper = true;
+                methodEnv.MethodDecl.UsesWrapperLibrary = true;
+                methodEnv.MethodDecl.MangledName = cdeclSymbol;
+            }
+
             var signatureHandler = new SignatureHandler(methodEnv);
 
             if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)
@@ -827,6 +845,33 @@ namespace BindingsGeneration
             {
                 ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(
                     swiftWriter, methodEnv, context.GetEmissionContext());
+            }
+
+            // Emit Swift @_cdecl method wrapper AFTER signature validation, BEFORE WrapperEmitter.
+            if (methodEnv.MethodDecl.UsesCdeclMethodWrapper)
+            {
+                MethodWrapperEmitter.EmitSwiftMethodWrapper(
+                    swiftWriter, methodEnv, context.GetEmissionContext());
+            }
+
+            // @_cdecl method wrapper: emit SBW_Free P/Invoke for string-returning methods (once per type)
+            if (methodEnv.MethodDecl.UsesCdeclMethodWrapper &&
+                WitnessDispatchEmitter.IsStringType(methodEnv.MethodDecl.CSSignature.First().SwiftTypeSpec))
+            {
+                var parentTypeDeclForFree = methodEnv.ParentDecl as TypeDecl;
+                var typeKey = parentTypeDeclForFree?.SwiftTypeName?.ModuleQualifiedName
+                    ?? methodEnv.MethodDecl.ModuleDecl?.Name ?? "";
+                if (!Utf8SliceEmitter.HasFreePInvokeForType(typeKey, context.GetEmissionContext()))
+                {
+                    Utf8SliceEmitter.MarkFreePInvokeEmittedForType(typeKey, context.GetEmissionContext());
+                    var moduleName = parentTypeDeclForFree?.SwiftTypeName?.Module ?? "";
+                    var wrapperLibPath = methodEnv.TypeDatabase.AsyncLibraryName
+                        ?? methodEnv.TypeDatabase.GetLibraryPath(moduleName);
+                    var freeSymbol = Utf8SliceEmitter.GetFreeSymbolName(moduleName);
+                    csWriter.WriteLine($"[LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{freeSymbol}\")]");
+                    csWriter.WriteLine("private static partial void SBW_Free(IntPtr ptr);");
+                    csWriter.WriteLine();
+                }
             }
 
             var wrapperEmitter = new WrapperEmitter(methodEnv, signatureHandler, fallbackInfo, context.GetEmissionContext());

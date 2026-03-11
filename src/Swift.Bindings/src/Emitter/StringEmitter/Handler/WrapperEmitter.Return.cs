@@ -77,6 +77,27 @@ namespace BindingsGeneration
         {
             var returnArg = _env.MethodDecl.CSSignature.First();
 
+            // @_cdecl method wrapper: String returns SBW_Utf8Slice via resultPtr.
+            // Unlike property wrappers (which return Utf8Slice for PropertyHandler to decode),
+            // methods decode inline because there's no outer getter layer.
+            if (_env.MethodDecl.UsesCdeclMethodWrapper &&
+                returnArg.SwiftTypeSpec is NamedTypeSpec cdeclMethStrNts && cdeclMethStrNts.Name == "Swift.String")
+            {
+                csWriter.WriteLines("""
+                    unsafe {
+                        var __slice = *(Utf8Slice*)resultPtr;
+                        if (__slice.Len == 0) return string.Empty;
+                        try {
+                            return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(
+                                __slice.Ptr, (int)__slice.Len) ?? string.Empty;
+                        } finally {
+                            SBW_Free(__slice.Ptr);
+                        }
+                    }
+                    """);
+                return;
+            }
+
             // @_cdecl property wrapper: String returns SBW_Utf8Slice via resultPtr (out-parameter)
             // because @_cdecl can't return Swift structs. Read the Utf8Slice from the result buffer.
             if (_env.MethodDecl.UsesCdeclPropertyWrapper &&
@@ -401,12 +422,20 @@ namespace BindingsGeneration
             var strategy = DetermineReturnStrategy();
             string resultName = strategy switch
             {
-                ReturnStrategy.IndirectResult => "new IntPtr(swiftIndirectResult.Value)",
+                ReturnStrategy.IndirectResult => _env.MethodDecl.UsesCdeclWrapper ? "resultPtr" : "new IntPtr(swiftIndirectResult.Value)",
                 ReturnStrategy.OutBuffer => "_optRetPtr",
                 _ => "result"
             };
 
             var plan = projection.GetReturnPlan(resultName, strategy);
+
+            // @_cdecl indirect result with PassThrough projection (e.g. BlittableProjection for frozen structs):
+            // PassThrough would emit "return resultPtr;" but resultPtr is IntPtr, not the return type.
+            // Fall through to the MarshalFromSwift<T> fallback at the IndirectResult handler below.
+            if (strategy == ReturnStrategy.IndirectResult && _env.MethodDecl.UsesCdeclWrapper &&
+                plan.SetupStatements.Count == 0 && plan.CleanupStatements.Count == 0 &&
+                plan.PInvokeExpression == resultName)
+                return false;
 
             // Wrap in unsafe block if plan needs it but method-level unsafe is not set
             if (plan.RequiresUnsafe && !_needsUnsafeBody)

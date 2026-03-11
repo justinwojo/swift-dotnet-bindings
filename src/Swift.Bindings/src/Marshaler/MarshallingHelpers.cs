@@ -101,9 +101,14 @@ namespace BindingsGeneration
             // Other types (classes, enums, non-frozen structs) are handled by the checks below.
             // Frozen structs are caught at the end of this method.
             // Setters return void — no indirect result needed.
-            if (env.MethodDecl.UsesCdeclPropertyWrapper && !MethodIsSetter(env.MethodDecl))
+            if ((env.MethodDecl.UsesCdeclPropertyWrapper || env.MethodDecl.UsesCdeclMethodWrapper) && !MethodIsSetter(env.MethodDecl))
             {
                 var returnTypeForCdecl = env.MethodDecl.CSSignature.First();
+
+                // Void returns never need indirect result
+                if (returnTypeForCdecl.SwiftTypeSpec.IsEmptyTuple)
+                    return false;
+
                 if (returnTypeForCdecl.SwiftTypeSpec is NamedTypeSpec nts && nts.Name == "Swift.String")
                     return true;
             }
@@ -158,10 +163,10 @@ namespace BindingsGeneration
 
             TypeRecord typeRecord = env.TypeDatabase.GetTypeRecordOrThrow(returnType.SwiftTypeSpec);
 
-            // @_cdecl property wrappers: NSString typedef structs (e.g., CALayerContentsGravity)
+            // @_cdecl property/method wrappers: NSString typedef structs (e.g., CALayerContentsGravity)
             // are registered as kind="class" in XML but are Swift structs wrapping NSString.
             // Unmanaged.passRetained() is invalid for these — must use indirect result.
-            if (env.MethodDecl.UsesCdeclPropertyWrapper &&
+            if ((env.MethodDecl.UsesCdeclPropertyWrapper || env.MethodDecl.UsesCdeclMethodWrapper) &&
                 !MethodIsSetter(env.MethodDecl) &&
                 IsObjCBridged(typeRecord) &&
                 returnType.SwiftTypeSpec is NamedTypeSpec nsTypedefSpec &&
@@ -181,11 +186,11 @@ namespace BindingsGeneration
 
             if (!IsTypeFrozen(typeRecord)) return true;
 
-            // @_cdecl property wrappers: frozen structs also need indirect result
+            // @_cdecl property/method wrappers: frozen structs also need indirect result
             // because @_cdecl can't return Swift structs (even @frozen ones).
             // Primitives (Int, Float, Bool, CGFloat) are C-compatible and return directly.
             // Setters return void — skip.
-            if (env.MethodDecl.UsesCdeclPropertyWrapper &&
+            if ((env.MethodDecl.UsesCdeclPropertyWrapper || env.MethodDecl.UsesCdeclMethodWrapper) &&
                 !MethodIsSetter(env.MethodDecl) &&
                 !ConstructorWrapperEmitter.IsCdeclPrimitive(returnType.SwiftTypeSpec))
                 return true;

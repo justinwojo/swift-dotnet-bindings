@@ -590,4 +590,178 @@ public class DefaultParameterOverloadEmitterTests
     }
 
     #endregion
+
+    #region @_cdecl Method Wrapper Inheritance
+
+    [Fact]
+    public void BuildOverloadDecl_SetsUsesWrapperLibrary_True()
+    {
+        // BuildOverloadDecl unconditionally sets UsesWrapperLibrary = true.
+        // This is expected — overloads always go through the wrapper library.
+        var method = CreateMethodWithArgs(
+            CreateArg("a", hasDefault: false),
+            CreateArg("b", hasDefault: true));
+        method.UsesWrapperLibrary = false;
+
+        var overload = DefaultParameterOverloadEmitter.BuildOverloadDecl(method, 1);
+
+        Assert.True(overload.UsesWrapperLibrary);
+    }
+
+    [Fact]
+    public void OverloadCdeclCheck_UsesOriginalMethod_NotOverload()
+    {
+        // The overload emitter should check the ORIGINAL method's UsesCdeclMethodWrapper
+        // flag, not the overload's. BuildOverloadDecl sets UsesWrapperLibrary=true on
+        // overloads, which would cause ShouldEmitWrapper to return false if called on
+        // the overload directly.
+        var method = CreateMethodWithArgs(
+            CreateArg("a", hasDefault: false),
+            CreateArg("b", hasDefault: true));
+        method.UsesCdeclMethodWrapper = true;
+
+        var overload = DefaultParameterOverloadEmitter.BuildOverloadDecl(method, 1);
+
+        // Overload has UsesWrapperLibrary=true, so ShouldEmitWrapper would reject it
+        Assert.True(overload.UsesWrapperLibrary);
+        Assert.False(overload.UsesCdeclMethodWrapper); // Not set yet (set by overload emitter)
+
+        // But original method has the flag — the overload emitter should check this
+        Assert.True(method.UsesCdeclMethodWrapper);
+    }
+
+    [Fact]
+    public void TryEmitOverloads_MethodWithCdecl_EmitsBothSilgenAndCdeclWrappers()
+    {
+        // Full integration: a class instance method with UsesCdeclMethodWrapper=true
+        // and a trailing default param should produce:
+        //   1. A @_silgen_name Swift wrapper (calls original method with fewer args)
+        //   2. A @_cdecl Swift wrapper on top (calls the @_silgen_name function)
+        //   3. C# P/Invoke routed through the @_cdecl symbol
+        // Build TypeDatabase with class type registered
+        var typeDb = new TypeDatabase();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDb.AddModuleDatabase(swiftModule);
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.FinalCounter"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "FinalCounter"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.FinalCounter"),
+                MetadataAccessor = "$s10TestModule12FinalCounterCMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Class
+            });
+        typeDb.AddModuleDatabase(testModule);
+
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var parentDecl = new ClassDecl
+        {
+            Name = "FinalCounter",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.FinalCounter"),
+            MangledName = "$s10TestModule12FinalCounterCN",
+            IsFinal = true,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Types.Add(parentDecl);
+
+        var method = new MethodDecl
+        {
+            Name = "add",
+            MangledName = "$s10TestModule12FinalCounterC3add6amount2bySi_SitF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                // Return: Swift.Int
+                new ArgumentDecl
+                {
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                },
+                CreateArg("amount", hasDefault: false),
+                CreateArg("by", hasDefault: true),
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public,
+            // Simulate that MethodHandler already set this flag on the primary method
+            UsesCdeclMethodWrapper = true,
+            UsesWrapperLibrary = true,
+        };
+        parentDecl.Methods.Add(method);
+
+        var emissionContext = new ModuleEmissionContext();
+        var csStringWriter = new StringWriter();
+        var swiftStringWriter = new StringWriter();
+        var csWriter = new CSharpWriter(csStringWriter);
+        var swiftWriter = new SwiftWriter(swiftStringWriter);
+        var env = new MethodEnvironment(method, typeDb);
+        var logger = NullLogger.Instance;
+
+        DefaultParameterOverloadEmitter.TryEmitOverloads(
+            csWriter, swiftWriter, env, logger, emissionContext);
+
+        var swiftOutput = swiftStringWriter.ToString();
+        var csOutput = csStringWriter.ToString();
+
+        // 1. Must have @_silgen_name wrapper (calls original Swift method with default)
+        Assert.Contains("@_silgen_name", swiftOutput);
+        Assert.Contains("_dbw_add_", swiftOutput);
+
+        // 2. Must have @_cdecl wrapper on top of the @_silgen_name function
+        Assert.Contains("@_cdecl", swiftOutput);
+        Assert.Contains("SBW_TestModule_FinalCounter_add_", swiftOutput);
+
+        // 3. The @_cdecl wrapper must call the @_silgen_name function (not the original method)
+        // The silgen function name follows the pattern _dbw_{methodName}_{hash}_{trimCount}
+        Assert.Matches(@"_dbw_add_\w+_1", swiftOutput);
+
+        // 4. C# output must have a P/Invoke with the @_cdecl symbol as entry point
+        Assert.Contains("SBW_TestModule_FinalCounter_add_", csOutput);
+        Assert.Contains("LibraryImport", csOutput);
+    }
+
+    #endregion
 }

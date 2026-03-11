@@ -204,8 +204,9 @@ internal class MethodMarshalPlanBuilder
         if (!_requiresSwiftSelf)
             return null;
 
-        // Async methods and standalone closure Cdecl wrappers pass self as explicit IntPtr parameter
-        if (_requiresSwiftAsync || _env.MethodDecl.UsesFreeFunctionWrapper)
+        // Async methods, standalone closure Cdecl wrappers, and @_cdecl method wrappers
+        // pass self as explicit IntPtr parameter — no SwiftSelf needed.
+        if (_requiresSwiftAsync || _env.MethodDecl.UsesFreeFunctionWrapper || _env.MethodDecl.UsesCdeclMethodWrapper)
             return null;
 
         // Frozen struct setters use a fixed block to get a pointer to 'this'

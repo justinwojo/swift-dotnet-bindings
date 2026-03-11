@@ -493,11 +493,11 @@ namespace BindingsGeneration
         /// </summary>
         public void HandleSwiftSelf()
         {
-            // Standalone closure Cdecl wrapper uses free-function Swift wrapper.
+            // Standalone closure Cdecl wrapper and @_cdecl method wrapper use free-function Swift wrapper.
             // Pass self as explicit IntPtr (same as async pattern).
             // Wrapper generator paths (ArraySlice, DefaultParam) keep extension methods
             // with implicit self via SwiftSelf — they set HasClosureCdeclWrapper but NOT UsesFreeFunctionWrapper.
-            if (_env.MethodDecl.UsesFreeFunctionWrapper && MarshallingHelpers.MethodRequiresSwiftSelf(_env))
+            if ((_env.MethodDecl.UsesFreeFunctionWrapper || _env.MethodDecl.UsesCdeclMethodWrapper) && MarshallingHelpers.MethodRequiresSwiftSelf(_env))
             {
                 if (_env.ParentDecl is ClassDecl classParentFree && classParentFree.IsObjCRooted)
                 {
