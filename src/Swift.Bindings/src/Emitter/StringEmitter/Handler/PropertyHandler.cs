@@ -425,6 +425,21 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             }
         }
 
+        // Check if this property needs ObjC override wrappers BEFORE emitting accessor methods.
+        // Must be determined once, then applied to each accessor — not per-accessor.
+        bool needsObjCOverrideWrapper = false;
+        if (propertyDecl.Accessors.Count > 0)
+        {
+            // Use the first accessor for the check (ShouldEmitWrapper only looks at property + class context)
+            var firstAccessor = propertyDecl.Accessors[0];
+            firstAccessor.Method.IsAccessor = true;
+            if (conductor.TryGetMethodHandler(firstAccessor.Method, out var checkHandler))
+            {
+                var checkEnv = (MethodEnvironment)checkHandler.Marshal(firstAccessor.Method, propertyEnv.TypeDatabase);
+                needsObjCOverrideWrapper = ObjCOverridePropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, checkEnv);
+            }
+        }
+
         // Now emit the accessor methods using MethodHandler
         foreach (var accessor in propertyDecl.Accessors)
         {
@@ -433,6 +448,35 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 // Mark the method as an accessor to prevent type conversions
                 // Type conversions would cause a mismatch between property type and accessor return/param types
                 accessor.Method.IsAccessor = true;
+
+                // ObjC override property wrapper: set flags BEFORE Marshal/Emit so that
+                // SignatureHandler and PInvokeEmitter see the updated MangledName and flags.
+                // Must happen before methodHandler.Marshal since the environment captures MangledName.
+                if (needsObjCOverrideWrapper && propertyDecl.ParentDecl is TypeDecl parentTypeDecl2 && parentTypeDecl2.SwiftTypeName != null)
+                {
+                    bool isGetter = accessor is GetAccessorDecl;
+                    var symbol = ObjCOverridePropertyWrapperEmitter.GetAccessorSymbolName(
+                        parentTypeDecl2.SwiftTypeName.Module,
+                        parentTypeDecl2.Name,
+                        propertyDecl.Name,
+                        isGetter);
+                    accessor.Method.UsesWrapperLibrary = true;
+                    accessor.Method.UsesFreeFunctionWrapper = true;
+                    accessor.Method.MangledName = symbol;
+
+                    // Emit the Swift wrapper function
+                    if (isGetter)
+                    {
+                        ObjCOverridePropertyWrapperEmitter.EmitSwiftGetterWrapper(
+                            swiftWriter, propertyDecl, symbol, context.GetEmissionContext());
+                    }
+                    else
+                    {
+                        ObjCOverridePropertyWrapperEmitter.EmitSwiftSetterWrapper(
+                            swiftWriter, propertyDecl, symbol, context.GetEmissionContext());
+                    }
+                }
+
                 var accessorEnv = (MethodEnvironment)methodHandler.Marshal(accessor.Method, propertyEnv.TypeDatabase);
                 // Thread PInvokeHelperContext from parent type context into the accessor's environment.
                 // PropertyHandler calls methodHandler.Emit directly (bypassing HandleBaseDecl),

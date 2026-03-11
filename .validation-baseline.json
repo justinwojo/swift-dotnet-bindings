@@ -1,5 +1,5 @@
 {
-  "git_sha": "6ac94114",
+  "git_sha": "62aa47a4",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
@@ -47,13 +47,13 @@
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 55446,
+        "lines": 55436,
         "dep_compile": "none"
       },
       "Lottie": {
         "compile": "ok",
         "errors": 0,
-        "lines": 31962,
+        "lines": 31938,
         "dep_compile": "none"
       },
       "Mappedin": {
@@ -113,7 +113,7 @@
       "SnapKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 11710,
+        "lines": 11708,
         "dep_compile": "none"
       },
       "Starscream": {
@@ -185,7 +185,7 @@
       "StripePayments": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 62279,
+        "lines": 62093,
         "dep_compile": "ok"
       },
       "StripePaymentSheet": {
@@ -197,7 +197,7 @@
       "StripePaymentsUI": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 7099,
+        "lines": 7055,
         "dep_compile": "ok"
       },
       "StripeUICore": {
@@ -239,7 +239,7 @@
       "Valet": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4577,
+        "lines": 4569,
         "dep_compile": "none"
       },
       "SwiftyBeaver": {
@@ -257,7 +257,7 @@
       "NVActivityIndicatorView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 8016,
+        "lines": 8010,
         "dep_compile": "none"
       },
       "ObjectMapper": {
@@ -275,7 +275,7 @@
       "Parchment": {
         "compile": "ok",
         "errors": 0,
-        "lines": 17564,
+        "lines": 17550,
         "dep_compile": "none"
       },
       "KeychainSwift": {
@@ -287,13 +287,13 @@
       "SwipeCellKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 8305,
+        "lines": 8285,
         "dep_compile": "none"
       },
       "FSPagerView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4252,
+        "lines": 4244,
         "dep_compile": "none"
       },
       "SwiftyGif": {
@@ -305,7 +305,7 @@
       "Quick": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4256,
+        "lines": 4250,
         "dep_compile": "none"
       },
       "DifferenceKit": {

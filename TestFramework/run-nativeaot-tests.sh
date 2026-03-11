@@ -229,6 +229,7 @@ echo ""
 
 # --- Step 5: Define test lists ---
 MAIN_MUST_PASS_TESTS="b1-string-create b1-string-length b1-string-wrapper b1-existential b1-generated-binding"
+MAIN_CRASHRISK_TESTS="cr-enum-basic cr-enum-string cr-enum-shape cr-enum-nested cr-array-basic cr-array-advanced cr-gc-basic cr-gc-mutableprops cr-gc-stress cr-existential"
 MAIN_INVESTIGATIVE_TESTS="b1-vwt-destroy b1-vwt-initcopy b2-intptr-manual b3-async-safehandle b3-async-static b3-async-wrapper n1-moduleinit n3-trimming"
 MAIN_NO_INJECT_TESTS="n2-resolve-no-inject"
 MAIN_WITH_INJECT_TESTS="n2-resolve-with-inject"
@@ -353,22 +354,28 @@ if [ "$NO_INJECT" = false ]; then
     done
     echo ""
 
-    echo "=== Phase 4: Investigative tests ==="
+    echo "=== Phase 4: CrashRisk tests (Mono JIT crashers — must pass under NativeAOT) ==="
+    for test_id in $MAIN_CRASHRISK_TESTS; do
+        run_test "$MAIN_APP_PATH" "$MAIN_BUNDLE_ID" "$test_id"
+    done
+    echo ""
+
+    echo "=== Phase 5: Investigative tests ==="
     for test_id in $MAIN_INVESTIGATIVE_TESTS; do
         run_test "$MAIN_APP_PATH" "$MAIN_BUNDLE_ID" "$test_id"
     done
     echo ""
 
-    echo "=== Phase 5: With-injection resolution tests ==="
+    echo "=== Phase 6: With-injection resolution tests ==="
     for test_id in $MAIN_WITH_INJECT_TESTS; do
         run_test "$MAIN_APP_PATH" "$MAIN_BUNDLE_ID" "$test_id"
     done
     echo ""
 fi
 
-# Phase 6: NonBlittable tests (if project compiled)
+# Phase 7: NonBlittable tests (if project compiled)
 if [ "$NONBLITTABLE_AVAILABLE" = true ]; then
-    echo "=== Phase 6: NonBlittable tests (Blocker 2) ==="
+    echo "=== Phase 7: NonBlittable tests (Blocker 2) ==="
     echo "Installing NonBlittable app..."
     xcrun simctl install booted "$NONBLITTABLE_APP_PATH"
     for test_id in $NONBLITTABLE_TESTS; do
@@ -397,6 +404,19 @@ for test_id in $MAIN_MUST_PASS_TESTS; do
     done
 done
 
+# Count CrashRisk results
+CRASHRISK_PASSED=0
+CRASHRISK_TOTAL=0
+for test_id in $MAIN_CRASHRISK_TESTS; do
+    CRASHRISK_TOTAL=$((CRASHRISK_TOTAL + 1))
+    for r in "${RESULTS[@]}"; do
+        if echo "$r" | grep -q "^PASS: $test_id"; then
+            CRASHRISK_PASSED=$((CRASHRISK_PASSED + 1))
+            break
+        fi
+    done
+done
+
 for r in "${RESULTS[@]}"; do
     echo "  $r"
 done
@@ -404,6 +424,7 @@ done
 echo ""
 echo "-----------------------------------------"
 echo "  Must-pass:     $MUST_PASS_PASSED/$MUST_PASS_TOTAL passed"
+echo "  CrashRisk:     $CRASHRISK_PASSED/$CRASHRISK_TOTAL passed"
 echo "  Total passed:  $PASS_COUNT"
 echo "  Total failed:  $FAIL_COUNT"
 echo "  Total crashed: $CRASH_COUNT"

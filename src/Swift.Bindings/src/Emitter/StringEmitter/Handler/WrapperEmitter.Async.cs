@@ -255,6 +255,71 @@ namespace BindingsGeneration
                 callbackParams = string.Join(", ", elementTypes) + ", ";
                 // For callback invocation, access tuple elements with .0, .1, etc.
                 callbackResultArgs = string.Join(", ", Enumerable.Range(0, tupleTypeSpec.Elements.Count).Select(i => $"result{_env.MethodDecl.Name}.{i}")) + ", ";
+
+                // Retain ObjC class objects in tuple elements for C# ownership.
+                // When an ObjC class is passed through @convention(c), Swift passes the raw pointer
+                // WITHOUT adding an extra ARC retain. C#'s GetNSObject<T> takes ownership of one
+                // retain count, so we must add it explicitly here.
+                // Bridgeable value types (e.g., Foundation.Data → NSData) are automatically bridged
+                // with +1 retain by Swift, so they don't need this treatment.
+                var retainLines = new List<string>();
+                var resultVar = $"result{_env.MethodDecl.Name}";
+                for (int i = 0; i < tupleTypeSpec.Elements.Count; i++)
+                {
+                    var element = tupleTypeSpec.Elements[i];
+                    bool needsRetain = false;
+                    bool isOptional = false;
+
+                    if (element is NamedTypeSpec named)
+                    {
+                        if (named.ContainsGenericParameters)
+                        {
+                            // Check for Optional<ObjCClass> — inner type needs conditional retain
+                            var baseName = SwiftTypeName.FromModuleQualifiedName(named.Name);
+                            if (_env.TypeDatabase.TryGetTypeRecord(baseName, out var baseRec) &&
+                                baseRec.CSharpTypeName.Name == "SwiftOptional" &&
+                                named.GenericParameters.Count > 0 &&
+                                named.GenericParameters[0] is NamedTypeSpec innerNamed)
+                            {
+                                if (_env.TypeDatabase.TryGetTypeRecord(innerNamed, out var innerRec) &&
+                                    innerRec.Kind == TypeRecordKind.Class)
+                                {
+                                    needsRetain = true;
+                                    isOptional = true;
+                                }
+                            }
+                        }
+                        else if (!IsSwiftPrimitive(named.ToString()))
+                        {
+                            // Non-primitive, non-generic: retain if it's a class type
+                            if (_env.TypeDatabase.TryGetTypeRecord(named, out var rec) &&
+                                rec.Kind == TypeRecordKind.Class)
+                            {
+                                needsRetain = true;
+                            }
+                        }
+                    }
+
+                    if (needsRetain)
+                    {
+                        var resultAccess = $"{resultVar}.{i}";
+                        if (isOptional)
+                        {
+                            retainLines.Add(
+                                $"if let _tupleObj{i} = {resultAccess} {{ _ = Unmanaged<AnyObject>.passRetained(_tupleObj{i} as AnyObject) }}");
+                        }
+                        else
+                        {
+                            retainLines.Add(
+                                $"_ = Unmanaged<AnyObject>.passRetained({resultAccess} as AnyObject)");
+                        }
+                    }
+                }
+                if (retainLines.Count > 0)
+                {
+                    stringMarshalCode = "// Retain ObjC class objects for C# ownership (GetNSObject takes ownership of this retain)\n" +
+                        "                        " + string.Join("\n                        ", retainLines);
+                }
             }
             else if (isStringReturn)
             {

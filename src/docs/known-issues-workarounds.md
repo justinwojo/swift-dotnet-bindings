@@ -33,6 +33,7 @@ All issues documented here are **Mono JIT-specific**. The deployment target dete
 3. [Non-Blittable Types with Swift Calling Convention](#non-blittable-types-with-swift-calling-convention)
 4. [SafeHandle in Async P/Invoke](#safehandle-in-async-pinvoke)
 5. [Upstream Bug Report Status](#upstream-bug-report-status)
+6. [NativeAOT on iOS Simulator (Recommended for Development)](#nativeaot-on-ios-simulator-recommended-for-development)
 
 ---
 
@@ -371,6 +372,59 @@ Three Mono runtime issues have been documented with minimal reproduction cases, 
 - [#64215](https://github.com/dotnet/runtime/issues/64215) — Introduce `CallConvSwift`
 
 **Next step**: File after swift-bindings repo is public (so issues can link to concrete repro code).
+
+---
+
+## NativeAOT on iOS Simulator (Recommended for Development)
+
+**Severity**: N/A — Workaround for all Mono JIT issues above
+**Status**: Available now (requires .NET 10 SDK)
+
+All Mono JIT issues documented in this file — the `jit-info.c:918` crash, non-blittable type rejections, SafeHandle async limitations, VWT Destroy crashes — are **completely eliminated** by using NativeAOT on the iOS Simulator. NativeAOT uses the RyuJIT ahead-of-time compiler instead of Mono's JIT, so `CallConvSwift` works correctly.
+
+### How to Enable
+
+Add `<PublishAot>true</PublishAot>` to your `.csproj`:
+
+```xml
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-ios</TargetFramework>
+    <RuntimeIdentifier>iossimulator-arm64</RuntimeIdentifier>
+    <PublishAot>true</PublishAot>
+    <PublishAotUsingRuntimePack>true</PublishAotUsingRuntimePack>
+  </PropertyGroup>
+</Project>
+```
+
+Then use `dotnet publish` instead of `dotnet build` to create the app bundle:
+
+```bash
+dotnet publish -c Release
+```
+
+### Trade-offs
+
+| Aspect | Mono JIT (default) | NativeAOT |
+|--------|-------------------|-----------|
+| Build time | Fast (~5s) | Slow (~30-60s, full AOT compile) |
+| `CallConvSwift` | Crashes (workarounds needed) | Works correctly |
+| Incremental builds | Supported | Full rebuild required |
+| App bundle size | Smaller | Larger (includes AOT'd code) |
+| Debugging | Full managed debugger | Limited (native debugger) |
+| Trimming | Not required | Enabled by default (`TrimMode=partial` recommended) |
+
+### When to Use
+
+- **Use NativeAOT** when you're hitting Mono JIT crashes in your binding, or when you want to test the same code path that will run on real devices (which always use NativeAOT).
+- **Use Mono JIT** for fast iteration during development when the APIs you're calling don't trigger JIT bugs (most blittable types, wrapper-routed methods).
+
+### What This Doesn't Fix
+
+NativeAOT has its own limitations unrelated to Mono JIT:
+- **Non-blittable types through `CallConvSwift`** still fail at ILCompiler compile time (e.g., `SwiftOptional<T>` parameters) — these are rejected during AOT compilation rather than crashing at runtime.
+- **Trimming** may remove types used via reflection. Use `[DynamicallyAccessedMembers]` or `TrimMode=partial` to mitigate.
 
 ---
 

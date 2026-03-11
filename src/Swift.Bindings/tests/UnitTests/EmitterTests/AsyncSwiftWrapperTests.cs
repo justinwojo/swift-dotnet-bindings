@@ -240,7 +240,309 @@ public class AsyncSwiftWrapperTests
 
     #endregion
 
+    #region Async Tuple ObjC Retain Tests
+
+    [Fact]
+    public void AsyncWrapper_TupleWithObjCClass_RetainsClassElement()
+    {
+        // When an async method returns a tuple containing an ObjC class (e.g., URLResponse),
+        // the Swift wrapper must explicitly retain the class element before passing through
+        // @convention(c). Without retain, ARC releases the object after the callback returns,
+        // leaving C#'s GetNSObject wrapper with a dangling pointer.
+        var (csOutput, swiftOutput) = GenerateAsyncMethodWithTupleReturn(
+            elements: new[]
+            {
+                ("Foundation.Data", TypeRecordKind.Struct, false),
+                ("Foundation.URLResponse", TypeRecordKind.Class, true),
+            });
+
+        // Swift wrapper should contain Unmanaged.passRetained for the ObjC class element
+        Assert.Contains("Unmanaged<AnyObject>.passRetained(", swiftOutput);
+        // Should reference the correct tuple element (.1 for URLResponse)
+        Assert.Contains(".1 as AnyObject)", swiftOutput);
+    }
+
+    [Fact]
+    public void AsyncWrapper_TupleWithPrimitiveOnly_DoesNotRetain()
+    {
+        // Tuple of primitives doesn't need retain
+        var (_, swiftOutput) = GenerateAsyncMethodWithTupleReturn(
+            elements: new[]
+            {
+                ("Swift.Int", TypeRecordKind.Struct, false),
+                ("Swift.Double", TypeRecordKind.Struct, false),
+            });
+
+        Assert.DoesNotContain("Unmanaged", swiftOutput);
+        Assert.DoesNotContain("passRetained", swiftOutput);
+    }
+
+    [Fact]
+    public void AsyncWrapper_TupleWithOptionalObjCClass_UsesConditionalRetain()
+    {
+        // Optional<ObjCClass> needs conditional retain (nil check)
+        var (_, swiftOutput) = GenerateAsyncMethodWithTupleReturn(
+            elements: new[]
+            {
+                ("Swift.Int", TypeRecordKind.Struct, false),
+            },
+            optionalObjCElement: ("Foundation.URLResponse", TypeRecordKind.Class, true));
+
+        // Should use conditional retain: if let ... { passRetained }
+        Assert.Contains("if let _tupleObj", swiftOutput);
+        Assert.Contains("Unmanaged<AnyObject>.passRetained(", swiftOutput);
+    }
+
+    [Fact]
+    public void AsyncWrapper_TupleWithMultipleObjCClasses_RetainsAll()
+    {
+        // Multiple ObjC class elements should all be retained
+        var (_, swiftOutput) = GenerateAsyncMethodWithTupleReturn(
+            elements: new[]
+            {
+                ("Foundation.URLResponse", TypeRecordKind.Class, true),
+                ("UIKit.UIImage", TypeRecordKind.Class, true),
+            });
+
+        // Should have two passRetained calls
+        Assert.Contains(".0 as AnyObject)", swiftOutput);
+        Assert.Contains(".1 as AnyObject)", swiftOutput);
+    }
+
+    [Fact]
+    public void AsyncWrapper_TupleWithStructElement_DoesNotRetainStruct()
+    {
+        // Struct elements (even ObjC-bridgeable like Foundation.Data) should NOT be
+        // retained — Swift's auto-bridging handles the retain for bridgeable types,
+        // and non-bridgeable structs are value types.
+        var (_, swiftOutput) = GenerateAsyncMethodWithTupleReturn(
+            elements: new[]
+            {
+                ("Foundation.Data", TypeRecordKind.Struct, false),
+                ("Swift.Int", TypeRecordKind.Struct, false),
+            });
+
+        Assert.DoesNotContain("Unmanaged", swiftOutput);
+        Assert.DoesNotContain("passRetained", swiftOutput);
+    }
+
+    #endregion
+
     #region Helper Methods
+
+    /// <summary>
+    /// Generates Swift and C# output for an async method returning a tuple.
+    /// Used to test ObjC element retain behavior in async tuple callbacks.
+    /// </summary>
+    private static (string csOutput, string swiftOutput) GenerateAsyncMethodWithTupleReturn(
+        (string typeName, TypeRecordKind kind, bool isObjCBridged)[] elements,
+        (string typeName, TypeRecordKind kind, bool isObjCBridged)? optionalObjCElement = null)
+    {
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            Dependencies = new List<string>(),
+            Types = new List<TypeDecl>(),
+            Methods = new List<MethodDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var parentDecl = new ClassDecl
+        {
+            Name = "Pipeline",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Pipeline"),
+            MangledName = "$s10TestModule8PipelineCN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        // Add 'shared' property for singleton pattern
+        parentDecl.Properties.Add(new PropertyDecl
+        {
+            Name = "shared",
+            IsStatic = true,
+            HasStorage = true,
+            SwiftTypeSpec = new NamedTypeSpec("TestModule.Pipeline"),
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        });
+        moduleDecl.Types.Add(parentDecl);
+
+        // Build tuple TypeSpec
+        var tupleElements = new List<TypeSpec>();
+        foreach (var elem in elements)
+        {
+            tupleElements.Add(new NamedTypeSpec(elem.typeName));
+        }
+        if (optionalObjCElement.HasValue)
+        {
+            var opt = optionalObjCElement.Value;
+            var optionalTypeSpec = new NamedTypeSpec("Swift.Optional");
+            optionalTypeSpec.GenericParameters.Add(new NamedTypeSpec(opt.typeName));
+            tupleElements.Add(optionalTypeSpec);
+        }
+        var tupleTypeSpec = new TupleTypeSpec(tupleElements);
+
+        var csSignature = new List<ArgumentDecl>
+        {
+            new ArgumentDecl
+            {
+                SwiftTypeSpec = tupleTypeSpec,
+                Name = string.Empty,
+                PrivateName = string.Empty,
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = parentDecl,
+                ModuleDecl = moduleDecl
+            }
+        };
+
+        var methodDecl = new MethodDecl
+        {
+            Name = "fetchData",
+            MangledName = "$s10TestModule8PipelineC9fetchData_tYaKF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = csSignature,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = true,
+            Visibility = Visibility.Public
+        };
+
+        // Setup type database
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/fake/path");
+
+        // Register parent class
+        module.RegisterType(parentDecl.SwiftTypeName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Pipeline"),
+            SwiftTypeName = parentDecl.SwiftTypeName,
+            MetadataAccessor = "$s10TestModule8PipelineCMa",
+            Flags = TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class
+        });
+
+        // Track extra module databases needed for types in other modules
+        var extraModules = new Dictionary<string, ModuleTypeDatabase>();
+
+        // Register each element type
+        void RegisterElementType(string typeName, TypeRecordKind kind, bool isObjCBridged)
+        {
+            var swiftName = SwiftTypeName.FromModuleQualifiedName(typeName);
+            var flags = kind == TypeRecordKind.Class
+                ? TypeRecordFlags.RequiresMemoryManagement
+                : TypeRecordFlags.Frozen;
+            if (isObjCBridged)
+                flags |= TypeRecordFlags.ObjCBridged;
+            var ns = typeName.Contains('.') ? typeName.Substring(0, typeName.IndexOf('.')) : "TestModule";
+            var record = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(ns, typeName.Split('.').Last()),
+                SwiftTypeName = swiftName,
+                MetadataAccessor = $"$s{typeName.Replace(".", "")}Ma",
+                Flags = flags,
+                Kind = kind
+            };
+            var elemModule = swiftName.Module;
+            if (elemModule == "TestModule")
+            {
+                module.RegisterType(swiftName, record);
+            }
+            else
+            {
+                if (!extraModules.TryGetValue(elemModule, out var elemModuleDb))
+                {
+                    elemModuleDb = new ModuleTypeDatabase(elemModule, $"/System/Library/Frameworks/{elemModule}.framework/{elemModule}");
+                    extraModules[elemModule] = elemModuleDb;
+                }
+                elemModuleDb.RegisterType(swiftName, record);
+            }
+        }
+
+        foreach (var elem in elements)
+            RegisterElementType(elem.typeName, elem.kind, elem.isObjCBridged);
+        if (optionalObjCElement.HasValue)
+        {
+            var opt = optionalObjCElement.Value;
+            RegisterElementType(opt.typeName, opt.kind, opt.isObjCBridged);
+        }
+
+        // Register Swift built-in types
+        if (!extraModules.TryGetValue("Swift", out var swiftModuleDb))
+        {
+            swiftModuleDb = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+            extraModules["Swift"] = swiftModuleDb;
+        }
+
+        // Swift.Optional
+        var optionalSwiftName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional");
+        swiftModuleDb.RegisterType(optionalSwiftName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftOptional"),
+            SwiftTypeName = optionalSwiftName,
+            MetadataAccessor = "$sSqMa",
+            Flags = TypeRecordFlags.None,
+            Kind = TypeRecordKind.Enum
+        });
+
+        // Swift.Int
+        var intSwiftName = SwiftTypeName.FromModuleQualifiedName("Swift.Int");
+        swiftModuleDb.RegisterType(intSwiftName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "nint"),
+            SwiftTypeName = intSwiftName,
+            MetadataAccessor = "$sSiMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+
+        // Swift.Double
+        var doubleSwiftName = SwiftTypeName.FromModuleQualifiedName("Swift.Double");
+        swiftModuleDb.RegisterType(doubleSwiftName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Double"),
+            SwiftTypeName = doubleSwiftName,
+            MetadataAccessor = "$sSdMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+
+        // Add all extra module databases
+        foreach (var extraModule in extraModules.Values)
+            typeDatabase.AddModuleDatabase(extraModule);
+
+        typeDatabase.AddModuleDatabase(module);
+
+        // Generate the wrapper
+        var csStringWriter = new StringWriter();
+        var swiftStringWriter = new StringWriter();
+        var csWriter = new CSharpWriter(csStringWriter);
+        var swiftWriter = new SwiftWriter(swiftStringWriter);
+
+        var loggerFactory = new NullLoggerFactory();
+        var conductor = new Conductor(loggerFactory);
+
+        var handler = new MethodHandler(new NullLogger<MethodHandler>());
+        var env = handler.Marshal(methodDecl, typeDatabase);
+
+        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
+
+        return (csStringWriter.ToString(), swiftStringWriter.ToString());
+    }
 
     /// <summary>
     /// Generates Swift output for an async method returning a complex (non-primitive) type.

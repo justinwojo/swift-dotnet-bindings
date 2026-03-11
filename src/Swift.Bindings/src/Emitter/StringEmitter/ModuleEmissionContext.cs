@@ -235,6 +235,16 @@ public sealed class ModuleEmissionContext
     /// <summary>Adds a constructor wrapper symbol. Returns true if newly added.</summary>
     public bool TryAddConstructorWrapperSymbol(string symbol) => _constructorWrapperSymbols.Add(symbol);
 
+    // ==================== ObjC Override Property Wrapper ====================
+
+    private readonly HashSet<string> _objcPropertyWrapperSymbols = new();
+
+    /// <summary>Checks if an ObjC override property wrapper symbol was already emitted.</summary>
+    public bool HasObjCPropertyWrapperSymbol(string symbol) => _objcPropertyWrapperSymbols.Contains(symbol);
+
+    /// <summary>Adds an ObjC override property wrapper symbol. Returns true if newly added.</summary>
+    public bool TryAddObjCPropertyWrapperSymbol(string symbol) => _objcPropertyWrapperSymbols.Add(symbol);
+
     // ==================== Enum Handler RawRepresentable ====================
 
     private readonly HashSet<string> _enumRawRepSymbols = new();

@@ -12,6 +12,7 @@ using Swift;
 using Swift.Runtime;
 using Swift.Runtime.InteropServices;
 using SwiftBindingsTestLib;
+using SwiftBindingsTestLib.SwiftInterop;
 using UIKit;
 
 namespace NativeAotTestApp;
@@ -88,6 +89,38 @@ public static class TestDispatcher
                     break;
                 case "n3-trimming":
                     N3_Trimming();
+                    break;
+
+                // CrashRisk ports: tests that crash Mono JIT but should pass under NativeAOT
+                case "cr-enum-basic":
+                    CR_EnumBasic();
+                    break;
+                case "cr-enum-string":
+                    CR_EnumString();
+                    break;
+                case "cr-enum-shape":
+                    CR_EnumShape();
+                    break;
+                case "cr-enum-nested":
+                    CR_EnumNested();
+                    break;
+                case "cr-array-basic":
+                    CR_ArrayBasic();
+                    break;
+                case "cr-array-advanced":
+                    CR_ArrayAdvanced();
+                    break;
+                case "cr-gc-basic":
+                    CR_GCBasic();
+                    break;
+                case "cr-gc-mutableprops":
+                    CR_GCMutableProps();
+                    break;
+                case "cr-gc-stress":
+                    CR_GCStress();
+                    break;
+                case "cr-existential":
+                    CR_Existential();
                     break;
 
                 default:
@@ -411,6 +444,487 @@ public static class TestDispatcher
         }
     }
 
+    // -----------------------------------------------------------------------
+    // CrashRisk ports: tests that crash under Mono JIT but should pass
+    // under NativeAOT. Ported from RuntimeTestsApp CrashRisk classes.
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// cr-enum-basic: Direction + Color enum construction, method calls, raw values.
+    /// Crashes Mono JIT on CreateOrder/Shape P/Invoke.
+    /// </summary>
+    static void CR_EnumBasic()
+    {
+        var errors = new List<string>();
+
+        // Direction method call (P/Invoke — the crash point under Mono JIT)
+        if (!Functions.IsHorizontal(Direction.East)) errors.Add("East not horizontal");
+        if (Functions.IsHorizontal(Direction.North)) errors.Add("North is horizontal");
+
+        // Direction.Opposite() extension method (P/Invoke)
+        if (Direction.North.Opposite() != Direction.South) errors.Add("Opposite(North) != South");
+        if (Direction.East.Opposite() != Direction.West) errors.Add("Opposite(East) != West");
+
+        // ColorForIndex P/Invoke
+        var color0 = Functions.ColorForIndex(0);
+        if (color0 != Color.Red) errors.Add($"ColorForIndex(0): expected Red, got {color0}");
+        var color1 = Functions.ColorForIndex(1);
+        if (color1 != Color.Green) errors.Add($"ColorForIndex(1): expected Green, got {color1}");
+
+        if (errors.Count == 0)
+            Console.WriteLine("PASS: cr-enum-basic");
+        else
+            Console.WriteLine($"FAIL: cr-enum-basic: {string.Join("; ", errors)}");
+    }
+
+    /// <summary>
+    /// cr-enum-string: StatusCode string raw value enum — construction, raw values, FromRawValue.
+    /// </summary>
+    static void CR_EnumString()
+    {
+        var errors = new List<string>();
+
+        // Case tag construction
+        if (StatusCode.Ok.Tag != StatusCode.CaseTag.Ok) errors.Add("Ok tag mismatch");
+        if (StatusCode.NotFound.Tag != StatusCode.CaseTag.NotFound) errors.Add("NotFound tag mismatch");
+        if (StatusCode.Error.Tag != StatusCode.CaseTag.Error) errors.Add("Error tag mismatch");
+        if (StatusCode.Timeout.Tag != StatusCode.CaseTag.Timeout) errors.Add("Timeout tag mismatch");
+
+        // Raw values
+        if (StatusCode.Ok.RawValue.ToString() != "OK") errors.Add($"Ok raw value: {StatusCode.Ok.RawValue}");
+        if (StatusCode.NotFound.RawValue.ToString() != "NOT_FOUND") errors.Add($"NotFound raw value: {StatusCode.NotFound.RawValue}");
+        if (StatusCode.Error.RawValue.ToString() != "ERROR") errors.Add($"Error raw value: {StatusCode.Error.RawValue}");
+        if (StatusCode.Timeout.RawValue.ToString() != "TIMEOUT") errors.Add($"Timeout raw value: {StatusCode.Timeout.RawValue}");
+
+        // FromRawValue round-trip
+        var ok = StatusCode.FromRawValue("OK");
+        if (ok == null) errors.Add("FromRawValue(OK) is null");
+        else if (ok.RawValue.ToString() != "OK") errors.Add("OK round-trip failed");
+
+        var timeout = StatusCode.FromRawValue("TIMEOUT");
+        if (timeout == null) errors.Add("FromRawValue(TIMEOUT) is null");
+        else if (timeout.RawValue.ToString() != "TIMEOUT") errors.Add("TIMEOUT round-trip failed");
+
+        // Invalid raw value returns null
+        var invalid = StatusCode.FromRawValue("INVALID");
+        if (invalid != null) errors.Add("Invalid raw value should be null");
+
+        if (errors.Count == 0)
+            Console.WriteLine("PASS: cr-enum-string");
+        else
+            Console.WriteLine($"FAIL: cr-enum-string: {string.Join("; ", errors)}");
+    }
+
+    /// <summary>
+    /// cr-enum-shape: Shape associated values + EnumPropertyHolder get/set.
+    /// </summary>
+    static void CR_EnumShape()
+    {
+        var errors = new List<string>();
+
+        // Shape case creation with associated values
+        var circle = Shape.Circle(5.0);
+        if (circle.Tag != Shape.CaseTag.Circle) errors.Add("Circle tag mismatch");
+
+        var rect = Shape.Rectangle((width: 10.0, height: 20.0));
+        if (rect.Tag != Shape.CaseTag.Rectangle) errors.Add("Rectangle tag mismatch");
+
+        var point = Shape.Point(new FrozenPoint { X = 1.0, Y = 2.0 });
+        if (point.Tag != Shape.CaseTag.Point) errors.Add("Point tag mismatch");
+
+        var empty = Shape.Empty;
+        if (empty.Tag != Shape.CaseTag.Empty) errors.Add("Empty tag mismatch");
+
+        // All cases distinct
+        if (circle.Tag == rect.Tag) errors.Add("Circle == Rectangle");
+        if (circle.Tag == empty.Tag) errors.Add("Circle == Empty");
+        if (rect.Tag == point.Tag) errors.Add("Rectangle == Point");
+
+        // EnumPropertyHolder — property get/set
+        var holder = new EnumPropertyHolder(Shape.Circle(5.0));
+        if (holder.CurrentShape.Tag != Shape.CaseTag.Circle) errors.Add("CurrentShape not Circle");
+
+        holder.CurrentShape = Shape.Rectangle((width: 3.0, height: 4.0));
+        if (holder.CurrentShape.Tag != Shape.CaseTag.Rectangle) errors.Add("CurrentShape not Rectangle after set");
+
+        // GetShape method
+        var holder2 = new EnumPropertyHolder(Shape.Empty);
+        if (holder2.GetShape().Tag != Shape.CaseTag.Empty) errors.Add("GetShape() not Empty");
+
+        // Optional shape — default null
+        if (holder2.OptionalShape != null) errors.Add("OptionalShape default not null");
+
+        // Set optional shape
+        holder2.OptionalShape = Shape.Circle(3.0);
+        if (holder2.OptionalShape == null) errors.Add("OptionalShape null after set");
+        else if (holder2.OptionalShape.Tag != Shape.CaseTag.Circle) errors.Add("OptionalShape not Circle");
+
+        // Clear optional shape
+        holder2.OptionalShape = null;
+        if (holder2.OptionalShape != null) errors.Add("OptionalShape not null after clear");
+
+        if (errors.Count == 0)
+            Console.WriteLine("PASS: cr-enum-shape");
+        else
+            Console.WriteLine($"FAIL: cr-enum-shape: {string.Join("; ", errors)}");
+    }
+
+    /// <summary>
+    /// cr-enum-nested: OrderContainer, PaymentContainer, NetworkConfig nested enums.
+    /// </summary>
+    static void CR_EnumNested()
+    {
+        var errors = new List<string>();
+
+        // OrderContainer creation
+        var order = Functions.CreateOrder("ORD-001", "order_pending");
+        if (order == null) errors.Add("Order is null");
+        else
+        {
+            var statusRaw = Functions.GetOrderStatusRaw(order);
+            if (statusRaw != "order_pending") errors.Add($"Order status: {statusRaw}");
+        }
+
+        // OrderContainer.Status FromRawValue
+        var allOrderStatuses = new[] { "order_pending", "order_processing", "order_shipped", "order_delivered", "order_cancelled" };
+        foreach (var raw in allOrderStatuses)
+        {
+            var status = OrderContainer.Status.FromRawValue(raw);
+            if (status == null) errors.Add($"OrderContainer.Status({raw}) is null");
+            else if (status.RawValue.ToString() != raw) errors.Add($"OrderContainer.Status({raw}) round-trip failed");
+        }
+
+        // Case name (not raw value) should return null
+        if (OrderContainer.Status.FromRawValue("pending") != null) errors.Add("Case name 'pending' should not match");
+
+        // PaymentContainer
+        var payment = Functions.CreatePayment("PAY-001", "payment_authorized");
+        if (payment == null) errors.Add("Payment is null");
+        else
+        {
+            var statusRaw = Functions.GetPaymentStatusRaw(payment);
+            if (statusRaw != "payment_authorized") errors.Add($"Payment status: {statusRaw}");
+        }
+
+        var allPaymentStatuses = new[] { "payment_pending", "payment_authorized", "payment_captured", "payment_refunded", "payment_failed" };
+        foreach (var raw in allPaymentStatuses)
+        {
+            var status = PaymentContainer.Status.FromRawValue(raw);
+            if (status == null) errors.Add($"PaymentContainer.Status({raw}) is null");
+            else if (status.RawValue.ToString() != raw) errors.Add($"PaymentContainer.Status({raw}) round-trip failed");
+        }
+
+        // NetworkConfig nested enums
+        var httpMethods = new[] { "GET", "POST", "PUT", "DELETE", "PATCH" };
+        foreach (var raw in httpMethods)
+        {
+            var method = NetworkConfig.HttpMethod.FromRawValue(raw);
+            if (method == null) errors.Add($"HttpMethod({raw}) is null");
+            else if (method.RawValue.ToString() != raw) errors.Add($"HttpMethod({raw}) round-trip failed");
+        }
+
+        var contentTypes = new[] { "application/json", "application/xml", "multipart/form-data", "text/plain" };
+        foreach (var raw in contentTypes)
+        {
+            var ct = NetworkConfig.ContentType.FromRawValue(raw);
+            if (ct == null) errors.Add($"ContentType({raw}) is null");
+            else if (ct.RawValue.ToString() != raw) errors.Add($"ContentType({raw}) round-trip failed");
+        }
+
+        if (errors.Count == 0)
+            Console.WriteLine("PASS: cr-enum-nested");
+        else
+            Console.WriteLine($"FAIL: cr-enum-nested: {string.Join("; ", errors)}");
+    }
+
+    /// <summary>
+    /// cr-array-basic: Array parameter, return, empty, sum, reverse — core SwiftArray P/Invoke.
+    /// Crashes Mono JIT on SwiftArray P/Invoke via CallConvSwift.
+    /// </summary>
+    static void CR_ArrayBasic()
+    {
+        var errors = new List<string>();
+
+        // Array parameter count
+        var count = Functions.ArrayCount(new[] { 10, 20, 30 });
+        if (count != 3) errors.Add($"ArrayCount: expected 3, got {count}");
+
+        // Array return
+        var created = Functions.CreateIntArray(3, 42);
+        if (created.Count != 3) errors.Add($"CreateIntArray count: expected 3, got {created.Count}");
+        for (int i = 0; i < created.Count; i++)
+        {
+            if (created[i] != 42) errors.Add($"CreateIntArray[{i}]: expected 42, got {created[i]}");
+        }
+
+        // Empty array
+        if (!Functions.IsEmptyArray(Array.Empty<int>())) errors.Add("Empty array not detected");
+        if (Functions.ArrayCount(Array.Empty<int>()) != 0) errors.Add("Empty array count != 0");
+
+        // Sum
+        var sum = Functions.SumArray(new[] { 1, 2, 3, 4, 5 });
+        if (sum != 15) errors.Add($"SumArray: expected 15, got {sum}");
+
+        // Reverse
+        var reversed = Functions.ReverseIntArray(new[] { 1, 2, 3 });
+        if (reversed.Count != 3) errors.Add($"Reversed count: {reversed.Count}");
+        else
+        {
+            if (reversed[0] != 3) errors.Add($"Reversed[0]: expected 3, got {reversed[0]}");
+            if (reversed[1] != 2) errors.Add($"Reversed[1]: expected 2, got {reversed[1]}");
+            if (reversed[2] != 1) errors.Add($"Reversed[2]: expected 1, got {reversed[2]}");
+        }
+
+        // Single element
+        if (Functions.ArrayCount(new[] { 99 }) != 1) errors.Add("Single element count != 1");
+        if (Functions.SumArray(new[] { 99 }) != 99) errors.Add("Single element sum != 99");
+
+        if (errors.Count == 0)
+            Console.WriteLine("PASS: cr-array-basic");
+        else
+            Console.WriteLine($"FAIL: cr-array-basic: {string.Join("; ", errors)}");
+    }
+
+    /// <summary>
+    /// cr-array-advanced: String arrays, class arrays, filter — complex array marshalling.
+    /// </summary>
+    static void CR_ArrayAdvanced()
+    {
+        var errors = new List<string>();
+
+        // String array creation
+        var strings = Functions.CreateStringArray("hello", "world");
+        if (strings.Count != 2) errors.Add($"String array count: {strings.Count}");
+        else
+        {
+            if (strings[0] != "hello") errors.Add($"String[0]: {strings[0]}");
+            if (strings[1] != "world") errors.Add($"String[1]: {strings[1]}");
+        }
+
+        // Array of classes
+        var cat = Functions.CreateAnimal("Cat", "Meow");
+        var dog = Functions.CreateAnimal("Dog", "Woof");
+        var descriptions = Functions.DescribeAnimals(new[] { cat, dog });
+        if (descriptions.Count != 2) errors.Add($"Descriptions count: {descriptions.Count}");
+        else
+        {
+            if (!descriptions[0].Contains("Cat")) errors.Add($"Description[0] missing Cat: {descriptions[0]}");
+            if (!descriptions[1].Contains("Dog")) errors.Add($"Description[1] missing Dog: {descriptions[1]}");
+        }
+
+        // Filter positive
+        var filtered = Functions.FilterPositive(new[] { -2, -1, 0, 1, 2, 3 });
+        if (filtered.Count != 3) errors.Add($"FilterPositive count: {filtered.Count}");
+        else
+        {
+            if (filtered[0] != 1) errors.Add($"Filtered[0]: {filtered[0]}");
+            if (filtered[1] != 2) errors.Add($"Filtered[1]: {filtered[1]}");
+            if (filtered[2] != 3) errors.Add($"Filtered[2]: {filtered[2]}");
+        }
+
+        // All negative filtered to empty
+        var allNeg = Functions.FilterPositive(new[] { -3, -2, -1 });
+        if (allNeg.Count != 0) errors.Add($"All negative count: {allNeg.Count}");
+
+        if (errors.Count == 0)
+            Console.WriteLine("PASS: cr-array-advanced");
+        else
+            Console.WriteLine($"FAIL: cr-array-advanced: {string.Join("; ", errors)}");
+    }
+
+    /// <summary>
+    /// cr-gc-basic: Animal/UniqueResource create-use-release with ForceGC.
+    /// Crashes Mono JIT when ForceGC triggers VWT Destroy via GC finalizer thread.
+    /// </summary>
+    static void CR_GCBasic()
+    {
+        var errors = new List<string>();
+
+        // Animal create-use-release
+        var animal = Functions.CreateAnimal("Temp", "Woof");
+        var name = animal.Name.ToString();
+        if (name != "Temp") errors.Add($"Animal name: {name}");
+        var speak = animal.GetSpeak();
+        if (speak == null) errors.Add("Speak returned null");
+        animal = null!;
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+
+        // UniqueResource via factory
+        var resource = Functions.CreateUniqueResource(42);
+        if (resource.Id != 42) errors.Add($"UniqueResource.Id: {resource.Id}");
+        var inspected = resource.GetInspect();
+        if (inspected != 42) errors.Add($"UniqueResource.Inspect: {inspected}");
+        resource = null!;
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+
+        // UniqueResource via constructor
+        var resource2 = new UniqueResource(99);
+        if (resource2.Id != 99) errors.Add($"Constructor UniqueResource.Id: {resource2.Id}");
+        resource2 = null!;
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+
+        if (errors.Count == 0)
+            Console.WriteLine("PASS: cr-gc-basic");
+        else
+            Console.WriteLine($"FAIL: cr-gc-basic: {string.Join("; ", errors)}");
+    }
+
+    /// <summary>
+    /// cr-gc-mutableprops: MutableProps lifecycle, double dispose, access after dispose.
+    /// MutableProps constructor uses CallConvSwift → Mono JIT frame tracker corruption.
+    /// </summary>
+    static void CR_GCMutableProps()
+    {
+        var errors = new List<string>();
+
+        // Basic lifecycle
+        var props = new MutableProps(10, "Test");
+        if (props.Value != 10) errors.Add($"MutableProps.Value: {props.Value}");
+        if (props.Name.ToString() != "Test") errors.Add($"MutableProps.Name: {props.Name}");
+
+        // Modify and verify
+        props.Value = 20;
+        if (props.Value != 20) errors.Add($"MutableProps.Value after set: {props.Value}");
+        props = null!;
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+
+        // Double dispose safety
+        var props2 = new MutableProps(5, "DoubleDispose");
+        if (props2.Value != 5) errors.Add("DoubleDispose initial value wrong");
+        props2.Dispose();
+        props2.Dispose(); // Should not throw
+
+        // Access after dispose throws ObjectDisposedException
+        var props3 = new MutableProps(10, "Disposed");
+        props3.Dispose();
+        try
+        {
+            _ = props3.Value;
+            errors.Add("Value access after dispose did not throw");
+        }
+        catch (ObjectDisposedException)
+        {
+            // Expected
+        }
+
+        try
+        {
+            props3.Value = 99;
+            errors.Add("Value set after dispose did not throw");
+        }
+        catch (ObjectDisposedException)
+        {
+            // Expected
+        }
+
+        if (errors.Count == 0)
+            Console.WriteLine("PASS: cr-gc-mutableprops");
+        else
+            Console.WriteLine($"FAIL: cr-gc-mutableprops: {string.Join("; ", errors)}");
+    }
+
+    /// <summary>
+    /// cr-gc-stress: GC stress scenarios — repeated GC, mass object abandonment,
+    /// interleaved create/dispose, GC pressure during property access.
+    /// </summary>
+    static void CR_GCStress()
+    {
+        var errors = new List<string>();
+
+        // Object survives repeated GC
+        var survivor = Functions.CreateAnimal("Survivor", "Roar");
+        for (int i = 0; i < 10; i++)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            var sName = survivor.Name.ToString();
+            if (sName != "Survivor") errors.Add($"Survivor GC cycle {i}: {sName}");
+        }
+
+        // Many objects create and abandon
+        for (int i = 0; i < 100; i++)
+        {
+            var temp = Functions.CreateAnimal($"Temp{i}", "Sound");
+            _ = temp.Name.ToString();
+        }
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+
+        // Verify system still healthy after mass abandonment
+        var final = Functions.CreateAnimal("Final", "OK");
+        if (final.Name.ToString() != "Final") errors.Add("System unhealthy after mass abandonment");
+
+        // Interleaved create/dispose
+        var animals = new List<Animal>();
+        for (int i = 0; i < 20; i++)
+        {
+            animals.Add(Functions.CreateAnimal($"Animal{i}", $"Sound{i}"));
+            if (i % 5 == 4 && animals.Count > 0)
+            {
+                animals[0].Dispose();
+                animals.RemoveAt(0);
+            }
+        }
+        foreach (var a in animals)
+        {
+            var n = a.Name.ToString();
+            if (string.IsNullOrEmpty(n)) errors.Add("Remaining animal has invalid name");
+        }
+
+        // GC pressure during property access
+        var pressure = Functions.CreateAnimal("Pressure", "Test");
+        for (int i = 0; i < 50; i++)
+        {
+            _ = new byte[4096]; // garbage
+            var pName = pressure.Name.ToString();
+            if (pName != "Pressure") errors.Add($"GC pressure cycle {i}: {pName}");
+        }
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        if (pressure.Name.ToString() != "Pressure") errors.Add("Pressure failed after GC");
+
+        if (errors.Count == 0)
+            Console.WriteLine("PASS: cr-gc-stress");
+        else
+            Console.WriteLine($"FAIL: cr-gc-stress: {string.Join("; ", errors)}");
+    }
+
+    /// <summary>
+    /// cr-existential: Protocol proxy callback with existential parameter.
+    /// Crashes Mono JIT with SIGSEGV when proxy object passes through CallConvSwift.
+    /// </summary>
+    static void CR_Existential()
+    {
+        var errors = new List<string>();
+
+        var impl = new TestExistentialDelegateImpl();
+        var proxy = new ExistentialParamDelegateProxy(impl);
+
+        // Swift creates a MutableItem(value: 42), passes it as `any HasValue`
+        // to delegate.didReceive(value:). The proxy receiver unmarshals
+        // ExistentialContainer1 → HasValueProxy and dispatches to impl.
+        Functions.FireExistentialDelegate(proxy, intValue: 42);
+
+        if (!impl.WasCalled) errors.Add("Delegate was not called");
+        if (impl.ReceivedValue != 42) errors.Add($"Received value: {impl.ReceivedValue}, expected 42");
+
+        if (errors.Count == 0)
+            Console.WriteLine("PASS: cr-existential");
+        else
+            Console.WriteLine($"FAIL: cr-existential: {string.Join("; ", errors)}");
+    }
+
     /// <summary>
     /// n3-trimming: Verify core types survive NativeAOT trimming.
     /// SwiftString, SwiftArray, TypeMetadata use reflection — trimmer may remove them.
@@ -479,6 +993,22 @@ public static class TestDispatcher
         {
             Console.WriteLine($"FAIL: n3-trimming: {string.Join("; ", errors)}");
         }
+    }
+}
+
+/// <summary>
+/// C# implementation of IExistentialParamDelegate for cr-existential test.
+/// Records whether the callback was received and what value was passed.
+/// </summary>
+internal class TestExistentialDelegateImpl : IExistentialParamDelegate
+{
+    public bool WasCalled { get; private set; }
+    public int ReceivedValue { get; private set; }
+
+    public void DidReceive(IHasValue value)
+    {
+        WasCalled = true;
+        ReceivedValue = value.Value;
     }
 }
 
