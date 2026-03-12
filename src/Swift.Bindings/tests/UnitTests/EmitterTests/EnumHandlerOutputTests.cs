@@ -3011,6 +3011,203 @@ public class EnumHandlerOutputTests
         };
     }
 
+    #region Session 9C: @_cdecl Enum Case Factory ABI Tests
+
+    [Fact]
+    public void Emit_CdeclEnumCaseWithString_UsesSwiftStringBuffer()
+    {
+        // @_cdecl enum case factory with string associated value must use SwiftString.Buffer
+        // (16-byte blittable struct = two words) in P/Invoke, NOT IntPtr
+        var typeDatabase = CreateTypeDatabaseWithString();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Message", moduleDecl, isFrozen: false);
+
+        var textCase = CreateCase("text");
+        textCase.AssociatedValues.Add(new NamedTypeSpec("Swift.String"));
+        enumDecl.Cases.Add(textCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
+
+        // C# P/Invoke should use SwiftString.Buffer, not IntPtr
+        Assert.Contains("Swift.SwiftString.Buffer value0", csOutput);
+        Assert.DoesNotContain("IntPtr value0", csOutput);
+        // C# body should extract PayloadBuffer for the string
+        Assert.Contains("PayloadBuffer", csOutput);
+        // C# call arg should use .Buffer (the blittable struct value)
+        Assert.Contains("Payload.Buffer", csOutput);
+        // Swift side should have two-word param pattern
+        Assert.Contains("_sW0_", swiftOutput);
+        Assert.Contains("_sW1_", swiftOutput);
+        Assert.Contains("unsafeBitCast", swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_CdeclEnumCaseWithExistential_UsesRefContainer()
+    {
+        // @_cdecl enum case factory with existential associated value must use
+        // ref ExistentialContainer (pass by ref = pointer) in P/Invoke, NOT by-value
+        var typeDatabase = CreateTypeDatabaseWithProtocol();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Event", moduleDecl, isFrozen: false);
+
+        var failedCase = CreateCase("failed");
+        failedCase.AssociatedValues.Add(new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.ImageProcessing") }));
+        enumDecl.Cases.Add(failedCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // C# P/Invoke should use ref ExistentialContainer, not by-value
+        Assert.Contains("ref Swift.Runtime.ExistentialContainer1 value0", csOutput);
+        // C# body should extract container for pass-by-ref
+        Assert.Contains("Container", csOutput);
+        Assert.Contains("ref value0Container", csOutput);
+    }
+
+    [Fact]
+    public void Emit_CdeclEnumCaseWithPrimitive_UsesCdeclCallingConvention()
+    {
+        // @_cdecl enum case factory with primitive value should use CallConvCdecl
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Status", moduleDecl, isFrozen: false);
+
+        var activeCase = CreateCase("active");
+        activeCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        enumDecl.Cases.Add(activeCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
+
+        // C# should use CallConvCdecl, not CallConvSwift
+        Assert.Contains("CallConvCdecl", csOutput);
+        // P/Invoke should NOT have SwiftIndirectResult
+        Assert.DoesNotContain("SwiftIndirectResult", csOutput);
+        // Should have IntPtr resultPtr as last param
+        Assert.Contains("IntPtr resultPtr", csOutput);
+        // Swift wrapper should have @_cdecl
+        Assert.Contains("@_cdecl", swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_CdeclEnumCaseWithTuple_UsesPointerTransport()
+    {
+        // @_cdecl enum case factory with tuple associated value must use IntPtr
+        // (pointer to tuple memory) in P/Invoke, NOT the by-value tuple type.
+        // Swift wrapper receives UnsafeRawPointer and does .load(as: TupleType.self).
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Coordinate", moduleDecl, isFrozen: false);
+
+        var pointCase = CreateCase("point");
+        pointCase.AssociatedValues.Add(new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Bool")
+        }));
+        enumDecl.Cases.Add(pointCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
+
+        // C# P/Invoke should use IntPtr for tuple (pointer transport), not ValueTuple
+        Assert.Contains("IntPtr value0, IntPtr resultPtr", csOutput);
+        Assert.DoesNotContain("ValueTuple<long, bool> value0", csOutput);
+        // C# body should store tuple in a local and take its address
+        Assert.Contains("Tuple = value0;", csOutput);
+        Assert.Contains("(&value0Tuple)", csOutput);
+        // Should use CallConvCdecl
+        Assert.Contains("CallConvCdecl", csOutput);
+        // Swift side should receive UnsafeRawPointer and load tuple
+        Assert.Contains("UnsafeRawPointer", swiftOutput);
+        Assert.Contains(".load(as:", swiftOutput);
+        Assert.Contains("@_cdecl", swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_CdeclEnumCaseWithProjectedTuple_FallsBackToCallConvSwift()
+    {
+        // Tuple with string element: C# IntPtr (8 bytes) vs Swift String (16 bytes).
+        // Memory layouts don't match, so @_cdecl pointer transport would give Swift
+        // the wrong data. The case factory must use CallConvSwift (by-value tuple passing).
+        var typeDatabase = CreateTypeDatabaseWithString();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Message", moduleDecl, isFrozen: false);
+
+        var taggedCase = CreateCase("tagged");
+        taggedCase.AssociatedValues.Add(new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.String"),
+            new NamedTypeSpec("Swift.Int")
+        }));
+        enumDecl.Cases.Add(taggedCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
+
+        // The Tagged case factory should use CallConvSwift (SwiftIndirectResult pattern)
+        Assert.Contains("SwiftIndirectResult", csOutput);
+        Assert.Contains("CallConvSwift", csOutput);
+        // No @_cdecl case factory wrapper should be emitted on the Swift side
+        Assert.DoesNotContain("SBW_TestModule_Message_tagged", swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_CdeclEnumCaseWithExistentialTuple_DoesNotEmitCdeclWrapper()
+    {
+        // Tuple with existential element: ExistentialContainer layout may not match
+        // Swift's tuple element layout. The @_cdecl gate rejects this, so no wrapper
+        // is emitted. (The case factory may also be skipped by other type resolution gates.)
+        var typeDatabase = CreateTypeDatabaseWithProtocol();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Event", moduleDecl, isFrozen: false);
+
+        var failedCase = CreateCase("failed");
+        failedCase.AssociatedValues.Add(new TupleTypeSpec(new List<TypeSpec>
+        {
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.ImageProcessing") }),
+            new NamedTypeSpec("Swift.Int")
+        }));
+        enumDecl.Cases.Add(failedCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (_, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
+
+        // No @_cdecl case factory wrapper should be emitted for this case
+        Assert.DoesNotContain("SBW_TestModule_Event_failed", swiftOutput);
+        // The _sbw_case_ prefix is used for case factory @_cdecl wrappers
+        Assert.DoesNotContain("_sbw_case_failed", swiftOutput);
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithProtocol()
+    {
+        var typeDatabase = CreateTypeDatabaseWithString();
+
+        var testModule = new ModuleTypeDatabase("TestModule_protocols", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.ImageProcessing"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "IImageProcessing"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ImageProcessing"),
+                MetadataAccessor = "$s10TestModule15ImageProcessingMp",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol
+            });
+        typeDatabase.AddModuleDatabase(testModule);
+
+        return typeDatabase;
+    }
+
+    #endregion
+
     private static (string csOutput, string swiftOutput) EmitEnum(EnumDecl enumDecl, TypeDatabase typeDatabase)
     {
         var csOutput = new StringWriter();

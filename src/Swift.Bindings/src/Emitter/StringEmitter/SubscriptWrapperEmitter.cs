@@ -59,16 +59,14 @@ public static class SubscriptWrapperEmitter
         if (subscriptDecl.ReturnTypeSpec is ProtocolListTypeSpec { IsOpaque: true })
             return false;
 
-        // 8. No unsupported generic container params/returns (Array, Dictionary, Set, Optional<existential>).
-        //    Optional<value-type> allowed (IndirectResult). Optional<existential> blocked (needs proxy).
-        if (ConstructorWrapperEmitter.IsGenericContainerType(subscriptDecl.ReturnTypeSpec) &&
-            !MethodWrapperEmitter.IsOptionalSupportedForCdecl(subscriptDecl.ReturnTypeSpec, env.TypeDatabase))
+        // 8. No unsupported generic container params/returns (Result<T,E>, Optional<existential>).
+        //    Optional<value-type> allowed (IndirectResult). Array/Dictionary/Set allowed (UnsafeRawPointer transport).
+        if (MethodWrapperEmitter.IsUnsupportedGenericContainer(subscriptDecl.ReturnTypeSpec, env.TypeDatabase))
             return false;
 
         foreach (var param in subscriptDecl.IndexParameters)
         {
-            if (ConstructorWrapperEmitter.IsGenericContainerType(param.SwiftTypeSpec) &&
-                !MethodWrapperEmitter.IsOptionalSupportedForCdecl(param.SwiftTypeSpec, env.TypeDatabase))
+            if (MethodWrapperEmitter.IsUnsupportedGenericContainer(param.SwiftTypeSpec, env.TypeDatabase))
                 return false;
         }
 

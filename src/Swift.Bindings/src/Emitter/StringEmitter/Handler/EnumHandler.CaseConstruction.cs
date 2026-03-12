@@ -12,7 +12,7 @@ namespace BindingsGeneration
         /// <summary>
         /// Emits a static method for an enum case with associated values.
         /// </summary>
-        private bool EmitEnumCaseWithAssociatedValues(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, ModuleDecl moduleDecl, ITypeDatabase typeDatabase, string enumTypeName, PInvokeHelperContext? pinvokeHelperContext, Dictionary<string, string>? propertyRenames = null, Dictionary<string, string>? caseNameMap = null)
+        private bool EmitEnumCaseWithAssociatedValues(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, ModuleDecl moduleDecl, ITypeDatabase typeDatabase, string enumTypeName, PInvokeHelperContext? pinvokeHelperContext, Dictionary<string, string>? propertyRenames = null, Dictionary<string, string>? caseNameMap = null, SwiftWriter? swiftWriter = null, ModuleEmissionContext? emissionCtx = null)
         {
             var caseName = caseDecl.Name;
             var capitalizedName = NameProvider.GetFinalMemberName(
@@ -208,16 +208,101 @@ namespace BindingsGeneration
                 }
             }
 
+            // Determine if this case can use a @_cdecl wrapper for NativeAOT compatibility
+            var useCdeclWrapper = swiftWriter != null && emissionCtx != null &&
+                EnumCaseWrapperEmitter.ShouldEmitCaseFactoryWrapper(enumDecl, caseDecl, typeDatabase);
+
+            string? cdeclSymbol = null;
+            if (useCdeclWrapper)
+            {
+                var enumSwiftName = enumDecl.SwiftTypeName?.Name ?? enumDecl.Name;
+                cdeclSymbol = EnumCaseWrapperEmitter.GetCaseFactorySymbolName(
+                    moduleDecl.Name, enumSwiftName, caseName, caseDecl.MangledName);
+
+                // Create a minimal MethodEnvironment for GetCdeclParamMapping
+                var dummyMethod = new MethodDecl
+                {
+                    Name = caseName,
+                    MangledName = caseDecl.MangledName,
+                    MethodType = MethodType.Static,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>(),
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = enumDecl,
+                    ModuleDecl = moduleDecl,
+                    Throws = false,
+                    IsAsync = false,
+                    Visibility = Visibility.Public
+                };
+                var wrapperEnv = new MethodEnvironment(dummyMethod, typeDatabase);
+
+                EnumCaseWrapperEmitter.EmitSwiftCaseFactoryWrapper(
+                    swiftWriter!, enumDecl, caseDecl, cdeclSymbol, wrapperEnv, emissionCtx);
+            }
+
+            // @_cdecl wrappers need additional setup for string and existential params:
+            // - Strings: extract PayloadBuffer to pass SwiftString.Buffer (16-byte blittable struct = two words)
+            // - Existentials: extract container into local for pass-by-ref (UnsafeRawPointer in Swift)
+            if (useCdeclWrapper)
+            {
+                var existentialHandler = new ExistentialHandler(typeDatabase);
+                for (int i = 0; i < parameters.Count; i++)
+                {
+                    var (_, _, name, typeSpec) = parameters[i];
+                    if (typeConversionHandler.IsSwiftString(typeSpec))
+                    {
+                        csWriter.WriteLine($"using var __{name}Payload = __{name}.PayloadBuffer;");
+                    }
+                    else if (existentialHandler.IsExistential(typeSpec))
+                    {
+                        var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
+                        if (protocolList != null)
+                        {
+                            var containerType = existentialHandler.GetCSharpExistentialType(protocolList);
+                            if (existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
+                            {
+                                csWriter.WriteLine($"var {name}Container = ((Swift.Runtime.ISwiftExistentialConvertible<{containerType}>){name}).GetExistentialContainer();");
+                            }
+                            else
+                            {
+                                // Unknown protocol: container is already the right type
+                                csWriter.WriteLine($"var {name}Container = {name};");
+                            }
+                        }
+                    }
+                    else if (typeSpec is TupleTypeSpec)
+                    {
+                        // @_cdecl: tuples are passed as UnsafeRawPointer in Swift.
+                        // Store the tuple value in a local so we can take its address.
+                        // Tuples with projected elements (string, existential, container) are
+                        // gated out by ShouldEmitCaseFactoryWrapper → IsTupleElementAbiCompatible,
+                        // so only ABI-identical tuples (primitives, frozen structs, etc.) reach here.
+                        csWriter.WriteLine($"var {name}Tuple = {name};");
+                    }
+                }
+            }
+
             // Swift enum case constructors use indirect return - allocate buffer and pass it
             var getMetadataCall = pinvokeHelperContext != null
                 ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata({string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList())})"
                 : "PInvoke_getMetadata()";
             csWriter.WriteLine($"var metadata = {getMetadataCall};");
             csWriter.WriteLine($"IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);");
-            csWriter.WriteLine($"var indirectResult = new SwiftIndirectResult((void*)buffer);");
+
+            if (!useCdeclWrapper)
+            {
+                csWriter.WriteLine($"var indirectResult = new SwiftIndirectResult((void*)buffer);");
+            }
 
             // Build the P/Invoke call with arguments
-            var argList = new List<string> { "indirectResult" };
+            // For @_cdecl wrappers: associated value args first, resultPtr (buffer) last
+            // For CallConvSwift: indirectResult first, then associated value args
+            var argList = new List<string>();
+            if (!useCdeclWrapper)
+            {
+                argList.Add("indirectResult");
+            }
+
             for (int i = 0; i < parameters.Count; i++)
             {
                 var (type, _, name, typeSpec) = parameters[i];
@@ -234,9 +319,24 @@ namespace BindingsGeneration
                 {
                     argList.Add(projPlan.PInvokeExpression);
                 }
+                else if (useCdeclWrapper && typeSpec is TupleTypeSpec)
+                {
+                    // @_cdecl: pass tuple by pointer (matches Swift's UnsafeRawPointer param)
+                    argList.Add($"(IntPtr)(&{name}Tuple)");
+                }
                 else if (tuplePInvokeExprs.TryGetValue(i, out var tupleExpr))
                 {
                     argList.Add(tupleExpr);
+                }
+                else if (useCdeclWrapper && typeConversionHandler.IsSwiftString(typeSpec))
+                {
+                    // @_cdecl: pass SwiftString.Buffer (16-byte struct = two words matching Swift's two Int params)
+                    argList.Add($"__{name}Payload.Buffer");
+                }
+                else if (useCdeclWrapper && new ExistentialHandler(typeDatabase).IsExistential(typeSpec))
+                {
+                    // @_cdecl: pass container by reference (matches Swift's UnsafeRawPointer param)
+                    argList.Add($"ref {name}Container");
                 }
                 else
                 {
@@ -245,6 +345,11 @@ namespace BindingsGeneration
                     var argName = isConvertedToLocal ? $"__{name}" : name;
                     argList.Add(GetPInvokeArgument(argName, typeSpec, typeDatabase));
                 }
+            }
+
+            if (useCdeclWrapper)
+            {
+                argList.Add("buffer"); // resultPtr as last arg for @_cdecl
             }
 
             var invokeArgList = string.Join(", ", argList);
@@ -264,43 +369,113 @@ namespace BindingsGeneration
             csWriter.WriteLine("}");
             csWriter.WriteLine();
 
-            // P/Invoke declaration for the case constructor with associated values - uses indirect result
-            // C5: Use unique name for indirect result param to avoid CS0100 if an associated value
-            // is also named "result"
-            var indirectResultParamName = parameters.Any(p => p.name == "result") ? "__result" : "result";
-            var pInvokeParams = new List<string> { $"SwiftIndirectResult {indirectResultParamName}" };
-            for (int i = 0; i < parameters.Count; i++)
+            // P/Invoke declaration
+            if (useCdeclWrapper)
             {
-                var (_, _, name, typeSpec) = parameters[i];
-                var pInvokeType = GetPInvokeType(typeSpec, typeDatabase);
-                var marshalPrefix = MarshallingHelpers.IsBoolType(pInvokeType) ? "[MarshalAs(UnmanagedType.U1)] " : "";
-                pInvokeParams.Add($"{marshalPrefix}{pInvokeType} {name}");
-            }
-
-            if (pinvokeHelperContext != null)
-            {
-                pinvokeHelperContext.AddDeclaration(new PInvokeDeclaration
+                // @_cdecl wrapper: C calling convention, associated value params + IntPtr resultPtr
+                // Types must match the Swift wrapper ABI from GetCdeclParamMapping:
+                // - Strings: SwiftString.Buffer (16-byte struct = two words, not IntPtr)
+                // - Existentials: ref ExistentialContainer (pass by ref = pointer, not by value)
+                // - Everything else: same as legacy GetPInvokeType
+                var pInvokeParams = new List<string>();
+                var cdeclExistentialHandler = new ExistentialHandler(typeDatabase);
+                for (int i = 0; i < parameters.Count; i++)
                 {
-                    LibraryPath = libPath,
-                    EntryPoint = caseDecl.MangledName,
-                    MethodName = pInvokeName,
-                    ReturnType = "void",
-                    ParametersString = string.Join(", ", pInvokeParams),
-                    IsAsync = false,
-                    MetadataParameters = pinvokeHelperContext.GetMetadataParameterDeclarations()
-                });
+                    var (_, _, name, typeSpec) = parameters[i];
+                    if (typeConversionHandler.IsSwiftString(typeSpec))
+                    {
+                        pInvokeParams.Add($"Swift.SwiftString.Buffer {name}");
+                    }
+                    else if (cdeclExistentialHandler.IsExistential(typeSpec))
+                    {
+                        var protocolList = cdeclExistentialHandler.ToProtocolListTypeSpec(typeSpec);
+                        var containerType = protocolList != null
+                            ? cdeclExistentialHandler.GetPInvokeExistentialType(protocolList)
+                            : "Swift.Runtime.ExistentialContainer0";
+                        pInvokeParams.Add($"ref {containerType} {name}");
+                    }
+                    else if (typeSpec is TupleTypeSpec)
+                    {
+                        // @_cdecl: tuples pass as UnsafeRawPointer in Swift, IntPtr in C#
+                        pInvokeParams.Add($"IntPtr {name}");
+                    }
+                    else
+                    {
+                        var pInvokeType = GetPInvokeType(typeSpec, typeDatabase);
+                        var marshalPrefix = MarshallingHelpers.IsBoolType(pInvokeType) ? "[MarshalAs(UnmanagedType.U1)] " : "";
+                        pInvokeParams.Add($"{marshalPrefix}{pInvokeType} {name}");
+                    }
+                }
+                pInvokeParams.Add("IntPtr resultPtr"); // Result pointer as last param
+
+                if (pinvokeHelperContext != null)
+                {
+                    pinvokeHelperContext.AddDeclaration(new PInvokeDeclaration
+                    {
+                        LibraryPath = libPath,
+                        EntryPoint = cdeclSymbol!,
+                        MethodName = pInvokeName,
+                        ReturnType = "void",
+                        ParametersString = string.Join(", ", pInvokeParams),
+                        IsAsync = false,
+                        OmitCallingConvention = true, // Use Cdecl instead of Swift
+                        MetadataParameters = pinvokeHelperContext.GetMetadataParameterDeclarations()
+                    });
+                }
+                else
+                {
+                    PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+                    {
+                        LibraryPath = libPath,
+                        EntryPoint = cdeclSymbol!,
+                        MethodName = pInvokeName,
+                        ReturnType = "void",
+                        ParametersString = string.Join(", ", pInvokeParams),
+                        CallingConvention = PInvokeCallingConvention.Cdecl
+                    });
+                    csWriter.WriteLine();
+                }
             }
             else
             {
-                PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+                // Original CallConvSwift path with SwiftIndirectResult
+                // C5: Use unique name for indirect result param to avoid CS0100 if an associated value
+                // is also named "result"
+                var indirectResultParamName = parameters.Any(p => p.name == "result") ? "__result" : "result";
+                var pInvokeParams = new List<string> { $"SwiftIndirectResult {indirectResultParamName}" };
+                for (int i = 0; i < parameters.Count; i++)
                 {
-                    LibraryPath = libPath,
-                    EntryPoint = caseDecl.MangledName,
-                    MethodName = pInvokeName,
-                    ReturnType = "void",
-                    ParametersString = string.Join(", ", pInvokeParams)
-                });
-                csWriter.WriteLine();
+                    var (_, _, name, typeSpec) = parameters[i];
+                    var pInvokeType = GetPInvokeType(typeSpec, typeDatabase);
+                    var marshalPrefix = MarshallingHelpers.IsBoolType(pInvokeType) ? "[MarshalAs(UnmanagedType.U1)] " : "";
+                    pInvokeParams.Add($"{marshalPrefix}{pInvokeType} {name}");
+                }
+
+                if (pinvokeHelperContext != null)
+                {
+                    pinvokeHelperContext.AddDeclaration(new PInvokeDeclaration
+                    {
+                        LibraryPath = libPath,
+                        EntryPoint = caseDecl.MangledName,
+                        MethodName = pInvokeName,
+                        ReturnType = "void",
+                        ParametersString = string.Join(", ", pInvokeParams),
+                        IsAsync = false,
+                        MetadataParameters = pinvokeHelperContext.GetMetadataParameterDeclarations()
+                    });
+                }
+                else
+                {
+                    PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+                    {
+                        LibraryPath = libPath,
+                        EntryPoint = caseDecl.MangledName,
+                        MethodName = pInvokeName,
+                        ReturnType = "void",
+                        ParametersString = string.Join(", ", pInvokeParams)
+                    });
+                    csWriter.WriteLine();
+                }
             }
             return true;
         }

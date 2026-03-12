@@ -309,30 +309,34 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_GenericContainerParam_ReturnsFalse()
+    public void ShouldEmitWrapper_UnsupportedGenericContainerParam_ReturnsFalse()
     {
+        // Result<T,E> is still blocked — not a supported collection type
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
         var parentDecl = CreateClassDecl("MyType", moduleDecl);
-        var arraySpec = new NamedTypeSpec("Swift.Array");
-        arraySpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
-        var method = CreateMethodWithParam("doWork", arraySpec, "items", parentDecl, moduleDecl);
+        var resultSpec = new NamedTypeSpec("Swift.Result");
+        resultSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        resultSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Error"));
+        var method = CreateMethodWithParam("doWork", resultSpec, "result", parentDecl, moduleDecl);
         var env = new MethodEnvironment(method, typeDb);
 
         Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
     }
 
     [Fact]
-    public void ShouldEmitWrapper_GenericContainerReturn_ReturnsFalse()
+    public void ShouldEmitWrapper_UnsupportedGenericContainerReturn_ReturnsFalse()
     {
+        // Result<T,E> return is still blocked
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
         var parentDecl = CreateClassDecl("MyType", moduleDecl);
-        var arraySpec = new NamedTypeSpec("Swift.Array");
-        arraySpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
-        var method = CreateMethodWithReturn("doWork", arraySpec, parentDecl, moduleDecl);
+        var resultSpec = new NamedTypeSpec("Swift.Result");
+        resultSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        resultSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Error"));
+        var method = CreateMethodWithReturn("doWork", resultSpec, parentDecl, moduleDecl);
         var env = new MethodEnvironment(method, typeDb);
 
         Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
@@ -1550,8 +1554,9 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_ArrayParam_StillReturnsFalse()
+    public void ShouldEmitWrapper_ArrayParam_ReturnsTrue()
     {
+        // Array params now handled via @_cdecl UnsafeRawPointer + .load(as:) (Session 9A)
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -1561,7 +1566,7 @@ public class MethodWrapperEmitterTests
         var method = CreateMethodWithParam("doWork", arraySpec, "items", parentDecl, moduleDecl);
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
     }
 
     [Fact]
@@ -1664,8 +1669,9 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_DictionaryParam_StillReturnsFalse()
+    public void ShouldEmitWrapper_DictionaryParam_ReturnsTrue()
     {
+        // Dictionary params now handled via @_cdecl UnsafeRawPointer + .load(as:) (Session 9A)
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -1676,7 +1682,7 @@ public class MethodWrapperEmitterTests
         var method = CreateMethodWithParam("doWork", dictSpec, "dict", parentDecl, moduleDecl);
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
     }
 
     [Fact]
@@ -1700,7 +1706,8 @@ public class MethodWrapperEmitterTests
     [Fact]
     public void ShouldEmitWrapper_OptionalExistentialReturn_ReturnsFalse()
     {
-        // Optional<protocol existential> needs proxy conversion that @_cdecl can't handle
+        // Optional<protocol existential> still blocked — property/method marshalling
+        // doesn't convert ExistentialContainer1 to protocol proxy
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -1712,6 +1719,171 @@ public class MethodWrapperEmitterTests
         var env = new MethodEnvironment(method, typeDb);
 
         Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    #endregion
+
+    #region Session 9B: Protocol Existential Param Guard Tests
+
+    [Fact]
+    public void ShouldEmitWrapper_BareExistentialParam_ReturnsTrue()
+    {
+        // Bare protocol existential params (any Protocol) already handled by
+        // GetCdeclParamMapping existential path — no guard blocks them
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var existentialSpec = new ProtocolListTypeSpec(new List<NamedTypeSpec> { new NamedTypeSpec("Swift.Hashable") });
+        var method = CreateMethodWithParam("doWork", existentialSpec, "thing", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_OptionalExistentialParam_ReturnsFalse()
+    {
+        // Optional<any Protocol> params still blocked — marshalling doesn't handle
+        // ExistentialContainer1 → protocol proxy conversion
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var protocolList = new ProtocolListTypeSpec(new List<NamedTypeSpec> { new NamedTypeSpec("Swift.Hashable") });
+        var optionalExistential = new NamedTypeSpec("Swift.Optional");
+        optionalExistential.GenericParameters.Add(protocolList);
+        var method = CreateMethodWithParam("doWork", optionalExistential, "thing", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_BareExistentialReturn_ReturnsTrue()
+    {
+        // Bare protocol existential returns handled via @_cdecl IndirectResult
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var existentialSpec = new ProtocolListTypeSpec(new List<NamedTypeSpec> { new NamedTypeSpec("Swift.Hashable") });
+        var method = CreateMethodWithReturn("getThing", existentialSpec, parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    #endregion
+
+    #region Session 9A: Collection Container Guard Tests
+
+    [Fact]
+    public void ShouldEmitWrapper_SetParam_ReturnsTrue()
+    {
+        // Set params now handled via @_cdecl UnsafeRawPointer + .load(as:) (Session 9A)
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var setSpec = new NamedTypeSpec("Swift.Set");
+        setSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        var method = CreateMethodWithParam("doWork", setSpec, "items", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_ArrayReturn_ReturnsTrue()
+    {
+        // Array returns now handled via @_cdecl IndirectResult (Session 9A)
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var arraySpec = new NamedTypeSpec("Swift.Array");
+        arraySpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        var method = CreateMethodWithReturn("getItems", arraySpec, parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_DictionaryReturn_ReturnsTrue()
+    {
+        // Dictionary returns now handled via @_cdecl IndirectResult (Session 9A)
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var dictSpec = new NamedTypeSpec("Swift.Dictionary");
+        dictSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        dictSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var method = CreateMethodWithReturn("getDict", dictSpec, parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_ResultParam_StillReturnsFalse()
+    {
+        // Result<T,E> still blocked — complex error handling not supported in @_cdecl
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var resultSpec = new NamedTypeSpec("Swift.Result");
+        resultSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        resultSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Error"));
+        var method = CreateMethodWithParam("doWork", resultSpec, "result", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void IsSupportedCollectionType_Array_ReturnsTrue()
+    {
+        var arraySpec = new NamedTypeSpec("Swift.Array");
+        arraySpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        Assert.True(MethodWrapperEmitter.IsSupportedCollectionType(arraySpec));
+    }
+
+    [Fact]
+    public void IsSupportedCollectionType_Dictionary_ReturnsTrue()
+    {
+        var dictSpec = new NamedTypeSpec("Swift.Dictionary");
+        dictSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        dictSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        Assert.True(MethodWrapperEmitter.IsSupportedCollectionType(dictSpec));
+    }
+
+    [Fact]
+    public void IsSupportedCollectionType_Set_ReturnsTrue()
+    {
+        var setSpec = new NamedTypeSpec("Swift.Set");
+        setSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        Assert.True(MethodWrapperEmitter.IsSupportedCollectionType(setSpec));
+    }
+
+    [Fact]
+    public void IsSupportedCollectionType_Result_ReturnsFalse()
+    {
+        var resultSpec = new NamedTypeSpec("Swift.Result");
+        resultSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        resultSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Error"));
+        Assert.False(MethodWrapperEmitter.IsSupportedCollectionType(resultSpec));
+    }
+
+    [Fact]
+    public void IsSupportedCollectionType_Optional_ReturnsFalse()
+    {
+        var optionalSpec = new NamedTypeSpec("Swift.Optional");
+        optionalSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        Assert.False(MethodWrapperEmitter.IsSupportedCollectionType(optionalSpec));
     }
 
     #endregion

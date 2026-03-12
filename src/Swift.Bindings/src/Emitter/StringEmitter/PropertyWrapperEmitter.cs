@@ -55,10 +55,9 @@ public static class PropertyWrapperEmitter
             AppleFrameworkRegistry.IsNestedType(propNamed.Name))
             return false;
 
-        // 9. Skip unsupported generic container properties (Array, Dictionary, Set, Optional<existential>).
-        //    Optional<value-type> allowed (IndirectResult). Optional<existential> blocked (needs proxy).
-        if (ConstructorWrapperEmitter.IsGenericContainerType(propertyDecl.SwiftTypeSpec) &&
-            !MethodWrapperEmitter.IsOptionalSupportedForCdecl(propertyDecl.SwiftTypeSpec, accessorEnv.TypeDatabase))
+        // 9. Skip unsupported generic container properties (Result<T,E>, Optional<existential>).
+        //    Optional<value-type> allowed (IndirectResult). Array/Dictionary/Set allowed (UnsafeRawPointer transport).
+        if (MethodWrapperEmitter.IsUnsupportedGenericContainer(propertyDecl.SwiftTypeSpec, accessorEnv.TypeDatabase))
             return false;
 
         // 9b. ObjC-bridged Optional accessor setter: C# aliases IntPtr directly, incompatible

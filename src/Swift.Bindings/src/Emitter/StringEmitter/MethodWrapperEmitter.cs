@@ -736,23 +736,49 @@ public static class MethodWrapperEmitter
     /// <summary>
     /// Checks whether any parameter or the return type is a generic container type
     /// that can't be handled by @_cdecl wrappers.
-    /// Allows: Optional&lt;reference&gt; (nullable pointer ABI), Optional&lt;value-type&gt; (IndirectResult).
-    /// Blocks: Array, Dictionary, Set, Optional&lt;protocol existential&gt; (needs proxy conversion).
+    /// Allows: Optional&lt;reference&gt; (nullable pointer ABI), Optional&lt;value-type&gt; (IndirectResult),
+    /// Array, Dictionary, Set (UnsafeRawPointer transport).
+    /// Blocks: Result&lt;T,E&gt;, Optional&lt;protocol existential&gt; (needs proxy conversion).
     /// </summary>
     private static bool HasUnsupportedGenericContainerParamsOrReturn(MethodEnvironment env)
     {
         var returnSpec = env.MethodDecl.CSSignature.First().SwiftTypeSpec;
-        if (ConstructorWrapperEmitter.IsGenericContainerType(returnSpec) &&
-            !IsOptionalSupportedForCdecl(returnSpec, env.TypeDatabase))
+        if (IsUnsupportedGenericContainer(returnSpec, env.TypeDatabase))
             return true;
 
         foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
         {
-            if (ConstructorWrapperEmitter.IsGenericContainerType(arg.SwiftTypeSpec) &&
-                !IsOptionalSupportedForCdecl(arg.SwiftTypeSpec, env.TypeDatabase))
+            if (IsUnsupportedGenericContainer(arg.SwiftTypeSpec, env.TypeDatabase))
                 return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Returns true if a type is a generic container that can't be handled by @_cdecl wrappers.
+    /// Allows: Optional&lt;value-type&gt; (IndirectResult), Optional&lt;reference&gt; (nullable pointer),
+    /// Array, Dictionary, Set (UnsafeRawPointer transport).
+    /// Blocks: Result&lt;T,E&gt;, Optional&lt;protocol existential&gt; (needs proxy conversion).
+    /// </summary>
+    internal static bool IsUnsupportedGenericContainer(TypeSpec typeSpec, ITypeDatabase typeDatabase)
+    {
+        if (!ConstructorWrapperEmitter.IsGenericContainerType(typeSpec))
+            return false;
+        if (IsOptionalSupportedForCdecl(typeSpec, typeDatabase))
+            return false;  // Optional<value-type/reference>: IndirectResult or nullable pointer
+        if (IsSupportedCollectionType(typeSpec))
+            return false;  // Array, Dictionary, Set pass through via UnsafeRawPointer
+        return true;  // Result<T,E>, Optional<existential> still blocked
+    }
+
+    /// <summary>
+    /// Returns true for collection container types that can be transported through @_cdecl
+    /// wrappers via UnsafeRawPointer + .load(as:) / resultPtr.initializeMemory(as:).
+    /// </summary>
+    internal static bool IsSupportedCollectionType(TypeSpec typeSpec)
+    {
+        return typeSpec is NamedTypeSpec named &&
+            named.Name is "Swift.Array" or "Swift.Dictionary" or "Swift.Set";
     }
 
     /// <summary>

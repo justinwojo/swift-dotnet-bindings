@@ -308,6 +308,53 @@ public class SubscriptWrapperEmitterTests
 
     #endregion
 
+    #region Session 9A: Collection Container Guard Tests
+
+    [Fact]
+    public void ShouldEmit_ArrayReturn_ReturnsTrue()
+    {
+        // Array returns now handled via @_cdecl IndirectResult (Session 9A)
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var accessor = new GetAccessorDecl { Method = CreateAccessorMethod("getter:subscript", true, parentDecl, moduleDecl) };
+        var arraySpec = new NamedTypeSpec("Swift.Array");
+        arraySpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        var subscriptDecl = CreateSubscriptDecl(
+            arraySpec,
+            new[] { CreateIndexParam("key", new NamedTypeSpec("Swift.Int"), moduleDecl) },
+            new AccessorDecl[] { accessor },
+            parentDecl, moduleDecl);
+
+        var env = new MethodEnvironment(accessor.Method, typeDb);
+        Assert.True(SubscriptWrapperEmitter.ShouldEmitSubscriptWrapper(subscriptDecl, accessor, env));
+    }
+
+    [Fact]
+    public void ShouldEmit_DictionaryIndexParam_ReturnsTrue()
+    {
+        // Dictionary index params now handled via @_cdecl UnsafeRawPointer (Session 9A)
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var accessor = new GetAccessorDecl { Method = CreateAccessorMethod("getter:subscript", true, parentDecl, moduleDecl) };
+        var dictSpec = new NamedTypeSpec("Swift.Dictionary");
+        dictSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        dictSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var subscriptDecl = CreateSubscriptDecl(
+            new NamedTypeSpec("Swift.Int"),
+            new[] { CreateIndexParam("mapping", dictSpec, moduleDecl) },
+            new AccessorDecl[] { accessor },
+            parentDecl, moduleDecl);
+
+        var env = new MethodEnvironment(accessor.Method, typeDb);
+        Assert.True(SubscriptWrapperEmitter.ShouldEmitSubscriptWrapper(subscriptDecl, accessor, env));
+    }
+
+    #endregion
+
     #region Symbol Name Tests
 
     [Fact]

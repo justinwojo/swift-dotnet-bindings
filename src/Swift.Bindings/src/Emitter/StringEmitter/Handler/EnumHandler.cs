@@ -215,7 +215,7 @@ namespace BindingsGeneration
             {
                 if (caseDecl.HasAssociatedValues)
                 {
-                    if (EmitEnumCaseWithAssociatedValues(csWriter, enumDecl, caseDecl, moduleDecl, env.TypeDatabase, typeNameWithGenerics, pinvokeHelperContext, propertyRenames, caseNameMap))
+                    if (EmitEnumCaseWithAssociatedValues(csWriter, enumDecl, caseDecl, moduleDecl, env.TypeDatabase, typeNameWithGenerics, pinvokeHelperContext, propertyRenames, caseNameMap, swiftWriter, context.GetEmissionContext()))
                     {
                         emittedCaseConstructorNames.Add(NameProvider.GetFinalMemberName(
                             NameProvider.GetCaseName(caseDecl.Name, caseNameMap), propertyRenames));

@@ -1402,8 +1402,9 @@ public class PropertyWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_ArrayProperty_StillReturnsFalse()
+    public void ShouldEmitWrapper_ArrayProperty_ReturnsTrue()
     {
+        // Array properties now handled via @_cdecl UnsafeRawPointer transport (Session 9A)
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -1412,13 +1413,45 @@ public class PropertyWrapperEmitterTests
         arraySpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
         var (propertyDecl, env) = CreatePropertyAndEnv("items", arraySpec, parentDecl, moduleDecl, typeDb);
 
-        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_DictionaryProperty_ReturnsTrue()
+    {
+        // Dictionary properties now handled via @_cdecl UnsafeRawPointer transport (Session 9A)
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var dictSpec = new NamedTypeSpec("Swift.Dictionary");
+        dictSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        dictSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var (propertyDecl, env) = CreatePropertyAndEnv("mapping", dictSpec, parentDecl, moduleDecl, typeDb);
+
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_SetProperty_ReturnsTrue()
+    {
+        // Set properties now handled via @_cdecl UnsafeRawPointer transport (Session 9A)
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var setSpec = new NamedTypeSpec("Swift.Set");
+        setSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        var (propertyDecl, env) = CreatePropertyAndEnv("tags", setSpec, parentDecl, moduleDecl, typeDb);
+
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
     }
 
     [Fact]
     public void ShouldEmitWrapper_OptionalExistentialProperty_ReturnsFalse()
     {
-        // Optional<protocol existential> needs proxy conversion that @_cdecl can't handle
+        // Optional<protocol existential> still blocked — marshalling doesn't convert
+        // ExistentialContainer1 to protocol proxy
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 

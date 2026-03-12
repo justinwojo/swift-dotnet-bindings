@@ -21,6 +21,12 @@ Sessions 1-5 of Phase 3.5 are complete, covering:
 | G.1 | Subscript accessors | 4 |
 | C.2 | Optional\<value-type\> — IndirectResult | 5 |
 | G.4 | Closure returns — IndirectResult | 5 |
+| D | Generic parent types (methods, properties, constructors) | 6-7 |
+| 15c | Tuple returns | 8 |
+| 15d | DynamicSelf returns | 8 |
+| 9A | Collection container params/returns (Array, Dict, Set) | 9 |
+| 9B | Bare protocol existential params (already worked) | 9 |
+| 9C | Complex enum case factory wrappers | 9 |
 
 Plus Phases 1-3 (property/method/constructor/destroy wrappers, DllImport resolver) and Phase 2.5 (inline closure params in @_cdecl wrappers).
 
@@ -28,24 +34,20 @@ Plus Phases 1-3 (property/method/constructor/destroy wrappers, DllImport resolve
 
 | Sub-phase | What | Estimated scope |
 |---|---|---|
-| D | Generic parent types (methods, properties, constructors) | ~80% of remaining CallConvSwift |
-| G.2 | Non-frozen struct returns (methods) | Infrastructure done, blocked by generic parent guard |
-| G.3 | Complex enum constructors | Infrastructure done, blocked by generic parent guard |
-| 15c | Tuple returns | 19 libraries affected |
-| 15d | DynamicSelf returns | 10+ libraries affected |
+| 9A | Collection container params/returns (Array, Dict, Set) | ✅ Done |
+| 9B | Protocol existential params in methods | ✅ Partial (Optional\<existential\> deferred) |
+| 9C | Complex enum case factory wrappers | ✅ Done |
 | Phase 4 | Cleanup + documentation | Workaround removal, diagnostics, doc updates |
 
 ### The real numbers
 
-As of the last validation run:
+As of the validation run after Session 9 (with Codex review fixes):
 
-- **4,565 CallConvSwift P/Invokes** remain in C# bindings across 90 libraries
-- **1,109 Cdecl P/Invokes** exist — about 20% of the total
-- **Generic parent types are the dominant driver**: GRDB (574), Alamofire (506), Kingfisher (320), RxSwift (279), Mappedin (239), StripePaymentSheet (234), StripePayments (223), Lottie (198)
-- **Tuples are not zero-impact**: appear in 19/90 libraries (Kingfisher 13, Lottie 12, Alamofire 11, Starscream 10, BonMot 10)
-- **DynamicSelf/AnyType is not zero-impact**: GRDB (142), Kingfisher (102), TinyConstraints (65), CryptoSwift (45), Lottie (22)
+- **13,759 Cdecl P/Invokes** — 78.5% of total
+- **3,766 CallConvSwift P/Invokes** remain (~812 are `UnmanagedCallersOnly` callbacks, inherently CallConvSwift; ~2,954 are wrappable declarations)
+- **Remaining wrappable CallConvSwift by category**: method-level generics (968), Optional\<existential\> (~199), frozen struct params (~200), closure patterns (~235), MCB callbacks (54), instance methods with combined blockers (~500), other (~798)
 
-The "Done" definition says "near-zero CallConvSwift." We're at ~80% CallConvSwift. Most of that is generic parent types.
+The "Done" definition says "near-zero CallConvSwift — only unfixable Swift compiler restrictions." Session 9 converted the three largest fixable categories. Remaining CallConvSwift is dominated by method-level generics (unfixable without ABI spec), frozen struct params (Swift compiler restriction), and Optional\<existential\> (needs protocol proxy conversion in marshalling).
 
 ---
 
@@ -235,9 +237,102 @@ func _sbw_configure(_ self_: UnsafeMutableRawPointer) -> UnsafeMutableRawPointer
 
 ---
 
+## Session 9: Collection Containers, Existential Params, and Enum Case Factories ✅ COMPLETE
+
+**Goal**: Convert ~1,329 additional P/Invokes from CallConvSwift to Cdecl by lifting three categories of guards that have existing infrastructure or clear implementation paths.
+
+**Context**: After Sessions 6-8, coverage was 71.8% Cdecl (11,501 of 16,016). This session targets the three largest fixable categories.
+
+**Actual outcome**: Coverage rose to **78.7%** (13,658 of 17,348). The P/Invoke total increased because lifting guards exposed more wrappable methods. Net gain: +2,157 Cdecl P/Invokes, -825 CallConvSwift P/Invokes.
+
+### Sub-phase 9A: Collection container params and returns ✅
+
+**Guards lifted**: Guard 14 in `MethodWrapperEmitter` (`HasUnsupportedGenericContainerParamsOrReturn`), Guard 9 in `PropertyWrapperEmitter`, Guard 8 in `SubscriptWrapperEmitter`.
+
+**Solution**: Refactored `HasUnsupportedGenericContainerParamsOrReturn` to use new `IsUnsupportedGenericContainer()` helper with `IsSupportedCollectionType()` allowing Array/Dictionary/Set through. Only `Result<T,E>` and `Optional<existential>` remain blocked.
+
+**Files changed**:
+- `MethodWrapperEmitter.cs` — added `IsUnsupportedGenericContainer()`, `IsSupportedCollectionType()`, `IsOptionalType()`, `IsOptionalSupportedForCdecl()` helpers
+- `PropertyWrapperEmitter.cs` — guard 9 uses `IsUnsupportedGenericContainer`
+- `SubscriptWrapperEmitter.cs` — guard 8 uses `IsUnsupportedGenericContainer`
+- `MethodWrapperEmitterTests.cs` — flipped Array/Dict tests to expect true, updated generic container tests to use `Swift.Result`, added 9 new collection container tests + `IsSupportedCollectionType` tests
+- `PropertyWrapperEmitterTests.cs` — flipped Array test, added Dict/Set tests
+- `SubscriptWrapperEmitterTests.cs` — added Array return and Dict index param tests
+
+### Sub-phase 9B: Protocol existential params in methods ✅ (partial)
+
+**Investigation result**: Bare existential params/returns already passed through `ShouldEmitWrapper` guards — they were never blocked. The 199 estimate came from `Optional<existential>` being caught by the generic container guard.
+
+**Attempted**: Allowed all `Optional<T>` through `IsUnsupportedGenericContainer`. This caused **27 library regressions** — the property getter C# codegen returns raw `ExistentialContainer1` from `SwiftOptional<ExistentialContainer1>.ToNullable()` without converting to the protocol proxy interface type. The marshalling gap is in the property handler's @_cdecl return path.
+
+**Reverted**: `Optional<existential>` remains blocked via `IsOptionalSupportedForCdecl()` which checks `IsProtocolExistentialType` on the inner type. Bare existential params/returns continue to work (they were already passing).
+
+**Deferred**: `Optional<existential>` support requires protocol proxy conversion in the property/method return marshalling path. Track as future work.
+
+**Files changed**:
+- `MethodWrapperEmitterTests.cs` — added bare existential param/return tests (both pass), Optional<existential> param/return tests (both correctly return false)
+- `PropertyWrapperEmitterTests.cs` — added Optional<existential> property test (correctly returns false)
+
+### Sub-phase 9C: Complex enum case factory wrappers ✅
+
+**Solution**: Created new `EnumCaseWrapperEmitter.cs` with three public methods:
+- `ShouldEmitCaseFactoryWrapper()` — gates: xcframework mode, not generic enum, no closure associated values, no generic type params in associated values, tuple elements must be ABI-compatible
+- `GetCaseFactorySymbolName()` — `SBW_{Module}_{EnumType}_{caseName}_{HASH}`
+- `EmitSwiftCaseFactoryWrapper()` — @_cdecl function receiving C-compatible params, constructing enum case, writing to resultPtr via `initializeMemory(as:)`
+
+Integrated into `EnumHandler.CaseConstruction.cs` with a dual-path approach: when the wrapper is available, uses Cdecl calling convention with IntPtr resultPtr as last P/Invoke param; otherwise keeps original CallConvSwift path.
+
+**C# P/Invoke ABI must match the Swift @_cdecl wrapper ABI** (from `GetCdeclParamMapping`):
+- **Strings**: `SwiftString.Buffer` (16-byte struct = two words), not `IntPtr`
+- **Existentials**: `ref ExistentialContainer` (pass by reference = pointer), not by-value container
+- **Tuples**: `IntPtr` (pointer to stack-local tuple via `&`), not by-value tuple — only for tuples where all elements are ABI-identical between C# and Swift (primitives, frozen blittable structs). Tuples with projected elements (strings, existentials, containers, classes, enums, non-frozen structs) fall back to CallConvSwift because the C# ValueTuple memory layout doesn't match the Swift tuple layout for pointer-based transport.
+
+**Files changed**:
+- `EnumCaseWrapperEmitter.cs` (NEW) — complete wrapper emitter for enum case factories, including `IsTupleElementAbiCompatible()` gate
+- `EnumHandler.CaseConstruction.cs` — conditional @_cdecl wrapper path, dual calling convention, ABI-correct P/Invoke types for strings/existentials/tuples
+- `EnumHandler.cs` — passes swiftWriter and emissionContext to case construction
+- `EnumCaseWrapperEmitterTests.cs` (NEW) — 17 tests: guard tests (13 including tuple ABI gates), symbol name format (1), emission tests (3)
+- `EnumHandlerOutputTests.cs` — 6 new tests: 3 @_cdecl ABI tests (string/existential/primitive), 3 tuple fallback tests (projected tuple, existential tuple, pointer transport)
+
+### Actual outcome
+
+| Sub-phase | Result | Notes |
+|-----------|--------|-------|
+| 9A (collections) | ✅ Implemented | Array/Dictionary/Set pass through via existing UnsafeRawPointer infrastructure |
+| 9B (existential params) | ✅ Partial | Bare existentials already worked; Optional\<existential\> deferred (marshalling gap) |
+| 9C (enum case factories) | ✅ Implemented | New EnumCaseWrapperEmitter + EnumHandler integration |
+
+| Metric | Before Session 9 | After Session 9 |
+|--------|------------------|-----------------|
+| CallConvCdecl | 11,501 | 13,759 |
+| CallConvSwift | 4,515 | 3,766 |
+| Total P/Invokes | 16,016 | 17,525 |
+| Cdecl coverage | 71.8% | **78.5%** |
+
+The total P/Invoke count increased because lifting collection container and enum case factory guards exposed additional wrappable declarations that were previously suppressed.
+
+After Session 9, remaining CallConvSwift (~3,766) is dominated by:
+- Method-level generics (968) — unfixable without ABI spec
+- Optional\<existential\> properties/methods (~199) — deferred (needs proxy conversion)
+- Frozen struct params (~200) — Swift compiler restriction
+- MCB callbacks (54) — inherent
+- Instance methods with multiple combined blockers (~500) — diminishing returns
+- Miscellaneous (operators, protocol extensions, partially-supported patterns) (~460)
+
+### Validation gate
+
+- [x] `./run-tests.sh` — 7,123 tests pass, 0 failures
+- [x] `./validate-libraries.sh --tier all` — 90/90 pass, 0 regressions
+- [x] CallConvSwift decreased from 4,515 → 3,766 (-749, or -17%)
+- [x] CallConvCdecl increased from 11,501 → 13,759 (+2,258)
+- [x] New unit tests: 9 collection container tests, 5 existential param tests, 17 enum case factory guard tests, 6 enum case factory ABI tests
+- [x] External AI review (Codex): 3 rounds, all P1 findings fixed (string/existential/tuple ABI mismatches, tuple element layout gates for classes/enums)
+
+---
+
 ## Phase 4: Cleanup and Documentation
 
-**Prerequisite**: Sessions 6-8 complete.
+**Prerequisite**: Sessions 6-9 complete.
 **Goal**: Remove ALL workaround infrastructure. Single clean code path. Update documentation. Fix known bugs.
 
 ### Code removal
@@ -320,7 +415,7 @@ Severity: Warning. Replaces the old `MonoJitRiskDetector` with a proper MSBuild 
 - [ ] **Near-zero `CallConvSwift` in generated code** — only unfixable Swift compiler restrictions (actors, non-copyable, nested frozen struct params). Zero in Tier 1-2 validation libraries in practice.
 - [ ] **Zero workaround infrastructure** — `MonoJitRiskDetector`, standalone `ClosureEmitter.SwiftWrapper`, `_useWrapperPath`, `HasClosureCdeclWrapper`, `UsesFreeFunctionWrapper`, `DetectedJitRisks`, `[CrashRisk]`, `--safe-only` all deleted
 - [ ] **Single code path** — every wrappable P/Invoke goes C# → @_cdecl → Swift. No dual-path routing, no fallbacks, no risk detection. Unfixable-guard methods retain CallConvSwift with `SWIFTBIND060` warning.
-- [ ] **All deferred items resolved** — tuple returns, DynamicSelf returns, generic parent types all handled
+- [ ] **All deferred items resolved** — tuple returns, DynamicSelf returns, generic parent types, collection containers, existential params, enum case factories all handled
 - [ ] **Upstream bugs documented** — `Future/upstream-bug-reports-draft.md` expanded with all 5 bugs
 - [ ] **End-user documentation clear** — ownership contract, product contract, and known limitations all accurate
 - [ ] **CallConvSwift fallback diagnostic** — `SWIFTBIND060` emitted for any member that can't get a wrapper
@@ -329,7 +424,7 @@ Severity: Warning. Replaces the old `MonoJitRiskDetector` with a proper MSBuild 
 
 ## Items Explicitly Remaining Deferred
 
-These are NOT in scope for Sessions 6-8 or Phase 4. They are documented here to prevent scope creep.
+These are NOT in scope for Sessions 6-9 or Phase 4. They are documented here to prevent scope creep.
 
 ### Method-level generics (guard 6)
 
@@ -374,7 +469,8 @@ Sessions are sequential — each depends on the prior:
 1. **Session 6** — Generic parent methods + properties
 2. **Session 7** — Generic parent constructors (depends on Session 6 proving the specialization story)
 3. **Session 8** — Tuple returns + DynamicSelf returns (independent of generics, but sequenced after to reduce risk)
-4. **Phase 4** — Cleanup + documentation (depends on all implementation sessions)
+4. **Session 9** — Collection containers + existential params + enum case factories (three sub-phases, ordered by risk; 9C deferrable if too complex)
+5. **Phase 4** — Cleanup + documentation (depends on all implementation sessions)
 
 ### Validation gate (per session)
 
