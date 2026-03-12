@@ -1,11 +1,11 @@
 {
-  "git_sha": "08b7ec89",
+  "git_sha": "33ad01ba",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 50999,
+        "lines": 51004,
         "dep_compile": "none"
       },
       "BlinkID": {
@@ -29,13 +29,13 @@
       "CryptoSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 24561,
+        "lines": 24553,
         "dep_compile": "none"
       },
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 92485,
+        "lines": 92477,
         "dep_compile": "none"
       },
       "KeychainAccess": {
@@ -47,7 +47,7 @@
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 55478,
+        "lines": 55474,
         "dep_compile": "none"
       },
       "Lottie": {

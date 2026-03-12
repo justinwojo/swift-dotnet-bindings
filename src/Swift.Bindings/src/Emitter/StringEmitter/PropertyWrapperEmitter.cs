@@ -366,6 +366,16 @@ public static class PropertyWrapperEmitter
     internal static (CdeclReturnMapping mapping, bool needsResultPtr) GetCdeclReturnMapping(
         TypeSpec typeSpec, ITypeDatabase typeDatabase)
     {
+        // DynamicSelf (Self): resolves to parent class type at call site.
+        // Return as class pointer (Unmanaged.passRetained().toOpaque()).
+        if (typeSpec.IsDynamicSelf)
+            return (new CdeclReturnMapping("UnsafeMutableRawPointer", CdeclReturnKind.ClassPointer), false);
+
+        // Tuple returns: route through indirect result (resultPtr buffer).
+        // initializeMemory(as: (T1, T2).self) handles all tuple element types.
+        if (typeSpec is TupleTypeSpec tts && !tts.IsEmptyTuple)
+            return (new CdeclReturnMapping("Void", CdeclReturnKind.IndirectResult), true);
+
         // Primitives: pass through directly
         if (ConstructorWrapperEmitter.IsCdeclPrimitive(typeSpec))
         {

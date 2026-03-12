@@ -76,9 +76,7 @@ public static class SubscriptWrapperEmitter
         if (subscriptDecl.ReturnTypeSpec is ClosureTypeSpec)
             return false;
 
-        // 10. No non-empty tuple return types
-        if (subscriptDecl.ReturnTypeSpec is TupleTypeSpec trs && !trs.IsEmptyTuple)
-            return false;
+        // 10. Tuple return types: allowed — routed through IndirectResult (resultPtr buffer).
 
         // 11. No nested type returns
         if (subscriptDecl.ReturnTypeSpec is NamedTypeSpec retNamed &&

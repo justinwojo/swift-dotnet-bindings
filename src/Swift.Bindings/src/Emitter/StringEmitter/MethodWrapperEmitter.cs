@@ -109,12 +109,13 @@ public static class MethodWrapperEmitter
         // 15b. Closure returns: allowed — routed through IndirectResult (resultPtr buffer).
         // @_cdecl wrapper writes closure to resultPtr via initializeMemory; C# reads SwiftClosureData.
 
-        // 15c. No non-empty tuple return types — tuples have their own marshalling
-        if (returnSpec is TupleTypeSpec trs && !trs.IsEmptyTuple)
-            return false;
+        // 15c. Tuple returns: allowed — routed through IndirectResult (resultPtr buffer).
+        // @_cdecl wrapper writes tuple to resultPtr via initializeMemory(as: (T1, T2).self).
 
-        // 15d. No DynamicSelf return
-        if (returnSpec.IsDynamicSelf)
+        // 15d. DynamicSelf returns: allowed for class parents — Self resolves to parent class type.
+        // @_cdecl wrapper returns Unmanaged.passRetained(result).toOpaque() (class pointer).
+        // Structs/enums with DynamicSelf blocked — Unmanaged requires class type.
+        if (returnSpec.IsDynamicSelf && env.ParentDecl is not ClassDecl)
             return false;
 
         // 17. No nested type returns
@@ -646,11 +647,16 @@ public static class MethodWrapperEmitter
         var returnSpec = env.MethodDecl.CSSignature.First().SwiftTypeSpec;
         if (returnSpec is ProtocolListTypeSpec { IsOpaque: true })
             return false;
+        // Closure returns: blocked here because wrapper-owned trampoline paths (ClosureEmitter,
+        // OptionalPointerWrapper, ArraySliceNormalization) use this predicate to check function shape.
+        // MethodWrapperEmitter.ShouldEmitWrapper allows closure returns since Session 5, but the
+        // trampoline paths don't handle closure return marshalling (they delegate to the method wrapper).
         if (returnSpec is ClosureTypeSpec)
             return false;
-        if (returnSpec is TupleTypeSpec trs && !trs.IsEmptyTuple)
-            return false;
-        if (returnSpec.IsDynamicSelf)
+        // Tuple returns: allowed — routed through IndirectResult (resultPtr buffer).
+        // DynamicSelf returns: allowed for class parents — Self resolves to parent class type.
+        // Structs/enums with DynamicSelf blocked — Unmanaged requires class type.
+        if (returnSpec.IsDynamicSelf && env.ParentDecl is not ClassDecl)
             return false;
         // Guard 17: No nested type returns
         if (returnSpec is NamedTypeSpec retNamed &&

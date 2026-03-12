@@ -457,9 +457,95 @@ public class MethodWrapperEmitterTests
         Assert.StartsWith("SBW_TestModule_Free_globalHelper_", symbol);
     }
 
+    [Fact]
+    public void ShouldEmitWrapper_TupleReturn_ReturnsTrue()
+    {
+        // Tuple returns are now routed through IndirectResult (resultPtr buffer)
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var tupleReturn = new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int"), new NamedTypeSpec("Swift.Int") });
+        var method = CreateMethodWithReturn("getPair", tupleReturn, parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_DynamicSelfReturn_ClassParent_ReturnsTrue()
+    {
+        // DynamicSelf (Self) on class parents resolves to class type — returned as class pointer
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var selfReturn = new NamedTypeSpec("Self");
+        var method = CreateMethodWithReturn("configure", selfReturn, parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_DynamicSelfReturn_StructParent_ReturnsFalse()
+    {
+        // DynamicSelf (Self) on struct parents blocked — Unmanaged requires class type
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyStruct");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("MyStruct", moduleDecl);
+        var selfReturn = new NamedTypeSpec("Self");
+        var method = CreateMethodWithReturn("create", selfReturn, parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
     #endregion
 
     #region Emission Tests
+
+    [Fact]
+    public void EmitSwiftMethodWrapper_TupleReturn_UsesResultPtr()
+    {
+        // Tuple returns use resultPtr.initializeMemory(as: (T1, T2).self)
+        var (swiftWriter, sw, method, env, ctx) = CreateMethodTestSetup(
+            "getPair",
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int"), new NamedTypeSpec("Swift.Int") }),
+            isClass: true);
+
+        MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
+
+        var output = sw.ToString();
+        // Must have resultPtr parameter
+        Assert.Contains("_ resultPtr: UnsafeMutableRawPointer", output);
+        // Must use initializeMemory for tuple
+        Assert.Contains("initializeMemory(as: (Int, Int).self", output);
+        // Function signature must not have a return clause (indirect result — Void return)
+        Assert.Matches(@"public func _sbw_.*\) \{", output);
+    }
+
+    [Fact]
+    public void EmitSwiftMethodWrapper_DynamicSelfReturn_ReturnsClassPointer()
+    {
+        // DynamicSelf returns use Unmanaged.passRetained().toOpaque()
+        var (swiftWriter, sw, method, env, ctx) = CreateMethodTestSetup(
+            "configure",
+            new NamedTypeSpec("Self"),
+            isClass: true);
+
+        MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
+
+        var output = sw.ToString();
+        // Must have UnsafeMutableRawPointer return type
+        Assert.Contains("-> UnsafeMutableRawPointer", output);
+        // Must use Unmanaged.passRetained for class pointer return
+        Assert.Contains("Unmanaged.passRetained(", output);
+        Assert.Contains(".toOpaque()", output);
+        // Must NOT have resultPtr parameter
+        Assert.DoesNotContain("resultPtr", output);
+    }
 
     [Fact]
     public void EmitSwiftMethodWrapper_ClassInstance_UnmanagedSelf()

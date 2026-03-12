@@ -109,8 +109,9 @@ public class SilgenNameTrampolineTests
     }
 
     [Fact]
-    public void HasCdeclCompatibleFunctionShape_TupleReturn_ReturnsFalse()
+    public void HasCdeclCompatibleFunctionShape_TupleReturn_ReturnsTrue()
     {
+        // Tuple returns are now routed through IndirectResult (resultPtr buffer)
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -119,7 +120,7 @@ public class SilgenNameTrampolineTests
         var method = CreateMethodWithReturn("getPair", tupleReturn, parentDecl, moduleDecl);
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.False(MethodWrapperEmitter.HasCdeclCompatibleFunctionShape(env));
+        Assert.True(MethodWrapperEmitter.HasCdeclCompatibleFunctionShape(env));
     }
 
     [Fact]

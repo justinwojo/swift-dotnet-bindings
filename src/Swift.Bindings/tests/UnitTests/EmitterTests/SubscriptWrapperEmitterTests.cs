@@ -223,8 +223,9 @@ public class SubscriptWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmit_NonEmptyTupleReturn_ReturnsFalse()
+    public void ShouldEmit_NonEmptyTupleReturn_ReturnsTrue()
     {
+        // Tuple returns are now routed through IndirectResult (resultPtr buffer)
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -242,7 +243,7 @@ public class SubscriptWrapperEmitterTests
             parentDecl, moduleDecl);
 
         var env = new MethodEnvironment(accessor.Method, typeDb);
-        Assert.False(SubscriptWrapperEmitter.ShouldEmitSubscriptWrapper(subscriptDecl, accessor, env));
+        Assert.True(SubscriptWrapperEmitter.ShouldEmitSubscriptWrapper(subscriptDecl, accessor, env));
     }
 
     [Fact]
@@ -471,6 +472,38 @@ public class SubscriptWrapperEmitterTests
 
         var output = sw.ToString();
         Assert.Contains("@MainActor", output);
+    }
+
+    [Fact]
+    public void EmitGetterWrapper_TupleReturn_UsesResultPtr()
+    {
+        // Tuple returns use resultPtr.initializeMemory(as: (T1, T2).self)
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var accessor = new GetAccessorDecl { Method = CreateAccessorMethod("getter:subscript", true, parentDecl, moduleDecl) };
+        var tupleReturn = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Int")
+        });
+        var subscriptDecl = CreateSubscriptDecl(
+            tupleReturn,
+            new[] { CreateIndexParam("key", new NamedTypeSpec("Swift.Int"), moduleDecl) },
+            new AccessorDecl[] { accessor },
+            parentDecl, moduleDecl);
+
+        var env = new MethodEnvironment(accessor.Method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        SubscriptWrapperEmitter.EmitSwiftSubscriptGetterWrapper(swiftWriter, subscriptDecl, "SBW_SubGet_tuple", env, ctx);
+
+        var output = sw.ToString();
+        Assert.Contains("_ resultPtr: UnsafeMutableRawPointer", output);
+        Assert.Contains("initializeMemory(as: (Int, Int).self", output);
     }
 
     #endregion
