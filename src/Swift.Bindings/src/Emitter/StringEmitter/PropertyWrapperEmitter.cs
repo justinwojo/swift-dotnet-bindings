@@ -40,10 +40,6 @@ public static class PropertyWrapperEmitter
         if (propertyDecl.Accessors.Any(a => a.Method.IsAsync))
             return false;
 
-        // 5. Skip protocol existential properties
-        if (ConstructorWrapperEmitter.IsProtocolExistentialType(propertyDecl.SwiftTypeSpec, accessorEnv.TypeDatabase))
-            return false;
-
         // 6. Skip non-copyable (~Copyable) struct parents
         if (IsNonCopyableStruct(accessorEnv.ParentDecl))
             return false;
@@ -344,6 +340,10 @@ public static class PropertyWrapperEmitter
 
         // Generic containers (Optional, Array, etc.): need result pointer
         if (ConstructorWrapperEmitter.IsGenericContainerType(typeSpec))
+            return (new CdeclReturnMapping("Void", CdeclReturnKind.IndirectResult), true);
+
+        // Protocol existentials: need result pointer (not C-representable in @_cdecl)
+        if (ConstructorWrapperEmitter.IsProtocolExistentialType(typeSpec, typeDatabase))
             return (new CdeclReturnMapping("Void", CdeclReturnKind.IndirectResult), true);
 
         // Try TypeRecord-based mapping

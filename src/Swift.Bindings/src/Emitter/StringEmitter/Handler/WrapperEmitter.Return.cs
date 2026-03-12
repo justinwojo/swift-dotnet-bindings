@@ -255,6 +255,24 @@ namespace BindingsGeneration
                 return;
             }
 
+            // @_cdecl existential returns: read container from indirect result buffer
+            if (_env.ExistentialHandler.IsExistential(returnArg.SwiftTypeSpec) && _env.MethodDecl.UsesCdeclWrapper)
+            {
+                var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(returnArg.SwiftTypeSpec)!;
+                var containerType = _env.ExistentialHandler.GetCSharpExistentialType(protocolList);
+                csWriter.WriteLine($"var existentialResult = SwiftMarshal.MarshalFromSwift<{containerType}>(resultPtr);");
+
+                // Then wrap in proxy (same logic as non-cdecl path below)
+                if (protocolList.Protocols.Count == 0) { csWriter.WriteLine("return existentialResult;"); return; }
+                var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList);
+                if (publicType == "object") { csWriter.WriteLine("return existentialResult;"); return; }
+                if (_env.ExistentialHandler.TryGetWellKnownProtocolType(protocolList, out var wk))
+                { csWriter.WriteLine($"return new {wk}(existentialResult);"); return; }
+                var proxy = _env.ExistentialHandler.GetQualifiedProxyClassName(protocolList);
+                csWriter.WriteLine($"return new {proxy}(existentialResult);");
+                return;
+            }
+
             // Handle existential return types (any Protocol) - wrap container in proxy
             if (_env.ExistentialHandler.IsExistential(returnArg.SwiftTypeSpec))
             {
@@ -435,6 +453,14 @@ namespace BindingsGeneration
             if (strategy == ReturnStrategy.IndirectResult && _env.MethodDecl.UsesCdeclWrapper &&
                 plan.SetupStatements.Count == 0 && plan.CleanupStatements.Count == 0 &&
                 plan.PInvokeExpression == resultName)
+                return false;
+
+            // @_cdecl indirect result with ExistentialProjection: the projection wraps resultName
+            // in a proxy (e.g. "new DescribableProxy(resultPtr)"), but resultPtr is IntPtr — the
+            // container must be read first via SwiftMarshal.MarshalFromSwift<T>(resultPtr).
+            // Fall through to the dedicated @_cdecl existential return handler below.
+            if (strategy == ReturnStrategy.IndirectResult && _env.MethodDecl.UsesCdeclWrapper &&
+                projection is ExistentialProjection)
                 return false;
 
             // Wrap in unsafe block if plan needs it but method-level unsafe is not set

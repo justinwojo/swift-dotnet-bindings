@@ -167,12 +167,49 @@ namespace BindingsGeneration
                     continue;
                 }
 
+                // Determine per-accessor @_cdecl eligibility
+                var accessorCdeclFlags = new Dictionary<AccessorDecl, bool>();
+                foreach (var accessor in subscriptDecl.Accessors)
+                {
+                    bool eligible = false;
+                    if (typeDecl.SwiftTypeName != null && conductor.TryGetMethodHandler(accessor.Method, out var checkHandler))
+                    {
+                        accessor.Method.IsAccessor = true;
+                        var checkEnv = (MethodEnvironment)checkHandler.Marshal(accessor.Method, typeDatabase);
+                        eligible = SubscriptWrapperEmitter.ShouldEmitSubscriptWrapper(subscriptDecl, accessor, checkEnv);
+                    }
+                    accessorCdeclFlags[accessor] = eligible;
+                }
+
                 // Emit accessor methods via MethodHandler
                 foreach (var accessor in subscriptDecl.Accessors)
                 {
                     if (conductor.TryGetMethodHandler(accessor.Method, out var methodHandler))
                     {
                         accessor.Method.IsAccessor = true;
+
+                        // @_cdecl subscript wrapper: set flags BEFORE Marshal/Emit
+                        if (accessorCdeclFlags.TryGetValue(accessor, out var useCdecl) && useCdecl &&
+                            typeDecl.SwiftTypeName != null)
+                        {
+                            bool isGetter = accessor is GetAccessorDecl;
+                            var symbol = SubscriptWrapperEmitter.GetSubscriptAccessorSymbolName(
+                                typeDecl.SwiftTypeName.Module, typeDecl.Name, accessor.Method.MangledName, isGetter);
+
+                            accessor.Method.UsesCdeclPropertyWrapper = true;
+                            accessor.Method.UsesWrapperLibrary = true;
+                            accessor.Method.UsesFreeFunctionWrapper = true;
+                            accessor.Method.MangledName = symbol;
+
+                            var cdeclEnv = (MethodEnvironment)methodHandler.Marshal(accessor.Method, typeDatabase);
+                            if (isGetter)
+                                SubscriptWrapperEmitter.EmitSwiftSubscriptGetterWrapper(
+                                    swiftWriter, subscriptDecl, symbol, cdeclEnv, context.GetEmissionContext());
+                            else
+                                SubscriptWrapperEmitter.EmitSwiftSubscriptSetterWrapper(
+                                    swiftWriter, subscriptDecl, symbol, cdeclEnv, context.GetEmissionContext());
+                        }
+
                         var accessorEnv = (MethodEnvironment)methodHandler.Marshal(accessor.Method, typeDatabase);
                         if (context.PInvokeHelperContext != null && accessorEnv.PInvokeHelperContext == null)
                         {
@@ -182,6 +219,23 @@ namespace BindingsGeneration
                         if (context.CompositionCollector != null)
                             accessorEnv.ExistentialHandler.SetCompositionCollector(context.CompositionCollector);
                         methodHandler.Emit(csWriter, swiftWriter, accessorEnv, conductor, context);
+                    }
+                }
+
+                // @_cdecl subscript wrapper: emit SBW_Free P/Invoke for string returns (once per type)
+                if (accessorCdeclFlags.Values.Any(v => v) && WitnessDispatchEmitter.IsStringType(subscriptDecl.ReturnTypeSpec))
+                {
+                    var typeKey = typeDecl.SwiftTypeName?.ModuleQualifiedName ?? "";
+                    if (!Utf8SliceEmitter.HasFreePInvokeForType(typeKey, context.GetEmissionContext()))
+                    {
+                        Utf8SliceEmitter.MarkFreePInvokeEmittedForType(typeKey, context.GetEmissionContext());
+                        var moduleName = typeDecl.SwiftTypeName?.Module ?? "";
+                        var wrapperLibPath = typeDatabase.AsyncLibraryName
+                            ?? typeDatabase.GetLibraryPath(moduleName);
+                        var freeSymbol = Utf8SliceEmitter.GetFreeSymbolName(moduleName);
+                        csWriter.WriteLine($"[LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{freeSymbol}\")]");
+                        csWriter.WriteLine("private static partial void SBW_Free(IntPtr ptr);");
+                        csWriter.WriteLine();
                     }
                 }
 
@@ -252,11 +306,30 @@ namespace BindingsGeneration
             List<(string typeName, string paramName, ITypeProjection? projection)> paramInfos)
         {
             var methodName = NameProvider.GetMethodName(getter.Method.Name, null);
-            var (convertedArgs, setupLines, usingLines) = BuildIndexParamConversions(paramInfos);
+            bool isCdecl = getter.Method.UsesCdeclPropertyWrapper;
+            var (convertedArgs, setupLines, usingLines) = BuildIndexParamConversions(paramInfos, isCdecl);
             var args = convertedArgs;
+            bool hasStringIndexParam = isCdecl && paramInfos.Any(p => p.projection is StringProjection);
+
+            // @_cdecl subscript wrapper: String getters return SBW_Utf8Slice → decode to string
+            if (isCdecl && WitnessDispatchEmitter.IsStringType(subscriptDecl.ReturnTypeSpec))
+            {
+                EmitCdeclGetterWithFixedBlock(csWriter, methodName, args, setupLines, usingLines,
+                    paramInfos, hasStringIndexParam, returnProjection: null, isStringReturn: true);
+                return;
+            }
 
             var retProjection = s_projectionFactory.Project(subscriptDecl.ReturnTypeSpec,
                 new ProjectionContext { TypeDatabase = typeDatabase, IsParameter = false });
+
+            // @_cdecl subscript wrapper with string index params: wrap call in unsafe fixed block
+            // Pass retProjection so element type conversion (e.g. SwiftString→string) is applied.
+            if (hasStringIndexParam)
+            {
+                EmitCdeclGetterWithFixedBlock(csWriter, methodName, args, setupLines, usingLines,
+                    paramInfos, hasStringIndexParam, returnProjection: retProjection, isStringReturn: false);
+                return;
+            }
 
             // If any index param needs conversion, we must use block form
             bool hasParamConversion = setupLines.Count > 0 || usingLines.Count > 0;
@@ -305,11 +378,30 @@ namespace BindingsGeneration
             List<(string typeName, string paramName, ITypeProjection? projection)> paramInfos)
         {
             var methodName = NameProvider.GetMethodName(setter.Method.Name, null);
-            var (convertedArgs, setupLines, usingLines) = BuildIndexParamConversions(paramInfos);
+            bool isCdecl = setter.Method.UsesCdeclPropertyWrapper;
+            var (convertedArgs, setupLines, usingLines) = BuildIndexParamConversions(paramInfos, isCdecl);
             var args = convertedArgs;
+            bool hasStringIndexParam = isCdecl && paramInfos.Any(p => p.projection is StringProjection);
+
+            // @_cdecl subscript wrapper: String setters encode to UTF-8 bytes, pin, pass pointer+length
+            if (isCdecl && WitnessDispatchEmitter.IsStringType(subscriptDecl.ReturnTypeSpec))
+            {
+                EmitCdeclSetterWithFixedBlock(csWriter, methodName, args, setupLines, usingLines,
+                    paramInfos, hasStringIndexParam, valueProjection: null, isStringValue: true);
+                return;
+            }
 
             var retProjection = s_projectionFactory.Project(subscriptDecl.ReturnTypeSpec,
                 new ProjectionContext { TypeDatabase = typeDatabase, IsParameter = true });
+
+            // @_cdecl subscript wrapper with string index params: wrap call in unsafe fixed block
+            // Pass retProjection so value type conversion (e.g. string→SwiftString) is applied.
+            if (hasStringIndexParam)
+            {
+                EmitCdeclSetterWithFixedBlock(csWriter, methodName, args, setupLines, usingLines,
+                    paramInfos, hasStringIndexParam, valueProjection: retProjection, isStringValue: false);
+                return;
+            }
             if (retProjection != null)
             {
                 var (conv, requiresDisposal) = GetAccessorSetterConversion(retProjection, "value");
@@ -349,7 +441,7 @@ namespace BindingsGeneration
         /// signature to the raw-typed accessor method.
         /// </summary>
         private static (string convertedArgs, List<string> setupLines, List<string> usingLines) BuildIndexParamConversions(
-            List<(string typeName, string paramName, ITypeProjection? projection)> paramInfos)
+            List<(string typeName, string paramName, ITypeProjection? projection)> paramInfos, bool isCdecl = false)
         {
             var argParts = new List<string>();
             var setupLines = new List<string>();
@@ -360,9 +452,22 @@ namespace BindingsGeneration
                 var bareName = NameProvider.StripVerbatimPrefix(paramName);
                 if (proj is StringProjection)
                 {
-                    var convertedName = $"__{bareName}Swift";
-                    usingLines.Add($"using var {convertedName} = new SwiftString({paramName});");
-                    argParts.Add(convertedName);
+                    if (isCdecl)
+                    {
+                        // @_cdecl: string index params → UTF-8 bytes, pointer+length
+                        var bytesName = $"__{bareName}Utf8";
+                        setupLines.Add($"var {bytesName} = System.Text.Encoding.UTF8.GetBytes({paramName});");
+                        // Pointer and length are passed as separate args; fixed block wrapping
+                        // is handled by EmitCdeclGetterWithFixedBlock/EmitCdeclSetterWithFixedBlock.
+                        argParts.Add($"(IntPtr)__{bareName}Ptr");
+                        argParts.Add($"{bytesName}.Length");
+                    }
+                    else
+                    {
+                        var convertedName = $"__{bareName}Swift";
+                        usingLines.Add($"using var {convertedName} = new SwiftString({paramName});");
+                        argParts.Add(convertedName);
+                    }
                 }
                 else if (proj is DataProjection)
                 {
@@ -389,6 +494,188 @@ namespace BindingsGeneration
             }
 
             return (string.Join(", ", argParts), setupLines, usingLines);
+        }
+
+        /// <summary>
+        /// Emits a @_cdecl subscript getter body with unsafe fixed blocks for string index params.
+        /// </summary>
+        internal static void EmitCdeclGetterWithFixedBlock(
+            CSharpWriter csWriter, string methodName, string args,
+            List<string> setupLines, List<string> usingLines,
+            List<(string typeName, string paramName, ITypeProjection? projection)> paramInfos,
+            bool hasStringIndexParam, ITypeProjection? returnProjection, bool isStringReturn)
+        {
+            csWriter.WriteLine("get {");
+            csWriter.Indent++;
+            foreach (var line in usingLines) csWriter.WriteLine(line);
+            foreach (var line in setupLines) csWriter.WriteLine(line);
+
+            if (hasStringIndexParam)
+            {
+                // Emit nested fixed blocks for each string index param
+                var fixedParams = GetFixedParamNames(paramInfos);
+                csWriter.WriteLine("unsafe {");
+                csWriter.Indent++;
+                foreach (var (bareName, bytesName) in fixedParams)
+                    csWriter.WriteLine($"fixed (byte* __{bareName}Ptr = __{bareName}Utf8) {{");
+                csWriter.Indent += fixedParams.Count;
+            }
+
+            if (isStringReturn)
+            {
+                csWriter.WriteLine($"var __slice = {methodName}({args});");
+                // Empty string: _sbw_emptyBuffer is a static Swift buffer — do NOT free it.
+                csWriter.WriteLine("if (__slice.Len == 0) return string.Empty;");
+                csWriter.WriteLine("try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; }");
+                csWriter.WriteLine("finally { SBW_Free(__slice.Ptr); }");
+            }
+            else
+            {
+                // Apply return projection if present (e.g. SwiftString→string, Data→byte[])
+                EmitProjectedReturn(csWriter, methodName, args, returnProjection);
+            }
+
+            if (hasStringIndexParam)
+            {
+                var fixedParams = GetFixedParamNames(paramInfos);
+                for (int i = 0; i < fixedParams.Count; i++)
+                    csWriter.Write("}");
+                csWriter.WriteLine();
+                csWriter.Indent -= fixedParams.Count;
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+            }
+
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+        }
+
+        /// <summary>
+        /// Emits a projected return statement, applying conversion if the return type needs it.
+        /// </summary>
+        internal static void EmitProjectedReturn(CSharpWriter csWriter, string methodName, string args, ITypeProjection? projection)
+        {
+            if (projection != null)
+            {
+                var (conv, requiresDisposal) = GetAccessorGetterConversion(projection, $"{methodName}({args})");
+                if (conv != null)
+                {
+                    if (requiresDisposal)
+                    {
+                        var (usingConv, _) = GetAccessorGetterConversion(projection, "__ret");
+                        csWriter.WriteLine($"using var __ret = {methodName}({args}); return {usingConv};");
+                    }
+                    else
+                    {
+                        csWriter.WriteLine($"return {conv};");
+                    }
+                    return;
+                }
+            }
+            csWriter.WriteLine($"return {methodName}({args});");
+        }
+
+        /// <summary>
+        /// Emits a @_cdecl subscript setter body with unsafe fixed blocks for string index params.
+        /// </summary>
+        internal static void EmitCdeclSetterWithFixedBlock(
+            CSharpWriter csWriter, string methodName, string args,
+            List<string> setupLines, List<string> usingLines,
+            List<(string typeName, string paramName, ITypeProjection? projection)> paramInfos,
+            bool hasStringIndexParam, ITypeProjection? valueProjection, bool isStringValue)
+        {
+            csWriter.WriteLine("set {");
+            csWriter.Indent++;
+            foreach (var line in usingLines) csWriter.WriteLine(line);
+            foreach (var line in setupLines) csWriter.WriteLine(line);
+
+            // For string value (subscript return type is String), encode the newValue
+            if (isStringValue)
+            {
+                csWriter.WriteLine("var __valueUtf8 = System.Text.Encoding.UTF8.GetBytes(value);");
+            }
+
+            if (hasStringIndexParam || isStringValue)
+            {
+                csWriter.WriteLine("unsafe {");
+                csWriter.Indent++;
+
+                // Fixed block for value string
+                if (isStringValue)
+                    csWriter.WriteLine("fixed (byte* __valuePtr = __valueUtf8) {");
+
+                // Fixed blocks for string index params
+                var fixedParams = GetFixedParamNames(paramInfos);
+                foreach (var (bareName, _) in fixedParams)
+                    csWriter.WriteLine($"fixed (byte* __{bareName}Ptr = __{bareName}Utf8) {{");
+                csWriter.Indent += fixedParams.Count + (isStringValue ? 1 : 0);
+
+                if (isStringValue)
+                {
+                    csWriter.WriteLine($"{methodName}((IntPtr)__valuePtr, __valueUtf8.Length, {args});");
+                }
+                else
+                {
+                    EmitProjectedSetterCall(csWriter, methodName, args, valueProjection);
+                }
+
+                int closingBraces = fixedParams.Count + (isStringValue ? 1 : 0);
+                for (int i = 0; i < closingBraces; i++)
+                    csWriter.Write("}");
+                csWriter.WriteLine();
+                csWriter.Indent -= closingBraces;
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+            }
+            else
+            {
+                EmitProjectedSetterCall(csWriter, methodName, args, valueProjection);
+            }
+
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+        }
+
+        /// <summary>
+        /// Emits a setter call, applying value projection conversion if present.
+        /// </summary>
+        internal static void EmitProjectedSetterCall(CSharpWriter csWriter, string methodName, string args, ITypeProjection? valueProjection)
+        {
+            if (valueProjection != null)
+            {
+                var (conv, requiresDisposal) = GetAccessorSetterConversion(valueProjection, "value");
+                if (conv != null)
+                {
+                    if (requiresDisposal)
+                    {
+                        csWriter.WriteLine($"using var __val = {conv}; {methodName}(__val, {args});");
+                    }
+                    else
+                    {
+                        csWriter.WriteLine($"{methodName}({conv}, {args});");
+                    }
+                    return;
+                }
+            }
+            csWriter.WriteLine($"{methodName}(value, {args});");
+        }
+
+        /// <summary>
+        /// Gets the fixed parameter names for string index params that need unsafe fixed blocks.
+        /// </summary>
+        private static List<(string bareName, string bytesName)> GetFixedParamNames(
+            List<(string typeName, string paramName, ITypeProjection? projection)> paramInfos)
+        {
+            var result = new List<(string, string)>();
+            foreach (var (_, paramName, proj) in paramInfos)
+            {
+                if (proj is StringProjection)
+                {
+                    var bareName = NameProvider.StripVerbatimPrefix(paramName);
+                    result.Add((bareName, $"__{bareName}Utf8"));
+                }
+            }
+            return result;
         }
 
         /// <summary>

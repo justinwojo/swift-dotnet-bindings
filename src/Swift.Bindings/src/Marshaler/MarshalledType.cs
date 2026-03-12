@@ -18,6 +18,9 @@ public abstract record MarshalledType
     /// <summary>Existential protocol type with container and public interface types.</summary>
     public sealed record Existential(string ContainerType, string PublicType) : MarshalledType;
 
+    /// <summary>Existential protocol type marshalled via ref (pointer) for @_cdecl wrappers.</summary>
+    public sealed record CdeclExistential(string ContainerType, string PublicType) : MarshalledType;
+
     /// <summary>Simple C# enum backed by an underlying integer type.</summary>
     public sealed record SimpleEnum(string UnderlyingType, string EnumTypeName) : MarshalledType;
 
@@ -120,6 +123,7 @@ public abstract record MarshalledType
     public string PublicTypeName => this switch
     {
         Existential(_, var publicType) => publicType,
+        CdeclExistential(_, var publicType) => publicType,
         SimpleEnum(_, var enumTypeName) => enumTypeName,
         ObjCBridged(var csTypeName) => csTypeName,
         NativeRemappedFrozen(var swiftWrapperType) => swiftWrapperType,

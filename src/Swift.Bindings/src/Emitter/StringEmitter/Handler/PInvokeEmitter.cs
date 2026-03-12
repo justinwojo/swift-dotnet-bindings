@@ -99,14 +99,24 @@ namespace BindingsGeneration
                 var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(returnType.SwiftTypeSpec)!;
                 if (_env.ExistentialHandler.IsSupportedExistential(protocolList))
                 {
-                    var existentialType = _env.ExistentialHandler.GetPInvokeExistentialType(protocolList);
-                    SetReturnType(existentialType);
+                    if (_env.MethodDecl.UsesCdeclWrapper)
+                    {
+                        // @_cdecl: fall through to indirect result path below.
+                        // Existential containers aren't C-representable — use resultPtr buffer.
+                    }
+                    else
+                    {
+                        var existentialType = _env.ExistentialHandler.GetPInvokeExistentialType(protocolList);
+                        SetReturnType(existentialType);
+                        return;
+                    }
                 }
                 else
                 {
                     SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
+                    return;
                 }
-                return;
+                // @_cdecl supported existential: fall through to MethodRequiresIndirectResult
             }
 
             // Handle Optional-wrapped existential return types like (any DataCaching)?
@@ -296,6 +306,7 @@ namespace BindingsGeneration
                 // Uses Existential:{containerType}:{publicType} prefix so that:
                 // - PInvokeParametersString() emits the container type for DllImport declarations
                 // - CallArgumentsString() generates the ISwiftExistentialConvertible conversion
+                // @_cdecl wrappers use CdeclExistential (ref container) instead of Existential (by-value)
                 if (_env.ExistentialHandler.IsExistential(argument.SwiftTypeSpec))
                 {
                     var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(argument.SwiftTypeSpec)!;
@@ -303,7 +314,10 @@ namespace BindingsGeneration
                     {
                         var containerType = _env.ExistentialHandler.GetPInvokeExistentialType(protocolList);
                         var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList);
-                        AddParameter(new MarshalledType.Existential(containerType, publicType), csName);
+                        if (_env.MethodDecl.UsesCdeclWrapper)
+                            AddParameter(new MarshalledType.CdeclExistential(containerType, publicType), csName);
+                        else
+                            AddParameter(new MarshalledType.Existential(containerType, publicType), csName);
                     }
                     else
                     {

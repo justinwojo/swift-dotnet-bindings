@@ -170,8 +170,9 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_ProtocolExistentialParam_ReturnsFalse()
+    public void ShouldEmitWrapper_ProtocolExistentialParam_ReturnsTrue()
     {
+        // Existential params are now supported in @_cdecl wrappers via UnsafeRawPointer + .load(as:)
         var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
             ("TestModule.Cacheable", TypeRecordFlags.None, TypeRecordKind.Protocol));
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
@@ -181,12 +182,13 @@ public class MethodWrapperEmitterTests
         var method = CreateMethodWithParam("doWork", protocolSpec, "cache", parentDecl, moduleDecl);
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
     }
 
     [Fact]
-    public void ShouldEmitWrapper_ProtocolExistentialReturn_ReturnsFalse()
+    public void ShouldEmitWrapper_ProtocolExistentialReturn_ReturnsTrue()
     {
+        // Existential returns are now supported in @_cdecl wrappers via indirect result pointer
         var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
             ("TestModule.Cacheable", TypeRecordFlags.None, TypeRecordKind.Protocol));
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
@@ -196,7 +198,7 @@ public class MethodWrapperEmitterTests
         var method = CreateMethodWithReturn("doWork", protocolSpec, parentDecl, moduleDecl);
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
     }
 
     [Fact]

@@ -202,15 +202,15 @@ public class ConstructorWrapperEmitterTests
         };
 
         var env = new MethodEnvironment(method, typeDb);
-        Assert.False(ConstructorWrapperEmitter.ShouldEmitWrapper(env));
+        // Existential params are now supported in @_cdecl wrappers
+        Assert.True(ConstructorWrapperEmitter.ShouldEmitWrapper(env));
     }
 
     [Fact]
-    public void ShouldEmitWrapper_NamedProtocolTypeRecordParameter_ReturnsFalse()
+    public void ShouldEmitWrapper_NamedProtocolTypeRecordParameter_ReturnsTrue()
     {
-        // Named protocol params (NamedTypeSpec resolving to TypeRecordKind.Protocol) cause
-        // semantic mismatch: C# P/Invoke emits SafeHandle (opaque allocation pointer),
-        // but @_cdecl wrapper does .load(as: Protocol.self) expecting existential container data.
+        // Named protocol params (NamedTypeSpec resolving to TypeRecordKind.Protocol) are now
+        // supported in @_cdecl wrappers via UnsafeRawPointer + .load(as:) pattern.
         var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("Pipeline",
             ("TestModule.DataCaching", TypeRecordFlags.None, TypeRecordKind.Protocol));
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
@@ -246,7 +246,7 @@ public class ConstructorWrapperEmitterTests
         };
 
         var env = new MethodEnvironment(method, typeDb);
-        Assert.False(ConstructorWrapperEmitter.ShouldEmitWrapper(env));
+        Assert.True(ConstructorWrapperEmitter.ShouldEmitWrapper(env));
     }
 
     [Fact]

@@ -45,15 +45,6 @@ public static class ConstructorWrapperEmitter
                 return false;
         }
 
-        // Skip constructors with protocol existential parameters — ABI/semantic mismatch.
-        // Covers two forms:
-        // 1. ProtocolListTypeSpec / IsAny: C# emits ExistentialContainer by value, @_cdecl needs UnsafeRawPointer
-        // 2. NamedTypeSpec resolving to Protocol/Existential TypeRecord: C# emits SafeHandle (opaque
-        //    allocation pointer), but @_cdecl does .load(as: Protocol.self) expecting existential data
-        // Optional-wrapped existentials use IntPtr buffer and are safe.
-        if (HasProtocolExistentialParameter(env))
-            return false;
-
         // Skip async constructors (async uses its own wrapper pattern)
         if (env.MethodDecl.IsAsync)
             return false;

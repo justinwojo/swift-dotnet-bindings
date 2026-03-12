@@ -73,15 +73,6 @@ public static class MethodWrapperEmitter
                 return false;
         }
 
-        // 9. No protocol existential parameters
-        if (HasProtocolExistentialParameter(env))
-            return false;
-
-        // 10. No protocol existential return type
-        if (ConstructorWrapperEmitter.IsProtocolExistentialType(
-                env.MethodDecl.CSSignature.First().SwiftTypeSpec, env.TypeDatabase))
-            return false;
-
         // 11. Non-copyable struct guards
         if (IsNonCopyableStructParent(env.ParentDecl))
             return false;

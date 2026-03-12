@@ -111,6 +111,11 @@ namespace BindingsGeneration
 
                 if (returnTypeForCdecl.SwiftTypeSpec is NamedTypeSpec nts && nts.Name == "Swift.String")
                     return true;
+
+                // Existential returns: @_cdecl can't return existential containers directly.
+                // Use indirect result buffer (same pattern as non-frozen structs).
+                if (env.ExistentialHandler.IsExistential(returnTypeForCdecl.SwiftTypeSpec))
+                    return true;
             }
 
             // Failable constructors (init?) always need indirect result because they return

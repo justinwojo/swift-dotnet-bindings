@@ -622,6 +622,21 @@ namespace BindingsGeneration
                 }
             }
 
+            // @_cdecl existential params: extract container into local variable for ref passing
+            if (_env.MethodDecl.UsesCdeclWrapper)
+            {
+                foreach (var arg in _env.MethodDecl.CSSignature.Skip(1)
+                    .Where(a => _env.ExistentialHandler.IsExistential(a.SwiftTypeSpec)))
+                {
+                    var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(arg.SwiftTypeSpec);
+                    if (protocolList == null || !_env.ExistentialHandler.IsSupportedExistential(protocolList))
+                        continue;
+                    var containerType = _env.ExistentialHandler.GetPInvokeExistentialType(protocolList);
+                    var csName = NameProvider.GetCSharpParameterName(arg);
+                    csWriter.WriteLine($"var {csName}Container = ((Swift.Runtime.ISwiftExistentialConvertible<{containerType}>){csName}).GetExistentialContainer();");
+                }
+            }
+
             // NOTE: For async methods, non-frozen parameter copy buffers are created in EmitAsync
             // (before the GCHandle holder) using InitializeWithCopy. The {param}Handle and
             // {param}CopyBuffer variables are already declared there. Nothing more to do here.

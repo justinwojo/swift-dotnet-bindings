@@ -86,8 +86,9 @@ public class PropertyWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_ProtocolExistentialProperty_ReturnsFalse()
+    public void ShouldEmitWrapper_ProtocolExistentialProperty_ReturnsTrue()
     {
+        // Existential properties are now supported in @_cdecl wrappers via indirect result pointer
         var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
             ("TestModule.DataCaching", TypeRecordFlags.None, TypeRecordKind.Protocol));
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
@@ -96,7 +97,7 @@ public class PropertyWrapperEmitterTests
         var protocolListSpec = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.DataCaching") });
         var (propertyDecl, env) = CreatePropertyAndEnv("cache", protocolListSpec, parentDecl, moduleDecl, typeDb);
 
-        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
     }
 
     [Fact]
@@ -591,6 +592,20 @@ public class PropertyWrapperEmitterTests
     }
 
     [Fact]
+    public void GetCdeclReturnMapping_ProtocolExistential_NeedsResultPtr()
+    {
+        // Protocol existentials are not C-representable in @_cdecl — must use indirect result
+        var (_, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
+            ("TestModule.Cacheable", TypeRecordFlags.None, TypeRecordKind.Protocol));
+        var protocolListSpec = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.Cacheable") });
+        var (mapping, needsPtr) = PropertyWrapperEmitter.GetCdeclReturnMapping(protocolListSpec, typeDb);
+
+        Assert.True(needsPtr);
+        Assert.Equal("Void", mapping.cdeclReturnType);
+        Assert.Equal(PropertyWrapperEmitter.CdeclReturnKind.IndirectResult, mapping.Kind);
+    }
+
+    [Fact]
     public void GetCdeclReturnMapping_ComplexEnum_NeedsResultPtr()
     {
         var (_, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
@@ -712,6 +727,51 @@ public class PropertyWrapperEmitterTests
                 new ArgumentDecl
                 {
                     SwiftTypeSpec = new NamedTypeSpec("QuartzCore.CALayerContentsGravity"),
+                    Name = "_result",
+                    PrivateName = "_result",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.True(MarshallingHelpers.MethodRequiresIndirectResult(env));
+    }
+
+    [Fact]
+    public void MethodRequiresIndirectResult_ExistentialReturn_CdeclPropertyWrapper_ReturnsTrue()
+    {
+        // Protocol existential returns must use indirect result in @_cdecl wrappers
+        // because existential containers are not C-representable.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
+            ("TestModule.Cacheable", TypeRecordFlags.None, TypeRecordKind.Protocol));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var protocolListSpec = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.Cacheable") });
+
+        var method = new MethodDecl
+        {
+            Name = "getter:cache",
+            MangledName = "$s_test_getter_cache",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            IsAccessor = true,
+            UsesCdeclPropertyWrapper = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = protocolListSpec,
                     Name = "_result",
                     PrivateName = "_result",
                     IsInOut = false,

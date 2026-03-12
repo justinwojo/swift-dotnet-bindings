@@ -19,6 +19,7 @@ namespace BindingsGeneration
             var typeStr = Type switch
             {
                 MarshalledType.Existential(var containerType, var publicType) => publicType,
+                MarshalledType.CdeclExistential(_, var publicType) => publicType,
                 MarshalledType.SimpleEnum(var underlyingType, var enumTypeName) => enumTypeName,
                 MarshalledType.ObjCBridged(var csTypeName) => csTypeName,
                 MarshalledType.CdeclClosureFuncPtr => "IntPtr",
@@ -54,6 +55,8 @@ namespace BindingsGeneration
         {
             // Existential types: use container type in P/Invoke declaration
             MarshalledType.Existential(var containerType, _) => $"{modifier} {containerType} {Name}",
+            // @_cdecl existential: pass container by ref (matches UnsafeRawPointer in Swift)
+            MarshalledType.CdeclExistential(var containerType, _) => $"ref {containerType} {Name}",
             // Bool requires explicit [MarshalAs] with LibraryImport + DisableRuntimeMarshalling
             MarshalledType.BoolType => $"[MarshalAs(UnmanagedType.U1)] {modifier} bool {Name}",
             // All other types delegate to SignatureString
@@ -75,6 +78,8 @@ namespace BindingsGeneration
             MarshalledType.SimpleEnum(var underlyingType, _) => $"{modifier} {underlyingType} {Name}",
             // Existential protocol types: show public interface type in signature.
             MarshalledType.Existential(_, var publicType) => $"{modifier} {publicType} {Name}",
+            // @_cdecl existential: same public type in wrapper signature
+            MarshalledType.CdeclExistential(_, var publicType) => $"{modifier} {publicType} {Name}",
             // Native-remapped types: URL uses SafeHandle, Data uses the actual Swift type
             MarshalledType.NativeRemappedNonFrozenType => $"{modifier} SafeHandle {Name}",
             MarshalledType.NativeRemappedFrozen(var swiftWrapperType) => $"{modifier} {swiftWrapperType} {Name}",
@@ -160,6 +165,9 @@ namespace BindingsGeneration
                 // Existential protocol types: extract container from interface
                 { Type: MarshalledType.Existential(var containerType, _) } =>
                     $"((Swift.Runtime.ISwiftExistentialConvertible<{containerType}>){parameter.Name}).GetExistentialContainer()",
+                // @_cdecl existential: ref to pre-extracted container local variable
+                { Type: MarshalledType.CdeclExistential(var containerType, _) } =>
+                    $"ref {parameter.Name}Container",
                 { Type: MarshalledType.NonFrozenIntPtrType } => $"{parameter.Name}Handle",
                 // Handle .Buffer params: ref modifier uses BufferRef (ref-returning property) for in-place mutation
                 { Type: MarshalledType.FrozenBuffer, modifier: "ref" } => $"ref {parameter.Name}Disposable.BufferRef",
