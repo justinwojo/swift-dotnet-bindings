@@ -46,7 +46,7 @@ public class SilgenNameTrampolineTests
     }
 
     [Fact]
-    public void HasCdeclCompatibleFunctionShape_GenericParent_ReturnsFalse()
+    public void HasCdeclCompatibleFunctionShape_GenericClassParent_ConcreteMethod_ReturnsTrue()
     {
         var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
@@ -54,12 +54,13 @@ public class SilgenNameTrampolineTests
         var parentDecl = CreateClassDecl("GenericBox", moduleDecl);
         parentDecl.GenericParameters = new List<GenericArgumentDecl>
         {
-            new("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
         };
         var method = CreateMethod("doWork", parentDecl, moduleDecl);
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.False(MethodWrapperEmitter.HasCdeclCompatibleFunctionShape(env));
+        // Generic class parent with concrete method signature → compatible via protocol erasure
+        Assert.True(MethodWrapperEmitter.HasCdeclCompatibleFunctionShape(env));
     }
 
     [Fact]
@@ -288,9 +289,9 @@ public class SilgenNameTrampolineTests
 
         var (_, swiftOutput) = EmitMethod(method, typeDatabase);
 
-        // Generic parent → remains @_silgen_name
-        Assert.Contains("@_silgen_name", swiftOutput);
-        Assert.DoesNotContain("@_cdecl", swiftOutput);
+        // Generic class parent with concrete closure signature → @_cdecl with protocol erasure
+        Assert.Contains("@_cdecl", swiftOutput);
+        Assert.Contains("private protocol _SBW_P_", swiftOutput);
     }
 
     [Fact]
@@ -774,14 +775,15 @@ public class SilgenNameTrampolineTests
     }
 
     [Fact]
-    public void Emit_ClosureOnGenericParent_NoUsesCdeclMethodWrapper()
+    public void Emit_ClosureOnGenericParent_UsesCdeclMethodWrapper()
     {
+        // Generic class parent with concrete closure signature → gets @_cdecl via protocol erasure
         var typeDatabase = CreateClosureTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("GenericLoader", moduleDecl);
         parentDecl.GenericParameters = new List<GenericArgumentDecl>
         {
-            new("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
         };
 
         var closureType = new ClosureTypeSpec(
@@ -796,7 +798,7 @@ public class SilgenNameTrampolineTests
 
         EmitMethod(method, typeDatabase);
 
-        Assert.False(method.UsesCdeclMethodWrapper);
+        Assert.True(method.UsesCdeclMethodWrapper);
     }
 
     #endregion

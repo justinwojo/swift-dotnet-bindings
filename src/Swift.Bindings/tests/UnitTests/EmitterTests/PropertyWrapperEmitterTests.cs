@@ -28,7 +28,7 @@ public class PropertyWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_GenericParent_ReturnsFalse()
+    public void ShouldEmitWrapper_GenericClassParent_ConcreteProperty_ReturnsTrue()
     {
         var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
@@ -36,9 +36,69 @@ public class PropertyWrapperEmitterTests
         var parentDecl = CreateClassDecl("GenericBox", moduleDecl);
         parentDecl.GenericParameters = new List<GenericArgumentDecl>
         {
-            new("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var (propertyDecl, env) = CreatePropertyAndEnv("count", new NamedTypeSpec("Swift.Int"), parentDecl, moduleDecl, typeDb);
+
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_GenericStructParent_ReturnsFalse()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("GenericBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
         };
         var (propertyDecl, env) = CreatePropertyAndEnv("value", new NamedTypeSpec("Swift.Int"), parentDecl, moduleDecl, typeDb);
+
+        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_GenericClassParent_GenericProperty_ReturnsFalse()
+    {
+        // Property type references parent's generic param τ_0_0 → cannot use protocol erasure
+        var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("GenericBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var (propertyDecl, env) = CreatePropertyAndEnv("value", new NamedTypeSpec("τ_0_0"), parentDecl, moduleDecl, typeDb);
+
+        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_GenericClassParent_StaticProperty_ReturnsFalse()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("GenericBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var getterMethod = CreateAccessorMethod("getter:shared", isGetter: true, parentDecl, moduleDecl);
+        var propertyDecl = new PropertyDecl
+        {
+            Name = "shared",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            HasStorage = true,
+            IsStatic = true,
+            Accessors = new List<AccessorDecl> { new GetAccessorDecl { Method = getterMethod } },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+        var env = new MethodEnvironment(getterMethod, typeDb);
 
         Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
     }
@@ -367,6 +427,50 @@ public class PropertyWrapperEmitterTests
         Assert.Contains("@MainActor", output);
     }
 
+    [Fact]
+    public void EmitSwiftGetterWrapper_GenericClassParent_EmitsProtocolErasure()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("GenericBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var getterMethod = CreateAccessorMethod("getter:count", isGetter: true, parentDecl, moduleDecl);
+        var propertyDecl = new PropertyDecl
+        {
+            Name = "count",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl> { new GetAccessorDecl { Method = getterMethod } },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var env = new MethodEnvironment(getterMethod, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+        var symbol = "SBW_Get_TestModule_GenericBox_count";
+
+        PropertyWrapperEmitter.EmitSwiftGetterWrapper(swiftWriter, propertyDecl, symbol, env, ctx);
+
+        var output = sw.ToString();
+        // Protocol-based type erasure: protocol with getter
+        Assert.Contains("private protocol _SBW_PG_", output);
+        Assert.Contains("var count: Int { get }", output);
+        Assert.Contains("extension TestModule.GenericBox:", output);
+        // Metadata parameter (accepted but unused)
+        Assert.Contains("_ _metadata0: UnsafeRawPointer", output);
+        // Self reconstruction via AnyObject
+        Assert.Contains("Unmanaged<AnyObject>.fromOpaque(self_).takeUnretainedValue() as! any _SBW_PG_", output);
+        // Should NOT use concrete type for self
+        Assert.DoesNotContain("Unmanaged<TestModule.GenericBox>", output);
+    }
+
     #endregion
 
     #region Setter Wrapper Swift Emission Tests
@@ -476,6 +580,51 @@ public class PropertyWrapperEmitterTests
         var output = sw.ToString();
         Assert.DoesNotContain("self_", output);
         Assert.Contains("TestModule.MyType.shared = newValue", output);
+    }
+
+    [Fact]
+    public void EmitSwiftSetterWrapper_GenericClassParent_EmitsProtocolErasure()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("GenericBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var setterMethod = CreateAccessorMethod("setter:count", isGetter: false, parentDecl, moduleDecl);
+        var propertyDecl = new PropertyDecl
+        {
+            Name = "count",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl> { new SetAccessorDecl { Method = setterMethod } },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var env = new MethodEnvironment(setterMethod, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+        var symbol = "SBW_Set_TestModule_GenericBox_count";
+
+        PropertyWrapperEmitter.EmitSwiftSetterWrapper(swiftWriter, propertyDecl, symbol, env, ctx);
+
+        var output = sw.ToString();
+        // Protocol-based type erasure: protocol with getter + setter
+        Assert.Contains("private protocol _SBW_PS_", output);
+        Assert.Contains("var count: Int { get set }", output);
+        Assert.Contains("extension TestModule.GenericBox:", output);
+        // Metadata parameter
+        Assert.Contains("_ _metadata0: UnsafeRawPointer", output);
+        // Mutable self via AnyObject cast
+        Assert.Contains("var obj = Unmanaged<AnyObject>.fromOpaque(self_).takeUnretainedValue() as! any _SBW_PS_", output);
+        Assert.Contains("obj.count = newValue", output);
+        // Should NOT use concrete type for self
+        Assert.DoesNotContain("Unmanaged<TestModule.GenericBox>", output);
     }
 
     #endregion

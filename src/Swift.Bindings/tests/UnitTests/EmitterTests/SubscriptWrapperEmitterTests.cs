@@ -52,7 +52,7 @@ public class SubscriptWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmit_GenericParent_ReturnsFalse()
+    public void ShouldEmit_GenericClassParent_ConcreteSubscript_ReturnsTrue()
     {
         var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
@@ -60,11 +60,56 @@ public class SubscriptWrapperEmitterTests
         var parentDecl = CreateClassDecl("GenericBox", moduleDecl);
         parentDecl.GenericParameters = new List<GenericArgumentDecl>
         {
-            new("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
         };
         var accessor = new GetAccessorDecl { Method = CreateAccessorMethod("getter:subscript", true, parentDecl, moduleDecl) };
         var subscriptDecl = CreateSubscriptDecl(
             new NamedTypeSpec("Swift.Int"),
+            new[] { CreateIndexParam("key", new NamedTypeSpec("Swift.Int"), moduleDecl) },
+            new AccessorDecl[] { accessor },
+            parentDecl, moduleDecl);
+
+        var env = new MethodEnvironment(accessor.Method, typeDb);
+        Assert.True(SubscriptWrapperEmitter.ShouldEmitSubscriptWrapper(subscriptDecl, accessor, env));
+    }
+
+    [Fact]
+    public void ShouldEmit_GenericStructParent_ReturnsFalse()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("GenericBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var accessor = new GetAccessorDecl { Method = CreateAccessorMethod("getter:subscript", true, parentDecl, moduleDecl) };
+        var subscriptDecl = CreateSubscriptDecl(
+            new NamedTypeSpec("Swift.Int"),
+            new[] { CreateIndexParam("key", new NamedTypeSpec("Swift.Int"), moduleDecl) },
+            new AccessorDecl[] { accessor },
+            parentDecl, moduleDecl);
+
+        var env = new MethodEnvironment(accessor.Method, typeDb);
+        Assert.False(SubscriptWrapperEmitter.ShouldEmitSubscriptWrapper(subscriptDecl, accessor, env));
+    }
+
+    [Fact]
+    public void ShouldEmit_GenericClassParent_GenericReturnType_ReturnsFalse()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("GenericBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var accessor = new GetAccessorDecl { Method = CreateAccessorMethod("getter:subscript", true, parentDecl, moduleDecl) };
+        // Return type references τ_0_0
+        var subscriptDecl = CreateSubscriptDecl(
+            new NamedTypeSpec("τ_0_0"),
             new[] { CreateIndexParam("key", new NamedTypeSpec("Swift.Int"), moduleDecl) },
             new AccessorDecl[] { accessor },
             parentDecl, moduleDecl);

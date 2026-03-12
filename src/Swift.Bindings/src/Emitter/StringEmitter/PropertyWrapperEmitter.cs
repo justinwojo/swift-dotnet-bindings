@@ -28,9 +28,12 @@ public static class PropertyWrapperEmitter
         if (string.IsNullOrEmpty(accessorEnv.TypeDatabase.AsyncLibraryName))
             return false;
 
-        // 2. Skip generic parent types — @_cdecl can't express type parameters
+        // 2. Generic parent type — allow non-final class instance properties with concrete types
         if (accessorEnv.ParentDecl is TypeDecl td && td.IsGeneric)
-            return false;
+        {
+            if (!CanEmitGenericClassPropertyWrapper(propertyDecl, td))
+                return false;
+        }
 
         // 3. Skip closure properties
         if (accessorEnv.ClosureHandler.IsClosure(propertyDecl))
@@ -121,6 +124,16 @@ public static class PropertyWrapperEmitter
             swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
         }
 
+        // Metadata parameters for generic parent types (accepted but unused)
+        bool isGenericParent = MethodWrapperEmitter.IsGenericClassParent(env.ParentDecl);
+        if (isGenericParent && parentTypeDecl != null)
+        {
+            for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
+            {
+                swiftParams.Add($"_ _metadata{i}: UnsafeRawPointer");
+            }
+        }
+
         // Self parameter (instance properties only)
         if (!isStatic)
         {
@@ -137,6 +150,14 @@ public static class PropertyWrapperEmitter
 
         var swiftFuncName = $"_sbw_get_{propertyDecl.Name}_{EmitterUtility.DeterministicHash8(symbolName)}";
 
+        // For generic parent class types, emit protocol + conformance for type erasure
+        string? protocolName = null;
+        if (isGenericParent)
+        {
+            protocolName = EmitGetterProtocolAndConformance(
+                swiftWriter, propertyDecl, symbolName, moduleQualifiedName);
+        }
+
         // Emit the @_cdecl function
         swiftWriter.WriteLine();
         swiftWriter.WriteLines($$"""
@@ -144,7 +165,7 @@ public static class PropertyWrapperEmitter
             // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
             """);
 
-        if (parentTypeDecl.IsMainActorIsolated)
+        if (parentTypeDecl?.IsMainActorIsolated == true)
         {
             swiftWriter.WriteLine("@MainActor");
         }
@@ -158,7 +179,14 @@ public static class PropertyWrapperEmitter
         // Reconstruct self
         if (!isStatic)
         {
-            EmitSelfReconstruction(swiftWriter, isClass, moduleQualifiedName, isMutable: false);
+            if (isGenericParent && protocolName != null)
+            {
+                swiftWriter.WriteLine($"let obj = Unmanaged<AnyObject>.fromOpaque(self_).takeUnretainedValue() as! any {protocolName}");
+            }
+            else
+            {
+                EmitSelfReconstruction(swiftWriter, isClass, moduleQualifiedName, isMutable: false);
+            }
         }
 
         // Get property value
@@ -246,6 +274,16 @@ public static class PropertyWrapperEmitter
             }
         }
 
+        // Metadata parameters for generic parent types (accepted but unused)
+        bool isGenericParent = MethodWrapperEmitter.IsGenericClassParent(env.ParentDecl);
+        if (isGenericParent && parentTypeDecl != null)
+        {
+            for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
+            {
+                swiftParams.Add($"_ _metadata{i}: UnsafeRawPointer");
+            }
+        }
+
         // Self parameter (instance properties only)
         if (!isStatic)
         {
@@ -259,6 +297,14 @@ public static class PropertyWrapperEmitter
         var swiftParamString = string.Join(", ", swiftParams);
         var swiftFuncName = $"_sbw_set_{propertyDecl.Name}_{EmitterUtility.DeterministicHash8(symbolName)}";
 
+        // For generic parent class types, emit protocol + conformance for type erasure
+        string? protocolName = null;
+        if (isGenericParent)
+        {
+            protocolName = EmitSetterProtocolAndConformance(
+                swiftWriter, propertyDecl, symbolName, moduleQualifiedName);
+        }
+
         // Emit the @_cdecl function
         swiftWriter.WriteLine();
         swiftWriter.WriteLines($$"""
@@ -266,7 +312,7 @@ public static class PropertyWrapperEmitter
             // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
             """);
 
-        if (parentTypeDecl.IsMainActorIsolated)
+        if (parentTypeDecl?.IsMainActorIsolated == true)
         {
             swiftWriter.WriteLine("@MainActor");
         }
@@ -291,6 +337,12 @@ public static class PropertyWrapperEmitter
         if (isStatic)
         {
             swiftWriter.WriteLine($"{moduleQualifiedName}.{propertyDecl.Name} = {valueExpr}");
+        }
+        else if (isGenericParent && protocolName != null)
+        {
+            // Generic class: use protocol-based type erasure
+            swiftWriter.WriteLine($"var obj = Unmanaged<AnyObject>.fromOpaque(self_).takeUnretainedValue() as! any {protocolName}");
+            swiftWriter.WriteLine($"obj.{propertyDecl.Name} = {valueExpr}");
         }
         else if (isClass)
         {
@@ -471,6 +523,76 @@ public static class PropertyWrapperEmitter
                    !structDecl.Conformances.Any(c => c.Protocol.ToString() == "Swift.Copyable");
         }
         return false;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Generic parent class support — protocol-based type erasure
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Returns true when a property on a generic parent type can be wrapped via @_cdecl
+    /// using protocol-based type erasure.
+    /// </summary>
+    private static bool CanEmitGenericClassPropertyWrapper(
+        PropertyDecl propertyDecl, TypeDecl parentTypeDecl)
+    {
+        // Only class types — protocol dispatch via existential cast
+        if (parentTypeDecl is not ClassDecl)
+            return false;
+
+        // Static properties don't need self-based erasure, but static dispatch
+        // uses wrong metadata for generic types — skip for now
+        if (propertyDecl.IsStatic)
+            return false;
+
+        // Property type must not reference the parent's generic type parameters
+        var genericParamNames = parentTypeDecl.GenericParameters
+            .Select(p => p.TypeName)
+            .ToHashSet();
+        if (MethodWrapperEmitter.TypeSpecReferencesGenericParam(propertyDecl.SwiftTypeSpec, genericParamNames))
+            return false;
+
+        return true;
+    }
+
+    /// <summary>
+    /// Emits protocol declaration and conformance for a property getter on a generic class type.
+    /// </summary>
+    private static string EmitGetterProtocolAndConformance(
+        SwiftWriter swiftWriter, PropertyDecl propertyDecl, string symbolName, string moduleQualifiedName)
+    {
+        var protocolName = $"_SBW_PG_{EmitterUtility.DeterministicHash8(symbolName)}";
+        var propertySwiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(propertyDecl.SwiftTypeSpec);
+
+        swiftWriter.WriteLine();
+        swiftWriter.WriteLines($$"""
+            private protocol {{protocolName}} {
+                var {{propertyDecl.Name}}: {{propertySwiftType}} { get }
+            }
+            extension {{moduleQualifiedName}}: {{protocolName}} {}
+            """);
+
+        return protocolName;
+    }
+
+    /// <summary>
+    /// Emits protocol declaration and conformance for a property setter on a generic class type.
+    /// </summary>
+    private static string EmitSetterProtocolAndConformance(
+        SwiftWriter swiftWriter, PropertyDecl propertyDecl, string symbolName, string moduleQualifiedName)
+    {
+        var protocolName = $"_SBW_PS_{EmitterUtility.DeterministicHash8(symbolName)}";
+        var propertySwiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(propertyDecl.SwiftTypeSpec);
+
+        swiftWriter.WriteLine();
+        swiftWriter.WriteLines($$"""
+            private protocol {{protocolName}} {
+                var {{propertyDecl.Name}}: {{propertySwiftType}} { get set }
+            }
+            extension {{moduleQualifiedName}}: {{protocolName}} {}
+            """);
+
+        return protocolName;
     }
 
     /// <summary>

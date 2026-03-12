@@ -57,7 +57,7 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_GenericParent_ReturnsFalse()
+    public void ShouldEmitWrapper_GenericClassParent_ConcreteMethod_ReturnsTrue()
     {
         var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
@@ -65,9 +65,75 @@ public class MethodWrapperEmitterTests
         var parentDecl = CreateClassDecl("GenericBox", moduleDecl);
         parentDecl.GenericParameters = new List<GenericArgumentDecl>
         {
-            new("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
         };
         var method = CreateMethod("doWork", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_GenericStructParent_ReturnsFalse()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("GenericBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var method = CreateMethod("doWork", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_GenericClassParent_MethodReferencingT_ReturnsFalse()
+    {
+        // Method return type references parent's generic param → can't erase
+        var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("GenericBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var method = CreateMethod("getValue", parentDecl, moduleDecl);
+        method.CSSignature = new List<ArgumentDecl>
+        {
+            new ArgumentDecl
+            {
+                SwiftTypeSpec = new NamedTypeSpec("τ_0_0"),
+                Name = "_result",
+                PrivateName = "_result",
+                IsInOut = false,
+                IsGeneric = true,
+                ParentDecl = null,
+                ModuleDecl = null
+            }
+        };
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_GenericClassParent_StaticMethod_ReturnsFalse()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("GenericBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var method = CreateMethod("create", parentDecl, moduleDecl);
+        method.MethodType = MethodType.Static;
         var env = new MethodEnvironment(method, typeDb);
 
         Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
@@ -741,6 +807,42 @@ public class MethodWrapperEmitterTests
         // Free function call should NOT have a type prefix like "TestModule.MyType.computeValue"
         Assert.DoesNotContain("TestModule.", output.Split("@_cdecl")[1]); // After @_cdecl line, no module prefix in call
         Assert.Contains("computeValue()", output);
+    }
+
+    [Fact]
+    public void EmitSwiftMethodWrapper_GenericClassParent_EmitsProtocolErasure()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("GenericBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var method = CreateMethod("reset", parentDecl, moduleDecl);
+        method.UsesCdeclMethodWrapper = true;
+        method.UsesWrapperLibrary = true;
+        method.UsesFreeFunctionWrapper = true;
+        method.MangledName = "SBW_TestModule_GenericBox_reset";
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
+
+        var output = sw.ToString();
+        // Protocol-based type erasure
+        Assert.Contains("private protocol _SBW_P_", output);
+        Assert.Contains("func reset()", output);
+        Assert.Contains("extension TestModule.GenericBox:", output);
+        // Metadata parameter
+        Assert.Contains("_ _metadata0: UnsafeRawPointer", output);
+        // Self reconstruction via AnyObject
+        Assert.Contains("Unmanaged<AnyObject>.fromOpaque(self_).takeUnretainedValue() as! any _SBW_P_", output);
+        // Should NOT use concrete type
+        Assert.DoesNotContain("Unmanaged<TestModule.GenericBox>", output);
     }
 
     #endregion

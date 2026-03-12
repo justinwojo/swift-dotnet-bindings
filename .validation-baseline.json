@@ -1,11 +1,11 @@
 {
-  "git_sha": "a6bb1fef",
+  "git_sha": "c5f3703a",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 50990,
+        "lines": 50998,
         "dep_compile": "none"
       },
       "BlinkID": {
@@ -17,7 +17,7 @@
       "BlinkIDUX": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 12021,
+        "lines": 12005,
         "dep_compile": "ok"
       },
       "BRLMPrinterKit": {
@@ -35,7 +35,7 @@
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 92507,
+        "lines": 92485,
         "dep_compile": "none"
       },
       "KeychainAccess": {
@@ -47,13 +47,13 @@
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 55481,
+        "lines": 55479,
         "dep_compile": "none"
       },
       "Lottie": {
         "compile": "ok",
         "errors": 0,
-        "lines": 31971,
+        "lines": 31985,
         "dep_compile": "none"
       },
       "Mappedin": {
@@ -95,7 +95,7 @@
       "RxSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 18833,
+        "lines": 18821,
         "dep_compile": "none"
       },
       "SkeletonView": {
@@ -227,7 +227,7 @@
       "Swinject": {
         "compile": "ok",
         "errors": 0,
-        "lines": 5097,
+        "lines": 5105,
         "dep_compile": "none"
       },
       "PhoneNumberKit": {
@@ -263,7 +263,7 @@
       "ObjectMapper": {
         "compile": "ok",
         "errors": 0,
-        "lines": 5351,
+        "lines": 5347,
         "dep_compile": "none"
       },
       "BonMot": {
@@ -329,7 +329,7 @@
       "XMLCoder": {
         "compile": "ok",
         "errors": 0,
-        "lines": 22166,
+        "lines": 22167,
         "dep_compile": "none"
       },
       "AnimatedCollectionViewLayout": {

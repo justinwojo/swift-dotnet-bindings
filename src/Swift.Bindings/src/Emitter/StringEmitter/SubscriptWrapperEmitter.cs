@@ -27,9 +27,12 @@ public static class SubscriptWrapperEmitter
         if (string.IsNullOrEmpty(env.TypeDatabase.AsyncLibraryName))
             return false;
 
-        // 2. Non-generic parent type — @_cdecl can't express type parameters
+        // 2. Generic parent type — allow non-final class instance subscripts with concrete signatures
         if (env.ParentDecl is TypeDecl td && td.IsGeneric)
-            return false;
+        {
+            if (!CanEmitGenericClassSubscriptWrapper(subscriptDecl, td))
+                return false;
+        }
 
         // 3. Not static (static subscripts aren't C# indexers)
         if (subscriptDecl.IsStatic)
@@ -189,6 +192,16 @@ public static class SubscriptWrapperEmitter
             callArgs.Add(callArg);
         }
 
+        // Metadata parameters for generic parent types (accepted but unused)
+        bool isGenericParent = MethodWrapperEmitter.IsGenericClassParent(env.ParentDecl);
+        if (isGenericParent && parentTypeDecl != null)
+        {
+            for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
+            {
+                swiftParams.Add($"_ _metadata{i}: UnsafeRawPointer");
+            }
+        }
+
         // Self parameter (last position, instance subscripts only)
         if (isClass)
             swiftParams.Add("_ self_: UnsafeMutableRawPointer");
@@ -205,6 +218,14 @@ public static class SubscriptWrapperEmitter
         // Build bracket access expression
         var subscriptAccess = BuildSubscriptAccessExpr("obj", callArgs);
 
+        // For generic parent class types, emit protocol + conformance for type erasure
+        string? protocolName = null;
+        if (isGenericParent)
+        {
+            protocolName = EmitGetterProtocolAndConformance(
+                swiftWriter, subscriptDecl, symbolName, moduleQualifiedName);
+        }
+
         // Emit the @_cdecl function
         swiftWriter.WriteLine();
         swiftWriter.WriteLines($$"""
@@ -212,7 +233,7 @@ public static class SubscriptWrapperEmitter
             // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
             """);
 
-        if (parentTypeDecl.IsMainActorIsolated)
+        if (parentTypeDecl?.IsMainActorIsolated == true)
             swiftWriter.WriteLine("@MainActor");
 
         swiftWriter.WriteLines($$"""
@@ -226,7 +247,14 @@ public static class SubscriptWrapperEmitter
             swiftWriter.WriteLine(line);
 
         // Reconstruct self
-        EmitSelfReconstruction(swiftWriter, isClass, moduleQualifiedName);
+        if (isGenericParent && protocolName != null)
+        {
+            swiftWriter.WriteLine($"let obj = Unmanaged<AnyObject>.fromOpaque(self_).takeUnretainedValue() as! any {protocolName}");
+        }
+        else
+        {
+            EmitSelfReconstruction(swiftWriter, isClass, moduleQualifiedName);
+        }
 
         // Emit return based on type category
         if (isString)
@@ -319,11 +347,29 @@ public static class SubscriptWrapperEmitter
             callArgs.Add(callArg);
         }
 
+        // Metadata parameters for generic parent types (accepted but unused)
+        bool isGenericParent = MethodWrapperEmitter.IsGenericClassParent(env.ParentDecl);
+        if (isGenericParent && parentTypeDecl != null)
+        {
+            for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
+            {
+                swiftParams.Add($"_ _metadata{i}: UnsafeRawPointer");
+            }
+        }
+
         // Self parameter (always mutable for setters)
         swiftParams.Add("_ self_: UnsafeMutableRawPointer");
 
         var swiftParamString = string.Join(", ", swiftParams);
         var swiftFuncName = $"_sbw_subset_{EmitterUtility.DeterministicHash8(symbolName)}";
+
+        // For generic parent class types, emit protocol + conformance for type erasure
+        string? protocolName = null;
+        if (isGenericParent)
+        {
+            protocolName = EmitSetterProtocolAndConformance(
+                swiftWriter, subscriptDecl, symbolName, moduleQualifiedName);
+        }
 
         // Emit the @_cdecl function
         swiftWriter.WriteLine();
@@ -332,7 +378,7 @@ public static class SubscriptWrapperEmitter
             // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
             """);
 
-        if (parentTypeDecl.IsMainActorIsolated)
+        if (parentTypeDecl?.IsMainActorIsolated == true)
             swiftWriter.WriteLine("@MainActor");
 
         swiftWriter.WriteLines($$"""
@@ -354,7 +400,12 @@ public static class SubscriptWrapperEmitter
             isClass ? "obj" : $"self_.assumingMemoryBound(to: {moduleQualifiedName}.self).pointee",
             callArgs);
 
-        if (isClass)
+        if (isGenericParent && protocolName != null)
+        {
+            swiftWriter.WriteLine($"var obj = Unmanaged<AnyObject>.fromOpaque(self_).takeUnretainedValue() as! any {protocolName}");
+            swiftWriter.WriteLine($"obj[{string.Join(", ", callArgs.Select(StripArgLabel))}] = {valueExpr}");
+        }
+        else if (isClass)
         {
             swiftWriter.WriteLine($"let obj = Unmanaged<{moduleQualifiedName}>.fromOpaque(self_).takeUnretainedValue()");
             swiftWriter.WriteLine($"obj[{string.Join(", ", callArgs.Select(StripArgLabel))}] = {valueExpr}");
@@ -447,5 +498,103 @@ public static class SubscriptWrapperEmitter
                 swiftWriter.WriteLine($"return {expr}");
                 break;
         }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Generic parent class support — protocol-based type erasure
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Returns true when a subscript on a generic parent type can be wrapped via @_cdecl
+    /// using protocol-based type erasure.
+    /// </summary>
+    private static bool CanEmitGenericClassSubscriptWrapper(
+        SubscriptDecl subscriptDecl, TypeDecl parentTypeDecl)
+    {
+        // Only class types — protocol dispatch via existential cast
+        if (parentTypeDecl is not ClassDecl)
+            return false;
+
+        // Static subscripts don't use self-based erasure
+        if (subscriptDecl.IsStatic)
+            return false;
+
+        // Return type and all index param types must not reference parent's generic type params
+        var genericParamNames = parentTypeDecl.GenericParameters
+            .Select(p => p.TypeName)
+            .ToHashSet();
+
+        if (MethodWrapperEmitter.TypeSpecReferencesGenericParam(subscriptDecl.ReturnTypeSpec, genericParamNames))
+            return false;
+
+        foreach (var param in subscriptDecl.IndexParameters)
+        {
+            if (MethodWrapperEmitter.TypeSpecReferencesGenericParam(param.SwiftTypeSpec, genericParamNames))
+                return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Emits protocol declaration and conformance for a subscript getter on a generic class type.
+    /// </summary>
+    private static string EmitGetterProtocolAndConformance(
+        SwiftWriter swiftWriter, SubscriptDecl subscriptDecl, string symbolName,
+        string moduleQualifiedName)
+    {
+        var protocolName = $"_SBW_SG_{EmitterUtility.DeterministicHash8(symbolName)}";
+        var returnSwiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(subscriptDecl.ReturnTypeSpec);
+
+        // Build subscript signature for protocol
+        var indexParams = new List<string>();
+        foreach (var param in subscriptDecl.IndexParameters)
+        {
+            var label = !string.IsNullOrEmpty(param.Name) ? param.Name : "_";
+            var paramType = ExistentialBypassEmitter.RenderSwiftTypeSpec(param.SwiftTypeSpec);
+            indexParams.Add($"{label}: {paramType}");
+        }
+        var indexParamString = string.Join(", ", indexParams);
+
+        swiftWriter.WriteLine();
+        swiftWriter.WriteLines($$"""
+            private protocol {{protocolName}} {
+                subscript({{indexParamString}}) -> {{returnSwiftType}} { get }
+            }
+            extension {{moduleQualifiedName}}: {{protocolName}} {}
+            """);
+
+        return protocolName;
+    }
+
+    /// <summary>
+    /// Emits protocol declaration and conformance for a subscript setter on a generic class type.
+    /// </summary>
+    private static string EmitSetterProtocolAndConformance(
+        SwiftWriter swiftWriter, SubscriptDecl subscriptDecl, string symbolName,
+        string moduleQualifiedName)
+    {
+        var protocolName = $"_SBW_SS_{EmitterUtility.DeterministicHash8(symbolName)}";
+        var returnSwiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(subscriptDecl.ReturnTypeSpec);
+
+        // Build subscript signature for protocol
+        var indexParams = new List<string>();
+        foreach (var param in subscriptDecl.IndexParameters)
+        {
+            var label = !string.IsNullOrEmpty(param.Name) ? param.Name : "_";
+            var paramType = ExistentialBypassEmitter.RenderSwiftTypeSpec(param.SwiftTypeSpec);
+            indexParams.Add($"{label}: {paramType}");
+        }
+        var indexParamString = string.Join(", ", indexParams);
+
+        swiftWriter.WriteLine();
+        swiftWriter.WriteLines($$"""
+            private protocol {{protocolName}} {
+                subscript({{indexParamString}}) -> {{returnSwiftType}} { get set }
+            }
+            extension {{moduleQualifiedName}}: {{protocolName}} {}
+            """);
+
+        return protocolName;
     }
 }

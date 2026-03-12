@@ -47,9 +47,13 @@ public static class MethodWrapperEmitter
         if (parentTypeDecl == null && env.ParentDecl is not ModuleDecl)
             return false;
 
-        // 5b. Non-generic parent type (only applies to TypeDecl) — @_cdecl can't express type parameters
+        // 5b. Generic parent type — allow non-final class instance methods with concrete signatures
+        // (protocol-based type erasure enables calling without knowing the generic type parameter)
         if (parentTypeDecl?.IsGeneric == true)
-            return false;
+        {
+            if (!CanEmitGenericClassWrapper(env, parentTypeDecl))
+                return false;
+        }
 
         // 6. No method-level generics
         if (env.MethodDecl.IsGeneric)
@@ -250,6 +254,18 @@ public static class MethodWrapperEmitter
             callArgs.Add(callArg);
         }
 
+        // Metadata parameters for generic parent types (accepted but unused —
+        // protocol witness dispatch retrieves metadata from the object's isa pointer).
+        // Must appear between arguments and self to match PInvokeSignatureBuilder ordering.
+        bool isGenericParent = IsGenericClassParent(env.ParentDecl);
+        if (isGenericParent && parentTypeDecl != null)
+        {
+            for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
+            {
+                swiftParams.Add($"_ _metadata{i}: UnsafeRawPointer");
+            }
+        }
+
         // Self parameter (instance methods only, last position)
         if (!isStatic)
         {
@@ -303,6 +319,15 @@ public static class MethodWrapperEmitter
                 : $"{selfRef}.{swiftMethodName}({callArgString})";
         }
 
+        // For generic parent class types, emit protocol + conformance for type erasure
+        string? protocolName = null;
+        if (isGenericParent && !string.IsNullOrEmpty(moduleQualifiedSwiftName))
+        {
+            protocolName = $"_SBW_P_{EmitterUtility.DeterministicHash8(symbolName)}";
+            EmitGenericClassProtocolAndConformance(
+                swiftWriter, methodDecl, env, symbolName, moduleQualifiedSwiftName);
+        }
+
         // Emit the @_cdecl function
         swiftWriter.WriteLine();
         var wrapperTarget = string.IsNullOrEmpty(moduleQualifiedSwiftName)
@@ -343,7 +368,15 @@ public static class MethodWrapperEmitter
         // Reconstruct self for instance methods
         if (!isStatic)
         {
-            EmitSelfReconstruction(swiftWriter, isClass, isMutating, moduleQualifiedSwiftName);
+            if (isGenericParent && protocolName != null)
+            {
+                // Generic parent class: use AnyObject + protocol cast for type erasure
+                swiftWriter.WriteLine($"let obj = Unmanaged<AnyObject>.fromOpaque(self_).takeUnretainedValue() as! any {protocolName}");
+            }
+            else
+            {
+                EmitSelfReconstruction(swiftWriter, isClass, isMutating, moduleQualifiedSwiftName);
+            }
         }
 
         // Emit the body based on method characteristics
@@ -593,10 +626,13 @@ public static class MethodWrapperEmitter
         // Guard 4: xcframework mode required
         if (string.IsNullOrEmpty(env.TypeDatabase.AsyncLibraryName))
             return false;
-        // Guard 5b: Non-generic parent type
+        // Guard 5b: Generic parent type — allow non-final class instance methods with concrete signatures
         var parentTypeDecl = env.ParentDecl as TypeDecl;
         if (parentTypeDecl?.IsGeneric == true)
-            return false;
+        {
+            if (!CanEmitGenericClassWrapper(env, parentTypeDecl))
+                return false;
+        }
         // Guard 6: No method-level generics
         if (env.MethodDecl.IsGeneric)
             return false;
@@ -779,5 +815,174 @@ public static class MethodWrapperEmitter
             return true;
 
         return false;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Generic parent class support — protocol-based type erasure
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Returns true when a method on a generic parent type can be wrapped via @_cdecl
+    /// using protocol-based type erasure. Requirements:
+    /// - Parent is a class (AnyObject cast + protocol witness dispatch)
+    /// - Method is an instance method (not static — static dispatch uses wrong metadata)
+    /// - Method signature doesn't reference the parent type's generic parameters
+    /// </summary>
+    internal static bool CanEmitGenericClassWrapper(MethodEnvironment env, TypeDecl parentTypeDecl)
+    {
+        // Only class types — protocol dispatch via existential cast
+        if (parentTypeDecl is not ClassDecl)
+            return false;
+
+        // Instance methods only — static methods lack a self pointer for existential dispatch
+        if (env.MethodDecl.MethodType == MethodType.Static)
+            return false;
+
+        // No generic type params in method signature (params/returns must be concrete)
+        if (HasGenericTypeParamInSignature(env, parentTypeDecl))
+            return false;
+
+        return true;
+    }
+
+    /// <summary>
+    /// Checks whether any parameter or the return type references the parent type's generic
+    /// type parameters (e.g., τ_0_0, τ_0_1). Methods where T appears in the signature
+    /// can't use protocol-based type erasure because the protocol would need to be generic.
+    /// </summary>
+    internal static bool HasGenericTypeParamInSignature(MethodEnvironment env, TypeDecl parentTypeDecl)
+    {
+        var genericParamNames = parentTypeDecl.GenericParameters
+            .Select(p => p.TypeName)
+            .ToHashSet();
+
+        foreach (var arg in env.MethodDecl.CSSignature)
+        {
+            if (TypeSpecReferencesGenericParam(arg.SwiftTypeSpec, genericParamNames))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Recursively checks whether a TypeSpec references any of the given generic type parameter names.
+    /// </summary>
+    internal static bool TypeSpecReferencesGenericParam(TypeSpec spec, HashSet<string> genericParamNames)
+    {
+        if (spec is NamedTypeSpec named)
+        {
+            if (genericParamNames.Contains(named.Name))
+                return true;
+            foreach (var gp in named.GenericParameters)
+            {
+                if (TypeSpecReferencesGenericParam(gp, genericParamNames))
+                    return true;
+            }
+        }
+        else if (spec is ClosureTypeSpec closure)
+        {
+            if (TypeSpecReferencesGenericParam(closure.ReturnType, genericParamNames))
+                return true;
+            if (TypeSpecReferencesGenericParam(closure.Arguments, genericParamNames))
+                return true;
+        }
+        else if (spec is TupleTypeSpec tuple)
+        {
+            foreach (var elem in tuple.Elements)
+            {
+                if (TypeSpecReferencesGenericParam(elem, genericParamNames))
+                    return true;
+            }
+        }
+        else if (spec is ProtocolListTypeSpec protocolList)
+        {
+            foreach (var proto in protocolList.Protocols.Keys)
+            {
+                if (TypeSpecReferencesGenericParam(proto, genericParamNames))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Builds the Swift protocol method declaration string for protocol-based type erasure.
+    /// The protocol declaration must exactly match the original method's signature
+    /// (labels, types, throws) for the conformance to be valid.
+    /// </summary>
+    internal static string BuildProtocolMethodDeclaration(MethodDecl methodDecl, MethodEnvironment env)
+    {
+        var baseName = NameProvider.ParserNameToSwift(methodDecl);
+        var keptArgs = methodDecl.CSSignature.Skip(1).ToList();
+
+        var protocolParams = new List<string>();
+        for (int i = 0; i < keptArgs.Count; i++)
+        {
+            var arg = keptArgs[i];
+            if (DefaultParameterOverloadEmitter.IsDebugParameter(arg)) continue;
+            if (arg.SwiftTypeSpec.IsEmptyTuple) continue;
+
+            var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec);
+
+            // Determine external label
+            string externalLabel;
+            if (string.IsNullOrEmpty(arg.Name) || arg.Name.StartsWith("arg"))
+                externalLabel = "_";
+            else if (arg.Name.StartsWith("_"))
+                externalLabel = arg.Name.Substring(1);
+            else
+                externalLabel = arg.Name;
+
+            // Determine internal name
+            string internalName = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : externalLabel;
+            if (internalName == "_") internalName = $"p{i}";
+
+            // Format parameter declaration
+            if (externalLabel == internalName)
+                protocolParams.Add($"{externalLabel}: {swiftType}");
+            else
+                protocolParams.Add($"{externalLabel} {internalName}: {swiftType}");
+        }
+
+        var paramString = string.Join(", ", protocolParams);
+        var throwsClause = methodDecl.Throws ? " throws" : "";
+
+        // Return type
+        var returnSpec = methodDecl.CSSignature.First().SwiftTypeSpec;
+        string returnClause = returnSpec.IsEmptyTuple
+            ? ""
+            : $" -> {ExistentialBypassEmitter.RenderSwiftTypeSpec(returnSpec)}";
+
+        return $"func {baseName}({paramString}){throwsClause}{returnClause}";
+    }
+
+    /// <summary>
+    /// Emits the protocol declaration, conformance extension, and modified self reconstruction
+    /// for a method on a generic class type.
+    /// </summary>
+    internal static void EmitGenericClassProtocolAndConformance(
+        SwiftWriter swiftWriter, MethodDecl methodDecl, MethodEnvironment env,
+        string symbolName, string moduleQualifiedSwiftName)
+    {
+        var protocolName = $"_SBW_P_{EmitterUtility.DeterministicHash8(symbolName)}";
+        var methodSig = BuildProtocolMethodDeclaration(methodDecl, env);
+
+        swiftWriter.WriteLine();
+        swiftWriter.WriteLines($$"""
+            private protocol {{protocolName}} {
+                {{methodSig}}
+            }
+            extension {{moduleQualifiedSwiftName}}: {{protocolName}} {}
+            """);
+    }
+
+    /// <summary>
+    /// Returns true if the given parent type declaration is a generic class type.
+    /// Used to determine whether protocol-based type erasure is needed in emission.
+    /// </summary>
+    internal static bool IsGenericClassParent(BaseDecl? parentDecl)
+    {
+        return parentDecl is ClassDecl cd && cd.IsGeneric;
     }
 }
