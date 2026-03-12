@@ -908,6 +908,12 @@ public static class MethodWrapperEmitter
                     return true;
             }
         }
+        else if (spec is AssociatedTypeReferenceSpec assocRef)
+        {
+            // Associated type references like τ_0_0.Element reference the base generic param.
+            if (genericParamNames.Contains(assocRef.BaseType))
+                return true;
+        }
 
         return false;
     }
@@ -933,7 +939,7 @@ public static class MethodWrapperEmitter
 
             // Determine external label
             string externalLabel;
-            if (string.IsNullOrEmpty(arg.Name) || arg.Name.StartsWith("arg"))
+            if (string.IsNullOrEmpty(arg.Name) || arg.Name == "_" || arg.Name.StartsWith("arg"))
                 externalLabel = "_";
             else if (arg.Name.StartsWith("_"))
                 externalLabel = arg.Name.Substring(1);

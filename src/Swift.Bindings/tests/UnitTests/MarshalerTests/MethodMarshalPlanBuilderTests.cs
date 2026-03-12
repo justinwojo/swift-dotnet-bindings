@@ -599,6 +599,102 @@ public class MethodMarshalPlanBuilderTests
         return builder.BuildSyncPlan();
     }
 
+    [Fact]
+    public void PInvokeCall_CdeclGenericClassConstructor_UsesClassMetadata()
+    {
+        // @_cdecl constructor wrappers on generic classes must pass the class's own metadata
+        // (e.g., GenericCache<T>.GetTypeMetadata()) as _metadata0, NOT per-param metadata
+        // (SwiftObjectHelper<T>.GetTypeMetadata()). The Swift wrapper does
+        // unsafeBitCast(_metadata0, to: Any.Type.self) for protocol metatype dispatch.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("GenericCache", moduleDecl);
+        classDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var typeDb = CreateTypeDatabase("GenericCache");
+
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "SBW_TestModule_GenericCache_init_abc12345",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            UsesCdeclConstructorWrapper = true,
+            UsesWrapperLibrary = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", TupleTypeSpec.Empty, moduleDecl),
+                CreateArg("capacity", new NamedTypeSpec("Swift.Int"), moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = classDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        classDecl.Methods.Add(method);
+
+        var helperContext = PInvokeHelperContext.CreateIfGeneric(classDecl);
+        Assert.NotNull(helperContext);
+        var env = new MethodEnvironment(method, typeDb, pinvokeHelperContext: helperContext);
+
+        var wrapperSig = new Signature("void", Array.Empty<Parameter>());
+        var pInvokeSig = new Signature("void", Array.Empty<Parameter>());
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig);
+
+        // Must use SwiftObjectHelper<GenericCache<T>>.GetTypeMetadata() for _metadata0
+        // (routes through ISwiftObject to get specialized class metatype)
+        Assert.Contains("SwiftObjectHelper<GenericCache<T>>.GetTypeMetadata()", plan.PInvokeCallStatement);
+        // Must NOT use per-param SwiftObjectHelper<T>.GetTypeMetadata() (wrong metatype)
+        Assert.DoesNotContain("SwiftObjectHelper<T>.GetTypeMetadata()", plan.PInvokeCallStatement);
+    }
+
+    [Fact]
+    public void PInvokeCall_NonCdeclGenericClassConstructor_UsesSwiftObjectHelper()
+    {
+        // Non-@_cdecl constructors (silgen_name path) should still use per-param metadata
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("GenericCache", moduleDecl);
+        classDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var typeDb = CreateTypeDatabase("GenericCache");
+
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s_silgen_init",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            UsesCdeclConstructorWrapper = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", TupleTypeSpec.Empty, moduleDecl),
+                CreateArg("capacity", new NamedTypeSpec("Swift.Int"), moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = classDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        classDecl.Methods.Add(method);
+
+        var helperContext = PInvokeHelperContext.CreateIfGeneric(classDecl);
+        var env = new MethodEnvironment(method, typeDb, pinvokeHelperContext: helperContext);
+
+        var wrapperSig = new Signature("void", Array.Empty<Parameter>());
+        var pInvokeSig = new Signature("void", Array.Empty<Parameter>());
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig);
+
+        // Non-@_cdecl should use per-param metadata
+        Assert.Contains("SwiftObjectHelper", plan.PInvokeCallStatement);
+    }
+
     private static ModuleDecl CreateModuleDecl()
     {
         return new ModuleDecl

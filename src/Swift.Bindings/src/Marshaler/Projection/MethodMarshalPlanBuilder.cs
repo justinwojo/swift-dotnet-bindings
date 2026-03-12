@@ -615,9 +615,35 @@ internal class MethodMarshalPlanBuilder
         {
             // Protocol extension methods handle their own metadata via HandleGenericMetadata
             // (explicit + implicit for @_silgen_name ABI). Don't append PInvokeHelperContext metadata.
-            var metadataArgs = _env.MethodDecl.IsProtocolExtensionMethod
-                ? ""
-                : string.Join(", ", _env.PInvokeHelperContext.GetMetadataArgumentList());
+            string metadataArgs;
+            if (_env.MethodDecl.IsProtocolExtensionMethod)
+            {
+                metadataArgs = "";
+            }
+            else if (_env.MethodDecl.UsesCdeclConstructorWrapper &&
+                     _env.ParentDecl is TypeDecl { IsGeneric: true })
+            {
+                // @_cdecl constructor wrappers on generic classes: _metadata0 must be the
+                // specialized class metatype (e.g., GenericCache<String>.self), not per-param T metadata.
+                // The Swift wrapper does unsafeBitCast(_metadata0, to: Any.Type.self) for protocol dispatch.
+                // Use SwiftObjectHelper<ClassName<T>>.GetTypeMetadata() — this routes through the
+                // ISwiftObject constraint to the class's explicit interface implementation, returning
+                // the specialized metatype with all generic params baked in.
+                var metadataList = _env.PInvokeHelperContext.GetMetadataArgumentList().ToList();
+                if (metadataList.Count > 0)
+                {
+                    var parentType = (TypeDecl)_env.ParentDecl;
+                    // Use the resolved C# type name (Pascal-cased, with generic params) to match
+                    // the emitted class declaration — consistent with GenericTypeEmitter.
+                    var resolvedTypeName = GenericTypeEmitter.GetTypeNameWithGenerics(parentType);
+                    metadataList[0] = $"SwiftObjectHelper<{resolvedTypeName}>.GetTypeMetadata()";
+                }
+                metadataArgs = string.Join(", ", metadataList);
+            }
+            else
+            {
+                metadataArgs = string.Join(", ", _env.PInvokeHelperContext.GetMetadataArgumentList());
+            }
             var fullArgs = string.IsNullOrEmpty(callArgs)
                 ? metadataArgs
                 : (string.IsNullOrEmpty(metadataArgs) ? callArgs : $"{callArgs}, {metadataArgs}");

@@ -122,6 +122,47 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
+    public void ShouldEmitWrapper_GenericClassParent_AssociatedTypeParam_ReturnsFalse()
+    {
+        // Associated type reference τ_0_0.Element references parent's generic param → can't erase
+        var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("GenericBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var method = CreateMethod("getValue", parentDecl, moduleDecl);
+        method.CSSignature = new List<ArgumentDecl>
+        {
+            new ArgumentDecl
+            {
+                SwiftTypeSpec = TupleTypeSpec.Empty,
+                Name = "_result",
+                PrivateName = "_result",
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = null,
+                ModuleDecl = null
+            },
+            new ArgumentDecl
+            {
+                SwiftTypeSpec = new AssociatedTypeReferenceSpec("τ_0_0", "Element"),
+                Name = "element",
+                PrivateName = "element",
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = null,
+                ModuleDecl = null
+            }
+        };
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
     public void ShouldEmitWrapper_GenericClassParent_StaticMethod_ReturnsFalse()
     {
         var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
@@ -976,6 +1017,65 @@ public class MethodWrapperEmitterTests
         };
 
         Assert.False(method.UsesCdeclWrapper);
+    }
+
+    #endregion
+
+    #region BuildProtocolMethodDeclaration Tests
+
+    [Fact]
+    public void BuildProtocolMethodDeclaration_UnlabeledParam_EmitsUnderscore()
+    {
+        // Swift `append(_ element: Int)` — external label is "_", internal name is "element".
+        // The parser converts "_" to "arg0" for Name, but if Name is literally "_" (e.g., from
+        // a non-ABI-JSON path), it must not produce an empty external label.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+
+        var method = new MethodDecl
+        {
+            Name = "append",
+            MangledName = "$s10TestModule_append",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    Name = "",
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                },
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    Name = "_",
+                    PrivateName = "element",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        var env = new MethodEnvironment(method, typeDb);
+
+        var result = MethodWrapperEmitter.BuildProtocolMethodDeclaration(method, env);
+
+        // Must produce valid Swift: `func append(_ element: Int)`, NOT `func append( element: Int)`
+        Assert.Contains("_ element: Int", result);
+        Assert.DoesNotContain("( ", result); // no empty external label
     }
 
     #endregion

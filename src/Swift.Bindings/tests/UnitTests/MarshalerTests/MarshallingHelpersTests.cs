@@ -262,6 +262,32 @@ public class MarshallingHelpersTests
         Assert.True(MarshallingHelpers.MethodRequiresIndirectResult(env));
     }
 
+    [Fact]
+    public void MethodRequiresIndirectResult_CdeclDynamicSelfReturn_ReturnsFalse()
+    {
+        // @_cdecl wrapper returns DynamicSelf as retained class pointer (UnsafeMutableRawPointer).
+        // P/Invoke receives IntPtr directly — NOT indirect result.
+        var selfReturn = new NamedTypeSpec("Self");
+        var env = CreateMethodEnv(returnType: selfReturn);
+        env.MethodDecl.UsesCdeclMethodWrapper = true;
+        Assert.False(MarshallingHelpers.MethodRequiresIndirectResult(env));
+    }
+
+    [Fact]
+    public void MethodRequiresIndirectResult_CdeclNonGenericTupleReturn_ReturnsTrue()
+    {
+        // @_cdecl wrapper writes tuple to resultPtr buffer — tuples aren't C-representable.
+        // Non-@_cdecl path returns false (handled by TupleHandler), but @_cdecl needs indirect result.
+        var tupleReturn = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Bool")
+        });
+        var env = CreateMethodEnv(returnType: tupleReturn);
+        env.MethodDecl.UsesCdeclMethodWrapper = true;
+        Assert.True(MarshallingHelpers.MethodRequiresIndirectResult(env));
+    }
+
     #endregion
 
     #region IsCoreFoundationType Tests

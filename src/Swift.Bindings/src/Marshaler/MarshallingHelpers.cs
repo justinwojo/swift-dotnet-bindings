@@ -127,6 +127,16 @@ namespace BindingsGeneration
                 // C# reads SwiftClosureData (funcPtr + context) from the buffer.
                 if (returnTypeForCdecl.SwiftTypeSpec is ClosureTypeSpec)
                     return true;
+
+                // DynamicSelf (Self): @_cdecl wrapper returns retained class pointer directly.
+                // NOT indirect result — PInvokeEmitter handles IntPtr return type.
+                if (returnTypeForCdecl.SwiftTypeSpec.IsDynamicSelf)
+                    return false;
+
+                // Tuple returns: @_cdecl wrapper writes result to resultPtr buffer.
+                // Tuples aren't C-representable — use indirect result for all tuple sizes.
+                if (returnTypeForCdecl.SwiftTypeSpec is TupleTypeSpec ts && !ts.IsEmptyTuple)
+                    return true;
             }
 
             // Failable constructors (init?) always need indirect result because they return

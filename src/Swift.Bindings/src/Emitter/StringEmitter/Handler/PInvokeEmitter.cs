@@ -96,12 +96,20 @@ namespace BindingsGeneration
                 bool hasGenericElements = _env.TupleHandler.HasGenericTypeParameterElements(tupleTypeSpec);
                 if (!hasGenericElements)
                 {
-                    if (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec) ||
-                        _env.TupleHandler.IsSupportedTuple(tupleTypeSpec, _genericContext))
-                        SetReturnType(_env.TupleHandler.GetPInvokeTupleType(tupleTypeSpec, _genericContext));
+                    if (_env.MethodDecl.UsesCdeclWrapper)
+                    {
+                        // @_cdecl: fall through to indirect result path below.
+                        // Tuples aren't C-representable — wrapper writes to resultPtr buffer.
+                    }
                     else
-                        SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
-                    return;
+                    {
+                        if (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec) ||
+                            _env.TupleHandler.IsSupportedTuple(tupleTypeSpec, _genericContext))
+                            SetReturnType(_env.TupleHandler.GetPInvokeTupleType(tupleTypeSpec, _genericContext));
+                        else
+                            SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
+                        return;
+                    }
                 }
                 if (_env.MethodDecl.IsAsync)
                 {
@@ -157,6 +165,15 @@ namespace BindingsGeneration
 
             // String @_cdecl property wrappers use indirect result (resultPtr) because
             // @_cdecl can't return Swift structs (SBW_Utf8Slice). Falls through to indirect result path below.
+
+            // DynamicSelf (Self return type) on @_cdecl class wrappers:
+            // Swift wrapper returns retained class pointer (UnsafeMutableRawPointer) directly.
+            // P/Invoke receives IntPtr — no indirect result needed.
+            if (returnType.SwiftTypeSpec.IsDynamicSelf && _env.MethodDecl.UsesCdeclWrapper)
+            {
+                SetReturnType("IntPtr");
+                return;
+            }
 
             if (MarshallingHelpers.MethodRequiresIndirectResult(_env))
             {
