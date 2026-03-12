@@ -50,9 +50,8 @@ Investigate degraded features: check `binding-report.json`, search generated bin
 - `EventHandler` name collides with `System.EventHandler` — use `using SwiftEventHandler = SwiftBindingsTestLib.EventHandler`
 
 ## Active Mono/Runtime Limitations (affects tier assignment)
-- **Mono JIT assertion (jit-info.c:918)**: Kills process on ALL closure P/Invoke AND `SwiftString.PInvoke_GetLength` via CallConvSwift. Bridge tests unaffected (use `@_cdecl`). Closure + SwiftString tests deferred to Tier 3.
+- See CLAUDE.md "Known Runtime Issues" for Mono JIT assertion details. Closure + SwiftString tests deferred to Tier 3.
 - Runtime crash detection: test runner tolerates `jit-info.c:918` AND `RUNTIME TESTS CRASHED` (both Mono bugs); fails on other non-zero exits
-- Frozen struct SwiftString return through CallConvSwift → JIT crash
 - Optional array on frozen struct → "Not enough bits" layout mismatch
 - SafeHandle arg through CallConvSwift → non-blittable error
 - Class inheritance+protocol → entry points not exported from dylib

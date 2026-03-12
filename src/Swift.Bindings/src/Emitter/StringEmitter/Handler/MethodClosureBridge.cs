@@ -442,6 +442,7 @@ public static class MethodClosureBridge
                 {
                     swiftWriter.WriteLine($"{currentIndent}let __heap{ci.Index}_{idx} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{swiftType}>.size, alignment: MemoryLayout<{swiftType}>.alignment)");
                     swiftWriter.WriteLine($"{currentIndent}__heap{ci.Index}_{idx}.initializeMemory(as: {swiftType}.self, repeating: __p{ci.Index}_{idx}, count: 1)");
+                    swiftWriter.WriteLine($"{currentIndent}defer {{ __heap{ci.Index}_{idx}.assumingMemoryBound(to: {swiftType}.self).deinitialize(count: 1); __heap{ci.Index}_{idx}.deallocate() }}");
                 }
 
                 // withUnsafePointer nesting for bound generic struct args

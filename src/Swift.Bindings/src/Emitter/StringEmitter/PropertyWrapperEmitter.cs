@@ -19,8 +19,9 @@ public static class PropertyWrapperEmitter
 {
     /// <summary>
     /// Pure query: determines whether a property should use @_cdecl wrappers for its accessors.
-    /// Guards: xcframework mode, non-generic parent, no closures, no async, no protocol existentials,
-    /// no non-copyable structs, no large optional params/returns.
+    /// Guards: xcframework mode, generic parents (allowed for non-final classes with concrete types),
+    /// no closures, no async, no non-copyable structs, no nested types,
+    /// no unsupported generic containers, no ObjC-bridged Optional setters.
     /// </summary>
     public static bool ShouldEmitWrapper(PropertyDecl propertyDecl, MethodEnvironment accessorEnv)
     {

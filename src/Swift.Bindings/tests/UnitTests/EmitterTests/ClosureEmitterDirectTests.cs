@@ -493,4 +493,155 @@ public class ClosureEmitterDirectTests
     }
 
     #endregion
+
+    #region Complex enum heap deallocation (1.1 heap leak fix)
+
+    [Fact]
+    public void SwiftClosureAdapter_ComplexEnumArg_EmitsDeferDeallocate()
+    {
+        // Complex enum closure args use heap allocation (__heap_N). Each allocation must
+        // have a matching defer { __heap_N.deallocate() } to prevent native heap leaks.
+        var typeDatabase = CreateTypeDatabaseWithComplexEnum();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        // Closure: (LoadingState) -> Void — complex enum arg triggers heap alloc
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("TestModule.LoadingState"),
+            TupleTypeSpec.Empty);
+        closureTypeSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var lines = ClosureEmitter.GetSwiftClosureAdapterCode(
+            "callback", closureTypeSpec, closureHandler, isOptional: false);
+
+        var result = string.Join("\n", lines);
+        Assert.Contains("__heap_0 = UnsafeMutableRawPointer.allocate", result);
+        Assert.Contains("__heap_0.initializeMemory", result);
+        Assert.Contains("deinitialize(count: 1); __heap_0.deallocate()", result);
+    }
+
+    [Fact]
+    public void SwiftClosureAdapter_ComplexEnumArg_WithReturn_EmitsDeferDeallocate()
+    {
+        // Complex enum arg with a return value: defer ensures deallocation even when
+        // the closure body has a return statement.
+        var typeDatabase = CreateTypeDatabaseWithComplexEnum();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        // Closure: (LoadingState) -> Int32 — complex enum param + primitive return
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("TestModule.LoadingState"),
+            new NamedTypeSpec("Swift.Int32"));
+        closureTypeSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var lines = ClosureEmitter.GetSwiftClosureAdapterCode(
+            "transform", closureTypeSpec, closureHandler, isOptional: false);
+
+        var result = string.Join("\n", lines);
+        Assert.Contains("deinitialize(count: 1); __heap_0.deallocate()", result);
+        Assert.Contains("return", result);
+    }
+
+    [Fact]
+    public void SwiftClosureAdapter_MultipleComplexEnumArgs_EmitsDeferForEach()
+    {
+        // Multiple complex enum args: each __heap_N gets its own defer deallocate.
+        var typeDatabase = CreateTypeDatabaseWithComplexEnum();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        // Closure: (LoadingState, LoadingState) -> Void
+        var closureTypeSpec = new ClosureTypeSpec(
+            new TupleTypeSpec(new TypeSpec[]
+            {
+                new NamedTypeSpec("TestModule.LoadingState"),
+                new NamedTypeSpec("TestModule.LoadingState")
+            }),
+            TupleTypeSpec.Empty);
+        closureTypeSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var lines = ClosureEmitter.GetSwiftClosureAdapterCode(
+            "handler", closureTypeSpec, closureHandler, isOptional: false);
+
+        var result = string.Join("\n", lines);
+        Assert.Contains("deinitialize(count: 1); __heap_0.deallocate()", result);
+        Assert.Contains("deinitialize(count: 1); __heap_1.deallocate()", result);
+    }
+
+    [Fact]
+    public void SwiftClosureAdapter_ThrowingWithComplexEnumArg_EmitsDeferDeallocate()
+    {
+        // Throwing closure with complex enum arg: defer ensures cleanup on both
+        // success and error paths.
+        var typeDatabase = CreateTypeDatabaseWithComplexEnum();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        // Closure: (LoadingState) throws -> Void
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("TestModule.LoadingState"),
+            TupleTypeSpec.Empty) { Throws = true };
+        closureTypeSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var lines = ClosureEmitter.GetSwiftClosureAdapterCode(
+            "callback", closureTypeSpec, closureHandler, isOptional: false);
+
+        var result = string.Join("\n", lines);
+        Assert.Contains("deinitialize(count: 1); __heap_0.deallocate()", result);
+        Assert.Contains("errorPtr", result);
+    }
+
+    [Fact]
+    public void SwiftClosureAdapter_NoPrimitiveArgs_NoDeferEmitted()
+    {
+        // Primitive-only closure args should NOT have any heap allocation or defer.
+        var typeDatabase = CreateTypeDatabaseWithComplexEnum();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        // Closure: (Int32) -> Void — no complex enums
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int32"),
+            TupleTypeSpec.Empty);
+        closureTypeSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var lines = ClosureEmitter.GetSwiftClosureAdapterCode(
+            "callback", closureTypeSpec, closureHandler, isOptional: false);
+
+        var result = string.Join("\n", lines);
+        Assert.DoesNotContain("__heap_", result);
+        Assert.DoesNotContain("deallocate", result);
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithComplexEnum()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int32"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int32"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int32"),
+                MetadataAccessor = "$ss5Int32VMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        // Complex enum: Kind=Enum, no SimpleEnum flag
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.LoadingState"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "LoadingState"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.LoadingState"),
+                MetadataAccessor = "$s10TestModule12LoadingStateOMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Enum
+            });
+        typeDatabase.AddModuleDatabase(testModule);
+
+        return typeDatabase;
+    }
+
+    #endregion
 }

@@ -351,10 +351,10 @@ After Session 9, remaining CallConvSwift (~3,766) is dominated by:
 
 ### Bug fixes
 
-**Closure adapter heap leak** (from Codex review, Session 1):
-- `ClosureEmitter.SwiftWrapper.BuildAdapterClosureBody()` allocates `__heap_N` buffers for complex-enum closure arguments but never deallocates them
-- Add `__heap_N.deallocate()` after Cdecl callback invocation
-- Add test for repeated closure invocation without native heap growth
+**Closure adapter heap leak** ✅ FIXED:
+- `ClosureEmitter.SwiftWrapper.BuildAdapterClosureBody()` and `MethodClosureBridge` allocated `__heap_N` buffers for complex-enum closure arguments but never destroyed or deallocated them
+- Fix: `defer { __heap_N.assumingMemoryBound(to: T.self).deinitialize(count: 1); __heap_N.deallocate() }` in both emission sites
+- 5 unit tests in `ClosureEmitterDirectTests` + 1 in `MethodClosureBridgeTests` verify deinitialize+deallocate cleanup
 
 ### Code quality
 
@@ -377,7 +377,17 @@ Severity: Warning. Replaces the old `MonoJitRiskDetector` with a proper MSBuild 
 
 ### Documentation updates
 
-**Ownership contract**: Add centralized ownership invariants section (10 rules from Codex review Session 1). See `cdecl-review-action-items.md` Priority 4.2 for the full list.
+**Ownership contract**: Add centralized ownership invariants section. The 10 boundary ownership rules (currently spread across emitters and runtime helpers):
+1. Class inputs are always borrowed (`takeUnretainedValue()`, never `takeRetainedValue()`)
+2. Class outputs are always owned (`passRetained().toOpaque()`; C# consumes exactly one ownership unit)
+3. Non-C-representable returns use explicit result buffers (no hidden register/ABI ownership at managed boundary)
+4. Every heap allocation in generated Swift must have one clear consumer/free site
+5. Every explicit retain on C# side must have one terminal release path (success, error, cancellation)
+6. Destroy wrappers are semantic destroy only (Swift `deinitialize(count: 1)`; .NET frees outer buffer once)
+7. Async handoff must extend liveness beyond the P/Invoke frame
+8. Optional reference = nullable-pointer ABI; optional value type = buffer ABI (never mix)
+9. Wrapper-library routing is all-or-nothing per member
+10. Proxy/existential bridge objects must be explicitly disposable and idempotent
 
 **Product contract consolidation**: Establish wrapper-first as the primary ABI boundary story, not a Mono workaround.
 
@@ -386,13 +396,28 @@ Severity: Warning. Replaces the old `MonoJitRiskDetector` with a proper MSBuild 
 - `docs/NativeAOT-Deployment.md` — describes fallback model no longer true for SwiftString/existential metadata
 - `docs/design/binding-closures.md` — reflects old thick-closure architecture, not wrapper-centric model
 - `src/docs/known-issues-workarounds.md` — says async+throwing closures unsupported (now partially supported); claims Mono-only (both runtimes affected)
-- `PropertyWrapperEmitter.ShouldEmitWrapper()` — stale comment about existential/large-optional exclusions
+- `PropertyWrapperEmitter.ShouldEmitWrapper()` — ✅ stale comment fixed (updated to reflect actual guards)
 
 **Explicit Dispose requirement**: Surface in consumer-facing docs that `Dispose()` is semantically required for full Swift cleanup (finalization intentionally skips destroy).
 
 **Generic destroy fallback**: Document as accepted technical debt — generic containing types skip @_cdecl destroy wrappers and fall back to VWT destroy via `SwiftSafeHandle<T>`.
 
 **Upstream bug reports**: Expand `Future/upstream-bug-reports-draft.md` with all 5 .NET runtime bugs (currently has 3). Add NativeAOT Bugs #2 and #3 with device crash data.
+
+### Runtime test coverage gaps
+
+**Lifetime-specific end-to-end tests** (from architecture review):
+Missing tests that exercise ownership contracts specifically (not just functional correctness):
+- Class return retain/release balance — `passRetained` has exactly one consumer
+- Async retained-self cleanup (success, error, cancellation paths) — holder cleanup releases after callback
+- Optional class returns — null vs non-null ownership divergence
+- Proxy disposal unregister path — strong ref removed on `Dispose()`
+
+**Witness/proxy wrapper runtime coverage** (blocked by test infrastructure):
+- Witness dispatch proxy tests need wrapper-library bundling in test app
+- Proxy lifetime tests mark wrapper-dependent C#-impl paths as Tier 3 expected failures
+- String-raw-value enum witness paths are Tier 3
+- Unblocked once test app bundling supports wrapper libraries
 
 ### Validation gate
 
@@ -406,7 +431,7 @@ Severity: Warning. Replaces the old `MonoJitRiskDetector` with a proper MSBuild 
 - [ ] Library validation 90/90 still passes
 - [ ] `known-issues-workarounds.md` rewritten
 - [ ] `Future/upstream-bug-reports-draft.md` expanded with all 5 bugs
-- [ ] Closure heap leak fixed with test
+- [x] Closure heap leak fixed with test (deinitialize+deallocate in both emission sites, 6 unit tests)
 
 ---
 
@@ -459,6 +484,33 @@ These affect **zero methods** across all 90 Tier 1-2 validation libraries:
 | 11 | Non-copyable structs (`~Copyable`) | C ABI requires copy semantics |
 | 12/12b | Nested/non-primitive frozen struct params | Swift: "cannot be represented in Objective-C" |
 | 17 | Nested type returns | Swift: "cannot be represented in Objective-C" |
+
+### Wrapper compilation failure categories
+
+| Category | Description | Examples |
+|----------|-------------|----------|
+| A1: Missing dependencies | `error: no such module` — wrapper can't resolve imported framework | BlinkIDUX, ACSSmartCardIO, Stripe sub-modules |
+| A2: Internal types exposed | Wrapper references `@usableFromInline internal` types | Alamofire (`WebSocketTask`), SkeletonView (`SkeletonLayer`), Mixpanel (`ServerProxyResource`) |
+| A3: Conditional compilation | `#if compiler` declarations missing in wrapper build context | Mixpanel |
+| A4: Unsupported shapes | Guard logic rejects member before emission (generics, actors, closures, nested types, etc.) | Healthy failure — preferable to invalid Swift |
+| A5: Post-processor stripping | Wrapper generated but blocks stripped for broken patterns | Can degrade to "all code stripped" |
+
+### Closure shape support matrix
+
+| Shape | Status | Path |
+|-------|--------|------|
+| `@escaping` sync, primitive args/returns | Supported | Cdecl adapter |
+| Non-async throwing callbacks | Supported | `SwiftResult<T, SwiftError>` + `errorOut` |
+| Indirect-result return callbacks | Supported | Cdecl adapter |
+| Closure params in `@_cdecl` method wrappers | Supported | Inline adaptation |
+| Parameterless `async throws` | Supported | Continuation-box pattern |
+| `@convention(c)` closures | Supported | Already C-shaped |
+| Returned Swift closures | Supported (mixed path) | `delegate* unmanaged[Swift]` |
+| Async-only with non-void returns | Excluded | Can't await `Task<T>` in sync callback |
+| `async throws` with parameters | Excluded | Runtime state object is parameterless |
+| Closure-in-closure | Excluded | Higher-order marshalling complexity |
+| Generic type parameter signatures | Excluded | ABI not concrete at generation time |
+| Complex enum returns from callbacks | Excluded | Adapter not built for them |
 
 ---
 

@@ -874,6 +874,36 @@ public class MethodClosureBridgeTests
     }
 
     [Fact]
+    public void TryEmit_ComplexEnumClosure_EmitsHeapCleanup()
+    {
+        // Complex enum heap buffers must be destroyed (deinitialize) then freed (deallocate).
+        // Without deinitialize, enums with retained associated payloads leak.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("TestModule.MyError") }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("onError", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closureType, "handler");
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csWriter = new CSharpWriter(new StringWriter());
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        MethodClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
+
+        var swift = swiftOutput.ToString();
+        Assert.Contains("deinitialize(count: 1)", swift);
+        Assert.Contains("deallocate()", swift);
+        // deinitialize must come before deallocate in the same defer
+        Assert.Contains("deinitialize(count: 1); __heap", swift);
+    }
+
+    [Fact]
     public void TryEmit_ComplexEnumClosure_EmitsCorrectDelegateType()
     {
         // D1: Public method should use typed Action<MyError>
