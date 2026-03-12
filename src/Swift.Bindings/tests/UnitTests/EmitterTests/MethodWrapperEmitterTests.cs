@@ -1230,8 +1230,9 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_OptionalValueTypeParam_ReturnsFalse()
+    public void ShouldEmitWrapper_OptionalValueTypeParam_ReturnsTrue()
     {
+        // Optional<value-type> params are now handled via @_cdecl UnsafeRawPointer + .load(as:)
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -1241,12 +1242,13 @@ public class MethodWrapperEmitterTests
         var method = CreateMethodWithParam("doWork", optionalSpec, "value", parentDecl, moduleDecl);
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
     }
 
     [Fact]
-    public void ShouldEmitWrapper_OptionalStringParam_ReturnsFalse()
+    public void ShouldEmitWrapper_OptionalStringParam_ReturnsTrue()
     {
+        // Optional<String> params are now handled via @_cdecl UnsafeRawPointer + .load(as:)
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -1256,7 +1258,7 @@ public class MethodWrapperEmitterTests
         var method = CreateMethodWithParam("doWork", optionalSpec, "name", parentDecl, moduleDecl);
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
     }
 
     [Fact]
@@ -1275,9 +1277,10 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_MixedOptionalRefAndValue_ReturnsFalse()
+    public void ShouldEmitWrapper_MixedOptionalRefAndValue_ReturnsTrue()
     {
-        // Method with both Optional<Class> and Optional<Int> → blocked because of value-type optional
+        // Method with both Optional<Class> and Optional<Int> → now allowed
+        // Optional<Class> uses nullable pointer ABI, Optional<Int> uses IndirectResult
         var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
             ("TestModule.MyClass", TypeRecordFlags.None, TypeRecordKind.Class));
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
@@ -1336,6 +1339,88 @@ public class MethodWrapperEmitterTests
             IsAsync = false,
             Visibility = Visibility.Public
         };
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_OptionalDoubleReturn_ReturnsTrue()
+    {
+        // Optional<Double> return now handled via @_cdecl IndirectResult (resultPtr)
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var optionalSpec = new NamedTypeSpec("Swift.Optional");
+        optionalSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Double"));
+        var method = CreateMethodWithReturn("getRate", optionalSpec, parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_OptionalBoolReturn_ReturnsTrue()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var optionalSpec = new NamedTypeSpec("Swift.Optional");
+        optionalSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Bool"));
+        var method = CreateMethodWithReturn("isEnabled", optionalSpec, parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_DictionaryParam_StillReturnsFalse()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var dictSpec = new NamedTypeSpec("Swift.Dictionary");
+        dictSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        dictSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var method = CreateMethodWithParam("doWork", dictSpec, "dict", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_ClosureReturn_ReturnsTrue()
+    {
+        // Closure returns now handled via @_cdecl IndirectResult (resultPtr buffer)
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var closureReturn = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Int"));
+        closureReturn.Attributes.Add(new TypeSpecAttribute("escaping"));
+        var method = CreateMethodWithReturn("getHandler", closureReturn, parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_OptionalExistentialReturn_ReturnsFalse()
+    {
+        // Optional<protocol existential> needs proxy conversion that @_cdecl can't handle
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var protocolList = new ProtocolListTypeSpec(new List<NamedTypeSpec> { new NamedTypeSpec("Swift.Error") });
+        var optionalExistential = new NamedTypeSpec("Swift.Optional");
+        optionalExistential.GenericParameters.Add(protocolList);
+        var method = CreateMethodWithReturn("getError", optionalExistential, parentDecl, moduleDecl);
         var env = new MethodEnvironment(method, typeDb);
 
         Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));

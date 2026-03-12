@@ -56,15 +56,16 @@ public static class SubscriptWrapperEmitter
         if (subscriptDecl.ReturnTypeSpec is ProtocolListTypeSpec { IsOpaque: true })
             return false;
 
-        // 8. No non-reference-type Optional generic container params/returns
+        // 8. No unsupported generic container params/returns (Array, Dictionary, Set, Optional<existential>).
+        //    Optional<value-type> allowed (IndirectResult). Optional<existential> blocked (needs proxy).
         if (ConstructorWrapperEmitter.IsGenericContainerType(subscriptDecl.ReturnTypeSpec) &&
-            !MethodWrapperEmitter.IsOptionalWithReferenceInner(subscriptDecl.ReturnTypeSpec, env.TypeDatabase))
+            !MethodWrapperEmitter.IsOptionalSupportedForCdecl(subscriptDecl.ReturnTypeSpec, env.TypeDatabase))
             return false;
 
         foreach (var param in subscriptDecl.IndexParameters)
         {
             if (ConstructorWrapperEmitter.IsGenericContainerType(param.SwiftTypeSpec) &&
-                !MethodWrapperEmitter.IsOptionalWithReferenceInner(param.SwiftTypeSpec, env.TypeDatabase))
+                !MethodWrapperEmitter.IsOptionalSupportedForCdecl(param.SwiftTypeSpec, env.TypeDatabase))
                 return false;
         }
 
@@ -293,8 +294,10 @@ public static class SubscriptWrapperEmitter
                 ParentDecl = null,
                 ModuleDecl = null
             };
+            // omitLabels: false — setters always need .load(as:) reconstruction for large Optionals.
+            // omitLabels: true would trigger ShouldWidenParam bypass, skipping reconstruction.
             var (cdeclParam, reconstruction, _) = ConstructorWrapperEmitter.GetCdeclParamMapping(
-                newValueArg, "newValue", env, omitLabels: true);
+                newValueArg, "newValue", env, omitLabels: false);
             swiftParams.Add(cdeclParam);
             if (reconstruction != null)
                 reconstructionLines.Add(reconstruction);

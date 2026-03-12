@@ -44,17 +44,6 @@ public static class PropertyWrapperEmitter
         if (IsNonCopyableStruct(accessorEnv.ParentDecl))
             return false;
 
-        // 7. Skip large optional params/returns — defer to OptionalPointerWrapperEmitter
-        //    unless all optionals are reference-type (nullable pointer ABI).
-        if (propertyDecl.Accessors.Count > 0)
-        {
-            var firstMethod = propertyDecl.Accessors[0].Method;
-            if ((accessorEnv.BoundGenericsHandler.HasLargeOptionalParams(firstMethod) ||
-                 accessorEnv.BoundGenericsHandler.IsLargeOptionalReturn(firstMethod)) &&
-                !MethodWrapperEmitter.IsOptionalWithReferenceInner(propertyDecl.SwiftTypeSpec, accessorEnv.TypeDatabase))
-                return false;
-        }
-
         // 8. Skip nested type properties — @_cdecl can't represent nested Swift types
         //    (e.g., OuterType.InnerType) as parameters. C-compatible structs (CGSize, UIEdgeInsets)
         //    work fine, but pure Swift nested types fail at compilation.
@@ -63,10 +52,10 @@ public static class PropertyWrapperEmitter
             AppleFrameworkRegistry.IsNestedType(propNamed.Name))
             return false;
 
-        // 9. Skip generic container properties (Array, Dictionary, Set, Optional<non-class>).
-        //    Optional<reference-type> uses nullable pointer ABI and is safe for @_cdecl.
+        // 9. Skip unsupported generic container properties (Array, Dictionary, Set, Optional<existential>).
+        //    Optional<value-type> allowed (IndirectResult). Optional<existential> blocked (needs proxy).
         if (ConstructorWrapperEmitter.IsGenericContainerType(propertyDecl.SwiftTypeSpec) &&
-            !MethodWrapperEmitter.IsOptionalWithReferenceInner(propertyDecl.SwiftTypeSpec, accessorEnv.TypeDatabase))
+            !MethodWrapperEmitter.IsOptionalSupportedForCdecl(propertyDecl.SwiftTypeSpec, accessorEnv.TypeDatabase))
             return false;
 
         // 9b. ObjC-bridged Optional accessor setter: C# aliases IntPtr directly, incompatible
@@ -244,8 +233,12 @@ public static class PropertyWrapperEmitter
                 ParentDecl = null,
                 ModuleDecl = null
             };
+            // omitLabels: false — the third return (callArg) is discarded, but omitLabels: true
+            // triggers ShouldWidenParam bypass in GetCdeclParamMapping which skips .load(as:)
+            // reconstruction for large Optionals. Property setters always need reconstruction
+            // since they assign to Swift properties, not call another wrapper.
             var (cdeclParam, reconstruction, _) = ConstructorWrapperEmitter.GetCdeclParamMapping(
-                newValueArg, "newValue", env, omitLabels: true);
+                newValueArg, "newValue", env, omitLabels: false);
             swiftParams.Add(cdeclParam);
             if (reconstruction != null)
             {
@@ -333,6 +326,10 @@ public static class PropertyWrapperEmitter
         // String: SBW_Utf8Slice via result pointer (@_cdecl can't return Swift structs)
         if (typeSpec is NamedTypeSpec strNamed && strNamed.Name == "Swift.String")
             return (new CdeclReturnMapping("SBW_Utf8Slice", CdeclReturnKind.String), true);
+
+        // Closure returns: write to resultPtr buffer
+        if (typeSpec is ClosureTypeSpec)
+            return (new CdeclReturnMapping("Void", CdeclReturnKind.IndirectResult), true);
 
         // Optional<reference type>: nullable pointer ABI (no result buffer needed)
         if (MethodWrapperEmitter.IsOptionalWithReferenceInner(typeSpec, typeDatabase))

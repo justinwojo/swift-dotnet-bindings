@@ -133,6 +133,49 @@ namespace BindingsGeneration
             {
                 // @_cdecl wrappers use plain IntPtr resultPtr, not SwiftIndirectResult
                 var resultExpr = _env.MethodDecl.UsesCdeclWrapper ? "resultPtr" : "new IntPtr(swiftIndirectResult.Value)";
+
+                // @_cdecl Optional<value-type>: marshal via SwiftOptional<T>.ToNullable()
+                if (_env.MethodDecl.UsesCdeclWrapper &&
+                    MethodWrapperEmitter.IsOptionalType(returnArg.SwiftTypeSpec) &&
+                    !MethodWrapperEmitter.IsOptionalWithReferenceInner(returnArg.SwiftTypeSpec, _env.TypeDatabase))
+                {
+                    var projection = s_projectionFactory.Project(returnArg.SwiftTypeSpec,
+                        new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false,
+                            GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl,
+                            CurrentModuleName = _env.ExistentialHandler.CurrentModuleName });
+                    var swiftType = projection?.ContainerTypeName ?? _wrapperSignature.ReturnType;
+                    csWriter.WriteLines($$"""
+                        var swiftResult = SwiftMarshal.MarshalFromSwift<{{swiftType}}>({{resultExpr}});
+                        return swiftResult.ToNullable();
+                        """);
+                    return;
+                }
+
+                // @_cdecl closure returns: read SwiftClosureData from resultPtr buffer
+                if (_env.MethodDecl.UsesCdeclWrapper && _env.ClosureHandler.IsClosure(returnArg))
+                {
+                    var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(returnArg)!;
+                    if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
+                    {
+                        csWriter.WriteLines("""
+                            unsafe {
+                                var result = *(SwiftClosureData*)resultPtr;
+                            """);
+                        csWriter.Indent++;
+                        if (_env.ClosureHandler.IsThrowingClosure(closureTypeSpec))
+                            ClosureEmitter.EmitThrowingClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, "result");
+                        else if (_env.ClosureHandler.RequiresNonFrozenMarshalling(closureTypeSpec))
+                            ClosureEmitter.EmitClosureReturnMarshallingWithNonFrozenParams(csWriter, closureTypeSpec, _env.ClosureHandler, "result");
+                        else if (_env.ClosureHandler.RequiresStructMarshalling(closureTypeSpec))
+                            ClosureEmitter.EmitClosureReturnMarshallingWithStructParams(csWriter, closureTypeSpec, _env.ClosureHandler, "result");
+                        else
+                            ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, "result");
+                        csWriter.Indent--;
+                        csWriter.WriteLine("}");
+                        return;
+                    }
+                }
+
                 csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>({resultExpr});");
                 return;
             }

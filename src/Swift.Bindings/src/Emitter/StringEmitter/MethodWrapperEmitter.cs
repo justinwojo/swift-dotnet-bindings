@@ -91,8 +91,9 @@ public static class MethodWrapperEmitter
         if (env.MethodDecl.UsesWrapperLibrary)
             return false;
 
-        // 14. No generic container params/returns (except Optional<reference-type>)
-        if (HasNonReferenceOptionalGenericContainerParamsOrReturn(env))
+        // 14. No unsupported generic container params/returns (Array, Dictionary, Set, Optional<existential>).
+        //     Optional<value-type> allowed (IndirectResult). Optional<existential> blocked (needs proxy).
+        if (HasUnsupportedGenericContainerParamsOrReturn(env))
             return false;
 
         var returnSpec = env.MethodDecl.CSSignature.First().SwiftTypeSpec;
@@ -101,9 +102,8 @@ public static class MethodWrapperEmitter
         if (returnSpec is ProtocolListTypeSpec { IsOpaque: true })
             return false;
 
-        // 15b. No closure return types — closures can't be @_cdecl result types
-        if (returnSpec is ClosureTypeSpec)
-            return false;
+        // 15b. Closure returns: allowed — routed through IndirectResult (resultPtr buffer).
+        // @_cdecl wrapper writes closure to resultPtr via initializeMemory; C# reads SwiftClosureData.
 
         // 15c. No non-empty tuple return types — tuples have their own marshalling
         if (returnSpec is TupleTypeSpec trs && !trs.IsEmptyTuple)
@@ -111,12 +111,6 @@ public static class MethodWrapperEmitter
 
         // 15d. No DynamicSelf return
         if (returnSpec.IsDynamicSelf)
-            return false;
-
-        // 16. No large Optional params/returns (unless all optionals are reference-type)
-        if ((env.BoundGenericsHandler.HasLargeOptionalParams(env.MethodDecl) ||
-             env.BoundGenericsHandler.IsLargeOptionalReturn(env.MethodDecl)) &&
-            !AllOptionalParamsAndReturnAreReferenceType(env))
             return false;
 
         // 17. No nested type returns
@@ -366,9 +360,18 @@ public static class MethodWrapperEmitter
         {
             EmitStringReturnBody(swiftWriter, callExpr);
         }
+        else if (needsResultPtr && returnTypeSpec is ClosureTypeSpec)
+        {
+            // Closure returns: strip @escaping/@Sendable (parameter attributes, not valid
+            // in metatype position) and wrap in parens for correct .self binding.
+            var closureType = ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec)
+                .Replace("@escaping ", "").Replace("@Sendable ", "");
+            swiftWriter.WriteLine($"let result = {callExpr}");
+            swiftWriter.WriteLine($"resultPtr.initializeMemory(as: ({closureType}).self, repeating: result, count: 1)");
+        }
         else if (needsResultPtr)
         {
-            // Non-frozen struct or complex enum: write to result buffer
+            // Non-frozen struct, complex enum, Optional<value-type>: write to result buffer
             var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec);
             swiftWriter.WriteLine($"let result = {callExpr}");
             swiftWriter.WriteLine($"resultPtr.initializeMemory(as: {swiftType}.self, repeating: result, count: 1)");
@@ -433,6 +436,13 @@ public static class MethodWrapperEmitter
         else if (isString)
         {
             EmitStringReturnBody(swiftWriter, $"try {callExpr}");
+        }
+        else if (needsResultPtr && returnTypeSpec is ClosureTypeSpec)
+        {
+            var closureType = ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec)
+                .Replace("@escaping ", "").Replace("@Sendable ", "");
+            swiftWriter.WriteLine($"let result = try {callExpr}");
+            swiftWriter.WriteLine($"resultPtr.initializeMemory(as: ({closureType}).self, repeating: result, count: 1)");
         }
         else if (needsResultPtr)
         {
@@ -683,42 +693,24 @@ public static class MethodWrapperEmitter
 
     /// <summary>
     /// Checks whether any parameter or the return type is a generic container type
-    /// that is NOT an Optional with a reference-type inner.
-    /// Optional&lt;Class&gt;, Optional&lt;ObjC-bridged&gt;, Optional&lt;ObjC-rooted&gt; use nullable pointer ABI
-    /// and are safe to pass through @_cdecl wrappers.
+    /// that can't be handled by @_cdecl wrappers.
+    /// Allows: Optional&lt;reference&gt; (nullable pointer ABI), Optional&lt;value-type&gt; (IndirectResult).
+    /// Blocks: Array, Dictionary, Set, Optional&lt;protocol existential&gt; (needs proxy conversion).
     /// </summary>
-    private static bool HasNonReferenceOptionalGenericContainerParamsOrReturn(MethodEnvironment env)
+    private static bool HasUnsupportedGenericContainerParamsOrReturn(MethodEnvironment env)
     {
         var returnSpec = env.MethodDecl.CSSignature.First().SwiftTypeSpec;
         if (ConstructorWrapperEmitter.IsGenericContainerType(returnSpec) &&
-            !IsOptionalWithReferenceInner(returnSpec, env.TypeDatabase))
+            !IsOptionalSupportedForCdecl(returnSpec, env.TypeDatabase))
             return true;
 
         foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
         {
             if (ConstructorWrapperEmitter.IsGenericContainerType(arg.SwiftTypeSpec) &&
-                !IsOptionalWithReferenceInner(arg.SwiftTypeSpec, env.TypeDatabase))
+                !IsOptionalSupportedForCdecl(arg.SwiftTypeSpec, env.TypeDatabase))
                 return true;
         }
         return false;
-    }
-
-    /// <summary>
-    /// Checks that every Optional param and return in the method has a reference-type inner.
-    /// If ANY Optional is value-type, returns false (whole method deferred).
-    /// </summary>
-    private static bool AllOptionalParamsAndReturnAreReferenceType(MethodEnvironment env)
-    {
-        var returnSpec = env.MethodDecl.CSSignature.First().SwiftTypeSpec;
-        if (IsOptionalType(returnSpec) && !IsOptionalWithReferenceInner(returnSpec, env.TypeDatabase))
-            return false;
-
-        foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
-        {
-            if (IsOptionalType(arg.SwiftTypeSpec) && !IsOptionalWithReferenceInner(arg.SwiftTypeSpec, env.TypeDatabase))
-                return false;
-        }
-        return true;
     }
 
     /// <summary>
@@ -726,6 +718,23 @@ public static class MethodWrapperEmitter
     /// </summary>
     internal static bool IsOptionalType(TypeSpec typeSpec)
         => typeSpec is NamedTypeSpec { Name: "Swift.Optional", GenericParameters.Count: > 0 };
+
+    /// <summary>
+    /// Returns true for Optional types that can be handled by @_cdecl wrappers:
+    /// - Optional&lt;reference&gt;: nullable pointer ABI (UnsafeMutableRawPointer?)
+    /// - Optional&lt;value-type&gt;: IndirectResult via resultPtr
+    /// Returns false for Optional&lt;protocol existential&gt; which needs proxy conversion
+    /// that the @_cdecl IndirectResult path doesn't handle.
+    /// </summary>
+    internal static bool IsOptionalSupportedForCdecl(TypeSpec typeSpec, ITypeDatabase typeDatabase)
+    {
+        if (!IsOptionalType(typeSpec))
+            return false;
+        // Optional<protocol existential> needs special proxy conversion
+        if (ConstructorWrapperEmitter.IsProtocolExistentialType(typeSpec, typeDatabase))
+            return false;
+        return true;
+    }
 
     /// <summary>
     /// Returns true for Optional&lt;T&gt; where T is a reference-like type (Class, ObjC-bridged, ObjC-rooted).

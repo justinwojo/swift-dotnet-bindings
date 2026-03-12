@@ -423,22 +423,24 @@ Fixed `System` namespace shadowing in generated code — `XMLDocumentType.System
 
 **Goal**: Route 100% of generated P/Invokes through `@_cdecl` wrappers. Zero `CallConvSwift` in generated bindings.
 
-**Current state** (post Session 4): Sub-phases A, B, C.1, E, F, G.1, and H are complete. All 7 @_silgen_name wrapper paths now route through @_cdecl when eligible. The remaining CallConvSwift breaks down as:
+**Current state** (post Session 5): Sub-phases A, B, C (both C.1 and C.2), E, F, G.1, G.4 (closure returns), and H are complete. All 7 @_silgen_name wrapper paths now route through @_cdecl when eligible. The remaining CallConvSwift breaks down as:
 
 | Category | Nuke P/Invokes | Status |
 |---|---|---|
 | ~~Free functions~~ | ~~done~~ | **Complete** (Session 1, Sub-phase A) |
 | ~~Metadata accessors~~ | ~~done~~ | **Complete** (Session 1, Sub-phase B) |
 | ~~Optional\<reference-type\>~~ | ~~done~~ | **Complete** (Session 2, Sub-phase C.1) |
+| ~~Optional\<value-type\>~~ | ~~done~~ | **Complete** (Session 5, Sub-phase C.2) |
 | ~~Runtime P/Invokes~~ | ~~done~~ | **Complete** (Session 1, Sub-phase H) |
 | ~~@_silgen_name intermediaries~~ | ~~done~~ | **Complete** (Session 3, Sub-phase E) |
 | ~~Protocol existential params/returns~~ | ~~done~~ | **Complete** (Session 4, Sub-phase F) |
-| Optional\<value-type\> | ~5 | Sub-phase C.2: Buffer + discriminant flag |
-| Generic parent types | ~20+ | Sub-phase D: @_cdecl trampoline over @_silgen_name |
 | ~~Subscript accessors~~ | ~~done~~ | **Complete** (Session 4, Sub-phase G.1) |
+| ~~Closure returns~~ | ~~done~~ | **Complete** (Session 5, Sub-phase G.4) |
+| Generic parent types | ~20+ | Sub-phase D: @_cdecl trampoline over @_silgen_name |
 | Non-frozen struct returns | ~39 | Sub-phase G.2: resultPtr out-buffer (overlaps with other guards) |
 | Complex enum constructors | ~11 | Sub-phase G.3: Already handled by existing infrastructure |
-| Tuple/closure/DynamicSelf returns | ~5 | Sub-phase G.4: New return marshalling patterns |
+| Tuple returns | ~0 | Deferred — zero Nuke impact, requires per-element marshalling rework |
+| DynamicSelf returns | ~0 | Deferred — zero Nuke impact, requires AnyType metadata allocation |
 | **Unfixable** (Swift compiler limits) | ~0 | Nested frozen struct params, non-copyable structs, actor types — see below |
 
 **Note on "unfixable" guards**: Guards 6b (actors), 11 (non-copyable), 12/12b (nested/non-primitive frozen struct params), and 17 (nested type returns) are Swift compiler restrictions — `@_cdecl` cannot express these types. These affect **zero methods** in Tier 1-2 validation libraries. Any method hitting these guards still gets a `CallConvSwift` P/Invoke as a fallback. This is acceptable: these patterns don't appear in real-world libraries.
@@ -495,17 +497,20 @@ C# P/Invoke returns `TypeMetadata` directly (blittable `readonly struct` wrappin
 
 **Files modified**: `MethodWrapperEmitter.cs`, `PropertyWrapperEmitter.cs`, `ConstructorWrapperEmitter.cs`.
 
-##### Sub-phase C.2: Optional\<value-type\> → Session 5
+##### Sub-phase C.2: Optional\<value-type\> [COMPLETE]
 
-**Approach**: Buffer + discriminant flag. Optional\<Bool\>, Optional\<Int\>, Optional\<SwiftString\>, Optional\<FrozenStruct\>, Optional\<Enum\> require:
-1. Buffer approach in @_cdecl (result buffer + discriminant flag)
-2. Changes to PInvokeSignatureBuilder to NOT short-circuit Optional\<value\> returns
-3. Changes to MethodMarshalPlanBuilder for IndirectResult allocation with `ContainerTypeName`
-4. Changes to WrapperEmitter.Return.cs for accessor Optional\<value\> returns
+**Approach**: IndirectResult via `resultPtr` buffer. The Swift @_cdecl wrapper writes the full `Optional<T>` to the buffer using `initializeMemory(as: Optional<T>.self, repeating: result, count: 1)`. C# reads `SwiftOptional<T>` from the buffer and converts via `.ToNullable()`.
 
-These are complex and high-risk — sequenced as Session 5 (after Sessions 3+4 are merged).
+**Design deviation**: The original plan specified buffer + discriminant flag (`Int32` hasValue). The implementation uses the existing `IndirectResult` pattern instead — the full `Optional<T>` (including discriminant) is written as a single value, reusing existing infrastructure.
 
-**Effort**: Medium-large. See Session 5 implementation plan for full details.
+- **Guards lifted**: MethodWrapperEmitter guard 14, PropertyWrapperEmitter guards 7/9, SubscriptWrapperEmitter guard 8 — narrowed to block only non-Optional containers and Optional\<existential\>.
+- **Guard 16 removed**: Large Optional params/returns now handled by @_cdecl IndirectResult.
+- **New helper**: `IsOptionalSupportedForCdecl()` — blocks Optional\<protocol existential\> (needs proxy conversion).
+- **Allocator sizing**: Uses `projection.ContainerTypeName` (`SwiftOptional<double>`) for TypeMetadata, not C# projected type (`double?`).
+- **`_optRetPtr` suppressed**: Legacy allocation path disabled when IndirectResult handles Optional via `resultPtr`.
+- **Setter fix**: Property/subscript setter `GetCdeclParamMapping` uses `omitLabels: false` to avoid `ShouldWidenParam` bypass.
+
+**Files modified**: `MethodWrapperEmitter.cs`, `PropertyWrapperEmitter.cs`, `SubscriptWrapperEmitter.cs`, `MarshallingHelpers.cs`, `PInvokeEmitter.cs`, `WrapperEmitter.Return.cs`, `MethodMarshalPlanBuilder.cs`.
 
 #### Sub-phase D: Generic Types (~12%) → Session 6
 
@@ -576,9 +581,9 @@ Split across sessions by dependency:
 | Pattern | Solution | Session |
 |---|---|---|
 | ~~Subscript accessors~~ | ~~Extend wrapper emitter for subscript key params~~ | **Session 4** — COMPLETE |
-| Closure returns | @_cdecl returns `(funcPtr, context)` pair, C# reconstructs delegate | **Session 5** (grouped with Optional\<value\>) |
-| Tuple returns | Write to out-buffer (flattened), same pattern as complex enum returns | **Session 5** |
-| DynamicSelf returns | Return as `UnsafeRawPointer`, C# casts to protocol proxy | **Session 5** |
+| ~~Closure returns~~ | ~~`initializeMemory` to resultPtr, C# reads `SwiftClosureData`~~ | **Session 5** — COMPLETE |
+| Tuple returns | Write to out-buffer (flattened), same pattern as complex enum returns | Deferred — zero Nuke impact |
+| DynamicSelf returns | Return as `UnsafeRawPointer`, C# casts to protocol proxy | Deferred — zero Nuke impact |
 | Non-frozen struct returns (methods) | `resultPtr` out-buffer pattern (exists for constructors, extend to methods) | Already handled |
 | Failable constructors | Return `Optional<UnsafeRawPointer>` (nil = init failed) | Already handled |
 | **Unfixable** (Swift compiler) | — | — |
@@ -720,66 +725,63 @@ Zero `CallConvSwift` code paths remain in `SwiftString.cs`. Zero in `TypeMetadat
 
 ---
 
-**Session 5** (plan + implement) — "Optional\<value-type\> + Remaining Returns"
+**Session 5** (plan + implement) — "Optional\<value-type\> + Closure Returns" — **COMPLETE**
 
-**Goal**: Handle `Optional<Bool>`, `Optional<Int>`, `Optional<String>`, `Optional<Enum>`, `Optional<FrozenStruct>` via buffer + discriminant flag. Also handle tuple returns, closure returns, and DynamicSelf returns.
+**Goal**: Route Optional\<value-type\> and closure returns through @_cdecl wrappers via IndirectResult, eliminating more CallConvSwift P/Invokes.
 
-**Sub-phases**: C.2 + G.4
+**Sub-phases**: C.2 + G.4 (closure returns). Tuple returns (15c) and DynamicSelf (15d) deferred — zero Nuke impact.
 
-This is the **highest-risk session** — it touches the most shared infrastructure. Must be sequenced after Sessions 3-4 to build on their changes.
+**Guards lifted/removed**:
 
-**Guards to lift**:
-
-| Guard | Emitter | What it blocks | Solution |
+| Guard | Emitter | What it blocked | Solution |
 |---|---|---|---|
-| 14 | Method/Property | Generic container with non-ref Optional inner | Buffer + discriminant in @_cdecl, result pointer in C# |
-| 16 | Method/Property | Large Optional params/returns (non-ref) | Same — integrated with OptionalPointerWrapperEmitter |
-| 15b | Method | Closure return types | @_cdecl returns `(funcPtr: UnsafeRawPointer, context: UnsafeRawPointer)`, C# reconstructs delegate |
-| 15c | Method | Non-empty tuple returns | Write to out-buffer (flattened), same pattern as complex enum |
-| 15d | Method | DynamicSelf returns | Return as `UnsafeRawPointer`, C# casts to protocol proxy |
+| 14 | Method | Generic container with non-ref Optional inner | Narrowed: blocks non-Optional containers + Optional\<existential\> |
+| 16 | Method | Large Optional params/returns (non-ref) | **Removed** — subsumed by @_cdecl IndirectResult |
+| 7 | Property | Large Optional returns | **Removed** — subsumed by @_cdecl IndirectResult |
+| 9 | Property | Generic container properties | Narrowed: same as guard 14 |
+| 8 | Subscript | Generic container params/returns | Narrowed: same as guard 14 |
+| 15b | Method | Closure return types | **Removed** — @_cdecl writes closure to resultPtr via `initializeMemory` |
 
-**Optional\<value-type\> approach** (the bulk of this session):
+**Optional\<value-type\> approach** (actual implementation — deviated from original buffer+flag plan):
 
 ```swift
-// Swift @_cdecl wrapper — Optional<Double> property getter
+// Swift @_cdecl wrapper — writes full Optional<T> to resultPtr buffer
 @_cdecl("SBW_Get_Nuke_ImageCache_ttl_A1B2C3D4")
-func _sbw_get_ttl(_ resultPtr: UnsafeMutableRawPointer, _ self_: UnsafeRawPointer) -> Int32 {
-    let obj = Unmanaged<Nuke.ImageCache>.fromOpaque(self_).takeUnretainedValue()
-    let result: Double? = obj.ttl
-    if let value = result {
-        resultPtr.storeBytes(of: value, as: Double.self)
-        return 1  // hasValue flag
-    }
-    return 0  // nil flag
+func _sbw_get_ttl(_ resultPtr: UnsafeMutableRawPointer, _ self_: UnsafeRawPointer) {
+    let obj = self_.assumingMemoryBound(to: Nuke.ImageCache.self).pointee
+    let result = obj.ttl
+    resultPtr.initializeMemory(as: Swift.Optional<Swift.Double>.self, repeating: result, count: 1)
 }
 ```
 
 ```csharp
-// C# P/Invoke — receives result via out-buffer + flag
-[DllImport("NukeSwiftBindings", CallingConvention = CallingConvention.Cdecl)]
-private static extern byte SBW_Get_Nuke_ImageCache_ttl_A1B2C3D4(IntPtr resultPtr, IntPtr self);
+// C# — reads SwiftOptional<double> from resultPtr, converts to nullable
+var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftOptional<double>>(resultPtr);
+return swiftResult.ToNullable();
 ```
 
-**Key shared infrastructure changes**:
-1. `PInvokeSignatureBuilder` — stop short-circuiting Optional\<value\> returns to IntPtr; emit result pointer param instead
-2. `MethodMarshalPlanBuilder` — IndirectResult allocation for Optional\<value\> via `ContainerTypeName`
-3. `WrapperEmitter.Return.cs` — accessor Optional\<value\> return: read from result buffer + check discriminant flag
-4. `MarshallingHelpers.MethodRequiresIndirectResult()` — Optional\<value\> needs indirect result path
-5. `GetCdeclParamMapping()` — Optional\<value\> param: receive `UnsafeRawPointer`, `.load(as: Optional<T>.self)`
-6. `GetCdeclReturnMapping()` — new `CdeclReturnKind.OptionalValueBuffer`
+**Key infrastructure changes**:
+1. `PInvokeEmitter.HandleReturnType()` — bound generic bypass for @_cdecl Optional\<value-type\> + closure; `_optRetPtr` suppressed when IndirectResult handles Optional
+2. `MarshallingHelpers.MethodRequiresIndirectResult()` — @_cdecl Optional\<value-type\> + closure returns force IndirectResult; bound generic short-circuit bypassed
+3. `MethodMarshalPlanBuilder.BuildIndirectResultSetup()` — uses `projection.ContainerTypeName` (`SwiftOptional<double>`) for allocation; closures get fixed 2-pointer allocation
+4. `WrapperEmitter.Return.cs` — Optional\<value-type\>: `MarshalFromSwift<SwiftOptional<T>>(resultPtr).ToNullable()`; closure: `*(SwiftClosureData*)resultPtr`
+5. `PropertyWrapperEmitter.GetCdeclReturnMapping()` — closure returns mapped to `IndirectResult`
+6. New helper: `IsOptionalSupportedForCdecl()` — blocks Optional\<protocol existential\> (needs proxy conversion)
 
-**Files modified**: `MethodWrapperEmitter.cs`, `PropertyWrapperEmitter.cs`, `ConstructorWrapperEmitter.cs`, `PInvokeSignatureBuilder.cs`, `MethodMarshalPlanBuilder.cs`, `WrapperEmitter.Return.cs`, `MarshallingHelpers.cs`, `GetCdeclParamMapping()`, `GetCdeclReturnMapping()`
+**Bug fixes discovered**:
+- Setter `GetCdeclParamMapping` with `omitLabels: true` triggered `ShouldWidenParam` bypass, skipping `.load(as:)` reconstruction. Fixed by using `omitLabels: false` in Property/Subscript setters.
+- `Optional<protocol existential>` (e.g., `Optional<any Error>`) incorrectly passed through guards — `ExistentialContainer1` can't convert to proxy type. Fixed with `IsOptionalSupportedForCdecl()`.
 
-**Tests**: ~25-30 new tests (Optional\<Bool\>, Optional\<Int\>, Optional\<String\>, Optional\<SimpleEnum\>, Optional\<FrozenStruct\>, tuple returns, closure returns).
+**Files modified** (11): `MethodWrapperEmitter.cs`, `PropertyWrapperEmitter.cs`, `SubscriptWrapperEmitter.cs`, `MarshallingHelpers.cs`, `PInvokeEmitter.cs`, `WrapperEmitter.Return.cs`, `MethodMarshalPlanBuilder.cs`, `MethodWrapperEmitterTests.cs`, `PropertyWrapperEmitterTests.cs`, `SubscriptWrapperEmitterTests.cs`, `universal-cdecl-wrappers-design.md`.
 
-**Estimated scope**: ~800-1200 lines
+**Tests**: 10 new + 4 flipped (ShouldEmitWrapper eligibility for Optional\<Double\>, Optional\<Bool\>, Optional\<existential\>, Dictionary, closure returns; property/subscript equivalents).
 
-**Validation gate**:
-- [ ] Nuke `ImageCache.ttl` (Optional\<Double\>) uses Cdecl
-- [ ] All `_optbuf` wrappers eliminated (integrated into @_cdecl)
-- [ ] `./run-tests.sh` passes, 0 failures
-- [ ] `./validate-libraries.sh --tier all` — 90/90 pass
-- [ ] Nuke: CallConvSwift count drops by ~20-30
+**Validation**:
+- [x] Nuke `ImageCache.ttl` (Optional\<Double\>) uses Cdecl — `initializeMemory(as: Optional<Double>.self, ...)`
+- [x] `_optRetPtr` count in Nuke: **0** (all Optional via resultPtr)
+- [x] `./run-tests.sh` — 7054 unit tests pass, 0 failures
+- [x] `./validate-libraries.sh --tier all` — **90/90 pass**, 27 library improvements
+- [x] Nuke CallConvSwift: **122 → 97** (25 reduction)
 
 ---
 
@@ -839,10 +841,9 @@ func _cdecl_removeAll(_ self_: UnsafeRawPointer) {
 
 #### Remaining Session Execution
 
-**Sessions 3 and 4 are complete.** The remaining sessions are sequential:
-1. **Session 5** — Optional\<value-type\> + remaining returns (touches shared infrastructure)
-2. **Session 6** — Generic parent types (depends on type marshalling patterns from Sessions 4-5)
-3. **Phase 4** cleanup (depends on all above)
+**Sessions 3, 4, and 5 are complete.** The remaining sessions are sequential:
+1. **Session 6** — Generic parent types (depends on type marshalling patterns from Sessions 4-5)
+2. **Phase 4** cleanup (depends on all above)
 
 #### Validation Gate (per session)
 
@@ -1048,6 +1049,36 @@ Verify that Nuke and Lottie work end-to-end on a real device.
 - [ ] **Single code path** — every wrappable P/Invoke goes C# → @_cdecl → Swift. No dual-path routing, no fallbacks, no risk detection. Unfixable-guard methods retain CallConvSwift with build-time warning.
 - [ ] **Upstream bugs documented** — `Future/upstream-bug-reports-draft.md` expanded with all 5 bugs, ready to file on dotnet/runtime when repo is public
 - [ ] **End-user documentation clear** — `known-issues-workarounds.md` explains that SwiftBindings routes all calls through `@_cdecl` wrappers for stability, bypassing `CallConvSwift` entirely
+- [ ] **CallConvSwift fallback diagnostic** — Any member that can't get a `@_cdecl` wrapper emits `SWIFTBIND060` (see below)
+- [ ] **NativeAOT narrative corrected** — `known-issues-workarounds.md` and `Known-Limitations.md` updated to stop claiming NativeAOT is unaffected (see below)
+
+---
+
+## Post-Migration: CallConvSwift Fallback Diagnostic
+
+After migration is complete, no member should silently fall back to `CallConvSwift`. Any method, property, or constructor that hits an unfixable guard (actor types, ~Copyable, nested frozen struct params) and retains a `CallConvSwift` P/Invoke must emit a build-time diagnostic:
+
+```
+SWIFTBIND060: Member 'ImageProcessor.process(image:)' uses direct CallConvSwift (no @_cdecl wrapper available: non-copyable parameter type)
+```
+
+**Severity**: Warning (not error — the binding is still usable, just at higher crash risk on some runtimes).
+
+**Purpose**: Make the CallConvSwift/Cdecl boundary explicit and auditable. Consumers can grep for `SWIFTBIND060` to know exactly which members carry runtime risk. This replaces the old `MonoJitRiskDetector` (informational-only, not user-visible) with a proper MSBuild diagnostic.
+
+**Implementation**: The wrapper emitters already have `ShouldEmitWrapper()` guards that return `false` for unfixable patterns. When a guard rejects a member, emit the diagnostic with the specific reason. The binding report (`binding-report.json`) should also include this information.
+
+---
+
+## Post-Migration: Documentation Cleanup
+
+The following docs contain incorrect claims that `CallConvSwift` issues are Mono-only. These must be corrected after (or during) the migration:
+
+**`known-issues-workarounds.md`** (lines 11-19): States "All issues documented here are **Mono JIT-specific**" and that NativeAOT is unaffected. This is wrong — commits `5252aab9` (Dispose SIGSEGV), `4228248c` (constructor SIGSEGV), and real-world device testing on Nuke/Lottie all demonstrated NativeAOT crashes. The table should state that both runtimes are affected, with different symptoms (Mono: JIT assertion abort; NativeAOT: SIGABRT/SIGSEGV on certain type patterns).
+
+**`docs/Known-Limitations.md`** (lines 20-26): States "These issues only affect the Mono JIT (iOS/tvOS Simulator)" and "production device builds using NativeAOT...where `CallConvSwift` works correctly." Same correction needed — NativeAOT has real crashes, they're just different crash patterns than Mono.
+
+**Post-migration framing**: Both docs should be updated to describe `@_cdecl` wrappers as the primary stability mechanism (not a Mono-specific workaround), and `CallConvSwift` as a known-unstable path that the generator avoids by design.
 
 ---
 

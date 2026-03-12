@@ -201,8 +201,9 @@ public class SubscriptWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmit_OptionalValueTypeReturn_ReturnsFalse()
+    public void ShouldEmit_OptionalValueTypeReturn_ReturnsTrue()
     {
+        // Optional<value-type> returns now handled via @_cdecl IndirectResult
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -217,7 +218,7 @@ public class SubscriptWrapperEmitterTests
             parentDecl, moduleDecl);
 
         var env = new MethodEnvironment(accessor.Method, typeDb);
-        Assert.False(SubscriptWrapperEmitter.ShouldEmitSubscriptWrapper(subscriptDecl, accessor, env));
+        Assert.True(SubscriptWrapperEmitter.ShouldEmitSubscriptWrapper(subscriptDecl, accessor, env));
     }
 
     [Fact]

@@ -1224,8 +1224,9 @@ public class PropertyWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_OptionalValueTypeProperty_ReturnsFalse()
+    public void ShouldEmitWrapper_OptionalValueTypeProperty_ReturnsTrue()
     {
+        // Optional<value-type> properties now handled via @_cdecl IndirectResult
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -1233,6 +1234,50 @@ public class PropertyWrapperEmitterTests
         var optionalSpec = new NamedTypeSpec("Swift.Optional");
         optionalSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
         var (propertyDecl, env) = CreatePropertyAndEnv("count", optionalSpec, parentDecl, moduleDecl, typeDb);
+
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_OptionalDoubleProperty_ReturnsTrue()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var optionalSpec = new NamedTypeSpec("Swift.Optional");
+        optionalSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Double"));
+        var (propertyDecl, env) = CreatePropertyAndEnv("rate", optionalSpec, parentDecl, moduleDecl, typeDb);
+
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_ArrayProperty_StillReturnsFalse()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var arraySpec = new NamedTypeSpec("Swift.Array");
+        arraySpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var (propertyDecl, env) = CreatePropertyAndEnv("items", arraySpec, parentDecl, moduleDecl, typeDb);
+
+        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_OptionalExistentialProperty_ReturnsFalse()
+    {
+        // Optional<protocol existential> needs proxy conversion that @_cdecl can't handle
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var protocolList = new ProtocolListTypeSpec(new List<NamedTypeSpec> { new NamedTypeSpec("Swift.Error") });
+        var optionalExistential = new NamedTypeSpec("Swift.Optional");
+        optionalExistential.GenericParameters.Add(protocolList);
+        var (propertyDecl, env) = CreatePropertyAndEnv("error", optionalExistential, parentDecl, moduleDecl, typeDb);
 
         Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
     }

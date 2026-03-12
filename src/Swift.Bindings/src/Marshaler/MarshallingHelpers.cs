@@ -116,6 +116,17 @@ namespace BindingsGeneration
                 // Use indirect result buffer (same pattern as non-frozen structs).
                 if (env.ExistentialHandler.IsExistential(returnTypeForCdecl.SwiftTypeSpec))
                     return true;
+
+                // Optional<value-type>: @_cdecl can't return generics directly.
+                // Wrapper writes full Optional<T> to resultPtr; C# reads SwiftOptional<T>.ToNullable().
+                if (MethodWrapperEmitter.IsOptionalType(returnTypeForCdecl.SwiftTypeSpec) &&
+                    !MethodWrapperEmitter.IsOptionalWithReferenceInner(returnTypeForCdecl.SwiftTypeSpec, env.TypeDatabase))
+                    return true;
+
+                // Closure returns: @_cdecl can't return closures directly — write to resultPtr buffer.
+                // C# reads SwiftClosureData (funcPtr + context) from the buffer.
+                if (returnTypeForCdecl.SwiftTypeSpec is ClosureTypeSpec)
+                    return true;
             }
 
             // Failable constructors (init?) always need indirect result because they return
@@ -135,9 +146,10 @@ namespace BindingsGeneration
             if (returnType.SwiftTypeSpec.IsDynamicSelf)
                 return true;
 
-            // Closure return types don't require indirect result - they are passed as function pointers
+            // Closure return types: non-cdecl passes as function pointers directly.
+            // @_cdecl closures can't be returned directly — use resultPtr buffer (handled above).
             if (returnType.SwiftTypeSpec is ClosureTypeSpec)
-                return false;
+                return false;  // Only reached for non-@_cdecl paths (handled in @_cdecl block above)
 
             // Existential return types (protocol types and compositions) are passed via existential containers (IntPtr)
             if (env.ExistentialHandler.IsExistential(returnType.SwiftTypeSpec))
@@ -161,6 +173,15 @@ namespace BindingsGeneration
                 env.BoundGenericsHandler.IsBoundGeneric(returnType) &&
                 env.BoundGenericsHandler.RequiresBoundGenericMarshalling(returnType))
             {
+                // @_cdecl Optional<value-type>: force IndirectResult instead of IntPtr marshalling.
+                // The wrapper writes full Optional<T> to resultPtr; C# reads SwiftOptional<T>.ToNullable().
+                if ((env.MethodDecl.UsesCdeclPropertyWrapper || env.MethodDecl.UsesCdeclMethodWrapper) &&
+                    !MethodIsSetter(env.MethodDecl) &&
+                    MethodWrapperEmitter.IsOptionalType(returnType.SwiftTypeSpec) &&
+                    !MethodWrapperEmitter.IsOptionalWithReferenceInner(returnType.SwiftTypeSpec, env.TypeDatabase))
+                {
+                    return true;  // Force IndirectResult
+                }
                 return false;
             }
 

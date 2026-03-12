@@ -179,6 +179,10 @@ internal class MethodMarshalPlanBuilder
             (!_env.MethodDecl.HasOptionalPointerWrapper && !_env.MethodDecl.UsesWrapperLibrary))
             return null;
 
+        // @_cdecl IndirectResult handles the allocation via resultPtr — no separate _optRetPtr needed.
+        if (_requiresIndirectResult)
+            return null;
+
         var returnArg = _env.MethodDecl.CSSignature.First();
         var projection = s_projectionFactory.Project(returnArg.SwiftTypeSpec,
             new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false, GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl, CurrentModuleName = _env.ExistentialHandler.CurrentModuleName });
@@ -339,19 +343,51 @@ internal class MethodMarshalPlanBuilder
         {
             if (_env.MethodDecl.UsesCdeclWrapper)
             {
-                // @_cdecl property wrapper: plain IntPtr result buffer, not SwiftIndirectResult register.
-                // Utf8Slice is a C# struct (no Swift metadata); use fixed-size allocation.
-                // Real Swift types use TypeMetadata for correct size.
+                // @_cdecl wrapper: plain IntPtr result buffer, not SwiftIndirectResult register.
                 // payload is declared before try block (EmitCdeclPayloadDeclaration)
                 // so it's accessible in finally for NativeMemory.Free cleanup.
-                var isUtf8Slice = _wrapperSignature.ReturnType == "Utf8Slice";
+                var returnArg = _env.MethodDecl.CSSignature.First();
+                var allocTypeName = _wrapperSignature.ReturnType;
+
+                // Closure returns: fixed 2-pointer size (funcPtr + context = SwiftClosureData)
+                if (returnArg.SwiftTypeSpec is ClosureTypeSpec)
+                {
+                    return new IndirectResultSetup
+                    {
+                        IsConstructor = false,
+                        ReturnTypeName = "SwiftClosureData",
+                        AllocationCode = """
+                            payload = NativeMemory.Alloc((nuint)(nint.Size * 2));
+                            var resultPtr = (IntPtr)payload;
+                            """,
+                        CleanupCode = "NativeMemory.Free(payload);"
+                    };
+                }
+
+                // Optional<value-type>: projected as C# nullable (double?), but TypeMetadata
+                // needs the Swift container type (SwiftOptional<double>) for correct size.
+                if (MethodWrapperEmitter.IsOptionalType(returnArg.SwiftTypeSpec) &&
+                    !MethodWrapperEmitter.IsOptionalWithReferenceInner(returnArg.SwiftTypeSpec, _env.TypeDatabase))
+                {
+                    var projection = s_projectionFactory.Project(returnArg.SwiftTypeSpec,
+                        new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false,
+                            GenericContext = _genericContext,
+                            ParentTypeDecl = _env.ParentDecl as TypeDecl,
+                            CurrentModuleName = _env.ExistentialHandler.CurrentModuleName });
+                    if (projection != null)
+                        allocTypeName = projection.ContainerTypeName;
+                }
+
+                // Utf8Slice is a C# struct (no Swift metadata); use fixed-size allocation.
+                // Real Swift types use TypeMetadata for correct size.
+                var isUtf8Slice = allocTypeName == "Utf8Slice";
                 var allocCode = isUtf8Slice
                     ? """
                         payload = NativeMemory.Alloc((nuint)(nint.Size * 2));
                         var resultPtr = (IntPtr)payload;
                         """
                     : $$"""
-                        var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<{{_wrapperSignature.ReturnType}}>();
+                        var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<{{allocTypeName}}>();
                         payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
                         var resultPtr = (IntPtr)payload;
                         """;
@@ -359,7 +395,7 @@ internal class MethodMarshalPlanBuilder
                 return new IndirectResultSetup
                 {
                     IsConstructor = false,
-                    ReturnTypeName = _wrapperSignature.ReturnType,
+                    ReturnTypeName = allocTypeName,
                     AllocationCode = allocCode,
                     CleanupCode = "NativeMemory.Free(payload);"
                 };
