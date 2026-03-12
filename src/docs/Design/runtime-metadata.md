@@ -5,7 +5,7 @@
 Swift has a struct which is implicit in the language. It is used for several tasks:
 1 - Determining the classification of the type that is represented (struct, enum, class, tuple, etc)
 2 - Getting access to the type descriptor associated with the type
-3 - Getting access to generic types that specialize the type as well [protocols with associated types](bindings-pats.md)
+3 - Getting access to generic types that specialize the type as well [protocols with associated types](binding-pats.md)
 4 - Labeling the contents of existential containers representing [protocols](binding-protocols.md)
 5 - Specifying the types of generic parameters to functions
 6 - Providing information used to allocate types

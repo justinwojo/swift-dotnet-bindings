@@ -13,8 +13,8 @@ Experimental Swift/.NET interop project. Generates C# bindings from compiled Swi
 - `TestFramework/` — Comprehensive test library + runtime tests (iOS Simulator)
 - `validation-libraries.json` — Library validation manifest (88 targets across 46 libraries)
 - `scripts/` — `fetch-libraries.sh` (build xcframeworks), `lib.sh` (shared helpers)
-- `src/docs/` — Design docs, status, known issues
-- `docs/` — High-level philosophy (`binding-overview.md`)
+- `src/docs/` — Internal design docs, status, known issues
+- Public-facing documentation lives in the [GitHub wiki](https://github.com/justinwojo/swift-dotnet-bindings/wiki) (separate repo)
 
 ## Building & Testing
 
@@ -159,7 +159,7 @@ cd Library.Swift.iOS && dotnet build && dotnet pack
 </Project>
 ```
 
-The SDK auto-discovers `*.xcframework` in the project directory, runs the generator, compiles the Swift wrapper, and arranges NuGet pack layout. See `docs/Troubleshooting.md` for SWIFTBIND error codes.
+The SDK auto-discovers `*.xcframework` in the project directory, runs the generator, compiles the Swift wrapper, and arranges NuGet pack layout. See the [Troubleshooting](https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting) wiki page for SWIFTBIND error codes.
 
 **Project with framework dependencies:**
 ```xml

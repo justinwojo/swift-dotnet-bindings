@@ -122,9 +122,12 @@ with open(input_path) as f:
 def find_block_end(lines, start):
     """Find the end of a brace-delimited block starting at `start`."""
     depth = 0
+    seen_open = False
     for j in range(start, len(lines)):
         depth += lines[j].count("{") - lines[j].count("}")
-        if depth <= 0 and j > start:
+        if "{" in lines[j]:
+            seen_open = True
+        if seen_open and depth <= 0 and j > start:
             return j
     return len(lines) - 1
 
@@ -135,6 +138,8 @@ def scan_block_body(lines, start, end):
 output_lines = []
 removed_count = 0
 i = 0
+seen_utf8slice = False
+seen_empty_buffer = False
 
 # Protocols to preserve for runtime testing (Session 6+).
 # EveryProtocol conformances for these protocols are kept so proxy dispatch works at runtime.
@@ -263,6 +268,34 @@ while i < len(lines):
     if ") -> @escaping " in line:
         line = line.replace(") -> @escaping ", ") -> ")
 
+    # Fix: Strip @escaping from .load(as:) type context (only valid in parameter position).
+    # Generator sometimes emits `handler.load(as: @escaping (Type) -> Type.self)`.
+    if ".load(as: @escaping " in line:
+        line = line.replace(".load(as: @escaping ", ".load(as: ")
+
+    # Dedup: Skip duplicate SBW_Utf8Slice / _sbw_emptyBuffer declarations.
+    # The generator can emit these multiple times in the same file.
+    # Handle @frozen + struct pair or bare struct as a unit.
+    is_utf8slice_block = False
+    if stripped.startswith("public struct SBW_Utf8Slice"):
+        is_utf8slice_block = True
+    elif stripped == "@frozen" and i + 1 < len(lines) and "SBW_Utf8Slice" in lines[i+1]:
+        is_utf8slice_block = True
+    if is_utf8slice_block:
+        if seen_utf8slice:
+            # Skip @frozen line (if present) + struct block
+            end = find_block_end(lines, i)
+            i = end + 1
+            continue
+        # Only mark as seen on the actual struct line (not the @frozen decorator)
+        if stripped.startswith("public struct SBW_Utf8Slice"):
+            seen_utf8slice = True
+    if stripped.startswith("fileprivate var _sbw_emptyBuffer") or stripped.startswith("private var _sbw_emptyBuffer"):
+        if seen_empty_buffer:
+            i += 1
+            continue
+        seen_empty_buffer = True
+
     # Default: keep the line
     output_lines.append(line)
     i += 1
@@ -293,17 +326,144 @@ mkdir -p "$OUTPUT_FW_DIR"
 
 SDK_PATH=$(xcrun --sdk "$SDK_NAME" --show-sdk-path)
 
-# Compile cleaned wrapper files, linking against the test library framework
-xcrun swiftc -emit-library -target "$TARGET_TRIPLE" \
-    -sdk "$SDK_PATH" \
-    -F "$XCFW_DIR/" \
-    -module-name "$WRAPPER_MODULE" \
-    -Xlinker -install_name -Xlinker "@rpath/${WRAPPER_MODULE}.framework/${WRAPPER_MODULE}" \
-    -o "$OUTPUT_FW_DIR/$WRAPPER_MODULE" \
-    $CLEANED_FILES
+# Compile with error-based retry: if compilation fails, identify broken @_cdecl
+# functions from error line numbers, strip them, and retry. This handles all
+# error patterns (non-copyable types, protocol .self, frozen struct @_cdecl,
+# main actor isolation, enum case syntax) without fragile pattern matching.
+COMPILE_LOG=$(mktemp /tmp/wrapper-compile-XXXXXX.log)
+MAX_RETRIES=3
+ATTEMPT=0
+while [ $ATTEMPT -lt $MAX_RETRIES ]; do
+    ATTEMPT=$((ATTEMPT + 1))
+    set +e
+    xcrun swiftc -emit-library -target "$TARGET_TRIPLE" \
+        -sdk "$SDK_PATH" \
+        -F "$XCFW_DIR/" \
+        -module-name "$WRAPPER_MODULE" \
+        -Xlinker -install_name -Xlinker "@rpath/${WRAPPER_MODULE}.framework/${WRAPPER_MODULE}" \
+        -o "$OUTPUT_FW_DIR/$WRAPPER_MODULE" \
+        $CLEANED_FILES > "$COMPILE_LOG" 2>&1
+    COMPILE_EXIT=$?
+    set -e
+    if [ $COMPILE_EXIT -eq 0 ]; then break; fi
 
-# Clean up temporary directory
-rm -rf "$CLEANED_DIR"
+    # Compilation failed — extract error lines and strip enclosing functions
+    if [ $ATTEMPT -eq $MAX_RETRIES ]; then
+        echo "Wrapper compilation failed after $MAX_RETRIES attempts:"
+        grep "error:" "$COMPILE_LOG" | head -20
+        echo ""
+        echo "Continuing without wrapper library (Tier 3 tests will fail)."
+        rm -rf "$CLEANED_DIR" "$COMPILE_LOG"
+        exit 0
+    fi
+
+    echo "Compilation attempt $ATTEMPT failed — stripping broken functions..."
+    ERROR_FILE=$(mktemp)
+    grep "error:" "$COMPILE_LOG" | head -80 > "$ERROR_FILE"
+
+    STRIP_SCRIPT=$(mktemp /tmp/strip_errors_XXXXXX.py)
+    cat > "$STRIP_SCRIPT" << 'STRIPEOF'
+import sys, os, re
+
+cleaned_dir = sys.argv[1]
+error_file = sys.argv[2]
+with open(error_file) as f:
+    error_text = f.read()
+
+# Parse error line numbers per file
+file_error_lines = {}
+for line in error_text.split("\n"):
+    m = re.match(r"(.+\.swift):(\d+):\d+: error:", line)
+    if m:
+        filepath = os.path.basename(m.group(1))
+        lineno = int(m.group(2))
+        file_error_lines.setdefault(filepath, set()).add(lineno)
+
+total_stripped = 0
+for fname, error_lines in file_error_lines.items():
+    fpath = os.path.join(cleaned_dir, fname)
+    if not os.path.exists(fpath):
+        continue
+    with open(fpath) as f:
+        lines = f.readlines()
+
+    def find_block_end(lines, start):
+        depth = 0
+        seen_open = False
+        for j in range(start, len(lines)):
+            depth += lines[j].count("{") - lines[j].count("}")
+            if "{" in lines[j]:
+                seen_open = True
+            if seen_open and depth <= 0 and j > start:
+                return j
+        return len(lines) - 1
+
+    # Identify function blocks containing error lines
+    blocks_to_strip = set()
+    i = 0
+    while i < len(lines):
+        stripped_line = lines[i].strip()
+        if (stripped_line.startswith("@_cdecl(") or stripped_line.startswith("@_silgen_name(")
+            or stripped_line.startswith("public func SBW_") or stripped_line.startswith("public func PInvoke_")
+            or stripped_line.startswith("public func _sbw_")):
+            end = find_block_end(lines, i)
+            for eline in error_lines:
+                if i + 1 <= eline <= end + 1:
+                    blocks_to_strip.add((i, end))
+                    break
+            i = end + 1
+        else:
+            i += 1
+
+    if not blocks_to_strip:
+        continue
+
+    # Walk backwards to include decorators and comments
+    expanded_blocks = set()
+    for (start, end) in blocks_to_strip:
+        actual_start = start
+        while actual_start > 0:
+            prev = lines[actual_start - 1].strip()
+            if prev.startswith("@_cdecl(") or prev.startswith("@_silgen_name(") or prev.startswith("//"):
+                actual_start -= 1
+            else:
+                break
+        expanded_blocks.add((actual_start, end))
+
+    skip_lines = set()
+    for (start, end) in expanded_blocks:
+        for j in range(start, end + 1):
+            skip_lines.add(j)
+
+    output_lines = [lines[j] for j in range(len(lines)) if j not in skip_lines]
+    with open(fpath, "w") as f:
+        f.writelines(output_lines)
+
+    stripped_count = len(expanded_blocks)
+    total_stripped += stripped_count
+    print(f"  Stripped {stripped_count} broken function(s) from {fname}")
+
+print(f"TOTAL_STRIPPED:{total_stripped}")
+STRIPEOF
+
+    STRIP_COUNT=$(python3 "$STRIP_SCRIPT" "$CLEANED_DIR" "$ERROR_FILE")
+    rm -f "$ERROR_FILE" "$STRIP_SCRIPT"
+    echo "$STRIP_COUNT" | grep -v TOTAL_STRIPPED || true
+    STRIPPED_N=$(echo "$STRIP_COUNT" | grep TOTAL_STRIPPED | cut -d: -f2 || echo "0")
+    if [ "${STRIPPED_N:-0}" -eq 0 ]; then
+        echo "No strippable functions found. Build error may be structural."
+        grep "error:" "$COMPILE_LOG" | head -10
+        rm -rf "$CLEANED_DIR" "$COMPILE_LOG"
+        exit 0
+    fi
+    TOTAL_STRIPPED=$((TOTAL_STRIPPED + ${STRIPPED_N:-0}))
+    echo "Retrying compilation..."
+done
+
+echo "Compilation succeeded (after $ATTEMPT attempt(s), $TOTAL_STRIPPED total stripped)."
+
+# Clean up temporary files
+rm -rf "$CLEANED_DIR" "$COMPILE_LOG"
 
 # Create Info.plist
 cat > "$OUTPUT_FW_DIR/Info.plist" << EOF

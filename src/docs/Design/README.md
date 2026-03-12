@@ -2,7 +2,7 @@
 
 Technical design documents covering Swift/C# interop internals. These were originally written as part of Microsoft's `dotnet/runtimelab` experimental branch and describe the foundational binding architecture.
 
-These docs are useful for contributors who need to understand the internals of the generator. For user-facing documentation, see the [wiki pages](../Home.md) in the parent directory.
+These docs are useful for contributors who need to understand the internals of the generator. For user-facing documentation, see the [project wiki](https://github.com/justinwojo/swift-dotnet-bindings/wiki).
 
 ## Contents
 

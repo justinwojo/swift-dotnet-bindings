@@ -330,6 +330,18 @@ else
     echo "Warning: libSwiftBindingsRuntime.dylib not found at $RUNTIME_DYLIB"
     echo "Existential metadata tests will fail."
 fi
+
+# Step 2.6: Inject SwiftBindings wrapper dylib into app bundle
+# The resolver uses @rpath/SwiftBindings.framework/SwiftBindings, so we need the
+# framework structure inside the Frameworks directory.
+WRAPPER_SLICE="../output/SwiftBindings.xcframework/ios-arm64-simulator/SwiftBindings.framework/SwiftBindings"
+if [ -f "$WRAPPER_SLICE" ]; then
+    mkdir -p "$APP_FRAMEWORKS/SwiftBindings.framework"
+    cp "$WRAPPER_SLICE" "$APP_FRAMEWORKS/SwiftBindings.framework/"
+    echo "Injected SwiftBindings wrapper dylib into app bundle."
+else
+    echo "Note: SwiftBindings wrapper dylib not found — Tier 3 wrapper-dependent tests will fail."
+fi
 echo ""
 
 cd ..

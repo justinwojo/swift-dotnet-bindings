@@ -73,7 +73,7 @@ The generator handles the full breadth of Swift's type system:
 - **SwiftUI Views** — automatic `UIHostingController` bridge with `@State`/`@Binding` projection, theming support, and async factory patterns
 - **XML doc comments** — Swift documentation automatically extracted and converted to C# IntelliSense docs
 
-See the [full type conversion table](https://github.com/justinwojo/swift-dotnet-bindings/blob/main/docs/Supported-Features.md#type-conversions) and [complete feature reference](https://github.com/justinwojo/swift-dotnet-bindings/blob/main/docs/Supported-Features.md).
+See the [full type conversion table](https://github.com/justinwojo/swift-dotnet-bindings/wiki/Supported-Features#type-conversions) and [complete feature reference](https://github.com/justinwojo/swift-dotnet-bindings/wiki/Supported-Features).
 
 ### Objective-C Support
 
@@ -147,7 +147,7 @@ SwiftUI Views can't be bound through conventional interop — they rely on opaqu
 
 Swift Bindings generates a bridge layer that wraps SwiftUI Views in `UIHostingController`, exposing them as `UIViewController` instances that .NET can embed in any UIKit-based layout (including .NET MAUI). This bridge generation is fully automatic — the generator analyzes View initializer parameters and produces the correct interop code for primitives, strings, closures, enums, class references, and async factory patterns. The bridge also supports `@State`/`@Binding` property projection, theme configuration (colors, fonts, sizes), and multi-level async view hierarchies with cycle detection.
 
-For customization options (bridge hints, constructor selection, import overrides), see the [SwiftUI Interop docs](https://github.com/justinwojo/swift-dotnet-bindings/blob/main/docs/SwiftUI-Interop.md).
+For customization options (bridge hints, constructor selection, import overrides), see the [SwiftUI Interop docs](https://github.com/justinwojo/swift-dotnet-bindings/wiki/SwiftUI-Interop).
 
 ---
 
@@ -176,7 +176,7 @@ dotnet pack
 dotnet add package MyLibrary.Bindings
 ```
 
-For prerequisites, CLI usage, and a full walkthrough, see the [Getting Started guide](https://github.com/justinwojo/swift-dotnet-bindings/blob/main/docs/Getting-Started.md).
+For prerequisites, CLI usage, and a full walkthrough, see the [Getting Started guide](https://github.com/justinwojo/swift-dotnet-bindings/wiki/Getting-Started).
 
 ## AI-Assisted Binding Creation
 
@@ -225,15 +225,17 @@ cd Nuke.Bindings && dotnet build
 
 ## Documentation
 
+Full documentation is available on the **[project wiki](https://github.com/justinwojo/swift-dotnet-bindings/wiki)**.
+
 | Page | Description |
 |------|-------------|
-| [Getting Started](https://github.com/justinwojo/swift-dotnet-bindings/blob/main/docs/Getting-Started.md) | Prerequisites, installation, first binding walkthrough |
-| [Supported Features](https://github.com/justinwojo/swift-dotnet-bindings/blob/main/docs/Supported-Features.md) | Full feature reference with type conversion tables |
-| [SwiftUI Interop](https://github.com/justinwojo/swift-dotnet-bindings/blob/main/docs/SwiftUI-Interop.md) | SwiftUI bridge usage, bridge hints, async views |
-| [Customization](https://github.com/justinwojo/swift-dotnet-bindings/blob/main/docs/Customization.md) | CLI options, MSBuild properties, namespace control |
-| [Troubleshooting](https://github.com/justinwojo/swift-dotnet-bindings/blob/main/docs/Troubleshooting.md) | Error codes, common issues, binding report analysis |
-| [Known Limitations](https://github.com/justinwojo/swift-dotnet-bindings/blob/main/docs/Known-Limitations.md) | Platform requirements, Mono JIT workarounds, unsupported patterns |
-| [Architecture](https://github.com/justinwojo/swift-dotnet-bindings/blob/main/docs/Architecture.md) | Generator pipeline, type mapping, memory management |
+| [Getting Started](https://github.com/justinwojo/swift-dotnet-bindings/wiki/Getting-Started) | Prerequisites, installation, first binding walkthrough |
+| [Supported Features](https://github.com/justinwojo/swift-dotnet-bindings/wiki/Supported-Features) | Full feature reference with type conversion tables |
+| [SwiftUI Interop](https://github.com/justinwojo/swift-dotnet-bindings/wiki/SwiftUI-Interop) | SwiftUI bridge usage, bridge hints, async views |
+| [Customization](https://github.com/justinwojo/swift-dotnet-bindings/wiki/Customization) | CLI options, MSBuild properties, namespace control |
+| [Troubleshooting](https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting) | Error codes, common issues, binding report analysis |
+| [Known Limitations](https://github.com/justinwojo/swift-dotnet-bindings/wiki/Known-Limitations) | Platform requirements, Mono JIT workarounds, unsupported patterns |
+| [Architecture](https://github.com/justinwojo/swift-dotnet-bindings/wiki/Architecture) | Generator pipeline, type mapping, memory management |
 
 ---
 
@@ -241,7 +243,7 @@ cd Nuke.Bindings && dotnet build
 
 Swift Bindings targets .NET 10 on Apple platforms, which currently uses the Mono runtime. Mono's JIT compiler has a known defect that causes crashes with `CallConvSwift` in certain P/Invoke frame types. **This only affects Mono JIT builds (iOS/tvOS Simulator)** — device builds use NativeAOT and macOS native builds are unaffected. Four transparent workarounds are built into the generator and runtime — generated bindings work correctly without manual intervention.
 
-For full details, see [Known Limitations](https://github.com/justinwojo/swift-dotnet-bindings/blob/main/docs/Known-Limitations.md).
+For full details, see [Known Limitations](https://github.com/justinwojo/swift-dotnet-bindings/wiki/Known-Limitations).
 
 ---
 
@@ -271,7 +273,7 @@ When filing an issue, please include:
 2. **The binding report** — `binding-report.json` from the output directory
 3. **The xcframework** (if possible) — or at minimum the ABI JSON and TBD file
 
-See [Troubleshooting](https://github.com/justinwojo/swift-dotnet-bindings/blob/main/docs/Troubleshooting.md) for common issues and solutions.
+See [Troubleshooting](https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting) for common issues and solutions.
 
 ---
 

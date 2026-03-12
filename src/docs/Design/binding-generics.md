@@ -440,7 +440,7 @@ TBD
 
 ## Protocol constraints
 
-This section describes how to project protocol constraints on generic type parameters from Swift to C\#. The goal here is not to describe full projections of protocols; for that, please refer to the [binding protocols doc](binding-protcols.md).
+This section describes how to project protocol constraints on generic type parameters from Swift to C\#. The goal here is not to describe full projections of protocols; for that, please refer to the [binding protocols doc](binding-protocols.md).
 
 A Swift protocol can be mapped to C\# as an interface. Then Swift generic parameters with protocol constraint can be mapped into C\# as generic parameters with interface constraint. This should work for both functions and types.
 

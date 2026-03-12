@@ -2,7 +2,7 @@
 
 > Eliminate all CallConvSwift runtime crashes by routing every P/Invoke through `@_cdecl` wrapper functions in the wrapper xcframework. This is the single highest-impact stability improvement for SwiftBindings.
 
-> **Remaining work is in [Part 2](universal-cdecl-wrappers-part2.md)**: Sessions 6-8 (generic parent types, tuple returns, DynamicSelf returns) + Phase 4 (cleanup/documentation).
+> **All sessions and Phase 4 are complete.** [Part 2](universal-cdecl-wrappers-part2.md) has the full design history.
 
 ---
 
@@ -26,18 +26,9 @@ We cannot reliably predict which type combinations will crash, making targeted f
 
 Meanwhile, **every code path that uses `@_cdecl` wrappers works perfectly** — async methods, closures, SwiftString operations, existential metadata. Zero crashes across hundreds of tests and real-world library usage.
 
-### Current State: Four Workarounds
+### Resolved: Wrapper-First Architecture
 
-We have implemented four workarounds (A–D) in `known-issues-workarounds.md` to handle Mono JIT crashes:
-
-| Workaround | What it does | Scope |
-|-----------|-------------|-------|
-| A: SwiftString wrappers | `@_cdecl` functions in `libSwiftBindingsRuntime.dylib` | SwiftString only |
-| B: Closure Cdecl expansion | `@_silgen_name` wrappers for closure parameters | Primitive closures only |
-| C: Existential metadata wrapper | `@_cdecl` function in `libSwiftBindingsRuntime.dylib` | Existential metadata only |
-| D: Signature risk detection | `MonoJitRiskDetector` flags risky signatures | Informational only |
-
-These workarounds address Mono JIT crashes for specific patterns. They do **not** address NativeAOT device crashes (Issues 2, 7, 9 in KNOWN-ISSUES). Universal `@_cdecl` supersedes all four.
+Universal `@_cdecl` wrapper emission is now the primary ABI boundary. The earlier workarounds (A–D) — SwiftString wrappers, closure Cdecl expansion, existential metadata wrappers, and `MonoJitRiskDetector` signature risk detection — have been superseded and their infrastructure removed in Phase 4. See [Part 2](universal-cdecl-wrappers-part2.md) for the full design progression.
 
 ---
 
