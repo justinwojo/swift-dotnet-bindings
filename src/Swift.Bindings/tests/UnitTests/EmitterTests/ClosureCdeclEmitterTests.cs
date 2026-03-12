@@ -37,7 +37,7 @@ public class ClosureCdeclEmitterTests
             methodType: MethodType.Instance);
         method.CSSignature.Add(CreateArgument("callback", closureType, moduleDecl));
 
-        Assert.True(MonoJitRiskDetector.NeedsClosureCdeclWrapper(method, closureHandler));
+        Assert.True(ClosureEmitter.NeedsClosureCdeclWrapper(method, closureHandler));
     }
 
     [Fact]
@@ -59,7 +59,7 @@ public class ClosureCdeclEmitterTests
         method.CSSignature.Add(CreateArgument("callback", closureType, moduleDecl));
 
         // Detection helper returns false for async methods
-        Assert.False(MonoJitRiskDetector.NeedsClosureCdeclWrapper(method, closureHandler));
+        Assert.False(ClosureEmitter.NeedsClosureCdeclWrapper(method, closureHandler));
 
         // Verify emission preserves legacy path: HasClosureCdeclWrapper must stay false
         // (this controls SwiftClosureData vs CdeclClosureFuncPtr in P/Invoke)
@@ -91,7 +91,7 @@ public class ClosureCdeclEmitterTests
             methodType: MethodType.Instance);
         method.CSSignature.Add(CreateArgument("callback", closureType, moduleDecl));
 
-        Assert.False(MonoJitRiskDetector.NeedsClosureCdeclWrapper(method, closureHandler));
+        Assert.False(ClosureEmitter.NeedsClosureCdeclWrapper(method, closureHandler));
     }
 
     [Fact]
@@ -107,7 +107,7 @@ public class ClosureCdeclEmitterTests
             methodType: MethodType.Instance);
         method.CSSignature.Add(CreateArgument("x", new NamedTypeSpec("Swift.Int"), moduleDecl));
 
-        Assert.False(MonoJitRiskDetector.NeedsClosureCdeclWrapper(method, closureHandler));
+        Assert.False(ClosureEmitter.NeedsClosureCdeclWrapper(method, closureHandler));
     }
 
     [Fact]
@@ -136,7 +136,7 @@ public class ClosureCdeclEmitterTests
         method.CSSignature.Add(CreateArgument("onProgress", conventionCClosure, moduleDecl));
         method.CSSignature.Add(CreateArgument("onComplete", escapingClosure, moduleDecl));
 
-        Assert.True(MonoJitRiskDetector.NeedsClosureCdeclWrapper(method, closureHandler));
+        Assert.True(ClosureEmitter.NeedsClosureCdeclWrapper(method, closureHandler));
     }
 
     [Fact]
@@ -159,7 +159,7 @@ public class ClosureCdeclEmitterTests
         method.IsAccessor = true;
         method.CSSignature.Add(CreateArgument("value", closureType, moduleDecl));
 
-        Assert.False(MonoJitRiskDetector.NeedsClosureCdeclWrapper(method, closureHandler));
+        Assert.False(ClosureEmitter.NeedsClosureCdeclWrapper(method, closureHandler));
     }
 
     [Fact]
@@ -187,7 +187,7 @@ public class ClosureCdeclEmitterTests
         method.CSSignature[0] = CreateArgument(string.Empty, opaqueReturn, moduleDecl);
         method.CSSignature.Add(CreateArgument("callback", closureType, moduleDecl));
 
-        Assert.False(MonoJitRiskDetector.NeedsClosureCdeclWrapper(method, closureHandler));
+        Assert.False(ClosureEmitter.NeedsClosureCdeclWrapper(method, closureHandler));
     }
 
     #endregion
@@ -809,7 +809,7 @@ public class ClosureCdeclEmitterTests
         method.CSSignature.Add(CreateArgument("onProgress", regularClosure, moduleDecl));
         method.CSSignature.Add(CreateArgument("onComplete", asyncThrowingClosure, moduleDecl));
 
-        Assert.False(MonoJitRiskDetector.NeedsClosureCdeclWrapper(method, closureHandler));
+        Assert.False(ClosureEmitter.NeedsClosureCdeclWrapper(method, closureHandler));
     }
 
     [Fact]
@@ -848,7 +848,7 @@ public class ClosureCdeclEmitterTests
         };
 
         // Detection returns true (it doesn't know about constructor return ABI)
-        Assert.True(MonoJitRiskDetector.NeedsClosureCdeclWrapper(constructor, closureHandler));
+        Assert.True(ClosureEmitter.NeedsClosureCdeclWrapper(constructor, closureHandler));
 
         // But emitting through ConstructorHandler should NOT set the flag for class types
         EmitConstructor(constructor, typeDatabase);
@@ -899,7 +899,7 @@ public class ClosureCdeclEmitterTests
         method.MangledName = "$s20SwiftBindingsTestLib13callCFunctionys5Int32VA2DXCF";
         method.CSSignature.Add(CreateArgument("fn", closureType, moduleDecl));
 
-        Assert.False(MonoJitRiskDetector.NeedsClosureCdeclWrapper(method, closureHandler));
+        Assert.False(ClosureEmitter.NeedsClosureCdeclWrapper(method, closureHandler));
     }
 
     [Fact]
@@ -927,7 +927,7 @@ public class ClosureCdeclEmitterTests
         method.CSSignature.Add(CreateArgument("callback", closureType, moduleDecl));
 
         // Safe false positive: suppresses Cdecl wrapper, stays on legacy path
-        Assert.False(MonoJitRiskDetector.NeedsClosureCdeclWrapper(method, closureHandler));
+        Assert.False(ClosureEmitter.NeedsClosureCdeclWrapper(method, closureHandler));
     }
 
     [Fact]

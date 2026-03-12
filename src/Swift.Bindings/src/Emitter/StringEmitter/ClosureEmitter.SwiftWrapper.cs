@@ -808,4 +808,73 @@ public static partial class ClosureEmitter
             return $"{name.Substring(1)}: "; // Strip leading underscore
         return $"{name}: ";
     }
+
+    /// <summary>
+    /// Checks if a method has non-async escaping closures that need Cdecl wrapper adaptation.
+    /// Used by MethodHandler and wrapper generators to set HasClosureCdeclWrapper before
+    /// PInvokeSignatureBuilder runs.
+    /// Returns false for async methods, opaque return methods, and methods with async-throwing closures.
+    /// </summary>
+    public static bool NeedsClosureCdeclWrapper(MethodDecl methodDecl, ClosureHandler closureHandler)
+    {
+        if (methodDecl.IsAsync) return false;
+
+        // Property accessors (getters/setters) pass closure values directly, not as
+        // callback function pointers. The Cdecl wrapper pattern doesn't apply.
+        if (methodDecl.IsAccessor) return false;
+
+        // Opaque return methods use EmitOpaqueReturnWrapper() which passes closures as
+        // native Swift types. Combined closure+opaque wrapper not yet implemented.
+        if (methodDecl.CSSignature.Count > 0 &&
+            methodDecl.CSSignature[0].SwiftTypeSpec is ProtocolListTypeSpec { IsOpaque: true })
+            return false;
+
+        // @convention(c) closures are passed as raw C function pointers, not Swift closures.
+        // The ABI JSON doesn't include convention attributes, but the mangled name encodes
+        // @convention(c) as 'XC'. If present, our adapter closure (a regular Swift closure)
+        // can't be passed where a @convention(c) pointer is expected.
+        if (HasConventionCInMangledName(methodDecl.MangledName))
+            return false;
+
+        // If the method has ANY async-throwing closures, don't use Cdecl wrapper.
+        // Async-throwing closures use a specialized P/Invoke pattern that is incompatible
+        // with the standalone Swift wrapper.
+        var hasAsyncThrowingClosure = methodDecl.CSSignature.Skip(1)
+            .Where(closureHandler.IsClosure)
+            .Any(arg =>
+            {
+                var spec = closureHandler.GetClosureTypeSpec(arg);
+                return spec != null && closureHandler.IsAsyncThrowingClosure(spec);
+            });
+        if (hasAsyncThrowingClosure) return false;
+
+        // Find all escaping closures that need thunks (candidates for Cdecl wrapping)
+        var thunkClosures = methodDecl.CSSignature.Skip(1)
+            .Where(closureHandler.IsClosure)
+            .Where(arg =>
+            {
+                var spec = closureHandler.GetClosureTypeSpec(arg);
+                return spec != null
+                    && closureHandler.IsSupportedClosure(spec)
+                    && closureHandler.RequiresThunk(spec)
+                    && !closureHandler.IsAsyncThrowingClosure(spec);
+            })
+            .ToList();
+
+        // Must have at least one thunk closure, and ALL must be Cdecl-compatible.
+        return thunkClosures.Count > 0
+            && thunkClosures.All(arg =>
+                IsClosureCdeclCompatible(
+                    closureHandler.GetClosureTypeSpec(arg)!, closureHandler));
+    }
+
+    /// <summary>
+    /// Checks if a method's mangled name contains the 'XC' marker indicating a
+    /// @convention(c) closure parameter. The ABI JSON doesn't include convention
+    /// attributes on ClosureTypeSpec, so this is the reliable detection path.
+    /// </summary>
+    internal static bool HasConventionCInMangledName(string mangledName)
+    {
+        return mangledName.Contains("XC", StringComparison.Ordinal);
+    }
 }

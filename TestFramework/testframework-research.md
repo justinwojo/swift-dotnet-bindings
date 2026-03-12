@@ -35,9 +35,9 @@ The TestFramework provides solid **foundational coverage** of isolated Swift fea
 
 **Two validation layers**:
 1. **Generator/coverage layer** (`build-and-test.sh` + `generate-coverage-report.sh`): Did the generator emit correct C# for every member? 94/94 must-pass features passing, 0 degraded.
-2. **Runtime layer** (`run-runtime-tests.sh`): Do the generated bindings actually work at runtime on iOS Simulator? 188 passing at Tier 2 safe-only.
+2. **Runtime layer** (`run-runtime-tests.sh`): Do the generated bindings actually work at runtime on iOS Simulator? 188 passing at Tier 2.
 
-**Baselines**: generator exit code 0, 0 degraded, 26 compiled-out, 60 known-unsupported, 2 crash-risk classes, 56 wrapper-stripped.
+**Baselines**: generator exit code 0, 0 degraded, 26 compiled-out, 60 known-unsupported, 56 wrapper-stripped.
 
 ### What the unit/integration tests cover
 
@@ -141,7 +141,7 @@ Despite not catching bugs, the TestFramework still serves specific purposes:
 
 4. **New developer onboarding**: The test library + coverage report is a quick way to understand what the generator handles.
 
-5. **Tier gating for known Mono bugs**: The [CrashRisk] + tier system documents which patterns crash Mono, keeping the test suite stable.
+5. **Tier gating for known Mono bugs**: The tier system documents which patterns may crash Mono, keeping the test suite stable. Known Mono JIT crashes are tolerated in the test runner.
 
 ---
 

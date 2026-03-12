@@ -17,67 +17,33 @@ namespace BindingsGeneration.Tests;
 /// </summary>
 public class ConsumerSafetyAttributeTests
 {
-    #region Deliverable 1: JIT Risk [Obsolete]
+    #region Deliverable 1: CallConvSwift Fallback [Obsolete]
 
     [Fact]
-    public void JitRisk_ClosureParameter_Unmitigated_EmitsObsoleteWithSB0001()
+    public void CallConvSwiftFallback_NoWrapper_EmitsObsoleteWithSB0001()
     {
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl();
         var classDecl = CreateClassDecl("Loader", moduleDecl);
         var method = CreateMethod("handle", classDecl, moduleDecl);
-        method.DetectedJitRisks = MonoJitRiskDetector.MonoJitRisk.ClosureParameter;
+        // No @_cdecl wrapper → uses CallConvSwift → gets warning
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
         Assert.Contains("[Obsolete(\"", csOutput);
-        Assert.Contains("Mono JIT crash risk", csOutput);
+        Assert.Contains("CallConvSwift", csOutput);
         Assert.Contains("DiagnosticId = \"SB0001\"", csOutput);
         Assert.DoesNotContain(", true)]", csOutput);
     }
 
     [Fact]
-    public void JitRisk_SwiftStringReturn_Unmitigated_EmitsObsoleteWithSB0001()
-    {
-        var typeDatabase = CreateTypeDatabase();
-        var moduleDecl = CreateModuleDecl();
-        var classDecl = CreateClassDecl("Loader", moduleDecl);
-        var method = CreateMethod("getName", classDecl, moduleDecl);
-        method.CSSignature[0] = CreateArg("", new NamedTypeSpec("Swift.String"), moduleDecl);
-        method.DetectedJitRisks = MonoJitRiskDetector.MonoJitRisk.SwiftStringReturn;
-
-        var (csOutput, _) = EmitMethod(method, typeDatabase);
-
-        Assert.Contains("[Obsolete(\"", csOutput);
-        Assert.Contains("Safe on NativeAOT", csOutput);
-        Assert.Contains("DiagnosticId = \"SB0001\"", csOutput);
-    }
-
-    [Fact]
-    public void JitRisk_ExistentialParameter_Unmitigated_EmitsObsoleteWithSB0001()
-    {
-        var typeDatabase = CreateTypeDatabase();
-        var moduleDecl = CreateModuleDecl();
-        var classDecl = CreateClassDecl("Loader", moduleDecl);
-        var method = CreateMethod("process", classDecl, moduleDecl);
-        method.DetectedJitRisks = MonoJitRiskDetector.MonoJitRisk.ExistentialParameter;
-
-        var (csOutput, _) = EmitMethod(method, typeDatabase);
-
-        Assert.Contains("[Obsolete(\"", csOutput);
-        Assert.Contains("Mono JIT crash risk", csOutput);
-        Assert.Contains("DiagnosticId = \"SB0001\"", csOutput);
-    }
-
-    [Fact]
-    public void JitRisk_Mitigated_ClosureCdeclWrapper_NoObsolete()
+    public void CallConvSwiftFallback_CdeclMethodWrapper_NoObsolete()
     {
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl();
         var classDecl = CreateClassDecl("Loader", moduleDecl);
         var method = CreateMethod("handle", classDecl, moduleDecl);
-        method.DetectedJitRisks = MonoJitRiskDetector.MonoJitRisk.ClosureParameter;
-        method.HasClosureCdeclWrapper = true;
+        method.UsesCdeclMethodWrapper = true;
         method.UsesWrapperLibrary = true;
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
@@ -86,48 +52,32 @@ public class ConsumerSafetyAttributeTests
     }
 
     [Fact]
-    public void JitRisk_Mitigated_AsyncMethod_NoObsolete()
-    {
-        var typeDatabase = CreateTypeDatabase();
-        typeDatabase.AsyncLibraryName = "/tmp/AsyncWrapper.dylib";
-        var moduleDecl = CreateModuleDecl();
-        var classDecl = CreateClassDecl("Loader", moduleDecl);
-        var method = CreateMethod("fetch", classDecl, moduleDecl, isStatic: true);
-        method.IsAsync = true;
-        method.DetectedJitRisks = MonoJitRiskDetector.MonoJitRisk.SwiftStringReturn;
-
-        var (csOutput, _) = EmitMethod(method, typeDatabase);
-
-        Assert.DoesNotContain("[Obsolete(", csOutput);
-    }
-
-    [Fact]
-    public void JitRisk_None_NoObsolete()
-    {
-        var typeDatabase = CreateTypeDatabase();
-        var moduleDecl = CreateModuleDecl();
-        var classDecl = CreateClassDecl("Loader", moduleDecl);
-        var method = CreateMethod("doWork", classDecl, moduleDecl);
-        method.DetectedJitRisks = MonoJitRiskDetector.MonoJitRisk.None;
-
-        var (csOutput, _) = EmitMethod(method, typeDatabase);
-
-        Assert.DoesNotContain("[Obsolete(", csOutput);
-    }
-
-    [Fact]
-    public void JitRisk_Constructor_Unmitigated_EmitsObsoleteWithSB0001()
+    public void CallConvSwiftFallback_CdeclConstructorWrapper_NoObsolete()
     {
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl();
         var classDecl = CreateClassDecl("Loader", moduleDecl);
         var ctor = CreateConstructor(classDecl, moduleDecl);
-        ctor.DetectedJitRisks = MonoJitRiskDetector.MonoJitRisk.ClosureParameter;
+        ctor.UsesCdeclConstructorWrapper = true;
+        ctor.UsesWrapperLibrary = true;
+
+        var (csOutput, _) = EmitConstructor(ctor, typeDatabase);
+
+        Assert.DoesNotContain("[Obsolete(", csOutput);
+    }
+
+    [Fact]
+    public void CallConvSwiftFallback_Constructor_NoWrapper_EmitsObsoleteWithSB0001()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        var ctor = CreateConstructor(classDecl, moduleDecl);
 
         var (csOutput, _) = EmitConstructor(ctor, typeDatabase);
 
         Assert.Contains("[Obsolete(\"", csOutput);
-        Assert.Contains("Mono JIT crash risk", csOutput);
+        Assert.Contains("CallConvSwift", csOutput);
         Assert.Contains("DiagnosticId = \"SB0001\"", csOutput);
     }
 
@@ -199,6 +149,7 @@ public class ConsumerSafetyAttributeTests
         var moduleDecl = CreateModuleDecl();
         var classDecl = CreateClassDecl("Loader", moduleDecl);
         var method = CreateMethod("doWork", classDecl, moduleDecl, isStatic: true);
+        method.UsesCdeclMethodWrapper = true; // Has wrapper, so only missing symbol warning fires
         // Exported symbols set exists but doesn't contain this method's symbol
         moduleDecl.ExportedSymbols = new HashSet<string> { "$sOtherSymbol" };
 
@@ -225,19 +176,19 @@ public class ConsumerSafetyAttributeTests
     }
 
     [Fact]
-    public void CombinedJitRiskAndMissingSymbol_SingleObsoleteWithSB0001()
+    public void CombinedCallConvSwiftAndMissingSymbol_SingleObsoleteWithSB0001()
     {
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl();
         var classDecl = CreateClassDecl("Loader", moduleDecl);
         var method = CreateMethod("crash", classDecl, moduleDecl, isStatic: true);
-        method.DetectedJitRisks = MonoJitRiskDetector.MonoJitRisk.ClosureParameter;
+        // No @_cdecl wrapper + missing symbol → both warnings combined
         method.IsMissingExportedSymbol = true;
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
         // Should have a single [Obsolete] with both messages, using SB0001 (broader scope)
-        Assert.Contains("Mono JIT crash risk", csOutput);
+        Assert.Contains("CallConvSwift", csOutput);
         Assert.Contains("EntryPointNotFoundException", csOutput);
         Assert.Contains("DiagnosticId = \"SB0001\"", csOutput);
         // Only one [Obsolete] attribute
@@ -393,22 +344,23 @@ public class ConsumerSafetyAttributeTests
     #region GetSafetyObsoleteAttribute (async wrapper propagation)
 
     [Fact]
-    public void GetSafetyObsoleteAttribute_JitRisk_ReturnsSB0001()
+    public void GetSafetyObsoleteAttribute_CallConvSwift_ReturnsSB0001()
     {
         var method = CreateMethod("present", CreateClassDecl("Foo", CreateModuleDecl()), CreateModuleDecl());
-        method.DetectedJitRisks = MonoJitRiskDetector.MonoJitRisk.ClosureParameter;
+        // No @_cdecl wrapper → CallConvSwift fallback
 
         var attr = MethodHandler.GetSafetyObsoleteAttribute(method);
 
         Assert.NotNull(attr);
         Assert.Contains("SB0001", attr);
-        Assert.Contains("Mono JIT crash risk", attr);
+        Assert.Contains("CallConvSwift", attr);
     }
 
     [Fact]
     public void GetSafetyObsoleteAttribute_MissingSymbol_ReturnsSB0002()
     {
         var method = CreateMethod("present", CreateClassDecl("Foo", CreateModuleDecl()), CreateModuleDecl());
+        method.UsesCdeclMethodWrapper = true; // Has wrapper, so no CallConvSwift warning
         method.IsMissingExportedSymbol = true;
 
         var attr = MethodHandler.GetSafetyObsoleteAttribute(method);
@@ -419,9 +371,10 @@ public class ConsumerSafetyAttributeTests
     }
 
     [Fact]
-    public void GetSafetyObsoleteAttribute_NoRisks_ReturnsNull()
+    public void GetSafetyObsoleteAttribute_CdeclWrapped_ReturnsNull()
     {
         var method = CreateMethod("present", CreateClassDecl("Foo", CreateModuleDecl()), CreateModuleDecl());
+        method.UsesCdeclMethodWrapper = true;
 
         var attr = MethodHandler.GetSafetyObsoleteAttribute(method);
 

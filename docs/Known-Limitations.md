@@ -17,30 +17,31 @@ The xcframework you're binding must be built with **`BUILD_LIBRARY_FOR_DISTRIBUT
 
 If your library wasn't built this way, the generator will either produce no types or crash with an empty module name. This is the most common cause of "my library generates 0 types." If you control the library, rebuild it with this flag. If you're consuming a pre-built xcframework, check with the library author.
 
-## Mono JIT Runtime Bug
+## Architecture: @_cdecl Wrapper-First ABI
 
-.NET on iOS currently uses the Mono runtime, which has a known JIT compiler defect (`jit-info.c:918`). This causes process-fatal crashes when certain P/Invoke frame types use `CallConvSwift`.
+The generator uses `@_cdecl` Swift wrapper functions as the primary ABI boundary between C# and Swift. These wrappers use `CallingConvention.Cdecl` (C calling convention), avoiding `CallConvSwift` which has known issues on the Mono JIT runtime.
 
-**These issues only affect the Mono JIT (iOS/tvOS Simulator).** macOS native builds and production device builds using NativeAOT (`dotnet publish -r ios-arm64`) use a completely different codegen (RyuJIT AOT) where `CallConvSwift` works correctly. The workarounds below are necessary for simulator-based development but do not affect macOS apps or shipped App Store apps.
+**Current coverage**: 78.5% of P/Invokes (13,759 of 17,525) use @_cdecl wrappers. The remaining ~21.5% use direct `CallConvSwift` and receive `[Obsolete(DiagnosticId = "SB0001")]` annotations warning consumers.
 
-Four workarounds (A through D) are built into the generator and runtime. These are transparent — generated bindings work correctly without any manual intervention. However, they introduce a runtime dependency on `libSwiftBindingsRuntime.dylib`.
+### Mono JIT Runtime Bug
 
-### What's Covered by Workarounds
+.NET on iOS Simulator uses the Mono runtime, which has a known JIT compiler defect (`jit-info.c:918`). This causes process-fatal crashes when certain `CallConvSwift` P/Invoke frames are unwound. The @_cdecl wrapper architecture avoids this for 78.5% of P/Invokes by routing through C calling convention instead.
 
-| Category | Workaround | Status |
-|----------|-----------|--------|
-| SwiftString operations | A: `@_cdecl` wrapper in runtime dylib | Working |
-| Closure callbacks | B: Cdecl expansion (primitive args) | Working |
-| Existential metadata | C: `@_cdecl` wrapper in runtime dylib | Working |
-| Signature risk detection | D: Static analysis flags risky methods | Working |
+**macOS native builds** use CoreCLR (not Mono), where `CallConvSwift` works correctly. **Production device builds using NativeAOT** (`dotnet publish -r ios-arm64`) use RyuJIT AOT, also unaffected. The `SB0001` warnings are auto-suppressed in NativeAOT builds via `SwiftBindingsInteropMode`.
 
-### What's Still Affected
+### Remaining CallConvSwift Categories
 
-- **Explicit `Dispose()` on structs with reference-type fields** — `ValueWitnessTable->Destroy()` uses an indirect `CallConvSwift` function pointer. Affects a small number of struct types.
-- **Closures with non-primitive arguments** — String, class, and struct closure arguments stay on the legacy `CallConvSwift` path.
-- **N-protocol existentials** — Only zero-protocol existentials (`Any`) are covered by the wrapper.
+These categories cannot currently receive @_cdecl wrappers:
 
-These will be resolved when the upstream Mono fix lands in `dotnet/runtime`.
+| Category | Count | Why |
+|----------|-------|-----|
+| Method-level generics | ~968 | ABI spec not available |
+| Frozen struct params | ~200 | Swift compiler restriction |
+| Optional\<existential\> | ~199 | Needs protocol proxy conversion |
+| Combined blockers | ~500 | Multiple unsupported patterns |
+| Other (operators, etc.) | ~460 | Diminishing returns |
+
+Methods in these categories fall back to direct `CallConvSwift` P/Invoke. They work correctly on NativeAOT but may crash on Mono.
 
 ## Unsupported Swift Patterns
 

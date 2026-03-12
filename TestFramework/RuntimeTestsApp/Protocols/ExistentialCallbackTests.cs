@@ -15,13 +15,10 @@ namespace RuntimeTestsApp.Protocols;
 /// The proxy receiver unmarshals ExistentialContainer1 → HasValueProxy and
 /// dispatches to the C# implementation.
 ///
-/// Tier 3: Proxy object passes through CallConvSwift P/Invoke which hits
-/// Mono JIT SIGSEGV in swift_getObjectType → objc_msgSend_uncached.
-/// Same root cause as SafeHandle non-blittable through CallConvSwift.
+/// Tier 3: Proxy object passes through CallConvSwift P/Invoke.
 /// NativeAOT (device builds) should work.
 /// </summary>
 [TestTier(TestTier.Tier3)]
-[CrashRisk("Mono JIT SIGSEGV: proxy object through CallConvSwift")]
 public class ExistentialCallbackTests : TestBase
 {
     public ExistentialCallbackTests(TestResults results) : base(results) { }

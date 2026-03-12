@@ -35,7 +35,6 @@ cd TestFramework
 # Runtime test iteration flags:
 #   --skip-regen     Skip binding regeneration (incremental build)
 #   --class NAME     Run only one test class
-#   --safe-only      Skip [CrashRisk] classes (no Mono JIT crash)
 
 # Real-world library validation:
 scripts/fetch-libraries.sh              # Fetch xcframeworks (first time)

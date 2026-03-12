@@ -64,14 +64,6 @@ elif [ "$actual_unsup" -gt "$expected_unsup" ] 2>/dev/null; then
     FAIL=1
 fi
 
-# CrashRisk class count (use precise pattern to match actual attribute usage)
-expected_crash=$(jval "$BASELINE" "['crash_risk_classes']")
-actual_crash=$(grep -rl '\[CrashRisk("' RuntimeTestsApp/ --include="*.cs" 2>/dev/null | wc -l | tr -d ' ')
-if [ "$actual_crash" -gt "$expected_crash" ] 2>/dev/null; then
-    echo "BASELINE FAIL: crash_risk_classes: expected<=$expected_crash actual=$actual_crash"
-    FAIL=1
-fi
-
 # Wrapper stripped count
 expected_strip=$(jval "$BASELINE" "['wrapper_stripped_count']")
 if [ ! -f "$STRIP_COUNT_FILE" ]; then

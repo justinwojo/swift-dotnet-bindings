@@ -8,11 +8,9 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Lifetime;
 
 /// <summary>
-/// GC stress tests that trigger ForceGC() or construct MutableProps (CallConvSwift).
-/// These tests are prone to the Mono JIT frame tracker assertion crash and are
-/// separated from OwnershipTests so that --safe-only preserves dispose/reference coverage.
+/// GC stress tests that trigger ForceGC() or construct MutableProps.
+/// Separated from OwnershipTests for independent failure isolation.
 /// </summary>
-[CrashRisk("ForceGC triggers VWT Destroy via GC finalizer thread — Mono JIT frame tracker assertion")]
 public class OwnershipGCStressTests : TestBase
 {
     public OwnershipGCStressTests(TestResults results) : base(results) { }

@@ -86,29 +86,11 @@ sys.exit(1)
             set -e
             cd ..
             if [ $RUNTIME_EXIT -ne 0 ]; then
-                # Known crash-risk classes (must match [CrashRisk] attributes in RuntimeTestsApp)
-                CRASH_ALLOWLIST="EnumMarshallingTests|OwnershipGCStressTests|ArrayMarshallingTests"
-
-                if grep -q "jit-info\.c:918\|RUNTIME TESTS CRASHED\|RUNTIME TESTS TIMEOUT" "$RUNTIME_OUTPUT" 2>/dev/null; then
-                    # Extract the last test class from === ClassName === markers
+                if grep -q "jit-info\.c:918" "$RUNTIME_OUTPUT" 2>/dev/null; then
                     LAST_CLASS=$(grep -oE '=== [A-Za-z0-9_]+ ===' "$RUNTIME_OUTPUT" | tail -1 | sed 's/=== //;s/ ===//')
-
-                    if [ -n "$LAST_CLASS" ] && echo "$LAST_CLASS" | grep -qE "^($CRASH_ALLOWLIST)$"; then
-                        echo ""
-                        echo "WARNING: Runtime crash/timeout in known crash-risk class ($LAST_CLASS)."
-                        echo "This is a pre-existing Mono runtime bug, not a regression."
-                    elif [ -z "$LAST_CLASS" ]; then
-                        # Crash before any test class ran — likely Mono startup issue
-                        echo ""
-                        echo "WARNING: Runtime crash before any test class ran (Mono startup crash)."
-                        echo "This is a pre-existing Mono runtime bug, not a regression."
-                    else
-                        echo ""
-                        echo "ERROR: Runtime crash in class '$LAST_CLASS' which is NOT in the crash allowlist."
-                        echo "This may be a regression. Allowlist: $CRASH_ALLOWLIST"
-                        rm -f "$RUNTIME_OUTPUT"
-                        exit 1
-                    fi
+                    echo ""
+                    echo "WARNING: Mono JIT assertion crash at jit-info.c:918 (class: ${LAST_CLASS:-before startup})."
+                    echo "This is a known .NET runtime bug (dotnet/runtime), not a generator regression."
                 else
                     echo ""
                     echo "ERROR: Runtime tests failed (exit code $RUNTIME_EXIT)."

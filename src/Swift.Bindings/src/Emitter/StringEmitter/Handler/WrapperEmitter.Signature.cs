@@ -192,17 +192,12 @@ namespace BindingsGeneration
             if (deprecationMsg != null)
                 issues.Insert(0, $"Deprecated: {deprecationMsg}");
 
-            // Deliverable 1: JIT risk (skip accessors — see property deferral)
-            if (!_env.MethodDecl.IsAccessor &&
-                _env.MethodDecl.DetectedJitRisks != MonoJitRiskDetector.MonoJitRisk.None)
+            // CallConvSwift fallback warning (skip accessors — see property deferral)
+            if (!_env.MethodDecl.IsAccessor && !_env.MethodDecl.UsesCdeclWrapper)
             {
-                var (_, needsWrapper) = PInvokeEmitter.ComputeEntryPoint((MethodDecl)_env.MethodDecl);
-                if (!needsWrapper)
-                {
-                    hasJitRisk = true;
-                    issues.Add("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns " +
-                        "that crash on Mono runtime. Safe on NativeAOT (PublishAot=true)");
-                }
+                hasJitRisk = true;
+                issues.Add("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). " +
+                    "May crash on Mono runtime. Safe on NativeAOT (PublishAot=true)");
             }
 
             // Deliverable 2: Missing symbol (skip accessors — same as JIT risk above)

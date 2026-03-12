@@ -8,7 +8,7 @@
 #
 # Usage:
 #   ./run-runtime-tests.sh [--platform ios|macos] [--tier 1|2|3] [--skip-regen]
-#                          [--timeout SECONDS] [--class ClassName] [--safe-only]
+#                          [--timeout SECONDS] [--class ClassName]
 #
 # Options:
 #   --platform PLATFORM  Target platform: ios (default), macos
@@ -16,7 +16,6 @@
 #   --skip-regen         Skip binding regeneration (use existing bindings)
 #   --timeout N          Timeout in seconds (default: 90)
 #   --class NAME         Run only the named test class (exact match, case-insensitive)
-#   --safe-only          Skip test classes marked with [CrashRisk]
 
 set -e
 
@@ -28,7 +27,6 @@ TIER=1
 SKIP_REGEN=false
 TIMEOUT=90
 CLASS_FILTER=""
-SAFE_ONLY=false
 DEVICE_UDID=""
 
 # Parse arguments
@@ -54,17 +52,13 @@ while [[ $# -gt 0 ]]; do
             CLASS_FILTER="$2"
             shift 2
             ;;
-        --safe-only)
-            SAFE_ONLY=true
-            shift
-            ;;
         --device-udid)
             DEVICE_UDID="$2"
             shift 2
             ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: ./run-runtime-tests.sh [--platform ios|macos] [--tier 1|2|3] [--skip-regen] [--timeout SECONDS] [--class ClassName] [--safe-only] [--device-udid UDID]"
+            echo "Usage: ./run-runtime-tests.sh [--platform ios|macos] [--tier 1|2|3] [--skip-regen] [--timeout SECONDS] [--class ClassName] [--device-udid UDID]"
             exit 1
             ;;
     esac
@@ -88,7 +82,6 @@ echo "Tier: $TIER"
 echo "Skip regeneration: $SKIP_REGEN"
 echo "Timeout: ${TIMEOUT}s"
 [ -n "$CLASS_FILTER" ] && echo "Class filter: $CLASS_FILTER"
-[ "$SAFE_ONLY" = true ] && echo "Safe-only: yes"
 echo ""
 
 # -------------------------------------------------------------------
@@ -189,9 +182,6 @@ if [ "$PLATFORM" = "macos" ]; then
     fi
     if [ -n "$CLASS_FILTER" ]; then
         LAUNCH_ARGS="$LAUNCH_ARGS --class $CLASS_FILTER"
-    fi
-    if [ "$SAFE_ONLY" = true ]; then
-        LAUNCH_ARGS="$LAUNCH_ARGS --safe-only"
     fi
 
     echo "Launching RuntimeTestsApp.Mac (timeout: ${TIMEOUT}s)..."
@@ -418,9 +408,6 @@ if [ "$TIER" -ge 3 ]; then
 fi
 if [ -n "$CLASS_FILTER" ]; then
     LAUNCH_ARGS="$LAUNCH_ARGS --class $CLASS_FILTER"
-fi
-if [ "$SAFE_ONLY" = true ]; then
-    LAUNCH_ARGS="$LAUNCH_ARGS --safe-only"
 fi
 
 echo "Launching app (timeout: ${TIMEOUT}s)..."

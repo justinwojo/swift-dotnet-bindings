@@ -40,8 +40,7 @@ Investigate degraded features: check `binding-report.json`, search generated bin
 - Tests in `RuntimeTestsApp/` — iOS simulator app, discovery-based runner
 - Tests extend `TestBase`, use `[TestTier(TestTier.TierN)]`, auto-discovered via reflection
 - Properties return `SwiftString` (call `.ToString()`); methods return `string` directly
-- `[CrashRisk("reason")]` marks crash-prone classes — runner sorts safe first, crash-risk last
-- `--safe-only` skips CrashRisk classes; `--class NAME` overrides `--safe-only`
+- `--class NAME` runs only the named test class (exact match, case-insensitive)
 - iOS args: use `NSProcessInfo.ProcessInfo.Arguments` (not `Main(string[] args)`)
 - Main-queue: use `NSRunLoop.Current.RunUntil(NSDate)` instead of `Thread.Sleep()`
 - RuntimeTestsApp needs `IncludeSwiftBindingsRuntimeNative=false` in csproj

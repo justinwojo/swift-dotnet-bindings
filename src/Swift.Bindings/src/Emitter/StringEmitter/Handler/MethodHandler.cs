@@ -352,7 +352,7 @@ namespace BindingsGeneration
             if (!methodEnv.MethodDecl.UsesWrapperLibrary &&
                 !methodEnv.MethodDecl.IsFailable &&
                 methodEnv.ParentDecl is StructDecl ctorParentStruct && ctorParentStruct.IsFrozen &&
-                MonoJitRiskDetector.NeedsClosureCdeclWrapper(methodEnv.MethodDecl, methodEnv.ClosureHandler))
+                ClosureEmitter.NeedsClosureCdeclWrapper(methodEnv.MethodDecl, methodEnv.ClosureHandler))
             {
                 methodEnv.MethodDecl.HasClosureCdeclWrapper = true;
                 methodEnv.MethodDecl.UsesWrapperLibrary = true;
@@ -827,7 +827,7 @@ namespace BindingsGeneration
             bool needsClosureWrapper = false;
             bool closureCdecl = false;
             if (!methodEnv.MethodDecl.UsesWrapperLibrary &&
-                MonoJitRiskDetector.NeedsClosureCdeclWrapper(methodEnv.MethodDecl, methodEnv.ClosureHandler))
+                ClosureEmitter.NeedsClosureCdeclWrapper(methodEnv.MethodDecl, methodEnv.ClosureHandler))
             {
                 needsClosureWrapper = true;
                 methodEnv.MethodDecl.HasClosureCdeclWrapper = true;
@@ -1258,15 +1258,11 @@ namespace BindingsGeneration
             bool hasJitRisk = false;
             var issues = new List<string>();
 
-            if (methodDecl.DetectedJitRisks != MonoJitRiskDetector.MonoJitRisk.None)
+            if (!methodDecl.UsesCdeclWrapper)
             {
-                var (_, needsWrapper) = PInvokeEmitter.ComputeEntryPoint(methodDecl);
-                if (!needsWrapper)
-                {
-                    hasJitRisk = true;
-                    issues.Add("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns " +
-                        "that crash on Mono runtime. Safe on NativeAOT (PublishAot=true)");
-                }
+                hasJitRisk = true;
+                issues.Add("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). " +
+                    "May crash on Mono runtime. Safe on NativeAOT (PublishAot=true)");
             }
 
             if (methodDecl.IsMissingExportedSymbol)

@@ -142,6 +142,30 @@ In running the other direction, we would need a way to convert a C# closure into
 
 The main idiomatic difference has to do with the escaping/non-escaping varieties of closure. Obviously, C# doesn't make this distinction. As such, if a C# method gets passed a delegate from Swift that is non-escaping, it is incumbent upon the user to never store it. We can make this somewhat better by putting an attribute on such delegates that flags it as a non-escaping and create a Roslyn analyzer that looks for usage that would violate that.
 
+## Current Implementation: @_cdecl Wrapper Architecture
+
+The generator uses `@_cdecl` Swift wrapper functions as the primary ABI boundary. For methods with closure parameters, the wrapper:
+
+1. **Receives closure arguments as C-compatible function pointers** — `@convention(c)` instead of Swift thick closures
+2. **Converts to Swift closures inside the wrapper** — the wrapper constructs a Swift closure that calls back through the C function pointer
+3. **Handles escaping closure semantics** — the wrapper manages the lifetime of the closure bridge
+
+This eliminates the need for the "heavy-handed" approach described in the Runtime Differences section above. The `@convention(c)` function pointers are directly compatible with .NET's `UnmanagedCallersOnly` delegates.
+
+### Closure Cdecl compatibility
+
+Not all closure signatures can be represented as `@convention(c)`. The generator checks each closure parameter for Cdecl compatibility:
+- Primitive types, pointers, and `OpaquePointer` are Cdecl-compatible
+- `SwiftString`, complex structs, and protocol existentials are NOT Cdecl-compatible in closure position
+
+Methods with closures that can't be Cdecl-adapted either:
+- Get a **standalone closure wrapper** (if the closure is escaping and the method otherwise qualifies for an @_cdecl wrapper), or
+- Fall back to **direct `CallConvSwift` P/Invoke** with the original Swift thick closure ABI
+
+### Delegate projection
+
+Closure types are projected to C# as `Action<>` and `Func<>` delegates. The generated marshalling code handles the conversion between .NET delegates and Swift closure representations at the P/Invoke boundary.
+
 ## Accessibility
 
 The main decision in presenting Swift closure types to C# programmers is how to present the types to the user. We can use the types `Func<>` and `Action<>`, but they create an artificial distinction between closures that have or lack return values and that end ups complicating adapting code. Or we can create `delegate` type declarations that match the closure definition.

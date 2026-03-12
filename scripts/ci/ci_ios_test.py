@@ -118,7 +118,6 @@ def run_tests(
     device_udid: str,
     tier: int = 2,
     timeout: int = 90,
-    safe_only: bool = True,
     skip_regen: bool = True,
     max_test_retries: int = 1,
     deadline: Optional[float] = None,
@@ -145,8 +144,6 @@ def run_tests(
         "--timeout", str(timeout),
         "--device-udid", device_udid,
     ]
-    if safe_only:
-        cmd.append("--safe-only")
     if skip_regen:
         cmd.append("--skip-regen")
 
@@ -322,7 +319,6 @@ def run_pipeline(
     skip_build: bool = False,
     tier: int = 2,
     test_timeout: int = 90,
-    safe_only: bool = True,
     skip_regen: bool = True,
     max_infra_retries: int = 1,
     diag_dir: str = "/tmp/sim-diagnostics",
@@ -429,7 +425,6 @@ def run_pipeline(
                 device_udid,
                 tier=tier,
                 timeout=test_timeout,
-                safe_only=safe_only,
                 skip_regen=skip_regen,
                 deadline=deadline,
             )
@@ -523,10 +518,6 @@ Examples:
                            help="Path to TestFramework directory (default: TestFramework)")
     test_group.add_argument("--tier", type=int, default=2, help="Test tier (default: 2)")
     test_group.add_argument("--timeout", type=int, default=90, help="Test timeout in seconds (default: 90)")
-    test_group.add_argument("--safe-only", action="store_true", default=True,
-                           help="Skip [CrashRisk] classes (default: true)")
-    test_group.add_argument("--no-safe-only", action="store_false", dest="safe_only",
-                           help="Include [CrashRisk] classes")
     test_group.add_argument("--skip-regen", action="store_true", default=True,
                            help="Skip binding regeneration (default: true)")
     test_group.add_argument("--skip-build", action="store_true",
@@ -581,7 +572,6 @@ Examples:
         skip_build=args.skip_build,
         tier=args.tier,
         test_timeout=args.timeout,
-        safe_only=args.safe_only,
         skip_regen=args.skip_regen,
         max_infra_retries=args.max_retries,
         diag_dir=args.diag_dir,

@@ -62,7 +62,7 @@ namespace BindingsGeneration
                   <PropertyGroup Condition="'$(SwiftBindingsInteropMode)' == 'Auto'">
                     <SwiftBindingsInteropMode>Safe</SwiftBindingsInteropMode>
                   </PropertyGroup>
-                  <!-- Direct mode: suppress Mono JIT crash risk warnings (safe on NativeAOT) -->
+                  <!-- Direct mode: suppress CallConvSwift fallback warnings (safe on NativeAOT) -->
                   <PropertyGroup Condition="'$(SwiftBindingsInteropMode)' == 'Direct'">
                     <NoWarn>$(NoWarn);SB0001</NoWarn>
                   </PropertyGroup>

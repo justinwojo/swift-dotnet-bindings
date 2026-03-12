@@ -10,7 +10,7 @@ The Mono JIT runtime has three known issues with Swift interop:
 2. **Non-blittable type rejection** — Complex types like `SwiftOptional<T>` are rejected by the JIT's `CallConvSwift` validation
 3. **SafeHandle lifetime in async** — The GC can collect SafeHandles during async suspension points
 
-NativeAOT bypasses all three issues. The same generated bindings work on both runtimes — Mono workarounds (wrapper paths, Cdecl expansion) are harmless overhead on NativeAOT.
+NativeAOT bypasses all three Mono issues. The same generated bindings work on both runtimes — the @_cdecl wrapper architecture is harmless overhead on NativeAOT (it avoids Mono JIT bugs but adds a small indirection layer).
 
 ## Quick Start
 
@@ -80,11 +80,11 @@ The `SwiftBindingsInteropMode` property controls whether Mono JIT safety warning
 |------|----------|-----------|
 | `Auto` (default) | Detects `PublishAot` — resolves to `Direct` or `Safe` | Always, unless overridden |
 | `Direct` | Suppresses `SB0001` warnings — full API access | NativeAOT builds (`PublishAot=true`) |
-| `Safe` | Shows `SB0001` warnings on risky methods | Mono builds (simulator, no `PublishAot`) |
+| `Safe` | Shows `SB0001` warnings on CallConvSwift methods | Mono builds (simulator, no `PublishAot`) |
 
 In `Auto` mode (the default), the build system checks `$(PublishAot)`:
 - `PublishAot=true` → `Direct` → SB0001 suppressed → clean API, no warnings
-- Otherwise → `Safe` → SB0001 visible as warnings on methods with Mono JIT crash risk
+- Otherwise → `Safe` → SB0001 visible as warnings on methods using CallConvSwift fallback
 
 ### Overriding
 
@@ -103,7 +103,7 @@ The generator uses custom diagnostic IDs instead of generic `CS0618`/`CS0619`:
 
 | ID | Meaning | Suppressible? |
 |----|---------|---------------|
-| `SB0001` | **Mono JIT crash risk** — method uses `CallConvSwift` P/Invoke patterns that crash on Mono. Safe on NativeAOT. | Yes — auto-suppressed in `Direct` mode |
+| `SB0001` | **CallConvSwift fallback** — method uses direct `CallConvSwift` P/Invoke (no @_cdecl wrapper available). May crash on Mono. Safe on NativeAOT. | Yes — auto-suppressed in `Direct` mode |
 | `SB0002` | **Missing symbol** — P/Invoke entry point not exported by the library. Will throw `EntryPointNotFoundException` at runtime on any runtime. | No — always relevant |
 | `SB0003` | **Non-dispatchable protocol member** — can't dispatch through the witness table (e.g., mutating, async, or unsupported return type). Throws `NotSupportedException` on Swift-backed existentials. Concrete type calls work. | No — always relevant |
 | `SB0004` | **Empty protocol interface** — all members were skipped during binding generation. The interface exists for type identity but has no callable API surface. | No — always relevant |
@@ -114,21 +114,19 @@ Custom IDs (`SB0001`–`SB0004`) are scoped to Swift binding packages. Suppressi
 
 ## Dual-Runtime Compatibility
 
-The same generated bindings work on both Mono and NativeAOT without code changes. The runtime detects which environment it's in:
+The same generated bindings work on both Mono and NativeAOT without code changes. 78.5% of P/Invokes use @_cdecl wrappers (C calling convention), which work identically on both runtimes. The remaining ~21.5% use direct `CallConvSwift`:
 
 ```
 ┌─────────────────────────┐     ┌─────────────────────────┐
 │   Simulator (Mono JIT)  │     │   Device (NativeAOT)    │
 ├─────────────────────────┤     ├─────────────────────────┤
-│ 1. Try wrapper path     │     │ 1. Try wrapper path     │
-│    (@_cdecl wrappers)   │     │    (@_cdecl wrappers)   │
-│ 2. If missing → detect  │     │ 2. If missing → fall    │
-│    Mono.Runtime → THROW │     │    back to direct       │
-│    (direct would crash) │     │    CallConvSwift (works) │
+│ @_cdecl wrappers: WORK  │     │ @_cdecl wrappers: WORK  │
+│ CallConvSwift: MAY CRASH│     │ CallConvSwift: WORKS    │
+│ (Mono JIT assertion bug)│     │ (RyuJIT AOT, correct)   │
 └─────────────────────────┘     └─────────────────────────┘
 ```
 
-Workarounds built for Mono (SwiftString wrappers, closure Cdecl expansion, risk detection attributes) are harmless overhead on NativeAOT. They add unnecessary indirection but don't break anything.
+The @_cdecl wrapper architecture was designed to avoid the Mono JIT `jit-info.c:918` assertion crash. On NativeAOT, the wrappers add a small amount of indirection but don't affect correctness. Methods that couldn't receive wrappers (method-level generics, frozen struct params, etc.) are annotated with `[Obsolete(DiagnosticId = "SB0001")]` — auto-suppressed in NativeAOT builds via `SwiftBindingsInteropMode`.
 
 ## Device Publish Workflow
 
@@ -180,7 +178,7 @@ This means:
 - **Development/debugging** → Simulator (Mono) — fast iteration, no code signing
 - **Release/production** → Device (NativeAOT) — full API access, no JIT limitations
 
-> **macOS note:** macOS native builds do not use the Mono JIT, so the `CallConvSwift` workarounds are unnecessary overhead but harmless. NativeAOT is available for macOS but not required for correct operation.
+> **macOS note:** macOS native builds do not use the Mono JIT, so the @_cdecl wrappers are unnecessary overhead but harmless. NativeAOT is available for macOS but not required for correct operation.
 
 ### DllImportResolver Conflict
 

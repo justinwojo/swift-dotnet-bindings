@@ -291,7 +291,7 @@ Generated bindings use custom diagnostic IDs (via `[Obsolete]` attributes) to fl
 
 | ID | Meaning | Action |
 |----|---------|--------|
-| `SB0001` | **Mono JIT crash risk** — method may crash on Mono (iOS Simulator). Safe on NativeAOT (device). | Suppressed automatically in NativeAOT builds. See [NativeAOT Deployment](NativeAOT-Deployment.md). |
+| `SB0001` | **CallConvSwift fallback** — method uses direct `CallConvSwift` P/Invoke (no @_cdecl wrapper available). May crash on Mono (iOS Simulator). Safe on NativeAOT. | Suppressed automatically in NativeAOT builds. See [NativeAOT Deployment](NativeAOT-Deployment.md). |
 | `SB0002` | **Missing symbol** — P/Invoke entry point not found in the library. Will throw `EntryPointNotFoundException`. | The Swift symbol wasn't exported. May need `BUILD_LIBRARY_FOR_DISTRIBUTION=YES`. |
 | `SB0003` | **Non-dispatchable protocol member** — can't dispatch through the witness table. Throws `NotSupportedException` on Swift-backed existentials. | Concrete type calls work fine. Only affects existential dispatch. |
 | `SB0004` | **Empty protocol interface** — all members were skipped. Interface exists for type identity only. | Check `binding-report.json` for skip reasons. |

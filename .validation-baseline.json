@@ -1,23 +1,23 @@
 {
-  "git_sha": "de11a706",
+  "git_sha": "12cdec7a",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 50848,
+        "lines": 50924,
         "dep_compile": "none"
       },
       "BlinkID": {
         "compile": "ok",
         "errors": 0,
-        "lines": 48398,
+        "lines": 48400,
         "dep_compile": "none"
       },
       "BlinkIDUX": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 12002,
+        "lines": 12020,
         "dep_compile": "ok"
       },
       "BRLMPrinterKit": {
@@ -29,37 +29,37 @@
       "CryptoSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 24503,
+        "lines": 24576,
         "dep_compile": "none"
       },
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 92376,
+        "lines": 92539,
         "dep_compile": "none"
       },
       "KeychainAccess": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4711,
+        "lines": 4712,
         "dep_compile": "none"
       },
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 55377,
+        "lines": 55502,
         "dep_compile": "none"
       },
       "Lottie": {
         "compile": "ok",
         "errors": 0,
-        "lines": 31947,
+        "lines": 32003,
         "dep_compile": "none"
       },
       "Mappedin": {
         "compile": "ok",
         "errors": 0,
-        "lines": 49298,
+        "lines": 49325,
         "dep_compile": "none"
       },
       "MicroblinkPlatform": {
@@ -71,37 +71,37 @@
       "Mixpanel": {
         "compile": "ok",
         "errors": 0,
-        "lines": 8621,
+        "lines": 8637,
         "dep_compile": "none"
       },
       "Nuke": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21798,
+        "lines": 21809,
         "dep_compile": "none"
       },
       "Nuke@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21798,
+        "lines": 21809,
         "dep_compile": "none"
       },
       "Nuke@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21798,
+        "lines": 21809,
         "dep_compile": "none"
       },
       "RxSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 18821,
+        "lines": 18991,
         "dep_compile": "none"
       },
       "SkeletonView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 14432,
+        "lines": 14438,
         "dep_compile": "none"
       },
       "SmartCardIO": {
@@ -119,7 +119,7 @@
       "Starscream": {
         "compile": "ok",
         "errors": 0,
-        "lines": 15626,
+        "lines": 15650,
         "dep_compile": "none"
       },
       "Stripe": {
@@ -131,7 +131,7 @@
       "StripeApplePay": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 1169,
+        "lines": 1170,
         "dep_compile": "ok"
       },
       "StripeCameraCore": {
@@ -143,13 +143,13 @@
       "StripeCardScan": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 2203,
+        "lines": 2205,
         "dep_compile": "ok"
       },
       "StripeConnect": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 8466,
+        "lines": 8471,
         "dep_compile": "ok"
       },
       "StripeCore": {
@@ -185,19 +185,19 @@
       "StripePayments": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 63109,
+        "lines": 63143,
         "dep_compile": "ok"
       },
       "StripePaymentSheet": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 31759,
+        "lines": 31775,
         "dep_compile": "ok"
       },
       "StripePaymentsUI": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 6937,
+        "lines": 6941,
         "dep_compile": "ok"
       },
       "StripeUICore": {
@@ -221,31 +221,31 @@
       "DeviceKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 6136,
+        "lines": 6137,
         "dep_compile": "none"
       },
       "Swinject": {
         "compile": "ok",
         "errors": 0,
-        "lines": 5105,
+        "lines": 5112,
         "dep_compile": "none"
       },
       "PhoneNumberKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 15729,
+        "lines": 15733,
         "dep_compile": "none"
       },
       "Valet": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4570,
+        "lines": 4582,
         "dep_compile": "none"
       },
       "SwiftyBeaver": {
         "compile": "ok",
         "errors": 0,
-        "lines": 9179,
+        "lines": 9197,
         "dep_compile": "none"
       },
       "Reachability": {
@@ -257,43 +257,43 @@
       "NVActivityIndicatorView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 8045,
+        "lines": 8100,
         "dep_compile": "none"
       },
       "ObjectMapper": {
         "compile": "ok",
         "errors": 0,
-        "lines": 5346,
+        "lines": 5363,
         "dep_compile": "none"
       },
       "BonMot": {
         "compile": "ok",
         "errors": 0,
-        "lines": 13952,
+        "lines": 13957,
         "dep_compile": "none"
       },
       "Parchment": {
         "compile": "ok",
         "errors": 0,
-        "lines": 17216,
+        "lines": 17227,
         "dep_compile": "none"
       },
       "KeychainSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 1107,
+        "lines": 1110,
         "dep_compile": "none"
       },
       "SwipeCellKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 8260,
+        "lines": 8269,
         "dep_compile": "none"
       },
       "FSPagerView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4164,
+        "lines": 4170,
         "dep_compile": "none"
       },
       "SwiftyGif": {
@@ -305,13 +305,13 @@
       "Quick": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4262,
+        "lines": 4263,
         "dep_compile": "none"
       },
       "DifferenceKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4507,
+        "lines": 4515,
         "dep_compile": "none"
       },
       "TinyConstraints": {
@@ -323,13 +323,13 @@
       "AMPopTip": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4354,
+        "lines": 4359,
         "dep_compile": "none"
       },
       "XMLCoder": {
         "compile": "ok",
         "errors": 0,
-        "lines": 22158,
+        "lines": 22196,
         "dep_compile": "none"
       },
       "AnimatedCollectionViewLayout": {
@@ -341,7 +341,7 @@
       "SVGView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 12276,
+        "lines": 12288,
         "dep_compile": "none"
       },
       "SDWebImage": {
@@ -365,7 +365,7 @@
       "CocoaLumberjackSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 1326,
+        "lines": 1327,
         "dep_compile": "none"
       },
       "MBProgressHUD": {

@@ -151,14 +151,6 @@ namespace BindingsGeneration
         public bool UsesFreeFunctionWrapper { get; set; } = false;
 
         /// <summary>
-        /// Mono JIT risk flags detected by <see cref="MonoJitRiskDetector"/>.
-        /// Informational annotation only — does not affect P/Invoke routing.
-        /// Routing is controlled by <see cref="UsesWrapperLibrary"/>, which is only set
-        /// when a corresponding Swift wrapper function has been generated.
-        /// </summary>
-        public MonoJitRiskDetector.MonoJitRisk DetectedJitRisks { get; set; } = MonoJitRiskDetector.MonoJitRisk.None;
-
-        /// <summary>
         /// When true, large Optional parameters (e.g., Optional&lt;String&gt;) are passed via
         /// UnsafeRawPointer in a generated Swift wrapper, avoiding IntPtr truncation.
         /// The C# side passes a pointer to the full Optional buffer instead of reading

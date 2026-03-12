@@ -71,7 +71,7 @@ public static class MethodWrapperEmitter
         // AND no plain async closures (GetSwiftClosureAdapterCode only emits sync adapters).
         if (env.MethodDecl.CSSignature.Skip(1).Any(env.ClosureHandler.IsClosure))
         {
-            if (!MonoJitRiskDetector.NeedsClosureCdeclWrapper(env.MethodDecl, env.ClosureHandler))
+            if (!ClosureEmitter.NeedsClosureCdeclWrapper(env.MethodDecl, env.ClosureHandler))
                 return false;
             if (HasAnyAsyncClosure(env))
                 return false;

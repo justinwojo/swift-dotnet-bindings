@@ -4,7 +4,7 @@ Prepared: February 2026
 Project: Swift/.NET interop binding generator
 Contact: Justin Wojciechowski
 
-Three Mono runtime issues block real-world Swift interop scenarios. Searches of dotnet/runtime issues (February 2026) found no existing reports. The main Swift interop tracking issues ([#93631](https://github.com/dotnet/runtime/issues/93631) for .NET 9, [#108662](https://github.com/dotnet/runtime/issues/108662) for .NET 10) do not mention these specific issues.
+Five .NET runtime issues affect real-world Swift interop scenarios — three on Mono (Issues 1-3), two on NativeAOT (Issues 4-5). Searches of dotnet/runtime issues (February 2026) found no existing reports. The main Swift interop tracking issues ([#93631](https://github.com/dotnet/runtime/issues/93631) for .NET 9, [#108662](https://github.com/dotnet/runtime/issues/108662) for .NET 10) do not mention these specific issues.
 
 > **Before filing:** These drafts are waiting on the swift-bindings repo going public so we can
 > link to concrete reproduction code and the binding generator as context. Before submitting,
@@ -13,9 +13,11 @@ Three Mono runtime issues block real-world Swift interop scenarios. Searches of 
 > confirm nothing has been filed in the interim.
 
 **Filing strategy:**
-- **Issue 1** — File as a **bug report**. Clear-cut JIT defect with assertion failure and stack trace.
+- **Issue 1** — File as a **bug report**. Clear-cut Mono JIT defect with assertion failure and stack trace.
 - **Issue 2** — File as a **feature request**. The error message suggests this is an intentional scope limitation in the initial `CallConvSwift` implementation, not a bug.
 - **Issue 3** — **Do not file standalone**. Post as a **comment on the Swift interop tracking issue** asking whether async P/Invoke with SwiftSelf/SafeHandle is a supported scenario and what the recommended pattern is.
+- **Issue 4** — File as a **bug report**. NativeAOT indirect function pointer call with `CallConvSwift` crashes on device. Clear ABI codegen defect.
+- **Issue 5** — File as a **bug report**. NativeAOT large struct parameter passing is incorrect on ARM64. The `__swift_memcpy` size mismatch confirms a register allocation bug.
 
 ---
 
@@ -255,6 +257,154 @@ This affects every async Swift API we bind — libraries like StoreKit 2 and Nuk
 
 ---
 
+## Issue 4 (Bug): NativeAOT indirect `CallConvSwift` function pointer calls crash (ValueWitnessTable→Destroy)
+
+### Title
+
+`[NativeAOT] Indirect CallConvSwift function pointer calls crash when invoking Swift ValueWitnessTable Destroy on iOS device`
+
+### Labels
+
+`area-Interop-Swift`, `os-ios`, `bug`, `runtime-nativeaot`
+
+### Description
+
+**Environment:**
+- .NET 10.0, NativeAOT (iOS device, `ios-arm64`)
+- macOS 15+ / iOS 18+, arm64
+- Swift 5.10+ runtime
+
+**Summary:**
+
+Calling a Swift `ValueWitnessTable->Destroy` function through an indirect `CallConvSwift` function pointer crashes on NativeAOT (`ios-arm64`). The VWT is obtained at runtime via `swift_getTypeMetadata` → metadata pointer arithmetic. Calling the destroy function pointer produces a SIGSEGV.
+
+This blocks deterministic cleanup of Swift value types from .NET — any `Dispose()` call on a struct or enum SafeHandle that routes through `VWT->Destroy()` crashes on device.
+
+**Minimal reproduction:**
+
+```csharp
+// Get type metadata for a Swift struct
+var metadata = TypeMetadata.Of<MySwiftStruct>();
+// Get ValueWitnessTable pointer (metadata - 1 pointer width)
+var vwt = *(IntPtr*)((byte*)metadata.Handle - IntPtr.Size);
+// Get Destroy function pointer (offset 0x30 in VWT layout)
+var destroyPtr = *(IntPtr*)((byte*)vwt + 0x30);
+
+// Create UnmanagedCallersOnly delegate and invoke
+// → SIGSEGV on NativeAOT (ios-arm64)
+```
+
+**Root cause analysis:**
+
+The VWT `Destroy` function uses Swift calling conventions internally. When invoked through a .NET function pointer with `CallConvSwift`, the parameter passing (specifically the type metadata context register) is not set up correctly by NativeAOT's codegen for indirect calls through function pointers.
+
+**Workaround in use:**
+
+Per-type `@_cdecl` destroy wrapper functions generated alongside the binding:
+
+```swift
+@_cdecl("SBW_Destroy_MyModule_MyStruct")
+func _sbw_destroy_MyStruct(_ ptr: UnsafeMutableRawPointer) {
+    ptr.assumingMemoryBound(to: MyStruct.self).deinitialize(count: 1)
+}
+```
+
+C# registers these wrappers at static initialization time. Falls back to VWT for generic types where `@_cdecl` wrappers can't be emitted (CS7042: DllImport not allowed in generic types).
+
+**Impact:**
+
+Without the workaround, `Dispose()` on any Swift struct or enum type crashes on device. This affects every non-trivial Swift type that contains reference-counted fields (strings, arrays, classes as members). The workaround requires generating an additional `@_cdecl` function per type and bundling a wrapper xcframework.
+
+---
+
+## Issue 5 (Bug): NativeAOT large struct parameter ABI mismatch with `CallConvSwift` on ARM64
+
+### Title
+
+`[NativeAOT] Large struct parameters (≥32 bytes) passed incorrectly via CallConvSwift on ARM64 — register/memory splitting mismatch with Swift ABI`
+
+### Labels
+
+`area-Interop-Swift`, `os-ios`, `bug`, `runtime-nativeaot`
+
+### Description
+
+**Environment:**
+- .NET 10.0, NativeAOT (iOS device, `ios-arm64`)
+- macOS 15+ / iOS 18+, arm64
+- Swift 5.10+ runtime
+
+**Summary:**
+
+When passing large structs (≥32 bytes, e.g., `CGRect` — 4 Doubles, 32 bytes) as parameters to Swift functions via `CallConvSwift` P/Invoke on NativeAOT ARM64, the struct's register/memory layout does not match what Swift expects. This produces a SIGSEGV inside the Swift function, typically during a `__swift_memcpy` operation that receives an incorrect size.
+
+**Stack trace (device crash):**
+
+```
+Thread 1: EXC_BAD_ACCESS at __swift_memcpy24_8
+  → LottieAnimationView.init(frame:)
+```
+
+The crash is in `__swift_memcpy24_8` (24-byte copy) for a 32-byte `CGRect` struct, confirming the ABI mismatch — Swift receives fewer bytes than expected.
+
+**Minimal reproduction:**
+
+```csharp
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.Swift;
+
+// CGRect: 4 Doubles = 32 bytes
+[StructLayout(LayoutKind.Sequential)]
+public struct CGRect
+{
+    public double X, Y, Width, Height;
+}
+
+public static class StructAbiRepro
+{
+    // Swift: init(frame: CGRect) on a UIView subclass
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+    [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC5frameACSo6CGRectV_tcfC")]
+    private static extern IntPtr LottieAnimationView_init(CGRect frame);
+
+    public static void Reproduce()
+    {
+        var rect = new CGRect { X = 0, Y = 0, Width = 100, Height = 100 };
+        // SIGSEGV on NativeAOT (ios-arm64)
+        var ptr = LottieAnimationView_init(rect);
+    }
+}
+```
+
+**Root cause analysis:**
+
+On ARM64, Swift's calling convention splits large structs across registers and memory differently than NativeAOT's `CallConvSwift` implementation expects. For `CGRect` (32 bytes = 4 × 8-byte floats), Swift expects all four doubles in SIMD/floating-point registers (`d0`-`d3`). NativeAOT appears to split the struct differently, possibly passing some fields on the stack while Swift reads from registers.
+
+The 24-byte vs 32-byte size in the `__swift_memcpy24_8` crash suggests NativeAOT is passing only 3 of 4 doubles in the expected location — the fourth field is misplaced.
+
+**Workaround in use:**
+
+Constructor `@_cdecl` wrappers route through `CallingConvention.Cdecl`. The `@_cdecl` attribute forces the Swift function to use the C calling convention, and .NET's `CallingConvention.Cdecl` matches it exactly — both sides agree on the ARM64 C ABI for struct parameter passing. This bypasses the `CallConvSwift` register splitting mismatch entirely:
+
+```swift
+@_cdecl("SBW_LottieAnimationView_init_frame")
+func _sbw_init_frame(_ frame: CGRect) -> UnsafeMutableRawPointer {
+    let obj = LottieAnimationView(frame: frame)
+    return Unmanaged.passRetained(obj).toOpaque()
+}
+```
+
+**Impact:**
+
+Affects any Swift API taking struct parameters ≥32 bytes on ARM64 NativeAOT. Common Apple types affected: `CGRect`, `CGAffineTransform` (48 bytes), `simd_float4x4` (64 bytes). The workaround (routing through `@_cdecl` wrappers) works but requires bundling a Swift wrapper xcframework.
+
+**Expected behavior:**
+
+`CallConvSwift` P/Invoke should correctly pass large struct parameters using the same register/memory layout that Swift expects on ARM64.
+
+---
+
 ## Filing Notes
 
 **Related dotnet/runtime issues:**
@@ -266,4 +416,4 @@ This affects every async Swift API we bind — libraries like StoreKit 2 and Nuk
 
 **Context:**
 
-These issues were discovered while building a Swift/.NET binding generator that produces C# bindings from compiled Swift frameworks. The project targets .NET 10 on iOS/macOS via Mono, generating P/Invoke declarations with `CallConvSwift` for direct Swift function calls. All three issues have workarounds in production use, but the workarounds add significant complexity (Swift wrapper generation, manual marshalling, singleton detection) that could be reduced or eliminated with runtime improvements.
+These issues were discovered while building a Swift/.NET binding generator that produces C# bindings from compiled Swift frameworks. The project targets .NET 10 on iOS/macOS, generating P/Invoke declarations with `CallConvSwift` for direct Swift function calls. Issues 1-3 are Mono-specific (iOS Simulator). Issues 4-5 affect NativeAOT on physical devices. All five issues have workarounds in production use (`@_cdecl` Swift wrapper functions using `CallingConvention.Cdecl`), but the workarounds add significant complexity (per-type/per-method Swift wrapper generation, wrapper xcframework bundling, manual marshalling) that could be reduced or eliminated with runtime improvements.

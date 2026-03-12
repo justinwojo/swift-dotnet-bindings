@@ -229,7 +229,7 @@ echo ""
 
 # --- Step 5: Define test lists ---
 MAIN_MUST_PASS_TESTS="b1-string-create b1-string-length b1-string-wrapper b1-existential b1-generated-binding"
-MAIN_CRASHRISK_TESTS="cr-enum-basic cr-enum-string cr-enum-shape cr-enum-nested cr-array-basic cr-array-advanced cr-gc-basic cr-gc-mutableprops cr-gc-stress cr-existential"
+MAIN_CALLCONVSWIFT_TESTS="cr-enum-basic cr-enum-string cr-enum-shape cr-enum-nested cr-array-basic cr-array-advanced cr-gc-basic cr-gc-mutableprops cr-gc-stress cr-existential"
 MAIN_INVESTIGATIVE_TESTS="b1-vwt-destroy b1-vwt-initcopy b2-intptr-manual b3-async-safehandle b3-async-static b3-async-wrapper n1-moduleinit n3-trimming cd-dispose-class cd-dispose-struct-string cd-dispose-struct-nested"
 MAIN_NO_INJECT_TESTS="n2-resolve-no-inject"
 MAIN_WITH_INJECT_TESTS="n2-resolve-with-inject"
@@ -354,8 +354,8 @@ if [ "$NO_INJECT" = false ]; then
     done
     echo ""
 
-    echo "=== Phase 4: CrashRisk tests (Mono JIT crashers — must pass under NativeAOT) ==="
-    for test_id in $MAIN_CRASHRISK_TESTS; do
+    echo "=== Phase 4: CallConvSwift tests (crash on Mono JIT, must pass on NativeAOT) ==="
+    for test_id in $MAIN_CALLCONVSWIFT_TESTS; do
         run_test "$MAIN_APP_PATH" "$MAIN_BUNDLE_ID" "$test_id"
     done
     echo ""
@@ -404,14 +404,14 @@ for test_id in $MAIN_MUST_PASS_TESTS; do
     done
 done
 
-# Count CrashRisk results
-CRASHRISK_PASSED=0
-CRASHRISK_TOTAL=0
-for test_id in $MAIN_CRASHRISK_TESTS; do
-    CRASHRISK_TOTAL=$((CRASHRISK_TOTAL + 1))
+# Count CallConvSwift results
+CALLCONV_PASSED=0
+CALLCONV_TOTAL=0
+for test_id in $MAIN_CALLCONVSWIFT_TESTS; do
+    CALLCONV_TOTAL=$((CALLCONV_TOTAL + 1))
     for r in "${RESULTS[@]}"; do
         if echo "$r" | grep -q "^PASS: $test_id"; then
-            CRASHRISK_PASSED=$((CRASHRISK_PASSED + 1))
+            CALLCONV_PASSED=$((CALLCONV_PASSED + 1))
             break
         fi
     done
@@ -424,7 +424,7 @@ done
 echo ""
 echo "-----------------------------------------"
 echo "  Must-pass:     $MUST_PASS_PASSED/$MUST_PASS_TOTAL passed"
-echo "  CrashRisk:     $CRASHRISK_PASSED/$CRASHRISK_TOTAL passed"
+echo "  CallConvSwift: $CALLCONV_PASSED/$CALLCONV_TOTAL passed"
 echo "  Total passed:  $PASS_COUNT"
 echo "  Total failed:  $FAIL_COUNT"
 echo "  Total crashed: $CRASH_COUNT"

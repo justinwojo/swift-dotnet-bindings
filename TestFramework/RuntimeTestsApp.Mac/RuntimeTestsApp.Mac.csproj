@@ -26,7 +26,6 @@
     <Compile Include="../RuntimeTestsApp/Infrastructure/TestBase.cs" />
     <Compile Include="../RuntimeTestsApp/Infrastructure/TestResults.cs" />
     <Compile Include="../RuntimeTestsApp/Infrastructure/TestLogger.cs" />
-    <Compile Include="../RuntimeTestsApp/Infrastructure/CrashRiskAttribute.cs" />
     <Compile Include="../RuntimeTestsApp/Infrastructure/LifetimeTracker.cs" />
   </ItemGroup>
 

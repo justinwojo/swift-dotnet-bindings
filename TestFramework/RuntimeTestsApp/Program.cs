@@ -29,14 +29,8 @@ public class Application
 
     /// <summary>
     /// When set, only the test class with this exact name (case-insensitive) is run.
-    /// Overrides --safe-only (the filtered class runs even if it has [CrashRisk]).
     /// </summary>
     internal static string? ClassFilter { get; private set; }
-
-    /// <summary>
-    /// When true, test classes marked with [CrashRisk] are skipped entirely.
-    /// </summary>
-    internal static bool SafeOnly { get; private set; }
 
     static void Main(string[] args)
     {
@@ -59,10 +53,6 @@ public class Application
             {
                 ClassFilter = effectiveArgs[i + 1];
                 i++;
-            }
-            else if (effectiveArgs[i] == "--safe-only")
-            {
-                SafeOnly = true;
             }
         }
 
@@ -252,8 +242,6 @@ public class MainViewController : UIViewController
         TestLogger.Info($"Max tier: {maxTier}");
         if (Application.ClassFilter != null)
             TestLogger.Info($"Class filter: {Application.ClassFilter}");
-        if (Application.SafeOnly)
-            TestLogger.Info("Safe-only mode: crash-risk classes will be skipped");
         TestLogger.Info($"Started at {DateTime.Now:HH:mm:ss}");
 
         var results = new TestResults();
@@ -287,48 +275,11 @@ public class MainViewController : UIViewController
                     return;
                 }
 
-                // --class overrides --safe-only: warn but run anyway
-                if (Application.SafeOnly && filtered[0].GetCustomAttribute<CrashRiskAttribute>() != null)
-                {
-                    TestLogger.Warning($"--class overrides --safe-only: running {filtered[0].Name} despite [CrashRisk]");
-                }
-
                 allClasses = filtered;
             }
 
-            // Partition into safe and crash-risk classes
-            var safeClasses = allClasses
-                .Where(t => t.GetCustomAttribute<CrashRiskAttribute>() == null)
-                .OrderBy(t => t.Name)
-                .ToList();
-            var crashRiskClasses = allClasses
-                .Where(t => t.GetCustomAttribute<CrashRiskAttribute>() != null)
-                .OrderBy(t => t.Name)
-                .ToList();
-
-            // Build execution order: safe first, crash-risk last (unless --safe-only)
-            var testClasses = new List<Type>(safeClasses);
-            if (Application.SafeOnly && Application.ClassFilter == null)
-            {
-                if (crashRiskClasses.Count > 0)
-                {
-                    TestLogger.Info($"Skipping {crashRiskClasses.Count} crash-risk class(es):");
-                    foreach (var c in crashRiskClasses)
-                    {
-                        var reason = c.GetCustomAttribute<CrashRiskAttribute>()?.Reason ?? "unspecified";
-                        TestLogger.Info($"  - {c.Name}: {reason}");
-                    }
-                }
-            }
-            else
-            {
-                testClasses.AddRange(crashRiskClasses);
-            }
-
-            if (crashRiskClasses.Count > 0 && !Application.SafeOnly && Application.ClassFilter == null)
-            {
-                TestLogger.Info($"Execution order: {safeClasses.Count} safe, then {crashRiskClasses.Count} crash-risk");
-            }
+            // Sort all test classes alphabetically
+            var testClasses = allClasses.OrderBy(t => t.Name).ToList();
 
             // Flake detection: enabled via CLI --flake-detect, or automatically for Tier 3
             var flakeDetect = Application.FlakeDetect || maxTier >= TestTier.Tier3;

@@ -102,7 +102,7 @@ public static class TestDispatcher
                     N3_Trimming();
                     break;
 
-                // CrashRisk ports: tests that crash Mono JIT but should pass under NativeAOT
+                // Tests that historically crashed Mono JIT but pass under NativeAOT
                 case "cr-enum-basic":
                     CR_EnumBasic();
                     break;
@@ -456,8 +456,8 @@ public static class TestDispatcher
     }
 
     // -----------------------------------------------------------------------
-    // CrashRisk ports: tests that crash under Mono JIT but should pass
-    // under NativeAOT. Ported from RuntimeTestsApp CrashRisk classes.
+    // Tests that historically crashed Mono JIT but pass under NativeAOT.
+    // Ported from RuntimeTestsApp test classes.
     // -----------------------------------------------------------------------
 
     /// <summary>
