@@ -492,15 +492,43 @@ public static partial class ClosureEmitter
     }
 
     /// <summary>
+    /// Checks if a method with closure wrapper can be converted to @_cdecl.
+    /// Uses shared function-level gates plus per-param checks on non-closure, non-large params.
+    /// </summary>
+    public static bool CanConvertToCdecl(MethodEnvironment env)
+    {
+        if (!MethodWrapperEmitter.HasCdeclCompatibleFunctionShape(env))
+            return false;
+        foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
+        {
+            // Closure params are already C-compatible (funcPtr + context)
+            if (env.ClosureHandler.IsClosure(arg))
+                continue;
+            // Large optional params are already UnsafeRawPointer
+            if (OptionalPointerWrapperEmitter.ShouldWidenParam(arg, env.BoundGenericsHandler))
+                continue;
+            if (arg.IsGeneric) return false;
+            if (ConstructorWrapperEmitter.IsProtocolExistentialType(arg.SwiftTypeSpec, env.TypeDatabase))
+                return false;
+            if (MethodWrapperEmitter.IsNestedFrozenStructParam(arg, env.TypeDatabase))
+                return false;
+            if (MethodWrapperEmitter.IsNonPrimitiveFrozenStructParam(arg, env.TypeDatabase))
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>
     /// Emits a standalone Swift wrapper function for a method/constructor whose ONLY
     /// wrapper reason is closure parameters (no ArraySlice, no default params, etc.).
-    /// The wrapper is a free function with @_silgen_name that receives Cdecl closure params
-    /// and adapts them to native Swift closures before calling the original method.
+    /// When useCdecl=true, emits @_cdecl with C-compatible non-closure params.
+    /// When useCdecl=false, emits @_silgen_name with native Swift types.
     /// </summary>
     public static void EmitClosureCdeclSwiftWrapper(
         SwiftWriter swiftWriter,
         MethodEnvironment env,
-        TypeDecl? parentDecl)
+        TypeDecl? parentDecl,
+        bool useCdecl = false)
     {
         var methodDecl = env.MethodDecl;
         var closureHandler = env.ClosureHandler;
@@ -547,6 +575,18 @@ public static partial class ClosureEmitter
                 var label = GetSwiftArgLabel(arg);
                 callArgs.Add($"{label}{csName}Val");
             }
+            else if (useCdecl)
+            {
+                // Non-closure, non-large param in @_cdecl mode: convert to C-compatible type
+                var label_ = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
+                var (cdeclParam, reconstruction, callArg) =
+                    ConstructorWrapperEmitter.GetCdeclParamMapping(arg, label_, env, omitLabels: true);
+                swiftParams.Add(cdeclParam);
+                if (reconstruction != null) adapterCode.Add(reconstruction);
+                var swiftArgLabel = GetSwiftArgLabel(arg);
+                var valueRef = reconstruction != null ? $"{label_}Val" : csName;
+                callArgs.Add($"{swiftArgLabel}{valueRef}");
+            }
             else
             {
                 // Non-closure param: pass through with original Swift type
@@ -573,15 +613,44 @@ public static partial class ClosureEmitter
             swiftParams.Add("_ _self: UnsafeMutableRawPointer");
         }
 
-        var paramsStr = string.Join(",\n    ", swiftParams);
         var callArgsStr = string.Join(", ", callArgs);
 
         // Build return type
         var returnTypeSpec = methodDecl.CSSignature[0].SwiftTypeSpec;
         var hasReturn = !returnTypeSpec.IsEmptyTuple && !hasLargeOptionalReturn;
         var returnSwiftTypeName = ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec);
-        var returnTypeStr = hasReturn ? $" -> {returnSwiftTypeName}" : "";
-        var throwsStr = methodDecl.Throws ? " throws" : "";
+        string returnTypeStr;
+        string throwsStr;
+        bool cdeclNeedsResultPtr = false;
+        bool cdeclIsStringReturn = false;
+        PropertyWrapperEmitter.CdeclReturnMapping? cdeclReturnMapping = null;
+        if (useCdecl && hasReturn && !hasLargeOptionalReturn)
+        {
+            var (returnMapping, needsResultPtr) = PropertyWrapperEmitter.GetCdeclReturnMapping(returnTypeSpec, env.TypeDatabase);
+            cdeclReturnMapping = returnMapping;
+            cdeclIsStringReturn = WitnessDispatchEmitter.IsStringType(returnTypeSpec);
+            if (cdeclIsStringReturn) needsResultPtr = true;
+            cdeclNeedsResultPtr = needsResultPtr;
+            returnTypeStr = needsResultPtr ? "" : $" -> {returnMapping.cdeclReturnType}";
+            if (needsResultPtr)
+            {
+                swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
+                if (cdeclIsStringReturn)
+                    Utf8SliceEmitter.EmitIfNeeded(swiftWriter, null);
+            }
+        }
+        else
+        {
+            returnTypeStr = hasReturn ? $" -> {returnSwiftTypeName}" : "";
+        }
+        throwsStr = (useCdecl && methodDecl.Throws) ? "" : (methodDecl.Throws ? " throws" : "");
+        if (useCdecl && methodDecl.Throws)
+        {
+            swiftParams.Add("_ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>");
+        }
+
+        // Build paramsStr AFTER all params (resultPtr, errorOut) have been added
+        var paramsStr = string.Join(",\n    ", swiftParams);
 
         // Determine how to call the original method
         string callPrefix;
@@ -630,7 +699,8 @@ public static partial class ClosureEmitter
             && !methodDecl.IsNonisolated;
         if (needsMainActor)
             swiftWriter.WriteLine("@MainActor");
-        swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
+        var annotation = useCdecl ? "@_cdecl" : "@_silgen_name";
+        swiftWriter.WriteLine($"{annotation}(\"{wrapperSymbol}\")");
         swiftWriter.WriteLine($"public func {NameProvider.GetPInvokeName(methodDecl)}(");
         swiftWriter.WriteLine($"    {paramsStr}");
         swiftWriter.WriteLine($"){throwsStr}{returnTypeStr} {{");
@@ -647,13 +717,63 @@ public static partial class ClosureEmitter
             swiftWriter.WriteLine($"    {line}");
         }
 
-        // Emit the call
-        if (hasLargeOptionalReturn)
+        // Emit the call — with error handling for @_cdecl throwing methods
+        if (useCdecl && methodDecl.Throws)
+        {
+            swiftWriter.WriteLine("    do {");
+            var throwCallExpr = $"try {callPrefix}{callArgsStr}{callSuffix}";
+            if (hasLargeOptionalReturn)
+            {
+                var bufferLines = OptionalPointerWrapperEmitter.GetReturnBufferCode(throwCallExpr, returnSwiftTypeName);
+                foreach (var bufLine in bufferLines)
+                    swiftWriter.WriteLine($"        {bufLine}");
+            }
+            else if (cdeclIsStringReturn)
+            {
+                OptionalPointerWrapperEmitter.EmitStringReturnBody(swiftWriter, throwCallExpr, indent: "        ");
+            }
+            else if (cdeclNeedsResultPtr)
+            {
+                var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec);
+                swiftWriter.WriteLine($"        let result = {throwCallExpr}");
+                swiftWriter.WriteLine($"        resultPtr.initializeMemory(as: {swiftType}.self, repeating: result, count: 1)");
+            }
+            else if (hasReturn || methodDecl.IsConstructor)
+            {
+                OptionalPointerWrapperEmitter.EmitCdeclDirectReturn(swiftWriter, throwCallExpr, returnTypeSpec, env.TypeDatabase, cdeclReturnMapping, indent: "        ");
+            }
+            else
+            {
+                swiftWriter.WriteLine($"        {throwCallExpr}");
+            }
+            swiftWriter.WriteLines("""
+                    } catch {
+                        errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()
+                    """);
+            if (hasReturn && !cdeclNeedsResultPtr && !hasLargeOptionalReturn)
+                OptionalPointerWrapperEmitter.EmitCdeclSentinelReturn(swiftWriter, cdeclReturnMapping, indent: "        ");
+            swiftWriter.WriteLine("    }");
+        }
+        else if (hasLargeOptionalReturn)
         {
             var callExpr = $"{tryPrefix}{callPrefix}{callArgsStr}{callSuffix}";
             var bufferLines = OptionalPointerWrapperEmitter.GetReturnBufferCode(callExpr, returnSwiftTypeName);
             foreach (var bufLine in bufferLines)
                 swiftWriter.WriteLine($"    {bufLine}");
+        }
+        else if (cdeclIsStringReturn)
+        {
+            OptionalPointerWrapperEmitter.EmitStringReturnBody(swiftWriter, $"{tryPrefix}{callPrefix}{callArgsStr}{callSuffix}", indent: "    ");
+        }
+        else if (cdeclNeedsResultPtr)
+        {
+            var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec);
+            swiftWriter.WriteLine($"    let result = {tryPrefix}{callPrefix}{callArgsStr}{callSuffix}");
+            swiftWriter.WriteLine($"    resultPtr.initializeMemory(as: {swiftType}.self, repeating: result, count: 1)");
+        }
+        else if (useCdecl && hasReturn)
+        {
+            OptionalPointerWrapperEmitter.EmitCdeclDirectReturn(swiftWriter, $"{tryPrefix}{callPrefix}{callArgsStr}{callSuffix}", returnTypeSpec, env.TypeDatabase, cdeclReturnMapping, indent: "    ");
         }
         else
         {

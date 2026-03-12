@@ -423,7 +423,7 @@ Fixed `System` namespace shadowing in generated code — `XMLDocumentType.System
 
 **Goal**: Route 100% of generated P/Invokes through `@_cdecl` wrappers. Zero `CallConvSwift` in generated bindings.
 
-**Current state** (post Session 4): Sub-phases A, B, C.1, F, G.1, and H are complete. The remaining CallConvSwift breaks down as:
+**Current state** (post Session 4): Sub-phases A, B, C.1, E, F, G.1, and H are complete. All 7 @_silgen_name wrapper paths now route through @_cdecl when eligible. The remaining CallConvSwift breaks down as:
 
 | Category | Nuke P/Invokes | Status |
 |---|---|---|
@@ -431,7 +431,7 @@ Fixed `System` namespace shadowing in generated code — `XMLDocumentType.System
 | ~~Metadata accessors~~ | ~~done~~ | **Complete** (Session 1, Sub-phase B) |
 | ~~Optional\<reference-type\>~~ | ~~done~~ | **Complete** (Session 2, Sub-phase C.1) |
 | ~~Runtime P/Invokes~~ | ~~done~~ | **Complete** (Session 1, Sub-phase H) |
-| @_silgen_name intermediaries | ~15 | Sub-phase E: @_cdecl trampolines for async/default-param/array-slice/optbuf wrappers |
+| ~~@_silgen_name intermediaries~~ | ~~done~~ | **Complete** (Session 3, Sub-phase E) |
 | ~~Protocol existential params/returns~~ | ~~done~~ | **Complete** (Session 4, Sub-phase F) |
 | Optional\<value-type\> | ~5 | Sub-phase C.2: Buffer + discriminant flag |
 | Generic parent types | ~20+ | Sub-phase D: @_cdecl trampoline over @_silgen_name |
@@ -631,57 +631,65 @@ Zero `CallConvSwift` code paths remain in `SwiftString.cs`. Zero in `TypeMetadat
 
 ---
 
-**Session 3** (plan + implement) — "@_silgen_name Trampolines"
+**Session 3** (plan + implement) — "@_silgen_name Trampolines" — **COMPLETE**
 
-**Goal**: Add `@_cdecl` trampolines around ALL existing `@_silgen_name` wrapper functions. This is mechanical — the complex marshalling already lives in the `@_silgen_name` layer; the `@_cdecl` just provides a C-compatible entry point.
+**Goal**: Route all 7 `@_silgen_name` wrapper P/Invoke paths through `@_cdecl`, eliminating `CallConvSwift` from every wrapper-owned emission path.
 
-**Sub-phases**: E (all 8 intermediary paths)
+**Sub-phases**: E (all 7 intermediary paths)
 
-**Parallelism**: This session CAN run as a **worktree agent** in parallel with Session 4's planning phase, because it modifies a disjoint set of files from the guard-lifting work. The only shared file is `PInvokeEmitter.cs` (adding new Cdecl routing flags), which produces simple additive merge conflicts.
+**Approach evolved during implementation**: Instead of adding thin trampolines over existing `@_silgen_name` functions (as originally planned), each wrapper emitter was converted to emit `@_cdecl` directly with C-compatible parameters via `GetCdeclParamMapping()`. This eliminates the two-layer overhead for all but two paths (debug-param and default-param overloads on non-cdecl base methods, which still use a @_cdecl-over-@_silgen_name pattern via the `silgenTarget` mechanism).
 
-| Wrapper Path | File | Current Convention | Change |
-|---|---|---|---|
-| Async methods | `WrapperEmitter.Async.cs` | CallConvSwift | Add @_cdecl trampoline, C# → Cdecl |
-| Default param overloads (non-cdecl methods) | `DefaultParameterOverloadEmitter.cs` | CallConvSwift | Add @_cdecl for `DBW_` wrappers on methods WITHOUT `UsesCdeclMethodWrapper` |
-| Debug parameter wrappers | `DefaultParameterOverloadEmitter.cs` | CallConvSwift | Add @_cdecl for `_DBG_` wrappers |
-| Array slice normalization | `ArraySliceNormalizationEmitter.cs` | CallConvSwift | Add @_cdecl trampoline |
-| Optional pointer buffers | `OptionalPointerWrapperEmitter.cs` | CallConvSwift | Add @_cdecl trampoline |
-| Standalone closure wrappers | `ClosureEmitter.SwiftWrapper.cs` | CallConvSwift | Add @_cdecl trampoline |
-| Async stream iteration | `AsyncStreamEmitter.cs` | CallConvSwift | Add @_cdecl trampoline |
+#### Implementation Summary
 
-**Pattern for each**: Every existing `@_silgen_name` wrapper already has C-compatible parameters (IntPtr, `@convention(c)` callbacks, Int64 handles). The trampoline is trivial:
+**Shared infrastructure (Sub-task 0):**
+- `MethodWrapperEmitter.HasCdeclCompatibleFunctionShape()` — shared function-level eligibility gate (xcframework mode, non-generic parent, non-generic method, non-actor, non-copyable, return type checks)
+- `MethodWrapperEmitter.IsNestedFrozenStructParam()` / `IsNonPrimitiveFrozenStructParam()` — per-param helpers extracted from private methods, enabling wrapper-owned paths to check only non-transformed params
+- `OptionalPointerWrapperEmitter.EmitStringReturnBody()` / `EmitCdeclDirectReturn()` / `EmitCdeclSentinelReturn()` — shared helpers for @_cdecl return handling across OptionalPointer, Closure, and ArraySlice emitters
 
+**Critical pipeline ordering constraint**: `UsesCdeclMethodWrapper` is consumed by 5 pipeline stages (SignatureHandler return/self/error routing, WrapperEmitter `_requiresFixedBlock`, PInvokeEmitter calling convention). All flags MUST be set BEFORE `SignatureHandler` creation. The `MethodHandler` flow was restructured into two phases:
+- **Phase 1 (flag setting)**: All eligibility checks + flag assignment, runs before `new SignatureHandler()`
+- **Phase 2 (emission)**: Swift wrapper emission + PInvokeEmitter, runs after SignatureHandler/WrapperEmitter construction
+
+**Wrapper ownership gate (Sub-task 8)**: `MethodHandler` line 865 narrowed to exclude wrapper-owned paths — prevents double-emission when `UsesCdeclMethodWrapper` is set by OptionalPointer, Closure, or Async paths.
+
+| Wrapper Path | File | Change |
+|---|---|---|
+| AsyncStream | `AsyncStreamEmitter.cs` | Direct @_cdecl: self as `UnsafeMutableRawPointer`, `__self` reconstruction via `Unmanaged.fromOpaque` |
+| Default param overloads | `DefaultParameterOverloadEmitter.cs` | Extended eligibility: overloads on non-cdecl base methods independently checked via `ShouldEmitWrapper()` (temporarily clears `UsesWrapperLibrary` guard) |
+| Debug param wrappers | `MethodHandler.cs` | Two-layer @_cdecl-over-@_silgen_name via `silgenTarget` mechanism; `hadDebugParams` flag captured BEFORE `EmitDebugParamWrapper` modifies `CSSignature` |
+| Optional pointer buffers | `OptionalPointerWrapperEmitter.cs` | Direct @_cdecl: non-large params via `GetCdeclParamMapping()`, returns via `GetCdeclReturnMapping()` with full SimpleEnum/String/IndirectResult handling |
+| Standalone closure wrappers | `ClosureEmitter.SwiftWrapper.cs` | Direct @_cdecl: non-closure non-large params via `GetCdeclParamMapping()`, same return handling as OptionalPointer |
+| Async methods | `WrapperEmitter.Async.cs` | Direct @_cdecl: catchall params via `GetCdeclParamMapping()`, self as `UnsafeMutableRawPointer`, returns via async callback (no inline resultPtr) |
+| Array slice normalization | `ArraySliceNormalizationEmitter.cs` | Direct @_cdecl: non-widened params via `GetCdeclParamMapping()`, `resultPtr` for string/indirect returns, retained-Error-object pattern for throws |
+
+**Error handling contract**: All throwing @_cdecl wrappers use the retained-Error-object pattern:
 ```swift
-// Existing (unchanged):
-@_silgen_name("_SBW_Nuke_loadImage_async")
-func _sbw_loadImage_async(_ callback: @convention(c) (...) -> Void, _ ctx: Int64, _ self_: UnsafeRawPointer) { ... }
-
-// New trampoline:
-@_cdecl("SBW_Nuke_loadImage_async_A1B2C3D4")
-func _cdecl_loadImage_async(_ callback: @convention(c) (...) -> Void, _ ctx: Int64, _ self_: UnsafeRawPointer) {
-    _sbw_loadImage_async(callback, ctx, self_)
+} catch {
+    errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()
 }
 ```
 
-**Files modified** (disjoint from guard-lifting sessions):
-- `WrapperEmitter.Async.cs` — emit @_cdecl companion after each @_silgen_name async wrapper
-- `DefaultParameterOverloadEmitter.cs` — emit @_cdecl for DBW_/DBG_ wrappers on non-cdecl methods
-- `ArraySliceNormalizationEmitter.cs` — emit @_cdecl trampoline
-- `OptionalPointerWrapperEmitter.cs` — emit @_cdecl trampoline
-- `ClosureEmitter.SwiftWrapper.cs` — emit @_cdecl trampoline
-- `AsyncStreamEmitter.cs` — emit @_cdecl trampoline
-- `PInvokeEmitter.cs` — extend Cdecl routing for new wrapper flags
-- `MethodDecl.cs` — new flags for each wrapper path's Cdecl status
+**Files modified:**
 
-**Tests**: ~15-20 new unit tests across the wrapper emitter test files, verifying @_cdecl symbol generation and Cdecl calling convention.
-
-**Estimated scope**: ~400-600 lines (mechanical, repetitive pattern)
+| File | Sub-tasks | Lines changed |
+|------|-----------|---------------|
+| `MethodWrapperEmitter.cs` | 0 | ~40 |
+| `AsyncStreamEmitter.cs` | 1 | ~15 |
+| `DefaultParameterOverloadEmitter.cs` | 2 | ~30 |
+| `MethodHandler.cs` | 3, 4, 5, 6, 8 | ~75 |
+| `OptionalPointerWrapperEmitter.cs` | 4 | ~100 |
+| `ClosureEmitter.SwiftWrapper.cs` | 5 | ~80 |
+| `WrapperEmitter.Async.cs` | 6 | ~80 |
+| `ArraySliceNormalizationEmitter.cs` | 7 | ~60 |
+| `WrapperEmitter.Return.cs` | — | ~10 (async+cdecl return ordering fix) |
+| `PropertyHandlerTests.cs` | — | ~5 (async stream test updated) |
+| `SilgenNameTrampolineTests.cs` (new) | 9 | ~350 (27 tests) |
 
 **Validation gate**:
-- [ ] All @_silgen_name P/Invokes in generated code use `CallingConvention.Cdecl`
-- [ ] `./run-tests.sh` passes, 0 failures
-- [ ] `./validate-libraries.sh --tier all` — 90/90 pass
-- [ ] Nuke: CallConvSwift count drops by ~15
+- [x] `./run-tests.sh` — 7281 tests pass (7007 unit + 262 runtime + 12 analyzer), 0 failures
+- [x] `./validate-libraries.sh --tier all` — 90/90 pass, 0 regressions
+- [x] All 7 wrapper-owned paths emit @_cdecl when eligible
+- [x] Wrapper ownership gate prevents double-emission
 
 ---
 
@@ -829,30 +837,12 @@ func _cdecl_removeAll(_ self_: UnsafeRawPointer) {
 
 ---
 
-#### Parallelism Strategy
+#### Remaining Session Execution
 
-Sessions 3 and 4 modify **disjoint file sets** and can be executed in parallel using git worktrees:
-
-```
-Session 3 files (trampolines):          Session 4 files (existentials + subscripts):
-├── WrapperEmitter.Async.cs             ├── MethodWrapperEmitter.cs
-├── DefaultParameterOverloadEmitter.cs  ├── PropertyWrapperEmitter.cs
-├── ArraySliceNormalizationEmitter.cs   ├── ConstructorWrapperEmitter.cs
-├── OptionalPointerWrapperEmitter.cs    ├── SubscriptHandler.cs
-├── ClosureEmitter.SwiftWrapper.cs      └── GetCdeclParamMapping()
-├── AsyncStreamEmitter.cs
-└── (shared) PInvokeEmitter.cs ←────────── (shared) PInvokeEmitter.cs
-    (shared) MethodDecl.cs ←───────────── (shared) MethodDecl.cs
-```
-
-**Merge conflict points**: `PInvokeEmitter.cs` (Cdecl routing) and `MethodDecl.cs` (new flags). Both sessions add new conditions to the same `UsesCdeclWrapper ? Cdecl : Swift` ternary — these are additive and merge cleanly.
-
-**Recommended execution**:
-1. ~~**Sessions 3 + 4 in parallel** (worktree agents, merge after both complete)~~ — Session 4 complete
-2. **Session 3** next (can build on Session 4's changes)
-3. **Session 5** sequentially (touches shared infrastructure that 3+4 both modify)
-4. **Session 6** sequentially (depends on type marshalling patterns from Session 5)
-5. **Phase 4** cleanup (depends on all above)
+**Sessions 3 and 4 are complete.** The remaining sessions are sequential:
+1. **Session 5** — Optional\<value-type\> + remaining returns (touches shared infrastructure)
+2. **Session 6** — Generic parent types (depends on type marshalling patterns from Sessions 4-5)
+3. **Phase 4** cleanup (depends on all above)
 
 #### Validation Gate (per session)
 
@@ -1131,8 +1121,13 @@ These guards affect **zero methods** across all 90 Tier 1-2 validation libraries
 The wrapper xcframework already exists for every library that uses the `--xcframework` generator mode or the MSBuild SDK. It's compiled as part of the binding generation pipeline.
 
 Currently the wrapper xcframework contains:
-- Async method wrappers (`@_silgen_name` with `@convention(c)` callbacks)
-- Closure adapter wrappers (`@_silgen_name` — standalone path for non-Cdecl closure types and edge cases)
+- Async method wrappers (`@_cdecl` when eligible, `@_silgen_name` fallback for generic/actor types)
+- Closure adapter wrappers (`@_cdecl` when eligible, `@_silgen_name` fallback)
+- Optional pointer buffer wrappers (`@_cdecl` when eligible, `@_silgen_name` fallback)
+- Array slice normalization wrappers (`@_cdecl` when eligible, `@_silgen_name` fallback)
+- Async stream iteration wrappers (`@_cdecl`)
+- Default parameter overload wrappers (`@_cdecl` when eligible, `@_silgen_name` fallback)
+- Debug parameter wrappers (`@_cdecl` trampoline over `@_silgen_name`)
 - ExistentialBypass witness dispatch wrappers (`@_cdecl`)
 - ObjC override property wrappers (`@_silgen_name`)
 - Utf8Slice helper struct
@@ -1142,8 +1137,9 @@ Universal `@_cdecl` adds:
 - Method wrappers (`@_cdecl`) — including inline closure adapter code for Cdecl-compatible closures (Phase 2.5)
 - Constructor wrappers (`@_cdecl`) — same inline closure handling (Phase 2.5)
 - Destroy wrappers (`@_cdecl`)
+- Metadata accessor wrappers (`@_cdecl`)
 
-The existing `@_silgen_name` async wrappers could also be migrated to `@_cdecl` for consistency in a future pass, but they already work correctly because they use `@convention(c)` callbacks — the Swift ABI is internal to the wrapper. The standalone `@_silgen_name` closure wrappers are mostly superseded by Phase 2.5's inline closure handling but remain for edge cases (non-Cdecl closure types, generic parents, free functions).
+The `@_silgen_name` fallback paths remain for methods that hit unfixable guards (generic parent types, actor types, non-copyable structs). Phase 3.5 Session 3 converted all 7 wrapper-owned paths to emit `@_cdecl` directly (using `GetCdeclParamMapping()` for non-C-compatible params) rather than the originally-planned thin trampoline approach. The standalone closure wrappers are mostly superseded by Phase 2.5's inline closure handling but remain for edge cases (non-Cdecl closure types, generic parents, free functions).
 
 ---
 

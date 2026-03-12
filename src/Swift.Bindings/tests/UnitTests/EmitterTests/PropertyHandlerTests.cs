@@ -229,7 +229,9 @@ public class PropertyHandlerTests
         Assert.Contains("private static unsafe byte updates_AsyncStream_OnElement", csOutput);
         Assert.Contains("PInvoke_Feed_updates_AsyncStream", csOutput);
         Assert.Contains("public func Feed_updates_AsyncStream", swiftOutput);
-        Assert.Contains("for await element in self.updates", swiftOutput);
+        Assert.Contains("for await element in __self.updates", swiftOutput);
+        Assert.Contains("@_cdecl(", swiftOutput);
+        Assert.Contains("_ self_: UnsafeMutableRawPointer", swiftOutput);
     }
 
     [Fact]

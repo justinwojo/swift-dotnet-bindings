@@ -2780,8 +2780,13 @@ namespace SwiftBindingsTestLib
         {
             unsafe
             {
+                void* payload = null;
                 try
                 {
+                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<string>();
+                    payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                    var resultPtr = (IntPtr)payload;
+                    
                     
                     SwiftOptional<SwiftString> valueSwiftInner;
                     if (value is { } valueValue)
@@ -2795,22 +2800,31 @@ namespace SwiftBindingsTestLib
                     using var valueSwift = valueSwiftInner;
                     IntPtr valueBuffer = valueSwift.Payload.DangerousGetHandle();
                     
-                    var result = PInvoke_describeOptionalString_3089AA57(valueBuffer);
+                    PInvoke_describeOptionalString_69710D99(resultPtr, valueBuffer);
                     
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                    return swiftResult.ToString();
+                    unsafe {
+                        var __slice = *(Utf8Slice*)resultPtr;
+                        if (__slice.Len == 0) return string.Empty;
+                        try {
+                            return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(
+                                __slice.Ptr, (int)__slice.Len) ?? string.Empty;
+                        } finally {
+                            SBW_Free(__slice.Ptr);
+                        }
+                    }
                 }
                 
                 finally
                 {
+                    NativeMemory.Free(payload);
                 }
                 
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib22describeOptionalStringyS2SSgF_optbuf")]
-        private static partial Swift.SwiftString.Buffer PInvoke_describeOptionalString_3089AA57( IntPtr valueBuffer);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_describeOptionalString_3089AA57_optbuf")]
+        private static partial void PInvoke_describeOptionalString_69710D99( IntPtr resultPtr,  IntPtr valueBuffer);
         
         
         /// <summary>
@@ -3398,9 +3412,9 @@ namespace SwiftBindingsTestLib
         private static partial int PInvoke_callMultipleTimes_5AD2C09E( IntPtr valueFuncPtr,  IntPtr valueContext,  int times);
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<void*, int, SwiftSelf, void> s_callWithOptionalStringReturn_arg0_8C3FB6E5_Callback = &callWithOptionalStringReturn_arg0_8C3FB6E5_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<void*, int, SwiftSelf, void> s_callWithOptionalStringReturn_arg0_913DECF0_Callback = &callWithOptionalStringReturn_arg0_913DECF0_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvSwift) })]
-        private static unsafe void callWithOptionalStringReturn_arg0_8C3FB6E5_Callback(void* indirectResult, int arg0, SwiftSelf context)
+        private static unsafe void callWithOptionalStringReturn_arg0_913DECF0_Callback(void* indirectResult, int arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Func<int, string?>>(new IntPtr(context.Value));
             var result = del(arg0);
@@ -3422,12 +3436,12 @@ namespace SwiftBindingsTestLib
                 {
                     
                     handlerHandle = GCHandle.Alloc(handler);
-                    var handlerClosure = new SwiftClosureData((IntPtr)s_callWithOptionalStringReturn_arg0_8C3FB6E5_Callback, GCHandle.ToIntPtr(handlerHandle));
+                    var handlerClosure = new SwiftClosureData((IntPtr)s_callWithOptionalStringReturn_arg0_913DECF0_Callback, GCHandle.ToIntPtr(handlerHandle));
                     
                     var _optRetSize = (int)TypeMetadata.GetTypeMetadataOrThrow<SwiftOptional<SwiftString>>().Size;
                     byte* _optRetBuf = stackalloc byte[_optRetSize];
                     IntPtr _optRetPtr = (IntPtr)_optRetBuf;
-                    PInvoke_callWithOptionalStringReturn_8C3FB6E5(handlerClosure, _optRetPtr);
+                    PInvoke_callWithOptionalStringReturn_913DECF0(handlerClosure, _optRetPtr);
                     
                     var rawOpt = SwiftMarshal.MarshalFromSwift<SwiftOptional<SwiftString>>(_optRetPtr).ToNullable();
                     return rawOpt is { } rawVal ? rawVal.ToString() : null;
@@ -3441,9 +3455,9 @@ namespace SwiftBindingsTestLib
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib28callWithOptionalStringReturnySSSgACs5Int32VcF_optbuf")]
-        private static partial void PInvoke_callWithOptionalStringReturn_8C3FB6E5( SwiftClosureData handler,  IntPtr _optRetPtr);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_callWithOptionalStringReturn_8C3FB6E5_optbuf")]
+        private static partial void PInvoke_callWithOptionalStringReturn_913DECF0( SwiftClosureData handler,  IntPtr _optRetPtr);
         
         
         private static unsafe readonly delegate* unmanaged[Swift]<void*, int, SwiftSelf, void> s_callWithStringArrayReturn_arg0_7C18C59D_Callback = &callWithStringArrayReturn_arg0_7C18C59D_Callback;
@@ -16094,9 +16108,9 @@ public partial class TypedThrowingParser : ISwiftObject, IDisposable
     
     [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_CancelTask_SwiftBindingsTestLib")]
     private static partial void SBW_CancelTask(long taskId);
-            private static unsafe delegate* unmanaged[Cdecl]<int, IntPtr, void> s_asyncParseCallback_028ADCF1 = &asyncParseOnComplete_028ADCF1;
+            private static unsafe delegate* unmanaged[Cdecl]<int, IntPtr, void> s_asyncParseCallback_7A3172B4 = &asyncParseOnComplete_7A3172B4;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncParseOnComplete_028ADCF1(int rawResult, IntPtr task)
+        private static unsafe void asyncParseOnComplete_7A3172B4(int rawResult, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -16137,9 +16151,9 @@ public partial class TypedThrowingParser : ISwiftObject, IDisposable
             }
         }
 
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, int, IntPtr, void> s_asyncParseErrorCallback_028ADCF1 = &asyncParseOnError_028ADCF1;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, int, IntPtr, void> s_asyncParseErrorCallback_7A3172B4 = &asyncParseOnError_7A3172B4;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncParseOnError_028ADCF1(IntPtr errorPtr, nint errorSize, IntPtr errorMessagePtr, int isCancellation, IntPtr task)
+        private static unsafe void asyncParseOnError_7A3172B4(IntPtr errorPtr, nint errorSize, IntPtr errorMessagePtr, int isCancellation, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -16271,7 +16285,7 @@ public partial class TypedThrowingParser : ISwiftObject, IDisposable
                 using var inputSwift = new SwiftString(input);
                 using var inputDisposable = inputSwift.PayloadBuffer;
                 
-                PInvoke_asyncParse_028ADCF1(s_asyncParseCallback_028ADCF1, s_asyncParseErrorCallback_028ADCF1, GCHandle.ToIntPtr(handle), inputDisposable.Buffer, _payload.DangerousGetHandle());
+                PInvoke_asyncParse_7A3172B4(s_asyncParseCallback_7A3172B4, s_asyncParseErrorCallback_7A3172B4, GCHandle.ToIntPtr(handle), inputDisposable.Buffer, _payload.DangerousGetHandle());
                 
                 return _tcs.Task;
             }
@@ -16283,9 +16297,9 @@ public partial class TypedThrowingParser : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib19TypedThrowingParserV10asyncParseys5Int32VSSYaAA0I5ErrorOYKF_async")]
-    private static unsafe partial void PInvoke_asyncParse_028ADCF1( void* s_asyncParseCallback_028ADCF1,  void* s_asyncParseErrorCallback_028ADCF1,  IntPtr handle,  Swift.SwiftString.Buffer input,  IntPtr _self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_TypedThrowingParser_asyncParse_028ADCF1_async")]
+    private static unsafe partial void PInvoke_asyncParse_7A3172B4( void* s_asyncParseCallback_7A3172B4,  void* s_asyncParseErrorCallback_7A3172B4,  IntPtr handle,  Swift.SwiftString.Buffer input,  IntPtr _self);
     
     
 }
@@ -17689,9 +17703,9 @@ public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
     
     [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_CancelTask_SwiftBindingsTestLib")]
     private static partial void SBW_CancelTask(long taskId);
-            private static unsafe delegate* unmanaged[Cdecl]<int, IntPtr, void> s_asyncThrowingMethodCallback_AEC9A748 = &asyncThrowingMethodOnComplete_AEC9A748;
+            private static unsafe delegate* unmanaged[Cdecl]<int, IntPtr, void> s_asyncThrowingMethodCallback_4753D0C8 = &asyncThrowingMethodOnComplete_4753D0C8;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncThrowingMethodOnComplete_AEC9A748(int rawResult, IntPtr task)
+        private static unsafe void asyncThrowingMethodOnComplete_4753D0C8(int rawResult, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -17732,9 +17746,9 @@ public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
             }
         }
 
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncThrowingMethodErrorCallback_AEC9A748 = &asyncThrowingMethodOnError_AEC9A748;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncThrowingMethodErrorCallback_4753D0C8 = &asyncThrowingMethodOnError_4753D0C8;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncThrowingMethodOnError_AEC9A748(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
+        private static unsafe void asyncThrowingMethodOnError_4753D0C8(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -17845,7 +17859,7 @@ public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
             {
                 
                 
-                PInvoke_asyncThrowingMethod_AEC9A748(s_asyncThrowingMethodCallback_AEC9A748, s_asyncThrowingMethodErrorCallback_AEC9A748, GCHandle.ToIntPtr(handle), shouldThrow, _payload.DangerousGetHandle());
+                PInvoke_asyncThrowingMethod_4753D0C8(s_asyncThrowingMethodCallback_4753D0C8, s_asyncThrowingMethodErrorCallback_4753D0C8, GCHandle.ToIntPtr(handle), shouldThrow, _payload.DangerousGetHandle());
                 
                 return _tcs.Task;
             }
@@ -17857,14 +17871,14 @@ public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib19AsyncThrowingWorkerV05asyncF6Method11shouldThrows5Int32VSb_tYaKF_async")]
-    private static unsafe partial void PInvoke_asyncThrowingMethod_AEC9A748( void* s_asyncThrowingMethodCallback_AEC9A748,  void* s_asyncThrowingMethodErrorCallback_AEC9A748,  IntPtr handle, [MarshalAs(UnmanagedType.U1)]  bool shouldThrow,  IntPtr _self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_AsyncThrowingWorker_asyncThrowingMethod_AEC9A748_async")]
+    private static unsafe partial void PInvoke_asyncThrowingMethod_4753D0C8( void* s_asyncThrowingMethodCallback_4753D0C8,  void* s_asyncThrowingMethodErrorCallback_4753D0C8,  IntPtr handle, [MarshalAs(UnmanagedType.U1)]  bool shouldThrow,  IntPtr _self);
     
     
-            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, void> s_asyncThrowingVoidCallback_22F39542 = &asyncThrowingVoidOnComplete_22F39542;
+            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, void> s_asyncThrowingVoidCallback_EE9856DC = &asyncThrowingVoidOnComplete_EE9856DC;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncThrowingVoidOnComplete_22F39542(IntPtr task)
+        private static unsafe void asyncThrowingVoidOnComplete_EE9856DC(IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -17905,9 +17919,9 @@ public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
             }
         }
 
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncThrowingVoidErrorCallback_22F39542 = &asyncThrowingVoidOnError_22F39542;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncThrowingVoidErrorCallback_EE9856DC = &asyncThrowingVoidOnError_EE9856DC;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncThrowingVoidOnError_22F39542(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
+        private static unsafe void asyncThrowingVoidOnError_EE9856DC(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -18018,7 +18032,7 @@ public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
             {
                 
                 
-                PInvoke_asyncThrowingVoid_22F39542(s_asyncThrowingVoidCallback_22F39542, s_asyncThrowingVoidErrorCallback_22F39542, GCHandle.ToIntPtr(handle), shouldThrow, _payload.DangerousGetHandle());
+                PInvoke_asyncThrowingVoid_EE9856DC(s_asyncThrowingVoidCallback_EE9856DC, s_asyncThrowingVoidErrorCallback_EE9856DC, GCHandle.ToIntPtr(handle), shouldThrow, _payload.DangerousGetHandle());
                 
                 return _tcs.Task;
             }
@@ -18030,14 +18044,14 @@ public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib19AsyncThrowingWorkerV05asyncF4Void11shouldThrowySb_tYaKF_async")]
-    private static unsafe partial void PInvoke_asyncThrowingVoid_22F39542( void* s_asyncThrowingVoidCallback_22F39542,  void* s_asyncThrowingVoidErrorCallback_22F39542,  IntPtr handle, [MarshalAs(UnmanagedType.U1)]  bool shouldThrow,  IntPtr _self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_AsyncThrowingWorker_asyncThrowingVoid_22F39542_async")]
+    private static unsafe partial void PInvoke_asyncThrowingVoid_EE9856DC( void* s_asyncThrowingVoidCallback_EE9856DC,  void* s_asyncThrowingVoidErrorCallback_EE9856DC,  IntPtr handle, [MarshalAs(UnmanagedType.U1)]  bool shouldThrow,  IntPtr _self);
     
     
-            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_asyncStaticThrowingCallback_A3C9A920 = &asyncStaticThrowingOnComplete_A3C9A920;
+            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_asyncStaticThrowingCallback_5BD79233 = &asyncStaticThrowingOnComplete_5BD79233;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncStaticThrowingOnComplete_A3C9A920(IntPtr slicePtr, nint sliceLen, IntPtr task)
+        private static unsafe void asyncStaticThrowingOnComplete_5BD79233(IntPtr slicePtr, nint sliceLen, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -18086,9 +18100,9 @@ public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
             }
         }
 
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncStaticThrowingErrorCallback_A3C9A920 = &asyncStaticThrowingOnError_A3C9A920;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncStaticThrowingErrorCallback_5BD79233 = &asyncStaticThrowingOnError_5BD79233;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncStaticThrowingOnError_A3C9A920(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
+        private static unsafe void asyncStaticThrowingOnError_5BD79233(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -18197,7 +18211,7 @@ public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
             {
                 
                 
-                PInvoke_asyncStaticThrowing_A3C9A920(s_asyncStaticThrowingCallback_A3C9A920, s_asyncStaticThrowingErrorCallback_A3C9A920, GCHandle.ToIntPtr(handle), shouldThrow);
+                PInvoke_asyncStaticThrowing_5BD79233(s_asyncStaticThrowingCallback_5BD79233, s_asyncStaticThrowingErrorCallback_5BD79233, GCHandle.ToIntPtr(handle), shouldThrow);
                 
                 return _tcs.Task;
             }
@@ -18209,9 +18223,9 @@ public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib19AsyncThrowingWorkerV011asyncStaticF011shouldThrowSSSb_tYaKFZ_async")]
-    private static unsafe partial void PInvoke_asyncStaticThrowing_A3C9A920( void* s_asyncStaticThrowingCallback_A3C9A920,  void* s_asyncStaticThrowingErrorCallback_A3C9A920,  IntPtr handle, [MarshalAs(UnmanagedType.U1)]  bool shouldThrow);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_AsyncThrowingWorker_asyncStaticThrowing_A3C9A920_async")]
+    private static unsafe partial void PInvoke_asyncStaticThrowing_5BD79233( void* s_asyncStaticThrowingCallback_5BD79233,  void* s_asyncStaticThrowingErrorCallback_5BD79233,  IntPtr handle, [MarshalAs(UnmanagedType.U1)]  bool shouldThrow);
     
     
 }
@@ -19281,9 +19295,9 @@ public partial class AsyncStringWorker : ISwiftObject, IDisposable
     
     [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_CancelTask_SwiftBindingsTestLib")]
     private static partial void SBW_CancelTask(long taskId);
-            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_asyncGetStringCallback_1497F5DC = &asyncGetStringOnComplete_1497F5DC;
+            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_asyncGetStringCallback_A0B6469E = &asyncGetStringOnComplete_A0B6469E;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncGetStringOnComplete_1497F5DC(IntPtr slicePtr, nint sliceLen, IntPtr task)
+        private static unsafe void asyncGetStringOnComplete_A0B6469E(IntPtr slicePtr, nint sliceLen, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -19332,9 +19346,9 @@ public partial class AsyncStringWorker : ISwiftObject, IDisposable
             }
         }
 
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncGetStringErrorCallback_1497F5DC = &asyncGetStringOnError_1497F5DC;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncGetStringErrorCallback_A0B6469E = &asyncGetStringOnError_A0B6469E;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncGetStringOnError_1497F5DC(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
+        private static unsafe void asyncGetStringOnError_A0B6469E(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -19445,7 +19459,7 @@ public partial class AsyncStringWorker : ISwiftObject, IDisposable
             {
                 
                 
-                PInvoke_asyncGetString_1497F5DC(s_asyncGetStringCallback_1497F5DC, s_asyncGetStringErrorCallback_1497F5DC, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
+                PInvoke_asyncGetString_A0B6469E(s_asyncGetStringCallback_A0B6469E, s_asyncGetStringErrorCallback_A0B6469E, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
                 
                 return _tcs.Task;
             }
@@ -19457,14 +19471,14 @@ public partial class AsyncStringWorker : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib17AsyncStringWorkerV08asyncGetF0SSyYaF_async")]
-    private static unsafe partial void PInvoke_asyncGetString_1497F5DC( void* s_asyncGetStringCallback_1497F5DC,  void* s_asyncGetStringErrorCallback_1497F5DC,  IntPtr handle,  IntPtr _self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_AsyncStringWorker_asyncGetString_1497F5DC_async")]
+    private static unsafe partial void PInvoke_asyncGetString_A0B6469E( void* s_asyncGetStringCallback_A0B6469E,  void* s_asyncGetStringErrorCallback_A0B6469E,  IntPtr handle,  IntPtr _self);
     
     
-            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_asyncGetUnicodeStringCallback_8523C4C9 = &asyncGetUnicodeStringOnComplete_8523C4C9;
+            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_asyncGetUnicodeStringCallback_D3DE895B = &asyncGetUnicodeStringOnComplete_D3DE895B;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncGetUnicodeStringOnComplete_8523C4C9(IntPtr slicePtr, nint sliceLen, IntPtr task)
+        private static unsafe void asyncGetUnicodeStringOnComplete_D3DE895B(IntPtr slicePtr, nint sliceLen, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -19513,9 +19527,9 @@ public partial class AsyncStringWorker : ISwiftObject, IDisposable
             }
         }
 
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncGetUnicodeStringErrorCallback_8523C4C9 = &asyncGetUnicodeStringOnError_8523C4C9;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncGetUnicodeStringErrorCallback_D3DE895B = &asyncGetUnicodeStringOnError_D3DE895B;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncGetUnicodeStringOnError_8523C4C9(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
+        private static unsafe void asyncGetUnicodeStringOnError_D3DE895B(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -19626,7 +19640,7 @@ public partial class AsyncStringWorker : ISwiftObject, IDisposable
             {
                 
                 
-                PInvoke_asyncGetUnicodeString_8523C4C9(s_asyncGetUnicodeStringCallback_8523C4C9, s_asyncGetUnicodeStringErrorCallback_8523C4C9, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
+                PInvoke_asyncGetUnicodeString_D3DE895B(s_asyncGetUnicodeStringCallback_D3DE895B, s_asyncGetUnicodeStringErrorCallback_D3DE895B, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
                 
                 return _tcs.Task;
             }
@@ -19638,14 +19652,14 @@ public partial class AsyncStringWorker : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib17AsyncStringWorkerV015asyncGetUnicodeF0SSyYaF_async")]
-    private static unsafe partial void PInvoke_asyncGetUnicodeString_8523C4C9( void* s_asyncGetUnicodeStringCallback_8523C4C9,  void* s_asyncGetUnicodeStringErrorCallback_8523C4C9,  IntPtr handle,  IntPtr _self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_AsyncStringWorker_asyncGetUnicodeString_8523C4C9_async")]
+    private static unsafe partial void PInvoke_asyncGetUnicodeString_D3DE895B( void* s_asyncGetUnicodeStringCallback_D3DE895B,  void* s_asyncGetUnicodeStringErrorCallback_D3DE895B,  IntPtr handle,  IntPtr _self);
     
     
-            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_asyncGetEmptyStringCallback_C08CF909 = &asyncGetEmptyStringOnComplete_C08CF909;
+            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_asyncGetEmptyStringCallback_44A3D8E6 = &asyncGetEmptyStringOnComplete_44A3D8E6;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncGetEmptyStringOnComplete_C08CF909(IntPtr slicePtr, nint sliceLen, IntPtr task)
+        private static unsafe void asyncGetEmptyStringOnComplete_44A3D8E6(IntPtr slicePtr, nint sliceLen, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -19694,9 +19708,9 @@ public partial class AsyncStringWorker : ISwiftObject, IDisposable
             }
         }
 
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncGetEmptyStringErrorCallback_C08CF909 = &asyncGetEmptyStringOnError_C08CF909;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncGetEmptyStringErrorCallback_44A3D8E6 = &asyncGetEmptyStringOnError_44A3D8E6;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncGetEmptyStringOnError_C08CF909(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
+        private static unsafe void asyncGetEmptyStringOnError_44A3D8E6(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -19807,7 +19821,7 @@ public partial class AsyncStringWorker : ISwiftObject, IDisposable
             {
                 
                 
-                PInvoke_asyncGetEmptyString_C08CF909(s_asyncGetEmptyStringCallback_C08CF909, s_asyncGetEmptyStringErrorCallback_C08CF909, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
+                PInvoke_asyncGetEmptyString_44A3D8E6(s_asyncGetEmptyStringCallback_44A3D8E6, s_asyncGetEmptyStringErrorCallback_44A3D8E6, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
                 
                 return _tcs.Task;
             }
@@ -19819,14 +19833,14 @@ public partial class AsyncStringWorker : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib17AsyncStringWorkerV013asyncGetEmptyF0SSyYaF_async")]
-    private static unsafe partial void PInvoke_asyncGetEmptyString_C08CF909( void* s_asyncGetEmptyStringCallback_C08CF909,  void* s_asyncGetEmptyStringErrorCallback_C08CF909,  IntPtr handle,  IntPtr _self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_AsyncStringWorker_asyncGetEmptyString_C08CF909_async")]
+    private static unsafe partial void PInvoke_asyncGetEmptyString_44A3D8E6( void* s_asyncGetEmptyStringCallback_44A3D8E6,  void* s_asyncGetEmptyStringErrorCallback_44A3D8E6,  IntPtr handle,  IntPtr _self);
     
     
-            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_asyncGetLongStringCallback_43601BF3 = &asyncGetLongStringOnComplete_43601BF3;
+            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_asyncGetLongStringCallback_A7A6557E = &asyncGetLongStringOnComplete_A7A6557E;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncGetLongStringOnComplete_43601BF3(IntPtr slicePtr, nint sliceLen, IntPtr task)
+        private static unsafe void asyncGetLongStringOnComplete_A7A6557E(IntPtr slicePtr, nint sliceLen, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -19875,9 +19889,9 @@ public partial class AsyncStringWorker : ISwiftObject, IDisposable
             }
         }
 
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncGetLongStringErrorCallback_43601BF3 = &asyncGetLongStringOnError_43601BF3;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncGetLongStringErrorCallback_A7A6557E = &asyncGetLongStringOnError_A7A6557E;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncGetLongStringOnError_43601BF3(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
+        private static unsafe void asyncGetLongStringOnError_A7A6557E(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -19988,7 +20002,7 @@ public partial class AsyncStringWorker : ISwiftObject, IDisposable
             {
                 
                 
-                PInvoke_asyncGetLongString_43601BF3(s_asyncGetLongStringCallback_43601BF3, s_asyncGetLongStringErrorCallback_43601BF3, GCHandle.ToIntPtr(handle), length, _payload.DangerousGetHandle());
+                PInvoke_asyncGetLongString_A7A6557E(s_asyncGetLongStringCallback_A7A6557E, s_asyncGetLongStringErrorCallback_A7A6557E, GCHandle.ToIntPtr(handle), length, _payload.DangerousGetHandle());
                 
                 return _tcs.Task;
             }
@@ -20000,14 +20014,14 @@ public partial class AsyncStringWorker : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib17AsyncStringWorkerV012asyncGetLongF06lengthSSs5Int32V_tYaF_async")]
-    private static unsafe partial void PInvoke_asyncGetLongString_43601BF3( void* s_asyncGetLongStringCallback_43601BF3,  void* s_asyncGetLongStringErrorCallback_43601BF3,  IntPtr handle,  int length,  IntPtr _self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_AsyncStringWorker_asyncGetLongString_43601BF3_async")]
+    private static unsafe partial void PInvoke_asyncGetLongString_A7A6557E( void* s_asyncGetLongStringCallback_A7A6557E,  void* s_asyncGetLongStringErrorCallback_A7A6557E,  IntPtr handle,  int length,  IntPtr _self);
     
     
-            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_asyncStaticStringCallback_0725C2FA = &asyncStaticStringOnComplete_0725C2FA;
+            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_asyncStaticStringCallback_EA69F553 = &asyncStaticStringOnComplete_EA69F553;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncStaticStringOnComplete_0725C2FA(IntPtr slicePtr, nint sliceLen, IntPtr task)
+        private static unsafe void asyncStaticStringOnComplete_EA69F553(IntPtr slicePtr, nint sliceLen, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -20056,9 +20070,9 @@ public partial class AsyncStringWorker : ISwiftObject, IDisposable
             }
         }
 
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncStaticStringErrorCallback_0725C2FA = &asyncStaticStringOnError_0725C2FA;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncStaticStringErrorCallback_EA69F553 = &asyncStaticStringOnError_EA69F553;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncStaticStringOnError_0725C2FA(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
+        private static unsafe void asyncStaticStringOnError_EA69F553(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -20167,7 +20181,7 @@ public partial class AsyncStringWorker : ISwiftObject, IDisposable
             {
                 
                 
-                PInvoke_asyncStaticString_0725C2FA(s_asyncStaticStringCallback_0725C2FA, s_asyncStaticStringErrorCallback_0725C2FA, GCHandle.ToIntPtr(handle));
+                PInvoke_asyncStaticString_EA69F553(s_asyncStaticStringCallback_EA69F553, s_asyncStaticStringErrorCallback_EA69F553, GCHandle.ToIntPtr(handle));
                 
                 return _tcs.Task;
             }
@@ -20179,9 +20193,9 @@ public partial class AsyncStringWorker : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib17AsyncStringWorkerV011asyncStaticF0SSyYaFZ_async")]
-    private static unsafe partial void PInvoke_asyncStaticString_0725C2FA( void* s_asyncStaticStringCallback_0725C2FA,  void* s_asyncStaticStringErrorCallback_0725C2FA,  IntPtr handle);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_AsyncStringWorker_asyncStaticString_0725C2FA_async")]
+    private static unsafe partial void PInvoke_asyncStaticString_EA69F553( void* s_asyncStaticStringCallback_EA69F553,  void* s_asyncStaticStringErrorCallback_EA69F553,  IntPtr handle);
     
     
 }
@@ -20355,9 +20369,9 @@ public partial class AsyncArrayWorker : ISwiftObject, IDisposable
     
     [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_CancelTask_SwiftBindingsTestLib")]
     private static partial void SBW_CancelTask(long taskId);
-            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_asyncGetStringArrayCallback_8AD55D95 = &asyncGetStringArrayOnComplete_8AD55D95;
+            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_asyncGetStringArrayCallback_16BF6A3D = &asyncGetStringArrayOnComplete_16BF6A3D;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncGetStringArrayOnComplete_8AD55D95(IntPtr bufferPtr, nint bufferLen, IntPtr task)
+        private static unsafe void asyncGetStringArrayOnComplete_16BF6A3D(IntPtr bufferPtr, nint bufferLen, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             System.Exception? deserializationError = null;
@@ -20468,9 +20482,9 @@ public partial class AsyncArrayWorker : ISwiftObject, IDisposable
             }
         }
 
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncGetStringArrayErrorCallback_8AD55D95 = &asyncGetStringArrayOnError_8AD55D95;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncGetStringArrayErrorCallback_16BF6A3D = &asyncGetStringArrayOnError_16BF6A3D;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncGetStringArrayOnError_8AD55D95(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
+        private static unsafe void asyncGetStringArrayOnError_16BF6A3D(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -20581,7 +20595,7 @@ public partial class AsyncArrayWorker : ISwiftObject, IDisposable
             {
                 
                 
-                PInvoke_asyncGetStringArray_8AD55D95(s_asyncGetStringArrayCallback_8AD55D95, s_asyncGetStringArrayErrorCallback_8AD55D95, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
+                PInvoke_asyncGetStringArray_16BF6A3D(s_asyncGetStringArrayCallback_16BF6A3D, s_asyncGetStringArrayErrorCallback_16BF6A3D, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
                 
                 return _tcs.Task;
             }
@@ -20593,14 +20607,14 @@ public partial class AsyncArrayWorker : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib16AsyncArrayWorkerV014asyncGetStringF0SaySSGyYaF_async")]
-    private static unsafe partial void PInvoke_asyncGetStringArray_8AD55D95( void* s_asyncGetStringArrayCallback_8AD55D95,  void* s_asyncGetStringArrayErrorCallback_8AD55D95,  IntPtr handle,  IntPtr _self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_AsyncArrayWorker_asyncGetStringArray_8AD55D95_async")]
+    private static unsafe partial void PInvoke_asyncGetStringArray_16BF6A3D( void* s_asyncGetStringArrayCallback_16BF6A3D,  void* s_asyncGetStringArrayErrorCallback_16BF6A3D,  IntPtr handle,  IntPtr _self);
     
     
-            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_asyncGetEmptyArrayCallback_134E4E7C = &asyncGetEmptyArrayOnComplete_134E4E7C;
+            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_asyncGetEmptyArrayCallback_6CDF8442 = &asyncGetEmptyArrayOnComplete_6CDF8442;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncGetEmptyArrayOnComplete_134E4E7C(IntPtr bufferPtr, nint bufferLen, IntPtr task)
+        private static unsafe void asyncGetEmptyArrayOnComplete_6CDF8442(IntPtr bufferPtr, nint bufferLen, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             System.Exception? deserializationError = null;
@@ -20711,9 +20725,9 @@ public partial class AsyncArrayWorker : ISwiftObject, IDisposable
             }
         }
 
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncGetEmptyArrayErrorCallback_134E4E7C = &asyncGetEmptyArrayOnError_134E4E7C;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncGetEmptyArrayErrorCallback_6CDF8442 = &asyncGetEmptyArrayOnError_6CDF8442;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncGetEmptyArrayOnError_134E4E7C(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
+        private static unsafe void asyncGetEmptyArrayOnError_6CDF8442(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -20824,7 +20838,7 @@ public partial class AsyncArrayWorker : ISwiftObject, IDisposable
             {
                 
                 
-                PInvoke_asyncGetEmptyArray_134E4E7C(s_asyncGetEmptyArrayCallback_134E4E7C, s_asyncGetEmptyArrayErrorCallback_134E4E7C, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
+                PInvoke_asyncGetEmptyArray_6CDF8442(s_asyncGetEmptyArrayCallback_6CDF8442, s_asyncGetEmptyArrayErrorCallback_6CDF8442, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
                 
                 return _tcs.Task;
             }
@@ -20836,14 +20850,14 @@ public partial class AsyncArrayWorker : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib16AsyncArrayWorkerV013asyncGetEmptyF0SaySSGyYaF_async")]
-    private static unsafe partial void PInvoke_asyncGetEmptyArray_134E4E7C( void* s_asyncGetEmptyArrayCallback_134E4E7C,  void* s_asyncGetEmptyArrayErrorCallback_134E4E7C,  IntPtr handle,  IntPtr _self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_AsyncArrayWorker_asyncGetEmptyArray_134E4E7C_async")]
+    private static unsafe partial void PInvoke_asyncGetEmptyArray_6CDF8442( void* s_asyncGetEmptyArrayCallback_6CDF8442,  void* s_asyncGetEmptyArrayErrorCallback_6CDF8442,  IntPtr handle,  IntPtr _self);
     
     
-            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_asyncGetSingleElementArrayCallback_29FA69F2 = &asyncGetSingleElementArrayOnComplete_29FA69F2;
+            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_asyncGetSingleElementArrayCallback_C59D4728 = &asyncGetSingleElementArrayOnComplete_C59D4728;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncGetSingleElementArrayOnComplete_29FA69F2(IntPtr bufferPtr, nint bufferLen, IntPtr task)
+        private static unsafe void asyncGetSingleElementArrayOnComplete_C59D4728(IntPtr bufferPtr, nint bufferLen, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             System.Exception? deserializationError = null;
@@ -20954,9 +20968,9 @@ public partial class AsyncArrayWorker : ISwiftObject, IDisposable
             }
         }
 
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncGetSingleElementArrayErrorCallback_29FA69F2 = &asyncGetSingleElementArrayOnError_29FA69F2;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncGetSingleElementArrayErrorCallback_C59D4728 = &asyncGetSingleElementArrayOnError_C59D4728;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncGetSingleElementArrayOnError_29FA69F2(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
+        private static unsafe void asyncGetSingleElementArrayOnError_C59D4728(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -21067,7 +21081,7 @@ public partial class AsyncArrayWorker : ISwiftObject, IDisposable
             {
                 
                 
-                PInvoke_asyncGetSingleElementArray_29FA69F2(s_asyncGetSingleElementArrayCallback_29FA69F2, s_asyncGetSingleElementArrayErrorCallback_29FA69F2, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
+                PInvoke_asyncGetSingleElementArray_C59D4728(s_asyncGetSingleElementArrayCallback_C59D4728, s_asyncGetSingleElementArrayErrorCallback_C59D4728, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
                 
                 return _tcs.Task;
             }
@@ -21079,14 +21093,14 @@ public partial class AsyncArrayWorker : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib16AsyncArrayWorkerV021asyncGetSingleElementF0SaySSGyYaF_async")]
-    private static unsafe partial void PInvoke_asyncGetSingleElementArray_29FA69F2( void* s_asyncGetSingleElementArrayCallback_29FA69F2,  void* s_asyncGetSingleElementArrayErrorCallback_29FA69F2,  IntPtr handle,  IntPtr _self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_AsyncArrayWorker_asyncGetSingleElementArray_29FA69F2_async")]
+    private static unsafe partial void PInvoke_asyncGetSingleElementArray_C59D4728( void* s_asyncGetSingleElementArrayCallback_C59D4728,  void* s_asyncGetSingleElementArrayErrorCallback_C59D4728,  IntPtr handle,  IntPtr _self);
     
     
-            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_asyncGetUnicodeArrayCallback_426ACCF0 = &asyncGetUnicodeArrayOnComplete_426ACCF0;
+            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_asyncGetUnicodeArrayCallback_DDF91605 = &asyncGetUnicodeArrayOnComplete_DDF91605;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncGetUnicodeArrayOnComplete_426ACCF0(IntPtr bufferPtr, nint bufferLen, IntPtr task)
+        private static unsafe void asyncGetUnicodeArrayOnComplete_DDF91605(IntPtr bufferPtr, nint bufferLen, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             System.Exception? deserializationError = null;
@@ -21197,9 +21211,9 @@ public partial class AsyncArrayWorker : ISwiftObject, IDisposable
             }
         }
 
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncGetUnicodeArrayErrorCallback_426ACCF0 = &asyncGetUnicodeArrayOnError_426ACCF0;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncGetUnicodeArrayErrorCallback_DDF91605 = &asyncGetUnicodeArrayOnError_DDF91605;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncGetUnicodeArrayOnError_426ACCF0(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
+        private static unsafe void asyncGetUnicodeArrayOnError_DDF91605(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -21310,7 +21324,7 @@ public partial class AsyncArrayWorker : ISwiftObject, IDisposable
             {
                 
                 
-                PInvoke_asyncGetUnicodeArray_426ACCF0(s_asyncGetUnicodeArrayCallback_426ACCF0, s_asyncGetUnicodeArrayErrorCallback_426ACCF0, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
+                PInvoke_asyncGetUnicodeArray_DDF91605(s_asyncGetUnicodeArrayCallback_DDF91605, s_asyncGetUnicodeArrayErrorCallback_DDF91605, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
                 
                 return _tcs.Task;
             }
@@ -21322,14 +21336,14 @@ public partial class AsyncArrayWorker : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib16AsyncArrayWorkerV015asyncGetUnicodeF0SaySSGyYaF_async")]
-    private static unsafe partial void PInvoke_asyncGetUnicodeArray_426ACCF0( void* s_asyncGetUnicodeArrayCallback_426ACCF0,  void* s_asyncGetUnicodeArrayErrorCallback_426ACCF0,  IntPtr handle,  IntPtr _self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_AsyncArrayWorker_asyncGetUnicodeArray_426ACCF0_async")]
+    private static unsafe partial void PInvoke_asyncGetUnicodeArray_DDF91605( void* s_asyncGetUnicodeArrayCallback_DDF91605,  void* s_asyncGetUnicodeArrayErrorCallback_DDF91605,  IntPtr handle,  IntPtr _self);
     
     
-            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGetIntArrayCallback_154D9F8E = &asyncGetIntArrayOnComplete_154D9F8E;
+            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGetIntArrayCallback_C47A6F0E = &asyncGetIntArrayOnComplete_C47A6F0E;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncGetIntArrayOnComplete_154D9F8E(IntPtr resultPtr, IntPtr task)
+        private static unsafe void asyncGetIntArrayOnComplete_C47A6F0E(IntPtr resultPtr, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -21371,9 +21385,9 @@ public partial class AsyncArrayWorker : ISwiftObject, IDisposable
             }
         }
 
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncGetIntArrayErrorCallback_154D9F8E = &asyncGetIntArrayOnError_154D9F8E;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncGetIntArrayErrorCallback_C47A6F0E = &asyncGetIntArrayOnError_C47A6F0E;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncGetIntArrayOnError_154D9F8E(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
+        private static unsafe void asyncGetIntArrayOnError_C47A6F0E(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -21484,7 +21498,7 @@ public partial class AsyncArrayWorker : ISwiftObject, IDisposable
             {
                 
                 
-                PInvoke_asyncGetIntArray_154D9F8E(s_asyncGetIntArrayCallback_154D9F8E, s_asyncGetIntArrayErrorCallback_154D9F8E, GCHandle.ToIntPtr(handle), count, _payload.DangerousGetHandle());
+                PInvoke_asyncGetIntArray_C47A6F0E(s_asyncGetIntArrayCallback_C47A6F0E, s_asyncGetIntArrayErrorCallback_C47A6F0E, GCHandle.ToIntPtr(handle), count, _payload.DangerousGetHandle());
                 
                 return _tcs.Task;
             }
@@ -21496,14 +21510,14 @@ public partial class AsyncArrayWorker : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib16AsyncArrayWorkerV011asyncGetIntF05countSays5Int32VGAG_tYaF_async")]
-    private static unsafe partial void PInvoke_asyncGetIntArray_154D9F8E( void* s_asyncGetIntArrayCallback_154D9F8E,  void* s_asyncGetIntArrayErrorCallback_154D9F8E,  IntPtr handle,  int count,  IntPtr _self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_AsyncArrayWorker_asyncGetIntArray_154D9F8E_async")]
+    private static unsafe partial void PInvoke_asyncGetIntArray_C47A6F0E( void* s_asyncGetIntArrayCallback_C47A6F0E,  void* s_asyncGetIntArrayErrorCallback_C47A6F0E,  IntPtr handle,  int count,  IntPtr _self);
     
     
-            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_asyncStaticArrayCallback_C78D6541 = &asyncStaticArrayOnComplete_C78D6541;
+            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_asyncStaticArrayCallback_52DBD3B3 = &asyncStaticArrayOnComplete_52DBD3B3;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncStaticArrayOnComplete_C78D6541(IntPtr bufferPtr, nint bufferLen, IntPtr task)
+        private static unsafe void asyncStaticArrayOnComplete_52DBD3B3(IntPtr bufferPtr, nint bufferLen, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             System.Exception? deserializationError = null;
@@ -21614,9 +21628,9 @@ public partial class AsyncArrayWorker : ISwiftObject, IDisposable
             }
         }
 
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncStaticArrayErrorCallback_C78D6541 = &asyncStaticArrayOnError_C78D6541;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncStaticArrayErrorCallback_52DBD3B3 = &asyncStaticArrayOnError_52DBD3B3;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncStaticArrayOnError_C78D6541(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
+        private static unsafe void asyncStaticArrayOnError_52DBD3B3(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -21725,7 +21739,7 @@ public partial class AsyncArrayWorker : ISwiftObject, IDisposable
             {
                 
                 
-                PInvoke_asyncStaticArray_C78D6541(s_asyncStaticArrayCallback_C78D6541, s_asyncStaticArrayErrorCallback_C78D6541, GCHandle.ToIntPtr(handle));
+                PInvoke_asyncStaticArray_52DBD3B3(s_asyncStaticArrayCallback_52DBD3B3, s_asyncStaticArrayErrorCallback_52DBD3B3, GCHandle.ToIntPtr(handle));
                 
                 return _tcs.Task;
             }
@@ -21737,9 +21751,9 @@ public partial class AsyncArrayWorker : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib16AsyncArrayWorkerV011asyncStaticF0SaySSGyYaFZ_async")]
-    private static unsafe partial void PInvoke_asyncStaticArray_C78D6541( void* s_asyncStaticArrayCallback_C78D6541,  void* s_asyncStaticArrayErrorCallback_C78D6541,  IntPtr handle);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_AsyncArrayWorker_asyncStaticArray_C78D6541_async")]
+    private static unsafe partial void PInvoke_asyncStaticArray_52DBD3B3( void* s_asyncStaticArrayCallback_52DBD3B3,  void* s_asyncStaticArrayErrorCallback_52DBD3B3,  IntPtr handle);
     
     
 }
@@ -21913,9 +21927,9 @@ public partial class AsyncComplexWorker : ISwiftObject, IDisposable
     
     [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_CancelTask_SwiftBindingsTestLib")]
     private static partial void SBW_CancelTask(long taskId);
-            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGetResultCallback_AC5EE419 = &asyncGetResultOnComplete_AC5EE419;
+            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGetResultCallback_1D9348DD = &asyncGetResultOnComplete_1D9348DD;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncGetResultOnComplete_AC5EE419(IntPtr resultPtr, IntPtr task)
+        private static unsafe void asyncGetResultOnComplete_1D9348DD(IntPtr resultPtr, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -21956,9 +21970,9 @@ public partial class AsyncComplexWorker : ISwiftObject, IDisposable
             }
         }
 
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncGetResultErrorCallback_AC5EE419 = &asyncGetResultOnError_AC5EE419;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncGetResultErrorCallback_1D9348DD = &asyncGetResultOnError_1D9348DD;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncGetResultOnError_AC5EE419(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
+        private static unsafe void asyncGetResultOnError_1D9348DD(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -22069,7 +22083,7 @@ public partial class AsyncComplexWorker : ISwiftObject, IDisposable
             {
                 
                 
-                PInvoke_asyncGetResult_AC5EE419(s_asyncGetResultCallback_AC5EE419, s_asyncGetResultErrorCallback_AC5EE419, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
+                PInvoke_asyncGetResult_1D9348DD(s_asyncGetResultCallback_1D9348DD, s_asyncGetResultErrorCallback_1D9348DD, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
                 
                 return _tcs.Task;
             }
@@ -22081,14 +22095,14 @@ public partial class AsyncComplexWorker : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib18AsyncComplexWorkerV14asyncGetResultAA0eJ0VyYaF_async")]
-    private static unsafe partial void PInvoke_asyncGetResult_AC5EE419( void* s_asyncGetResultCallback_AC5EE419,  void* s_asyncGetResultErrorCallback_AC5EE419,  IntPtr handle,  IntPtr _self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_AsyncComplexWorker_asyncGetResult_AC5EE419_async")]
+    private static unsafe partial void PInvoke_asyncGetResult_1D9348DD( void* s_asyncGetResultCallback_1D9348DD,  void* s_asyncGetResultErrorCallback_1D9348DD,  IntPtr handle,  IntPtr _self);
     
     
-            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGetStatusCallback_F45F0D8B = &asyncGetStatusOnComplete_F45F0D8B;
+            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGetStatusCallback_22CE81FE = &asyncGetStatusOnComplete_22CE81FE;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncGetStatusOnComplete_F45F0D8B(IntPtr resultPtr, IntPtr task)
+        private static unsafe void asyncGetStatusOnComplete_22CE81FE(IntPtr resultPtr, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -22129,9 +22143,9 @@ public partial class AsyncComplexWorker : ISwiftObject, IDisposable
             }
         }
 
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncGetStatusErrorCallback_F45F0D8B = &asyncGetStatusOnError_F45F0D8B;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncGetStatusErrorCallback_22CE81FE = &asyncGetStatusOnError_22CE81FE;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncGetStatusOnError_F45F0D8B(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
+        private static unsafe void asyncGetStatusOnError_22CE81FE(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -22242,7 +22256,7 @@ public partial class AsyncComplexWorker : ISwiftObject, IDisposable
             {
                 
                 
-                PInvoke_asyncGetStatus_F45F0D8B(s_asyncGetStatusCallback_F45F0D8B, s_asyncGetStatusErrorCallback_F45F0D8B, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
+                PInvoke_asyncGetStatus_22CE81FE(s_asyncGetStatusCallback_22CE81FE, s_asyncGetStatusErrorCallback_22CE81FE, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
                 
                 return _tcs.Task;
             }
@@ -22254,14 +22268,14 @@ public partial class AsyncComplexWorker : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib18AsyncComplexWorkerV14asyncGetStatusAA0eJ0OyYaF_async")]
-    private static unsafe partial void PInvoke_asyncGetStatus_F45F0D8B( void* s_asyncGetStatusCallback_F45F0D8B,  void* s_asyncGetStatusErrorCallback_F45F0D8B,  IntPtr handle,  IntPtr _self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_AsyncComplexWorker_asyncGetStatus_F45F0D8B_async")]
+    private static unsafe partial void PInvoke_asyncGetStatus_22CE81FE( void* s_asyncGetStatusCallback_22CE81FE,  void* s_asyncGetStatusErrorCallback_22CE81FE,  IntPtr handle,  IntPtr _self);
     
     
-            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGetPendingStatusCallback_D28658D9 = &asyncGetPendingStatusOnComplete_D28658D9;
+            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGetPendingStatusCallback_7470D106 = &asyncGetPendingStatusOnComplete_7470D106;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncGetPendingStatusOnComplete_D28658D9(IntPtr resultPtr, IntPtr task)
+        private static unsafe void asyncGetPendingStatusOnComplete_7470D106(IntPtr resultPtr, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -22302,9 +22316,9 @@ public partial class AsyncComplexWorker : ISwiftObject, IDisposable
             }
         }
 
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncGetPendingStatusErrorCallback_D28658D9 = &asyncGetPendingStatusOnError_D28658D9;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncGetPendingStatusErrorCallback_7470D106 = &asyncGetPendingStatusOnError_7470D106;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncGetPendingStatusOnError_D28658D9(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
+        private static unsafe void asyncGetPendingStatusOnError_7470D106(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -22415,7 +22429,7 @@ public partial class AsyncComplexWorker : ISwiftObject, IDisposable
             {
                 
                 
-                PInvoke_asyncGetPendingStatus_D28658D9(s_asyncGetPendingStatusCallback_D28658D9, s_asyncGetPendingStatusErrorCallback_D28658D9, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
+                PInvoke_asyncGetPendingStatus_7470D106(s_asyncGetPendingStatusCallback_7470D106, s_asyncGetPendingStatusErrorCallback_7470D106, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
                 
                 return _tcs.Task;
             }
@@ -22427,14 +22441,14 @@ public partial class AsyncComplexWorker : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib18AsyncComplexWorkerV21asyncGetPendingStatusAA0eK0OyYaF_async")]
-    private static unsafe partial void PInvoke_asyncGetPendingStatus_D28658D9( void* s_asyncGetPendingStatusCallback_D28658D9,  void* s_asyncGetPendingStatusErrorCallback_D28658D9,  IntPtr handle,  IntPtr _self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_AsyncComplexWorker_asyncGetPendingStatus_D28658D9_async")]
+    private static unsafe partial void PInvoke_asyncGetPendingStatus_7470D106( void* s_asyncGetPendingStatusCallback_7470D106,  void* s_asyncGetPendingStatusErrorCallback_7470D106,  IntPtr handle,  IntPtr _self);
     
     
-            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGetTaskCallback_BB5A1FD0 = &asyncGetTaskOnComplete_BB5A1FD0;
+            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGetTaskCallback_2F204DB5 = &asyncGetTaskOnComplete_2F204DB5;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncGetTaskOnComplete_BB5A1FD0(IntPtr resultPtr, IntPtr task)
+        private static unsafe void asyncGetTaskOnComplete_2F204DB5(IntPtr resultPtr, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
                             // Read object pointer from buffer (for class types, buffer contains the object reference)
@@ -22479,9 +22493,9 @@ public partial class AsyncComplexWorker : ISwiftObject, IDisposable
             }
         }
 
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncGetTaskErrorCallback_BB5A1FD0 = &asyncGetTaskOnError_BB5A1FD0;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncGetTaskErrorCallback_2F204DB5 = &asyncGetTaskOnError_2F204DB5;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncGetTaskOnError_BB5A1FD0(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
+        private static unsafe void asyncGetTaskOnError_2F204DB5(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -22592,7 +22606,7 @@ public partial class AsyncComplexWorker : ISwiftObject, IDisposable
             {
                 
                 
-                PInvoke_asyncGetTask_BB5A1FD0(s_asyncGetTaskCallback_BB5A1FD0, s_asyncGetTaskErrorCallback_BB5A1FD0, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
+                PInvoke_asyncGetTask_2F204DB5(s_asyncGetTaskCallback_2F204DB5, s_asyncGetTaskErrorCallback_2F204DB5, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
                 
                 return _tcs.Task;
             }
@@ -22604,14 +22618,14 @@ public partial class AsyncComplexWorker : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib18AsyncComplexWorkerV12asyncGetTaskAA0eJ0CyYaF_async")]
-    private static unsafe partial void PInvoke_asyncGetTask_BB5A1FD0( void* s_asyncGetTaskCallback_BB5A1FD0,  void* s_asyncGetTaskErrorCallback_BB5A1FD0,  IntPtr handle,  IntPtr _self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_AsyncComplexWorker_asyncGetTask_BB5A1FD0_async")]
+    private static unsafe partial void PInvoke_asyncGetTask_2F204DB5( void* s_asyncGetTaskCallback_2F204DB5,  void* s_asyncGetTaskErrorCallback_2F204DB5,  IntPtr handle,  IntPtr _self);
     
     
-            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGetOptionalResultCallback_A844815B = &asyncGetOptionalResultOnComplete_A844815B;
+            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGetOptionalResultCallback_6D43D2CD = &asyncGetOptionalResultOnComplete_6D43D2CD;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncGetOptionalResultOnComplete_A844815B(IntPtr resultPtr, IntPtr task)
+        private static unsafe void asyncGetOptionalResultOnComplete_6D43D2CD(IntPtr resultPtr, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -22652,9 +22666,9 @@ public partial class AsyncComplexWorker : ISwiftObject, IDisposable
             }
         }
 
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncGetOptionalResultErrorCallback_A844815B = &asyncGetOptionalResultOnError_A844815B;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncGetOptionalResultErrorCallback_6D43D2CD = &asyncGetOptionalResultOnError_6D43D2CD;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncGetOptionalResultOnError_A844815B(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
+        private static unsafe void asyncGetOptionalResultOnError_6D43D2CD(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -22765,7 +22779,7 @@ public partial class AsyncComplexWorker : ISwiftObject, IDisposable
             {
                 
                 
-                PInvoke_asyncGetOptionalResult_A844815B(s_asyncGetOptionalResultCallback_A844815B, s_asyncGetOptionalResultErrorCallback_A844815B, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
+                PInvoke_asyncGetOptionalResult_6D43D2CD(s_asyncGetOptionalResultCallback_6D43D2CD, s_asyncGetOptionalResultErrorCallback_6D43D2CD, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
                 
                 return _tcs.Task;
             }
@@ -22777,14 +22791,14 @@ public partial class AsyncComplexWorker : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib18AsyncComplexWorkerV22asyncGetOptionalResultAA0eK0VSgyYaF_async")]
-    private static unsafe partial void PInvoke_asyncGetOptionalResult_A844815B( void* s_asyncGetOptionalResultCallback_A844815B,  void* s_asyncGetOptionalResultErrorCallback_A844815B,  IntPtr handle,  IntPtr _self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_AsyncComplexWorker_asyncGetOptionalResult_A844815B_async")]
+    private static unsafe partial void PInvoke_asyncGetOptionalResult_6D43D2CD( void* s_asyncGetOptionalResultCallback_6D43D2CD,  void* s_asyncGetOptionalResultErrorCallback_6D43D2CD,  IntPtr handle,  IntPtr _self);
     
     
-            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGetNilResultCallback_BED30DB0 = &asyncGetNilResultOnComplete_BED30DB0;
+            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncGetNilResultCallback_63FD1193 = &asyncGetNilResultOnComplete_63FD1193;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncGetNilResultOnComplete_BED30DB0(IntPtr resultPtr, IntPtr task)
+        private static unsafe void asyncGetNilResultOnComplete_63FD1193(IntPtr resultPtr, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -22825,9 +22839,9 @@ public partial class AsyncComplexWorker : ISwiftObject, IDisposable
             }
         }
 
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncGetNilResultErrorCallback_BED30DB0 = &asyncGetNilResultOnError_BED30DB0;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncGetNilResultErrorCallback_63FD1193 = &asyncGetNilResultOnError_63FD1193;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncGetNilResultOnError_BED30DB0(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
+        private static unsafe void asyncGetNilResultOnError_63FD1193(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -22938,7 +22952,7 @@ public partial class AsyncComplexWorker : ISwiftObject, IDisposable
             {
                 
                 
-                PInvoke_asyncGetNilResult_BED30DB0(s_asyncGetNilResultCallback_BED30DB0, s_asyncGetNilResultErrorCallback_BED30DB0, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
+                PInvoke_asyncGetNilResult_63FD1193(s_asyncGetNilResultCallback_63FD1193, s_asyncGetNilResultErrorCallback_63FD1193, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
                 
                 return _tcs.Task;
             }
@@ -22950,14 +22964,14 @@ public partial class AsyncComplexWorker : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib18AsyncComplexWorkerV17asyncGetNilResultAA0eK0VSgyYaF_async")]
-    private static unsafe partial void PInvoke_asyncGetNilResult_BED30DB0( void* s_asyncGetNilResultCallback_BED30DB0,  void* s_asyncGetNilResultErrorCallback_BED30DB0,  IntPtr handle,  IntPtr _self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_AsyncComplexWorker_asyncGetNilResult_BED30DB0_async")]
+    private static unsafe partial void PInvoke_asyncGetNilResult_63FD1193( void* s_asyncGetNilResultCallback_63FD1193,  void* s_asyncGetNilResultErrorCallback_63FD1193,  IntPtr handle,  IntPtr _self);
     
     
-            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncStaticResultCallback_9BB9DDF4 = &asyncStaticResultOnComplete_9BB9DDF4;
+            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncStaticResultCallback_751A000E = &asyncStaticResultOnComplete_751A000E;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncStaticResultOnComplete_9BB9DDF4(IntPtr resultPtr, IntPtr task)
+        private static unsafe void asyncStaticResultOnComplete_751A000E(IntPtr resultPtr, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -22998,9 +23012,9 @@ public partial class AsyncComplexWorker : ISwiftObject, IDisposable
             }
         }
 
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncStaticResultErrorCallback_9BB9DDF4 = &asyncStaticResultOnError_9BB9DDF4;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncStaticResultErrorCallback_751A000E = &asyncStaticResultOnError_751A000E;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncStaticResultOnError_9BB9DDF4(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
+        private static unsafe void asyncStaticResultOnError_751A000E(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -23109,7 +23123,7 @@ public partial class AsyncComplexWorker : ISwiftObject, IDisposable
             {
                 
                 
-                PInvoke_asyncStaticResult_9BB9DDF4(s_asyncStaticResultCallback_9BB9DDF4, s_asyncStaticResultErrorCallback_9BB9DDF4, GCHandle.ToIntPtr(handle));
+                PInvoke_asyncStaticResult_751A000E(s_asyncStaticResultCallback_751A000E, s_asyncStaticResultErrorCallback_751A000E, GCHandle.ToIntPtr(handle));
                 
                 return _tcs.Task;
             }
@@ -23121,14 +23135,14 @@ public partial class AsyncComplexWorker : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib18AsyncComplexWorkerV17asyncStaticResultAA0eJ0VyYaFZ_async")]
-    private static unsafe partial void PInvoke_asyncStaticResult_9BB9DDF4( void* s_asyncStaticResultCallback_9BB9DDF4,  void* s_asyncStaticResultErrorCallback_9BB9DDF4,  IntPtr handle);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_AsyncComplexWorker_asyncStaticResult_9BB9DDF4_async")]
+    private static unsafe partial void PInvoke_asyncStaticResult_751A000E( void* s_asyncStaticResultCallback_751A000E,  void* s_asyncStaticResultErrorCallback_751A000E,  IntPtr handle);
     
     
-            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncStaticTaskCallback_923F9A3F = &asyncStaticTaskOnComplete_923F9A3F;
+            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_asyncStaticTaskCallback_29AF052B = &asyncStaticTaskOnComplete_29AF052B;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncStaticTaskOnComplete_923F9A3F(IntPtr resultPtr, IntPtr task)
+        private static unsafe void asyncStaticTaskOnComplete_29AF052B(IntPtr resultPtr, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
                             // Read object pointer from buffer (for class types, buffer contains the object reference)
@@ -23173,9 +23187,9 @@ public partial class AsyncComplexWorker : ISwiftObject, IDisposable
             }
         }
 
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncStaticTaskErrorCallback_923F9A3F = &asyncStaticTaskOnError_923F9A3F;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncStaticTaskErrorCallback_29AF052B = &asyncStaticTaskOnError_29AF052B;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncStaticTaskOnError_923F9A3F(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
+        private static unsafe void asyncStaticTaskOnError_29AF052B(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -23284,7 +23298,7 @@ public partial class AsyncComplexWorker : ISwiftObject, IDisposable
             {
                 
                 
-                PInvoke_asyncStaticTask_923F9A3F(s_asyncStaticTaskCallback_923F9A3F, s_asyncStaticTaskErrorCallback_923F9A3F, GCHandle.ToIntPtr(handle));
+                PInvoke_asyncStaticTask_29AF052B(s_asyncStaticTaskCallback_29AF052B, s_asyncStaticTaskErrorCallback_29AF052B, GCHandle.ToIntPtr(handle));
                 
                 return _tcs.Task;
             }
@@ -23296,9 +23310,9 @@ public partial class AsyncComplexWorker : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib18AsyncComplexWorkerV15asyncStaticTaskAA0eJ0CyYaFZ_async")]
-    private static unsafe partial void PInvoke_asyncStaticTask_923F9A3F( void* s_asyncStaticTaskCallback_923F9A3F,  void* s_asyncStaticTaskErrorCallback_923F9A3F,  IntPtr handle);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_AsyncComplexWorker_asyncStaticTask_923F9A3F_async")]
+    private static unsafe partial void PInvoke_asyncStaticTask_29AF052B( void* s_asyncStaticTaskCallback_29AF052B,  void* s_asyncStaticTaskErrorCallback_29AF052B,  IntPtr handle);
     
     
 }
@@ -23646,9 +23660,9 @@ public partial class MainActorViewModel : ISwiftObject, IDisposable
     
     [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_CancelTask_SwiftBindingsTestLib")]
     private static partial void SBW_CancelTask(long taskId);
-            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_refreshTitleCallback_BD57AD67 = &refreshTitleOnComplete_BD57AD67;
+            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_refreshTitleCallback_DA7ADFB0 = &refreshTitleOnComplete_DA7ADFB0;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void refreshTitleOnComplete_BD57AD67(IntPtr slicePtr, nint sliceLen, IntPtr task)
+        private static unsafe void refreshTitleOnComplete_DA7ADFB0(IntPtr slicePtr, nint sliceLen, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -23697,9 +23711,9 @@ public partial class MainActorViewModel : ISwiftObject, IDisposable
             }
         }
 
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_refreshTitleErrorCallback_BD57AD67 = &refreshTitleOnError_BD57AD67;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_refreshTitleErrorCallback_DA7ADFB0 = &refreshTitleOnError_DA7ADFB0;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void refreshTitleOnError_BD57AD67(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
+        private static unsafe void refreshTitleOnError_DA7ADFB0(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -23812,7 +23826,7 @@ public partial class MainActorViewModel : ISwiftObject, IDisposable
             {
                 
                 
-                PInvoke_refreshTitle_BD57AD67(s_refreshTitleCallback_BD57AD67, s_refreshTitleErrorCallback_BD57AD67, GCHandle.ToIntPtr(handle), *(IntPtr*)_payload.DangerousGetHandle());
+                PInvoke_refreshTitle_DA7ADFB0(s_refreshTitleCallback_DA7ADFB0, s_refreshTitleErrorCallback_DA7ADFB0, GCHandle.ToIntPtr(handle), *(IntPtr*)_payload.DangerousGetHandle());
                 
                 return _tcs.Task;
             }
@@ -23824,9 +23838,9 @@ public partial class MainActorViewModel : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib18MainActorViewModelC12refreshTitleSSyYaF_async")]
-    private static unsafe partial void PInvoke_refreshTitle_BD57AD67( void* s_refreshTitleCallback_BD57AD67,  void* s_refreshTitleErrorCallback_BD57AD67,  IntPtr handle,  IntPtr _selfClass);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_MainActorViewModel_refreshTitle_BD57AD67_async")]
+    private static unsafe partial void PInvoke_refreshTitle_DA7ADFB0( void* s_refreshTitleCallback_DA7ADFB0,  void* s_refreshTitleErrorCallback_DA7ADFB0,  IntPtr handle,  IntPtr _selfClass);
     
     
 }
@@ -24283,9 +24297,9 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
     
     [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_CancelTask_SwiftBindingsTestLib")]
     private static partial void SBW_CancelTask(long taskId);
-            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, void> s_asyncVoidMethodCallback_F6A56DB1 = &asyncVoidMethodOnComplete_F6A56DB1;
+            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, void> s_asyncVoidMethodCallback_AB1CC7D9 = &asyncVoidMethodOnComplete_AB1CC7D9;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncVoidMethodOnComplete_F6A56DB1(IntPtr task)
+        private static unsafe void asyncVoidMethodOnComplete_AB1CC7D9(IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -24326,9 +24340,9 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
             }
         }
 
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncVoidMethodErrorCallback_F6A56DB1 = &asyncVoidMethodOnError_F6A56DB1;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncVoidMethodErrorCallback_AB1CC7D9 = &asyncVoidMethodOnError_AB1CC7D9;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncVoidMethodOnError_F6A56DB1(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
+        private static unsafe void asyncVoidMethodOnError_AB1CC7D9(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -24439,7 +24453,7 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
             {
                 
                 
-                PInvoke_asyncVoidMethod_F6A56DB1(s_asyncVoidMethodCallback_F6A56DB1, s_asyncVoidMethodErrorCallback_F6A56DB1, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
+                PInvoke_asyncVoidMethod_AB1CC7D9(s_asyncVoidMethodCallback_AB1CC7D9, s_asyncVoidMethodErrorCallback_AB1CC7D9, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
                 
                 return _tcs.Task;
             }
@@ -24451,14 +24465,14 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib11AsyncWorkerV15asyncVoidMethodyyYaF_async")]
-    private static unsafe partial void PInvoke_asyncVoidMethod_F6A56DB1( void* s_asyncVoidMethodCallback_F6A56DB1,  void* s_asyncVoidMethodErrorCallback_F6A56DB1,  IntPtr handle,  IntPtr _self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_AsyncWorker_asyncVoidMethod_F6A56DB1_async")]
+    private static unsafe partial void PInvoke_asyncVoidMethod_AB1CC7D9( void* s_asyncVoidMethodCallback_AB1CC7D9,  void* s_asyncVoidMethodErrorCallback_AB1CC7D9,  IntPtr handle,  IntPtr _self);
     
     
-            private static unsafe delegate* unmanaged[Cdecl]<int, IntPtr, void> s_asyncReturnMethodCallback_0900569C = &asyncReturnMethodOnComplete_0900569C;
+            private static unsafe delegate* unmanaged[Cdecl]<int, IntPtr, void> s_asyncReturnMethodCallback_5EDDC5B0 = &asyncReturnMethodOnComplete_5EDDC5B0;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncReturnMethodOnComplete_0900569C(int rawResult, IntPtr task)
+        private static unsafe void asyncReturnMethodOnComplete_5EDDC5B0(int rawResult, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -24499,9 +24513,9 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
             }
         }
 
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncReturnMethodErrorCallback_0900569C = &asyncReturnMethodOnError_0900569C;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncReturnMethodErrorCallback_5EDDC5B0 = &asyncReturnMethodOnError_5EDDC5B0;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncReturnMethodOnError_0900569C(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
+        private static unsafe void asyncReturnMethodOnError_5EDDC5B0(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -24612,7 +24626,7 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
             {
                 
                 
-                PInvoke_asyncReturnMethod_0900569C(s_asyncReturnMethodCallback_0900569C, s_asyncReturnMethodErrorCallback_0900569C, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
+                PInvoke_asyncReturnMethod_5EDDC5B0(s_asyncReturnMethodCallback_5EDDC5B0, s_asyncReturnMethodErrorCallback_5EDDC5B0, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
                 
                 return _tcs.Task;
             }
@@ -24624,14 +24638,14 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib11AsyncWorkerV17asyncReturnMethods5Int32VyYaF_async")]
-    private static unsafe partial void PInvoke_asyncReturnMethod_0900569C( void* s_asyncReturnMethodCallback_0900569C,  void* s_asyncReturnMethodErrorCallback_0900569C,  IntPtr handle,  IntPtr _self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_AsyncWorker_asyncReturnMethod_0900569C_async")]
+    private static unsafe partial void PInvoke_asyncReturnMethod_5EDDC5B0( void* s_asyncReturnMethodCallback_5EDDC5B0,  void* s_asyncReturnMethodErrorCallback_5EDDC5B0,  IntPtr handle,  IntPtr _self);
     
     
-            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_asyncStringMethodCallback_DC250ED7 = &asyncStringMethodOnComplete_DC250ED7;
+            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_asyncStringMethodCallback_50827B33 = &asyncStringMethodOnComplete_50827B33;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncStringMethodOnComplete_DC250ED7(IntPtr slicePtr, nint sliceLen, IntPtr task)
+        private static unsafe void asyncStringMethodOnComplete_50827B33(IntPtr slicePtr, nint sliceLen, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -24680,9 +24694,9 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
             }
         }
 
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncStringMethodErrorCallback_DC250ED7 = &asyncStringMethodOnError_DC250ED7;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncStringMethodErrorCallback_50827B33 = &asyncStringMethodOnError_50827B33;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncStringMethodOnError_DC250ED7(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
+        private static unsafe void asyncStringMethodOnError_50827B33(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -24793,7 +24807,7 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
             {
                 
                 
-                PInvoke_asyncStringMethod_DC250ED7(s_asyncStringMethodCallback_DC250ED7, s_asyncStringMethodErrorCallback_DC250ED7, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
+                PInvoke_asyncStringMethod_50827B33(s_asyncStringMethodCallback_50827B33, s_asyncStringMethodErrorCallback_50827B33, GCHandle.ToIntPtr(handle), _payload.DangerousGetHandle());
                 
                 return _tcs.Task;
             }
@@ -24805,14 +24819,14 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib11AsyncWorkerV17asyncStringMethodSSyYaF_async")]
-    private static unsafe partial void PInvoke_asyncStringMethod_DC250ED7( void* s_asyncStringMethodCallback_DC250ED7,  void* s_asyncStringMethodErrorCallback_DC250ED7,  IntPtr handle,  IntPtr _self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_AsyncWorker_asyncStringMethod_DC250ED7_async")]
+    private static unsafe partial void PInvoke_asyncStringMethod_50827B33( void* s_asyncStringMethodCallback_50827B33,  void* s_asyncStringMethodErrorCallback_50827B33,  IntPtr handle,  IntPtr _self);
     
     
-            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, void> s_asyncStaticVoidCallback_59A47842 = &asyncStaticVoidOnComplete_59A47842;
+            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, void> s_asyncStaticVoidCallback_3A4B3D0F = &asyncStaticVoidOnComplete_3A4B3D0F;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncStaticVoidOnComplete_59A47842(IntPtr task)
+        private static unsafe void asyncStaticVoidOnComplete_3A4B3D0F(IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -24853,9 +24867,9 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
             }
         }
 
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncStaticVoidErrorCallback_59A47842 = &asyncStaticVoidOnError_59A47842;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncStaticVoidErrorCallback_3A4B3D0F = &asyncStaticVoidOnError_3A4B3D0F;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncStaticVoidOnError_59A47842(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
+        private static unsafe void asyncStaticVoidOnError_3A4B3D0F(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -24964,7 +24978,7 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
             {
                 
                 
-                PInvoke_asyncStaticVoid_59A47842(s_asyncStaticVoidCallback_59A47842, s_asyncStaticVoidErrorCallback_59A47842, GCHandle.ToIntPtr(handle));
+                PInvoke_asyncStaticVoid_3A4B3D0F(s_asyncStaticVoidCallback_3A4B3D0F, s_asyncStaticVoidErrorCallback_3A4B3D0F, GCHandle.ToIntPtr(handle));
                 
                 return _tcs.Task;
             }
@@ -24976,14 +24990,14 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib11AsyncWorkerV15asyncStaticVoidyyYaFZ_async")]
-    private static unsafe partial void PInvoke_asyncStaticVoid_59A47842( void* s_asyncStaticVoidCallback_59A47842,  void* s_asyncStaticVoidErrorCallback_59A47842,  IntPtr handle);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_AsyncWorker_asyncStaticVoid_59A47842_async")]
+    private static unsafe partial void PInvoke_asyncStaticVoid_3A4B3D0F( void* s_asyncStaticVoidCallback_3A4B3D0F,  void* s_asyncStaticVoidErrorCallback_3A4B3D0F,  IntPtr handle);
     
     
-            private static unsafe delegate* unmanaged[Cdecl]<int, IntPtr, void> s_asyncStaticReturnCallback_6EE39ED7 = &asyncStaticReturnOnComplete_6EE39ED7;
+            private static unsafe delegate* unmanaged[Cdecl]<int, IntPtr, void> s_asyncStaticReturnCallback_2C1D63BF = &asyncStaticReturnOnComplete_2C1D63BF;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncStaticReturnOnComplete_6EE39ED7(int rawResult, IntPtr task)
+        private static unsafe void asyncStaticReturnOnComplete_2C1D63BF(int rawResult, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -25024,9 +25038,9 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
             }
         }
 
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncStaticReturnErrorCallback_6EE39ED7 = &asyncStaticReturnOnError_6EE39ED7;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncStaticReturnErrorCallback_2C1D63BF = &asyncStaticReturnOnError_2C1D63BF;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncStaticReturnOnError_6EE39ED7(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
+        private static unsafe void asyncStaticReturnOnError_2C1D63BF(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -25135,7 +25149,7 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
             {
                 
                 
-                PInvoke_asyncStaticReturn_6EE39ED7(s_asyncStaticReturnCallback_6EE39ED7, s_asyncStaticReturnErrorCallback_6EE39ED7, GCHandle.ToIntPtr(handle));
+                PInvoke_asyncStaticReturn_2C1D63BF(s_asyncStaticReturnCallback_2C1D63BF, s_asyncStaticReturnErrorCallback_2C1D63BF, GCHandle.ToIntPtr(handle));
                 
                 return _tcs.Task;
             }
@@ -25147,14 +25161,14 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib11AsyncWorkerV17asyncStaticReturns5Int32VyYaFZ_async")]
-    private static unsafe partial void PInvoke_asyncStaticReturn_6EE39ED7( void* s_asyncStaticReturnCallback_6EE39ED7,  void* s_asyncStaticReturnErrorCallback_6EE39ED7,  IntPtr handle);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_AsyncWorker_asyncStaticReturn_6EE39ED7_async")]
+    private static unsafe partial void PInvoke_asyncStaticReturn_2C1D63BF( void* s_asyncStaticReturnCallback_2C1D63BF,  void* s_asyncStaticReturnErrorCallback_2C1D63BF,  IntPtr handle);
     
     
-            private static unsafe delegate* unmanaged[Cdecl]<int, IntPtr, void> s_asyncAddCallback_9D8CEDEF = &asyncAddOnComplete_9D8CEDEF;
+            private static unsafe delegate* unmanaged[Cdecl]<int, IntPtr, void> s_asyncAddCallback_23AA931E = &asyncAddOnComplete_23AA931E;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncAddOnComplete_9D8CEDEF(int rawResult, IntPtr task)
+        private static unsafe void asyncAddOnComplete_23AA931E(int rawResult, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -25195,9 +25209,9 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
             }
         }
 
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncAddErrorCallback_9D8CEDEF = &asyncAddOnError_9D8CEDEF;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_asyncAddErrorCallback_23AA931E = &asyncAddOnError_23AA931E;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void asyncAddOnError_9D8CEDEF(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
+        private static unsafe void asyncAddOnError_23AA931E(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -25308,7 +25322,7 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
             {
                 
                 
-                PInvoke_asyncAdd_9D8CEDEF(s_asyncAddCallback_9D8CEDEF, s_asyncAddErrorCallback_9D8CEDEF, GCHandle.ToIntPtr(handle), a, b, _payload.DangerousGetHandle());
+                PInvoke_asyncAdd_23AA931E(s_asyncAddCallback_23AA931E, s_asyncAddErrorCallback_23AA931E, GCHandle.ToIntPtr(handle), a, b, _payload.DangerousGetHandle());
                 
                 return _tcs.Task;
             }
@@ -25320,9 +25334,9 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib11AsyncWorkerV8asyncAdd1a1bs5Int32VAH_AHtYaF_async")]
-    private static unsafe partial void PInvoke_asyncAdd_9D8CEDEF( void* s_asyncAddCallback_9D8CEDEF,  void* s_asyncAddErrorCallback_9D8CEDEF,  IntPtr handle,  int a,  int b,  IntPtr _self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_AsyncWorker_asyncAdd_9D8CEDEF_async")]
+    private static unsafe partial void PInvoke_asyncAdd_23AA931E( void* s_asyncAddCallback_23AA931E,  void* s_asyncAddErrorCallback_23AA931E,  IntPtr handle,  int a,  int b,  IntPtr _self);
     
     
 }
@@ -32927,7 +32941,7 @@ private Swift.SwiftOptional<Swift.SwiftString> Label_Get()
             var _optRetSize = (int)TypeMetadata.GetTypeMetadataOrThrow<SwiftOptional<SwiftString>>().Size;
             byte* _optRetBuf = stackalloc byte[_optRetSize];
             IntPtr _optRetPtr = (IntPtr)_optRetBuf;
-            PInvoke_label_Get_D757583D(_optRetPtr, _payload.DangerousGetHandle());
+            PInvoke_label_Get_F16F154F(_optRetPtr, _payload.DangerousGetHandle());
             
             var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftOptional<SwiftString>>(_optRetPtr);
             return swiftResult.ToNullable();
@@ -32942,9 +32956,9 @@ private Swift.SwiftOptional<Swift.SwiftString> Label_Get()
     }
 }
 
-[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-[LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib14OptionalConfigV5labelSSSgvg_optbuf")]
-private static partial void PInvoke_label_Get_D757583D( IntPtr _optRetPtr,  IntPtr _self);
+[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+[LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_OptionalConfig_label_Get_D757583D_optbuf")]
+private static partial void PInvoke_label_Get_F16F154F( IntPtr _optRetPtr,  IntPtr _self);
 
 private void Label_Set( Swift.SwiftOptional<Swift.SwiftString> value)
 {
@@ -32957,7 +32971,7 @@ private void Label_Set( Swift.SwiftOptional<Swift.SwiftString> value)
             
             IntPtr valueBuffer = value.Payload.DangerousGetHandle();
             
-            PInvoke_label_Set_E3576B21(valueBuffer, _payload.DangerousGetHandle());
+            PInvoke_label_Set_BD4B6611(valueBuffer, _payload.DangerousGetHandle());
             
             return;
         }
@@ -32971,9 +32985,9 @@ private void Label_Set( Swift.SwiftOptional<Swift.SwiftString> value)
     }
 }
 
-[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-[LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib14OptionalConfigV5labelSSSgvs_optbuf")]
-private static partial void PInvoke_label_Set_E3576B21( IntPtr valueBuffer,  IntPtr _self);
+[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+[LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_OptionalConfig_label_Set_E3576B21_optbuf")]
+private static partial void PInvoke_label_Set_BD4B6611( IntPtr valueBuffer,  IntPtr _self);
 
 public string? Label
 {
@@ -38579,9 +38593,9 @@ public partial class AsyncService : ISwiftObject, IDisposable
     
     [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_CancelTask_SwiftBindingsTestLib")]
     private static partial void SBW_CancelTask(long taskId);
-            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCallback_80118581 = &initOnComplete_80118581;
+            private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCallback_97B4F836 = &initOnComplete_97B4F836;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void initOnComplete_80118581(IntPtr resultPtr, IntPtr task)
+        private static unsafe void initOnComplete_97B4F836(IntPtr resultPtr, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
                             // Read object pointer from buffer (for class types, buffer contains the object reference)
@@ -38626,9 +38640,9 @@ public partial class AsyncService : ISwiftObject, IDisposable
             }
         }
 
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_initErrorCallback_80118581 = &initOnError_80118581;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> s_initErrorCallback_97B4F836 = &initOnError_97B4F836;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-        private static unsafe void initOnError_80118581(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
+        private static unsafe void initOnError_97B4F836(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -38736,7 +38750,7 @@ public partial class AsyncService : ISwiftObject, IDisposable
                 using var keySwift = new SwiftString(key);
                 using var keyDisposable = keySwift.PayloadBuffer;
                 
-                PInvoke_init_80118581(s_initCallback_80118581, s_initErrorCallback_80118581, GCHandle.ToIntPtr(handle), keyDisposable.Buffer);
+                PInvoke_init_97B4F836(s_initCallback_97B4F836, s_initErrorCallback_97B4F836, GCHandle.ToIntPtr(handle), keyDisposable.Buffer);
                 
                 return _tcs.Task;
             }
@@ -38748,9 +38762,9 @@ public partial class AsyncService : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "$s20SwiftBindingsTestLib12AsyncServiceC3keyACSS_tYaKcfC_async")]
-    private static unsafe partial void PInvoke_init_80118581( void* s_initCallback_80118581,  void* s_initErrorCallback_80118581,  IntPtr handle,  Swift.SwiftString.Buffer key);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_AsyncService_init_80118581_async")]
+    private static unsafe partial void PInvoke_init_97B4F836( void* s_initCallback_97B4F836,  void* s_initErrorCallback_97B4F836,  IntPtr handle,  Swift.SwiftString.Buffer key);
     
     
     public virtual string GetKey()

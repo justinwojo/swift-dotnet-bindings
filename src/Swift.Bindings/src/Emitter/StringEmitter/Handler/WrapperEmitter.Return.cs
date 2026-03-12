@@ -77,6 +77,15 @@ namespace BindingsGeneration
         {
             var returnArg = _env.MethodDecl.CSSignature.First();
 
+            // Async methods always return via callback — never via resultPtr.
+            // This must come before @_cdecl string checks to prevent async+@_cdecl methods
+            // from emitting inline string decoding (the value arrives via the async callback).
+            if (_requiresSwiftAsync)
+            {
+                csWriter.WriteLine("return _tcs.Task;");
+                return;
+            }
+
             // @_cdecl method wrapper: String returns SBW_Utf8Slice via resultPtr.
             // Unlike property wrappers (which return Utf8Slice for PropertyHandler to decode),
             // methods decode inline because there's no outer getter layer.
@@ -108,12 +117,6 @@ namespace BindingsGeneration
                         return *(Utf8Slice*)resultPtr;
                     }
                     """);
-                return;
-            }
-
-            if (_requiresSwiftAsync)
-            {
-                csWriter.WriteLine("return _tcs.Task;");
                 return;
             }
 

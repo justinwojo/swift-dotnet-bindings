@@ -452,12 +452,26 @@ namespace BindingsGeneration
             string swiftCatchBody = BuildSwiftCatchBody("                        ");
             string swiftCatchBodyExt = BuildSwiftCatchBody("                            ");
 
-            var baseParams = new[]
-            {
-                $"callback: @escaping @convention(c) ({callbackParams}Int64) -> Void",
-                errorCallbackSwiftParam,
-                "task: Int64"
-            };
+            bool usesCdecl = _env.MethodDecl.UsesCdeclMethodWrapper;
+            // For @_cdecl: param labels become `_` (unlabeled), remove @escaping from @convention(c)
+            var baseParams = usesCdecl
+                ? new[]
+                {
+                    $"_ callback: @convention(c) ({callbackParams}Int64) -> Void",
+                    useTypedErrorCallback
+                        ? "_ errorCallback: @convention(c) (UnsafeRawPointer, Int, UnsafePointer<CChar>, Int32, Int64) -> Void"
+                        : "_ errorCallback: @convention(c) (UnsafePointer<CChar>, Int32, Int64) -> Void",
+                    "_ task: Int64"
+                }
+                : new[]
+                {
+                    $"callback: @escaping @convention(c) ({callbackParams}Int64) -> Void",
+                    errorCallbackSwiftParam,
+                    "task: Int64"
+                };
+
+            // Reconstruction code for @_cdecl converted params (emitted before Task {})
+            var cdeclReconstructionLines = new List<string>();
 
             var methodParams = _env.MethodDecl.CSSignature
                 .Skip(1)
@@ -466,7 +480,7 @@ namespace BindingsGeneration
                     // Check if this is a non-frozen parameter that needs UnsafeRawPointer
                     if (nonFrozenParams.Any(nfp => nfp.Name == p.Name))
                     {
-                        return $"{p.Name}: UnsafeRawPointer";
+                        return usesCdecl ? $"_ {p.Name}: UnsafeRawPointer" : $"{p.Name}: UnsafeRawPointer";
                     }
                     if (p.IsGeneric)
                     {
@@ -492,17 +506,26 @@ namespace BindingsGeneration
                     // Large Optional params: accept UnsafeRawPointer, dereference before Task {}
                     if (largeOptionalParams.Any(lop => lop.Name == p.Name))
                     {
-                        return $"{p.Name}: UnsafeRawPointer";
+                        return usesCdecl ? $"_ {p.Name}: UnsafeRawPointer" : $"{p.Name}: UnsafeRawPointer";
+                    }
+                    // @_cdecl catchall: convert to C-compatible types via GetCdeclParamMapping
+                    if (usesCdecl)
+                    {
+                        var label = !string.IsNullOrEmpty(p.PrivateName) ? p.PrivateName : p.Name;
+                        var (cdeclParam, reconstruction, _) =
+                            ConstructorWrapperEmitter.GetCdeclParamMapping(p, label, _env, omitLabels: true);
+                        if (reconstruction != null) cdeclReconstructionLines.Add(reconstruction);
+                        return cdeclParam;
                     }
                     return $"{p.Name}: {p.SwiftTypeSpec}";
                 });
 
-            // For async instance methods on non-singleton classes, add _self: OpaquePointer as explicit parameter
-            // Singleton classes use ClassName.shared workaround and don't need _self
+            // For async instance methods on non-singleton classes, add _self parameter
+            // @_cdecl uses UnsafeMutableRawPointer; @_silgen_name uses OpaquePointer
             var hasSingletonForParams = (_env.ParentDecl as TypeDecl)?.HasSingletonPattern ?? false;
             var needsSelfParam = _env.ParentDecl is TypeDecl && isInstanceMethod && _env.MethodDecl.MethodType != MethodType.Static && !hasSingletonForParams;
             var selfParam = needsSelfParam
-                ? new[] { "_self: OpaquePointer" }
+                ? (usesCdecl ? new[] { "_ _self: UnsafeMutableRawPointer" } : new[] { "_self: OpaquePointer" })
                 : Array.Empty<string>();
 
             string parameters = string.Join(", ", baseParams.Concat(methodParams).Concat(selfParam));
@@ -561,6 +584,16 @@ namespace BindingsGeneration
                     : optDeref;
             }
 
+            // Append @_cdecl reconstruction lines (read before Task {} for async safety)
+            if (cdeclReconstructionLines.Count > 0)
+            {
+                var cdeclDeref = string.Join("\n        ", cdeclReconstructionLines);
+                readCode = readCode.Length > 0
+                    ? readCode + "\n        " + cdeclDeref
+                    : cdeclDeref;
+                hasReadCode = true;
+            }
+
             // Generate argument list for the actual Swift method call
             var methodCallArgs = string.Join(", ", _env.MethodDecl.CSSignature.Skip(1)
                 .Select(p =>
@@ -593,6 +626,22 @@ namespace BindingsGeneration
                             var n => $"{n}: "
                         };
                         return $"{label}{p.Name}Val";
+                    }
+                    // For @_cdecl-converted params, use the reconstructed value
+                    if (usesCdecl && cdeclReconstructionLines.Count > 0)
+                    {
+                        var label_ = !string.IsNullOrEmpty(p.PrivateName) ? p.PrivateName : p.Name;
+                        // Check if this param had a reconstruction (has a Val suffix variable)
+                        if (cdeclReconstructionLines.Any(line => line.Contains($"let {label_}Val ")))
+                        {
+                            var argLabel = p.Name switch
+                            {
+                                var n when n.StartsWith("arg") => "",
+                                var n when n.StartsWith("_") => $"{n.Substring(1)}: ",
+                                var n => $"{n}: "
+                            };
+                            return $"{argLabel}{label_}Val";
+                        }
                     }
                     return argName;
                 }));
@@ -636,13 +685,17 @@ namespace BindingsGeneration
                 // Non-singleton async instance method: convert _self pointer to type reference
                 if (isSwiftClass)
                 {
-                    // For classes: the pointer IS the object reference, use unsafeBitCast
-                    selfConversion = $"let __self = unsafeBitCast(_self, to: {parentTypeName!.ModuleQualifiedName}.self)";
+                    // For classes: @_cdecl uses UnsafeMutableRawPointer, @_silgen_name uses OpaquePointer
+                    selfConversion = usesCdecl
+                        ? $"let __self = Unmanaged<{parentTypeName!.ModuleQualifiedName}>.fromOpaque(_self).takeUnretainedValue()"
+                        : $"let __self = unsafeBitCast(_self, to: {parentTypeName!.ModuleQualifiedName}.self)";
                 }
                 else
                 {
                     // For structs: the pointer points TO the struct data, dereference it
-                    selfConversion = $"let __self = UnsafePointer<{parentTypeName!.ModuleQualifiedName}>(_self).pointee";
+                    selfConversion = usesCdecl
+                        ? $"let __self = _self.assumingMemoryBound(to: {parentTypeName!.ModuleQualifiedName}.self).pointee"
+                        : $"let __self = UnsafePointer<{parentTypeName!.ModuleQualifiedName}>(_self).pointee";
                 }
                 methodCallPrefix = "__self.";
             }
@@ -654,7 +707,8 @@ namespace BindingsGeneration
 
             // Generate the Swift wrapper — 3 scope variants (free function, extension, top-level free function)
             // collapsed into a single parameterized template.
-            bool isExtension = !isAsyncInstanceMethod && parentTypeName != null;
+            // @_cdecl can't be used in extensions, so force free function for @_cdecl
+            bool isExtension = !isAsyncInstanceMethod && parentTypeName != null && !usesCdecl;
             var staticModifier = isExtension && (_env.MethodDecl.MethodType == MethodType.Static || isAsyncConstructor) ? "static " : "";
             var catchBody = isExtension ? swiftCatchBodyExt : swiftCatchBody;
 
@@ -1483,9 +1537,10 @@ namespace BindingsGeneration
             // @MainActor functions: Task { } doesn't inherit actor context, so we need
             // Task { @MainActor in } to access actor-isolated members within the task body.
             var taskOpen = needsMainActor ? "Task { @MainActor in" : "Task {";
+            var annotation = _env.MethodDecl.UsesCdeclMethodWrapper ? "@_cdecl" : "@_silgen_name";
 
             var funcBody = $$"""
-            {{mainActorLine}}{{i}}@_silgen_name("{{mangledName}}")
+            {{mainActorLine}}{{i}}{{annotation}}("{{mangledName}}")
             {{i}}public {{staticModifier}}func {{pInvokeName}}{{genericParams}}({{parameters}}){{whereClause}}{
             {{readCodeBlock}}{{i}}    let _entry = _SBWTaskEntry()
             {{i}}    _sbwRegisterTask(task, _entry)

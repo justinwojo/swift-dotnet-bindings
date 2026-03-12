@@ -573,6 +573,90 @@ public static class MethodWrapperEmitter
     }
 
     /// <summary>
+    /// Shared function-level eligibility check for @_cdecl wrappers.
+    /// Contains guards that apply to ALL wrapper paths (method, closure, optional-pointer, async, arrayslice).
+    /// Per-param checks are NOT included — each wrapper path has its own param-level gates
+    /// because different wrappers transform different param types before checking.
+    /// </summary>
+    internal static bool HasCdeclCompatibleFunctionShape(MethodEnvironment env)
+    {
+        // Guard 4: xcframework mode required
+        if (string.IsNullOrEmpty(env.TypeDatabase.AsyncLibraryName))
+            return false;
+        // Guard 5b: Non-generic parent type
+        var parentTypeDecl = env.ParentDecl as TypeDecl;
+        if (parentTypeDecl?.IsGeneric == true)
+            return false;
+        // Guard 6: No method-level generics
+        if (env.MethodDecl.IsGeneric)
+            return false;
+        // Guard 6b: Not actor parent
+        if (parentTypeDecl is ClassDecl { IsActor: true })
+            return false;
+        // Guard 11: Not non-copyable struct parent
+        if (IsNonCopyableStructParent(env.ParentDecl))
+            return false;
+        // Guards 15-15d: Return type checks
+        var returnSpec = env.MethodDecl.CSSignature.First().SwiftTypeSpec;
+        if (returnSpec is ProtocolListTypeSpec { IsOpaque: true })
+            return false;
+        if (returnSpec is ClosureTypeSpec)
+            return false;
+        if (returnSpec is TupleTypeSpec trs && !trs.IsEmptyTuple)
+            return false;
+        if (returnSpec.IsDynamicSelf)
+            return false;
+        // Guard 17: No nested type returns
+        if (returnSpec is NamedTypeSpec retNamed &&
+            retNamed.HasModule() &&
+            AppleFrameworkRegistry.IsNestedType(retNamed.Name))
+            return false;
+        // Guard 10: No protocol existential return
+        if (ConstructorWrapperEmitter.IsProtocolExistentialType(returnSpec, env.TypeDatabase))
+            return false;
+        return true;
+    }
+
+    /// <summary>
+    /// Per-param check: is this argument a nested frozen struct?
+    /// Extracted from HasNestedFrozenStructParameter for reuse by wrapper-owned paths.
+    /// </summary>
+    internal static bool IsNestedFrozenStructParam(ArgumentDecl arg, ITypeDatabase typeDatabase)
+    {
+        if (arg.SwiftTypeSpec is not NamedTypeSpec namedSpec)
+            return false;
+        if (!typeDatabase.TryGetTypeRecord(namedSpec, out var typeRecord))
+            return false;
+        if (typeRecord.Kind != TypeRecordKind.Struct)
+            return false;
+        if (!MarshallingHelpers.IsTypeFrozen(typeRecord))
+            return false;
+        var name = namedSpec.Name;
+        var dotIndex = name.IndexOf('.');
+        if (dotIndex >= 0 && name.Substring(dotIndex + 1).Contains('.'))
+            return true;
+        return false;
+    }
+
+    /// <summary>
+    /// Per-param check: is this argument a non-primitive frozen struct?
+    /// Extracted from HasNonPrimitiveFrozenStructParameter for reuse by wrapper-owned paths.
+    /// </summary>
+    internal static bool IsNonPrimitiveFrozenStructParam(ArgumentDecl arg, ITypeDatabase typeDatabase)
+    {
+        var spec = arg.SwiftTypeSpec;
+        if (ConstructorWrapperEmitter.IsCdeclPrimitive(spec))
+            return false;
+        if (spec is NamedTypeSpec strNamed && strNamed.Name == "Swift.String")
+            return false;
+        if (typeDatabase.TryGetTypeRecord(spec, out var typeRecord) &&
+            typeRecord.Kind == TypeRecordKind.Struct &&
+            MarshallingHelpers.IsTypeFrozen(typeRecord))
+            return true;
+        return false;
+    }
+
+    /// <summary>
     /// Checks if a parent decl is a non-copyable struct.
     /// </summary>
     private static bool IsNonCopyableStructParent(BaseDecl? parentDecl)
@@ -589,66 +673,13 @@ public static class MethodWrapperEmitter
     /// Checks whether any parameter is a nested frozen struct type.
     /// </summary>
     private static bool HasNestedFrozenStructParameter(MethodEnvironment env)
-    {
-        foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
-        {
-            if (arg.SwiftTypeSpec is not NamedTypeSpec namedSpec)
-                continue;
-
-            if (!env.TypeDatabase.TryGetTypeRecord(namedSpec, out var typeRecord))
-                continue;
-
-            if (typeRecord.Kind != TypeRecordKind.Struct)
-                continue;
-
-            if (!MarshallingHelpers.IsTypeFrozen(typeRecord))
-                continue;
-
-            var name = namedSpec.Name;
-            var dotIndex = name.IndexOf('.');
-            if (dotIndex >= 0)
-            {
-                var afterModule = name.Substring(dotIndex + 1);
-                if (afterModule.Contains('.'))
-                    return true;
-            }
-        }
-        return false;
-    }
+        => env.MethodDecl.CSSignature.Skip(1).Any(arg => IsNestedFrozenStructParam(arg, env.TypeDatabase));
 
     /// <summary>
     /// Checks whether any parameter is a non-primitive frozen struct type.
-    /// @_cdecl rejects Swift struct types that aren't C-representable.
-    /// Primitives (Int, Float, Bool, etc.) and String pass through GetCdeclParamMapping fine.
-    /// Classes, enums, non-frozen structs are marshalled as pointers.
-    /// Only frozen non-primitive structs trigger the "cannot be represented in Objective-C" error.
     /// </summary>
     private static bool HasNonPrimitiveFrozenStructParameter(MethodEnvironment env)
-    {
-        foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
-        {
-            var spec = arg.SwiftTypeSpec;
-
-            // Primitives are fine
-            if (ConstructorWrapperEmitter.IsCdeclPrimitive(spec))
-                continue;
-
-            // String is handled specially (two Int words)
-            if (spec is NamedTypeSpec strNamed && strNamed.Name == "Swift.String")
-                continue;
-
-            // Check if it's a frozen struct
-            if (env.TypeDatabase.TryGetTypeRecord(spec, out var typeRecord) &&
-                typeRecord.Kind == TypeRecordKind.Struct &&
-                MarshallingHelpers.IsTypeFrozen(typeRecord))
-            {
-                // This is a frozen struct parameter that isn't primitive or String —
-                // @_cdecl can't represent it
-                return true;
-            }
-        }
-        return false;
-    }
+        => env.MethodDecl.CSSignature.Skip(1).Any(arg => IsNonPrimitiveFrozenStructParam(arg, env.TypeDatabase));
 
     /// <summary>
     /// Checks whether any parameter or the return type is a generic container type

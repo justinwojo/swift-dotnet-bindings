@@ -133,6 +133,32 @@ public static class DefaultParameterOverloadEmitter
                     overloadDecl.HasClosureParams = true;
             }
 
+            // Also check if the overload itself qualifies for @_cdecl independently.
+            // The trimmed overload may have removed problematic params that blocked the base method.
+            // Guard 13 (UsesWrapperLibrary) is true because BuildOverloadDecl sets it;
+            // temporarily clear to run ShouldEmitWrapper.
+            if (!overloadDecl.IsConstructor && silgenSymbolForMethodCdecl == null)
+            {
+                overloadDecl.UsesWrapperLibrary = false;
+                bool eligible = MethodWrapperEmitter.ShouldEmitWrapper(overloadEnv);
+                overloadDecl.UsesWrapperLibrary = true;
+                if (eligible)
+                {
+                    var parentType_ = overloadDecl.ParentDecl as TypeDecl;
+                    silgenSymbolForMethodCdecl = overloadDecl.MangledName;
+                    var cdeclSymbol = MethodWrapperEmitter.GetMethodSymbolName(
+                        parentType_!.SwiftTypeName.Module,
+                        parentType_.Name,
+                        overloadDecl.Name,
+                        overloadDecl.MangledName);
+                    cdeclSymbolForMethodRestore = cdeclSymbol;
+                    overloadDecl.UsesCdeclMethodWrapper = true;
+                    overloadDecl.MangledName = cdeclSymbol;
+                    if (overloadDecl.CSSignature.Skip(1).Any(overloadEnv.ClosureHandler.IsClosure))
+                        overloadDecl.HasClosureParams = true;
+                }
+            }
+
             // Check if the overload signature is fully marshallable
             var signatureHandler = new SignatureHandler(overloadEnv);
             if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)

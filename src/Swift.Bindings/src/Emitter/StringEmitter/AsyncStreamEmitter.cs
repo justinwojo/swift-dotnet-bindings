@@ -96,8 +96,8 @@ public static class AsyncStreamEmitter
         string parentTypeName)
     {
         var isStatic = propertyDecl.IsStatic;
-        var selfParam = isStatic ? "" : "_ self: " + parentTypeName + ", ";
-        var selfAccess = isStatic ? parentTypeName : "self";
+        var selfParam = isStatic ? "" : "_ self_: UnsafeMutableRawPointer, ";
+        var selfAccess = isStatic ? parentTypeName : "__self";
         // Note: @MainActor-isolated instance AsyncStream properties are skipped at the gate
         // (PropertyHandler + MemberEmissionValidator) because the wrapper captures `self` as a
         // function parameter, which Swift 6 strict concurrency won't allow to access actor-isolated
@@ -107,14 +107,21 @@ public static class AsyncStreamEmitter
         var awaitPrefix = isOnCustomActor ? "await " : "";
         var taskOpen = "Task {";
 
+        // Self reconstruction for instance properties
+        var selfReconstruction = "";
+        if (!isStatic)
+        {
+            selfReconstruction = $"    let __self = Unmanaged<{parentTypeName}>.fromOpaque(self_).takeUnretainedValue()\n";
+        }
+
         swiftWriter.WriteLines($$"""
-            @_silgen_name("{{swiftWrapperName}}")
+            @_cdecl("{{swiftWrapperName}}")
             public func {{swiftWrapperName}}(
-                {{selfParam}}elementCallback: @escaping @convention(c) (UnsafeRawPointer, Int64) -> Bool,
-                completionCallback: @escaping @convention(c) (Int64) -> Void,
-                context: Int64
+                {{selfParam}}_ elementCallback: @convention(c) (UnsafeRawPointer, Int64) -> Bool,
+                _ completionCallback: @convention(c) (Int64) -> Void,
+                _ context: Int64
             ) {
-                {{taskOpen}}
+            {{selfReconstruction}}    {{taskOpen}}
                     for await element in {{awaitPrefix}}{{selfAccess}}.{{NameProvider.EscapeSwiftKeyword(propertyDecl.Name)}} {
                         let shouldContinue = withUnsafePointer(to: element) { ptr in
                             elementCallback(UnsafeRawPointer(ptr), context)

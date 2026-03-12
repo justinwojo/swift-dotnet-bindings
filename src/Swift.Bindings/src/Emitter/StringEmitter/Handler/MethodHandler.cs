@@ -723,10 +723,22 @@ namespace BindingsGeneration
                 }
             }
 
+            // ══════════════════════════════════════════════════════════════
+            // PHASE 1: FLAG SETTING — all BEFORE SignatureHandler creation.
+            // UsesCdeclMethodWrapper and related flags are consumed by SignatureHandler,
+            // WrapperEmitter, and PInvokeEmitter. All must be set before line creating SignatureHandler.
+            // ══════════════════════════════════════════════════════════════
+
+            // Save original mangled name before any wrapper changes it.
+            var originalMangledName = methodEnv.MethodDecl.MangledName;
+
+            // Check for debug params BEFORE EmitDebugParamWrapper removes them from CSSignature.
+            bool hadDebugParams = !methodEnv.MethodDecl.UsesWrapperLibrary &&
+                DefaultParameterOverloadEmitter.HasDebugParameters(methodEnv.MethodDecl);
+
             // Emit Swift wrapper for methods with debug params (#file, #line, etc.)
             // Must happen before SignatureHandler — updates MangledName + UsesWrapperLibrary.
-            if (!methodEnv.MethodDecl.UsesWrapperLibrary &&
-                DefaultParameterOverloadEmitter.HasDebugParameters(methodEnv.MethodDecl))
+            if (hadDebugParams)
             {
                 DefaultParameterOverloadEmitter.EmitDebugParamWrapper(swiftWriter, methodEnv);
             }
@@ -752,11 +764,44 @@ namespace BindingsGeneration
                     methodEnv.MethodDecl.HasClosureParams = true;
             }
 
+            // Debug param + @_cdecl: check if the debug-param-wrapped method qualifies for @_cdecl.
+            // EmitDebugParamWrapper already set UsesWrapperLibrary=true which blocks ShouldEmitWrapper,
+            // so temporarily clear it. The debug @_silgen_name wrapper becomes the silgenTarget.
+            // NOTE: hadDebugParams was captured BEFORE EmitDebugParamWrapper removed debug params
+            // from CSSignature, because HasDebugParameters scans CSSignature.
+            string? debugSilgenTarget = null;
+            if (hadDebugParams &&
+                methodEnv.MethodDecl.UsesWrapperLibrary &&
+                !methodEnv.MethodDecl.UsesCdeclConstructorWrapper)
+            {
+                methodEnv.MethodDecl.UsesWrapperLibrary = false;
+                bool debugCdeclEligible = MethodWrapperEmitter.ShouldEmitWrapper(methodEnv);
+                methodEnv.MethodDecl.UsesWrapperLibrary = true;
+
+                if (debugCdeclEligible)
+                {
+                    var hash = EmitterUtility.DeterministicHash8(originalMangledName);
+                    debugSilgenTarget = $"_dbg_{methodEnv.MethodDecl.GetSwiftName()}_{hash}";
+
+                    var parentType_ = methodEnv.ParentDecl as TypeDecl;
+                    var parentModule = methodEnv.ParentDecl as ModuleDecl;
+                    string moduleName = parentType_?.SwiftTypeName.Module ?? parentModule?.Name ?? "";
+                    string typeName = parentType_?.Name ?? "Free";
+                    var cdeclSymbol = MethodWrapperEmitter.GetMethodSymbolName(
+                        moduleName, typeName,
+                        methodEnv.MethodDecl.Name,
+                        methodEnv.MethodDecl.MangledName);
+                    methodEnv.MethodDecl.UsesCdeclMethodWrapper = true;
+                    methodEnv.MethodDecl.MangledName = cdeclSymbol;
+                }
+            }
+
             // Set @_cdecl method wrapper flags BEFORE SignatureHandler creation.
             // Must come after constructor wrapper check (mutually exclusive).
             if (!methodEnv.MethodDecl.IsConstructor &&
                 !methodEnv.MethodDecl.UsesCdeclPropertyWrapper &&
                 !methodEnv.MethodDecl.UsesCdeclConstructorWrapper &&
+                !methodEnv.MethodDecl.UsesCdeclMethodWrapper && // Not already set by debug-param path
                 MethodWrapperEmitter.ShouldEmitWrapper(methodEnv))
             {
                 var parentType_ = methodEnv.ParentDecl as TypeDecl;
@@ -776,6 +821,102 @@ namespace BindingsGeneration
                     methodEnv.MethodDecl.HasClosureParams = true;
             }
 
+            // Closure wrapper + @_cdecl: set flags BEFORE SignatureHandler.
+            // NeedsClosureCdeclWrapper() already excludes async methods and opaque return methods.
+            // ONLY set flags when no other generator owns the wrapper.
+            bool needsClosureWrapper = false;
+            bool closureCdecl = false;
+            if (!methodEnv.MethodDecl.UsesWrapperLibrary &&
+                MonoJitRiskDetector.NeedsClosureCdeclWrapper(methodEnv.MethodDecl, methodEnv.ClosureHandler))
+            {
+                needsClosureWrapper = true;
+                methodEnv.MethodDecl.HasClosureCdeclWrapper = true;
+                methodEnv.MethodDecl.UsesWrapperLibrary = true;
+                methodEnv.MethodDecl.UsesFreeFunctionWrapper = true;
+
+                closureCdecl = ClosureEmitter.CanConvertToCdecl(methodEnv);
+                if (closureCdecl)
+                {
+                    var parentType_ = methodEnv.ParentDecl as TypeDecl;
+                    var parentModule = methodEnv.ParentDecl as ModuleDecl;
+                    string moduleName = parentType_?.SwiftTypeName.Module ?? parentModule?.Name ?? "";
+                    string typeName = parentType_?.Name ?? "Free";
+                    var cdeclSymbol = MethodWrapperEmitter.GetMethodSymbolName(
+                        moduleName, typeName,
+                        methodEnv.MethodDecl.Name,
+                        methodEnv.MethodDecl.MangledName);
+                    methodEnv.MethodDecl.UsesCdeclMethodWrapper = true;
+                    methodEnv.MethodDecl.MangledName = cdeclSymbol;
+                }
+            }
+
+            // Optional pointer wrapper + @_cdecl: set flags BEFORE SignatureHandler.
+            var parentTypeDecl = methodEnv.ParentDecl as TypeDecl;
+            bool needsOptionalPointerWrapper = false;
+            bool optPtrCdecl = false;
+            if (!methodEnv.MethodDecl.UsesWrapperLibrary &&
+                !methodEnv.MethodDecl.IsAsync &&
+                !_requiresOpaqueReturn(methodEnv) &&
+                parentTypeDecl?.IsGeneric != true &&
+                (methodEnv.BoundGenericsHandler.HasLargeOptionalParams(methodEnv.MethodDecl) ||
+                 methodEnv.BoundGenericsHandler.IsLargeOptionalReturn(methodEnv.MethodDecl)))
+            {
+                needsOptionalPointerWrapper = true;
+                methodEnv.MethodDecl.HasOptionalPointerWrapper = true;
+                methodEnv.MethodDecl.UsesWrapperLibrary = true;
+                methodEnv.MethodDecl.UsesFreeFunctionWrapper = true;
+
+                optPtrCdecl = OptionalPointerWrapperEmitter.CanConvertToCdecl(methodEnv);
+                if (optPtrCdecl)
+                {
+                    var parentType_ = methodEnv.ParentDecl as TypeDecl;
+                    var parentModule = methodEnv.ParentDecl as ModuleDecl;
+                    string moduleName = parentType_?.SwiftTypeName.Module ?? parentModule?.Name ?? "";
+                    string typeName = parentType_?.Name ?? "Free";
+                    var cdeclSymbol = MethodWrapperEmitter.GetMethodSymbolName(
+                        moduleName, typeName,
+                        methodEnv.MethodDecl.Name,
+                        methodEnv.MethodDecl.MangledName);
+                    methodEnv.MethodDecl.UsesCdeclMethodWrapper = true;
+                    methodEnv.MethodDecl.MangledName = cdeclSymbol;
+                }
+            }
+
+            // Async @_cdecl eligibility — must run BEFORE SignatureHandler creation.
+            // Can't use ShouldEmitWrapper (gate 7 rejects async). Use HasCdeclCompatibleFunctionShape.
+            bool asyncCdeclEligible = false;
+            if (methodEnv.MethodDecl.IsAsync &&
+                !methodEnv.MethodDecl.UsesWrapperLibrary &&
+                MethodWrapperEmitter.HasCdeclCompatibleFunctionShape(methodEnv))
+            {
+                asyncCdeclEligible = methodEnv.MethodDecl.CSSignature.Skip(1).All(p => {
+                    if (p.IsGeneric) return false;
+                    if (p.SwiftTypeSpec is ClosureTypeSpec) return false;
+                    if (ConstructorWrapperEmitter.IsProtocolExistentialType(p.SwiftTypeSpec, methodEnv.TypeDatabase)) return false;
+                    if (MethodWrapperEmitter.IsNestedFrozenStructParam(p, methodEnv.TypeDatabase)) return false;
+                    if (MethodWrapperEmitter.IsNonPrimitiveFrozenStructParam(p, methodEnv.TypeDatabase)) return false;
+                    return true;
+                });
+            }
+            if (asyncCdeclEligible)
+            {
+                var parentType_ = methodEnv.ParentDecl as TypeDecl;
+                var parentModule = methodEnv.ParentDecl as ModuleDecl;
+                string moduleName = parentType_?.SwiftTypeName.Module ?? parentModule?.Name ?? "";
+                string typeName = parentType_?.Name ?? "Free";
+                var cdeclSymbol = MethodWrapperEmitter.GetMethodSymbolName(
+                    moduleName, typeName,
+                    methodEnv.MethodDecl.Name,
+                    methodEnv.MethodDecl.MangledName);
+                methodEnv.MethodDecl.UsesCdeclMethodWrapper = true;
+                methodEnv.MethodDecl.MangledName = cdeclSymbol;
+            }
+
+            // ══════════════════════════════════════════════════════════════
+            // PHASE 2: PIPELINE — reads flags, emits code.
+            // All @_cdecl flags are locked above this point.
+            // ══════════════════════════════════════════════════════════════
+
             var signatureHandler = new SignatureHandler(methodEnv);
 
             if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)
@@ -786,45 +927,6 @@ namespace BindingsGeneration
                     ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodEnv.MethodDecl.Name, methodEnv.MethodDecl.ParentDecl, SkipReason.UnsupportedSignature, "Method signature contains unsupported placeholder type.");
                 }
                 return;
-            }
-
-            // Set closure Cdecl flags BEFORE WrapperEmitter reads P/Invoke signature.
-            // NeedsClosureCdeclWrapper() already excludes async methods and opaque return methods.
-            // ONLY set flags when no other generator owns the wrapper. When UsesWrapperLibrary is
-            // already true (DefaultParam, ArraySlice, etc.), their Swift wrappers use @_silgen_name
-            // which forces original ABI — closure params must remain native Swift types.
-            if (!methodEnv.MethodDecl.UsesWrapperLibrary &&
-                MonoJitRiskDetector.NeedsClosureCdeclWrapper(methodEnv.MethodDecl, methodEnv.ClosureHandler))
-            {
-                methodEnv.MethodDecl.HasClosureCdeclWrapper = true;
-                methodEnv.MethodDecl.UsesWrapperLibrary = true;
-                methodEnv.MethodDecl.UsesFreeFunctionWrapper = true;
-                ClosureEmitter.EmitClosureCdeclSwiftWrapper(swiftWriter, methodEnv, methodEnv.ParentDecl as TypeDecl);
-            }
-
-            // Optional pointer wrapper for methods with large Optional params (e.g., Optional<String>)
-            // or large Optional returns (e.g., Optional<String> → 16 bytes, exceeds IntPtr capacity).
-            // Excluded: async (own wrapper), already-wrapped methods,
-            // opaque returns (their own _opaque wrapper doesn't handle Optional param rewriting).
-            // Skip generic parent types — wrapper emits `TypeName.self` without type parameters,
-            // causing "generic parameter could not be inferred" errors (Issue O).
-            // Accessors: getters have no params beyond return so HasLargeOptionalParams returns false;
-            // setters with large Optional value params are handled (property assignment in Swift wrapper).
-            // NOTE: If a concrete SubscriptHandler is added in the future, revisit this — subscript
-            // accessors may need different treatment.
-            // Mutating: wrapper uses through-pointer access (.pointee.method()) to preserve mutations.
-            var parentTypeDecl = methodEnv.ParentDecl as TypeDecl;
-            if (!methodEnv.MethodDecl.UsesWrapperLibrary &&
-                !methodEnv.MethodDecl.IsAsync &&
-                !_requiresOpaqueReturn(methodEnv) &&
-                parentTypeDecl?.IsGeneric != true &&
-                (methodEnv.BoundGenericsHandler.HasLargeOptionalParams(methodEnv.MethodDecl) ||
-                 methodEnv.BoundGenericsHandler.IsLargeOptionalReturn(methodEnv.MethodDecl)))
-            {
-                methodEnv.MethodDecl.HasOptionalPointerWrapper = true;
-                methodEnv.MethodDecl.UsesWrapperLibrary = true;
-                methodEnv.MethodDecl.UsesFreeFunctionWrapper = true;
-                OptionalPointerWrapperEmitter.EmitSwiftWrapper(swiftWriter, methodEnv, methodEnv.ParentDecl as TypeDecl);
             }
 
             // Skip symbol cross-referencing for accessors — [Obsolete] on an accessor method
@@ -861,11 +963,29 @@ namespace BindingsGeneration
                     swiftWriter, methodEnv, context.GetEmissionContext());
             }
 
+            // Emit closure Swift wrapper (Phase 2 — flags already set in Phase 1)
+            if (needsClosureWrapper)
+            {
+                ClosureEmitter.EmitClosureCdeclSwiftWrapper(swiftWriter, methodEnv, methodEnv.ParentDecl as TypeDecl, useCdecl: closureCdecl);
+            }
+
+            // Emit optional pointer Swift wrapper (Phase 2 — flags already set in Phase 1)
+            if (needsOptionalPointerWrapper)
+            {
+                OptionalPointerWrapperEmitter.EmitSwiftWrapper(swiftWriter, methodEnv, methodEnv.ParentDecl as TypeDecl, useCdecl: optPtrCdecl);
+            }
+
             // Emit Swift @_cdecl method wrapper AFTER signature validation, BEFORE WrapperEmitter.
-            if (methodEnv.MethodDecl.UsesCdeclMethodWrapper)
+            // Only for standard method wrappers — closure, optional-pointer, and async paths
+            // emit their own @_cdecl wrappers.
+            if (methodEnv.MethodDecl.UsesCdeclMethodWrapper &&
+                !methodEnv.MethodDecl.HasClosureCdeclWrapper &&
+                !methodEnv.MethodDecl.HasOptionalPointerWrapper &&
+                !methodEnv.MethodDecl.IsAsync)
             {
                 MethodWrapperEmitter.EmitSwiftMethodWrapper(
-                    swiftWriter, methodEnv, context.GetEmissionContext());
+                    swiftWriter, methodEnv, context.GetEmissionContext(),
+                    silgenTarget: debugSilgenTarget);
             }
 
             // @_cdecl method wrapper: emit SBW_Free P/Invoke for string-returning methods (once per type)
