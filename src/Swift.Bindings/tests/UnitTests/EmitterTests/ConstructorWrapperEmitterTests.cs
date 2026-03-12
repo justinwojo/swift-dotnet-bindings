@@ -42,8 +42,9 @@ public class ConstructorWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_GenericParent_ReturnsFalse()
+    public void ShouldEmitWrapper_GenericStructParent_ReturnsFalse()
     {
+        // Struct generic parents always blocked — protocol metatype dispatch requires AnyObject (class only)
         var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -53,6 +54,102 @@ public class ConstructorWrapperEmitterTests
             new("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
         };
         var method = CreateMethod("init", isConstructor: true, parentDecl, moduleDecl);
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.False(ConstructorWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_GenericClassParent_ConcreteSignature_ReturnsTrue()
+    {
+        // Class generic parents with concrete (non-T-referencing) constructor signatures
+        // can use @_cdecl wrappers via protocol metatype dispatch
+        var (moduleDecl, typeDb) = CreateTestEnvironment("GenericCache");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("GenericCache", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+
+        // Constructor with concrete Int parameter (doesn't reference T)
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule12GenericCacheCyACyxGSicfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                new ArgumentDecl
+                {
+                    Name = "capacity",
+                    PrivateName = "capacity",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        parentDecl.Methods.Add(method);
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.True(ConstructorWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_GenericClassParent_TReferencingParam_ReturnsFalse()
+    {
+        // Constructor params that reference the parent's generic type parameter T
+        // cannot use @_cdecl wrappers (T not known at the @_cdecl function level)
+        var (moduleDecl, typeDb) = CreateTestEnvironment("GenericCache");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("GenericCache", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+
+        // Constructor with T parameter (references generic type param)
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule12GenericCacheCyACyxGxcfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                new ArgumentDecl
+                {
+                    Name = "value",
+                    PrivateName = "value",
+                    SwiftTypeSpec = new NamedTypeSpec("T"),
+                    IsInOut = false,
+                    IsGeneric = true,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        parentDecl.Methods.Add(method);
 
         var env = new MethodEnvironment(method, typeDb);
         Assert.False(ConstructorWrapperEmitter.ShouldEmitWrapper(env));
@@ -1768,6 +1865,336 @@ public class ConstructorWrapperEmitterTests
         Assert.Contains("_sW1_second: Int", output);
         Assert.Contains("unsafeBitCast((_sW0_first, _sW1_first), to: String.self)", output);
         Assert.Contains("unsafeBitCast((_sW0_second, _sW1_second), to: String.self)", output);
+    }
+
+    #endregion
+
+    #region Generic Parent Constructor Tests
+
+    [Fact]
+    public void EmitSwiftWrapper_GenericClassParent_EmitsProtocolAndMetatypeDispatch()
+    {
+        // Generic class parent constructors use protocol metatype dispatch:
+        // 1. Private protocol with init + AnyObject constraint
+        // 2. Retroactive extension conformance
+        // 3. Metadata parameter → unsafeBitCast → protocol metatype → init call
+        var (moduleDecl, typeDb) = CreateTestEnvironment("GenericCache");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("GenericCache", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule12GenericCacheCyACyxGSicfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                new ArgumentDecl
+                {
+                    Name = "capacity",
+                    PrivateName = "capacity",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        parentDecl.Methods.Add(method);
+
+        var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
+            "TestModule", "GenericCache", method.MangledName);
+        method.MangledName = cdeclSymbol;
+        method.UsesCdeclConstructorWrapper = true;
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var writer = new SwiftWriter(sw);
+
+        ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
+
+        var output = sw.ToString();
+
+        // Protocol: private protocol with AnyObject constraint and init
+        Assert.Contains("private protocol _SBW_CI_", output);
+        Assert.Contains(": AnyObject", output);
+        Assert.Contains("init(capacity: Int)", output);
+
+        // Extension conformance
+        Assert.Contains("extension TestModule.GenericCache: _SBW_CI_", output);
+
+        // Metadata parameter
+        Assert.Contains("_ _metadata0: UnsafeRawPointer", output);
+
+        // Metatype reconstruction
+        Assert.Contains("unsafeBitCast(_metadata0, to: Any.Type.self)", output);
+        Assert.Contains("as! any _SBW_CI_", output);
+
+        // Protocol metatype init call
+        Assert.Contains("initType.init(capacity: capacity)", output);
+
+        // Return via Unmanaged with as AnyObject cast
+        Assert.Contains("Unmanaged.passRetained(result as AnyObject).toOpaque()", output);
+    }
+
+    [Fact]
+    public void EmitSwiftWrapper_GenericClassParent_Failable_EmitsGuardLetPattern()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("GenericCache");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("GenericCache", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule12GenericCacheCyACyxGSgSicfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            IsFailable = true,
+            CSSignature = new List<ArgumentDecl> { CreateReturnArg(moduleDecl) },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        parentDecl.Methods.Add(method);
+
+        var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
+            "TestModule", "GenericCache", method.MangledName);
+        method.MangledName = cdeclSymbol;
+        method.UsesCdeclConstructorWrapper = true;
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var writer = new SwiftWriter(sw);
+
+        ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
+
+        var output = sw.ToString();
+
+        // Failable protocol: init? in protocol declaration
+        Assert.Contains("init?()", output);
+
+        // Failable return type: nullable pointer
+        Assert.Contains("-> UnsafeMutableRawPointer?", output);
+
+        // guard let pattern for failable
+        Assert.Contains("guard let result = initType.init()", output);
+        Assert.Contains("else { return nil }", output);
+
+        // Return via Unmanaged with as AnyObject
+        Assert.Contains("Unmanaged.passRetained(result as AnyObject).toOpaque()", output);
+    }
+
+    [Fact]
+    public void EmitSwiftWrapper_GenericClassParent_Throwing_EmitsTryCatchPattern()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("GenericCache");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("GenericCache", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule12GenericCacheCyACyxGSiKcfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl> { CreateReturnArg(moduleDecl) },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = true,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        parentDecl.Methods.Add(method);
+
+        var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
+            "TestModule", "GenericCache", method.MangledName);
+        method.MangledName = cdeclSymbol;
+        method.UsesCdeclConstructorWrapper = true;
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var writer = new SwiftWriter(sw);
+
+        ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
+
+        var output = sw.ToString();
+
+        // Throwing protocol: throws in protocol declaration
+        Assert.Contains("init() throws", output);
+
+        // Error out parameter
+        Assert.Contains("_ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>", output);
+
+        // try/catch pattern
+        Assert.Contains("let result = try initType.init()", output);
+        Assert.Contains("Unmanaged.passRetained(result as AnyObject).toOpaque()", output);
+        Assert.Contains("} catch {", output);
+        Assert.Contains("errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()", output);
+
+        // Throwing non-failable returns sentinel pointer on error
+        Assert.Contains("UnsafeMutableRawPointer(bitPattern: 1)!", output);
+    }
+
+    [Fact]
+    public void EmitSwiftWrapper_GenericClassParent_FailableThrowing_EmitsCombinedPattern()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("GenericCache");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("GenericCache", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule12GenericCacheCyACyxGSgSiKcfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            IsFailable = true,
+            CSSignature = new List<ArgumentDecl> { CreateReturnArg(moduleDecl) },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = true,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        parentDecl.Methods.Add(method);
+
+        var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
+            "TestModule", "GenericCache", method.MangledName);
+        method.MangledName = cdeclSymbol;
+        method.UsesCdeclConstructorWrapper = true;
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var writer = new SwiftWriter(sw);
+
+        ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
+
+        var output = sw.ToString();
+
+        // Failable + throwing protocol
+        Assert.Contains("init?() throws", output);
+
+        // Nullable return + error out
+        Assert.Contains("-> UnsafeMutableRawPointer?", output);
+        Assert.Contains("_ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>", output);
+
+        // Combined pattern: try + guard let
+        Assert.Contains("guard let result = try initType.init()", output);
+        Assert.Contains("else { return nil }", output);
+        Assert.Contains("Unmanaged.passRetained(result as AnyObject).toOpaque()", output);
+        Assert.Contains("errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()", output);
+
+        // Failable + throwing returns nil on error (not sentinel)
+        Assert.Contains("return nil", output);
+        Assert.DoesNotContain("bitPattern: 1", output);
+    }
+
+    [Fact]
+    public void EmitSwiftWrapper_GenericClassParent_MultiGenericParams_AcceptsAllMetadata()
+    {
+        // Multi-generic parents (e.g., GenericPair<K, V>) accept metadata params for each
+        // generic parameter to match PInvokeSignatureBuilder ordering, but only _metadata0
+        // (the specialized type metadata) is used for metatype reconstruction.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("GenericPair");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("GenericPair", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("K", "K", new List<GenericParameterConformance>(), new List<GenericParameterConformance>()),
+            new("V", "V", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule11GenericPairCyACyxq_GSicfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                new ArgumentDecl
+                {
+                    Name = "capacity",
+                    PrivateName = "capacity",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        parentDecl.Methods.Add(method);
+
+        var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
+            "TestModule", "GenericPair", method.MangledName);
+        method.MangledName = cdeclSymbol;
+        method.UsesCdeclConstructorWrapper = true;
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var writer = new SwiftWriter(sw);
+
+        ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
+
+        var output = sw.ToString();
+
+        // Both metadata params accepted in signature
+        Assert.Contains("_ _metadata0: UnsafeRawPointer", output);
+        Assert.Contains("_ _metadata1: UnsafeRawPointer", output);
+
+        // Only _metadata0 is used for metatype reconstruction
+        Assert.Contains("unsafeBitCast(_metadata0, to: Any.Type.self)", output);
+        // _metadata1 is unused (matches PInvokeSignatureBuilder but not needed for dispatch)
+        Assert.DoesNotContain("_metadata1, to:", output);
     }
 
     #endregion

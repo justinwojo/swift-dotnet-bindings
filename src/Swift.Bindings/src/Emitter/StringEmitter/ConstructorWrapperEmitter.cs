@@ -31,9 +31,12 @@ public static class ConstructorWrapperEmitter
         if (string.IsNullOrEmpty(env.TypeDatabase.AsyncLibraryName))
             return false;
 
-        // Skip generic parent types — Swift can't express generic params in @_cdecl free functions
+        // Generic parent type — allow class constructors with concrete (non-T-referencing) signatures
         if (env.ParentDecl is TypeDecl typeDecl && typeDecl.IsGeneric)
-            return false;
+        {
+            if (!CanEmitGenericClassConstructorWrapper(env, typeDecl))
+                return false;
+        }
 
         // Closure parameters: allowed only when NeedsClosureCdeclWrapper validates them
         // AND no plain async closures (GetSwiftClosureAdapterCode only emits sync adapters).
@@ -252,19 +255,12 @@ public static class ConstructorWrapperEmitter
         bool isClass = env.ParentDecl is ClassDecl;
         bool isFailable = methodDecl.IsFailable;
         bool throws = methodDecl.Throws;
-        bool requiresIndirectResult = !isClass || isFailable; // Structs always, failable always
-
-        // For classes: non-failable returns pointer, failable still uses indirect for Optional<Self>
-        // Actually: failable class returns UnsafeMutableRawPointer? (nullable pointer)
-        // Failable struct writes Optional<Self> to result buffer
         bool isFailableClass = isFailable && isClass;
         bool isFailableStruct = isFailable && !isClass;
-        bool needsResultBuffer = !isClass || isFailableStruct;
-        // Non-failable class: returns pointer directly (no result buffer)
-        // Failable class: returns nullable pointer (no result buffer)
-        // Non-failable struct: writes to result buffer
-        // Failable struct: writes Optional<Self> to result buffer
-        needsResultBuffer = !isClass;
+
+        // Classes return pointers (non-failable: UnsafeMutableRawPointer, failable: UnsafeMutableRawPointer?).
+        // Structs write to result buffer (non-failable: T, failable: Optional<T>).
+        bool needsResultBuffer = !isClass;
 
         // Build Swift parameter list for the @_cdecl wrapper
         var swiftParams = new List<string>();
@@ -331,6 +327,16 @@ public static class ConstructorWrapperEmitter
             callArgs.Add(callArg);
         }
 
+        // Metadata parameters for generic parent types
+        bool isGenericParent = MethodWrapperEmitter.IsGenericClassParent(env.ParentDecl);
+        if (isGenericParent && parentTypeDecl != null)
+        {
+            for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
+            {
+                swiftParams.Add($"_ _metadata{i}: UnsafeRawPointer");
+            }
+        }
+
         var swiftParamString = string.Join(", ", swiftParams);
 
         // Build return type
@@ -348,9 +354,32 @@ public static class ConstructorWrapperEmitter
         // Build call arguments string
         var callArgString = string.Join(", ", callArgs);
 
-        // Build the call expression
+        // For generic parent class types, emit protocol + conformance for metatype dispatch.
+        // Note: _metadata0 is the specialized type metadata (e.g., GenericCache<String>.self),
+        // NOT a per-generic-param T metadata. unsafeBitCast(_metadata0, to: Any.Type.self)
+        // gives the concrete class type with all generic params already baked in.
+        // Extra _metadata1..N params are accepted to match PInvokeSignatureBuilder ordering
+        // but are unused — the isa pointer on the class provides the actual metadata.
+        string? protocolName = null;
+        if (isGenericParent)
+        {
+            protocolName = EmitConstructorProtocolAndConformance(
+                swiftWriter, methodDecl, symbolName, moduleQualifiedSwiftName, isFailable, throws);
+        }
+
+        // Build the call expression.
+        // Note: generic parent path takes precedence over silgenTarget. Default-param overloads
+        // on generic class constructors would need the _dbw_init_* path combined with metatype
+        // dispatch, which is not yet supported. In practice, default-param overloads on generic
+        // classes are rare and the C# side doesn't generate them for generic parents.
         string callExpr;
-        if (silgenTarget != null)
+        if (isGenericParent && protocolName != null)
+        {
+            // Protocol metatype dispatch: use metadata → Any.Type → protocol.Type → init
+            // The init call goes through the protocol existential metatype
+            callExpr = $"initType.init({callArgString})";
+        }
+        else if (silgenTarget != null)
         {
             // Default param overload: call the @_silgen_name wrapper via its extension method
             // The @_silgen_name wrapper is a static factory on the type
@@ -371,7 +400,7 @@ public static class ConstructorWrapperEmitter
         // Add @MainActor annotation when the parent type is @MainActor-isolated.
         // Without this, calling a @MainActor init from a non-isolated @_cdecl function
         // causes a Swift 6 compile error. Safe for synchronous functions (no runtime dispatch).
-        if (parentTypeDecl.IsMainActorIsolated)
+        if (parentTypeDecl?.IsMainActorIsolated == true)
         {
             swiftWriter.WriteLine("@MainActor");
         }
@@ -395,8 +424,20 @@ public static class ConstructorWrapperEmitter
             swiftWriter.WriteLine(line);
         }
 
+        // For generic parent types: reconstruct metatype from metadata pointer
+        if (isGenericParent && protocolName != null)
+        {
+            swiftWriter.WriteLine($"let anyType: Any.Type = unsafeBitCast(_metadata0, to: Any.Type.self)");
+            swiftWriter.WriteLine($"let initType = anyType as! any {protocolName}.Type");
+        }
+
         // Emit the body based on constructor type
-        if (throws && isClass && !isFailable)
+        if (isGenericParent && protocolName != null)
+        {
+            // Generic parent class: use protocol metatype dispatch
+            EmitGenericClassBody(swiftWriter, callExpr, isFailable, throws);
+        }
+        else if (throws && isClass && !isFailable)
         {
             // Throwing class constructor
             EmitThrowingClassBody(swiftWriter, callExpr);
@@ -715,6 +756,130 @@ public static class ConstructorWrapperEmitter
         "Swift.String" or "String" => "String",
         _ => "Int" // fallback
     };
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Generic parent class support — protocol-based type erasure for constructors
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Returns true when a constructor on a generic parent type can be wrapped via @_cdecl
+    /// using protocol-based type erasure with metatype dispatch.
+    /// </summary>
+    private static bool CanEmitGenericClassConstructorWrapper(MethodEnvironment env, TypeDecl parentTypeDecl)
+    {
+        // Only class types — protocol metatype dispatch requires AnyObject
+        if (parentTypeDecl is not ClassDecl)
+            return false;
+
+        // Constructor params must not reference the parent's generic type parameters
+        var genericParamNames = parentTypeDecl.GenericParameters
+            .Select(p => p.TypeName)
+            .ToHashSet();
+
+        foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
+        {
+            if (MethodWrapperEmitter.TypeSpecReferencesGenericParam(arg.SwiftTypeSpec, genericParamNames))
+                return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Emits protocol declaration and conformance for a constructor on a generic class type.
+    /// Uses AnyObject constraint so protocol existential metatype dispatch works for class inits.
+    /// </summary>
+    private static string EmitConstructorProtocolAndConformance(
+        SwiftWriter swiftWriter, MethodDecl methodDecl, string symbolName,
+        string moduleQualifiedName, bool isFailable, bool throws)
+    {
+        var protocolName = $"_SBW_CI_{EmitterUtility.DeterministicHash8(symbolName)}";
+
+        // Build init parameter declaration
+        var initParams = new List<string>();
+        var keptArgs = methodDecl.CSSignature.Skip(1).ToList();
+
+        for (int i = 0; i < keptArgs.Count; i++)
+        {
+            var arg = keptArgs[i];
+            if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
+                continue;
+            if (arg.SwiftTypeSpec.IsEmptyTuple)
+                continue;
+
+            var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec);
+            var label = arg.Name switch
+            {
+                var n when n.StartsWith("arg") => "_",
+                var n when n.StartsWith("_") => n.Substring(1),
+                var n when string.IsNullOrEmpty(n) => "_",
+                var n => n
+            };
+            initParams.Add($"{label}: {swiftType}");
+        }
+
+        var paramString = string.Join(", ", initParams);
+        var throwsClause = throws ? " throws" : "";
+        var failableQ = isFailable ? "?" : "";
+
+        swiftWriter.WriteLine();
+        swiftWriter.WriteLines($$"""
+            private protocol {{protocolName}}: AnyObject {
+                init{{failableQ}}({{paramString}}){{throwsClause}}
+            }
+            extension {{moduleQualifiedName}}: {{protocolName}} {}
+            """);
+
+        return protocolName;
+    }
+
+    /// <summary>
+    /// Emits the body of a generic parent class constructor wrapper using protocol metatype dispatch.
+    /// The metatype reconstruction (let anyType / let initType) is already emitted before this call.
+    /// The result is a protocol existential, so it needs 'as AnyObject' for Unmanaged.passRetained().
+    /// Only class types reach here (structs are excluded by CanEmitGenericClassConstructorWrapper).
+    /// </summary>
+    private static void EmitGenericClassBody(SwiftWriter sw, string callExpr, bool isFailable, bool throws)
+    {
+        if (throws && isFailable)
+        {
+            sw.WriteLines($$"""
+                do {
+                    guard let result = try {{callExpr}} else { return nil }
+                    return Unmanaged.passRetained(result as AnyObject).toOpaque()
+                } catch {
+                    errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()
+                    return nil
+                }
+                """);
+        }
+        else if (throws)
+        {
+            sw.WriteLines($$"""
+                do {
+                    let result = try {{callExpr}}
+                    return Unmanaged.passRetained(result as AnyObject).toOpaque()
+                } catch {
+                    errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()
+                    return UnsafeMutableRawPointer(bitPattern: 1)!
+                }
+                """);
+        }
+        else if (isFailable)
+        {
+            sw.WriteLines($$"""
+                guard let result = {{callExpr}} else { return nil }
+                return Unmanaged.passRetained(result as AnyObject).toOpaque()
+                """);
+        }
+        else
+        {
+            sw.WriteLines($$"""
+                let result = {{callExpr}}
+                return Unmanaged.passRetained(result as AnyObject).toOpaque()
+                """);
+        }
+    }
 
     /// <summary>
     /// Emits the body of a throwing class constructor wrapper.

@@ -1,11 +1,11 @@
 {
-  "git_sha": "c5f3703a",
+  "git_sha": "08b7ec89",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 50998,
+        "lines": 50999,
         "dep_compile": "none"
       },
       "BlinkID": {
@@ -47,7 +47,7 @@
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 55479,
+        "lines": 55478,
         "dep_compile": "none"
       },
       "Lottie": {
@@ -263,7 +263,7 @@
       "ObjectMapper": {
         "compile": "ok",
         "errors": 0,
-        "lines": 5347,
+        "lines": 5346,
         "dep_compile": "none"
       },
       "BonMot": {
