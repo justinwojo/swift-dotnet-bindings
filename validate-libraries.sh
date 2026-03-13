@@ -134,6 +134,25 @@ platform_to_package_suffix() {
     esac
 }
 
+check_swift_wrapper() {
+    local outdir="$1"
+    # Only count wrapper .swift files — exclude .SwiftUIBridge.swift which the
+    # generator emits separately and never compiles as part of the wrapper.
+    local swift_file
+    swift_file=$(find "$outdir" -maxdepth 1 -name "*.swift" -not -name "*.SwiftUIBridge.swift" -type f 2>/dev/null | head -1)
+    if [[ -z "$swift_file" ]]; then
+        echo "no_wrapper"
+        return
+    fi
+    local wrapper_binary
+    wrapper_binary=$(find "$outdir" -path "*SwiftBindings.framework/*SwiftBindings" -not -name "*.plist" -type f 2>/dev/null | head -1)
+    if [[ -n "$wrapper_binary" ]]; then
+        echo "ok"
+    else
+        echo "fail"
+    fi
+}
+
 write_fallback_csproj() {
     local outdir="$1"
     local platform="${2:-ios}"
@@ -355,12 +374,15 @@ process_target() {
     platform="${platform:-ios}"
 
     # Generate
+    local SWIFT_ERRORS=""
     if ! $QUICK; then
         rm -rf "$outdir"
         mkdir -p "$outdir"
         local GEN_START=$SECONDS
         local GEN_OUTPUT GEN_EXIT
-        GEN_OUTPUT=$(dotnet "$GENERATOR_DLL" --xcframework "$xcfw_path" -o "$outdir" --platform "$platform" -v 0 2>&1)
+        local GEN_VERBOSITY=0
+        $VERBOSE && GEN_VERBOSITY=1
+        GEN_OUTPUT=$(dotnet "$GENERATOR_DLL" --xcframework "$xcfw_path" -o "$outdir" --platform "$platform" -v $GEN_VERBOSITY 2>&1)
         GEN_EXIT=$?
         if [[ $GEN_EXIT -eq 0 ]] && ls "$outdir"/*.cs 2>/dev/null | grep -qv '\.Wrappers\.cs\|\.SwiftUIBridge\.cs'; then
             set_result "$name" gen "ok"
@@ -371,15 +393,30 @@ process_target() {
             fi
         fi
         set_result "$name" seconds $(( SECONDS - GEN_START ))
+
+        # Check Swift wrapper compilation
+        local SWIFT_STATUS
+        SWIFT_STATUS=$(check_swift_wrapper "$outdir")
+        set_result "$name" swift_compile "$SWIFT_STATUS"
+
+        # Capture Swift error lines from generator output when verbose
+        if $VERBOSE && [[ "$SWIFT_STATUS" == "fail" ]]; then
+            SWIFT_ERRORS=$(echo "$GEN_OUTPUT" | grep -E '\.swift:[0-9]+:[0-9]+: error:' | head -5)
+        fi
     else
         if [[ -d "$outdir" ]]; then
             set_result "$name" gen "cached"
             set_result "$name" seconds 0
+            # Check Swift wrapper status from cached output
+            local SWIFT_STATUS
+            SWIFT_STATUS=$(check_swift_wrapper "$outdir")
+            set_result "$name" swift_compile "$SWIFT_STATUS"
         else
             set_result "$name" gen "missing"
             set_result "$name" compile "skip"
             set_result "$name" errors 0
             set_result "$name" lines 0
+            set_result "$name" swift_compile "unknown"
             echo -e "  ${YELLOW}$name: no cached output${NC}" > "$output_file"
             return
         fi
@@ -398,13 +435,26 @@ process_target() {
         GEN_SECS=$(get_result "$name" seconds 0)
         set_result "$name" compile "dep_only"
         set_result "$name" errors 0
+        local swift_marker=""
+        local sw_status
+        sw_status=$(get_result "$name" swift_compile "unknown")
+        case "$sw_status" in
+            ok) swift_marker=" ${GREEN}[swift:ok]${NC}" ;;
+            fail) swift_marker=" ${RED}[swift:fail]${NC}" ;;
+            no_wrapper) swift_marker="" ;;
+        esac
         {
             if [[ -n "$GEN_VERBOSE" ]]; then
                 echo "$GEN_VERBOSE" | while IFS= read -r line; do
                     echo -e "    ${DIM}$line${NC}"
                 done
             fi
-            echo -e "  ${CYAN}$name: deferred to dep gate${NC} ${DIM}(${LINES} lines, ${GEN_SECS}s)${NC}"
+            if [[ -n "$SWIFT_ERRORS" ]]; then
+                echo "$SWIFT_ERRORS" | while IFS= read -r line; do
+                    echo -e "    ${RED}$line${NC}"
+                done
+            fi
+            echo -e "  ${CYAN}$name: deferred to dep gate${NC}${swift_marker} ${DIM}(${LINES} lines, ${GEN_SECS}s)${NC}"
         } > "$output_file"
         return
     fi
@@ -474,6 +524,16 @@ process_target() {
     GEN_SECS=$(get_result "$name" seconds 0)
     EXPECTED_ERRORS=$known_errors
 
+    # Swift wrapper status marker
+    local swift_marker=""
+    local sw_status
+    sw_status=$(get_result "$name" swift_compile "unknown")
+    case "$sw_status" in
+        ok) swift_marker=" ${GREEN}[swift:ok]${NC}" ;;
+        fail) swift_marker=" ${RED}[swift:fail]${NC}" ;;
+        no_wrapper) swift_marker="" ;;
+    esac
+
     # Format result output (buffered to file for ordered display)
     {
         # Show gen verbose output if available
@@ -483,15 +543,22 @@ process_target() {
             done
         fi
 
+        # Show Swift compilation errors if verbose + fail
+        if [[ -n "$SWIFT_ERRORS" ]]; then
+            echo "$SWIFT_ERRORS" | while IFS= read -r line; do
+                echo -e "    ${RED}$line${NC}"
+            done
+        fi
+
         if [[ $ERRORS -eq 0 ]]; then
             set_result "$name" compile "ok"
-            echo -e "  ${GREEN}$name: OK${NC} ${DIM}(${LINES} lines, ${GEN_SECS}s)${NC}"
+            echo -e "  ${GREEN}$name: OK${NC}${swift_marker} ${DIM}(${LINES} lines, ${GEN_SECS}s)${NC}"
         elif [[ $EXPECTED_ERRORS -gt 0 && $ERRORS -le $EXPECTED_ERRORS ]]; then
             set_result "$name" compile "known_errors"
-            echo -e "  ${YELLOW}$name: $ERRORS errors (known, expected $EXPECTED_ERRORS)${NC} ${DIM}(${LINES} lines, ${GEN_SECS}s)${NC}"
+            echo -e "  ${YELLOW}$name: $ERRORS errors (known, expected $EXPECTED_ERRORS)${NC}${swift_marker} ${DIM}(${LINES} lines, ${GEN_SECS}s)${NC}"
         elif [[ $EXPECTED_ERRORS -gt 0 && $ERRORS -gt $EXPECTED_ERRORS ]]; then
             set_result "$name" compile "regressed"
-            echo -e "  ${RED}$name: $ERRORS errors (expected $EXPECTED_ERRORS — REGRESSED)${NC} ${DIM}(${LINES} lines)${NC}"
+            echo -e "  ${RED}$name: $ERRORS errors (expected $EXPECTED_ERRORS — REGRESSED)${NC}${swift_marker} ${DIM}(${LINES} lines)${NC}"
             if $VERBOSE; then
                 echo "$BUILD_OUTPUT" | grep "error CS" | head -10 | while IFS= read -r line; do
                     echo -e "    ${DIM}$line${NC}"
@@ -500,7 +567,7 @@ process_target() {
             fi
         else
             set_result "$name" compile "fail"
-            echo -e "  ${RED}$name: $ERRORS errors${NC} ${DIM}(${LINES} lines)${NC}"
+            echo -e "  ${RED}$name: $ERRORS errors${NC}${swift_marker} ${DIM}(${LINES} lines)${NC}"
             if $VERBOSE; then
                 echo "$BUILD_OUTPUT" | grep "error CS" | head -10 | while IFS= read -r line; do
                     echo -e "    ${DIM}$line${NC}"
@@ -565,6 +632,9 @@ COMPILE_PASSED=0
 COMPILE_FAILED=0
 COMPILE_NO_OUTPUT=0
 COMPILE_DEFERRED=0
+SWIFT_PASSED=0
+SWIFT_FAILED=0
+SWIFT_NO_WRAPPER=0
 
 for entry in "${DISPLAY_TARGETS[@]}"; do
     IFS='|' read -r name _ <<< "$entry"
@@ -575,6 +645,12 @@ for entry in "${DISPLAY_TARGETS[@]}"; do
         fail|regressed|infra_fail) COMPILE_FAILED=$((COMPILE_FAILED + 1)) ;;
         dep_only) COMPILE_DEFERRED=$((COMPILE_DEFERRED + 1)) ;;
         *) COMPILE_NO_OUTPUT=$((COMPILE_NO_OUTPUT + 1)) ;;
+    esac
+    swift_status=$(get_result "$name" swift_compile "unknown")
+    case "$swift_status" in
+        ok) SWIFT_PASSED=$((SWIFT_PASSED + 1)) ;;
+        fail) SWIFT_FAILED=$((SWIFT_FAILED + 1)) ;;
+        no_wrapper) SWIFT_NO_WRAPPER=$((SWIFT_NO_WRAPPER + 1)) ;;
     esac
 done
 
@@ -589,6 +665,18 @@ elif [[ $COMPILE_FAILED -eq 0 ]]; then
     echo -e "${GREEN}Compile gate: $COMPILE_PASSED/$COMPILE_TESTED passed${NC} ${DIM}($COMPILE_NO_OUTPUT no output)${NC}${DEFERRED_NOTE}"
 else
     echo -e "${RED}Compile gate: $COMPILE_PASSED/$COMPILE_TESTED passed, $COMPILE_FAILED failed${NC}${COMPILE_NO_OUTPUT:+ ${DIM}($COMPILE_NO_OUTPUT no output)${NC}}${DEFERRED_NOTE}"
+fi
+
+# Swift wrapper compilation summary
+SWIFT_TESTED=$((SWIFT_PASSED + SWIFT_FAILED))
+if [[ $SWIFT_TESTED -gt 0 ]]; then
+    SWIFT_NOWRAP_NOTE=""
+    (( SWIFT_NO_WRAPPER > 0 )) && SWIFT_NOWRAP_NOTE=" ${DIM}($SWIFT_NO_WRAPPER ObjC/no wrapper)${NC}"
+    if [[ $SWIFT_FAILED -eq 0 ]]; then
+        echo -e "${GREEN}Swift wrapper: $SWIFT_PASSED/$SWIFT_TESTED passed${NC}${SWIFT_NOWRAP_NOTE}"
+    else
+        echo -e "${RED}Swift wrapper: $SWIFT_PASSED/$SWIFT_TESTED passed, $SWIFT_FAILED failed${NC}${SWIFT_NOWRAP_NOTE}"
+    fi
 fi
 # --- Phase 3.5: Dependency Gate (Cascading) ---
 
@@ -827,8 +915,9 @@ for entry in "${DISPLAY_TARGETS[@]}"; do
     errs=$(get_result "$name" errors 0)
     lines=$(get_result "$name" lines 0)
     dep_comp=$(get_result "$name" dep_compile "none")
+    sw_comp=$(get_result "$name" swift_compile "unknown")
     if [[ -n "$COMPILE_JSON" ]]; then COMPILE_JSON+=","; fi
-    COMPILE_JSON+="\"$name\":{\"compile\":\"$comp\",\"errors\":$errs,\"lines\":$lines,\"dep_compile\":\"$dep_comp\"}"
+    COMPILE_JSON+="\"$name\":{\"compile\":\"$comp\",\"errors\":$errs,\"lines\":$lines,\"dep_compile\":\"$dep_comp\",\"swift_compile\":\"$sw_comp\"}"
 done
 
 # Only write baseline on full (unfiltered) runs to prevent partial corruption
@@ -931,6 +1020,14 @@ for name, curr_data in curr_libs.items():
         if pct > 10:
             drift.append((name, prev_lines, curr_lines, pct))
 
+    # Swift wrapper compilation regression detection
+    prev_swift = prev_data.get('swift_compile', 'unknown')
+    curr_swift = curr_data.get('swift_compile', 'unknown')
+    if prev_swift == 'ok' and curr_swift == 'fail':
+        regressions.append((name, f'swift:ok', f'swift:fail'))
+    elif prev_swift == 'fail' and curr_swift == 'ok':
+        improvements.append((name, f'swift:fail', f'swift:ok'))
+
 # Detect targets that existed in baseline but disappeared from current full run
 # (only meaningful for full runs — filtered runs are expected to have subsets)
 if is_full_run:
@@ -1004,6 +1101,15 @@ if [[ ${DEP_TOTAL:-0} -gt 0 ]]; then
         echo -e "  Dependencies: ${GREEN}${DEP_PASSED:-0}/${DEP_TESTED:-0} tested, passed${NC}${DEP_SKIPPED:+ ${DIM}($DEP_SKIPPED skipped)${NC}}"
     else
         echo -e "  Dependencies: ${RED}${DEP_PASSED:-0}/${DEP_TESTED:-0} tested, $DEP_FAILED failed${NC}${DEP_SKIPPED:+ ${DIM}($DEP_SKIPPED skipped)${NC}}"
+    fi
+fi
+if [[ ${SWIFT_TESTED:-0} -gt 0 ]]; then
+    SWIFT_SUMMARY_NOWRAP=""
+    (( SWIFT_NO_WRAPPER > 0 )) && SWIFT_SUMMARY_NOWRAP=" ${DIM}($SWIFT_NO_WRAPPER ObjC/no wrapper)${NC}"
+    if [[ ${SWIFT_FAILED:-0} -eq 0 ]]; then
+        echo -e "  Swift wrapper: ${GREEN}${SWIFT_PASSED:-0}/$SWIFT_TESTED passed${NC}${SWIFT_SUMMARY_NOWRAP}"
+    else
+        echo -e "  Swift wrapper: ${RED}${SWIFT_PASSED:-0}/$SWIFT_TESTED passed, $SWIFT_FAILED failed${NC}${SWIFT_SUMMARY_NOWRAP}"
     fi
 fi
 

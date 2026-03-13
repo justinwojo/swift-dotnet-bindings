@@ -8,6 +8,7 @@
 
 | Item | Impact | Effort | Notes |
 |------|--------|--------|-------|
+| C# keyword escaping in enum case labels (S1) | Alamofire `RequestModifier`, any enum with `in:`/`for:`/`operator:` labels | Small | Generator produces `__@in` (invalid) instead of `@__in`. Fix in `StripVerbatimPrefix` or compound variable construction. **Test fixture staged**: `TestFramework/.../EdgeCases/FilterScope.swift.disabled` — rename to `.swift` to enable after fix. |
 | ObjC static method wrapper generation | ObjC class static methods (e.g. Stripe `STPImageLibrary.brandImage(for:)`) | Medium | P/Invoke targets mangled Swift symbols that don't exist in wrapper xcframework. Need `@_cdecl` trampolines for static methods on `IsObjCRooted` classes. Infrastructure exists for constructors/closures/optional pointers. |
 | Optional<Primitive/Enum> in closures | Various closure-accepting APIs | Medium | Different ABI from pointer-based Optional |
 | Complex enums in closures | Various | Medium | Structural emitter change |
