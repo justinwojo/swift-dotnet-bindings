@@ -45,12 +45,30 @@ generate_and_check() {
     fi
 
     if diff -u "$golden_file" "$csfile" > /dev/null 2>&1; then
-        echo "    OK"
+        echo "    C#: OK"
     else
-        echo "    DIFF: $name differs from golden file"
+        echo "    DIFF: $name C# bindings differ from golden file"
         diff -u "$golden_file" "$csfile" | head -40
         echo "    ..."
         FAILURES=$((FAILURES + 1))
+    fi
+
+    # Check Swift wrapper golden file
+    local swift_golden="$GOLDEN_DIR/${name}.swift.golden"
+    if [ -f "$swift_golden" ]; then
+        local swiftfile
+        swiftfile=$(ls "$tmpdir"/${name}.swift 2>/dev/null | head -1)
+        if [ -z "$swiftfile" ]; then
+            echo "    ERROR: No Swift wrapper file found for $name"
+            FAILURES=$((FAILURES + 1))
+        elif diff -u "$swift_golden" "$swiftfile" > /dev/null 2>&1; then
+            echo "    Swift: OK"
+        else
+            echo "    DIFF: $name Swift wrapper differs from golden file"
+            diff -u "$swift_golden" "$swiftfile" | head -40
+            echo "    ..."
+            FAILURES=$((FAILURES + 1))
+        fi
     fi
 
     rm -rf "$tmpdir"

@@ -272,6 +272,9 @@ public static class WrapperValidation
         // Guard 6: No method-level generics
         if (env.MethodDecl.IsGeneric)
             return false;
+        // Guard 6a: Raw generic type params in signature (e.g., from parent generics leaking)
+        if (HasRawGenericTypeParams(env.MethodDecl))
+            return false;
         // Guard 6b: Not actor parent
         if (parentTypeDecl is ClassDecl { IsActor: true })
             return false;
@@ -406,6 +409,10 @@ public static class WrapperValidation
         if (env.MethodDecl.IsGeneric)
             return "method_level_generics";
 
+        // 6a. Raw generic type params in signature (e.g., from parent generics leaking)
+        if (HasRawGenericTypeParams(env.MethodDecl))
+            return "raw_generic_type_params";
+
         // 6b. Actor types
         if (parentTypeDecl is ClassDecl { IsActor: true })
             return "actor_type";
@@ -489,5 +496,69 @@ public static class WrapperValidation
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Returns true if any parameter or return type in the method signature contains
+    /// raw ABI generic type parameters (τ_0_0, τ_1_0, etc.) that would cause Swift
+    /// compilation failures. Uses the same TypeSpec traversal as EveryProtocolEmitter.
+    /// </summary>
+    public static bool HasRawGenericTypeParams(MethodDecl methodDecl)
+    {
+        foreach (var arg in methodDecl.CSSignature)
+        {
+            if (arg.SwiftTypeSpec != null && ContainsRawGenericTypeParam(arg.SwiftTypeSpec))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Recursively checks if a TypeSpec contains a raw ABI generic type parameter.
+    /// Public so property/subscript wrapper emitters can check individual type specs.
+    /// </summary>
+    public static bool ContainsRawGenericTypeParam(TypeSpec typeSpec)
+    {
+        switch (typeSpec)
+        {
+            case NamedTypeSpec named:
+                if (TypeSpecHelpers.IsGenericTypeParameter(named.Name))
+                    return true;
+                foreach (var gp in named.GenericParameters)
+                {
+                    if (ContainsRawGenericTypeParam(gp))
+                        return true;
+                }
+                return false;
+
+            case TupleTypeSpec tuple:
+                foreach (var elem in tuple.Elements)
+                {
+                    if (ContainsRawGenericTypeParam(elem))
+                        return true;
+                }
+                return false;
+
+            case ClosureTypeSpec closure:
+                if (ContainsRawGenericTypeParam(closure.Arguments))
+                    return true;
+                if (ContainsRawGenericTypeParam(closure.ReturnType))
+                    return true;
+                return false;
+
+            case ProtocolListTypeSpec protocolList:
+                foreach (var proto in protocolList.Protocols.Keys)
+                {
+                    if (ContainsRawGenericTypeParam(proto))
+                        return true;
+                }
+                return false;
+
+            case AssociatedTypeReferenceSpec assocType:
+                return TypeSpecHelpers.IsGenericTypeParameter(assocType.BaseType);
+
+            default:
+                return false;
+        }
     }
 }

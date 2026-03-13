@@ -1308,7 +1308,7 @@ public class WitnessDispatchEmitterTests
 
         Assert.Contains("do {", output);
         Assert.Contains("} catch {", output);
-        Assert.Contains("errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()", output);
+        Assert.Contains("errorOut.pointee = UnsafeRawPointer(Unmanaged.passRetained(error as AnyObject).toOpaque())", output);
         Assert.Contains("return nil", output);
         Assert.Contains("-> UnsafeMutableRawPointer?", output);
     }
@@ -1330,7 +1330,7 @@ public class WitnessDispatchEmitterTests
 
         Assert.Contains("do {", output);
         Assert.Contains("} catch {", output);
-        Assert.Contains("errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()", output);
+        Assert.Contains("errorOut.pointee = UnsafeRawPointer(Unmanaged.passRetained(error as AnyObject).toOpaque())", output);
         // Struct return is always void (result written to buffer)
         Assert.DoesNotContain("-> UnsafeMutableRawPointer", output);
     }
@@ -2153,7 +2153,7 @@ public class WitnessDispatchEmitterTests
         Assert.Contains("do {", output);
         Assert.Contains("try existential.fetchIds()", output);
         Assert.Contains("} catch {", output);
-        Assert.Contains("errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()", output);
+        Assert.Contains("errorOut.pointee = UnsafeRawPointer(Unmanaged.passRetained(error as AnyObject).toOpaque())", output);
         Assert.Contains("return nil", output);
     }
 

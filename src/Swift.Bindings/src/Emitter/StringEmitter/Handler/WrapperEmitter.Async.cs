@@ -699,10 +699,16 @@ namespace BindingsGeneration
                 }
                 methodCallPrefix = "__self.";
             }
-            else
+            else if (parentTypeName != null)
             {
                 selfConversion = "";
                 methodCallPrefix = "self.";
+            }
+            else
+            {
+                // Free function — no self
+                selfConversion = "";
+                methodCallPrefix = "";
             }
 
             // Generate the Swift wrapper — 3 scope variants (free function, extension, top-level free function)

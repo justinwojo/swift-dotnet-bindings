@@ -84,7 +84,52 @@ public static class PropertyWrapperEmitter
             propertyDecl.Accessors.OfType<SetAccessorDecl>().Any())
             return false;
 
+        // 10. Skip properties with raw ABI generic type params (τ_0_0) in the property type.
+        // These leak from parent type generics and cause Swift compilation failures.
+        if (propertyDecl.SwiftTypeSpec != null && WrapperValidation.ContainsRawGenericTypeParam(propertyDecl.SwiftTypeSpec))
+            return false;
+
         return true;
+    }
+
+    /// <summary>
+    /// Returns a human-readable skip reason if the property wrapper would be rejected, or null if it passes all gates.
+    /// Mirrors the guard order in <see cref="ShouldEmitWrapper"/> for emission report diagnostics.
+    /// </summary>
+    public static string? GetRejectionReason(PropertyDecl propertyDecl, MethodEnvironment accessorEnv)
+    {
+        if (!WrapperValidation.IsXCFrameworkMode(accessorEnv.TypeDatabase))
+            return null; // not in xcframework mode — not a skip, just N/A
+
+        if (accessorEnv.ParentDecl is TypeDecl td && td.IsGeneric &&
+            !CanEmitGenericClassPropertyWrapper(propertyDecl, td))
+            return "generic_parent_type";
+        if (propertyDecl.IsModuleInternal)
+            return "internal_property";
+        if (propertyDecl.IsSpiProtected)
+            return "spi_protected";
+        if (WrapperValidation.IsMetatypeType(propertyDecl.SwiftTypeSpec))
+            return "metatype_property";
+        if (accessorEnv.ClosureHandler.IsClosure(propertyDecl))
+            return "closure_property";
+        if (propertyDecl.Accessors.Any(a => a.Method.IsAsync))
+            return "async_property";
+        if (WrapperValidation.IsActorIsolatedMember(accessorEnv.ParentDecl, propertyDecl.IsActorIsolated))
+            return "actor_isolated_property";
+        if (WrapperValidation.IsNonCopyableStructParent(accessorEnv.ParentDecl))
+            return "non_copyable_struct_parent";
+        if (WrapperValidation.IsNestedType(propertyDecl.SwiftTypeSpec))
+            return "nested_type_property";
+        if (WrapperValidation.IsUnsupportedGenericContainer(propertyDecl.SwiftTypeSpec, accessorEnv.TypeDatabase))
+            return "unsupported_generic_container";
+        if (WrapperValidation.IsOptionalType(propertyDecl.SwiftTypeSpec) &&
+            MarshallingHelpers.IsOptionalObjCBridged(propertyDecl.SwiftTypeSpec, accessorEnv.TypeDatabase) &&
+            propertyDecl.Accessors.OfType<SetAccessorDecl>().Any())
+            return "objc_bridged_optional_setter";
+        if (propertyDecl.SwiftTypeSpec != null && WrapperValidation.ContainsRawGenericTypeParam(propertyDecl.SwiftTypeSpec))
+            return "raw_generic_type_params";
+
+        return null;
     }
 
     /// <summary>

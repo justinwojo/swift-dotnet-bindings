@@ -335,6 +335,9 @@ namespace BindingsGeneration
                     methodEnv.MethodDecl.HasClosureParams = true;
             }
 
+            // Track wrapper strategy for emission report (once per constructor, after flags are locked).
+            context.GetEmissionContext().IncrementWrapperStrategy(methodEnv.MethodDecl.WrapperStrategy.ToString());
+
             var signatureHandler = new SignatureHandler(methodEnv);
 
             if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)
@@ -927,6 +930,19 @@ namespace BindingsGeneration
                         methodEnv.MethodDecl.Name,
                         methodEnv.ParentDecl?.Name ?? "free",
                         reason);
+                }
+            }
+
+            // Track wrapper strategy and skip reasons for emission report.
+            // Runs once per method after all @_cdecl flags are locked.
+            if (!isAccessor)
+            {
+                context.GetEmissionContext().IncrementWrapperStrategy(methodEnv.MethodDecl.WrapperStrategy.ToString());
+                if (!methodEnv.MethodDecl.UsesCdeclWrapper && WrapperValidation.IsXCFrameworkMode(methodEnv.TypeDatabase))
+                {
+                    var skipReason = WrapperValidation.GetRejectionReason(methodEnv);
+                    if (skipReason != null)
+                        context.GetEmissionContext().IncrementWrapperSkipReason(skipReason);
                 }
             }
 

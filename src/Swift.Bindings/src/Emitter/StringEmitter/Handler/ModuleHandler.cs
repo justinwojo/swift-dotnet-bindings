@@ -542,7 +542,7 @@ namespace BindingsGeneration
             if (!suitableProtocols.Any())
                 return;
 
-            var emitter = new EveryProtocolEmitter(typeDatabase, _logger, moduleDecl.Name);
+            var emitter = new EveryProtocolEmitter(typeDatabase, _logger, moduleDecl.Name, emissionCtx);
             var dispatchEmitter = new WitnessDispatchEmitter(typeDatabase, _logger, moduleDecl.Name, emissionCtx);
 
             // Emit the EveryProtocol class once

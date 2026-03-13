@@ -1019,6 +1019,9 @@ namespace BindingsGeneration
                 }
                 ReportCollector.Reset();
 
+                // Emit emission-level metrics (wrapper strategies, conformance decisions)
+                EmissionReportEmitter.Emit(emissionContext, moduleName, outputDirectory, logger);
+
                 // Fixup protocol EmittedMemberCount to include inherited requirements.
                 // Must run after EmitModule (all direct counts set) and before database serialization.
                 ProtocolHandler.FixupProtocolInheritedRequirements(decl, typeDatabase);

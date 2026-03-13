@@ -716,7 +716,302 @@ public class WrapperConsistencyTests
 
     #endregion
 
+    #region Raw Generic Type Params — Wrapper Rejection
+
+    [Fact]
+    public void HasRawGenericTypeParams_ParamWithTau_ReturnsTrue()
+    {
+        var method = CreateMethodWithGenericParam();
+        Assert.True(WrapperValidation.HasRawGenericTypeParams(method));
+    }
+
+    [Fact]
+    public void HasRawGenericTypeParams_NormalParams_ReturnsFalse()
+    {
+        var moduleDecl = CreateModuleDecl();
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+        var method = CreateMethod("doWork", parentDecl, moduleDecl);
+        Assert.False(WrapperValidation.HasRawGenericTypeParams(method));
+    }
+
+    [Fact]
+    public void HasRawGenericTypeParams_ReturnTypeWithTau_ReturnsTrue()
+    {
+        var method = CreateMethodWithGenericReturn();
+        Assert.True(WrapperValidation.HasRawGenericTypeParams(method));
+    }
+
+    [Fact]
+    public void GetRejectionReason_RawGenericParam_ReturnsReason()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethodWithGenericParam();
+        method.ParentDecl = parentDecl;
+        method.ModuleDecl = moduleDecl;
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.Equal("raw_generic_type_params", WrapperValidation.GetRejectionReason(env));
+    }
+
+    [Fact]
+    public void ConstructorWrapper_RawGenericParam_Rejected()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+
+        // Constructor with τ_0_0 parameter
+        var ctor = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule_init_generic",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl { SwiftTypeSpec = TupleTypeSpec.Empty, Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl },
+                new ArgumentDecl { SwiftTypeSpec = new NamedTypeSpec("\u03c4_0_0"), Name = "value", PrivateName = "value", IsInOut = false, IsGeneric = true, ParentDecl = null, ModuleDecl = moduleDecl }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var env = new MethodEnvironment(ctor, typeDb);
+        Assert.False(ConstructorWrapperEmitter.ShouldEmitWrapper(env),
+            "Constructor with raw generic param should be rejected");
+    }
+
+    [Fact]
+    public void PropertyWrapper_RawGenericTypeSpec_Rejected()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+
+        // Property with τ_0_0 type
+        var (propertyDecl, env) = CreatePropertyAndEnv(
+            "value", new NamedTypeSpec("\u03c4_0_0"), parentDecl, moduleDecl, typeDb);
+
+        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env),
+            "Property with raw generic type param should be rejected");
+    }
+
+    [Fact]
+    public void SubscriptWrapper_RawGenericReturn_Rejected()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+
+        var getterMethod = CreateAccessorMethod("getter:subscript", isGetter: true, parentDecl, moduleDecl);
+        var accessor = new GetAccessorDecl { Method = getterMethod };
+        var subscript = CreateSubscriptDecl(
+            new NamedTypeSpec("\u03c4_0_0"),
+            new[] { CreateIndexParam("key", new NamedTypeSpec("Swift.Int"), moduleDecl) },
+            new AccessorDecl[] { accessor },
+            parentDecl, moduleDecl);
+
+        var env = new MethodEnvironment(getterMethod, typeDb);
+        Assert.False(SubscriptWrapperEmitter.ShouldEmitSubscriptWrapper(subscript, accessor, env),
+            "Subscript with raw generic return type should be rejected");
+    }
+
+    [Fact]
+    public void SubscriptWrapper_RawGenericIndexParam_Rejected()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+
+        var getterMethod = CreateAccessorMethod("getter:subscript", isGetter: true, parentDecl, moduleDecl);
+        var accessor = new GetAccessorDecl { Method = getterMethod };
+        var subscript = CreateSubscriptDecl(
+            new NamedTypeSpec("Swift.Int"),
+            new[] { CreateIndexParam("key", new NamedTypeSpec("\u03c4_0_0"), moduleDecl) },
+            new AccessorDecl[] { accessor },
+            parentDecl, moduleDecl);
+
+        var env = new MethodEnvironment(getterMethod, typeDb);
+        Assert.False(SubscriptWrapperEmitter.ShouldEmitSubscriptWrapper(subscript, accessor, env),
+            "Subscript with raw generic index param should be rejected");
+    }
+
+    #endregion
+
+    #region Property/Subscript Rejection Reasons
+
+    [Fact]
+    public void PropertyGetRejectionReason_ClosureProperty_ReturnsReason()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+
+        var closureType = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+        var (propertyDecl, env) = CreatePropertyAndEnv("handler", closureType, parentDecl, moduleDecl, typeDb);
+
+        Assert.Equal("closure_property", PropertyWrapperEmitter.GetRejectionReason(propertyDecl, env));
+    }
+
+    [Fact]
+    public void PropertyGetRejectionReason_RawGenericTypeParam_ReturnsReason()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+
+        var (propertyDecl, env) = CreatePropertyAndEnv("value", new NamedTypeSpec("\u03c4_0_0"), parentDecl, moduleDecl, typeDb);
+
+        Assert.Equal("raw_generic_type_params", PropertyWrapperEmitter.GetRejectionReason(propertyDecl, env));
+    }
+
+    [Fact]
+    public void PropertyGetRejectionReason_NormalProperty_ReturnsNull()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+
+        var (propertyDecl, env) = CreatePropertyAndEnv("count", new NamedTypeSpec("Swift.Int"), parentDecl, moduleDecl, typeDb);
+
+        Assert.Null(PropertyWrapperEmitter.GetRejectionReason(propertyDecl, env));
+    }
+
+    [Fact]
+    public void SubscriptGetRejectionReason_StaticSubscript_ReturnsReason()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+
+        var getterMethod = CreateAccessorMethod("getter:subscript", isGetter: true, parentDecl, moduleDecl);
+        var accessor = new GetAccessorDecl { Method = getterMethod };
+        var subscript = CreateSubscriptDecl(
+            new NamedTypeSpec("Swift.Int"),
+            new[] { CreateIndexParam("key", new NamedTypeSpec("Swift.Int"), moduleDecl) },
+            new AccessorDecl[] { accessor },
+            parentDecl, moduleDecl, isStatic: true);
+
+        var env = new MethodEnvironment(getterMethod, typeDb);
+        Assert.Equal("static_subscript", SubscriptWrapperEmitter.GetRejectionReason(subscript, accessor, env));
+    }
+
+    [Fact]
+    public void SubscriptGetRejectionReason_RawGenericReturn_ReturnsReason()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+
+        var getterMethod = CreateAccessorMethod("getter:subscript", isGetter: true, parentDecl, moduleDecl);
+        var accessor = new GetAccessorDecl { Method = getterMethod };
+        var subscript = CreateSubscriptDecl(
+            new NamedTypeSpec("\u03c4_0_0"),
+            new[] { CreateIndexParam("key", new NamedTypeSpec("Swift.Int"), moduleDecl) },
+            new AccessorDecl[] { accessor },
+            parentDecl, moduleDecl);
+
+        var env = new MethodEnvironment(getterMethod, typeDb);
+        Assert.Equal("raw_generic_type_params", SubscriptWrapperEmitter.GetRejectionReason(subscript, accessor, env));
+    }
+
+    [Fact]
+    public void SubscriptGetRejectionReason_NormalSubscript_ReturnsNull()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+
+        var getterMethod = CreateAccessorMethod("getter:subscript", isGetter: true, parentDecl, moduleDecl);
+        var accessor = new GetAccessorDecl { Method = getterMethod };
+        var subscript = CreateSubscriptDecl(
+            new NamedTypeSpec("Swift.Int"),
+            new[] { CreateIndexParam("key", new NamedTypeSpec("Swift.Int"), moduleDecl) },
+            new AccessorDecl[] { accessor },
+            parentDecl, moduleDecl);
+
+        var env = new MethodEnvironment(getterMethod, typeDb);
+        Assert.Null(SubscriptWrapperEmitter.GetRejectionReason(subscript, accessor, env));
+    }
+
+    #endregion
+
     #region Test Helpers
+
+    private static MethodDecl CreateMethodWithGenericParam()
+    {
+        return new MethodDecl
+        {
+            Name = "process",
+            MangledName = "$s_process",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    Name = "",
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                },
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("\u03c4_0_0"),
+                    Name = "value",
+                    PrivateName = "value",
+                    IsInOut = false,
+                    IsGeneric = true,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+    }
+
+    private static MethodDecl CreateMethodWithGenericReturn()
+    {
+        return new MethodDecl
+        {
+            Name = "getValue",
+            MangledName = "$s_getValue",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("\u03c4_0_0"),
+                    Name = "",
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+    }
 
     private static MethodDecl CreateSimpleMethod()
     {

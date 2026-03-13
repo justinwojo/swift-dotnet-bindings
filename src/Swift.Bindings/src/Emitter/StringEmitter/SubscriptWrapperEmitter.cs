@@ -110,7 +110,85 @@ public static class SubscriptWrapperEmitter
                 return false;
         }
 
+        // 14. Skip subscripts with raw ABI generic type params (τ_0_0) in return type or index params.
+        // These leak from parent type generics and cause Swift compilation failures.
+        if (subscriptDecl.ReturnTypeSpec != null && WrapperValidation.ContainsRawGenericTypeParam(subscriptDecl.ReturnTypeSpec))
+            return false;
+        foreach (var param in subscriptDecl.IndexParameters)
+        {
+            if (param.SwiftTypeSpec != null && WrapperValidation.ContainsRawGenericTypeParam(param.SwiftTypeSpec))
+                return false;
+        }
+
         return true;
+    }
+
+    /// <summary>
+    /// Returns a human-readable skip reason if the subscript wrapper would be rejected, or null if it passes all gates.
+    /// Mirrors the guard order in <see cref="ShouldEmitSubscriptWrapper"/> for emission report diagnostics.
+    /// </summary>
+    public static string? GetRejectionReason(SubscriptDecl subscriptDecl, AccessorDecl accessor, MethodEnvironment env)
+    {
+        if (!WrapperValidation.IsXCFrameworkMode(env.TypeDatabase))
+            return null; // not in xcframework mode — not a skip, just N/A
+
+        if (env.ParentDecl is TypeDecl td && td.IsGeneric &&
+            !CanEmitGenericClassSubscriptWrapper(subscriptDecl, td))
+            return "generic_parent_type";
+        if (subscriptDecl.IsStatic)
+            return "static_subscript";
+        foreach (var param in subscriptDecl.IndexParameters)
+        {
+            if (env.ClosureHandler.IsClosure(param))
+                return "closure_index_param";
+        }
+        if (accessor.Method.IsAsync)
+            return "async_accessor";
+        if (WrapperValidation.IsNonCopyableStructParent(env.ParentDecl))
+            return "non_copyable_struct_parent";
+        if (WrapperValidation.IsActorIsolatedMember(env.ParentDecl, accessor.Method.IsActorIsolated))
+            return "actor_isolated_subscript";
+        if (subscriptDecl.ReturnTypeSpec is ProtocolListTypeSpec { IsOpaque: true })
+            return "opaque_return_type";
+        if (WrapperValidation.IsUnsupportedGenericContainer(subscriptDecl.ReturnTypeSpec, env.TypeDatabase))
+            return "unsupported_generic_container";
+        foreach (var param in subscriptDecl.IndexParameters)
+        {
+            if (WrapperValidation.IsUnsupportedGenericContainer(param.SwiftTypeSpec, env.TypeDatabase))
+                return "unsupported_generic_container_param";
+        }
+        if (subscriptDecl.ReturnTypeSpec is ClosureTypeSpec)
+            return "closure_return_type";
+        if (WrapperValidation.IsNestedType(subscriptDecl.ReturnTypeSpec))
+            return "nested_type_return";
+        foreach (var param in subscriptDecl.IndexParameters)
+        {
+            if (param.SwiftTypeSpec is not NamedTypeSpec namedSpec) continue;
+            if (!env.TypeDatabase.TryGetTypeRecord(namedSpec, out var typeRecord)) continue;
+            if (typeRecord.Kind != TypeRecordKind.Struct || !MarshallingHelpers.IsTypeFrozen(typeRecord)) continue;
+            var name = namedSpec.Name;
+            var dotIndex = name.IndexOf('.');
+            if (dotIndex >= 0 && name.Substring(dotIndex + 1).Contains('.'))
+                return "nested_frozen_struct_index_param";
+        }
+        foreach (var param in subscriptDecl.IndexParameters)
+        {
+            if (ConstructorWrapperEmitter.IsCdeclPrimitive(param.SwiftTypeSpec)) continue;
+            if (param.SwiftTypeSpec is NamedTypeSpec strNamed && strNamed.Name == "Swift.String") continue;
+            if (env.TypeDatabase.TryGetTypeRecord(param.SwiftTypeSpec, out var typeRecord) &&
+                typeRecord.Kind == TypeRecordKind.Struct &&
+                MarshallingHelpers.IsTypeFrozen(typeRecord))
+                return "non_primitive_frozen_struct_index_param";
+        }
+        if (subscriptDecl.ReturnTypeSpec != null && WrapperValidation.ContainsRawGenericTypeParam(subscriptDecl.ReturnTypeSpec))
+            return "raw_generic_type_params";
+        foreach (var param in subscriptDecl.IndexParameters)
+        {
+            if (param.SwiftTypeSpec != null && WrapperValidation.ContainsRawGenericTypeParam(param.SwiftTypeSpec))
+                return "raw_generic_type_params";
+        }
+
+        return null;
     }
 
     /// <summary>

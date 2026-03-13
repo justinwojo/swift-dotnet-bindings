@@ -18,12 +18,14 @@ public class EveryProtocolEmitter
     private readonly ITypeDatabase _typeDatabase;
     private readonly ILogger _logger;
     private readonly string _moduleName;
+    private readonly ModuleEmissionContext? _emissionContext;
 
-    public EveryProtocolEmitter(ITypeDatabase typeDatabase, ILogger logger, string moduleName)
+    public EveryProtocolEmitter(ITypeDatabase typeDatabase, ILogger logger, string moduleName, ModuleEmissionContext? emissionContext = null)
     {
         _typeDatabase = typeDatabase;
         _logger = logger;
         _moduleName = moduleName;
+        _emissionContext = emissionContext;
     }
 
     /// <summary>
@@ -365,6 +367,7 @@ public class EveryProtocolEmitter
         if (protocolDecl.HasSelfRequirement)
         {
             _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: has Self requirement");
+            _emissionContext?.RecordConformanceDecision(protocolDecl.Name, false, "HasSelfRequirement");
             return;
         }
 
@@ -385,6 +388,7 @@ public class EveryProtocolEmitter
         if (hasSelfTypedMembers || hasSelfTypedProperties || hasSelfTypedSubscripts)
         {
             _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: has Self-typed members (generic type params in signature)");
+            _emissionContext?.RecordConformanceDecision(protocolDecl.Name, false, "SelfTypedMembers");
             return;
         }
 
@@ -396,6 +400,7 @@ public class EveryProtocolEmitter
         if (!hasImplementableMembers)
         {
             _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: no implementable instance members (may have only static requirements)");
+            _emissionContext?.RecordConformanceDecision(protocolDecl.Name, false, "NoImplementableMembers");
             return;
         }
 
@@ -403,6 +408,7 @@ public class EveryProtocolEmitter
         EmitProtocolExtension(writer, protocolDecl, globalEmittedSignatures, nonThrowingOverrides);
         EmitSetVtableFunction(writer, protocolDecl);
         EmitWitnessTableGetter(writer, protocolDecl);
+        _emissionContext?.RecordConformanceDecision(protocolDecl.Name, true, null);
     }
 
     #region Private Helper Methods

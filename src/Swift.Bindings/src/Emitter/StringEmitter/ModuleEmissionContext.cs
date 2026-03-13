@@ -275,6 +275,50 @@ public sealed class ModuleEmissionContext
 
     /// <summary>Adds an enum RawRepresentable wrapper symbol. Returns true if newly added.</summary>
     public bool TryAddEnumRawRepWrapperSymbol(string symbol) => _enumRawRepSymbols.Add(symbol);
+
+    // ==================== Emission Report Accumulators ====================
+
+    private readonly Dictionary<string, int> _wrapperStrategyCounts = new();
+    private readonly Dictionary<string, int> _wrapperSkipReasons = new();
+
+    /// <summary>Wrapper strategy usage counts (e.g., "CdeclMethod": 98).</summary>
+    public IReadOnlyDictionary<string, int> WrapperStrategyCounts => _wrapperStrategyCounts;
+
+    /// <summary>Wrapper skip reason counts (e.g., "methodLevelGenerics": 3).</summary>
+    public IReadOnlyDictionary<string, int> WrapperSkipReasons => _wrapperSkipReasons;
+
+    /// <summary>Increments the count for a wrapper strategy.</summary>
+    public void IncrementWrapperStrategy(string strategyName)
+    {
+        _wrapperStrategyCounts.TryGetValue(strategyName, out var count);
+        _wrapperStrategyCounts[strategyName] = count + 1;
+    }
+
+    /// <summary>Increments the count for a wrapper skip reason.</summary>
+    public void IncrementWrapperSkipReason(string reason)
+    {
+        _wrapperSkipReasons.TryGetValue(reason, out var count);
+        _wrapperSkipReasons[reason] = count + 1;
+    }
+
+    // ==================== Protocol Conformance Decisions ====================
+
+    private readonly Dictionary<string, ProtocolConformanceDecision> _conformanceDecisions = new();
+
+    /// <summary>Records whether a protocol conformance was emitted or skipped.</summary>
+    public void RecordConformanceDecision(string protocolName, bool emitted, string? skipReason)
+    {
+        _conformanceDecisions[protocolName] = new ProtocolConformanceDecision(emitted, skipReason);
+    }
+
+    /// <summary>Returns true if the given protocol's conformance was emitted (not skipped).</summary>
+    public bool WasConformanceEmitted(string protocolName)
+    {
+        return _conformanceDecisions.TryGetValue(protocolName, out var decision) && decision.Emitted;
+    }
+
+    /// <summary>Returns all recorded conformance decisions.</summary>
+    public IReadOnlyDictionary<string, ProtocolConformanceDecision> ConformanceDecisions => _conformanceDecisions;
 }
 
 /// <summary>
@@ -304,3 +348,8 @@ public class ForeignExtensionMemberInfo
     public bool IsPropertyGetter { get; init; }
     public bool IsPropertySetter { get; init; }
 }
+
+/// <summary>
+/// Records whether an EveryProtocol conformance was emitted or skipped, and why.
+/// </summary>
+public readonly record struct ProtocolConformanceDecision(bool Emitted, string? SkipReason);

@@ -171,8 +171,27 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void Process_SilgenNameWithMutatingLetExistential_Stripped()
+        public void Process_SilgenNameWithVarExistential_NotStripped()
         {
+            // Pattern (d) was removed — all existentials now use `var`, so this code is safe.
+            var input = """
+                @_silgen_name("existential_func")
+                public func existential_func(_self: UnsafeMutableRawPointer) {
+                    var existential = buffer.load(as: (any SomeProtocol).self)
+                    existential.mutate()
+                }
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("var existential", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_SilgenNameWithLetExistential_NoLongerStripped()
+        {
+            // Pattern (d) was removed entirely — even `let existential` is no longer caught.
+            // The emitter now always uses `var`, making this pattern dead code.
             var input = """
                 @_silgen_name("existential_func")
                 public func existential_func(_self: UnsafeMutableRawPointer) {
@@ -182,7 +201,8 @@ namespace BindingsGeneration.Tests
 
                 """;
             var result = SwiftWrapperPostProcessor.Process(input);
-            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("let existential", result.CleanedContent);
         }
 
         [Fact]
@@ -324,8 +344,25 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void Process_SBWFuncWithMutatingLetExistential_Stripped()
+        public void Process_SBWFuncWithVarExistential_NotStripped()
         {
+            // Pattern (d) was removed — all existentials now use `var`, so this code is safe.
+            var input = """
+                public func SBW_existentialFunc(ptr: UnsafeMutableRawPointer) {
+                    var existential = ptr.load(as: (any SomeProtocol).self)
+                    existential.mutate()
+                }
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("var existential", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_SBWFuncWithLetExistential_NoLongerStripped()
+        {
+            // Pattern (d) was removed entirely — even `let existential` is no longer caught.
             var input = """
                 public func SBW_existentialFunc(ptr: UnsafeMutableRawPointer) {
                     let existential = ptr.load(as: (any SomeProtocol).self)
@@ -334,7 +371,8 @@ namespace BindingsGeneration.Tests
 
                 """;
             var result = SwiftWrapperPostProcessor.Process(input);
-            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("let existential", result.CleanedContent);
         }
 
         [Fact]
@@ -925,11 +963,9 @@ namespace BindingsGeneration.Tests
             var input = """
                 @MainActor @_silgen_name("SBW_Proto_get_prop_0")
                 public func SBW_Proto_get_prop_0(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
-                    let existential = containerPtr.load(as: (any TestModule.Proto).self)
-                    let result = existential.prop
-                    let ptr = UnsafeMutablePointer<Bool>.allocate(capacity: 1)
-                    ptr.initialize(to: result)
-                    return UnsafeMutableRawPointer(ptr)
+                    let proxy = EveryProtocol()
+                    proxy.execute()
+                    return UnsafeMutableRawPointer(bitPattern: 0)!
                 }
                 @_silgen_name("SBW_Proto_free_get_prop_0")
                 public func SBW_Proto_free_get_prop_0(_ ptr: UnsafeMutableRawPointer) {
@@ -939,7 +975,7 @@ namespace BindingsGeneration.Tests
                 """;
             var result = SwiftWrapperPostProcessor.Process(input);
 
-            // The getter has "let existential" + ".load(as: (any " + "existential." → should be stripped
+            // The getter has EveryProtocol() → should be stripped
             // But the free function should remain
             Assert.Contains("SBW_Proto_free_get_prop_0", result.CleanedContent);
         }
@@ -952,11 +988,9 @@ namespace BindingsGeneration.Tests
             var input = """
                 @MainActor @_silgen_name("SBW_Proto_get_prop_0")
                 public func SBW_Proto_get_prop_0(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
-                    let existential = containerPtr.load(as: (any TestModule.Proto).self)
-                    let result = existential.prop
-                    let ptr = UnsafeMutablePointer<Bool>.allocate(capacity: 1)
-                    ptr.initialize(to: result)
-                    return UnsafeMutableRawPointer(ptr)
+                    let proxy = EveryProtocol()
+                    proxy.execute()
+                    return UnsafeMutableRawPointer(bitPattern: 0)!
                 }
                 @_silgen_name("SBW_Proto_free_get_prop_0")
                 public func SBW_Proto_free_get_prop_0(_ ptr: UnsafeMutableRawPointer) {
@@ -1050,11 +1084,9 @@ namespace BindingsGeneration.Tests
                 @MainActor
                 @_silgen_name("SBW_broken_getter")
                 public func SBW_broken_getter(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
-                    let existential = containerPtr.load(as: (any TestModule.Proto).self)
-                    let result = existential.prop
-                    let ptr = UnsafeMutablePointer<Bool>.allocate(capacity: 1)
-                    ptr.initialize(to: result)
-                    return UnsafeMutableRawPointer(ptr)
+                    let proxy = EveryProtocol()
+                    proxy.execute()
+                    return UnsafeMutableRawPointer(bitPattern: 0)!
                 }
                 """;
             var result = SwiftWrapperPostProcessor.Process(input);
@@ -1062,6 +1094,160 @@ namespace BindingsGeneration.Tests
             Assert.DoesNotContain("@MainActor", result.CleanedContent);
             Assert.DoesNotContain("SBW_broken_getter", result.CleanedContent);
             Assert.True(result.StrippedBlockCount >= 1);
+        }
+    }
+
+    #endregion
+
+    #region I. Safety-Net Warning Callback Tests
+
+    public class PostProcessorSafetyNetWarningTests
+    {
+        [Fact]
+        public void Process_VarExistentialCode_NotStripped()
+        {
+            // var existential is safe — pattern (d) was removed
+            var code = "@_silgen_name(\"test\")\n" +
+                       "public func test(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {\n" +
+                       "    var existential = containerPtr.load(as: (any TestModule.MyProtocol).self)\n" +
+                       "    let result = existential.value\n" +
+                       "    let ptr = UnsafeMutablePointer<Int>.allocate(capacity: 1)\n" +
+                       "    ptr.initialize(to: result)\n" +
+                       "    return UnsafeMutableRawPointer(ptr)\n" +
+                       "}\n";
+            var result = SwiftWrapperPostProcessor.Process(code);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("var existential", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_SafetyNetWarning_FiresForSelfWithoutSelfParam()
+        {
+            var code = "@_cdecl(\"test\")\n" +
+                       "public func test() {\n" +
+                       "    self.doSomething()\n" +
+                       "}\n";
+            var warnings = new List<string>();
+            var result = SwiftWrapperPostProcessor.Process(code, null, w => warnings.Add(w));
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Single(warnings);
+            Assert.Contains("self-without-_self", warnings[0]);
+        }
+
+        [Fact]
+        public void Process_SafetyNetWarning_FiresForRawGenericParam()
+        {
+            var code = "@_cdecl(\"test\")\n" +
+                       "public func test(_ arg: \u03C4_0_0) {\n" +
+                       "    print(arg)\n" +
+                       "}\n";
+            var warnings = new List<string>();
+            var result = SwiftWrapperPostProcessor.Process(code, null, w => warnings.Add(w));
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Single(warnings);
+            Assert.Contains("raw-generic-param", warnings[0]);
+        }
+
+        [Fact]
+        public void Process_SafetyNetWarning_FiresForAsyncInit()
+        {
+            var code = "@_silgen_name(\"init_wrapper\")\n" +
+                       "public func init_wrapper() {\n" +
+                       "    __self.init(value: 42)\n" +
+                       "}\n";
+            var warnings = new List<string>();
+            var result = SwiftWrapperPostProcessor.Process(code, null, w => warnings.Add(w));
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Single(warnings);
+            Assert.Contains("__self.init", warnings[0]);
+        }
+
+        [Fact]
+        public void Process_SafetyNetWarning_FiresForNonEscapingClosureInTask()
+        {
+            var code = "@_silgen_name(\"closure_task_func\")\n" +
+                       "public func closure_task_func(_self: UnsafeMutableRawPointer, callback: (Int32) -> Int32) {\n" +
+                       "    Task {\n" +
+                       "        let result = callback(42)\n" +
+                       "    }\n" +
+                       "}\n";
+            var warnings = new List<string>();
+            var result = SwiftWrapperPostProcessor.Process(code, null, w => warnings.Add(w));
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Single(warnings);
+            Assert.Contains("non-escaping-closure-in-Task", warnings[0]);
+        }
+
+        [Fact]
+        public void Process_NoWarning_WhenNothingStripped()
+        {
+            var code = "@_cdecl(\"test\")\n" +
+                       "public func test(_ _self: UnsafeRawPointer) {\n" +
+                       "    let result = _self.load(as: Int.self)\n" +
+                       "}\n";
+            var warnings = new List<string>();
+            var result = SwiftWrapperPostProcessor.Process(code, null, w => warnings.Add(w));
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Empty(warnings);
+        }
+
+        [Fact]
+        public void Process_NoWarning_ForEveryProtocol()
+        {
+            // EveryProtocol stripping is unconditional by design — NOT a safety net.
+            // Verify it does NOT fire the warning callback.
+            var code = "@_cdecl(\"test\")\n" +
+                       "public func test() {\n" +
+                       "    let proxy = EveryProtocol()\n" +
+                       "    proxy.execute()\n" +
+                       "}\n";
+            var warnings = new List<string>();
+            var result = SwiftWrapperPostProcessor.Process(code, null, w => warnings.Add(w));
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Empty(warnings);
+        }
+
+        [Fact]
+        public void Process_SafetyNetWarning_ExtensionWithRawGenericParam()
+        {
+            var code = "extension SomeType {\n" +
+                       "    func wrapper() -> \u03C4_1_0 {\n" +
+                       "        return self.getValue() as! \u03C4_1_0\n" +
+                       "    }\n" +
+                       "}\n";
+            var warnings = new List<string>();
+            var result = SwiftWrapperPostProcessor.Process(code, null, w => warnings.Add(w));
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Single(warnings);
+            Assert.Contains("raw-generic-param", warnings[0]);
+        }
+
+        [Fact]
+        public void Process_SafetyNetWarning_ExtensionWithAsyncInit()
+        {
+            var code = "extension SomeType {\n" +
+                       "    func wrapper() {\n" +
+                       "        __self.init(value: 1)\n" +
+                       "    }\n" +
+                       "}\n";
+            var warnings = new List<string>();
+            var result = SwiftWrapperPostProcessor.Process(code, null, w => warnings.Add(w));
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Single(warnings);
+            Assert.Contains("__self.init", warnings[0]);
+        }
+
+        [Fact]
+        public void Process_SafetyNetWarning_StandaloneFuncWithRawGenericParam()
+        {
+            var code = "public func SBW_generic(_ arg: \u03C4_0_1) {\n" +
+                       "    print(arg)\n" +
+                       "}\n";
+            var warnings = new List<string>();
+            var result = SwiftWrapperPostProcessor.Process(code, null, w => warnings.Add(w));
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Single(warnings);
+            Assert.Contains("raw-generic-param", warnings[0]);
         }
     }
 

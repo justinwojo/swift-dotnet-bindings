@@ -444,6 +444,30 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             }
         }
 
+        // Track property wrapper strategy and skip reasons for emission report (one entry per property).
+        if (WrapperValidation.IsXCFrameworkMode(propertyEnv.TypeDatabase))
+        {
+            if (needsCdeclWrapper)
+            {
+                context.GetEmissionContext().IncrementWrapperStrategy("CdeclProperty");
+            }
+            else
+            {
+                context.GetEmissionContext().IncrementWrapperStrategy("LegacyCallConvSwift");
+                if (propertyDecl.Accessors.Count > 0)
+                {
+                    var firstAccessor = propertyDecl.Accessors[0];
+                    if (conductor.TryGetMethodHandler(firstAccessor.Method, out var skipCheckHandler))
+                    {
+                        var skipCheckEnv = (MethodEnvironment)skipCheckHandler.Marshal(firstAccessor.Method, propertyEnv.TypeDatabase);
+                        var skipReason = PropertyWrapperEmitter.GetRejectionReason(propertyDecl, skipCheckEnv);
+                        if (skipReason != null)
+                            context.GetEmissionContext().IncrementWrapperSkipReason(skipReason);
+                    }
+                }
+            }
+        }
+
         // Now emit the accessor methods using MethodHandler
         foreach (var accessor in propertyDecl.Accessors)
         {

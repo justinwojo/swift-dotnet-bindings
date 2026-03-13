@@ -42,6 +42,17 @@ generate_for_lib() {
     local lines
     lines=$(wc -l < "$csfile" | tr -d ' ')
     echo "    -> ${name}.cs.golden ($lines lines)"
+
+    # Copy Swift wrapper golden file
+    local swiftfile
+    swiftfile=$(ls "$tmpdir"/${name}.swift 2>/dev/null | head -1)
+    if [ -n "$swiftfile" ]; then
+        cp "$swiftfile" "$GOLDEN_DIR/${name}.swift.golden"
+        local swiftlines
+        swiftlines=$(wc -l < "$swiftfile" | tr -d ' ')
+        echo "    -> ${name}.swift.golden ($swiftlines lines)"
+    fi
+
     rm -rf "$tmpdir"
 }
 

@@ -33,7 +33,7 @@ namespace BindingsGeneration
         /// </summary>
         public static PostProcessingResult Process(string sourceContent)
         {
-            return Process(sourceContent, internalTypeNames: null);
+            return Process(sourceContent, internalTypeNames: null, onSafetyNetWarning: null);
         }
 
         /// <summary>
@@ -45,7 +45,12 @@ namespace BindingsGeneration
         /// Set of internal type names to strip. Contains both short names ("SkeletonLayer")
         /// and qualified names ("SkeletonView.SkeletonLayer"). Null to skip internal type stripping.
         /// </param>
-        public static PostProcessingResult Process(string sourceContent, HashSet<string>? internalTypeNames)
+        /// <param name="onSafetyNetWarning">
+        /// Optional callback invoked when a safety-net pattern fires. These patterns should no longer
+        /// match in normal operation (they are now prevented at emission time), so a warning indicates
+        /// a regression in the emitter.
+        /// </param>
+        public static PostProcessingResult Process(string sourceContent, HashSet<string>? internalTypeNames, Action<string>? onSafetyNetWarning = null)
         {
             if (string.IsNullOrEmpty(sourceContent))
                 return new PostProcessingResult { CleanedContent = sourceContent, StrippedBlockCount = 0 };
@@ -79,7 +84,7 @@ namespace BindingsGeneration
                     int end = FindBlockEnd(lines, i);
                     var body = ScanBlockBody(lines, i, end);
 
-                    if (IsSilgenNameBroken(lines, i, end, body) ||
+                    if (IsSilgenNameBroken(lines, i, end, body, onSafetyNetWarning) ||
                         ReferencesInternalType(body, internalTypeNames))
                     {
                         removedCount++;
@@ -100,7 +105,7 @@ namespace BindingsGeneration
                         int end = FindBlockEnd(lines, i + 1);
                         var body = ScanBlockBody(lines, i + 1, end);
 
-                        if (IsSilgenNameBroken(lines, i + 1, end, body) ||
+                        if (IsSilgenNameBroken(lines, i + 1, end, body, onSafetyNetWarning) ||
                             ReferencesInternalType(body, internalTypeNames))
                         {
                             removedCount++;
@@ -117,7 +122,7 @@ namespace BindingsGeneration
                     int end = FindBlockEnd(lines, i);
                     var body = ScanBlockBody(lines, i, end);
 
-                    if (IsExtensionBroken(lines, i, end, body) ||
+                    if (IsExtensionBroken(lines, i, end, body, onSafetyNetWarning) ||
                         ReferencesInternalType(body, internalTypeNames))
                     {
                         removedCount++;
@@ -133,7 +138,7 @@ namespace BindingsGeneration
                     int end = FindBlockEnd(lines, i);
                     var body = ScanBlockBody(lines, i, end);
 
-                    if (IsStandaloneFuncBroken(body) ||
+                    if (IsStandaloneFuncBroken(body, i, onSafetyNetWarning) ||
                         ReferencesInternalType(body, internalTypeNames))
                     {
                         removedCount++;
@@ -189,14 +194,18 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Checks if a @_silgen_name function block contains known-broken patterns.
+        /// Safety-net patterns (b)-(f) now fire a warning callback when they match,
+        /// since these patterns should be prevented at emission time.
         /// </summary>
-        private static bool IsSilgenNameBroken(IReadOnlyList<string> lines, int start, int end, string body)
+        private static bool IsSilgenNameBroken(IReadOnlyList<string> lines, int start, int end, string body, Action<string>? onSafetyNetWarning)
         {
             // (a) EveryProtocol() — protocol witness dispatch for unimplemented conformances
+            // This is unconditional by design (not a safety net).
             if (body.Contains("EveryProtocol()"))
                 return true;
 
             // (b) self.functionName() in free function (no _self: parameter)
+            // Safety net: now prevented by async wrapper fix at emission time.
             if (!body.Contains("_self:") && !body.Contains("_self :"))
             {
                 for (int j = start; j <= end && j < lines.Count; j++)
@@ -204,21 +213,26 @@ namespace BindingsGeneration
                     var s = lines[j].TrimStart();
                     if (s.StartsWith("self.", StringComparison.Ordinal) ||
                         s.Contains(" self.") || s.Contains("\tself."))
+                    {
+                        onSafetyNetWarning?.Invoke($"Post-processor safety net: stripped self-without-_self at line {j}");
                         return true;
+                    }
                 }
             }
 
             // (c) __self.init( — async init wrapper (invalid Swift)
+            // Safety net: now prevented at emission time.
             if (body.Contains("__self.init("))
+            {
+                onSafetyNetWarning?.Invoke($"Post-processor safety net: stripped __self.init at line {start}");
                 return true;
+            }
 
-            // (d) Mutating member on let existential
-            if (body.Contains(".load(as: (any ") &&
-                body.Contains("existential.") &&
-                body.Contains("let existential"))
-                return true;
+            // Pattern (d) REMOVED: Mutating member on let existential.
+            // All existentials now use `var`, so this pattern can never match.
 
             // (e) Non-escaping closure param passed to Task
+            // Safety net: now prevented at emission time.
             if (body.Contains("Task {"))
             {
                 int sigEnd = body.IndexOf('{');
@@ -226,40 +240,59 @@ namespace BindingsGeneration
                 {
                     var sig = body.Substring(0, sigEnd);
                     if (ClosureParamPattern.IsMatch(sig))
+                    {
+                        onSafetyNetWarning?.Invoke($"Post-processor safety net: stripped non-escaping-closure-in-Task at line {start}");
                         return true;
+                    }
                 }
             }
 
             // (f) Raw generic type parameters (τ_0_0, τ_1_0, etc.) — never valid in emitted Swift
+            // Safety net: now gated at emission time in WrapperValidation.
             if (ContainsRawGenericParam(body))
+            {
+                onSafetyNetWarning?.Invoke($"Post-processor safety net: stripped raw-generic-param at line {start}");
                 return true;
+            }
 
             return false;
         }
 
         /// <summary>
         /// Checks if an extension block contains known-broken patterns.
+        /// Safety-net patterns fire a warning callback when they match.
         /// </summary>
-        private static bool IsExtensionBroken(IReadOnlyList<string> lines, int start, int end, string body)
+        private static bool IsExtensionBroken(IReadOnlyList<string> lines, int start, int end, string body, Action<string>? onSafetyNetWarning)
         {
+            // (a) EveryProtocol() — unconditional by design
             if (body.Contains("EveryProtocol()"))
                 return true;
 
+            // (c) __self.init( — safety net
             if (body.Contains("__self.init("))
+            {
+                onSafetyNetWarning?.Invoke($"Post-processor safety net: stripped __self.init at line {start}");
                 return true;
+            }
 
-            // Raw generic type parameters (τ_0_0, τ_1_0, etc.) — never valid in emitted Swift
+            // (f) Raw generic type parameters (τ_0_0, τ_1_0, etc.) — safety net
             if (ContainsRawGenericParam(body))
+            {
+                onSafetyNetWarning?.Invoke($"Post-processor safety net: stripped raw-generic-param at line {start}");
                 return true;
+            }
 
-            // Non-escaping closure in Task
+            // (e) Non-escaping closure in Task — safety net
             if (body.Contains("Task {"))
             {
                 int taskIdx = body.IndexOf("Task {");
                 // Search for closure params in the body before the Task block
                 var bodyBeforeTask = body.Substring(0, taskIdx);
                 if (ClosureParamPattern.IsMatch(bodyBeforeTask))
+                {
+                    onSafetyNetWarning?.Invoke($"Post-processor safety net: stripped non-escaping-closure-in-Task at line {start}");
                     return true;
+                }
             }
 
             return false;
@@ -267,20 +300,23 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Checks if a standalone public func block contains known-broken patterns.
+        /// Safety-net patterns fire a warning callback when they match.
         /// </summary>
-        private static bool IsStandaloneFuncBroken(string body)
+        private static bool IsStandaloneFuncBroken(string body, int start, Action<string>? onSafetyNetWarning)
         {
+            // (a) EveryProtocol() — unconditional by design
             if (body.Contains("EveryProtocol()"))
                 return true;
 
-            if (body.Contains("let existential") &&
-                body.Contains("existential.") &&
-                body.Contains(".load(as: (any "))
-                return true;
+            // Pattern (d) REMOVED: let existential mutating pattern.
+            // All existentials now use `var`, so this pattern can never match.
 
-            // Raw generic type parameters (τ_0_0, τ_1_0, etc.) — never valid in emitted Swift
+            // (f) Raw generic type parameters (τ_0_0, τ_1_0, etc.) — safety net
             if (ContainsRawGenericParam(body))
+            {
+                onSafetyNetWarning?.Invoke($"Post-processor safety net: stripped raw-generic-param at line {start}");
                 return true;
+            }
 
             return false;
         }

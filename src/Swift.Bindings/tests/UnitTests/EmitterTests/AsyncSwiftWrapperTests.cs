@@ -352,6 +352,30 @@ public class AsyncSwiftWrapperTests
 
     #endregion
 
+    #region Async Free Function Tests
+
+    [Fact]
+    public void AsyncWrapper_FreeFunction_DoesNotEmitSelfPrefix()
+    {
+        // Free functions (methods on ModuleDecl, not a type) should NOT have "self." prefix
+        // in the async wrapper. Before the fix, the else-branch unconditionally set
+        // methodCallPrefix = "self." even when parentTypeName was null (free function).
+        var (_, swiftOutput) = GenerateAsyncFreeFunctionWrapper(
+            methodName: "fetchGlobalData",
+            isAsync: true);
+
+        // Verify we actually got output (async wrapper was emitted)
+        Assert.NotEmpty(swiftOutput);
+
+        // Should NOT contain "self." — free functions have no self
+        Assert.DoesNotContain("self.", swiftOutput);
+
+        // Should contain the function call without any prefix
+        Assert.Contains("fetchGlobalData(", swiftOutput);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     /// <summary>
@@ -853,6 +877,91 @@ public class AsyncSwiftWrapperTests
         handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
 
         return swiftStringWriter.ToString();
+    }
+
+    /// <summary>
+    /// Generates C# and Swift output for an async free function (method on ModuleDecl, not a type).
+    /// Used to verify that free functions don't get a "self." prefix in the wrapper.
+    /// </summary>
+    private static (string csOutput, string swiftOutput) GenerateAsyncFreeFunctionWrapper(string methodName, bool isAsync)
+    {
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            Dependencies = new List<string>(),
+            Types = new List<TypeDecl>(),
+            Methods = new List<MethodDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        // Build CSSignature with Int return type
+        var csSignature = new List<ArgumentDecl>
+        {
+            new ArgumentDecl
+            {
+                SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                Name = string.Empty,
+                PrivateName = string.Empty,
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = moduleDecl,
+                ModuleDecl = moduleDecl
+            }
+        };
+
+        // Free function: ParentDecl is the ModuleDecl, not a TypeDecl
+        var methodDecl = new MethodDecl
+        {
+            Name = methodName,
+            MangledName = $"$s10TestModule{methodName}yS2iFYaKF",
+            // Use Instance to exercise the else-branch in EmitAsync where
+            // parentTypeName==null would incorrectly set methodCallPrefix="self."
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = csSignature,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = isAsync,
+            Visibility = Visibility.Public
+        };
+
+        // Setup type database
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/fake/path");
+        typeDatabase.AddModuleDatabase(module);
+
+        // Register Int type in the "Swift" module (TypeDatabase resolves by module name)
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        var intTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int");
+        swiftModule.RegisterType(intTypeName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+            SwiftTypeName = intTypeName,
+            MetadataAccessor = "$sSiMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        // Generate the wrapper — use WrapperEmitter directly (like GenerateAsyncMethodWithComplexReturn)
+        var csStringWriter = new StringWriter();
+        var swiftStringWriter = new StringWriter();
+        var csWriter = new CSharpWriter(csStringWriter);
+        var swiftWriter = new SwiftWriter(swiftStringWriter);
+
+        var handler = new MethodHandler(new NullLogger<MethodHandler>());
+        var env = (MethodEnvironment)handler.Marshal(methodDecl, typeDatabase);
+
+        var signatureHandler = new SignatureHandler(env);
+        var wrapperEmitter = new WrapperEmitter(env, signatureHandler);
+        wrapperEmitter.EmitMethod(csWriter, swiftWriter);
+
+        return (csStringWriter.ToString(), swiftStringWriter.ToString());
     }
 
     #endregion

@@ -181,6 +181,29 @@ namespace BindingsGeneration
                     accessorCdeclFlags[accessor] = eligible;
                 }
 
+                // Track subscript wrapper strategy and skip reasons for emission report (per accessor).
+                if (WrapperValidation.IsXCFrameworkMode(typeDatabase))
+                {
+                    foreach (var (acc, cdecl) in accessorCdeclFlags)
+                    {
+                        if (cdecl)
+                        {
+                            context.GetEmissionContext().IncrementWrapperStrategy("CdeclSubscript");
+                        }
+                        else
+                        {
+                            context.GetEmissionContext().IncrementWrapperStrategy("LegacyCallConvSwift");
+                            if (conductor.TryGetMethodHandler(acc.Method, out var skipCheckHandler))
+                            {
+                                var skipCheckEnv = (MethodEnvironment)skipCheckHandler.Marshal(acc.Method, typeDatabase);
+                                var skipReason = SubscriptWrapperEmitter.GetRejectionReason(subscriptDecl, acc, skipCheckEnv);
+                                if (skipReason != null)
+                                    context.GetEmissionContext().IncrementWrapperSkipReason(skipReason);
+                            }
+                        }
+                    }
+                }
+
                 // Emit accessor methods via MethodHandler
                 foreach (var accessor in subscriptDecl.Accessors)
                 {

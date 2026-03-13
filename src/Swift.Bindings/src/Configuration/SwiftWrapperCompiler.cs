@@ -168,7 +168,8 @@ namespace BindingsGeneration
                 foreach (var swiftFile in swiftFiles)
                 {
                     var content = File.ReadAllText(swiftFile);
-                    var result = SwiftWrapperPostProcessor.Process(content, internalTypeNames);
+                    var result = SwiftWrapperPostProcessor.Process(content, internalTypeNames,
+                        warning => logger.LogWarning("{Warning}", warning));
                     totalStripped += result.StrippedBlockCount;
 
                     if (result.StrippedBlockCount > 0)
@@ -317,7 +318,8 @@ namespace BindingsGeneration
                 foreach (var swiftFile in swiftFiles)
                 {
                     var content = File.ReadAllText(swiftFile);
-                    var result = SwiftWrapperPostProcessor.Process(content, internalTypeNames);
+                    var result = SwiftWrapperPostProcessor.Process(content, internalTypeNames,
+                        warning => logger.LogWarning("{Warning}", warning));
                     totalStripped += result.StrippedBlockCount;
 
                     if (result.StrippedBlockCount > 0)

@@ -112,6 +112,17 @@ public class WitnessDispatchEmitter
     public void EmitWitnessDispatchFunctions(SwiftWriter writer, ProtocolDecl protocolDecl)
     {
         var protocolName = protocolDecl.Name;
+
+        // Skip witness dispatch if the conformance was explicitly recorded as not emitted
+        // (Self requirements, Self-typed members, no implementable members, etc.).
+        // Only check when conformance decisions have been recorded (i.e., EveryProtocolEmitter ran
+        // with a shared context). When no decisions are recorded, allow emission for backward compat.
+        if (_emissionContext.ConformanceDecisions.Count > 0 && !_emissionContext.WasConformanceEmitted(protocolName))
+        {
+            _logger.LogDebug("Skipping witness dispatch for {Protocol}: conformance was not emitted", protocolName);
+            return;
+        }
+
         var moduleQualifiedName = protocolDecl.SwiftTypeName.ModuleQualifiedName;
 
         // Track method indices for overload disambiguation (matching ProtocolProxyEmitter pattern)
@@ -1128,7 +1139,7 @@ public class WitnessDispatchEmitter
         writer.WriteLines($$"""
             {{mainActorAttr}}@_silgen_name("{{accessorSymbol}}")
             public func {{accessorSymbol}}(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
-                let existential = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
+                var existential = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
                 let result = existential.{{propertyName}}
                 let ptr = UnsafeMutablePointer<{{swiftTypeName}}>.allocate(capacity: 1)
                 ptr.initialize(to: result)
@@ -1158,7 +1169,7 @@ public class WitnessDispatchEmitter
             writer.WriteLines($$"""
                 {{mainActorAttr}}@_silgen_name("{{accessorSymbol}}")
                 public func {{accessorSymbol}}(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
-                    let existential = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
+                    var existential = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
                     let result: String = existential.{{property.Name}}
                     let utf8 = Array(result.utf8)
                     let bufferPtr = UnsafeMutablePointer<UInt8>.allocate(capacity: max(utf8.count, 1))
@@ -1249,6 +1260,8 @@ public class WitnessDispatchEmitter
         var isStringReturn = hasReturn && IsStringType(returnType!);
 
         var accessorSymbol = GetAccessorSymbol(protocolName, "method", method.Name, index);
+        bool isActorIsolated = method.IsActorIsolated || protocolDecl.IsMainActorIsolated;
+        var mainActorAttr = isActorIsolated ? "@MainActor " : "";
 
         // Build Swift parameter list: containerPtr + one UnsafeRawPointer per param
         var swiftParams = new List<string> { "_ containerPtr: UnsafeRawPointer" };
@@ -1261,12 +1274,12 @@ public class WitnessDispatchEmitter
         // Build Swift return type
         var swiftReturnDecl = hasReturn ? " -> UnsafeMutableRawPointer" : "";
 
-        writer.WriteLine($"@_silgen_name(\"{accessorSymbol}\")");
+        writer.WriteLine($"{mainActorAttr}@_silgen_name(\"{accessorSymbol}\")");
         writer.WriteLine($"public func {accessorSymbol}({swiftParamsString}){swiftReturnDecl} {{");
         writer.Indent++;
 
         // Load existential — use var for methods that may be mutating in the future
-        writer.WriteLine($"let existential = containerPtr.load(as: (any {moduleQualifiedName}).self)");
+        writer.WriteLine($"var existential = containerPtr.load(as: (any {moduleQualifiedName}).self)");
 
         // Unmarshal parameters
         var callArgs = new List<string>();
@@ -1374,6 +1387,8 @@ public class WitnessDispatchEmitter
         var isStringReturn = hasReturn && IsStringType(returnType!);
 
         var accessorSymbol = GetAccessorSymbol(protocolName, "method", method.Name, index);
+        bool isActorIsolated = method.IsActorIsolated || protocolDecl.IsMainActorIsolated;
+        var mainActorAttr = isActorIsolated ? "@MainActor " : "";
 
         // Build Swift parameter list: containerPtr + one UnsafeRawPointer per param + errorOut
         var swiftParams = new List<string> { "_ containerPtr: UnsafeRawPointer" };
@@ -1387,11 +1402,11 @@ public class WitnessDispatchEmitter
         // Return type: UnsafeMutableRawPointer? for value-returning (nil = error), Void for void
         var swiftReturnDecl = hasReturn ? " -> UnsafeMutableRawPointer?" : "";
 
-        writer.WriteLine($"@_silgen_name(\"{accessorSymbol}\")");
+        writer.WriteLine($"{mainActorAttr}@_silgen_name(\"{accessorSymbol}\")");
         writer.WriteLine($"public func {accessorSymbol}({swiftParamsString}){swiftReturnDecl} {{");
         writer.Indent++;
 
-        writer.WriteLine($"let existential = containerPtr.load(as: (any {moduleQualifiedName}).self)");
+        writer.WriteLine($"var existential = containerPtr.load(as: (any {moduleQualifiedName}).self)");
 
         // Unmarshal parameters
         var callArgs = new List<string>();
@@ -1452,7 +1467,7 @@ public class WitnessDispatchEmitter
         writer.Indent--;
         writer.WriteLine("} catch {");
         writer.Indent++;
-        writer.WriteLine("errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()");
+        writer.WriteLine("errorOut.pointee = UnsafeRawPointer(Unmanaged.passRetained(error as AnyObject).toOpaque())");
         if (hasReturn)
             writer.WriteLine("return nil");
         writer.Indent--;
@@ -1549,6 +1564,8 @@ public class WitnessDispatchEmitter
         var protocolName = protocolDecl.Name;
         var accessorSymbol = GetAccessorSymbol(protocolName, "method", method.Name, index);
         var freeSymbol = GetFreeSymbol(protocolName, "method", method.Name, index);
+        bool isActorIsolated = method.IsActorIsolated || protocolDecl.IsMainActorIsolated;
+        var mainActorAttr = isActorIsolated ? "@MainActor " : "";
 
         // Build Swift parameter list: containerPtr + one UnsafeRawPointer per param
         // + errorOut if throwing
@@ -1568,12 +1585,12 @@ public class WitnessDispatchEmitter
             ? " -> UnsafeMutableRawPointer?"
             : " -> UnsafeMutableRawPointer";
 
-        writer.WriteLine($"@_silgen_name(\"{accessorSymbol}\")");
+        writer.WriteLine($"{mainActorAttr}@_silgen_name(\"{accessorSymbol}\")");
         writer.WriteLine($"public func {accessorSymbol}({swiftParamsString}){swiftReturnDecl} {{");
         writer.Indent++;
 
         // Load existential from container
-        writer.WriteLine($"let existential = containerPtr.load(as: (any {moduleQualifiedName}).self)");
+        writer.WriteLine($"var existential = containerPtr.load(as: (any {moduleQualifiedName}).self)");
 
         // Unmarshal parameters
         var callArgs = new List<string>();
@@ -1604,7 +1621,7 @@ public class WitnessDispatchEmitter
             writer.Indent--;
             writer.WriteLine("} catch {");
             writer.Indent++;
-            writer.WriteLine("errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()");
+            writer.WriteLine("errorOut.pointee = UnsafeRawPointer(Unmanaged.passRetained(error as AnyObject).toOpaque())");
             writer.WriteLine("return nil");
             writer.Indent--;
             writer.WriteLine("}");
@@ -1681,6 +1698,8 @@ public class WitnessDispatchEmitter
             return;
 
         var accessorSymbol = GetAccessorSymbol(protocolName, "method", method.Name, index);
+        bool isActorIsolated = method.IsActorIsolated || protocolDecl.IsMainActorIsolated;
+        var mainActorAttr = isActorIsolated ? "@MainActor " : "";
 
         // Build Swift parameter list
         var swiftParams = new List<string> { "_ containerPtr: UnsafeRawPointer" };
@@ -1698,11 +1717,11 @@ public class WitnessDispatchEmitter
             ? " -> UnsafeMutableRawPointer?"
             : " -> UnsafeMutableRawPointer";
 
-        writer.WriteLine($"@_silgen_name(\"{accessorSymbol}\")");
+        writer.WriteLine($"{mainActorAttr}@_silgen_name(\"{accessorSymbol}\")");
         writer.WriteLine($"public func {accessorSymbol}({swiftParamsString}){swiftReturnDecl} {{");
         writer.Indent++;
 
-        writer.WriteLine($"let existential = containerPtr.load(as: (any {moduleQualifiedName}).self)");
+        writer.WriteLine($"var existential = containerPtr.load(as: (any {moduleQualifiedName}).self)");
 
         // Unmarshal parameters
         var callArgs = new List<string>();
@@ -1729,7 +1748,7 @@ public class WitnessDispatchEmitter
             writer.Indent--;
             writer.WriteLine("} catch {");
             writer.Indent++;
-            writer.WriteLine("errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()");
+            writer.WriteLine("errorOut.pointee = UnsafeRawPointer(Unmanaged.passRetained(error as AnyObject).toOpaque())");
             writer.WriteLine("return nil");
             writer.Indent--;
             writer.WriteLine("}");
@@ -1761,6 +1780,8 @@ public class WitnessDispatchEmitter
             return;
 
         var accessorSymbol = GetAccessorSymbol(protocolName, "method", method.Name, index);
+        bool isActorIsolated = method.IsActorIsolated || protocolDecl.IsMainActorIsolated;
+        var mainActorAttr = isActorIsolated ? "@MainActor " : "";
 
         // Build Swift parameter list: containerPtr + resultBuf + per-param + errorOut
         var swiftParams = new List<string> { "_ containerPtr: UnsafeRawPointer", "_ resultBuf: UnsafeMutableRawPointer" };
@@ -1775,11 +1796,11 @@ public class WitnessDispatchEmitter
         var swiftParamsString = string.Join(", ", swiftParams);
 
         // Struct return always returns void (result written into buffer)
-        writer.WriteLine($"@_silgen_name(\"{accessorSymbol}\")");
+        writer.WriteLine($"{mainActorAttr}@_silgen_name(\"{accessorSymbol}\")");
         writer.WriteLine($"public func {accessorSymbol}({swiftParamsString}) {{");
         writer.Indent++;
 
-        writer.WriteLine($"let existential = containerPtr.load(as: (any {moduleQualifiedName}).self)");
+        writer.WriteLine($"var existential = containerPtr.load(as: (any {moduleQualifiedName}).self)");
 
         // Unmarshal parameters
         var callArgs = new List<string>();
@@ -1806,7 +1827,7 @@ public class WitnessDispatchEmitter
             writer.Indent--;
             writer.WriteLine("} catch {");
             writer.Indent++;
-            writer.WriteLine("errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()");
+            writer.WriteLine("errorOut.pointee = UnsafeRawPointer(Unmanaged.passRetained(error as AnyObject).toOpaque())");
             writer.Indent--;
             writer.WriteLine("}");
         }
@@ -1834,7 +1855,7 @@ public class WitnessDispatchEmitter
         writer.WriteLines($$"""
             @_silgen_name("{{accessorSymbol}}")
             public func {{accessorSymbol}}(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
-                let existential = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
+                var existential = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
                 let result = existential.{{property.Name}}
                 return Unmanaged.passRetained(result as AnyObject).toOpaque()
             }
@@ -1859,7 +1880,7 @@ public class WitnessDispatchEmitter
         writer.WriteLines($$"""
             @_silgen_name("{{accessorSymbol}}")
             public func {{accessorSymbol}}(_ containerPtr: UnsafeRawPointer, _ resultBuf: UnsafeMutableRawPointer) {
-                let existential = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
+                var existential = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
                 let result = existential.{{property.Name}}
                 resultBuf.assumingMemoryBound(to: {{swiftConcreteType}}.self).initialize(to: result)
             }

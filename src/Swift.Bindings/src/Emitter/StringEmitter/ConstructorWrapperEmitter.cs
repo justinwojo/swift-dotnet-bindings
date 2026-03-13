@@ -71,6 +71,11 @@ public static class ConstructorWrapperEmitter
         if (HasNestedFrozenStructParameter(env))
             return false;
 
+        // Skip constructors with raw ABI generic type params (τ_0_0) in signature.
+        // These leak from parent type generics and cause Swift compilation failures.
+        if (WrapperValidation.HasRawGenericTypeParams(env.MethodDecl))
+            return false;
+
         return true;
     }
 

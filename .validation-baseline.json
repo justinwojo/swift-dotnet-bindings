@@ -1,11 +1,11 @@
 {
-  "git_sha": "147fc159",
+  "git_sha": "915ac5ea",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 50924,
+        "lines": 50923,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
@@ -54,7 +54,7 @@
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 55535,
+        "lines": 55539,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
@@ -110,7 +110,7 @@
       "RxSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 18991,
+        "lines": 18993,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
@@ -266,7 +266,7 @@
         "errors": 0,
         "lines": 5107,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "fail"
       },
       "PhoneNumberKit": {
         "compile": "ok",
@@ -306,7 +306,7 @@
       "ObjectMapper": {
         "compile": "ok",
         "errors": 0,
-        "lines": 5363,
+        "lines": 5366,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
@@ -322,7 +322,7 @@
         "errors": 0,
         "lines": 17533,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "fail"
       },
       "KeychainSwift": {
         "compile": "ok",
