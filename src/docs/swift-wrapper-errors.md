@@ -1,189 +1,98 @@
 # Swift Wrapper Compilation Errors
 
-Comprehensive analysis of the 40 Swift wrapper compilation failures caught by the `validate-libraries.sh` swift compile gate. All 90 targets pass C# compilation; these are errors in the generated `.swift` wrapper that gets compiled into a `.framework` binary.
+Comprehensive analysis of Swift wrapper compilation failures caught by `validate-libraries.sh`. All 90 targets pass C# compilation; these are errors in the generated `.swift` wrapper that gets compiled into a `.framework` binary.
 
-**Baseline**: 24/56 passing (34 ObjC/no wrapper), 32 failing — as of current HEAD.
+**Baseline**: 27/56 passing (34 ObjC/no wrapper), 29 failing.
 
-**Fixes applied session 4** (4 libraries improved):
-- `@autoclosure` parameter detection from `.swiftinterface` → Lottie now passes
-- Custom actor isolation gating (`@ProcessingActor`) → BlinkID, BlinkIDUX now pass
-- ObjC-bridged struct `as AnyObject` in closure params → SwipeCellKit now passes
-- `SplitParameters` fix for `->` arrow in closure types (latent bug)
-- Module/type name collision post-processor: when a module contains a public type with the same name (e.g., module `SVGView` with struct `SVGView`), replaces `Module.Type` references with unqualified `Type` in generated Swift wrapper to avoid compiler ambiguity. Reduces errors in SVGView (-159), SwiftyBeaver (-154), Valet, Mixpanel, FSPagerView, and others. Most collision-only libraries remain blocked by `.swiftinterface` import failures.
+**Previous baselines**: 24/56 (session 4), 21/56 (session 3), 16/56 (`6bf59eab`).
 
-**Fixes applied session 3** (6 libraries improved):
-- Post-processor extension self fix → SnapKit, KeychainAccess now pass
-- FindTopLevelColon dictionary enum fix → Starscream now passes
-- Malformed parameter name fixes → unblocked GRDB/RxSwift/Kingfisher (still blocked by `.swiftinterface` import failures)
-- Nuke (all 3 variants) now passes (combination of fixes)
+## Session History
 
-**Key discovery**: Most same-name collision libraries (Reachability, KeychainSwift, NVActivityIndicatorView, etc.) are blocked by `.private.swiftinterface` import failures when `swiftc -emit-library` processes `import Module`. This is a Swift compiler limitation — the `.swiftinterface` contains self-referential `Module.Module` references that fail type resolution. These cannot be fixed from generated code.
+**Session 5** (4 libraries improved: StripeIdentity, RxSwift, AMPopTip, Swinject):
+- `spi_group_names` ABI JSON field detection → StripeIdentity passes; StripeConnect 51 → 2 errors
+- `IsModuleInternal` gating in `MethodWrapperEmitter`, `WrapperValidation`, `ConstructorWrapperEmitter`, and optional-pointer/closure wrapper paths → internal method/constructor wrappers no longer emitted
+- `@usableFromInline internal` and `@inlinable` free functions filtered from module-level emission
+- `_`-prefixed method/property suppression: methods without explicit `AccessControl` attribute treated as internal
+- `SBW_Utf8Slice` dedup fix: emission context properly threaded (eliminates Kingfisher duplicate declaration)
+- Variadic expansion pattern detection: constructors with N unnamed protocol params + trailing Array skipped
+- Raw generic param (`τ_0_0`) gate added to optional-pointer wrapper emission → AMPopTip passes
+- `inout` parameter support in EveryProtocol conformance and WitnessDispatch emission (with caller buffer writeback) → Swinject passes
 
-**Previous baselines**: 21/56 (session 3), 16/56 (`6bf59eab`).
+**Session 4** (4 libraries improved: Lottie, BlinkID, BlinkIDUX, SwipeCellKit):
+- `@autoclosure` parameter detection from `.swiftinterface`
+- Custom actor isolation gating (`@ProcessingActor`)
+- ObjC-bridged struct `as AnyObject` in closure params
+- Module/type name collision post-processor
 
-## Error Categories (ranked by impact)
+**Session 3** (6 libraries improved: SnapKit, KeychainAccess, Starscream, Nuke x3):
+- Post-processor extension self fix, dictionary enum fix, malformed parameter names
 
-### 1. Same-Name Module/Type Collision (11 libraries, ~600+ errors)
+## Current Error Categories (post-processed, ranked by impact)
 
-When a library has a public type with the same name as the module (e.g., module `Reachability` contains class `Reachability`), the wrapper uses `Reachability.Reachability` which triggers: `'Reachability' is not a member type of class 'Reachability.Reachability'`. The compiler resolves the first `Reachability` as the class, not the module.
+Error counts below reflect what remains **after** post-processor stripping. The post-processor already eliminates hundreds of blocks referencing internal types, raw generic params, and EveryProtocol patterns.
 
-| Library | Errors | Colliding Type |
-|---------|--------|----------------|
-| SVGView | 159 | struct `SVGView` |
-| SwiftyBeaver | 154 | class `SwiftyBeaver` |
-| Valet | 100 | class `Valet` |
-| Mixpanel | 85 | class `Mixpanel` |
-| FSPagerView | 34 | class `FSPagerView` |
-| Reachability | 32 | class `Reachability` |
-| AnimatedCollectionViewLayout | 18 | class `AnimatedCollectionViewLayout` |
-| NVActivityIndicatorView | 9 | class `NVActivityIndicatorView` |
-| KeychainSwift | 7 | class `KeychainSwift` |
-| CryptoSwift | 4 | protocol `Updatable` (self type reference) |
-| Mappedin | 2 | method `self()` collision |
+### 1. Protocol Extension Associated Type Leaks (GRDB, ~262 errors)
 
-**Fix**: Post-processor detects `moduleNameForCollision` and replaces `Module.Type` → `Type` in generated wrapper code. **Partially fixed** — collision errors eliminated, but 4 libraries (Reachability, KeychainSwift, NVActivityIndicatorView, AnimatedCollectionViewLayout) remain blocked by `.swiftinterface` import failures. Libraries with collision + other error categories (SVGView, SwiftyBeaver, Valet, Mixpanel, FSPagerView) see significant error reduction but still fail on remaining categories.
+Protocol extension wrappers use bare `Element`, `Base` types outside their protocol context. Accounts for 81% of GRDB's errors.
 
-### 2. Malformed Parameter Names (4 libraries, ~220 errors)
+**Fix**: Carry forward generic constraints and resolve associated types in protocol extension wrapper signatures. Architectural — requires type graph changes.
 
-The wrapper emitter uses closure signatures or array type names as Swift parameter names, producing invalid syntax like `sQLSelectable]` or `element) throws -> Result`.
+### 2. EveryProtocol Conformance Gaps (multiple libraries)
 
-| Library | Errors | Pattern |
-|---------|--------|---------|
-| GRDB | 168 | Array parameter names contain `]` |
-| Kingfisher | 30 | Closure parameter names contain `->` and `)` |
-| RxSwift | 21 | Closure signatures used as parameter names |
-| Starscream | 1 | Closure parameter issue |
+EveryProtocol can't satisfy all protocol requirements:
+- Associated type / static Self requirements (Alamofire, GRDB, Kingfisher)
+- NSObjectProtocol inheritance (SkeletonView — UICollectionViewDataSource/UITableViewDataSource)
+- Missing inherited protocol methods
 
-**Fix**: Sanitize parameter names in the wrapper emitter — strip brackets, parentheses, and other type-syntax characters from identifiers before emission.
+**Fix**: Detect unsatisfiable protocol requirements and skip EveryProtocol conformance for those protocols.
 
-### 3. Internal/Non-Public Type References (6 libraries, ~500+ errors)
+### 3. `.swiftinterface` Import Failures (4 libraries)
 
-The generator emits wrapper code referencing types that exist in the ABI JSON but are `internal` (not `public`) in the framework.
+Reachability, KeychainSwift, NVActivityIndicatorView, AnimatedCollectionViewLayout — module/type name collision resolved by post-processor, but `swiftc -emit-library` fails on self-referential `.swiftinterface` imports. **Swift compiler limitation, not fixable from generated code.**
 
-| Library | Errors | Example Types |
-|---------|--------|---------------|
-| XMLCoder | 264 | XMLCoderElement, XMLEncoderImplementation, ChoiceBox, DateBox |
-| SkeletonView | 195 | ViewAssociatedKeys, RecoverableViewState, SkeletonLayer |
-| GRDB | 21 | RowKey, RowDecodingContext, Configuration |
-| CryptoSwift | 12 | StreamEncryptor, StreamDecryptor, BlockEncryptor |
-| Alamofire | 4 | JSONDecoder, PropertyListDecoder (typealiases) |
-| RxSwift | 4 | JSONDecoder, PropertyListDecoder |
+### 4. Struct Treated as Class — `Unmanaged<ValueType>` (3 libraries, ~8 errors)
 
-**Fix**: The post-processor already has `internalTypeNames` support. Ensure the parser correctly identifies all internal types and passes them to the post-processor. For Alamofire/RxSwift, `JSONDecoder`/`PropertyListDecoder` are likely typealiases that resolve differently than expected.
-
-### 4. `UnsafeMutableRawPointer` → `UnsafeRawPointer` Type Mismatch (6 libraries, ~13 errors)
-
-The wrapper emits `errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()` in `throws` wrappers, but `errorOut` is `UnsafeMutablePointer<UnsafeRawPointer?>` and `toOpaque()` returns `UnsafeMutableRawPointer`. Swift does not implicitly convert mutable to immutable raw pointers.
-
-| Library | Errors |
-|---------|--------|
-| CryptoSwift | 5 |
-| GRDB | 3 |
-| Alamofire | 2 |
-| Nuke | 1 |
-| Nuke@macos | 1 |
-| Nuke@tvos | 1 |
-
-**Fix**: Change the error output parameter type to `UnsafeMutablePointer<UnsafeMutableRawPointer?>`, or add explicit cast. **Would fully fix all 3 Nuke variants.**
-
-### 5. Actor Isolation Violations (4 libraries, ~18 errors)
-
-The wrapper calls actor-isolated methods from a synchronous `@_cdecl` function context. Swift 6 strict concurrency rejects this.
-
-| Library | Errors | Actor Type |
-|---------|--------|------------|
-| BlinkID | 7 | Custom `ProcessingActor` |
-| PhoneNumberKit | 7 | `@MainActor` |
-| Kingfisher | 3 | `@MainActor` |
-| BlinkIDUX | 1 | Actor-isolated property |
-
-**Fix**: Gate actor-isolated members during emission (suppress wrapper generation for actor-isolated APIs), or wrap calls in `Task { @MainActor in ... }`. **Would fully fix BlinkID and BlinkIDUX.**
-
-### 6. `Unmanaged<NonClassType>` (4 libraries, ~16 errors)
-
-The wrapper uses `Unmanaged.passUnretained(value)` for struct types, but `Unmanaged` requires `AnyObject` (class types).
-
-| Library | Errors | Offending Types |
-|---------|--------|-----------------|
-| SkeletonView | 6 | Various structs |
-| StripeConnect | 4 | `UIFont.Weight` |
-| SwipeCellKit | 3 | `IndexPath` |
+| Library | Errors | Types |
+|---------|--------|-------|
+| StripeConnect | 2 | `UIFont.Weight` |
 | Kingfisher | 3 | `PHPickerResult` |
+| SkeletonView | 2 | `TimeInterval` (Double) |
 
-**Fix**: For struct types in closure parameters, use pointer-based marshalling (`UnsafeMutableRawPointer.allocate` + `initializeMemory`) instead of `Unmanaged`. **Would fully fix SwipeCellKit.**
+**Fix**: Use pointer-based marshalling for value types instead of `Unmanaged`.
 
-### 7. `@_spi` Protected Members (2 libraries, ~43 errors)
+### 5. Stripe3DS2 Dependency (5 libraries)
 
-The generator emits wrappers for `@_spi`-annotated members that are not accessible without `@_spi(GroupName) import Module`.
+StripeCryptoOnramp, StripeIssuing, StripePayments, StripePaymentSheet, StripePaymentsUI fail because `Stripe3DS2` is not provided via `-F` during wrapper compilation.
 
-| Library | Errors |
-|---------|--------|
-| StripeConnect | 42 |
-| StripeIdentity | 1 |
+**Fix**: Wire Stripe3DS2 into the dependency graph.
 
-**Fix**: Gate `@_spi` members during emission (check ABI JSON for SPI annotations), or add `@_spi` import to the wrapper.
+### 6. Internal Member Access (CryptoSwift, SkeletonView, XMLCoder)
 
-### 8. `@autoclosure` Parameter Forwarding (2 libraries, ~5 errors)
+Remaining internal members not caught by `IsModuleInternal` or `_`-prefix suppression:
+- CryptoSwift: protocol composition `.self` metatype (4), `@_cdecl`-incompatible types (2)
+- SkeletonView: internal singletons/initializers (4)
+- XMLCoder: internal instance methods on public types (`isEmpty`, `toXML`) (4), malformed `_optbuf` block (1)
 
-Protocol proxy dispatch functions forward `@autoclosure` parameters without adding `()` to evaluate them.
+**Fix**: Cross-reference with `.swiftinterface` for member-level access control verification.
 
-| Library | Errors |
-|---------|--------|
-| Lottie | 4 |
-| Kingfisher | 1 |
+### 7. Remaining Single-Library Issues
 
-**Fix**: When emitting protocol proxy dispatch for `@autoclosure` parameters, add `()` in the forwarding call. **Would fully fix Lottie.**
+| Library | Errors | Category |
+|---------|--------|----------|
+| Alamofire | 2 | SecTrust type projection + ambiguous `encode` overload |
+| PhoneNumberKit | ~10 | `@MainActor` isolation + missing constructor args |
+| Kingfisher | ~8 | `@MainActor` (1), `@autoclosure` (1), `UInt64→UInt` (2), struct-as-class (3), `ContentMode` ambiguity (1) |
+| ObjectMapper | ~3 | Wrong subscript labels + `required init` |
+| Parchment | ~4 | Incomplete EveryProtocol + wrong arg labels + `@MainActor` |
+| BonMot | ~10 | Ambiguous type lookup (`StringStyle`) |
+| Quick | N/A | XCTest dependency — inherently unsupported (test framework) |
+| TinyConstraints | N/A | x86_64-only xcframework — stale build, not a generator bug |
 
-### 9. Generic Constraint Propagation (GRDB, ~72 errors)
+## Libraries Fixed by Session
 
-Generic wrapper functions for protocol extensions emit `<Base>` without proper conformance constraints (e.g., `where Base: Cursor`).
-
-**Fix**: Carry forward `where` clause constraints from the original generic declarations to wrapper function signatures.
-
-### 10. Stripe3DS2 Dependency (5 libraries, ~5 errors)
-
-StripeCryptoOnramp, StripeIssuing, StripePayments, StripePaymentSheet, StripePaymentsUI fail because `Stripe3DS2` is a manual (non-fetchable) framework not provided via `-F` during wrapper compilation.
-
-**Fix**: Wire Stripe3DS2 into the dependency graph for wrapper compilation, or gate members that reference unavailable dependency types.
-
-### 11. Ambiguous Type Lookup (3 libraries, ~10 errors)
-
-BonMot has `StringStyle` creating ambiguity between module-level and nested type references.
-
-### 12. Missing Arguments / Wrong Signatures (3 libraries)
-
-PhoneNumberKit has constructor calls with missing arguments (API changes or default parameters not handled). ObjectMapper has subscript calls with wrong argument labels.
-
-### 13. Miscellaneous One-Off Issues
-
-- `cannot find 'rotateLeft'` in CryptoSwift (4): Global function from protocol extension not accessible
-- `initializer requirement 'init()' can only be satisfied by 'required' initializer` in ObjectMapper (2), Kingfisher (1)
-- `@_cdecl` incompatible parameter type in CryptoSwift (2)
-- `method does not override` in SVGView (12), SwiftyBeaver (10): Cascaded from same-name collision
-- `Int64` to `Int` narrowing in Kingfisher (2), PhoneNumberKit (1)
-- `mutating member on immutable value` in CryptoSwift (3), GRDB (2), ObjectMapper (1)
-
-## Quick Wins: Libraries Fully Fixed by Single Fix
-
-| Fix | Libraries Fully Resolved | Status |
-|-----|--------------------------|--------|
-| ~~Same-name collision (#1)~~ | ~~Reachability, KeychainSwift, NVActivityIndicatorView, AnimatedCollectionViewLayout~~ | **FIXED** (collision resolved) but **blocked** by `.swiftinterface` import failures |
-| ~~Pointer type mismatch (#4)~~ | ~~Nuke, Nuke@macos, Nuke@tvos~~ | **FIXED** — now passing |
-| ~~Actor isolation gate (#5)~~ | ~~BlinkID, BlinkIDUX~~ | **FIXED** — custom actor detection from `.swiftinterface` |
-| ~~`@autoclosure` forwarding (#8)~~ | ~~Lottie~~ | **FIXED** — `@autoclosure` parsed from `.swiftinterface` |
-| ~~`Unmanaged<struct>` (#6)~~ | ~~SwipeCellKit~~ | **FIXED** — ObjC-bridged structs use `as AnyObject` |
-
-**All quick-win single-category fixes are now complete. Remaining 32 failures need multi-category or infrastructure fixes.**
-
-## Priority Order for Maximum Impact
-
-1. ~~**Same-name collision**~~ — **FIXED** (post-processor), 4 collision-only libraries blocked by `.swiftinterface` imports
-2. **Malformed parameter names** — 4 libraries, reduces errors significantly in GRDB/Kingfisher/RxSwift
-3. ~~**Pointer type mismatch**~~ — **FIXED**, 3 Nuke variants now passing
-4. ~~**Actor isolation gate**~~ — **FIXED**, BlinkID + BlinkIDUX now passing
-5. **Internal type gating** — 6 libraries, large error reduction
-6. ~~**`@autoclosure` forwarding**~~ — **FIXED**, Lottie now passing
-7. ~~**`Unmanaged<struct>`**~~ — **FIXED**, SwipeCellKit now passing
-8. **`@_spi` gating** — reduces StripeConnect errors
-9. **Generic constraints** — large error reduction in GRDB
-10. **Stripe3DS2 dependency** — 5 Stripe libraries
+| Session | Libraries | Count |
+|---------|-----------|-------|
+| 3 | SnapKit, KeychainAccess, Starscream, Nuke, Nuke@macos, Nuke@tvos | 6 |
+| 4 | Lottie, BlinkID, BlinkIDUX, SwipeCellKit | 4 |
+| 5 | StripeIdentity, RxSwift, AMPopTip, Swinject | 4 |
+| Pre-existing | BRLMPrinterKit, MicroblinkPlatform, SmartCardIO, SwiftyGif, DifferenceKit, CocoaLumberjackSwift, DeviceKit, Stripe*, StripeCore, StripeApplePay, StripeCameraCore, StripeCardScan, StripeFinancialConnections, StripeUICore | 13 |

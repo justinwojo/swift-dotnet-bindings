@@ -389,6 +389,10 @@ public static class WrapperValidation
         if (env.MethodDecl.IsSpiProtected)
             return "spi_protected";
 
+        // 3c. Skip internal methods — wrapper can't call them from external code
+        if (env.MethodDecl.IsModuleInternal)
+            return "module_internal";
+
         // 4. xcframework mode required
         if (!IsXCFrameworkMode(env.TypeDatabase))
             return "xcframework_mode";

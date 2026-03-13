@@ -644,6 +644,121 @@ public class ConstructorWrapperEmitterTests
         Assert.True(ConstructorWrapperEmitter.ShouldEmitWrapper(env));
     }
 
+    [Fact]
+    public void ShouldEmitWrapper_VariadicExpansionPattern_AllUnnamed_ReturnsFalse()
+    {
+        // init(_:_:_:_:_:) with 4x Disposable + 1x [Disposable] — variadic expansion pattern.
+        // Swift expands `init(_ args: Disposable...)` as individual unnamed params + trailing Array.
+        // The wrapper can't call this correctly because Swift overload resolution picks the variadic overload.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("CompositeDisposable");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("CompositeDisposable", moduleDecl);
+        var disposableType = new NamedTypeSpec("TestModule.Disposable");
+        var arrayOfDisposable = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("TestModule.Disposable"));
+
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule21CompositeDisposableVycfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                // Parser renames "_" labels to "arg0", "arg1", etc. via ExtractParameterNames.
+                // The variadic check must handle both "_" and "argN" forms.
+                new ArgumentDecl { Name = "arg1", PrivateName = "disposable1", SwiftTypeSpec = disposableType, IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl },
+                new ArgumentDecl { Name = "arg2", PrivateName = "disposable2", SwiftTypeSpec = disposableType, IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl },
+                new ArgumentDecl { Name = "arg3", PrivateName = "disposable3", SwiftTypeSpec = disposableType, IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl },
+                new ArgumentDecl { Name = "arg4", PrivateName = "disposable4", SwiftTypeSpec = disposableType, IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl },
+                new ArgumentDecl { Name = "arg5", PrivateName = "disposables", SwiftTypeSpec = arrayOfDisposable, IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        parentDecl.Methods.Add(method);
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.False(ConstructorWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_LabeledParamsWithArrayOfSameType_ReturnsTrue()
+    {
+        // init(primary:all:) with 1x Disposable + 1x [Disposable] — labeled params are genuine overloads,
+        // NOT variadic expansions. The wrapper should be emitted normally.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("CompositeDisposable");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("CompositeDisposable", moduleDecl);
+        var disposableType = new NamedTypeSpec("TestModule.Disposable");
+        var arrayOfDisposable = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("TestModule.Disposable"));
+
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule21CompositeDisposableVycfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                new ArgumentDecl { Name = "primary", PrivateName = "primary", SwiftTypeSpec = disposableType, IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl },
+                new ArgumentDecl { Name = "all", PrivateName = "all", SwiftTypeSpec = arrayOfDisposable, IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        parentDecl.Methods.Add(method);
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.True(ConstructorWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_ArrayOnlyNoMatchingIndividualParam_ReturnsTrue()
+    {
+        // init(items:) with just 1x [Disposable] — no individual params of the same element type,
+        // so this is NOT a variadic expansion pattern. The wrapper should be emitted normally.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("CompositeDisposable");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("CompositeDisposable", moduleDecl);
+        var arrayOfDisposable = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("TestModule.Disposable"));
+
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule21CompositeDisposableVycfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                new ArgumentDecl { Name = "items", PrivateName = "items", SwiftTypeSpec = arrayOfDisposable, IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        parentDecl.Methods.Add(method);
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.True(ConstructorWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
     #endregion
 
     #region Symbol Naming Tests

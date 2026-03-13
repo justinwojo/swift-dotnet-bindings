@@ -68,6 +68,7 @@ namespace BindingsGeneration
         public bool? inheritsConvenienceInitializers { get; set; }
         public bool? hasMissingDesignatedInitializers { get; set; }
         public string[]? typeAttributes { get; set; }
+        public string[]? spi_group_names { get; set; }
         public required IEnumerable<Node> Children { get; set; } = Enumerable.Empty<Node>();
         public required IEnumerable<Node> Conformances { get; set; } = Enumerable.Empty<Node>();
         public required IEnumerable<Node> Accessors { get; set; } = Enumerable.Empty<Node>();
@@ -169,19 +170,29 @@ namespace BindingsGeneration
 
             // @_spi types are only visible to SPI consumers (e.g., other Stripe modules).
             // They are not part of the public API and should not appear in generated bindings.
+            // Check both declAttributes and spi_group_names (different Swift compiler versions
+            // use one or the other).
             if (Array.IndexOf(node.DeclAttributes, "SPIAccessControl") != -1)
+                return true;
+            if (node.spi_group_names is not null && node.spi_group_names.Length > 0)
                 return true;
 
             return false;
         }
 
         /// <summary>
-        /// Returns true if the node has @_spi (SPIAccessControl) attribute.
+        /// Returns true if the node has @_spi protection.
+        /// Checks both "SPIAccessControl" in declAttributes and the presence of spi_group_names.
+        /// Some Swift compiler versions emit one or the other depending on how @_spi is applied
+        /// (e.g., on the member directly vs. inherited from an @_spi extension).
         /// </summary>
         private static bool IsNodeSpiProtected(Node node)
         {
-            return node.DeclAttributes is not null &&
-                   Array.IndexOf(node.DeclAttributes, "SPIAccessControl") != -1;
+            if (node.DeclAttributes is not null &&
+                Array.IndexOf(node.DeclAttributes, "SPIAccessControl") != -1)
+                return true;
+
+            return node.spi_group_names is not null && node.spi_group_names.Length > 0;
         }
 
         /// <summary>
@@ -1159,6 +1170,17 @@ namespace BindingsGeneration
                 IsSpiProtected = IsNodeSpiProtected(node),
             };
 
+            // Suppress underscore-prefixed methods without explicit AccessControl.
+            // Swift convention: _-prefixed members are internal. The ABI JSON includes them
+            // for binary compatibility but they're not callable from external code.
+            // Only suppress if no AccessControl attribute (explicitly public _-prefixed APIs
+            // like _NIOFileSystem get AccessControl and should be preserved).
+            if (!methodDecl.IsModuleInternal && node.Name.StartsWith("_") &&
+                (node.DeclAttributes is null || Array.IndexOf(node.DeclAttributes, "AccessControl") == -1))
+            {
+                methodDecl.IsModuleInternal = true;
+            }
+
             // Suppress unconditionally unavailable methods
             if (!methodDecl.IsModuleInternal && parentDecl is TypeDecl parentTypeForUnavail &&
                 IsUnavailableFromSwiftInterface(parentTypeForUnavail, node.PrintedName))
@@ -1507,6 +1529,13 @@ namespace BindingsGeneration
                 IsModuleInternal = IsNodeModuleInternal(node),
                 Accessors = HandleAccessors(node.Accessors, sanitizedName, parentDecl, moduleDecl)
             };
+            // Suppress underscore-prefixed properties without explicit AccessControl.
+            if (!decl.IsModuleInternal && rawName.StartsWith("_") &&
+                (node.DeclAttributes is null || Array.IndexOf(node.DeclAttributes, "AccessControl") == -1))
+            {
+                decl.IsModuleInternal = true;
+            }
+
             // Cross-reference with swiftinterface: if property doesn't appear in the public
             // interface, it's internal even if not explicitly flagged in the ABI JSON.
             // Uses unqualified Name (consistent with method path at CreateMethodDecl and with

@@ -1,5 +1,5 @@
 {
-  "git_sha": "bf777501",
+  "git_sha": "f4bb06ab",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
@@ -33,21 +33,21 @@
       "CryptoSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 22219,
+        "lines": 21962,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 92332,
+        "lines": 92304,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
       "KeychainAccess": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4712,
+        "lines": 4718,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -152,7 +152,7 @@
       "StripeApplePay": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 1174,
+        "lines": 1185,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -173,7 +173,7 @@
       "StripeConnect": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 8471,
+        "lines": 7155,
         "dep_compile": "ok",
         "swift_compile": "fail"
       },
@@ -194,16 +194,16 @@
       "StripeFinancialConnections": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 1815,
+        "lines": 1779,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
       "StripeIdentity": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 1098,
+        "lines": 1064,
         "dep_compile": "ok",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "StripeIssuing": {
         "compile": "dep_only",
@@ -215,14 +215,14 @@
       "StripePayments": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 63143,
+        "lines": 63096,
         "dep_compile": "ok",
         "swift_compile": "fail"
       },
       "StripePaymentSheet": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 31780,
+        "lines": 31755,
         "dep_compile": "ok",
         "swift_compile": "fail"
       },
@@ -266,7 +266,7 @@
         "errors": 0,
         "lines": 5029,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "PhoneNumberKit": {
         "compile": "ok",
@@ -376,14 +376,14 @@
       "AMPopTip": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4466,
+        "lines": 4469,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "XMLCoder": {
         "compile": "ok",
         "errors": 0,
-        "lines": 22196,
+        "lines": 22025,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
@@ -425,7 +425,7 @@
       "CocoaLumberjackSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 1027,
+        "lines": 1032,
         "dep_compile": "none",
         "swift_compile": "ok"
       },

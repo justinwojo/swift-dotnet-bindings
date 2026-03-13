@@ -502,7 +502,8 @@ public static partial class ClosureEmitter
         SwiftWriter swiftWriter,
         MethodEnvironment env,
         TypeDecl? parentDecl,
-        bool useCdecl = false)
+        bool useCdecl = false,
+        ModuleEmissionContext? emissionContext = null)
     {
         var methodDecl = env.MethodDecl;
         var closureHandler = env.ClosureHandler;
@@ -610,7 +611,7 @@ public static partial class ClosureEmitter
             {
                 swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
                 if (cdeclIsStringReturn)
-                    Utf8SliceEmitter.EmitIfNeeded(swiftWriter, null);
+                    Utf8SliceEmitter.EmitIfNeeded(swiftWriter, emissionContext);
             }
         }
         else

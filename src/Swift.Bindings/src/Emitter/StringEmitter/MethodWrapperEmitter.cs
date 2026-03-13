@@ -42,6 +42,10 @@ public static class MethodWrapperEmitter
         if (env.MethodDecl.IsSpiProtected)
             return false;
 
+        // 3c. Skip internal methods — wrapper can't call them from external code
+        if (env.MethodDecl.IsModuleInternal)
+            return false;
+
         // 4. xcframework mode required (wrapper library must exist)
         if (!WrapperValidation.IsXCFrameworkMode(env.TypeDatabase))
             return false;

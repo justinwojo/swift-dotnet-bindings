@@ -661,6 +661,187 @@ public class SwiftABIParserRuntimeTests
 
     #endregion
 
+    #region spi_group_names Detection Tests
+
+    [Fact]
+    public void ParseModule_TypeWithSpiGroupNames_IsMarkedSpiProtected()
+    {
+        // Some Swift compiler versions emit spi_group_names instead of SPIAccessControl
+        // in declAttributes. The parser must detect both paths.
+        var classNode = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Class",
+            name: "STPAPIClient",
+            mangledName: "$s10TestModule12STPAPIClientCN");
+        classNode.DeclAttributes = new[] { "AccessControl" }; // NO SPIAccessControl
+        classNode.spi_group_names = new[] { "STP" };
+
+        using var fixture = CreateParserWithNodes(classNode);
+        var result = fixture.Parser.ParseModule();
+
+        var spiType = Assert.Single(result.ModuleDecl.Types);
+        Assert.True(spiType.IsSpiProtected, "Type with spi_group_names should have IsSpiProtected = true");
+        Assert.True(spiType.IsModuleInternal, "Type with spi_group_names should be marked as module internal");
+    }
+
+    [Fact]
+    public void ParseModule_TypeWithSpiGroupNames_ButNoSPIAccessControl_IsInternal()
+    {
+        // Regression test: spi_group_names alone (without SPIAccessControl in declAttributes)
+        // must be sufficient to mark a type as SPI-protected
+        var classNode = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Class",
+            name: "InternalConfig",
+            mangledName: "$s10TestModule14InternalConfigCN");
+        classNode.DeclAttributes = new[] { "AccessControl" };
+        classNode.spi_group_names = new[] { "Internal" };
+
+        using var fixture = CreateParserWithNodes(classNode);
+        var result = fixture.Parser.ParseModule();
+
+        var classType = Assert.Single(result.ModuleDecl.Types);
+        Assert.True(classType.IsSpiProtected);
+        Assert.True(classType.IsModuleInternal);
+    }
+
+    [Fact]
+    public void ParseModule_TypeWithEmptySpiGroupNames_IsNotSpiProtected()
+    {
+        // Empty spi_group_names array should NOT trigger SPI protection
+        var classNode = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Class",
+            name: "PublicClient",
+            mangledName: "$s10TestModule12PublicClientCN");
+        classNode.DeclAttributes = new[] { "AccessControl" };
+        classNode.spi_group_names = Array.Empty<string>();
+
+        using var fixture = CreateParserWithNodes(classNode);
+        var result = fixture.Parser.ParseModule();
+
+        var pubType = Assert.Single(result.ModuleDecl.Types);
+        Assert.False(pubType.IsSpiProtected, "Type with empty spi_group_names should not be SPI protected");
+        Assert.False(pubType.IsModuleInternal, "Type with empty spi_group_names should not be internal");
+    }
+
+    [Fact]
+    public void ParseModule_TypeWithNullSpiGroupNames_IsNotSpiProtected()
+    {
+        // Null spi_group_names (not present in JSON) should NOT trigger SPI protection
+        var classNode = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Class",
+            name: "RegularType",
+            mangledName: "$s10TestModule11RegularTypeCN");
+        classNode.DeclAttributes = new[] { "AccessControl" };
+        // spi_group_names is null by default (not set)
+
+        using var fixture = CreateParserWithNodes(classNode);
+        var result = fixture.Parser.ParseModule();
+
+        var regType = Assert.Single(result.ModuleDecl.Types);
+        Assert.False(regType.IsSpiProtected);
+        Assert.False(regType.IsModuleInternal);
+    }
+
+    [Fact]
+    public void ParseModule_MethodWithSpiGroupNames_IsMarkedSpiProtected()
+    {
+        // Methods can also have spi_group_names (e.g., from @_spi extensions)
+        var returnTypeNode = CreateNode(kind: "TypeNominal", name: "Void", mangledName: "$s");
+        returnTypeNode.PrintedName = "()";
+
+        var funcNode = CreateFunctionNode(
+            name: "configure",
+            printedName: "configure()",
+            funcSelfKind: null,
+            children: new[] { returnTypeNode });
+        funcNode.DeclAttributes = new[] { "AccessControl" };
+        funcNode.spi_group_names = new[] { "STP" };
+
+        using var fixture = CreateParserWithNodes(funcNode);
+        var result = fixture.Parser.ParseModule();
+
+        var method = Assert.Single(result.ModuleDecl.Methods);
+        Assert.True(method.IsSpiProtected, "Method with spi_group_names should have IsSpiProtected = true");
+    }
+
+    #endregion
+
+    #region Underscore-Prefix Internal Suppression Tests
+
+    [Fact]
+    public void ParseModule_UnderscorePrefixedMethodWithoutAccessControl_IsModuleInternal()
+    {
+        // Swift convention: _-prefixed methods without explicit AccessControl are internal.
+        // The ABI JSON includes them for binary compat but they're not callable externally.
+        var returnTypeNode = CreateNode(kind: "TypeNominal", name: "Void", mangledName: "$s");
+        returnTypeNode.PrintedName = "()";
+
+        var funcNode = CreateFunctionNode(
+            name: "_convertFromCapitalized",
+            printedName: "_convertFromCapitalized()",
+            funcSelfKind: null,
+            children: new[] { returnTypeNode });
+        funcNode.DeclAttributes = Array.Empty<string>(); // no AccessControl
+
+        using var fixture = CreateParserWithNodes(funcNode);
+        var result = fixture.Parser.ParseModule();
+
+        var method = Assert.Single(result.ModuleDecl.Methods);
+        Assert.True(method.IsModuleInternal,
+            "_-prefixed method without AccessControl should be marked as module internal");
+    }
+
+    [Fact]
+    public void ParseModule_UnderscorePrefixedMethodWithAccessControl_IsNotModuleInternal()
+    {
+        // Explicitly public _-prefixed APIs (like _NIOFileSystem) have AccessControl
+        // and should be preserved — they are intentionally public.
+        var returnTypeNode = CreateNode(kind: "TypeNominal", name: "Void", mangledName: "$s");
+        returnTypeNode.PrintedName = "()";
+
+        var funcNode = CreateFunctionNode(
+            name: "_publicHelper",
+            printedName: "_publicHelper()",
+            funcSelfKind: null,
+            children: new[] { returnTypeNode });
+        funcNode.DeclAttributes = new[] { "AccessControl" };
+
+        using var fixture = CreateParserWithNodes(funcNode);
+        var result = fixture.Parser.ParseModule();
+
+        var method = Assert.Single(result.ModuleDecl.Methods);
+        Assert.False(method.IsModuleInternal,
+            "_-prefixed method WITH AccessControl should NOT be marked as internal");
+    }
+
+    [Fact]
+    public void ParseModule_NonUnderscoreMethodWithoutAccessControl_IsNotModuleInternal()
+    {
+        // Non-underscore methods should not be affected by the underscore suppression,
+        // even if they lack AccessControl (they might be implicitly public).
+        var returnTypeNode = CreateNode(kind: "TypeNominal", name: "Void", mangledName: "$s");
+        returnTypeNode.PrintedName = "()";
+
+        var funcNode = CreateFunctionNode(
+            name: "processData",
+            printedName: "processData()",
+            funcSelfKind: null,
+            children: new[] { returnTypeNode });
+        funcNode.DeclAttributes = Array.Empty<string>();
+
+        using var fixture = CreateParserWithNodes(funcNode);
+        var result = fixture.Parser.ParseModule();
+
+        var method = Assert.Single(result.ModuleDecl.Methods);
+        Assert.False(method.IsModuleInternal,
+            "Non-underscore method should not be marked as internal regardless of AccessControl");
+    }
+
+    #endregion
+
     private static ParserFixture CreateParserWithNodes(params Node[] nodes)
     {
         var root = new ABIRootNode

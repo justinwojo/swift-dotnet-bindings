@@ -593,19 +593,22 @@ public class EveryProtocolEmitter
             var internalName = GetSwiftParameterName(param, i);
             internalNames.Add(internalName);
 
+            // Add inout modifier if the parameter is passed by reference
+            var inoutPrefix = param.IsInOut ? "inout " : "";
+
             // Swift parameter format: "externalLabel internalName: Type" or "_ internalName: Type"
             if (externalLabel == "_")
             {
-                parameters.Add($"_ {internalName}: {paramTypeName}");
+                parameters.Add($"_ {internalName}: {inoutPrefix}{paramTypeName}");
             }
             else if (externalLabel == internalName)
             {
                 // Same label and name - just use one
-                parameters.Add($"{internalName}: {paramTypeName}");
+                parameters.Add($"{internalName}: {inoutPrefix}{paramTypeName}");
             }
             else
             {
-                parameters.Add($"{externalLabel} {internalName}: {paramTypeName}");
+                parameters.Add($"{externalLabel} {internalName}: {inoutPrefix}{paramTypeName}");
             }
         }
         var parametersString = string.Join(", ", parameters);
@@ -640,12 +643,24 @@ public class EveryProtocolEmitter
 
         var argPassCode = argPassList.Count > 0 ? string.Join("\n        ", argPassList) + "\n        " : "";
 
+        // Build writeback code for inout parameters
+        var writebackLines = new List<string>();
+        for (int i = 0; i < internalNames.Count; i++)
+        {
+            var param = method.CSSignature[i + 1]; // +1 to skip return type
+            if (param.IsInOut)
+            {
+                writebackLines.Add($"{internalNames[i]} = {internalNames[i]}Copy");
+            }
+        }
+        var writebackCode = writebackLines.Count > 0 ? "\n        " + string.Join("\n        ", writebackLines) : "";
+
         if (hasReturn)
         {
             writer.WriteLines($$"""
                     var selfProto: {{protocolDecl.SwiftTypeName.ModuleQualifiedName}} = self
                     {{argPassCode}}let resultPtr = {{vtableInstanceName}}.{{fieldName}}!(
-                        {{vtableInstanceName}}.csVTHandle, &selfProto{{argRefs}})
+                        {{vtableInstanceName}}.csVTHandle, &selfProto{{argRefs}}){{writebackCode}}
                     return resultPtr.assumingMemoryBound(to: {{returnTypeNameForMetatype}}.self).pointee
                 """);
         }
@@ -654,7 +669,7 @@ public class EveryProtocolEmitter
             writer.WriteLines($$"""
                     var selfProto: {{protocolDecl.SwiftTypeName.ModuleQualifiedName}} = self
                     {{argPassCode}}{{vtableInstanceName}}.{{fieldName}}!(
-                        {{vtableInstanceName}}.csVTHandle, &selfProto{{argRefs}})
+                        {{vtableInstanceName}}.csVTHandle, &selfProto{{argRefs}}){{writebackCode}}
                 """);
         }
 

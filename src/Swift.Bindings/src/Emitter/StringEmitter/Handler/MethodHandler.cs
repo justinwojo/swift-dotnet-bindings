@@ -360,7 +360,8 @@ namespace BindingsGeneration
                 methodEnv.MethodDecl.HasClosureCdeclWrapper = true;
                 methodEnv.MethodDecl.UsesWrapperLibrary = true;
                 methodEnv.MethodDecl.UsesFreeFunctionWrapper = true;
-                ClosureEmitter.EmitClosureCdeclSwiftWrapper(swiftWriter, methodEnv, methodEnv.ParentDecl as TypeDecl);
+                ClosureEmitter.EmitClosureCdeclSwiftWrapper(swiftWriter, methodEnv, methodEnv.ParentDecl as TypeDecl,
+                    emissionContext: context.GetEmissionContext());
             }
 
             // Optional pointer wrapper for constructors with large Optional params.
@@ -377,7 +378,8 @@ namespace BindingsGeneration
                 methodEnv.MethodDecl.HasOptionalPointerWrapper = true;
                 methodEnv.MethodDecl.UsesWrapperLibrary = true;
                 methodEnv.MethodDecl.UsesFreeFunctionWrapper = true;
-                OptionalPointerWrapperEmitter.EmitSwiftWrapper(swiftWriter, methodEnv, methodEnv.ParentDecl as TypeDecl);
+                OptionalPointerWrapperEmitter.EmitSwiftWrapper(swiftWriter, methodEnv, methodEnv.ParentDecl as TypeDecl,
+                    emissionContext: context.GetEmissionContext());
             }
 
             MethodHandler.CheckExportedSymbol(methodEnv);
@@ -830,6 +832,7 @@ namespace BindingsGeneration
             bool needsClosureWrapper = false;
             bool closureCdecl = false;
             if (!methodEnv.MethodDecl.UsesWrapperLibrary &&
+                !methodEnv.MethodDecl.IsModuleInternal &&
                 ClosureEmitter.NeedsClosureCdeclWrapper(methodEnv.MethodDecl, methodEnv.ClosureHandler))
             {
                 needsClosureWrapper = true;
@@ -859,6 +862,8 @@ namespace BindingsGeneration
             bool optPtrCdecl = false;
             if (!methodEnv.MethodDecl.UsesWrapperLibrary &&
                 !methodEnv.MethodDecl.IsAsync &&
+                !methodEnv.MethodDecl.IsModuleInternal &&
+                !WrapperValidation.HasRawGenericTypeParams(methodEnv.MethodDecl) &&
                 !_requiresOpaqueReturn(methodEnv) &&
                 parentTypeDecl?.IsGeneric != true &&
                 (methodEnv.BoundGenericsHandler.HasLargeOptionalParams(methodEnv.MethodDecl) ||
@@ -1000,13 +1005,15 @@ namespace BindingsGeneration
             // Emit closure Swift wrapper (Phase 2 — flags already set in Phase 1)
             if (needsClosureWrapper)
             {
-                ClosureEmitter.EmitClosureCdeclSwiftWrapper(swiftWriter, methodEnv, methodEnv.ParentDecl as TypeDecl, useCdecl: closureCdecl);
+                ClosureEmitter.EmitClosureCdeclSwiftWrapper(swiftWriter, methodEnv, methodEnv.ParentDecl as TypeDecl,
+                    useCdecl: closureCdecl, emissionContext: context.GetEmissionContext());
             }
 
             // Emit optional pointer Swift wrapper (Phase 2 — flags already set in Phase 1)
             if (needsOptionalPointerWrapper)
             {
-                OptionalPointerWrapperEmitter.EmitSwiftWrapper(swiftWriter, methodEnv, methodEnv.ParentDecl as TypeDecl, useCdecl: optPtrCdecl);
+                OptionalPointerWrapperEmitter.EmitSwiftWrapper(swiftWriter, methodEnv, methodEnv.ParentDecl as TypeDecl,
+                    useCdecl: optPtrCdecl, emissionContext: context.GetEmissionContext());
             }
 
             // Emit Swift @_cdecl method wrapper AFTER signature validation, BEFORE WrapperEmitter.

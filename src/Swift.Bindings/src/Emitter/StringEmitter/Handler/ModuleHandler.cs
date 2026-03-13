@@ -154,11 +154,11 @@ namespace BindingsGeneration
                     var emittedProjectedSignatures = new HashSet<string>(StringComparer.Ordinal);
                     foreach (MethodDecl methodDecl in moduleDecl.Methods)
                     {
-                        // Skip @_spi module-level functions — only visible to SPI consumers
-                        if (methodDecl.IsSpiProtected)
+                        // Skip internal and @_spi module-level functions
+                        if (methodDecl.IsModuleInternal || methodDecl.IsSpiProtected)
                         {
-                            _logger.LogDebug($"Skipping @_spi module function '{methodDecl.Name}'");
-                            ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, moduleDecl, SkipReason.ModuleInternal, "@_spi module-level function suppressed from bindings.");
+                            _logger.LogDebug($"Skipping internal/spi module function '{methodDecl.Name}'");
+                            ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, moduleDecl, SkipReason.ModuleInternal, "Internal or @_spi module-level function suppressed from bindings.");
                             csWriter.WriteLine();
                             continue;
                         }

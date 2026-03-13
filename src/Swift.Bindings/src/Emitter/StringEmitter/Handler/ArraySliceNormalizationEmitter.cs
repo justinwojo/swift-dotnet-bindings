@@ -304,7 +304,7 @@ public static class ArraySliceNormalizationEmitter
         }
 
         // Emit Swift wrapper
-        EmitSwiftWrapper(swiftWriter, methodDecl, normalizedMethodDecl, env, useCdecl);
+        EmitSwiftWrapper(swiftWriter, methodDecl, normalizedMethodDecl, env, useCdecl, emissionContext);
 
         // Delegate C# emission to normal pipeline
         TypeDatabaseExtensions.AnyTypeFallbackInfo? fallbackInfo = null;
@@ -464,7 +464,8 @@ public static class ArraySliceNormalizationEmitter
         MethodDecl originalMethodDecl,
         MethodDecl normalizedMethodDecl,
         MethodEnvironment env,
-        bool useCdecl = false)
+        bool useCdecl = false,
+        ModuleEmissionContext? emissionContext = null)
     {
         var wrapperSymbol = normalizedMethodDecl.MangledName;
         var parentTypeDecl = originalMethodDecl.ParentDecl as TypeDecl;
@@ -589,7 +590,7 @@ public static class ArraySliceNormalizationEmitter
             {
                 swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
                 if (cdeclIsStringReturn)
-                    Utf8SliceEmitter.EmitIfNeeded(swiftWriter, null);
+                    Utf8SliceEmitter.EmitIfNeeded(swiftWriter, emissionContext);
                 // Rebuild swiftParamString with resultPtr
                 swiftParamString = string.Join(", ", swiftParams);
             }

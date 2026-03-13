@@ -45,7 +45,8 @@ public static class OptionalPointerWrapperEmitter
         SwiftWriter swiftWriter,
         MethodEnvironment env,
         TypeDecl? parentDecl,
-        bool useCdecl = false)
+        bool useCdecl = false,
+        ModuleEmissionContext? emissionContext = null)
     {
         var methodDecl = env.MethodDecl;
         var wrapperSymbol = NameProvider.GetMangledName(methodDecl);
@@ -73,7 +74,7 @@ public static class OptionalPointerWrapperEmitter
             cdeclNeedsResultPtr = needsResultPtr;
             returnTypeStr = needsResultPtr ? "" : $" -> {returnMapping.cdeclReturnType}";
             if (cdeclIsStringReturn)
-                Utf8SliceEmitter.EmitIfNeeded(swiftWriter, null);
+                Utf8SliceEmitter.EmitIfNeeded(swiftWriter, emissionContext);
         }
         else
         {

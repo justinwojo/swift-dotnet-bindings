@@ -177,6 +177,70 @@ public class WitnessDispatchEmitterTests
         Assert.DoesNotContain("UnsafeMutablePointer<", output);
     }
 
+    [Fact]
+    public void EmitMethod_InoutParam_EmitsWriteback()
+    {
+        // Simulates hash(into: inout Hasher) — the emitted Swift code must write back
+        // the mutated inout parameter to the caller's buffer via UnsafeMutableRawPointer(mutating:).
+        var protocol = CreateSimpleProtocol("Hashable");
+        var method = new MethodDecl
+        {
+            Name = "hash",
+            MangledName = "$shash",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "",
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                },
+                new ArgumentDecl
+                {
+                    Name = "into",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int64"),
+                    PrivateName = "hasher",
+                    IsInOut = true,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        protocol.Methods.Add(method);
+
+        var output = EmitDispatch(protocol);
+
+        // Verify: inout param uses 'var' binding instead of 'let'
+        Assert.Contains("var arg0 = arg0Ptr.load(as: Int64.self)", output);
+        // Verify: writeback line writes mutated value back through the caller's pointer
+        Assert.Contains("UnsafeMutableRawPointer(mutating: arg0Ptr).assumingMemoryBound(to: Int64.self).pointee = arg0", output);
+    }
+
+    [Fact]
+    public void EmitMethod_NonInoutParam_NoWriteback()
+    {
+        // Non-inout params should NOT have writeback lines
+        var protocolDecl = CreateProtocolWithMethodAndParams("HasValue", "addValue",
+            returnType: TupleTypeSpec.Empty,
+            paramTypes: new[] { ("amount", new NamedTypeSpec("Swift.Int32") as TypeSpec) });
+        var output = EmitDispatch(protocolDecl);
+
+        Assert.DoesNotContain("UnsafeMutableRawPointer(mutating:", output);
+    }
+
     #endregion
 
     #region Marshalability Tests

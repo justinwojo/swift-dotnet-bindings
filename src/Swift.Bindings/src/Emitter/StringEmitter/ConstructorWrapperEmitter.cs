@@ -31,6 +31,10 @@ public static class ConstructorWrapperEmitter
         if (!WrapperValidation.IsXCFrameworkMode(env.TypeDatabase))
             return false;
 
+        // Skip internal constructors — wrapper can't call them from external code
+        if (env.MethodDecl.IsModuleInternal)
+            return false;
+
         // Generic parent type — allow class constructors with concrete (non-T-referencing) signatures
         if (env.ParentDecl is TypeDecl typeDecl && typeDecl.IsGeneric)
         {
@@ -76,7 +80,52 @@ public static class ConstructorWrapperEmitter
         if (WrapperValidation.HasRawGenericTypeParams(env.MethodDecl))
             return false;
 
+        // Skip constructors with variadic expansion pattern: N individual protocol params
+        // followed by Array<SameProtocol>. The wrapper passes the array as a positional arg,
+        // but Swift resolves to the variadic overload causing type mismatch.
+        // E.g., CompositeDisposable(_:_:_:_:_:) with 4x Disposable + 1x [Disposable].
+        if (HasVariadicExpansionPattern(env))
+            return false;
+
         return true;
+    }
+
+    /// <summary>
+    /// Detects variadic expansion pattern in ABI JSON.
+    /// Swift expands `init(_ args: T...)` as `init(_:_:..._:)` with N individual `T` params
+    /// + one trailing `Array&lt;T&gt;`. ALL params must be unnamed (`_:`) — labeled params like
+    /// `init(primary: T, all: [T])` are genuine overloads, not variadic expansions.
+    /// The wrapper can't call these correctly because Swift overload resolution picks the variadic
+    /// overload and rejects the array argument as a non-conforming type.
+    /// </summary>
+    private static bool HasVariadicExpansionPattern(MethodEnvironment env)
+    {
+        var args = env.MethodDecl.CSSignature.Skip(1).ToList(); // skip return type
+        if (args.Count < 2) return false;
+
+        var lastArg = args[args.Count - 1];
+        // Check if last param is Array<T>
+        if (lastArg.SwiftTypeSpec is not NamedTypeSpec lastNamed) return false;
+        if ((lastNamed.Name != "Array" && lastNamed.Name != "Swift.Array") || !lastNamed.GenericParameters.Any()) return false;
+
+        var elementType = lastNamed.GenericParameters[0].ToString();
+
+        // ALL params (including the trailing array) must be unnamed (`_:`)
+        // to distinguish ABI variadic expansion from genuine labeled overloads.
+        // The parser renames `_` params to `arg0`, `arg1`, etc. via ExtractParameterNames,
+        // so we check for the generated `argN` pattern as well.
+        if (args.Any(a => !string.IsNullOrEmpty(a.Name) && a.Name != "_" &&
+            !System.Text.RegularExpressions.Regex.IsMatch(a.Name, @"^arg\d+$")))
+            return false;
+
+        // Check if at least one preceding param has the same element type
+        for (int i = 0; i < args.Count - 1; i++)
+        {
+            if (args[i].SwiftTypeSpec.ToString() == elementType)
+                return true;
+        }
+
+        return false;
     }
 
     /// <summary>
